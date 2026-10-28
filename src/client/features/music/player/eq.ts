@@ -124,14 +124,18 @@ export function sanitizeEqSettings(value: unknown): EqSettings {
  * rendered as silence. The app streams through `/api/music/stream`, so this is a guard against a
  * custom source that hands back another host, not a limitation of the normal path.
  */
-function isSameOrigin(url: string): boolean {
-  if (typeof window === 'undefined') return false
+export function streamStaysSameOrigin(url: string, origin: string): boolean {
   try {
-    return new URL(url, window.location.href).origin === window.location.origin
+    return new URL(url, origin).origin === origin
   } catch {
     // An unparseable URL cannot be routed through the graph; the player falls back to direct output.
     return false
   }
+}
+
+function isSameOrigin(url: string): boolean {
+  if (typeof window === 'undefined') return false
+  return streamStaysSameOrigin(url, window.location.origin)
 }
 
 function audioContextConstructor(): typeof AudioContext | null {
@@ -171,11 +175,35 @@ export class MusicEqualizer {
   }
 
   /**
+   * Create and resume the context while the page still has the reader's gesture.
+   *
+   * A context created after the stream fetch has lost its activation, and one that stays suspended
+   * renders silence after capture. Preparing on the press keeps a later `connect` safe.
+   */
+  prepare(): void {
+    if (typeof window === 'undefined') return
+    if (!this.context) {
+      const Context = audioContextConstructor()
+      if (!Context) {
+        this.reason = 'unsupported'
+        return
+      }
+      try {
+        this.context = new Context()
+      } catch {
+        this.reason = 'failed'
+        return
+      }
+    }
+    void this.resume()
+  }
+
+  /**
    * Attach the graph to the element, once.
    *
-   * Returns false — and keeps returning false — when this browser cannot build the graph or the source
-   * is not same-origin. The caller does not branch on it beyond telling the reader; audio still plays
-   * through the element's own output.
+   * Returns false — and keeps returning false until a later attempt — when this browser cannot build
+   * the graph, the source is not same-origin, or the context is still suspended after the stream
+   * load. Audio still plays through the element's own output in every one of those cases.
    */
   connect(element: HTMLAudioElement, url: string): boolean {
     if (!isSameOrigin(url)) {
@@ -194,10 +222,17 @@ export class MusicEqualizer {
     // element, leave it alone rather than half-building a second one.
     if (this.source) return false
 
-    let context: AudioContext | null = null
+    let context: AudioContext | null = this.context
     let source: MediaElementAudioSourceNode | null = null
     try {
-      context = new Context()
+      if (!context) context = new Context()
+      // Capturing a suspended context is a one-way door into silence. Leave the element on its
+      // direct output and let a later press try again with a running context.
+      if (context.state !== 'running') {
+        this.reason = 'failed'
+        this.context = context
+        return false
+      }
       source = context.createMediaElementSource(element)
       const gain = context.createGain()
       const compressor = context.createDynamicsCompressor()
@@ -242,7 +277,7 @@ export class MusicEqualizer {
           this.context = null
         }
       } else {
-        this.context = null
+        this.context = context
       }
       return false
     }

@@ -8,6 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MusicAudioEngine } from '../src/client/features/music/player/engine'
+import { streamStaysSameOrigin } from '../src/client/features/music/player/eq'
 import { normalizationGainFrom } from '../src/client/features/music/store/player'
 
 class FakeAudio {
@@ -92,6 +93,37 @@ describe('the audio engine fade and gain', () => {
     await vi.advanceTimersByTimeAsync(220)
     expect(audio.paused).toBe(true)
     expect(audio.volume).toBeCloseTo(0, 2)
+  })
+
+  it('reaches the target volume even when animation frames never run', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
+    try {
+      const engine = new MusicAudioEngine()
+      await engine.play({ url: '/api/music/media/stream/1', autoplay: true, volume: 0.6, muted: false, rate: 1 })
+      expect(audio.volume).toBe(0)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(audio.volume).toBeCloseTo(0.6, 2)
+    } finally {
+      frame.mockRestore()
+    }
+  })
+
+  it('sets the volume directly when the tab is already hidden', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    try {
+      const engine = new MusicAudioEngine()
+      await engine.play({ url: '/api/music/media/stream/1', autoplay: true, volume: 0.7, muted: false, rate: 1 })
+      expect(audio.volume).toBeCloseTo(0.7, 2)
+    } finally {
+      hidden.mockRestore()
+    }
+  })
+
+  it('only captures a stream response that stayed on this origin', () => {
+    expect(streamStaysSameOrigin('https://music.126.net/a.mp3', 'https://ink.example')).toBe(false)
+    expect(streamStaysSameOrigin('https://ink.example/api/music/media/stream/1', 'https://ink.example')).toBe(true)
+    expect(streamStaysSameOrigin('/api/music/media/stream/1', 'https://ink.example')).toBe(true)
+    expect(streamStaysSameOrigin('http://[invalid', 'https://ink.example')).toBe(false)
   })
 
   it('turns a measured gain into a peak-guarded linear gain', () => {

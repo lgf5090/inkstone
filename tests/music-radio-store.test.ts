@@ -19,6 +19,7 @@ const engineMock = vi.hoisted(() => ({
   setRate: vi.fn(),
   setNormalizationGain: vi.fn(),
   enableEqualizer: vi.fn(),
+  prepareEqualizer: vi.fn(),
   subscribe: vi.fn(() => () => {}),
   currentTimeMs: vi.fn(() => 0),
   durationMs: vi.fn(() => 0),

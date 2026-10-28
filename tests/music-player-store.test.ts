@@ -10,6 +10,7 @@ const engineMock = vi.hoisted(() => ({
   setVolume: vi.fn(),
   setMuted: vi.fn(),
   setRate: vi.fn(),
+  prepareEqualizer: vi.fn(),
   subscribe: vi.fn(() => () => {}),
   currentTimeMs: vi.fn(() => 0),
   durationMs: vi.fn(() => 0),
@@ -174,8 +175,34 @@ describe('music player store', () => {
     })
   })
 
-  it('walks the queue, stops at its end and loops when the mode says so', async () => {
-    useMusicPlayer.getState().setQueue(tracks)
+  it('keeps Web Audio off when the stream HEAD leaves this origin, and on when it stays', async () => {
+    useMusicSettings.getState().setLocal({ normalize: true })
+    const cacheHeaders = new Headers({ 'x-music-quality': 'exhigh', 'x-music-gain': '-6', 'x-music-peak': '0.9' })
+    const responses = [
+      { ok: true, status: 200, url: 'https://music.126.net/redirected.mp3', headers: cacheHeaders },
+      { ok: true, status: 200, url: `${window.location.origin}/api/music/media/stream/a`, headers: cacheHeaders },
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'HEAD') return responses.shift() as Response
+      return ok({ ok: true })
+    }))
+    const selected = track('a', { updatedAt: 1 })
+
+    await useMusicPlayer.getState().playTrack(selected)
+    expect(engineMock.prepareEqualizer).toHaveBeenCalled()
+    expect(engineMock.play.mock.calls.at(-1)?.[0]).toMatchObject({
+      equalizer: true,
+      graphAllowed: false,
+    })
+
+    await useMusicPlayer.getState().playTrack(selected)
+    expect(engineMock.play.mock.calls.at(-1)?.[0]).toMatchObject({
+      equalizer: true,
+      graphAllowed: true,
+    })
+  })
+
+  it('walks the queue, stops at its end and loops when the mode says so', async () => {    useMusicPlayer.getState().setQueue(tracks)
     await useMusicPlayer.getState().playTrack(tracks[0]!)
 
     expect(await useMusicPlayer.getState().next()).toBe(true)

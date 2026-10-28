@@ -48,6 +48,8 @@ export interface MusicEngineLoadRequest {
   rate: number
   /** Capture the element into Web Audio only when the equalizer, leveling or normalizing is on. */
   equalizer?: boolean
+  /** False when a HEAD probe showed the stream redirecting off-origin; captured audio would be silent. */
+  graphAllowed?: boolean
   /** Linear gain from Netease's measured loudness; 1 leaves the track alone. */
   normalizationGain?: number
 }
@@ -172,6 +174,11 @@ export class MusicAudioEngine {
     musicEqualizer.connect(this.audio, this.audio.src)
   }
 
+  /** Resume the graph on the press, before any stream fetch spends the activation. */
+  prepareEqualizer(): void {
+    musicEqualizer.prepare()
+  }
+
   setNormalizationGain(gain: number): void {
     musicEqualizer.setNormalizationGain(gain)
   }
@@ -188,7 +195,7 @@ export class MusicAudioEngine {
 
     // Capture is a one-way door: if the response later redirects to another origin, Web Audio would
     // render silence. Only attach the graph when the reader actually asked for EQ or leveling.
-    if (request.equalizer) {
+    if (request.equalizer && request.graphAllowed !== false) {
       musicEqualizer.connect(audio, request.url)
       musicEqualizer.setNormalizationGain(request.normalizationGain ?? 1)
     }
@@ -319,9 +326,17 @@ export class MusicAudioEngine {
       return
     }
     const generation = ++this.fadeGeneration
+    let finished = false
+    const finish = (): void => {
+      if (finished || generation !== this.fadeGeneration) return
+      finished = true
+      audio.volume = to
+      this.fadeFrame = 0
+      done?.()
+    }
     const start = typeof performance !== 'undefined' ? performance.now() : Date.now()
     const step = (): void => {
-      if (generation !== this.fadeGeneration) return
+      if (finished || generation !== this.fadeGeneration) return
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
       const progress = Math.min(1, (now - start) / durationMs)
       audio.volume = from + (to - from) * (0.5 - 0.5 * Math.cos(Math.PI * progress))
@@ -329,10 +344,12 @@ export class MusicAudioEngine {
         this.fadeFrame = window.requestAnimationFrame(step)
         return
       }
-      this.fadeFrame = 0
-      done?.()
+      finish()
     }
     this.fadeFrame = window.requestAnimationFrame(step)
+    // A hidden tab pauses animation frames; without this the element would stay at the fade's
+    // starting volume (often zero) for as long as the tab stays out of sight.
+    window.setTimeout(finish, durationMs + 120)
   }
 
   private async loadSource(audio: HTMLAudioElement, source: string, generation: number): Promise<void> {
@@ -418,7 +435,8 @@ export class MusicAudioEngine {
       audio.pause()
       return
     }
-    audio.volume = 0
+    const canFade = typeof document === 'undefined' || !document.hidden
+    audio.volume = canFade ? 0 : this.volume
     try {
       await audio.play()
     } catch (error) {
@@ -430,7 +448,10 @@ export class MusicAudioEngine {
         ? error
         : new MusicPlaybackError(error instanceof Error ? error.message : 'The browser refused to play the track')
     }
-    if (generation === this.loadGeneration) this.fadeTo(audio, this.volume, FADE_IN_MS)
+    if (generation === this.loadGeneration) {
+      if (canFade) this.fadeTo(audio, this.volume, FADE_IN_MS)
+      else audio.volume = this.volume
+    }
   }
 
   private cancelPending(error: Error): void {

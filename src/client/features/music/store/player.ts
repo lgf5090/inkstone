@@ -41,6 +41,7 @@ import {
   musicAudioEngine,
   type MusicEngineFailure,
 } from '../player/engine'
+import { streamStaysSameOrigin } from '../player/eq'
 import {
   bindMediaSessionHandlers,
   updateMediaSessionMetadata,
@@ -380,6 +381,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     }
     const sourceUrl = state.sourceUrl || streamUrlFor(track)
     const request = ++generation
+    const prefs = useMusicSettings.getState().local
+    const graphWanted = prefs.eq.enabled || prefs.eq.leveling || prefs.normalize
+    if (graphWanted) musicAudioEngine.prepareEqualizer()
+    let graphAllowed = true
     set({
       status: 'loading',
       sourceUrl,
@@ -412,16 +417,21 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         // The audio element cannot read response headers, so a HEAD names the real level and the
         // loudness before the first frame; an answer that fails only leaves the defaults.
         const response = await fetch(sourceUrl, { method: 'HEAD' })
+        if (graphWanted) {
+          // A HEAD follows the worker's direct-source fallback; if it left this origin, capturing
+          // the element would render the whole track as silence.
+          graphAllowed = response.ok && streamStaysSameOrigin(response.url, window.location.origin)
+        }
         quality = response.headers.get('x-music-quality') || quality
         gainDb = Number(response.headers.get('x-music-gain') ?? 0)
         peak = Number(response.headers.get('x-music-peak') ?? 0)
         preview = response.headers.get('x-music-free-trial') === '1'
       } catch (error) {
+        if (graphWanted) graphAllowed = false
         console.warn('[inkstone] Music preview probe failed:', error)
       }
     }
     if (request !== generation) return false
-    const prefs = useMusicSettings.getState().local
     set({ streamQuality: quality, streamGain: gainDb, streamPeak: peak, preview })
     try {
       await musicAudioEngine.play({
@@ -431,7 +441,8 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         volume: get().volume,
         muted: get().muted,
         rate: get().rate,
-        equalizer: prefs.eq.enabled || prefs.eq.leveling || prefs.normalize,
+        equalizer: graphWanted,
+        graphAllowed,
         normalizationGain: prefs.normalize ? normalizationGainFrom(gainDb, peak) : 1,
       })
       if (request !== generation) return false
