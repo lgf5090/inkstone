@@ -12,6 +12,7 @@ export interface NeteaseCall {
   path: string
   crypto: NeteaseCryptoMode
   body: Record<string, unknown>
+  method?: 'GET' | 'POST'
 }
 
 /** The upstream's own name for "no filter"; not interface copy. */
@@ -92,8 +93,13 @@ export interface NeteaseRadioProgramsInput extends NeteasePage {
   asc?: boolean
 }
 
-function call(path: string, crypto: NeteaseCryptoMode, body: Record<string, unknown>): NeteaseCall {
-  return { path, crypto, body }
+function call(
+  path: string,
+  crypto: NeteaseCryptoMode,
+  body: Record<string, unknown>,
+  method?: 'GET' | 'POST',
+): NeteaseCall {
+  return { path, crypto, body, method }
 }
 
 /** The URL endpoints take a JSON array of numbers, unlike the string ids the app carries. */
@@ -262,7 +268,7 @@ export const neteaseEndpoints = {
   albumNewest: () => call('/api/discovery/newAlbum', 'weapi', {}),
 
   artistDetail: (providerId: string) =>
-    call('/api/artist/head/info/get', 'eapi', { id: providerId }),
+    call(`/api/v1/artist/${encodeURIComponent(providerId)}`, 'plain', {}, 'GET'),
 
   artistSongs: (input: NeteaseArtistSongsInput) =>
     call('/api/v1/artist/songs', 'eapi', {

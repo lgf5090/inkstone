@@ -11,14 +11,13 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from 'react'
 import { Search, X } from 'lucide-react'
-import { formatDuration, formatPlayCount } from '@shared/music/format'
+import { formatDuration } from '@shared/music/format'
 import type { MusicSearchSuggestion } from '@shared/music/api'
 import { MUSIC_SEARCH_TYPES, type MusicSearchType } from '@shared/music/model'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { navigateToAddress, replaceAddress } from '../../../lib/app-history'
-import { useLocale } from '../../../lib/i18n'
 import { musicApi } from '../api'
 import { MusicSearchBox } from '../components/MusicSearchBox'
 import { MusicTabs } from '../components/Tabs'
@@ -74,7 +73,6 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
   const addressed = useRef(query.trim())
   const hotId = useId()
   const historyId = useId()
-  const locale = useLocale()
   const history = useMusicUi((state) => state.searchHistory)
   const pushSearchHistory = useMusicUi((state) => state.pushSearchHistory)
   const removeSearchHistory = useMusicUi((state) => state.removeSearchHistory)
@@ -239,9 +237,7 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
                 round
                 coverSrc={item.coverUrl}
                 title={item.name}
-                meta={musicText('music.common.followers', {
-                  count: formatPlayCount(item.followCount, locale),
-                })}
+                meta={musicText('music.common.albums', { count: item.albumCount })}
                 onOpen={() => navigateToAddress(musicPathFor({ kind: 'artist', id: item.id }))}
               />
             ))}

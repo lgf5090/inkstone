@@ -13,8 +13,11 @@ import {
   MUSIC_LYRIC_OFFSET_LIMIT_MS,
   MUSIC_LYRIC_OFFSET_STEP_MS,
   readLyricOffset,
+  useTrackLyrics,
   writeLyricOffset,
 } from '../src/client/features/music/components/LyricPanel'
+import { musicApi } from '../src/client/features/music/api'
+import type { MusicTrack } from '../src/shared/music/model'
 import { KaraokeLine } from '../src/client/features/music/lyrics/karaoke-line'
 import {
   LYRIC_ACTIVE_LINE_RATIO,
@@ -29,6 +32,36 @@ function wordLine(): LyricLine {
   return parsed.data.lines[0]!
 }
 
+function trackFixture(kind: 'song' | 'podcast'): MusicTrack {
+  return {
+    id: `${kind}-1`,
+    provider: 'netease',
+    providerId: '1',
+    kind,
+    title: 'Track',
+    artists: [{ id: 'a', name: 'Artist' }],
+    album: 'Album',
+    albumId: 'album-1',
+    coverUrl: '',
+    coverKey: '',
+    durationMs: 1_000,
+    format: 'mp3',
+    bitrate: 320_000,
+    size: 1_000,
+    sha256: '',
+    r2Key: null,
+    source: 'netease',
+    sourceQuality: 'lossless',
+    createdAt: 0,
+    updatedAt: 1,
+  }
+}
+
+function LyricsProbe({ track }: { track: MusicTrack }): ReactElement {
+  const lyric = useTrackLyrics(track)
+  return createElement('span', { 'data-status': lyric.status }, String(lyric.lines.length))
+}
+
 describe('music lyrics UI model', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -37,6 +70,33 @@ describe('music lyrics UI model', () => {
   it('prefers word-timed YRC and falls back to LRC when it is blank', () => {
     expect(lyricTextOf({ lrc: '[00:01.00]line', yrc: '[1000,500](0,500,0)word' })).toContain('(0,500,0)')
     expect(lyricTextOf({ lrc: '[00:01.00]line', yrc: '   ' })).toBe('[00:01.00]line')
+  })
+
+  it('skips the lyrics request for a podcast episode', () => {
+    const spy = vi.spyOn(musicApi, 'lyrics').mockResolvedValue({
+      lrc: '[00:01.00]line',
+      tlyric: '',
+      yrc: '',
+      source: 'netease',
+      fetchedAt: 1,
+    })
+    const songRender = renderElement(createElement(LyricsProbe, { track: trackFixture('song') }))
+    try {
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy).toHaveBeenCalledWith('song-1')
+    } finally {
+      songRender.unmount()
+    }
+    spy.mockClear()
+    const podcastRender = renderElement(createElement(LyricsProbe, { track: trackFixture('podcast') }))
+    try {
+      expect(spy).not.toHaveBeenCalled()
+      expect(podcastRender.container.textContent).toBe('0')
+      expect(podcastRender.container.firstElementChild?.getAttribute('data-status')).toBe('ready')
+    } finally {
+      podcastRender.unmount()
+      spy.mockRestore()
+    }
   })
 
   it('keeps translation rows when the original is word-timed', () => {

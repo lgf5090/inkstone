@@ -126,8 +126,13 @@ export function MusicSearchBox({
     if (event.key === 'Enter') {
       event.preventDefault()
       const candidate = open && active >= 0 ? items[active] : undefined
-      if (candidate) choose(candidate)
-      else onCommit(value)
+      if (candidate) {
+        choose(candidate)
+        return
+      }
+      setOpen(false)
+      setActive(-1)
+      onCommit(value)
     }
   }
 
@@ -193,6 +198,7 @@ export function MusicSearchBox({
                     id={`${listId}-${index}`}
                     type="button"
                     role="option"
+                    aria-label={suggestion ? `${musicText(SUGGESTION_TYPE_KEYS[suggestion.kind])} ${suggestion.name}` : String(item)}
                     aria-selected={active === index}
                     className={active === index
                       ? 'flex w-full items-center rounded-[var(--r-sm)] bg-[var(--bg-hover)] px-2 py-1.5 text-left text-[length:var(--text-12-5)] text-[var(--text-primary)]'

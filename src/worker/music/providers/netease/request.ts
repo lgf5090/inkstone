@@ -9,7 +9,7 @@
 import { apiForm, eapi, weapi } from './crypto'
 import { readStreamWithinLimit } from '../../../lib/request'
 
-export type NeteaseCryptoMode = 'weapi' | 'eapi' | 'api'
+export type NeteaseCryptoMode = 'weapi' | 'eapi' | 'api' | 'plain'
 export type NeteaseCookieInput = string | Record<string, string>
 
 export const NETEASE_TIMEOUT_MS = 8_000
@@ -34,6 +34,7 @@ export interface NeteaseRequestOptions {
   retries?: number
   userAgent?: string
   referer?: string
+  method?: 'GET' | 'POST'
 }
 
 export interface NeteaseResponse<T = Record<string, unknown>> {
@@ -192,6 +193,7 @@ function encodeBody(mode: NeteaseCryptoMode, path: string, body: Record<string, 
 function endpointFor(mode: NeteaseCryptoMode, path: string): string {
   if (mode === 'weapi') return `${MUSIC_DOMAIN}/weapi/${path.replace(/^\/api\//, '')}`
   if (mode === 'eapi') return `${API_DOMAIN}/eapi/${path.replace(/^\/api\//, '')}`
+  if (mode === 'plain') return `${MUSIC_DOMAIN}${path}`
   return `${API_DOMAIN}${path}`
 }
 
@@ -293,7 +295,11 @@ export async function requestNetease(
   }
 
   let payload: Record<string, string>
-  if (mode === 'eapi' || mode === 'api') {
+  if (mode === 'plain') {
+    headers.Cookie = cookieToString(cookie)
+    headers['User-Agent'] = options.userAgent || WEAPI_UA
+    payload = encodeBody(mode, path, body)
+  } else if (mode === 'eapi' || mode === 'api') {
     const header = eapiHeader(cookie)
     headers.Cookie = cookieToString(header)
     headers['User-Agent'] = options.userAgent || API_UA
@@ -303,11 +309,15 @@ export async function requestNetease(
     headers['User-Agent'] = options.userAgent || WEAPI_UA
     payload = encodeBody(mode, path, { ...body, csrf_token: cookie.__csrf || '' })
   }
-  headers['Content-Type'] = 'application/x-www-form-urlencoded'
+  let method = options.method ?? 'POST'
+  if (method === 'POST') headers['Content-Type'] = 'application/x-www-form-urlencoded'
 
   let url = endpointFor(mode, path)
-  let method = 'POST'
   let encoded: string | undefined = new URLSearchParams(payload).toString()
+  if (method === 'GET') {
+    url += `?${encoded}`
+    encoded = undefined
+  }
 
   for (let redirects = 0; ; redirects += 1) {
     const response = await send(

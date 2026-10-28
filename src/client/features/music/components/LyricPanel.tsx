@@ -183,11 +183,12 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
   const [providerTranslation, setProviderTranslation] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const trackId = track?.id ?? null
+  const isPodcast = track?.kind === 'podcast'
 
   useEffect(() => {
-    if (!trackId) {
+    if (!trackId || isPodcast) {
       setLines([])
-      setStatus('idle')
+      setStatus(isPodcast ? 'ready' : 'idle')
       setError(null)
       setProviderTranslation(false)
       return
@@ -223,7 +224,7 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
     return () => {
       active = false
     }
-  }, [reloadKey, trackId])
+  }, [isPodcast, reloadKey, trackId])
 
   const retry = useCallback(() => setReloadKey((value) => value + 1), [])
 

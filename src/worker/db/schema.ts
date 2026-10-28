@@ -2844,6 +2844,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'music_track', column: 'program_id' },
     statements: [
       `ALTER TABLE music_track ADD COLUMN program_id TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 186,
+    skipIfColumnExists: { table: 'music_track', column: 'description' },
+    statements: [
       `ALTER TABLE music_track ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
     ],
   },

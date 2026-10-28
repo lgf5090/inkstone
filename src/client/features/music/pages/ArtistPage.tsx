@@ -135,11 +135,13 @@ export function ArtistPage({ id }: ArtistPageProps): ReactElement {
 
   const meta = (
     <>
-      <span>
-        {musicText('music.common.followers', {
-          count: formatPlayCount(artist.followCount, locale),
-        })}
-      </span>
+      {artist.followCount > 0 && (
+        <span>
+          {musicText('music.common.followers', {
+            count: formatPlayCount(artist.followCount, locale),
+          })}
+        </span>
+      )}
       <span>{musicText('music.common.albums', { count: artist.albumCount })}</span>
     </>
   )

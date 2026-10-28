@@ -28,6 +28,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from '../src/worker/music/providers/netease/normalize'
+import { requestNetease } from '../src/worker/music/providers/netease/request'
 
 describe('netease endpoint builders', () => {
   it('marks the search call as eapi and keeps the raw keyword', () => {
@@ -102,6 +103,14 @@ describe('netease endpoint builders', () => {
     expect(neteaseEndpoints.logout().crypto).toBe('eapi')
   })
 
+  it('reads the artist profile as a plain GET, the only form that carries accountId', () => {
+    expect(neteaseEndpoints.artistDetail('42')).toMatchObject({
+      path: '/api/v1/artist/42',
+      crypto: 'plain',
+      method: 'GET',
+    })
+  })
+
   it('builds comment, follow, events, FM mode and heart-mode calls', () => {
     expect(neteaseEndpoints.comments({ thread: 'R_SO_4_42', offset: 30, limit: 30 })).toMatchObject({
       path: '/api/v1/resource/comments/R_SO_4_42',
@@ -121,6 +130,51 @@ describe('netease endpoint builders', () => {
     expect(neteaseEndpoints.heartMode({ songId: '1', startSongId: '1', playlistId: '5' }).body).toMatchObject({
       songId: '1', startMusicId: '1', playlistId: '5', type: 'fromPlayOne', count: 1,
     })
+  })
+})
+
+describe('netease wire transport', () => {
+  it('sends a plain GET with the query string and no request body', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} })
+      return new Response(
+        JSON.stringify({ code: 200, artist: { id: 42, name: 'Singer', accountId: 7 } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    try {
+      const response = await requestNetease('/api/v1/artist/42', 'plain', {}, { method: 'GET' })
+      expect(calls).toHaveLength(1)
+      expect(calls[0].init.method).toBe('GET')
+      expect(calls[0].init.body).toBeUndefined()
+      expect(calls[0].url).toBe('https://music.163.com/api/v1/artist/42?e_r=false')
+      expect(calls[0].url).not.toContain('csrf_token')
+      expect(response.ok).toBe(true)
+      expect(response.body.artist).toMatchObject({ accountId: 7 })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps encrypted calls as form-encoded POSTs', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} })
+      return new Response(JSON.stringify({ code: 200 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    try {
+      await requestNetease('/api/v1/artist/songs', 'eapi', { id: '42' })
+      const headers = calls[0].init.headers as Record<string, string>
+      expect(calls[0].init.method).toBe('POST')
+      expect(String(calls[0].init.body)).toContain('params=')
+      expect(headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 

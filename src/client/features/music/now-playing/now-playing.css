@@ -23,6 +23,8 @@
   --bg-base: var(--music-stage-bg);
   --bg-sunken: color-mix(in oklab, white 4%, var(--music-stage-bg));
   --bg-raised: color-mix(in oklab, white 9%, var(--music-stage-bg));
+  --bg-surface: color-mix(in oklab, white 7%, var(--music-stage-bg));
+  --bg-overlay: color-mix(in oklab, white 10%, var(--music-stage-bg));
   --bg-hover: color-mix(in oklab, white 12%, transparent);
   --border-subtle: var(--music-stage-hairline);
   --border-default: color-mix(in oklab, white 22%, transparent);
@@ -66,7 +68,6 @@
 
 .music-np__topbar {
   position: relative;
-  z-index: 2;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -112,7 +113,6 @@
 
 .music-np__content {
   position: relative;
-  z-index: 1;
   display: flex;
   flex: 1 1 auto;
   min-block-size: 0;
@@ -338,6 +338,7 @@
 }
 
 .music-np__slim {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -443,7 +444,7 @@
 .music-program__title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-24);
+  font-size: var(--text-22);
   font-weight: 650;
   letter-spacing: var(--tracking-title);
   line-height: 1.25;
@@ -543,7 +544,11 @@
   .music-np__slim {
     position: sticky;
     bottom: 0;
-    z-index: 2;
+  }
+
+  .music-np button {
+    min-inline-size: 44px;
+    min-block-size: 44px;
   }
 }
 

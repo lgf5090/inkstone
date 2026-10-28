@@ -169,6 +169,7 @@ export class NeteaseProvider implements MusicProvider, NeteaseLoginTransport {
       cookie: this.currentCookie(),
       timeoutMs: this.timeoutMs,
       retries: this.retries,
+      method: call.method,
     })
     if (response.cookie.length > 0) this.absorbCookie(response.cookie)
     return response

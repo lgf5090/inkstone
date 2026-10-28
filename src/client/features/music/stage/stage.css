@@ -17,7 +17,7 @@
   position: absolute;
   inset-block-start: var(--sp-3);
   inset-inline-end: var(--sp-4);
-  z-index: 3;
+  z-index: var(--z-sticky);
 }
 
 .music-stage__viewport {
@@ -69,6 +69,7 @@
 
 .music-stage__word {
   display: inline-block;
+  white-space: pre;
   opacity: 1;
   translate: 0 0;
   rotate: 0deg;
@@ -166,6 +167,7 @@
 
 .music-stage__tilt-char {
   display: inline-block;
+  white-space: pre;
   opacity: clamp(
     0.24,
     calc((var(--stage-line-progress, 0) * var(--char-count, 1) - var(--char-index, 0)) * 5),
@@ -216,7 +218,6 @@
 .music-stage__sparks {
   position: absolute;
   inset: 0;
-  z-index: 2;
   inline-size: 100%;
   block-size: 100%;
   pointer-events: none;

@@ -9,12 +9,10 @@
  */
 import { useId, useState, type ReactElement } from 'react'
 import { ArrowUpRight, LogIn, Play, Radio } from 'lucide-react'
-import { formatPlayCount } from '@shared/music/format'
 import type { MusicAlbumSummary, MusicArtistSummary, MusicPlaylistSummary } from '@shared/music/api'
 import type { MusicFmMode } from '@shared/music/model'
 import { Button, Badge } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
-import { useLocale } from '../../../lib/i18n'
 import { navigateToAddress } from '../../../lib/app-history'
 import { musicApi } from '../api'
 import { Cover } from '../components/Cover'
@@ -50,8 +48,8 @@ function albumMeta(item: MusicAlbumSummary): string {
   return artists || musicText('music.common.track_count', { count: item.trackCount })
 }
 
-function artistMeta(item: MusicArtistSummary, locale: string): string {
-  return musicText('music.common.followers', { count: formatPlayCount(item.followCount, locale) })
+function artistMeta(item: MusicArtistSummary): string {
+  return musicText('music.common.albums', { count: item.albumCount })
 }
 
 function HomeSkeleton(): ReactElement {
@@ -71,7 +69,6 @@ function HomeSkeleton(): ReactElement {
 }
 
 export function HomePage(): ReactElement {
-  const locale = useLocale()
   const [fmMode, setFmMode] = useState<MusicFmMode>('DEFAULT')
   const startRadio = useMusicPlayer((state) => state.startRadio)
   const radioLoading = useMusicPlayer((state) => state.radioLoading)
@@ -349,7 +346,7 @@ export function HomePage(): ReactElement {
                 key={item.id}
                 coverSrc={item.coverUrl}
                 title={item.name}
-                meta={artistMeta(item, locale)}
+                meta={artistMeta(item)}
                 round
                 onOpen={() => navigateToAddress(musicPathFor({ kind: 'artist', id: item.id }))}
               />
