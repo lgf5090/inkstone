@@ -170,6 +170,7 @@ export function GistsPane({
       const local = gists.find((entry) => entry.id === gist.id)
       if (local) persist({ ...local, data: updated, updatedAt: Date.now() })
       void remoteQuery.refetch()
+      void remoteDetail.refetch()
     } catch (cause) { toast({ title: cause instanceof Error ? cause.message : t('development.github.gists.update_failed'), tone: 'danger' }) }
   }
   const updateLocal = (gist: GistItem) => selectedLocal ? persist({ ...selectedLocal, description: gist.description || selectedLocal.description, url: gist.url || selectedLocal.url, data: gist }) : undefined
@@ -231,7 +232,7 @@ export function GistsPane({
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
-      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} onOpenAccounts={onOpenAccounts} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
+      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
     </>
   )
 }
