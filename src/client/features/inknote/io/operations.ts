@@ -445,53 +445,79 @@ async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   return new File([blob], name, { type: blob.type || 'image/png' })
 }
 
-export async function importNoteFile(file: File, notebookId: string): Promise<number> {
+export interface ImportNoteOptions {
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+/** A .note/.notebook import: snapshot first, then create; any failure rolls every created row back. */
+export async function importNoteFile(file: File, notebookId: string, options: ImportNoteOptions = {}): Promise<{ notes: number }> {
+  if (file.size > 64 * 1024 * 1024) throw new Error('The import file exceeds the 64 MB limit')
   const { parseNote2Envelope, normalizeLegacyPage } = await import('@shared/inknote/parse')
   const envelope = parseNote2Envelope(await file.text())
   if (!envelope) throw new Error('Unrecognised note file')
   const notes = envelope.notes.slice(0, 500)
+  // The account can come back from this if the import goes wrong; a snapshot that cannot be taken stops it.
+  await inknoteApi.createSnapshot('before-import')
+  const existingTitles = new Set((useInknoteStore.getState().library?.notes ?? []).map((note) => note.title))
+  const createdNotes: string[] = []
+  const uploadedAssets: string[] = []
   let imported = 0
-  for (const [noteIndex, raw] of notes.entries()) {
-    const row = raw as Record<string, unknown>
-    const title = typeof row.title === 'string' ? row.title.slice(0, 512) : file.name.replace(/\.[^.]+$/, '')
-    const paper = row.paper && typeof row.paper === 'object' ? row.paper : undefined
-    const created = await inknoteApi.createNote({ notebookId, title, paper })
-    const note = created.note
-    const pageW = typeof row.pageW === 'number' ? row.pageW : note.pageWidth
-    const pageH = typeof row.pageH === 'number' ? row.pageH : note.pageHeight
-    if (pageW !== note.pageWidth || pageH !== note.pageHeight) {
-      await inknoteApi.updateNote(note.id, { pageWidth: pageW, pageHeight: pageH, baseRev: note.rev })
-    }
-    const rawPages = Array.isArray(row.pages) ? row.pages : []
-    const pages = rawPages.length ? rawPages : [{}]
-    for (const [pageIndex, rawPage] of pages.entries()) {
-      const legacy = normalizeLegacyPage(rawPage)
-      if (!legacy) continue
-      for (const pending of legacy.pendingAssets) {
-        const asset = await inknoteApi.uploadAsset(await dataUrlToFile(pending.dataUrl, `import-${noteIndex}-${pageIndex}.png`), 'image', note.id)
-        if (pending.path === 'bg.src' && legacy.content.bg) {
-          legacy.content.bg.assetId = asset.id
-          legacy.content.bg.url = asset.url
-        } else {
-          const match = /^images\.(\d+)\.src$/.exec(pending.path)
-          if (match) {
-            const image = legacy.content.images[Number(match[1])]
-            if (image) { image.assetId = asset.id; image.url = asset.url }
+  try {
+    for (const [noteIndex, raw] of notes.entries()) {
+      if (options.isCancelled?.()) throw new Error('Import cancelled')
+      const row = raw as Record<string, unknown>
+      const base = typeof row.title === 'string' ? row.title.slice(0, 500) : file.name.replace(/\.[^.]+$/, '')
+      let title = base
+      for (let suffix = 2; existingTitles.has(title); suffix += 1) title = `${base} ${suffix}`
+      existingTitles.add(title)
+      const paper = row.paper && typeof row.paper === 'object' ? row.paper : undefined
+      const created = await inknoteApi.createNote({ notebookId, title, paper })
+      createdNotes.push(created.note.id)
+      const note = created.note
+      const pageW = typeof row.pageW === 'number' ? row.pageW : note.pageWidth
+      const pageH = typeof row.pageH === 'number' ? row.pageH : note.pageHeight
+      if (pageW !== note.pageWidth || pageH !== note.pageHeight) {
+        await inknoteApi.updateNote(note.id, { pageWidth: pageW, pageHeight: pageH, baseRev: note.rev })
+      }
+      const rawPages = Array.isArray(row.pages) ? row.pages : []
+      const pages = rawPages.length ? rawPages : [{}]
+      for (const [pageIndex, rawPage] of pages.entries()) {
+        const legacy = normalizeLegacyPage(rawPage)
+        if (!legacy) continue
+        for (const pending of legacy.pendingAssets) {
+          const asset = await inknoteApi.uploadAsset(await dataUrlToFile(pending.dataUrl, `import-${noteIndex}-${pageIndex}.png`), 'image', note.id)
+          uploadedAssets.push(asset.id)
+          if (pending.path === 'bg.src' && legacy.content.bg) {
+            legacy.content.bg.assetId = asset.id
+            legacy.content.bg.url = asset.url
+          } else {
+            const match = /^images\.(\d+)\.src$/.exec(pending.path)
+            if (match) {
+              const image = legacy.content.images[Number(match[1])]
+              if (image) { image.assetId = asset.id; image.url = asset.url }
+            }
           }
         }
+        const serialized = serializePageContent(legacy.content)
+        if (pageIndex === 0) {
+          await inknoteApi.savePage(note.id, created.pages[0]!.id, serialized, created.pages[0]!.rev)
+        } else {
+          await inknoteApi.createPage(note.id, { content: serialized })
+        }
       }
-      const serialized = serializePageContent(legacy.content)
-      if (pageIndex === 0) {
-        await inknoteApi.savePage(note.id, created.pages[0]!.id, serialized, created.pages[0]!.rev)
-      } else {
-        await inknoteApi.createPage(note.id, { content: serialized })
-      }
+      imported++
+      options.onProgress?.(noteIndex + 1, notes.length)
     }
-    imported++
-    if (noteIndex === 0) await useInknoteStore.getState().openNote(note.id)
+    await useInknoteStore.getState().refreshLibrary()
+    if (createdNotes[0]) await useInknoteStore.getState().openNote(createdNotes[0])
+    return { notes: imported }
+  } catch (error) {
+    for (const id of createdNotes) await inknoteApi.purgeNote(id).catch((reason) => { console.warn('[inkstone] Could not remove a half-imported note:', reason) })
+    for (const id of uploadedAssets) await inknoteApi.deleteAsset(id).catch((reason) => { console.warn('[inkstone] Could not remove a half-imported asset:', reason) })
+    await useInknoteStore.getState().refreshLibrary()
+    throw new Error(`The import failed and was rolled back: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
   }
-  await useInknoteStore.getState().refreshLibrary()
-  return imported
 }
 
 export async function exportNotebookFile(): Promise<void> {

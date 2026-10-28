@@ -35,8 +35,9 @@ import { ExportPdfDialog } from './io/ExportPdfDialog'
 import { ExportLibraryPdfDialog } from './io/ExportLibraryPdfDialog'
 import { PdfImportDialog } from './io/PdfImportDialog'
 import { ScanDialog } from './io/ScanDialog'
+import { ImportNoteDialog } from './io/ImportNoteDialog'
 import { useInknoteTts } from './tools/use-inknote-tts'
-import { exportLongImage, exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage } from './io/operations'
+import { exportLongImage, exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, insertImage } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -97,6 +98,7 @@ const [findOpen, setFindOpen] = useState(false)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [scanOpen, setScanOpen] = useState(false)
   const [libraryPdfOpen, setLibraryPdfOpen] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
@@ -471,7 +473,7 @@ const [findOpen, setFindOpen] = useState(false)
       <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setPdfFile(file) }} />
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
-      <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importNoteFile(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((count) => toast({ title: `${count}` })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setImportFile(file) }} />
       {moreMenu && <Menu anchor={{ x: moreMenu.x, y: moreMenu.y }} open onClose={() => setMoreMenu(null)} items={moreMenu.items} />}
       {note && <FindDialog open={findOpen} onClose={() => setFindOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setFindOpen(false) }}/>}
       {note && <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setOutlineOpen(false) }}/>}
@@ -488,6 +490,7 @@ const [findOpen, setFindOpen] = useState(false)
       <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
       <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       {note && settings && <ExportLibraryPdfDialog open={libraryPdfOpen} onClose={() => setLibraryPdfOpen(false)} notes={(library?.notes ?? []).filter((entry) => entry.notebookId === note.notebookId)} settings={settings}/>}
+      <ImportNoteDialog open={importFile !== null} onClose={() => setImportFile(null)} file={importFile} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       <PdfImportDialog open={pdfFile !== null} onClose={() => setPdfFile(null)} file={pdfFile} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       {note && settings && <ExportPdfDialog open={pdfExportOpen} onClose={() => setPdfExportOpen(false)} note={note} pages={pages} settings={settings}/>}
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)}/>

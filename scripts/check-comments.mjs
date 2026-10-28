@@ -6378,6 +6378,9 @@ const allowed = new Map([
   ["src/client/features/inknote/io/ExportPdfDialog.tsx", [
     "/** PDF export options: page range, cover page, printed header and a cancellable progress line. */",
   ]],
+  ["src/client/features/inknote/io/ImportNoteDialog.tsx", [
+    "/** Import a .note/.notebook file with progress and cancel; a failed import rolls itself back. */",
+  ]],
   ["src/client/features/inknote/io/PdfImportDialog.tsx", [
     "/** Import a PDF as annotation pages: choose a range, watch the pages render, stop when needed. */",
   ]],
@@ -6391,6 +6394,8 @@ const allowed = new Map([
     "/** A cancelled or failed import leaves no half-note behind; its uploaded backgrounds go with it. */",
     "/** Photos become one blank-paper note whose pages are the scanned images as backgrounds. */",
     "/** One cover page per note, then every page of every note, capped at two hundred pages. */",
+    "/** A .note/.notebook import: snapshot first, then create; any failure rolls every created row back. */",
+    "// The account can come back from this if the import goes wrong; a snapshot that cannot be taken stops it.",
   ]],
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
