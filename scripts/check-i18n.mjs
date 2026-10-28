@@ -356,6 +356,7 @@ const developmentCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-development-database.ts'), 'EN_US_DEVELOPMENT_DATABASE'],
         [path.join(localeRoot, 'en-US-development-apitester.ts'), 'EN_US_DEVELOPMENT_APITESTER'],
+        [path.join(localeRoot, 'en-US-development-github.ts'), 'EN_US_DEVELOPMENT_GITHUB'],
         [path.join(localeRoot, 'en-US-development-xget-shell.ts'), 'EN_US_DEVELOPMENT_XGET_SHELL'],
         [path.join(localeRoot, 'en-US-development-xget-core.ts'), 'EN_US_DEVELOPMENT_XGET_CORE'],
         [path.join(localeRoot, 'en-US-development-xget-platforms.ts'), 'EN_US_DEVELOPMENT_XGET_PLATFORMS'],
@@ -365,6 +366,7 @@ const developmentCatalogFiles = {
     zh: [
         [path.join(localeRoot, 'zh-CN-development-database.ts'), 'ZH_CN_DEVELOPMENT_DATABASE'],
         [path.join(localeRoot, 'zh-CN-development-apitester.ts'), 'ZH_CN_DEVELOPMENT_APITESTER'],
+        [path.join(localeRoot, 'zh-CN-development-github.ts'), 'ZH_CN_DEVELOPMENT_GITHUB'],
         [path.join(localeRoot, 'zh-CN-development-xget-shell.ts'), 'ZH_CN_DEVELOPMENT_XGET_SHELL'],
         [path.join(localeRoot, 'zh-CN-development-xget-core.ts'), 'ZH_CN_DEVELOPMENT_XGET_CORE'],
         [path.join(localeRoot, 'zh-CN-development-xget-platforms.ts'), 'ZH_CN_DEVELOPMENT_XGET_PLATFORMS'],

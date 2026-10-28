@@ -150,6 +150,21 @@ export async function decryptDatabaseSecret(env: Env, connectionId: string, stor
   return typeof token === 'string' && token.length > 0 && token.length <= 4 * 1024 ? token : null
 }
 
+export async function encryptGithubToken(env: Env, accountId: string, token: string): Promise<string> {
+  if (!isValidId(accountId)) throw new Error('invalid_github_credential')
+  const trimmed = token.trim()
+  if (!trimmed || trimmed.length > 4096) throw new Error('invalid_github_credential')
+  return encryptCredential(env, `github:${accountId}`, { token: trimmed })
+}
+
+export async function decryptGithubToken(env: Env, accountId: string, stored: string): Promise<string | null> {
+  if (!isValidId(accountId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `github:${accountId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const token = (value as Record<string, unknown>).token
+  return typeof token === 'string' && token.length > 0 && token.length <= 4096 ? token : null
+}
+
 const APITESTER_STATE_CIPHERTEXT_MAX = 1_400_000
 const APITESTER_HISTORY_CIPHERTEXT_MAX = 64_000
 const APITESTER_WS_CIPHERTEXT_MAX = 16_000

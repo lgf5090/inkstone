@@ -23,7 +23,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|apitester-history|apitester-ws|apitester):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -36,6 +36,7 @@ const MUSIC_SECRET_FIELDS = new Set(['cookie'])
 const MUSIC_MOUNT_SECRET_FIELDS = new Set(['token'])
 const CLOUDFLARE_ACCOUNT_SECRET_FIELDS = new Set(['api_token', 'api_key', 'password'])
 const DATABASE_SECRET_FIELDS = new Set(['token'])
+const GITHUB_SECRET_FIELDS = new Set(['token'])
 const APITESTER_STATE_FIELDS = new Set(['blob'])
 const APITESTER_HISTORY_FIELDS = new Set(['blob'])
 const APITESTER_WS_FIELDS = new Set(['payload'])
@@ -249,7 +250,9 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                   ? CLOUDFLARE_ACCOUNT_SECRET_FIELDS
                   : scope.startsWith('database:')
                     ? DATABASE_SECRET_FIELDS
-                    : scope.startsWith('apitester-ws:')
+                    : scope.startsWith('github:')
+                      ? GITHUB_SECRET_FIELDS
+                      : scope.startsWith('apitester-ws:')
                       ? APITESTER_WS_FIELDS
                       : scope.startsWith('apitester-history:')
                         ? APITESTER_HISTORY_FIELDS

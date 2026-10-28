@@ -53,6 +53,11 @@ const apiCodeMessages: Record<string, MessageKey> = {
     cloudflare_upstream: 'api.error.cloudflare_upstream',
     cloudflare_not_configured: 'api.error.cloudflare_not_configured',
     cloudflare_quota_exceeded: 'api.error.cloudflare_quota_exceeded',
+    github_rate_limited: 'development.github.errors.rate_limited',
+    github_token_invalid: 'development.github.errors.token_invalid',
+    github_token_required: 'development.github.errors.token_required',
+    github_not_found: 'development.github.errors.not_found',
+    github_upstream: 'development.github.errors.upstream',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();

@@ -1543,3 +1543,8 @@ export type ApiErrorCode =
   | 'apitester_upgrade_required'
   | 'apitester_quota_exceeded'
   | 'apitester_file_too_large'
+  | 'github_rate_limited'
+  | 'github_token_invalid'
+  | 'github_token_required'
+  | 'github_not_found'
+  | 'github_upstream'
