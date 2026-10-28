@@ -395,7 +395,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
 
   return (
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
-      <div className="inknote-page-scroll flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 md:p-6">
+      <div className="inknote-page-scroll flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 md:p-6" tabIndex={0} aria-label={t('inknote.canvas.scroll')}>
         {previousPage && (
           <div style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }} className="shrink-0">
             <PagePreview page={previousPage} note={note} settings={settings} label={`${t('inknote.page.prev')} ${pageIndex}`} onSelect={onPrevPage}/>
@@ -460,7 +460,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
         <Button size="sm" variant="ghost" aria-label={t('inknote.page.prev')} onClick={onPrevPage} disabled={pageIndex <= 0}>‹</Button>
         <span data-page-indicator="" aria-live="polite">{pageIndex + 1} / {pageCount}</span>
         <Button size="sm" variant="ghost" aria-label={t('inknote.page.next')} onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
-        <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
+        <span className="mx-2">{Math.round(zoom * 100)}%</span>
       </div>
       <CropDialog open={cropImageId !== null} imageUrl={page.content.images.find((entry) => entry.id === cropImageId)?.url ?? null} onClose={() => setCropImageId(null)} onApply={applyCrop}/>
       <input ref={replaceInput} data-ink-replace-image="" type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void replaceSelectedImage(file) }}/>

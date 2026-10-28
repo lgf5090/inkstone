@@ -84,7 +84,7 @@ export function TemplateCenter({ open, onClose, notebookId }: Props) {
                 <div className="mb-1.5 h-20 rounded-[var(--r-xs)] border border-[var(--border-subtle)]" style={{ background: template.bgUrl ? `center / cover no-repeat url(${JSON.stringify(template.bgUrl)})` : surface.bg }}>
                   <div className="flex h-full flex-col justify-center px-2" style={{ color: surface.dark ? '#f8fafc' : '#475569' }}>
                     <span className="truncate text-[length:var(--text-12)] font-semibold">{templateTitle(template, (key) => t(key as never))}</span>
-                    {template.builtIn && template.sub && <span className="truncate text-[length:var(--text-10)] opacity-80">{t(template.sub as never)}</span>}
+                    {template.builtIn && template.sub && <span className="truncate text-[length:var(--text-10)]">{t(template.sub as never)}</span>}
                   </div>
                 </div>
                 <span className="truncate text-[length:var(--text-11)]">{name}</span>

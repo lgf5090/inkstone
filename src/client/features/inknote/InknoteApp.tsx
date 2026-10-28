@@ -479,19 +479,21 @@ const [findOpen, setFindOpen] = useState(false)
       </div>
 
       {tabs.length > 0 && (
-        <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1" role="tablist" aria-label={t('inknote.library')}>
+        <div role="toolbar" aria-label={t('inknote.library')} className="flex h-8 shrink-0 items-center gap-0.5 border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {tabs.map((id) => {
             const meta = library?.notes.find((entry) => entry.id === id)
             if (!meta) return null
             return (
               <div key={id} className={cn('flex max-w-40 shrink-0 items-center rounded-[var(--r-xs)]', note?.id === id ? 'bg-[var(--bg-surface)]' : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]')}>
-                <button type="button" role="tab" aria-selected={note?.id === id} onClick={() => void openNote(id)} className="min-w-0 flex-1 truncate px-2 py-1 text-left text-[length:var(--text-11)]">
+                <button type="button" aria-current={note?.id === id ? 'page' : undefined} onClick={() => void openNote(id)} className="min-w-0 flex-1 truncate px-2 py-1 text-left text-[length:var(--text-11)]">
                   {meta.title}
                 </button>
                 <IconButton label={t('inknote.close')} size="xs" onClick={() => { closeTab(id); if (note?.id === id) replaceAddress('/inknote') }}><X size={10}/></IconButton>
               </div>
             )
           })}
+          </div>
           <IconButton label={t('inknote.open_note')} size="xs" onClick={() => setPickerMode('open')}><Plus size={11}/></IconButton>
         </div>
       )}

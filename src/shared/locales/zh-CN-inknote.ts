@@ -216,6 +216,7 @@ export const ZH_CN_INKNOTE = {
   'inknote.attachments.delete_confirm': '删除这个附件？文件会从存储中移除。',
   'inknote.attachments.uploaded': '附件已上传',
   'inknote.action.paste_selection': '粘贴',
+  'inknote.canvas.scroll': '页面滚动区',
   'inknote.login_required': '请先登录',
   'inknote.login_body': '手写笔记本绑定到你的账号，登录后继续。',
   'inknote.login': '去登录',

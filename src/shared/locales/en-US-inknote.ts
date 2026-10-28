@@ -216,6 +216,7 @@ export const EN_US_INKNOTE = {
   'inknote.attachments.delete_confirm': 'Delete this attachment? The file is removed from storage.',
   'inknote.attachments.uploaded': 'Attachment uploaded',
   'inknote.action.paste_selection': 'Paste',
+  'inknote.canvas.scroll': 'Page scroll area',
   'inknote.login_required': 'Please sign in',
   'inknote.login_body': 'The handwritten notebook belongs to your account; sign in to continue.',
   'inknote.login': 'Sign in',
