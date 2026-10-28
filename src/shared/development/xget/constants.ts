@@ -1,7 +1,6 @@
 import type { XgetSettingsConfig } from './types'
 
 export const XGET_PROXY_PREFIX = '/api/development/xget'
-export const XGET_PROXY_BASE_PATH = XGET_PROXY_PREFIX
 
 export const XGET_CONFIG_DEFAULTS: XgetSettingsConfig = {
   timeout_seconds: 30,
