@@ -25,8 +25,10 @@ import { useInknoteHotkeys } from './use-inknote-hotkeys'
 import { PresentationOverlay } from './tools/PresentationOverlay'
 import { RecordingPanel } from './tools/RecordingPanel'
 import { AiPanel } from './tools/AiPanel'
+import { AttachmentsDialog } from './io/AttachmentsDialog'
+import { ExportPdfDialog } from './io/ExportPdfDialog'
 import { useInknoteTts } from './tools/use-inknote-tts'
-import { exportNotebookFile, exportNoteFile, exportPagePng, exportPdf, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
+import { exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -74,6 +76,8 @@ export function InknoteApp() {
   const [statsOpen, setStatsOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false)
+  const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
@@ -203,13 +207,16 @@ export function InknoteApp() {
       { id: 'image', label: t('inknote.action.add_image' as never), onSelect: () => { setMoreMenu(null); imageInput.current?.click() } },
       { id: 'pdf', label: t('inknote.action.import_pdf' as never), onSelect: () => { setMoreMenu(null); pdfInput.current?.click() } },
       { id: 'attach', label: t('inknote.action.attach' as never), onSelect: () => { setMoreMenu(null); attachInput.current?.click() } },
+      { id: 'attachments', label: t('inknote.attachments.title' as never), onSelect: () => { setMoreMenu(null); setAttachmentsOpen(true) } },
       { id: 'import', label: t('inknote.action.import' as never), onSelect: () => { setMoreMenu(null); importInput.current?.click() } },
       { id: 'present', label: t('inknote.action.presentation' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setPresentationOpen(true) } },
-      { id: 'pdf-export', label: t('inknote.action.export_pdf' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); void exportPdf(note, pages, settings) } },
+      { id: 'pdf-export', label: t('inknote.action.export_pdf' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setPdfExportOpen(true) } },
       { id: 'png-export', label: t('inknote.action.export_page_png' as never), onSelect: () => { setMoreMenu(null); if (activePage) void exportPagePng(note, activePage, settings) } },
       { id: 'note-export', label: t('inknote.action.export_note' as never), onSelect: () => { setMoreMenu(null); void exportNoteFile(note, pages) } },
       { id: 'notebook-export', label: t('inknote.action.export_notebook' as never), onSelect: () => { setMoreMenu(null); void exportNotebookFile() } },
       { id: 'text-export', label: t('inknote.action.export_text' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'txt') } },
+      { id: 'md-export', label: t('inknote.action.export_markdown' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'md') } },
+      { id: 'rtf-export', label: t('inknote.action.export_rtf' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'rtf') } },
       { id: 'find', label: t('inknote.action.find' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setFindOpen(true) } },
       { id: 'outline', label: t('inknote.action.outline' as never), onSelect: () => { setMoreMenu(null); setOutlineOpen(true) } },
       { id: 'stats', label: t('inknote.action.stats' as never), onSelect: () => { setMoreMenu(null); setStatsOpen(true) } },
@@ -352,6 +359,8 @@ export function InknoteApp() {
       {note && <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setOutlineOpen(false) }}/>}
       {note && <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} pages={pages} note={note}/>}
       <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
+      <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
+      {note && settings && <ExportPdfDialog open={pdfExportOpen} onClose={() => setPdfExportOpen(false)} note={note} pages={pages} settings={settings}/>}
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)}/>
       {settings && <WelcomeDialog open={initialized && !settings.welcomeSeen} onStart={() => void updateSettings({ welcomeSeen: true })} onClose={() => void updateSettings({ welcomeSeen: true })}/>}
       {presentationOpen && note && <PresentationOverlay note={note} pages={pages} initialIndex={activeIndex} onClose={() => setPresentationOpen(false)} />}

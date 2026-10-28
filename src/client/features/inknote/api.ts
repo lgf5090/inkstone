@@ -100,6 +100,8 @@ export const inknoteApi = {
     return await response.json() as InknoteAsset
   },
   deleteAsset: (id: string) => request<{ ok: true }>(`${BASE}/assets/${id}`, { method: 'DELETE' }),
+  assets: (noteId: string, kind?: InknoteAsset['kind']) =>
+    request<{ assets: InknoteAsset[] }>(`${BASE}/assets?noteId=${encodeURIComponent(noteId)}${kind ? `&kind=${encodeURIComponent(kind)}` : ''}`),
   pruneAssets: () => request<{ removed: number; bytes: number }>(`${BASE}/assets/prune`, { method: 'POST' }),
 
   recordings: (noteId: string) => request<{ recordings: InknoteRecording[] }>(`${BASE}/recordings?noteId=${encodeURIComponent(noteId)}`),

@@ -159,6 +159,26 @@ export function inknoteAssetDto(row: InknoteAssetRow): InknoteAsset {
   }
 }
 
+/** The assets one note owns, newest first, optionally narrowed to one kind. */
+export async function listInknoteAssets(
+  db: D1Database,
+  userId: string,
+  filters: { noteId: string; kind?: InknoteAssetKind | null },
+): Promise<InknoteAsset[]> {
+  const clauses = ['user_id = ?1', 'note_id = ?2']
+  const binds: unknown[] = [userId, filters.noteId]
+  if (filters.kind) {
+    binds.push(filters.kind)
+    clauses.push(`kind = ?${binds.length}`)
+  }
+  const { results } = await db.prepare(
+    `SELECT id, kind, filename, mime, size, width, height, created_at
+       FROM inknote_assets WHERE ${clauses.join(' AND ')}
+      ORDER BY created_at DESC, id`,
+  ).bind(...binds).all<InknoteAssetRow>()
+  return results.map(inknoteAssetDto)
+}
+
 export async function inknoteAssetById(
   db: D1Database,
   userId: string,

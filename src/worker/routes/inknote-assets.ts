@@ -15,6 +15,7 @@ import {
   inknoteAssetById,
   inknoteAssetIsReferenced,
   isInknoteAssetKind,
+  listInknoteAssets,
   persistInknoteAsset,
   pruneInknoteAssets,
 } from '../inknote/assets'
@@ -83,6 +84,14 @@ inknoteAssetsRoutes.post('/assets/prune', async (c) => {
     console.warn('[inkstone] Inknote asset cleanup will retry later:', error)
   })
   return c.json(result)
+})
+
+inknoteAssetsRoutes.get('/assets', async (c) => {
+  const noteId = c.req.query('noteId')
+  if (!noteId || !isValidId(noteId)) throw ApiError.badRequest('noteId is required')
+  const kind = c.req.query('kind')
+  if (kind && !isInknoteAssetKind(kind)) throw ApiError.badRequest('Unknown asset kind')
+  return c.json({ assets: await listInknoteAssets(c.env.DB, c.get('userId'), { noteId, kind: kind ? kind as InknoteAsset['kind'] : null }) })
 })
 
 inknoteAssetsRoutes.get('/assets/:id', async (c) => {

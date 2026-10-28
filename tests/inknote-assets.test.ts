@@ -295,6 +295,21 @@ describe('an inknote asset', () => {
     expect(bucket.objects.has(`inknote/attachments/${USER}/${stale.id}.txt`)).toBe(false)
   })
 
+  it('lists the attachments of one note for its owner and filters by kind', async () => {
+    insertNote(USER, NOTE)
+    expect((await upload('attachment', png(), { noteId: NOTE, filename: 'notes.png' })).status).toBe(201)
+    expect((await upload('image', png(), { noteId: NOTE, filename: 'image.png' })).status).toBe(201)
+    const listed = await app.request(`/api/inknote/assets?noteId=${NOTE}&kind=attachment`, {}, env)
+    expect(listed.status).toBe(200)
+    const payload = await body<{ assets: AssetBody[] }>(listed)
+    expect(payload.assets.map((asset) => asset.filename)).toEqual(['notes.png'])
+    expect(payload.assets[0]!.kind).toBe('attachment')
+    mocks.userId = OTHER
+    const foreign = await app.request(`/api/inknote/assets?noteId=${NOTE}`, {}, env)
+    expect(foreign.status).toBe(200)
+    expect((await body<{ assets: AssetBody[] }>(foreign)).assets).toEqual([])
+  })
+
   it('rejects an upload for a note or page that is not the caller', async () => {
     insertNote(OTHER, NOTE)
     mocks.userId = USER

@@ -4,6 +4,7 @@ import { emptyPageContent, serializePageContent } from '@shared/inknote/parse'
 import { fontStackFor } from '../../../lib/inknote/text-layout'
 import { downloadBlob, safeFileName } from '../../../lib/export-note'
 import { buildPdf, type PdfPageImage } from '../../../lib/inknote/pdf-writer'
+import { parsePageRange } from '../../../lib/inknote/page-range'
 import { renderPageToCanvas } from '../engine/renderer'
 import { inknoteApi } from '../api'
 import { useInknoteStore } from '../store'
@@ -91,26 +92,99 @@ export async function exportPagePng(note: InknoteNoteMeta, page: InknotePage, se
   if (blob) downloadBlob(`${safeFileName(note.title) || 'inknote'}-p${page.position + 1}.png`, blob)
 }
 
-export async function exportPdf(note: InknoteNoteMeta, pages: InknotePage[], settings: { fontFamily: string }): Promise<void> {
-  if (!pages.length) return
+export interface PdfExportOptions {
+  /** "1-3,7", empty for every page. */
+  range?: string
+  cover?: boolean
+  header?: boolean
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+const PDF_LONG_SIDE = 792
+const PDF_SHORT_SIDE = 612
+
+function pagePointSize(note: InknoteNoteMeta): { width: number, height: number } {
+  return note.pageWidth >= note.pageHeight
+    ? { width: PDF_LONG_SIDE, height: PDF_SHORT_SIDE }
+    : { width: PDF_SHORT_SIDE, height: PDF_LONG_SIDE }
+}
+
+function drawHeader(canvas: HTMLCanvasElement, title: string, index: number, total: number, font: string): void {
+  const context = canvas.getContext('2d')
+  if (!context) return
+  const strip = Math.max(24, Math.round(canvas.height * 0.05))
+  context.save()
+  context.fillStyle = 'rgba(255, 255, 255, 0.92)'
+  context.fillRect(0, 0, canvas.width, strip)
+  context.fillStyle = '#475569'
+  context.font = `${Math.round(strip * 0.42)}px ${font}`
+  context.textBaseline = 'middle'
+  const label = title.trim().slice(0, 60) || 'Inknote'
+  context.fillText(label, Math.round(strip * 0.4), strip / 2, canvas.width * 0.7)
+  const pageLabel = `${index} / ${total}`
+  const width = context.measureText(pageLabel).width
+  context.fillText(pageLabel, canvas.width - width - Math.round(strip * 0.4), strip / 2)
+  context.restore()
+}
+
+function coverCanvas(note: InknoteNoteMeta, total: number, font: string): HTMLCanvasElement | null {
+  const canvas = document.createElement('canvas')
+  const width = 1224
+  const height = Math.round(width * note.pageHeight / Math.max(1, note.pageWidth))
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) return null
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.fillStyle = '#1e293b'
+  context.textAlign = 'center'
+  context.font = `bold ${Math.round(width * 0.05)}px ${font}`
+  context.fillText(note.title.trim().slice(0, 60) || 'Inknote', width / 2, height * 0.42, width * 0.86)
+  context.fillStyle = '#64748b'
+  context.font = `${Math.round(width * 0.022)}px ${font}`
+  context.fillText(new Date().toLocaleString(), width / 2, height * 0.52)
+  context.fillText(`${total}`, width / 2, height * 0.57)
+  return canvas
+}
+
+export async function exportPdf(note: InknoteNoteMeta, pages: InknotePage[], settings: { fontFamily: string }, options: PdfExportOptions = {}): Promise<boolean> {
+  if (!pages.length) return false
+  const indices = parsePageRange(options.range ?? '', pages.length)
+  if (!indices.length) return false
+  const font = fontStackFor(settings.fontFamily as never)
+  const point = pagePointSize(note)
   const images: PdfPageImage[] = []
-  for (const page of pages) {
+  if (options.cover) {
+    const cover = coverCanvas(note, indices.length, font)
+    const blob = cover ? await canvasBlob(cover, 'image/jpeg', 0.9) : null
+    if (cover && blob) images.push({ width: cover.width, height: cover.height, jpeg: new Uint8Array(await blob.arrayBuffer()), pdfWidth: point.width, pdfHeight: point.height })
+  }
+  for (const [order, index] of indices.entries()) {
+    if (options.isCancelled?.()) return false
+    const page = pages[index]
+    if (!page) continue
     const canvas = renderPageToCanvas(page.content, note.paper, {
       width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight,
-    }, 1224, fontStackFor(settings.fontFamily as never))
+    }, 1224, font)
     if (!canvas) continue
+    if (options.header) drawHeader(canvas, note.title, order + 1, indices.length, font)
     const blob = await canvasBlob(canvas, 'image/jpeg', 0.9)
     if (!blob) continue
     images.push({
       width: canvas.width,
       height: canvas.height,
       jpeg: new Uint8Array(await blob.arrayBuffer()),
-      pdfWidth: note.pageWidth >= note.pageHeight ? 792 : 612,
-      pdfHeight: note.pageWidth >= note.pageHeight ? 612 : 792,
+      pdfWidth: point.width,
+      pdfHeight: point.height,
     })
+    options.onProgress?.(order + 1, indices.length)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
   }
-  if (!images.length) return
+  if (!images.length || options.isCancelled?.()) return false
   downloadBlob(`${safeFileName(note.title) || 'inknote'}.pdf`, buildPdf(images))
+  return true
 }
 
 export async function exportNoteFile(note: InknoteNoteMeta, pages: InknotePage[]): Promise<void> {
@@ -140,13 +214,35 @@ export async function exportNoteFile(note: InknoteNoteMeta, pages: InknotePage[]
   downloadBlob(`${safeFileName(note.title) || 'inknote'}.note`, new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
 }
 
-export function exportTextFile(note: InknoteNoteMeta, pages: InknotePage[], format: 'txt' | 'md'): void {
+function rtfEscape(value: string): string {
+  let out = ''
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0
+    if (char === '\\' || char === '{' || char === '}') out += `\\${char}`
+    else if (char === '\n') out += '\\par '
+    else if (code < 128) out += char
+    else if (code <= 0xffff) out += `\\u${code}?`
+    else {
+      const high = Math.floor((code - 0x10000) / 0x400) + 0xd800
+      const low = ((code - 0x10000) % 0x400) + 0xdc00
+      out += `\\u${high}?\\u${low}?`
+    }
+  }
+  return out
+}
+
+export function exportTextFile(note: InknoteNoteMeta, pages: InknotePage[], format: 'txt' | 'md' | 'rtf'): void {
   const title = note.title || 'Inknote'
   const sections = pages.map((page, index) => {
     const texts = page.content.texts.map((item) => item.text).filter(Boolean)
     if (!texts.length) return ''
     return format === 'md' ? `## Page ${index + 1}\n\n${texts.map((text) => `- ${text.replace(/\n/g, '\n  ')}`).join('\n')}` : `-- Page ${index + 1} --\n${texts.join('\n')}`
   }).filter(Boolean)
+  if (format === 'rtf') {
+    const body = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 sans-serif;}}\\f0\\fs32 ${rtfEscape(title)}\\par\\par ${rtfEscape(sections.join('\n\n') || title)}}`
+    downloadBlob(`${safeFileName(title)}.rtf`, new Blob([body], { type: 'application/rtf;charset=utf-8' }))
+    return
+  }
   const body = format === 'md' ? `# ${title}\n\n${sections.join('\n\n')}` : `${title}\n\n${sections.join('\n\n')}`
   downloadBlob(`${safeFileName(title)}.${format}`, new Blob([body || title], { type: format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8' }))
 }

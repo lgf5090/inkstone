@@ -6362,8 +6362,15 @@ const allowed = new Map([
     "/**\n * Render a page into a fresh canvas at a target CSS width. Used by page thumbnails, covers and\n * exports; the caller owns the returned canvas.\n */",
     "/**\n * Wait for a page's background and images before exporting or snapshotting. Missing or timed-out\n * assets are reported so the caller can warn; they never block the export indefinitely.\n */",
   ]],
+  ["src/client/features/inknote/io/AttachmentsDialog.tsx", [
+    "/** The attachment shelf: upload, open, list and delete files that belong to one note. */",
+  ]],
+  ["src/client/features/inknote/io/ExportPdfDialog.tsx", [
+    "/** PDF export options: page range, cover page, printed header and a cancellable progress line. */",
+  ]],
   ["src/client/features/inknote/io/operations.ts", [
     "/** Browser-side file operations: insert media, import PDF pages and export the current note. */",
+    "/** \"1-3,7\", empty for every page. */",
   ]],
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
@@ -19136,6 +19143,9 @@ const allowed = new Map([
     "/** Literal, case-insensitive replacement across every text box, one new page object per changed page. */",
     "/** Paints every matching text box, or clears every highlight when `color` is null. */",
     "/** A page with nothing on it: no strokes, no text, no image and no background. */",
+  ]],
+  ["src/client/lib/inknote/page-range.ts", [
+    "/** \"1-3,7\" as zero-based page indices, clamped to the pages that exist. */",
   ]],
   ["src/client/lib/inknote/paper.ts", [
     "/**\n * Paper ruling geometry, without a canvas.\n *\n * The reference draws ten paper styles from three numbers: a line pitch, a grid pitch, and a spacing\n * multiplier. Keeping them here lets the engine, the thumbnail renderer and the PDF renderer agree on\n * where the rules fall, and keeps the colour lookup in `@shared/inknote/color` (paperSurfaceFor).\n */",
@@ -34907,6 +34917,7 @@ const allowed = new Map([
     "/**\n * Validate, store and record one upload.\n *\n * The bytes are written before the row so a failed insert can roll the object back; for a cover the\n * row is the fixed id (the note id), which is what makes re-uploading replace the same key.\n */",
     "// The cover key is shared, so only a different backend's old object is safe to queue.",
     "/** The quota figure the upload route reports to the client, kept beside the enforcement. */",
+    "/** The assets one note owns, newest first, optionally narrowed to one kind. */",
   ]],
   ["src/worker/inknote/recordings.ts", [
     "/**\n * Recording metadata rows and the timeline objects that sit beside them in R2.\n *\n * The audio itself is an `inknote_assets` row of kind `audio`; this table carries what the player\n * needs around it (duration, peaks, a title) and the key of the timeline the recorder wrote.\n */",
