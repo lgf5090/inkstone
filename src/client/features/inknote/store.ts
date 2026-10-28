@@ -53,6 +53,7 @@ interface InknoteState {
   loading: boolean
   opening: boolean
   error: string | null
+  unauthorized: boolean
   settingsUpdatedAt: number
   initialized: boolean
 
@@ -305,10 +306,11 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     error: null,
     settingsUpdatedAt: 0,
     initialized: false,
+    unauthorized: false,
 
     async bootstrap() {
       if (get().loading) return
-      set({ loading: true, error: null })
+      set({ loading: true, error: null, unauthorized: false })
       try {
         const [library, settings, templates, trash] = await Promise.all([
           inknoteApi.library(),
@@ -333,6 +335,10 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           ...(trash.notes.length ? {} : {}),
         })
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          set({ loading: false, initialized: true, unauthorized: true, error: null })
+          return
+        }
         set({ loading: false, initialized: true, error: message(error) })
       }
     },

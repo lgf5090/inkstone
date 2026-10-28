@@ -4,7 +4,7 @@ import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { cn } from '../../lib/cn'
 import { useBreakpoint } from '../../lib/hooks'
-import { replaceAddress } from '../../lib/app-history'
+import { navigateToPath, replaceAddress } from '../../lib/app-history'
 import { Button, IconButton } from '../../components/primitives'
 import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
@@ -46,6 +46,7 @@ export function InknoteApp() {
   const initialized = useInknoteStore((state) => state.initialized)
   const loading = useInknoteStore((state) => state.loading)
   const error = useInknoteStore((state) => state.error)
+  const unauthorized = useInknoteStore((state) => state.unauthorized)
   const library = useInknoteStore((state) => state.library)
   const note = useInknoteStore((state) => state.note)
   const pages = useInknoteStore((state) => state.pages)
@@ -325,6 +326,11 @@ const [findOpen, setFindOpen] = useState(false)
   }
 
   if (!initialized && loading) return <div className="flex h-full items-center justify-center bg-[var(--bg-base)]"><LoadingBlock /></div>
+  if (unauthorized) return (
+    <div className="flex h-full items-center justify-center bg-[var(--bg-base)] p-6">
+      <Empty title={t('inknote.login_required')} description={t('inknote.login_body')} action={<Button size="sm" variant="primary" onClick={() => navigateToPath('/login')}>{t('inknote.login')}</Button>} />
+    </div>
+  )
   if (error && !library) return <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-13)] text-[var(--danger)]">{error}</p><button type="button" className="text-[length:var(--text-12)] underline" onClick={() => void bootstrap()}>{t('inknote.reload')}</button></div>
 
   const showLibrary = !compact && !markup && libraryVisible
