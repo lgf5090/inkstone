@@ -36,7 +36,7 @@ async function davSettings(c: { env: AppBindings['Bindings']; req: { header: (na
   const username = separator < 0 ? decoded : decoded.slice(0, separator)
   const password = separator < 0 ? '' : decoded.slice(separator + 1)
   if (username !== others.webDAV.username || !(await verifyPassword(password, others.webDAV.passwordHash))) {
-    return { settings: others, response: new Response('Invalid credentials', { status: 403 }) }
+    return { settings: others, response: new Response('Invalid credentials', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Image bed"' } }) }
   }
   return { settings: others, response: null }
 }

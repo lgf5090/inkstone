@@ -10,6 +10,43 @@ export const IMGBED_CHANNEL_TYPES = [
 export type ImgbedChannelType = (typeof IMGBED_CHANNEL_TYPES)[number]
 export type ImgbedSource = ImgbedChannelType | 'external'
 
+export const IMGBED_CHANNEL_LABELS: Record<string, string> = {
+  telegram: 'Telegram',
+  Telegram: 'Telegram',
+  TelegramNew: 'Telegram',
+  cfr2: 'Cloudflare R2',
+  CloudflareR2: 'Cloudflare R2',
+  s3: 'S3',
+  S3: 'S3',
+  discord: 'Discord',
+  Discord: 'Discord',
+  huggingface: 'HuggingFace',
+  HuggingFace: 'HuggingFace',
+  webdav: 'WebDAV',
+  WebDAV: 'WebDAV',
+  external: 'External',
+  External: 'External',
+}
+
+export function imgbedChannelLabel(source: string | null | undefined): string {
+  if (!source) return ''
+  return IMGBED_CHANNEL_LABELS[source] ?? source
+}
+
+const ENV_CHANNEL_DISPLAY: Record<string, string> = {
+  Telegram_env: 'Telegram',
+  R2_env: 'Cloudflare R2',
+  S3_env: 'S3',
+  Discord_env: 'Discord',
+  HuggingFace_env: 'HuggingFace',
+  WebDAV_env: 'WebDAV',
+}
+
+export function imgbedChannelDisplayName(name: string | null | undefined): string {
+  if (!name) return ''
+  return ENV_CHANNEL_DISPLAY[name] ?? name
+}
+
 export const IMGBED_CATEGORIES = [
   'images',
   'videos',

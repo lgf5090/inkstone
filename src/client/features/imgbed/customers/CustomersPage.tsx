@@ -7,6 +7,7 @@ import { Modal } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { imgbedApi, imgbedQuery } from '../api'
 import type { ImgbedFile } from '@shared/imgbed/model'
+import { imgbedChannelDisplayName } from '@shared/imgbed/model'
 
 interface Customer {
   ip: string
@@ -56,7 +57,7 @@ export function CustomersPage(): ReactElement {
                   <td className="p-2 text-[var(--text-secondary)]">{row.address || '—'}</td>
                   <td className="p-2 text-[var(--text-secondary)]">{row.count}</td>
                   <td className="p-2 text-[var(--text-quaternary)]">{new Date(row.lastUploadAt).toLocaleString()}</td>
-                  <td className="p-2"><Switch checked={row.blocked} onChange={(next) => void toggle(row, next)} label={row.blocked ? 'blocked' : 'allowed'} /></td>
+                  <td className="p-2"><Switch checked={row.blocked} onChange={(next) => void toggle(row, next)} label={row.blocked ? t('imgbed.customers.blocked') : t('imgbed.customers.allowed')} /></td>
                   <td className="p-2 text-right"><IconButton label={t('imgbed.library.files')} onClick={() => void openFiles(row.ip)}><Eye size={13} /></IconButton></td>
                 </tr>
               ))}
@@ -67,7 +68,7 @@ export function CustomersPage(): ReactElement {
       <Modal open={Boolean(files)} onClose={() => setFiles(null)} title={files?.ip ?? ''} width={640}>
         {files && (
           <ul className="max-h-[60vh] divide-y divide-[var(--border-subtle)] overflow-auto">
-            {files.files.map((file) => <li key={file.id} className="flex items-center gap-2 py-2"><span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{file.fileName}</span><Badge tone="neutral">{file.channelName}</Badge></li>)}
+            {files.files.map((file) => <li key={file.id} className="flex items-center gap-2 py-2"><span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{file.fileName}</span><Badge tone="neutral">{imgbedChannelDisplayName(file.channelName)}</Badge></li>)}
             {!files.files.length && <li className="py-4 text-center text-[var(--text-tertiary)]">{t('imgbed.customers.empty')}</li>}
           </ul>
         )}

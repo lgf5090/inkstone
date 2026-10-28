@@ -253,8 +253,17 @@ function validateChannelConfig(type: ImgbedChannelType, config: Record<string, u
   }
   if (type === 'discord') { need(credentials.botToken, 'Bot token'); need(config.channelId, 'Channel id') }
   if (type === 'huggingface') { need(credentials.token, 'Token'); need(config.repo, 'Repo') }
-  if (type === 'webdav') { need(config.baseUrl, 'Base URL') }
+  if (type === 'webdav') {
+    need(config.baseUrl, 'Base URL'); need(credentials.username, 'Username'); need(credentials.password, 'Password')
+  }
   for (const [key, value] of Object.entries(config)) {
+    if (key === 'headers') {
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || Object.entries(value).some(([name, field]) => !/^[A-Za-z][A-Za-z0-9-]{0,31}$/.test(name) || typeof field !== 'string')) {
+        throw new ImgbedSettingsError('Invalid channel headers')
+      }
+      continue
+    }
     if (typeof value !== 'string' && typeof value !== 'boolean' && typeof value !== 'number') throw new ImgbedSettingsError(`Invalid channel field ${key}`)
   }
   for (const [key, value] of Object.entries(credentials)) {

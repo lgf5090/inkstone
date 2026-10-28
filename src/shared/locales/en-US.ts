@@ -10165,7 +10165,6 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_EMAIL_RULES,
     ...EN_US_EMAIL_TEMPLATES,
     ...EN_US_MUSIC,
-    ...EN_US_IMGBED,
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
@@ -10181,4 +10180,4 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_INK_SETTINGS,
 } as const;
 export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED;

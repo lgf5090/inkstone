@@ -27,6 +27,9 @@ function queryFrom(requestUrl: string): UploadQuery {
 }
 
 function uploadFailure(c: { json: (body: unknown, status?: number) => Response }, error: unknown): Response {
+  if (error instanceof ApiError) {
+    return c.json({ error: { code: error.code, message: error.message } }, error.status)
+  }
   if (error instanceof StorageError) {
     return c.json({ error: { code: 'UPLOAD_FAILED', message: error.message } }, error.status as 400 | 413 | 502 | 503)
   }

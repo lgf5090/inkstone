@@ -379,6 +379,13 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     },
   ],
   [
+    'src/client/features/imgbed/library/LibraryPage.tsx',
+    {
+      sites: 1,
+      reason: 'The file grid\'s marquee surface: a pointer-down drag starts a rubber-band selection only when the press lands on empty space, and presses that start on a button, link, input or label are ignored so every control under it keeps its own behaviour. The selection itself is still each card\'s checkbox.',
+    },
+  ],
+  [
     'src/client/features/tags/TagAppearanceMenus.tsx',
     {
       sites: 1,

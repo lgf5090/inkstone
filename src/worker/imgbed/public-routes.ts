@@ -31,7 +31,12 @@ imgbedPublicRoutes.get('/public/list', async (c) => {
   if (dir.startsWith('/')) dir = dir.slice(1)
   if (dir && !dir.endsWith('/')) dir += '/'
   const allowed = allowedDirectories(others.publicBrowse.allowedDir)
-  if (!publicDirectoryAllowed(dir.replace(/\/$/, ''), others.publicBrowse.allowedDir)) {
+  const root = dir === ''
+  const rootEntryAllowed = allowed.some((entry) => {
+    const normalized = entry.replace(/^\/+|\/+$/g, '')
+    return normalized === '*' || normalized === ''
+  })
+  if (!(root && allowed.length > 0) && !publicDirectoryAllowed(dir.replace(/\/$/, ''), others.publicBrowse.allowedDir)) {
     return c.json({ error: 'Directory not allowed' }, 403)
   }
   const search = (url.searchParams.get('search') ?? '').trim().toLowerCase()
@@ -45,12 +50,13 @@ imgbedPublicRoutes.get('/public/list', async (c) => {
     accessStatus: ['normal'],
     ...(security.access.whiteListMode ? { listType: ['White'] } : {}),
   })
+  const hideRootFiles = root && allowed.length > 0 && !rootEntryAllowed
   const directories = result.directories.filter((entry) => publicDirectoryAllowed(entry.replace(/\/$/, ''), others.publicBrowse.allowedDir))
   return c.json({
-    files: result.files.map(publicFile),
+    files: hideRootFiles ? [] : result.files.map(publicFile),
     directories,
-    totalCount: result.totalCount,
-    returnedCount: result.returnedCount,
+    totalCount: hideRootFiles ? 0 : result.totalCount,
+    returnedCount: hideRootFiles ? 0 : result.returnedCount,
     allowedDirs: allowed,
     fromCache: false,
   }, 200, { 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*' })
@@ -98,7 +104,7 @@ imgbedRandomRoutes.get('/random', async (c) => {
   let dir = (url.searchParams.get('dir') ?? '').replace(/\.\./g, '_').replace(/\\/g, '/').replace(/\/{2,}/g, '/')
   if (dir.startsWith('/')) dir = dir.slice(1)
   dir = dir.replace(/\/$/, '')
-  if (!publicDirectoryAllowed(dir, others.randomImageAPI.allowedDir)) {
+  if (dir && !publicDirectoryAllowed(dir, others.randomImageAPI.allowedDir)) {
     return c.json({ error: 'Directory not allowed' }, 403, { 'Access-Control-Allow-Origin': '*' })
   }
   const content = (url.searchParams.get('content') ?? 'image').split(',').map((item) => item.trim()).filter(Boolean)
@@ -114,6 +120,13 @@ imgbedRandomRoutes.get('/random', async (c) => {
     ...(security.access.whiteListMode ? { listType: ['White'] } : {}),
   })
   let files = result.files
+  if (!dir) {
+    const allowedDirs = allowedDirectories(others.randomImageAPI.allowedDir)
+    const allAllowed = allowedDirs.some((entry) => entry.replace(/^\/+|\/+$/g, '') === '*')
+    if (allowedDirs.length && !allAllowed) {
+      files = files.filter((file) => publicDirectoryAllowed(file.directory, others.randomImageAPI.allowedDir))
+    }
+  }
   const beforeOrientation = files
   if (orientation) {
     files = files.filter((file) => {

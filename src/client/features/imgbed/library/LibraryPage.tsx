@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement, type PointerEvent as ReactPointerEvent } from 'react'
 import { downloadZip } from 'client-zip'
 import { ArrowLeft, Copy, Download, FileText, Folder, RefreshCw, Search, Trash2 } from 'lucide-react'
 import type { ImgbedFile, ImgbedListResult } from '@shared/imgbed/model'
+import { imgbedChannelDisplayName, imgbedChannelLabel } from '@shared/imgbed/model'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
@@ -10,9 +11,27 @@ import { copyText } from '../../../lib/clipboard'
 import { downloadBlob } from '../../../lib/export-note'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
-import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetTags } from '../api'
+import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedFileLinks, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetTags } from '../api'
 
 const PAGE_SIZE = 30
+
+const ACCESS_LABEL: Record<string, string> = {
+  None: 'imgbed.library.normal',
+  White: 'imgbed.library.white',
+  Block: 'imgbed.library.blocked',
+}
+
+const LINK_LABEL: Record<string, string> = {
+  originUrl: 'imgbed.link.origin_url',
+  tgId: 'imgbed.link.tg_file_id',
+  s3Location: 'imgbed.link.s3_key',
+  s3CdnFileUrl: 'imgbed.link.s3_cdn_url',
+  webdavPublicUrl: 'imgbed.link.webdav_public_url',
+}
+
+function accessLabel(listType: string): string {
+  return t(ACCESS_LABEL[listType] as never)
+}
 
 function filePath(id: string): string {
   return id.split('/').map(encodeURIComponent).join('/')
@@ -38,7 +57,42 @@ export function LibraryPage(): ReactElement {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detail, setDetail] = useState<ImgbedFile | null>(null)
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ x: number; y: number; base: Set<string> } | null>(null)
   const toast = useUi((state) => state.toast)
+
+  const onGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return
+    const target = event.target as HTMLElement
+    if (target.closest('button,a,input,label')) return
+    dragRef.current = { x: event.clientX, y: event.clientY, base: new Set(selected) }
+    setMarquee({ left: event.clientX, top: event.clientY, width: 0, height: 0 })
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const onGridPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current
+    if (!drag) return
+    const left = Math.min(drag.x, event.clientX)
+    const top = Math.min(drag.y, event.clientY)
+    const width = Math.abs(event.clientX - drag.x)
+    const height = Math.abs(event.clientY - drag.y)
+    setMarquee({ left, top, width, height })
+    const next = new Set(drag.base)
+    gridRef.current?.querySelectorAll<HTMLElement>('[data-file-id]').forEach((element) => {
+      const box = element.getBoundingClientRect()
+      if (box.left < left + width && box.right > left && box.top < top + height && box.bottom > top) {
+        const id = element.dataset.fileId
+        if (id) next.add(id)
+      }
+    })
+    setSelected(next)
+  }
+  const endMarquee = (): void => {
+    dragRef.current = null
+    setMarquee(null)
+  }
 
   const load = useCallback(async (reset = true) => {
     setLoading(true)
@@ -163,7 +217,14 @@ export function LibraryPage(): ReactElement {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-3 md:p-5">
+    <div
+      ref={gridRef}
+      className="flex min-h-full flex-col gap-3 p-3 md:p-5"
+      onPointerDown={onGridPointerDown}
+      onPointerMove={onGridPointerMove}
+      onPointerUp={endMarquee}
+      onPointerCancel={endMarquee}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <IconButton label={t('imgbed.library.folder_up')} onClick={up} disabled={!dir}><ArrowLeft size={15} /></IconButton>
         <div className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">/{dir}</div>
@@ -184,7 +245,7 @@ export function LibraryPage(): ReactElement {
         </Select>
         <Select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} className="w-[130px]">
           <option value="">{t('imgbed.library.channel')}</option>
-          {[...new Set(channels.map((channel) => channel.type))].map((type) => <option key={type} value={type}>{type}</option>)}
+          {[...new Set(channels.map((channel) => channel.type))].map((type) => <option key={type} value={type}>{imgbedChannelLabel(type)}</option>)}
         </Select>
         <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[130px]">
           <option value="time">{t('imgbed.sort.time' as never)}</option>
@@ -198,7 +259,7 @@ export function LibraryPage(): ReactElement {
         <Checkbox checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(data?.files.map((file) => file.id) ?? []))} label={t('imgbed.library.select_all')} />
         {ids.length > 0 && <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('imgbed.library.selected', { count: ids.length })}</span>}
         {ids.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="hidden flex-wrap items-center gap-1 md:flex">
             <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={() => void copySelected()}>{t('imgbed.library.copy_links')}</Button>
             <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={() => void downloadSelected()}>{t('imgbed.library.download')}</Button>
             <Button size="sm" variant="secondary" onClick={() => void moveSelected()}>{t('imgbed.library.move')}</Button>
@@ -208,6 +269,7 @@ export function LibraryPage(): ReactElement {
             <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => void deleteSelected()}>{t('imgbed.library.delete')}</Button>
           </div>
         )}
+        {ids.length > 0 && <Button size="sm" variant="secondary" className="md:hidden" onClick={() => setActionsOpen(true)}>{t('imgbed.library.actions')}</Button>}
       </div>
 
       {loading ? <LoadingBlock label={t('imgbed.common.loading')} /> : error ? (
@@ -216,6 +278,7 @@ export function LibraryPage(): ReactElement {
         <Empty art="search" title={t('imgbed.library.empty')} />
       ) : (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {marquee && <div className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent-soft)]/20" style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
           {data.directories.map((directory) => (
             <button
               key={directory}
@@ -230,7 +293,7 @@ export function LibraryPage(): ReactElement {
           {data.files.map((file) => {
             const image = file.fileType.startsWith('image/') && file.fileType !== 'image/svg+xml'
             return (
-              <div key={file.id} className="group relative overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+              <div key={file.id} data-file-id={file.id} className="group relative overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
                 <div className="absolute left-1.5 top-1.5 z-10 rounded bg-[var(--bg-overlay)]/80 p-0.5">
                   <Checkbox checked={selected.has(file.id)} onChange={() => toggle(file.id)} ariaLabel={file.id} />
                 </div>
@@ -242,7 +305,7 @@ export function LibraryPage(): ReactElement {
                   </div>
                   <div className="px-2 py-1.5">
                     <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-primary)]">{file.fileName}</div>
-                    <div className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{formatBytes(file.sizeBytes)} · {file.channelName}</div>
+                    <div className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{formatBytes(file.sizeBytes)} · {imgbedChannelDisplayName(file.channelName)}</div>
                   </div>
                 </button>
               </div>
@@ -250,6 +313,22 @@ export function LibraryPage(): ReactElement {
           })}
         </div>
       )}
+
+      <Modal open={actionsOpen} onClose={() => setActionsOpen(false)} title={t('imgbed.library.actions' as never)} width={360}>
+        <div className="flex flex-col gap-2">
+          {[
+            { label: t('imgbed.library.copy_links'), run: copySelected, danger: false },
+            { label: t('imgbed.library.download'), run: downloadSelected, danger: false },
+            { label: t('imgbed.library.move'), run: moveSelected, danger: false },
+            { label: t('imgbed.library.tags'), run: tagSelected, danger: false },
+            { label: t('imgbed.library.white'), run: () => accessSelected('White'), danger: false },
+            { label: t('imgbed.library.blocked'), run: () => accessSelected('Block'), danger: false },
+            { label: t('imgbed.library.delete'), run: deleteSelected, danger: true },
+          ].map((action) => (
+            <Button key={action.label} variant={action.danger ? 'danger' : 'secondary'} onClick={() => { setActionsOpen(false); void action.run() }}>{action.label}</Button>
+          ))}
+        </div>
+      </Modal>
 
       <FileDetail file={detail} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); void load() }} />
     </div>
@@ -261,6 +340,7 @@ function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onC
   const [busy, setBusy] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiTags, setAiTags] = useState<string[] | null>(null)
+  const [moreLinks, setMoreLinks] = useState<{ kind: string; value: string }[] | null>(null)
   const [aiBusy, setAiBusy] = useState(false)
   useEffect(() => {
     if (!file) return
@@ -268,6 +348,9 @@ function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onC
   }, [file?.id])
   if (!file) return <Modal open={false} onClose={onClose} title="">{null}</Modal>
   const url = `/imgbed/file/${filePath(file.id)}`
+  const channelLabel = imgbedChannelLabel(file.channel)
+  const channelDisplay = imgbedChannelDisplayName(file.channelName)
+  const channelValue = channelDisplay === channelLabel ? channelDisplay : `${channelDisplay} (${channelLabel})`
   const image = file.fileType.startsWith('image/') && file.fileType !== 'image/svg+xml'
   const rename = async (): Promise<void> => {
     const next = await prompt({ title: t('imgbed.library.rename'), description: t('imgbed.library.rename_prompt'), defaultValue: file.id })
@@ -339,17 +422,25 @@ function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onC
           {image ? <img src={`${url}?from=admin`} alt={file.fileName} className="max-h-[420px] max-w-full object-contain" /> : file.fileType.startsWith('video/') ? <video src={`${url}?from=admin`} controls className="max-h-[420px] max-w-full" /> : file.fileType.startsWith('audio/') ? <audio src={`${url}?from=admin`} controls /> : <FileText size={36} className="text-[var(--text-quaternary)]" />}
         </div>
         <dl className="space-y-1.5 text-[length:var(--text-11-5)]">
-          <Row label={t('imgbed.library.channel')} value={`${file.channelName} (${file.channel})`} />
+          <Row label={t('imgbed.library.channel')} value={channelValue} />
           <Row label={t('imgbed.library.size')} value={formatBytes(file.sizeBytes)} />
-          <Row label={t('imgbed.library.access')} value={file.listType} />
+          <Row label={t('imgbed.library.access')} value={accessLabel(file.listType)} />
           <Row label={t('imgbed.library.created')} value={new Date(file.createdAt).toLocaleString()} />
-          {file.width && file.height ? <Row label={t('imgbed.library.size')} value={`${file.width} × ${file.height}`} /> : null}
+          {file.width && file.height ? <Row label={t('imgbed.library.dimensions' as never)} value={`${file.width} × ${file.height}`} /> : null}
           <Row label={t('imgbed.library.tags')} value={file.tags.join(', ') || '—'} />
           {aiTags && <Row label={t('imgbed.ai.title')} value={aiTags.join(', ')} />}
           <div className="flex flex-wrap gap-1 pt-2">
             <Button size="sm" variant="secondary" icon={<Copy size={12} />} onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' }))}>{t('imgbed.upload.copy')}</Button>
+            <Button size="sm" variant="secondary" onClick={() => {
+              if (moreLinks) { setMoreLinks(null); return }
+              imgbedFileLinks(file.id).then(setMoreLinks).catch((reason: Error) => toast({ title: reason.message, tone: 'danger' }))
+            }}>{t('imgbed.library.more_links' as never)}</Button>
             <a href={`${url}?download=1`} className="inline-flex min-h-8 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} />{t('imgbed.library.download')}</a>
           </div>
+          {moreLinks && <ul className="space-y-1 pt-1">{moreLinks.map((link) => {
+            const value = link.value.startsWith('/') ? `${location.origin}${link.value}` : link.value
+            return <li key={link.kind} className="flex items-center gap-1"><span className="w-24 shrink-0 text-[var(--text-quaternary)]">{t((LINK_LABEL[link.kind] ?? link.kind) as never)}</span><code className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-10-5)] text-[var(--text-secondary)]">{value}</code><IconButton label={t('imgbed.upload.copy')} onClick={() => void copyText(value).then((ok) => toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' }))}><Copy size={12} /></IconButton></li>
+          })}</ul>}
         </dl>
       </div>
     </Modal>

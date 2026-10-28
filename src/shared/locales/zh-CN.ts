@@ -16,7 +16,6 @@ import { ZH_CN_EMAIL_RAW } from './zh-CN-email-raw';
 import { ZH_CN_EMAIL_RULES } from './zh-CN-email-rules';
 import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
-import { ZH_CN_IMGBED } from './zh-CN-imgbed';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
@@ -10166,7 +10165,6 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_EMAIL_RULES,
     ...ZH_CN_EMAIL_TEMPLATES,
     ...ZH_CN_MUSIC,
-    ...ZH_CN_IMGBED,
     ...ZH_CN_TOOLS,
     ...ZH_CN_CALENDAR,
     ...ZH_CN_DEVELOPMENT_DATABASE,

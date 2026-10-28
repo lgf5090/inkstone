@@ -8,6 +8,7 @@ import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { imgbedApi, imgbedExternalUpload, imgbedFetchUrl, imgbedUpload, type ImgbedConfigResponse } from '../api'
+import { imgbedChannelDisplayName, imgbedChannelLabel } from '@shared/imgbed/model'
 
 
 interface UploadItem {
@@ -21,6 +22,13 @@ interface UploadItem {
 }
 
 const HISTORY_KEY = 'imgbed.upload_history'
+
+const UPLOAD_STATUS_LABEL: Record<UploadItem['status'], string> = {
+  waiting: 'imgbed.upload.status_waiting',
+  uploading: 'imgbed.upload.status_uploading',
+  done: 'imgbed.upload.status_done',
+  failed: 'imgbed.upload.status_failed',
+}
 
 async function compressToTarget(file: File, thresholdMB: number, targetMB: number): Promise<File> {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type) || /\.gif$/i.test(file.name)) return file
@@ -68,7 +76,13 @@ async function toWebp(file: File): Promise<File> {
   }
 }
 
-export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement {
+interface DirectoryNode { path: string; children: DirectoryNode[] }
+
+function flattenDirectories(nodes: DirectoryNode[]): string[] {
+  return nodes.flatMap((node) => [`/${node.path.replace(/\/+$/, '')}`, ...flattenDirectories(node.children)])
+}
+
+export function UploadPage({ owner }: { owner: boolean }): ReactElement {
   const [config, setConfig] = useState<ImgbedConfigResponse | null>(null)
   const [loadError, setLoadError] = useState('')
   const [items, setItems] = useState<UploadItem[]>([])
@@ -81,6 +95,7 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
   const [compressBar, setCompressBar] = useState(5)
   const [compressQuality, setCompressQuality] = useState(4)
   const [urlInput, setUrlInput] = useState('')
+  const [directories, setDirectories] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [copyFormat, setCopyFormat] = useState('url')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -104,13 +119,18 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
         setWebp(next.page.defaultConvertToWebp)
         setCompressBar(next.page.defaultCompressBar)
         setCompressQuality(next.page.defaultCompressQuality)
+        if (next.page.showDirectorySuggestions && owner) {
+          imgbedApi<{ tree: DirectoryNode }>('/api/imgbed/directory-tree')
+            .then((result) => setDirectories(flattenDirectories(result.tree.children ?? [])))
+            .catch(() => setDirectories([]))
+        }
         if (next.page.announcement) {
           const acknowledged = Number(localStorage.getItem('imgbed.announcementAck') ?? 0)
           if (!acknowledged || (next.page.announcementRefreshAt ?? 0) > acknowledged) setAnnouncementOpen(true)
         }
       })
       .catch((error: Error) => setLoadError(error.message))
-  }, [])
+  }, [owner])
 
   const channelTypes = useMemo(() => {
     const types = new Set((config?.channels ?? []).map((item) => item.type))
@@ -118,7 +138,7 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
   }, [config])
 
   const channelNames = useMemo(
-    () => (config?.channels ?? []).filter((item) => item.type === channel).map((item) => item.name),
+    () => (config?.channels ?? []).filter((item) => item.type === channel).map((item) => ({ name: item.name, fixed: item.fixed })),
     [config, channel],
   )
 
@@ -146,31 +166,35 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
     addFiles(Array.from(event.dataTransfer.files ?? []))
   }
 
+  const uploadItem = async (item: UploadItem): Promise<void> => {
+    setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'uploading', progress: 0, error: undefined } : entry))
+    try {
+      let file = item.file
+      if (compress) file = await compressToTarget(file, compressBar, compressQuality)
+      if (webp) file = await toWebp(file)
+      const uploadFolder = folder.replace(/^\/+/, '')
+      const result = await imgbedUpload(file, uploadFolder, nameType, channel, channelName, (percent) => {
+        setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, progress: percent } : entry))
+      })
+      const first = result[0]
+      setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'done', progress: 100, url: first?.url } : entry))
+      if (first?.url) {
+        try {
+          const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as { name: string; url: string; time: number }[]
+          history.unshift({ name: item.name, url: first.url, time: Date.now() })
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 500)))
+        } catch {  }
+      }
+    } catch (error) {
+      setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'failed', error: error instanceof Error ? error.message : t('imgbed.upload.failed') } : entry))
+    }
+  }
+
   const start = async (): Promise<void> => {
     if (!items.length || busy) return
     setBusy(true)
     for (const item of items.filter((entry) => entry.status === 'waiting' || entry.status === 'failed')) {
-      setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'uploading', progress: 0, error: undefined } : entry))
-      try {
-        let file = item.file
-        if (compress) file = await compressToTarget(file, compressBar, compressQuality)
-        if (webp) file = await toWebp(file)
-        const uploadFolder = folder.replace(/^\/+/, '')
-        const result = await imgbedUpload(file, uploadFolder, nameType, channel, channelName, (percent) => {
-          setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, progress: percent } : entry))
-        })
-        const first = result[0]
-        setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'done', progress: 100, url: first?.url } : entry))
-        if (first?.url) {
-          try {
-            const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') as { name: string; url: string; time: number }[]
-            history.unshift({ name: item.name, url: first.url, time: Date.now() })
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 500)))
-          } catch {  }
-        }
-      } catch (error) {
-        setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'failed', error: error instanceof Error ? error.message : t('imgbed.upload.failed') } : entry))
-      }
+      await uploadItem(item)
     }
     setBusy(false)
   }
@@ -184,7 +208,10 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
         setItems((current) => [...current, { key: `ext-${Date.now()}`, name: new URL(urlInput.trim()).pathname.split('/').pop() || 'external', file: new File([], 'external'), status: 'done', progress: 100, url: first?.url }])
       } else {
         const fetched = await imgbedFetchUrl(urlInput.trim())
-        addFiles([new File([fetched.blob], fetched.fileName, { type: fetched.blob.type || 'application/octet-stream' })])
+        const file = new File([fetched.blob], fetched.fileName, { type: fetched.blob.type || 'application/octet-stream' })
+        const item = { key: `${Date.now()}-${Math.random().toString(36).slice(2)}`, name: file.name, file, status: 'waiting' as const, progress: 0 }
+        setItems((current) => [...current, item])
+        await uploadItem(item)
       }
       setUrlInput('')
     } catch (error) {
@@ -215,19 +242,20 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex min-w-[180px] flex-1 flex-col gap-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {t('imgbed.upload.folder')}
-          <Input value={folder} onChange={(event) => setFolder(event.target.value)} placeholder={t('imgbed.upload.folder_placeholder' as never)} />
+          <Input value={folder} onChange={(event) => setFolder(event.target.value)} placeholder={t('imgbed.upload.folder_placeholder' as never)} list={directories.length ? 'imgbed-directory-options' : undefined} />
+          {directories.length > 0 && <datalist id="imgbed-directory-options">{directories.map((directory) => <option key={directory} value={directory} />)}</datalist>}
         </label>
         <label className="flex w-[150px] flex-col gap-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {t('imgbed.upload.channel')}
           <Select value={channel} onChange={(event) => { setChannel(event.target.value); setChannelName('') }}>
-            {channelTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            {channelTypes.map((type) => <option key={type} value={type}>{imgbedChannelLabel(type)}</option>)}
           </Select>
         </label>
         <label className="flex w-[150px] flex-col gap-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
           {t('imgbed.upload.channel_name')}
           <Select value={channelName} onChange={(event) => setChannelName(event.target.value)}>
             <option value="">{t('imgbed.public.all')}</option>
-            {channelNames.map((name) => <option key={name} value={name}>{name}</option>)}
+            {channelNames.map((item) => <option key={item.name} value={item.name}>{item.fixed ? imgbedChannelDisplayName(item.name) : item.name}</option>)}
           </Select>
         </label>
         <label className="flex w-[140px] flex-col gap-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
@@ -285,7 +313,7 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
             <li key={item.key} className="flex items-center gap-2 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{item.name}</div>
-                <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatSize(item.file.size)} · {item.status}</div>
+                <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{formatSize(item.file.size)} · {t(UPLOAD_STATUS_LABEL[item.status] as never)}</div>
                 {item.status === 'uploading' && <div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--bg-inset)]"><div className="h-full bg-[var(--accent)] transition-[width]" style={{ width: `${item.progress}%` }} /></div>}
                 {item.error && <div className="text-[length:var(--text-11)] text-[var(--danger)]">{item.error}</div>}
               </div>

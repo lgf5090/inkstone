@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
-import { ArrowLeft, Copy, Download, FileText, Folder, Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type PointerEvent as ReactPointerEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, Download, FileText, Folder, Maximize2, RotateCw, Search, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
@@ -33,6 +33,84 @@ function formatSize(value?: string): string {
   return value ? `${value} MB` : ''
 }
 
+function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; onPrev: () => void; onNext: () => void }): ReactElement {
+  const [zoom, setZoom] = useState(1)
+  const [rotation, setRotation] = useState(0)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const drag = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
+  const touch = useRef<{ x: number; y: number } | null>(null)
+  const clamp = (value: number): number => Math.min(5, Math.max(0.5, value))
+  const reset = (): void => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }) }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'ArrowLeft') onPrev()
+      if (event.key === 'ArrowRight') onNext()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onPrev, onNext])
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    drag.current = { startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const state = drag.current
+    if (!state) return
+    setPan({ x: state.panX + event.clientX - state.startX, y: state.panY + event.clientY - state.startY })
+  }
+  const endDrag = (): void => { drag.current = null }
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    setZoom((current) => clamp(current * (event.deltaY < 0 ? 1.15 : 0.87)))
+  }
+  const onTouchStart = (event: ReactTouchEvent<HTMLDivElement>): void => {
+    const point = event.touches[0]
+    if (point) touch.current = { x: point.clientX, y: point.clientY }
+  }
+  const onTouchEnd = (event: ReactTouchEvent<HTMLDivElement>): void => {
+    const start = touch.current
+    touch.current = null
+    const point = event.changedTouches[0]
+    if (!start || !point || zoom !== 1) return
+    const dx = point.clientX - start.x
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(point.clientY - start.y)) return
+    if (dx > 0) onPrev()
+    else onNext()
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        className="flex max-h-[64vh] min-h-[240px] cursor-grab touch-pan-y items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)] active:cursor-grabbing"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onWheel={onWheel}
+        onDoubleClick={reset}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <img
+          src={url}
+          alt={alt}
+          draggable={false}
+          className="max-h-[64vh] max-w-full select-none object-contain"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotation}deg)` }}
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-1">
+        <IconButton label={t('imgbed.public.prev')} onClick={onPrev}><ChevronLeft size={14} /></IconButton>
+        <IconButton label={t('imgbed.public.zoom_out')} onClick={() => setZoom((value) => clamp(value / 1.2))}><ZoomOut size={14} /></IconButton>
+        <span className="min-w-12 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{Math.round(zoom * 100)}%</span>
+        <IconButton label={t('imgbed.public.zoom_in')} onClick={() => setZoom((value) => clamp(value * 1.2))}><ZoomIn size={14} /></IconButton>
+        <IconButton label={t('imgbed.public.rotate')} onClick={() => setRotation((value) => (value + 90) % 360)}><RotateCw size={14} /></IconButton>
+        <IconButton label={t('imgbed.public.reset')} onClick={reset}><Maximize2 size={14} /></IconButton>
+        <IconButton label={t('imgbed.public.next')} onClick={onNext}><ChevronRight size={14} /></IconButton>
+      </div>
+    </div>
+  )
+}
+
 export function PublicApp(): ReactElement {
   const pathname = usePathname()
   const dir = useMemo(() => directoryOf(pathname), [pathname])
@@ -44,6 +122,15 @@ export function PublicApp(): ReactElement {
   const [loading, setLoading] = useState(false)
   const [preview, setPreview] = useState<PublicFile | null>(null)
   const [start, setStart] = useState(0)
+  const stepPreview = useCallback((delta: number): void => {
+    setPreview((current) => {
+      const files = data?.files ?? []
+      if (!current || !files.length) return current
+      const index = files.findIndex((file) => file.name === current.name)
+      if (index < 0) return current
+      return files[(index + delta + files.length) % files.length] ?? current
+    })
+  }, [data])
 
   const load = useCallback(async (reset: boolean) => {
     setLoading(true)
@@ -54,7 +141,12 @@ export function PublicApp(): ReactElement {
       if (type) params.set('type', type)
       const response = await fetch(`/api/imgbed/public/list?${params.toString()}`, { credentials: 'same-origin' })
       const body = await response.json().catch(() => null) as PublicList & { error?: string }
-      if (!response.ok) throw new Error(body?.error ?? t('imgbed.common.error'))
+      if (!response.ok) {
+        const known = body?.error === 'Directory not allowed'
+          ? t('imgbed.public.directory_denied' as never)
+          : body?.error
+        throw new Error(known ?? t('imgbed.common.error'))
+      }
       if (reset) {
         setData(body)
         setStart(body.files.length)
@@ -141,7 +233,7 @@ export function PublicApp(): ReactElement {
           const url = `/imgbed/file/${filePath(preview.name)}`
           if (fileType.startsWith('video/')) return <video src={url} controls autoPlay className="max-h-[70vh] w-full" />
           if (fileType.startsWith('audio/')) return <audio src={url} controls autoPlay className="w-full" />
-          if (fileType.startsWith('image/')) return <img src={url} alt={preview.name} className="max-h-[70vh] w-full object-contain" />
+          if (fileType.startsWith('image/')) return <ImagePreview url={url} alt={preview.name} onPrev={() => stepPreview(-1)} onNext={() => stepPreview(1)} />
           return <div className="p-8 text-center text-[var(--text-tertiary)]">{t('imgbed.public.other')}</div>
         })()}
       </Modal>

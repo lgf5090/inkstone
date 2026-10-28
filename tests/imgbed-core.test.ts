@@ -6,6 +6,7 @@ import { buildFileId, categoryFor, normalizeTags, parseSearchQuery, sanitizeFold
 import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed/access'
 import { scopeAllows } from '../src/worker/imgbed/tokens'
 import { insertFile, listFiles, getFileTags, setFileTags } from '../src/worker/imgbed/store'
+import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
 
 function database() {
   const sqlite = new DatabaseSync(':memory:')
@@ -80,6 +81,16 @@ describe('imgbed access', () => {
     expect(scopeAllows(['upload'], 'upload')).toBe(true)
     expect(scopeAllows(['upload'], 'delete')).toBe(false)
     expect(scopeAllows(['manage'], 'delete')).toBe(true)
+  })
+})
+
+describe('imgbed WebDAV', () => {
+  it('advertises the DAV methods on OPTIONS', async () => {
+    const response = await imgbedDavRoutes.request('/', { method: 'OPTIONS' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('DAV')).toBe('1')
+    expect(response.headers.get('Allow')).toContain('PROPFIND')
+    expect(response.headers.get('MS-Author-Via')).toBe('DAV')
   })
 })
 

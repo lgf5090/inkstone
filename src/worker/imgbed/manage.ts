@@ -4,6 +4,7 @@ import { ApiError } from '../lib/errors'
 import {
   IMGBED_LINK_FORMATS,
   fileIdentity,
+  linkContentsFor,
   linkFor,
   normalizeTags,
   sanitizeFileName,
@@ -14,6 +15,7 @@ import {
 } from '@shared/imgbed/model'
 import { parseSettingsGroup, type ImgbedOthersSettings, type ImgbedSecuritySettings } from '@shared/imgbed/settings'
 import { requireImgbedActor } from './auth'
+import { listResolvedChannels } from './channels'
 import {
   addFileTags,
   allDirectories,
@@ -35,7 +37,6 @@ import {
   customerRows,
 } from './store'
 import { blockedIps, blockIp, unblockIp } from './tokens'
-import { listResolvedChannels } from './channels'
 import { deleteWholeFile, moveWholeFile } from './storage'
 
 export const imgbedManageRoutes = new Hono<AppBindings>()
@@ -117,6 +118,24 @@ imgbedManageRoutes.get('/manage/quota', async (c) => {
   const channels = await listResolvedChannels(c.env, c.env.DB, true)
   const usage = await getChannelUsage(c.env.DB)
   return c.json({ channels, usage })
+})
+
+imgbedManageRoutes.get('/manage/files/links', async (c) => {
+  await requireImgbedActor(c, 'list')
+  const id = new URL(c.req.url).searchParams.get('id') ?? ''
+  const file = await getFile(c.env.DB, id)
+  if (!file) throw ApiError.notFound('File not found')
+  const channels = await listResolvedChannels(c.env, c.env.DB, true)
+  const channel = channels.find((item) => item.type === file.source && item.name === file.channelName)
+  const base = String(channel?.config.publicUrl ?? channel?.config.cdnDomain ?? '').replace(/\/+$/, '')
+  const links = linkContentsFor(file.channel).map((kind) => {
+    if (kind === 'tgId') return { kind, value: file.objectKey }
+    if (kind === 's3Location') return { kind, value: file.objectKey }
+    if (kind === 's3CdnFileUrl') return { kind, value: base ? `${base}/${file.objectKey}` : '' }
+    if (kind === 'webdavPublicUrl') return { kind, value: base ? `${base}/${file.objectKey}` : '' }
+    return { kind, value: `/imgbed/file/${file.id}` }
+  }).filter((item) => item.value)
+  return c.json({ links })
 })
 
 imgbedManageRoutes.get('/manage/files', async (c) => {

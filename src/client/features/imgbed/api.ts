@@ -201,6 +201,11 @@ export async function imgbedSetAccess(ids: string[], listType: string, label?: s
   await imgbedApi('/api/imgbed/manage/files/access', { method: 'POST', body: { ids, listType, label } })
 }
 
+export async function imgbedFileLinks(id: string): Promise<{ kind: string; value: string }[]> {
+  const result = await imgbedApi<{ links: { kind: string; value: string }[] }>(`/api/imgbed/manage/files/links${imgbedQuery({ id })}`)
+  return result.links
+}
+
 export async function imgbedSetTags(id: string, tags: string[], action: 'set' | 'add' | 'remove' = 'add'): Promise<string[]> {
   const result = await imgbedApi<{ results: { tags: string[] }[] }>('/api/imgbed/manage/tags', { method: 'POST', body: { id, tags, action } })
   return result.results[0]?.tags ?? []
