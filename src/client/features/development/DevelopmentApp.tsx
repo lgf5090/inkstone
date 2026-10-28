@@ -1,14 +1,20 @@
+import { Suspense, lazy } from 'react'
 import { PanelLeft, Terminal } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useBreakpoint } from '../../lib/hooks'
 import { usePathname } from '../../lib/app-history'
 import { Drawer, Tooltip } from '../../components/overlay'
 import { IconButton } from '../../components/primitives'
+import { LoadingBlock } from '../../components/feedback'
 import { Resizer } from '../shell/Resizer'
 import { DevelopmentSidebar } from './DevelopmentSidebar'
 import { DatabaseApp } from './database/DatabaseApp'
 import { XgetApp } from './xget/XgetApp'
 import { DEVELOPMENT_NAV_WIDTH, developmentModuleForPath, useDevelopmentStore } from './store'
+
+const ApiTesterApp = lazy(() =>
+  import('./api-tester/ApiTesterApp').then((module) => ({ default: module.ApiTesterApp })),
+)
 
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
@@ -41,7 +47,9 @@ export function DevelopmentApp() {
             <span className="truncate text-[length:var(--text-13)] font-normal text-[var(--text-secondary)]">
               {moduleId === 'xget'
                 ? t('development.xget.module_name')
-                : t('development.database.module_name')}
+                : moduleId === 'api-tester'
+                  ? t('development.apitester.module_name')
+                  : t('development.database.module_name')}
             </span>
           </div>
         </header>
@@ -74,7 +82,15 @@ export function DevelopmentApp() {
         )}
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
-          {moduleId === 'xget' ? <XgetApp /> : <DatabaseApp />}
+          {moduleId === 'xget' ? (
+            <XgetApp />
+          ) : moduleId === 'api-tester' ? (
+            <Suspense fallback={<LoadingBlock />}>
+              <ApiTesterApp />
+            </Suspense>
+          ) : (
+            <DatabaseApp />
+          )}
         </main>
       </div>
 

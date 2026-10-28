@@ -68,6 +68,7 @@ import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirec
 import { developmentDatabaseRoutes } from './routes/development-database'
 import { developmentXgetRoutes } from './routes/development-xget'
 import { isXgetProxyPath } from './development/xget/paths'
+import { developmentApiTesterRoutes } from './routes/development-api-tester'
 import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
@@ -232,6 +233,7 @@ export function createApp() {
   app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
   app.route('/api/development/database', developmentDatabaseRoutes)
   app.route('/api/development/xget', developmentXgetRoutes)
+  app.route('/api/development/api-tester', developmentApiTesterRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

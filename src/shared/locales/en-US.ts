@@ -19,6 +19,7 @@ import { EN_US_MUSIC } from './en-US-music';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
+import { EN_US_DEVELOPMENT_APITESTER } from './en-US-development-apitester';
 import { EN_US_DEVELOPMENT_XGET_SHELL } from './en-US-development-xget-shell';
 import { EN_US_DEVELOPMENT_XGET_CORE } from './en-US-development-xget-core';
 import { EN_US_DEVELOPMENT_XGET_PLATFORMS } from './en-US-development-xget-platforms';
@@ -10165,6 +10166,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
+    ...EN_US_DEVELOPMENT_APITESTER,
     ...EN_US_DEVELOPMENT_XGET_SHELL,
     ...EN_US_DEVELOPMENT_XGET_CORE,
     ...EN_US_DEVELOPMENT_XGET_PLATFORMS,

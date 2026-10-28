@@ -355,6 +355,7 @@ const cloudflareCatalogFiles = {
 const developmentCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-development-database.ts'), 'EN_US_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'en-US-development-apitester.ts'), 'EN_US_DEVELOPMENT_APITESTER'],
         [path.join(localeRoot, 'en-US-development-xget-shell.ts'), 'EN_US_DEVELOPMENT_XGET_SHELL'],
         [path.join(localeRoot, 'en-US-development-xget-core.ts'), 'EN_US_DEVELOPMENT_XGET_CORE'],
         [path.join(localeRoot, 'en-US-development-xget-platforms.ts'), 'EN_US_DEVELOPMENT_XGET_PLATFORMS'],
@@ -363,6 +364,7 @@ const developmentCatalogFiles = {
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-development-database.ts'), 'ZH_CN_DEVELOPMENT_DATABASE'],
+        [path.join(localeRoot, 'zh-CN-development-apitester.ts'), 'ZH_CN_DEVELOPMENT_APITESTER'],
         [path.join(localeRoot, 'zh-CN-development-xget-shell.ts'), 'ZH_CN_DEVELOPMENT_XGET_SHELL'],
         [path.join(localeRoot, 'zh-CN-development-xget-core.ts'), 'ZH_CN_DEVELOPMENT_XGET_CORE'],
         [path.join(localeRoot, 'zh-CN-development-xget-platforms.ts'), 'ZH_CN_DEVELOPMENT_XGET_PLATFORMS'],
@@ -377,7 +379,9 @@ const catalogFragments = {
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
 // not carry the interface's seven thousand keys to reach twenty sentences.
-const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts'), path.join(localeRoot, 'zh-CN-calendar-notify.ts'), path.join(localeRoot, 'zh-CN-quick-add-keywords.ts')];
+// The API Tester's mock pools are sample data a user generates, not interface copy: a Chinese
+// mock record is what the zh generator is asked to produce.
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts'), path.join(localeRoot, 'zh-CN-calendar-notify.ts'), path.join(localeRoot, 'zh-CN-quick-add-keywords.ts'), path.join(localeRoot, '..', 'development/api-tester/mock-data.ts')];
 function readCatalog(variableFile, variableName, fragments) {
     const messages = readMessages(variableFile, variableName);
     for (const [file, name] of fragments) {
