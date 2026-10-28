@@ -152,6 +152,7 @@ export function VariableAutocomplete({
     value,
     placeholder,
     'aria-label': ariaLabel,
+    role: 'combobox',
     'aria-expanded': menu !== null,
     'aria-controls': menu ? menuId : undefined,
     'aria-autocomplete': 'list' as const,

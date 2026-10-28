@@ -17,11 +17,12 @@ import {
 import type { CollectionNode, HttpMethod, RequestKind } from '@shared/development/api-tester/types'
 import type { MenuItem, MenuSubmenuContext } from '../../../../components/overlay'
 import { Menu, MenuSubmenuList, useContextMenu } from '../../../../components/overlay'
-import { Badge, IconButton } from '../../../../components/primitives'
+import { IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { treeIndent } from '../../../../lib/tree/indent'
+import { StatusPill } from './StatusPill'
 import { isImeComposing } from '../../../../lib/ime'
 import { childrenOf, subtreeIds } from '../lib/tree'
 
@@ -36,14 +37,14 @@ export interface CollectionDragState {
   position: 'before' | 'after'
 }
 
-const METHOD_CLASS: Record<HttpMethod, string> = {
-  GET: 'text-[var(--success)]',
-  POST: 'text-[var(--warning)]',
-  PUT: 'text-[var(--accent)]',
-  PATCH: 'text-[var(--accent)]',
-  DELETE: 'text-[var(--danger)]',
-  HEAD: 'text-[var(--text-tertiary)]',
-  OPTIONS: 'text-[var(--text-tertiary)]',
+const METHOD_ICON_COLOR: Record<HttpMethod, string> = {
+  GET: 'var(--success)',
+  POST: 'var(--warning)',
+  PUT: 'var(--accent)',
+  PATCH: 'var(--accent)',
+  DELETE: 'var(--danger)',
+  HEAD: 'var(--text-tertiary)',
+  OPTIONS: 'var(--text-tertiary)',
 }
 
 function statusTone(status: number): 'success' | 'warning' | 'danger' {
@@ -291,7 +292,7 @@ export function CollectionRow({
         className={cn(
           'group flex items-center gap-1 rounded-[var(--r-sm)] pr-1 text-[length:var(--text-12)]',
           compact ? 'min-h-9' : 'min-h-7',
-          active ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+          active ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
           dropPosition === 'before' && 'shadow-[inset_0_2px_0_0_var(--accent)]',
           dropPosition === 'after' && 'shadow-[inset_0_-2px_0_0_var(--accent)]',
         )}
@@ -335,7 +336,7 @@ export function CollectionRow({
         ) : node.kind === 'websocket' ? (
           <Radio size={12} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
         ) : (
-          <Globe size={12} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+          <Globe size={12} className="shrink-0" style={{ color: METHOD_ICON_COLOR[method] }} aria-hidden="true" />
         )}
 
         {renaming ? (
@@ -370,16 +371,16 @@ export function CollectionRow({
             className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
           >
             {!isFolder && (node.kind ?? 'rest') === 'rest' && (
-              <span className={cn('shrink-0 font-mono text-[length:var(--text-9)] font-semibold', METHOD_CLASS[method])}>{method}</span>
+              <span className="shrink-0 font-mono text-[length:var(--text-9)] font-semibold text-[var(--text-secondary)]">{method}</span>
             )}
             <span className="truncate">{node.name}</span>
           </button>
         )}
 
         {!isFolder && typeof node.lastStatus === 'number' && node.lastStatus > 0 && (
-          <Badge tone={statusTone(node.lastStatus)} className="shrink-0 px-1 font-mono text-[length:var(--text-9)]">
+          <StatusPill tone={statusTone(node.lastStatus)} className="px-1 text-[length:var(--text-9)]">
             {node.lastStatus}
-          </Badge>
+          </StatusPill>
         )}
 
         <span

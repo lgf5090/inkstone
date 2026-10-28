@@ -112,7 +112,7 @@ export function DevelopmentSidebar({
                 'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[length:var(--text-13)]',
                 'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
                 selected
-                  ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+                  ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
               )}
             >

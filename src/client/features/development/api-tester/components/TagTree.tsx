@@ -74,7 +74,7 @@ function TagTreeRow({
       <div
         className={cn(
           'group flex min-h-7 items-center gap-1 rounded-[var(--r-sm)] pr-1.5 text-[length:var(--text-12)]',
-          activeTagId === node.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+          activeTagId === node.id ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
         )}
         style={{ paddingLeft: treeIndent(depth) + 2 }}
         data-tag-id={node.id}

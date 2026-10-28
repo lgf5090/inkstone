@@ -26,6 +26,7 @@ import { ResponseBody, readResponseBodyShape, type BodyMode } from './ResponseBo
 import { TimingView } from './TimingView'
 import { TestResultsView } from './TestResultsView'
 import { CodegenPanel } from './CodegenPanel'
+import { StatusPill } from './StatusPill'
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timing' | 'code' | 'tests'
 
@@ -224,15 +225,15 @@ export function ResponsePanel({
     <div className="flex h-full min-h-0 flex-col" data-slot="api-tester-response-panel">
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-subtle)] px-3 py-1.5">
         {result.error ? (
-          <Badge tone="danger">{t('development.apitester.status_error')}</Badge>
+          <StatusPill tone="danger">{t('development.apitester.status_error')}</StatusPill>
         ) : (
-          <Badge tone={statusTone(result.status)}>
+          <StatusPill tone={statusTone(result.status)}>
             {result.status} {result.statusText}
-          </Badge>
+          </StatusPill>
         )}
         <Badge tone="neutral">{result.durationMs} {t('development.apitester.ms')}</Badge>
         <Badge tone="neutral">{formatSize(result.sizeBytes)}</Badge>
-        {result.redirected && <Badge tone="warning">{t('development.apitester.redirected')}</Badge>}
+        {result.redirected && <StatusPill tone="warning">{t('development.apitester.redirected')}</StatusPill>}
         <div className="flex-1" />
         <div className="flex min-w-0 items-center gap-0.5">
           <CopyButton text={result.body} disabled={!result.body} className="h-6 px-2" />

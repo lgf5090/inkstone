@@ -6,6 +6,7 @@ import { t } from '../../../lib/i18n'
 import { useBreakpoint } from '../../../lib/hooks'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
+import { Drawer } from '../../../components/overlay'
 import { useApiTesterStore } from './store'
 import { sendActiveRequest } from './send'
 import { AppToolbar, type ToolbarDialog } from './components/AppToolbar'
@@ -156,21 +157,23 @@ export function ApiTesterApp() {
           )}
         </main>
       </div>
-      {compact && collectionsOpen && (
-        <div className="fixed inset-0 z-[var(--z-drawer)] flex" role="dialog" aria-modal="true" aria-label={t('development.apitester.collections')}>
-          <div className="absolute inset-0 bg-[var(--scrim)]" onClick={() => setCollectionsOpen(false)} aria-hidden="true" />
-          <div className="relative flex h-full w-[85vw] max-w-sm flex-col bg-[var(--bg-overlay)] shadow-[var(--shadow-modal)]">
-            <Suspense fallback={<LoadingBlock />}>
-              <CollectionsPanel
-                compact
-                onOpenTagManager={() => { setCollectionsOpen(false); setDialog('tags') }}
-                onRunCollection={(folder) => { setRunnerFolder(folder); setCollectionsOpen(false) }}
-                onRequestClose={() => setCollectionsOpen(false)}
-              />
-            </Suspense>
-          </div>
-        </div>
-      )}
+      <Drawer
+        open={compact && collectionsOpen}
+        onClose={() => setCollectionsOpen(false)}
+        side="left"
+        width={340}
+        title={t('development.apitester.collections')}
+        bodyClassName="p-0"
+      >
+        <Suspense fallback={<LoadingBlock />}>
+          <CollectionsPanel
+            compact
+            onOpenTagManager={() => { setCollectionsOpen(false); setDialog('tags') }}
+            onRunCollection={(folder) => { setRunnerFolder(folder); setCollectionsOpen(false) }}
+            onRequestClose={() => setCollectionsOpen(false)}
+          />
+        </Suspense>
+      </Drawer>
       <EnvironmentDialog open={dialog === 'env'} onClose={() => setDialog(null)} />
       <WorkspaceManagerDialog open={dialog === 'workspaces'} onClose={() => setDialog(null)} />
       <HistoryDialog open={dialog === 'history'} onClose={() => setDialog(null)} />

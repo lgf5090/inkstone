@@ -39,6 +39,7 @@ export function TabBar({
         return (
           <div
             key={node.id}
+            role="presentation"
             className={cn(
               'group flex min-w-[132px] max-w-[220px] items-center gap-1.5 border-r border-[var(--border-subtle)] px-2',
               'border-t-2 text-[length:var(--text-12)] transition-colors',
@@ -53,14 +54,24 @@ export function TabBar({
               aria-selected={active}
               tabIndex={active ? 0 : -1}
               onClick={() => onSelect(node.id)}
+              aria-keyshortcuts="Delete Backspace"
               onKeyDown={(event) => {
+                const list = event.currentTarget.closest('[role="tablist"]')
+                if (event.key === 'Delete' || event.key === 'Backspace') {
+                  event.preventDefault()
+                  const index = tabs.findIndex((entry) => entry.id === node.id)
+                  const neighbor = tabs[index + 1] ?? tabs[index - 1]
+                  onClose(node.id)
+                  if (neighbor) list?.querySelector<HTMLElement>(`[data-tab="${neighbor.id}"]`)?.focus()
+                  return
+                }
                 if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
                 event.preventDefault()
                 const index = tabs.findIndex((entry) => entry.id === node.id)
                 const next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]
                 if (next) {
+                  list?.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus()
                   onSelect(next.id)
-                  event.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-tab="${next.id}"]`)?.focus()
                 }
               }}
               data-tab={node.id}
@@ -81,7 +92,8 @@ export function TabBar({
             </button>
             <button
               type="button"
-              aria-label={t('development.apitester.tabs.close')}
+              aria-hidden="true"
+              tabIndex={-1}
               title={t('development.apitester.tabs.close')}
               onClick={() => onClose(node.id)}
               className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"

@@ -145,12 +145,12 @@ export function JsonTree({
               aria-label={open ? t('development.apitester.common.collapse') : t('development.apitester.common.expand')}
               aria-expanded={open}
               onClick={() => toggle(keyPath)}
-              className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-primary)]"
+              className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-primary)]"
             >
               <ChevronRight size={12} className={cn('transition-transform', open && 'rotate-90')} />
             </button>
           ) : (
-            <span className="size-4 shrink-0" />
+            <span className="size-6 shrink-0" />
           )}
           <span className="shrink-0 font-mono text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{label}</span>
           <span className="shrink-0 text-[var(--text-quaternary)]">:</span>
