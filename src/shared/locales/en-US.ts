@@ -20,6 +20,10 @@ import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
 import { EN_US_DEVELOPMENT_XGET_SHELL } from './en-US-development-xget-shell';
+import { EN_US_DEVELOPMENT_XGET_CORE } from './en-US-development-xget-core';
+import { EN_US_DEVELOPMENT_XGET_PLATFORMS } from './en-US-development-xget-platforms';
+import { EN_US_DEVELOPMENT_XGET_GUIDES } from './en-US-development-xget-guides';
+import { EN_US_DEVELOPMENT_XGET_SETTINGS } from './en-US-development-xget-settings';
 import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
@@ -10162,6 +10166,10 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
     ...EN_US_DEVELOPMENT_XGET_SHELL,
+    ...EN_US_DEVELOPMENT_XGET_CORE,
+    ...EN_US_DEVELOPMENT_XGET_PLATFORMS,
+    ...EN_US_DEVELOPMENT_XGET_GUIDES,
+    ...EN_US_DEVELOPMENT_XGET_SETTINGS,
     ...EN_US_INK,
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,

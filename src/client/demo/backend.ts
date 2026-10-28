@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { APP_VERSION, LIMITS, mergeSettingsPatch } from '@shared/constants'
+import { XGET_PLATFORMS } from '@shared/development/xget/catalog'
+import { XGET_CONFIG_DEFAULTS } from '@shared/development/xget/constants'
 import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { parseTemplateLibraryExport } from '@shared/note-templates'
 import { parseQuickAddText } from '@shared/quickadd'
@@ -155,6 +157,36 @@ export function createDemoBackend(): DemoBackend {
   app.get('/api/mcp', (c) => c.json(demoMcpSettings()))
   app.all('/api/mcp', () => apiError(403, 'forbidden', 'MCP is display-only in the demo'))
   app.all('/api/mcp/*', () => apiError(403, 'forbidden', 'MCP is display-only in the demo'))
+
+  app.get('/api/development/xget/settings', (c) =>
+    c.json({
+      ok: true,
+      data: {
+        proxy_base_url: `${new URL(c.req.url).origin}/api/development/xget`,
+        platform_count: XGET_PLATFORMS.length,
+        has_proxy_token: false,
+        can_manage: false,
+        config: XGET_CONFIG_DEFAULTS,
+      },
+    }),
+  )
+  app.get('/api/development/xget/stats/summary', (c) =>
+    c.json({
+      ok: true,
+      data: {
+        total: 0,
+        ok: 0,
+        okRate: 0,
+        today: 0,
+        platformCount: 0,
+        platforms: [],
+        trend: [],
+        trendByCategory: [],
+      },
+    }),
+  )
+  app.all('/api/development/xget', () => apiError(403, 'forbidden', 'Xget is display-only in the demo'))
+  app.all('/api/development/xget/*', () => apiError(403, 'forbidden', 'Xget is display-only in the demo'))
 
   app.get('/api/notes', (c) => {
     const query = c.req.query()
