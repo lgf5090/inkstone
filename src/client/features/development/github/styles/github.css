@@ -1,0 +1,30 @@
+.github-readme {
+  max-width: none;
+  padding-block: 0;
+  font-size: var(--text-12);
+  line-height: 1.65;
+}
+
+.github-readme img {
+  max-width: 100%;
+  height: auto;
+}
+
+.github-readme pre {
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+}
+
+.github-readme table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.github-readme h1,
+.github-readme h2,
+.github-readme h3 {
+  scroll-margin-top: 16px;
+}

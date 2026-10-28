@@ -48,5 +48,6 @@ describe('the addresses the client routes on its own', () => {
     expect(tabIdForPath('/development')).toBe('development')
     expect(tabIdForPath('/development/')).toBe('development')
     expect(tabIdForPath('/development/database')).toBe('development')
+    expect(tabIdForPath('/development/github')).toBe('development')
   })
 })

@@ -15,6 +15,9 @@ import { DEVELOPMENT_NAV_WIDTH, developmentModuleForPath, useDevelopmentStore } 
 const ApiTesterApp = lazy(() =>
   import('./api-tester/ApiTesterApp').then((module) => ({ default: module.ApiTesterApp })),
 )
+const GithubApp = lazy(() =>
+  import('./github/GithubApp').then((module) => ({ default: module.GithubApp })),
+)
 
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
@@ -49,7 +52,9 @@ export function DevelopmentApp() {
                 ? t('development.xget.module_name')
                 : moduleId === 'api-tester'
                   ? t('development.apitester.module_name')
-                  : t('development.database.module_name')}
+                  : moduleId === 'github'
+                    ? t('development.github.module_name')
+                    : t('development.database.module_name')}
             </span>
           </div>
         </header>
@@ -87,6 +92,10 @@ export function DevelopmentApp() {
           ) : moduleId === 'api-tester' ? (
             <Suspense fallback={<LoadingBlock />}>
               <ApiTesterApp />
+            </Suspense>
+          ) : moduleId === 'github' ? (
+            <Suspense fallback={<LoadingBlock />}>
+              <GithubApp />
             </Suspense>
           ) : (
             <DatabaseApp />

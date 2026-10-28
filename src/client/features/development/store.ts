@@ -6,11 +6,13 @@ export const DEVELOPMENT_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type DevelopmentModuleId = 'database' | 'api-tester' | 'xget'
+export type DevelopmentModuleId = 'database' | 'api-tester' | 'xget' | 'github'
 
 export function developmentModuleForPath(pathname: string): DevelopmentModuleId {
   if (pathname.startsWith('/development/api-tester')) return 'api-tester'
-  return pathname.startsWith('/development/xget') ? 'xget' : 'database'
+  if (pathname.startsWith('/development/xget')) return 'xget'
+  if (pathname.startsWith('/development/github')) return 'github'
+  return 'database'
 }
 
 const STORAGE_KEY = 'inkstone.development.layout'
