@@ -848,6 +848,12 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/routes/reader-library.ts', { sites: 1, reason: 'Line 600 deletes a replaced cover object and ignores the failure; the new cover is already stored.' }],
   ['src/worker/routes/tools-password.ts', { sites: 1, reason: 'Line 319 deletes a backup object from R2 after its record is already gone from D1; a failed delete leaves one unreachable blob, and the response has no surface left to report it on — the same disposition the reader library\'s replaced cover carries.' }],
   ['src/worker/routes/transfer.ts', { sites: 1, reason: 'Line 580 rolls attachments back after a failed mapping write; the mapping SQL now lives in transfer/store.ts, but this swallow is the route\'s and a failed rollback has nowhere to report.' }],
+  ['src/worker/imgbed/dav.ts', { sites: 2, reason: 'Both discard a response body after a WebDAV method whose status has already decided the answer; a failed cancel cannot change it.' }],
+  ['src/worker/imgbed/manage.ts', { sites: 1, reason: 'A malformed restored settings group is rejected by parseSettingsGroup and counted as failed; the catch only keeps the other groups restoring.' }],
+  ['src/worker/imgbed/serve.ts', { sites: 2, reason: 'Both cancel a body that has already been answered by a 304 or HEAD, where a failed cancel has no surface left to report on.' }],
+  ['src/worker/imgbed/storage.ts', { sites: 18, reason: 'Each cancels or aborts an upstream body after its status has decided the outcome (S3/Discord/HF/WebDAV reads and deletes); a failed cancel cannot change a response already chosen.' }],
+  ['src/worker/imgbed/upload-routes.ts', { sites: 2, reason: 'One discards a redirect body while following the fetch-url guard, and one deletes a failed upload session; both are cleanup after the reported outcome.' }],
+  ['src/worker/imgbed/upload-service.ts', { sites: 2, reason: 'Both release a remote object after a D1 write failed, where the original failure is the one returned to the caller.' }],
 ])
 
 /**
@@ -1001,6 +1007,9 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/tools/qrcode/content/QrContentEditor.tsx', { sites: 1, reason: 'Restoring a saved draft is best-effort: an unreadable draft leaves the editor empty instead of stopping the reader from typing a new one.' }],
   ['src/client/features/tools/qrcode/history/QrHistoryView.tsx', { sites: 1, reason: 'A record whose stored options do not parse is restored without them: the toast on the next line still tells the reader the record was opened, and the defaults of the generator are what it falls back to.' }],
   ['src/client/features/tools/qrcode/settings/QrSettingsView.tsx', { sites: 1, reason: 'The first read of saved preferences falls back to the defaults the component already holds; every save reports its own failure through the toast in handleSave.' }],
+  ['src/client/features/imgbed/api.ts', { sites: 1, reason: 'Deleting an upload session after the part that failed is already reported to the caller; a refused cleanup leaves only an expired row for the cron sweep.' }],
+  ['src/client/features/imgbed/library/LibraryPage.tsx', { sites: 1, reason: 'Reading the channel list for the filter dropdown; the file list still loads and the filter simply stays empty when that read fails.' }],
+  ['src/client/features/imgbed/upload/UploadPage.tsx', { sites: 1, reason: 'Reading saved upload history for the history panel; an unreadable history is shown as empty and never blocks an upload.' }],
 ])
 
 /**

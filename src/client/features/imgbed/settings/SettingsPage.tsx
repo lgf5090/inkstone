@@ -90,7 +90,7 @@ function StatusTab(): ReactElement {
             {stats.uploadTrend.total.map((value, index) => (
               <div key={index} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                 <div className="w-full rounded-t bg-[var(--accent-soft)]" style={{ height: `${Math.max(2, value / Math.max(1, ...stats.uploadTrend.total) * 100)}%` }} title={`${stats.uploadTrend.labels[index]}: ${value}`} />
-                <span className="max-w-full truncate text-[9px] text-[var(--text-quaternary)]">{stats.uploadTrend.labels[index]}</span>
+                <span className="max-w-full truncate text-[length:var(--text-9)] text-[var(--text-quaternary)]">{stats.uploadTrend.labels[index]}</span>
               </div>
             ))}
           </div>
