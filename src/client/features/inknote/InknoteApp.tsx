@@ -28,8 +28,9 @@ import { RecordingPanel } from './tools/RecordingPanel'
 import { AssistantDock } from '../chat/AssistantDock'
 import { AttachmentsDialog } from './io/AttachmentsDialog'
 import { ExportPdfDialog } from './io/ExportPdfDialog'
+import { PdfImportDialog } from './io/PdfImportDialog'
 import { useInknoteTts } from './tools/use-inknote-tts'
-import { exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
+import { exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -85,6 +86,7 @@ const [findOpen, setFindOpen] = useState(false)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [pickerMode, setPickerMode] = useState<'open' | 'copy' | null>(null)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
@@ -383,7 +385,7 @@ const [findOpen, setFindOpen] = useState(false)
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} />
       <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
-      <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void insertPdf(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((id) => { if (id) toast({ title: t('inknote.saved') }) }).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setPdfFile(file) }} />
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importNoteFile(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((count) => toast({ title: `${count}` })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       {moreMenu && <Menu anchor={{ x: moreMenu.x, y: moreMenu.y }} open onClose={() => setMoreMenu(null)} items={moreMenu.items} />}
@@ -400,6 +402,7 @@ const [findOpen, setFindOpen] = useState(false)
       }}/>
       <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
+      <PdfImportDialog open={pdfFile !== null} onClose={() => setPdfFile(null)} file={pdfFile} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       {note && settings && <ExportPdfDialog open={pdfExportOpen} onClose={() => setPdfExportOpen(false)} note={note} pages={pages} settings={settings}/>}
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)}/>
       {settings && <WelcomeDialog open={initialized && !settings.welcomeSeen} onStart={() => void updateSettings({ welcomeSeen: true })} onClose={() => void updateSettings({ welcomeSeen: true })}/>}

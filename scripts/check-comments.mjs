@@ -6371,9 +6371,14 @@ const allowed = new Map([
   ["src/client/features/inknote/io/ExportPdfDialog.tsx", [
     "/** PDF export options: page range, cover page, printed header and a cancellable progress line. */",
   ]],
+  ["src/client/features/inknote/io/PdfImportDialog.tsx", [
+    "/** Import a PDF as annotation pages: choose a range, watch the pages render, stop when needed. */",
+  ]],
   ["src/client/features/inknote/io/operations.ts", [
     "/** Browser-side file operations: insert media, import PDF pages and export the current note. */",
     "/** \"1-3,7\", empty for every page. */",
+    "/** \"1-3,7\"; empty imports every page up to the sixty-page ceiling. */",
+    "/** A cancelled or failed import leaves no half-note behind; its uploaded backgrounds go with it. */",
   ]],
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",

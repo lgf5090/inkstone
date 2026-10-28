@@ -34,53 +34,88 @@ export async function insertImage(file: File, note: InknoteNoteMeta, page: Inkno
   await useInknoteStore.getState().savePage(page.id)
 }
 
-export async function insertPdf(file: File, notebookId: string): Promise<string | null> {
+export interface PdfImportOptions {
+  /** "1-3,7"; empty imports every page up to the sixty-page ceiling. */
+  range?: string
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+export interface PdfImportResult {
+  noteId: string | null
+  imported: number
+  cancelled: boolean
+}
+
+const PDF_IMPORT_MAX_PAGES = 60
+const PDF_IMPORT_MAX_BYTES = 50 * 1024 * 1024
+
+export async function insertPdf(file: File, notebookId: string, options: PdfImportOptions = {}): Promise<PdfImportResult> {
+  if (file.size > PDF_IMPORT_MAX_BYTES) throw new Error('The PDF exceeds the 50 MB limit')
   const { openPdfDocument } = await import('../../reading/engine/pdf')
   const bytes = new Uint8Array(await file.arrayBuffer())
   const opened = await openPdfDocument(bytes)
+  let noteId: string | null = null
   try {
     const pdf = opened.document
-    const count = Math.min(pdf.numPages, 60)
-    const first = await pdf.getPage(1)
+    const count = Math.min(pdf.numPages, PDF_IMPORT_MAX_PAGES)
+    const indices = parsePageRange(options.range ?? '', count).map((index) => index + 1)
+    if (!indices.length) return { noteId: null, imported: 0, cancelled: false }
+    const firstIndex = indices[0]!
+    const first = await pdf.getPage(firstIndex)
     const natural = first.getViewport({ scale: 1 })
     const ratio = natural.height / natural.width
     const created = await inknoteApi.createNote({ notebookId, title: file.name.replace(/\.[^.]+$/, '') })
     const note = created.note
+    noteId = note.id
     const pageHeight = Math.round(Math.min(1600, Math.max(400, 816 * ratio)))
     await inknoteApi.updateNote(note.id, { pageWidth: 816, pageHeight, baseRev: note.rev })
     const firstPage = created.pages[0]!
-    const pages: InknotePage[] = []
-    for (let index = 1; index <= count; index++) {
-      const pdfPage = index === 1 ? first : await pdf.getPage(index)
+    let reusedFirst = false
+    for (const [order, index] of indices.entries()) {
+      if (options.isCancelled?.()) {
+        await purgeImportedNote(note.id)
+        return { noteId: null, imported: order, cancelled: true }
+      }
+      const pdfPage = index === firstIndex ? first : await pdf.getPage(index)
       const viewport = pdfPage.getViewport({ scale: Math.min(2, 1400 / natural.width) })
       const canvas = document.createElement('canvas')
       canvas.width = Math.max(1, Math.round(viewport.width))
       canvas.height = Math.max(1, Math.round(viewport.height))
       const context = canvas.getContext('2d', { alpha: false })
-      if (!context) continue
+      if (!context) { pdfPage.cleanup(); continue }
       await pdfPage.render({ canvas, viewport }).promise
       const blob = await canvasBlob(canvas)
+      pdfPage.cleanup()
       if (!blob) continue
       const asset = await inknoteApi.uploadAsset(new File([blob], `page-${index}.jpg`, { type: 'image/jpeg' }), 'background', note.id)
       const content: InknotePageContent = {
         ...emptyPageContent(),
         bg: { kind: 'pdf', assetId: asset.id, url: asset.url, width: canvas.width, height: canvas.height, alpha: 1 },
       }
-      if (index === 1) {
+      if (!reusedFirst) {
         await inknoteApi.savePage(note.id, firstPage.id, serializePageContent(content), firstPage.rev)
-        pages.push({ ...firstPage, content })
+        reusedFirst = true
       } else {
-        const page = await inknoteApi.createPage(note.id, { content: serializePageContent(content) })
-        pages.push(page)
+        await inknoteApi.createPage(note.id, { content: serializePageContent(content) })
       }
-      pdfPage.cleanup()
+      options.onProgress?.(order + 1, indices.length)
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
     }
     await useInknoteStore.getState().refreshLibrary()
     await useInknoteStore.getState().openNote(note.id)
-    return note.id
+    return { noteId: note.id, imported: indices.length, cancelled: false }
+  } catch (error) {
+    if (noteId) await purgeImportedNote(noteId)
+    throw error
   } finally {
     await opened.destroy()
   }
+}
+
+/** A cancelled or failed import leaves no half-note behind; its uploaded backgrounds go with it. */
+async function purgeImportedNote(noteId: string): Promise<void> {
+  await inknoteApi.purgeNote(noteId).catch((error) => { console.warn('[inkstone] Could not purge a failed PDF import:', error) })
 }
 
 export async function exportPagePng(note: InknoteNoteMeta, page: InknotePage, settings: { fontFamily: string }): Promise<void> {
