@@ -231,7 +231,7 @@ export function StatsView() {
                         </span>
                         <span className="w-20 shrink-0 text-right text-[length:var(--text-11)] tabular text-[var(--text-primary)]">
                           {formatNumber(platform.count)}
-                          <span className="ml-1 text-[var(--text-tertiary)]">{platform.pct}%</span>
+                          <span className="ml-1 text-[var(--text-tertiary)]">· {platform.pct}%</span>
                         </span>
                       </div>
                     )
