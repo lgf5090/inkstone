@@ -216,6 +216,7 @@ export const EN_US_INKNOTE = {
   'inknote.attachments.delete_confirm': 'Delete this attachment? The file is removed from storage.',
   'inknote.attachments.uploaded': 'Attachment uploaded',
   'inknote.action.paste_selection': 'Paste',
+  'inknote.demo_readonly': 'Demo mode: the handwritten notebook is read-only and saves nothing',
   'inknote.import.title': 'Import notes',
   'inknote.import.hint': 'A snapshot is taken first; a failure rolls back every note and asset this import created.',
   'inknote.import.start': 'Start import',

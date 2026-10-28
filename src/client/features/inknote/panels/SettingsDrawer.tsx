@@ -14,12 +14,13 @@ import { inknoteApi } from '../api'
 const SECTIONS = [
   ['tools', 'inknote.settings.tools'],
   ['paper', 'inknote.settings.paper'],
+  ['pages', 'inknote.action.pages'],
   ['gestures', 'inknote.settings.gestures'],
   ['data', 'inknote.settings.data'],
   ['about', 'inknote.settings.about'],
 ] as const
 
-export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts, onOpenTemplates }: {
+export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts, onOpenTemplates, pageCount = 1, onAddPage, onDuplicatePage, onClearPage, onDeleteBlankPages }: {
   open: boolean
   onClose: () => void
   note: InknoteNoteMeta | null
@@ -27,6 +28,11 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
   onOpenSnapshots: () => void
   onOpenShortcuts: () => void
   onOpenTemplates: () => void
+  pageCount?: number
+  onAddPage?: () => void
+  onDuplicatePage?: () => void
+  onClearPage?: () => void
+  onDeleteBlankPages?: () => void
 }) {
   const [section, setSection] = useState<string>('tools')
   const [usage, setUsage] = useState<{ assetsBytes: number; quotaBytes: number; notes: number; pages: number; assets: number } | null>(null)
@@ -93,6 +99,15 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
                   void updateNoteMeta(value === 'wide' ? { pageWidth: 1056, pageHeight: 816 } : { pageWidth: 816, pageHeight: 1056 })
                 }} label={t('inknote.settings.page_size')} />
               </SettingRow>
+            </div>
+          )}
+          {section === 'pages' && (
+            <div className="space-y-1 pt-2">
+              <SettingRow title={t('inknote.action.pages')}><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{pageCount}</span></SettingRow>
+              <Button block variant="secondary" onClick={onAddPage} disabled={!note}>{t('inknote.page.add')}</Button>
+              <Button block variant="secondary" onClick={onDuplicatePage} disabled={!note}>{t('inknote.page.duplicate')}</Button>
+              <Button block variant="ghost" onClick={onClearPage} disabled={!note}>{t('inknote.page.clear')}</Button>
+              <Button block variant="ghost" onClick={onDeleteBlankPages} disabled={!note || pageCount <= 1}>{t('inknote.page.delete_blank')}</Button>
             </div>
           )}
           {section === 'gestures' && (

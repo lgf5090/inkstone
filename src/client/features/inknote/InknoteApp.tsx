@@ -9,6 +9,7 @@ import { Button, IconButton } from '../../components/primitives'
 import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
+import { IS_DEMO_MODE } from '../../lib/runtime'
 import { inknoteApi } from './api'
 import { inknoteTextDefaults, inknoteToolState } from './tool-state'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
@@ -350,6 +351,9 @@ const [findOpen, setFindOpen] = useState(false)
         {compact && <IconButton label={t('inknote.action.pages')} size="sm" onClick={() => setPagesOpen(true)}><PanelRight size={16}/></IconButton>}
       </header>
 
+      {IS_DEMO_MODE && (
+        <div role="status" className="flex shrink-0 items-center justify-center border-b border-[var(--border-subtle)] bg-[var(--warning-soft)] px-3 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('inknote.demo_readonly')}</div>
+      )}
       {!markup && settings && !leftToolbar && (
         <div className={cn('relative z-[var(--z-float)] shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]', settings.toolbar === 'bottom' && 'order-3 border-b-0 border-t')}>
           <InkToolbar
@@ -435,7 +439,13 @@ const [findOpen, setFindOpen] = useState(false)
                 onEngine={(engine) => { engineRef.current = engine }}
               />
             : <div className="flex h-full items-center justify-center p-6">
-                <Empty title={t('inknote.no_notes')} description={t('inknote.welcome.body')} action={<button type="button" className="rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--accent-contrast)]" onClick={() => void createNote(library?.notebooks[0]?.id)}>{t('inknote.new_note')}</button>} />
+                <Empty title={t('inknote.no_notes')} description={t('inknote.welcome.body')} action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button size="sm" variant="primary" onClick={() => void createNote(library?.notebooks[0]?.id)}>{t('inknote.new_note')}</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setTemplatesOpen(true)}>{t('inknote.action.templates')}</Button>
+                    <Button size="sm" variant="secondary" disabled={IS_DEMO_MODE} onClick={() => importInput.current?.click()}>{t('inknote.action.import')}</Button>
+                  </div>
+                } />
               </div>}
         </main>
         {showPages && note && settings && (
@@ -482,7 +492,7 @@ const [findOpen, setFindOpen] = useState(false)
           void reorderPages(ids)
         }} />}
       </Drawer>
-      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} onOpenTemplates={() => { setSettingsOpen(false); setTemplatesOpen(true) }} />}
+      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} onOpenTemplates={() => { setSettingsOpen(false); setTemplatesOpen(true) }} pageCount={pages.length} onAddPage={() => void createPage(activePageId ?? undefined)} onDuplicatePage={() => { if (activePageId) void duplicatePage(activePageId) }} onClearPage={clearActivePage} onDeleteBlankPages={removeBlankPages} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} getEngine={() => engineRef.current} onPage={setActivePage} />
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
