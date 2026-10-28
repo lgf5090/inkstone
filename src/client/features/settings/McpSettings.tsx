@@ -320,7 +320,8 @@ export function McpSettings() {
   // note permissions that can be withheld and the three to-do ones — is offered only when this account has
   // actually switched it on.
   const allowedKeyScopes = KEY_SCOPE_CHOICES.filter((scope) => scopeAllowed(scope, preferences))
-  const nextKeyScopes = keyScopes ?? allowedKeyScopes
+  const defaultKeyScopes = DEFAULT_KEY_SCOPE_CHOICES.filter((scope) => scopeAllowed(scope, preferences))
+  const nextKeyScopes = keyScopes ?? defaultKeyScopes
 
   const toggleKeyScope = (scope: string, enabled: boolean) => {
     const next = new Set(nextKeyScopes)
@@ -791,13 +792,20 @@ function clientSnippets(info: McpSettingsInfo): Array<{ id: string; name: string
  */
 const EMAIL_SCOPE_CHOICES = ['email:read', 'email:write', 'email:send', 'email:trash'] as const
 
-const KEY_SCOPE_CHOICES = [
+const DATABASE_SCOPE_CHOICES = ['database:read', 'database:write'] as const
+
+const DEFAULT_KEY_SCOPE_CHOICES = [
   'notes:write',
   'notes:trash',
   'todos:read',
   'todos:write',
   'todos:danger',
   ...EMAIL_SCOPE_CHOICES,
+] as const
+
+const KEY_SCOPE_CHOICES = [
+  ...DEFAULT_KEY_SCOPE_CHOICES,
+  ...DATABASE_SCOPE_CHOICES,
 ] as const
 
 function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']): boolean {
@@ -809,6 +817,8 @@ function scopeAllowed(scope: string, preferences: McpSettingsInfo['preferences']
     return preferences.emailEnabled === true && preferences.writeEnabled
   }
   if (scope === 'email:trash') return preferences.emailEnabled === true && preferences.trashEnabled
+  if (scope === 'database:read') return true
+  if (scope === 'database:write') return preferences.writeEnabled
   return true
 }
 
@@ -824,6 +834,8 @@ function scopeSummary(scopes: string[]): string {
     if (scope === 'email:write') return t('settings.mcp_email_scope_write')
     if (scope === 'email:send') return t('settings.mcp_email_scope_send')
     if (scope === 'email:trash') return t('settings.mcp_email_scope_trash')
+    if (scope === 'database:read') return t('settings.mcp_database_scope_read')
+    if (scope === 'database:write') return t('settings.mcp_database_scope_write')
     return scope
   }).join(' · ')
 }

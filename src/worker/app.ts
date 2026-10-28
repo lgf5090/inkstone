@@ -65,6 +65,7 @@ import { toolsColorRoutes } from './routes/tools-color'
 import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
+import { developmentDatabaseRoutes } from './routes/development-database'
 import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
@@ -224,6 +225,7 @@ export function createApp() {
   app.route('/api/tools/color', toolsColorRoutes)
   app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
   app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
+  app.route('/api/development/database', developmentDatabaseRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

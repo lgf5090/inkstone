@@ -58,6 +58,7 @@ import { decryptMusicCookie } from '../lib/crypto'
 import { createNeteaseProvider } from '../music/providers/netease/client'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
+import { DATABASE_TOOLS } from './database-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { buildOverview, loadRates } from '../subscriptions/overview'
 import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
@@ -163,8 +164,8 @@ export interface FieldSpec {
   maxLength?: number
   minimum?: number
   maximum?: number
-  /** `array`: every entry is a string. A step list and a tag list are the two callers. */
-  items?: 'string'
+  /** `array`: entries of one type. A step list and a tag list are strings; database rows are objects. */
+  items?: 'string' | 'object'
   maxItems?: number
   optional?: boolean
   /**
@@ -190,6 +191,8 @@ export interface ToolContext {
   conversationId?: string
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
+  /** The saved database connection the reader is looking at, so the tools can default to it. */
+  databaseConnectionId?: string
   memoryHistory: MemoryHistoryService
   /**
    * Which memories this turn may recall, edit or forget.
@@ -4494,6 +4497,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...WEB_TOOLS,
   ...SUBSCRIPTION_TOOLS,
   ...MUSIC_TOOLS,
+  ...DATABASE_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
@@ -4597,13 +4601,15 @@ export function validateArgs(fields: Record<string, FieldSpec>, raw: unknown): R
         continue
       case 'array': {
         if (!Array.isArray(value)) throw new ToolError(`"${name}" must be a list.`)
-        const items = value
-          .filter((entry): entry is string => typeof entry === 'string')
-          .map((entry) => {
-            const trimmed = entry.trim()
-            return spec.maxLength !== undefined ? trimmed.slice(0, spec.maxLength) : trimmed
-          })
-          .filter(Boolean)
+        const items = spec.items === 'object'
+          ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+          : value
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => {
+              const trimmed = entry.trim()
+              return spec.maxLength !== undefined ? trimmed.slice(0, spec.maxLength) : trimmed
+            })
+            .filter(Boolean)
         out[name] = spec.maxItems !== undefined ? items.slice(0, spec.maxItems) : items
         continue
       }

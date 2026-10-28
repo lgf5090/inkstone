@@ -18,7 +18,7 @@ const MAX_CIPHERTEXT_LENGTH = 24 * 1024
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -30,6 +30,7 @@ const EMAIL_SECRET_FIELDS = new Set(['secret'])
 const MUSIC_SECRET_FIELDS = new Set(['cookie'])
 const MUSIC_MOUNT_SECRET_FIELDS = new Set(['token'])
 const CLOUDFLARE_ACCOUNT_SECRET_FIELDS = new Set(['api_token', 'api_key', 'password'])
+const DATABASE_SECRET_FIELDS = new Set(['token'])
 /**
  * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and
  * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).
@@ -231,6 +232,8 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                 ? MUSIC_SECRET_FIELDS
                 : scope.startsWith('cloudflare-account:')
                   ? CLOUDFLARE_ACCOUNT_SECRET_FIELDS
+                  : scope.startsWith('database:')
+                    ? DATABASE_SECRET_FIELDS
                   : BACKUP_SECRET_FIELDS
   const cap = MAX_FIELD_LENGTH[scope.split(':')[0]!] ?? DEFAULT_MAX_FIELD_LENGTH
   if (entries.length < 1 || entries.length > allowed.size) return false

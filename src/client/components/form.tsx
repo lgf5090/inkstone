@@ -559,12 +559,14 @@ export function Checkbox({
   checked,
   onChange,
   label,
+  ariaLabel,
   className,
   disabled,
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   label?: ReactNode
+  ariaLabel?: string
   className?: string
   /** A control that cannot be answered yet: shown, named, and skipped by the keyboard. */
   disabled?: boolean
@@ -574,6 +576,7 @@ export function Checkbox({
       type="button"
       role="checkbox"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(

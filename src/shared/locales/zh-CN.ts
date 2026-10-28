@@ -18,6 +18,7 @@ import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
+import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
 import { ZH_CN_INK } from './zh-CN-ink';
 import { ZH_CN_INK_ELEMENTS } from './zh-CN-ink-elements';
 import { ZH_CN_INK_SETTINGS } from './zh-CN-ink-settings';
@@ -2760,6 +2761,8 @@ export const ZH_CN_MESSAGES = {
     "settings.mcp_scope_todo_read": "读取待办",
     "settings.mcp_scope_todo_write": "修改待办",
     "settings.mcp_scope_todo_danger": "删除待办",
+    "settings.mcp_database_scope_read": "读取数据库",
+    "settings.mcp_database_scope_write": "修改数据库",
     "settings.mcp_scope_write": "写入",
     "settings.mcp_trash_access": "允许移入回收站",
     "settings.mcp_trash_access_desc": "这是独立的高风险权限，只能软删除；MCP 永远不提供永久清除功能。",
@@ -6458,6 +6461,7 @@ console.log(\`Hello, \${name}!\`)
     "app.tabs.music": "音乐",
     "app.tabs.cloudflare": "Cloudflare",
     "app.tabs.tools": "工具",
+    "app.tabs.development": "开发",
     "app.tabs.navigation": "应用页签",
     "app.tabs.placeholder_hint": "这个应用还没有做出来。页签已经先占好了自己的网址，等它搬进来。",
     "reading.add_books": "添加书籍",
@@ -7138,6 +7142,9 @@ console.log(\`Hello, \${name}!\`)
     "assistant.approval.declined": "已拒绝——未作任何改动",
     "assistant.approval.expired": "已过期——如仍需要请再次提出",
     "assistant.approval.failed": "已批准，但执行失败",
+    "assistant.approval.database_delete_rows": "删除数据：{title}",
+    "assistant.approval.database_drop_table": "删除数据库对象：{title}",
+    "assistant.approval.database_run_script": "执行 SQL 脚本：{title}",
     "assistant.approval.delete_task": "删除任务「{title}」",
     "assistant.approval.delete_task_list": "删除清单「{title}」？其中的待办会移入收件箱。",
     "assistant.approval.delete_task_tag": "从所有待办中删除标签「{title}」？",
@@ -7523,6 +7530,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.dock.suggest_due": "哪些订阅快要到期了？",
     "assistant.dock.suggest_remind": "把提醒改成到期前三天",
     "assistant.dock.hint_todo": "就你正在看的待办页提问。当前清单、筛选和可见任务已在上下文里，输入框下方的标签写着这一点。",
+    "assistant.dock.hint_database": "正在携带数据库 Studio 的连接与结构；工具可直接查询和修改已保存的连接。",
     "assistant.dock.hint_email": "就你正在看的邮箱提问。选中的邮件和它的线程已在上下文里，输入框下方的标签写着这一点。",
     "assistant.dock.hint_music": "就你正在看的音乐页提问。当前页面和屏幕上的歌曲已在上下文里，输入框下方的标签写着这一次带上了什么。",
     "assistant.dock.music_label": "音乐页",
@@ -8145,6 +8153,20 @@ console.log(\`Hello, \${name}!\`)
     "assistant.tool.list_projects": "查看项目",
     "assistant.tool.create_project": "创建项目",
     "assistant.tool.search": "搜索",
+    "assistant.tool.database_list_connections": "查看数据库连接",
+    "assistant.tool.database_list_objects": "列出数据库对象",
+    "assistant.tool.database_describe_table": "查看表结构",
+    "assistant.tool.database_preview_rows": "预览表数据",
+    "assistant.tool.database_run_query": "执行查询",
+    "assistant.tool.database_explain": "分析执行计划",
+    "assistant.tool.database_insert_rows": "插入数据",
+    "assistant.tool.database_update_rows": "更新数据",
+    "assistant.tool.database_write_sql": "执行写入 SQL",
+    "assistant.tool.database_create_table": "创建数据表",
+    "assistant.tool.database_alter_table": "修改表结构",
+    "assistant.tool.database_delete_rows": "删除数据",
+    "assistant.tool.database_drop_table": "删除数据库对象",
+    "assistant.tool.database_run_script": "执行 SQL 脚本",
     "assistant.tool.notify_reader": "发送通知",
     "assistant.tool.image_generate": "绘图",
     "assistant.tool.fetch_url": "读取网页",
@@ -10138,6 +10160,7 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_MUSIC,
     ...ZH_CN_TOOLS,
     ...ZH_CN_CALENDAR,
+    ...ZH_CN_DEVELOPMENT_DATABASE,
     ...ZH_CN_INK,
     ...ZH_CN_INK_ELEMENTS,
     ...ZH_CN_INK_SETTINGS,
