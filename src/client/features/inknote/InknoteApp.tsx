@@ -48,6 +48,7 @@ export function InknoteApp() {
   const drafts = useInknoteStore((state) => state.drafts)
   const restoreDrafts = useInknoteStore((state) => state.restoreDrafts)
   const discardDrafts = useInknoteStore((state) => state.discardDrafts)
+  const replayOfflineDrafts = useInknoteStore((state) => state.replayOfflineDrafts)
   const bootstrap = useInknoteStore((state) => state.bootstrap)
   const openNote = useInknoteStore((state) => state.openNote)
   const closeTab = useInknoteStore((state) => state.closeTab)
@@ -133,12 +134,12 @@ const [findOpen, setFindOpen] = useState(false)
 
   useEffect(() => {
     const handler = () => { void saveAll() }
-    const online = () => { void saveAll() }
+    const online = () => { void saveAll(); void replayOfflineDrafts() }
     window.addEventListener('pagehide', handler)
     window.addEventListener('online', online)
     document.addEventListener('visibilitychange', handler)
     return () => { window.removeEventListener('pagehide', handler); window.removeEventListener('online', online); document.removeEventListener('visibilitychange', handler) }
-  }, [saveAll])
+  }, [saveAll, replayOfflineDrafts])
 
   const persistTitle = () => {
     if (!note) return

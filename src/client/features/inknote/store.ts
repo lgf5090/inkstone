@@ -42,7 +42,7 @@ interface InknoteState {
   saveError: string | null
   conflicts: Record<string, Conflict>
   /** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */
-  drafts: Record<string, { content: InknotePageContent; savedAt: number }>
+  drafts: Record<string, { content: InknotePageContent; savedAt: number; offline: boolean }>
   /** A replay is writing into the pages for the reader to watch; saves must not leave with it. */
   replaying: boolean
   loading: boolean
@@ -89,6 +89,7 @@ interface InknoteState {
   clearConflict: (pageId: string) => void
   restoreDrafts: () => Promise<void>
   discardDrafts: () => void
+  replayOfflineDrafts: () => Promise<void>
   beginReplay: () => void
   applyReplayContent: (pageId: string, content: InknotePageContent) => void
   endReplay: (snapshot: Map<string, InknotePageContent>) => void
@@ -160,7 +161,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         }
       }
       const offline = error instanceof ApiError ? error.status === 0 : true
-      try { localStorage.setItem(`inknote-draft:${note.id}:${pageId}`, JSON.stringify({ content: serializePageContent(page.content), baseRev: page.rev, savedAt: Date.now() })) } catch { /* storage may be unavailable */ }
+      try { localStorage.setItem(`inknote-draft:${note.id}:${pageId}`, JSON.stringify({ content: serializePageContent(page.content), baseRev: page.rev, savedAt: Date.now(), offline })) } catch { /* storage may be unavailable */ }
       set({ saveState: offline ? 'offline' : 'error', saveError: message(error) })
       return false
     } finally {
@@ -256,9 +257,9 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           try {
             const raw = localStorage.getItem(`inknote-draft:${id}:${page.id}`)
             if (!raw) continue
-            const parsed = JSON.parse(raw) as { content?: unknown; savedAt?: unknown }
+            const parsed = JSON.parse(raw) as { content?: unknown; savedAt?: unknown; offline?: unknown }
             const content = parseInknotePageContent(typeof parsed.content === 'string' ? parsed.content : '')
-            if (content.ok) drafts[page.id] = { content: content.content, savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0 }
+            if (content.ok) drafts[page.id] = { content: content.content, savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0, offline: parsed.offline === true }
           } catch { /* a corrupt draft is not a restore candidate */ }
         }
         set((state) => ({
@@ -620,6 +621,23 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         pages: state.pages.map((page) => snapshot.has(page.id) ? { ...page, content: snapshot.get(page.id)! } : page),
         contentVersion: state.contentVersion + 1,
       }))
+    },
+
+    async replayOfflineDrafts() {
+      const { note, drafts } = get()
+      if (!note) return
+      for (const [pageId, draft] of Object.entries(drafts)) {
+        if (!draft.offline) continue
+        get().replacePageContent(pageId, draft.content)
+        const saved = await get().savePage(pageId)
+        if (saved) {
+          set((state) => {
+            const next = { ...state.drafts }
+            delete next[pageId]
+            return { drafts: next }
+          })
+        }
+      }
     },
 
     discardDrafts() {
