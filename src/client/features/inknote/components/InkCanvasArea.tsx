@@ -1,6 +1,6 @@
 /** The live page: engine mount, text overlay and the selection bar. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardCopy, Copy, FileImage, ImageUp, RotateCw, SquareDashed, Trash2, X } from 'lucide-react'
+import { ClipboardCopy, Copy, Crop, FileImage, ImageUp, RotateCw, SquareDashed, Trash2, X } from 'lucide-react'
 import type { InknoteNoteMeta, InknotePage, InknotePageContent, InknoteSettings, InknoteTextBox } from '@shared/inknote/types'
 import { INKNOTE_LIMITS } from '@shared/inknote/constants'
 import { serializePageContent } from '@shared/inknote/parse'
@@ -14,6 +14,7 @@ import { renderPageToCanvas } from '../engine/renderer'
 import { shareOrDownload } from '../../../lib/inknote/share'
 import { safeFileName } from '../../../lib/export-note'
 import { inknoteApi } from '../api'
+import { CropDialog } from '../io/CropDialog'
 import type { InknoteEngineHost, InknotePageMetrics, InknoteToolState } from '../engine/inknote-engine-types'
 import { InkTextStyleBar } from './InkTextStyleBar'
 import { useInknoteStore } from '../store'
@@ -85,6 +86,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
   const [zoom, setZoom] = useState(1)
   const [selection, setSelection] = useState<string[]>([])
   const replaceInput = useRef<HTMLInputElement>(null)
+  const [cropImageId, setCropImageId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [ttsCue, setTtsCue] = useState<{ pageId: string; textId: string } | null>(null)
   const latest = useRef({ note, page, settings, tool })
@@ -359,6 +361,22 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
     }
   }
 
+  const applyCrop = async (blob: Blob, size: { width: number; height: number }) => {
+    const engine = engineRef.current
+    const imageId = cropImageId
+    if (!engine || !imageId) return
+    const image = page.content.images.find((entry) => entry.id === imageId)
+    if (!image) return
+    const before = serializePageContent(page.content)
+    const asset = await inknoteApi.uploadAsset(new File([blob], 'crop.png', { type: 'image/png' }), 'image', note.id)
+    image.assetId = asset.id
+    image.url = asset.url
+    image.h = Math.max(0.04, Math.min(0.9, image.w * (note.pageWidth / note.pageHeight) * (size.height / Math.max(1, size.width))))
+    engine.commitExternal(before, serializePageContent(page.content), 'image')
+    engine.renderNow()
+    void savePage()
+  }
+
   const ttsItem = ttsCue && ttsCue.pageId === page.id ? page.content.texts.find((item) => item.id === ttsCue.textId) ?? null : null
   const ttsBox = (() => {
     const engine = engineRef.current
@@ -442,6 +460,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
         <Button size="sm" variant="ghost" onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
         <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
       </div>
+      <CropDialog open={cropImageId !== null} imageUrl={page.content.images.find((entry) => entry.id === cropImageId)?.url ?? null} onClose={() => setCropImageId(null)} onApply={applyCrop}/>
       <input ref={replaceInput} data-ink-replace-image="" type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void replaceSelectedImage(file) }}/>
       {selection.length > 0 && (
         <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]" role="toolbar" aria-label={t('inknote.action.select_all')}>
@@ -449,6 +468,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
           <IconButton label={t('inknote.action.copy_selection')} size="sm" onClick={() => selectionAction('copy')}><Copy size={14}/></IconButton>
           {selectedTexts.length > 0 && <IconButton label={t('inknote.selection.copy_text')} size="sm" onClick={copySelectedText}><ClipboardCopy size={14}/></IconButton>}
           {selectedImages.length === 1 && <IconButton label={t('inknote.selection.replace_image')} size="sm" onClick={() => replaceInput.current?.click()}><ImageUp size={14}/></IconButton>}
+          {selectedImages.length === 1 && <IconButton label={t('inknote.selection.crop')} size="sm" onClick={() => setCropImageId(selectedImages[0]!.slice(2))}><Crop size={14}/></IconButton>}
           <IconButton label={t('inknote.selection.export')} size="sm" onClick={() => void exportSelection()}><FileImage size={14}/></IconButton>
           <IconButton label={t('inknote.action.rotate')} size="sm" onClick={() => selectionAction('rotate')}><RotateCw size={14}/></IconButton>
           <IconButton label={t('inknote.action.select_all')} size="sm" onClick={() => selectionAction('select-all')}><SquareDashed size={14}/></IconButton>

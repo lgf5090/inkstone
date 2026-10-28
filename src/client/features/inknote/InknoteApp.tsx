@@ -12,6 +12,7 @@ import { useUi } from '../../store/ui'
 import { inknoteApi } from './api'
 import { inknoteToolState } from './tool-state'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
+import type { InknoteFavorite, InknoteSettings } from '@shared/inknote/types'
 import { useInknoteStore } from './store'
 import { InkCanvasArea } from './components/InkCanvasArea'
 import { InkPagesPanel } from './components/InkPagesPanel'
@@ -28,9 +29,11 @@ import { RecordingPanel } from './tools/RecordingPanel'
 import { AssistantDock } from '../chat/AssistantDock'
 import { AttachmentsDialog } from './io/AttachmentsDialog'
 import { ExportPdfDialog } from './io/ExportPdfDialog'
+import { ExportLibraryPdfDialog } from './io/ExportLibraryPdfDialog'
 import { PdfImportDialog } from './io/PdfImportDialog'
+import { ScanDialog } from './io/ScanDialog'
 import { useInknoteTts } from './tools/use-inknote-tts'
-import { exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage } from './io/operations'
+import { exportLongImage, exportNotebookFile, exportNoteFile, exportPagePng, exportTextFile, importNoteFile, insertImage } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -88,8 +91,11 @@ const [findOpen, setFindOpen] = useState(false)
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [pickerMode, setPickerMode] = useState<'open' | 'copy' | null>(null)
   const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [libraryPdfOpen, setLibraryPdfOpen] = useState(false)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
   const attachInput = useRef<HTMLInputElement>(null)
   const importInput = useRef<HTMLInputElement>(null)
@@ -207,6 +213,23 @@ const [findOpen, setFindOpen] = useState(false)
     onCue: (cue) => { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inknote:tts-cue', { detail: cue })) },
   })
 
+  const saveFavorite = () => {
+    if (!settings) return
+    const state = inknoteToolState(settings)
+    const favorite: InknoteFavorite = { tool: state.tool, color: state.color, width: state.width, style: state.style, eraserSize: state.eraserSize }
+    const same = (entry: InknoteFavorite) => entry.tool === favorite.tool && entry.color === favorite.color && entry.width === favorite.width && entry.style === favorite.style && entry.eraserSize === favorite.eraserSize
+    void updateSettings({ favorites: [favorite, ...settings.favorites.filter((entry) => !same(entry))].slice(0, 20), favoritesBar: true })
+  }
+
+  const applyFavorite = (favorite: InknoteFavorite) => {
+    if (!settings) return
+    const patch: Partial<InknoteSettings> = { tool: favorite.tool, color: favorite.color, eraserSize: favorite.eraserSize }
+    if (favorite.tool === 'highlighter') { patch.hlColor = favorite.color; patch.hlWidth = favorite.width }
+    else if (favorite.tool === 'pen') { patch.penColor = favorite.color; patch.penWidth = favorite.width; patch.penStyle = favorite.style }
+    else if (favorite.tool === 'ballpen') { patch.ballpenColor = favorite.color; patch.ballpenWidth = favorite.width; patch.ballpenStyle = favorite.style }
+    void updateSettings(patch)
+  }
+
   const readAloud = () => {
     if (!tts.supported) { toast({ title: t('inknote.read.unsupported' as never), tone: 'danger' }); return }
     if (tts.active) { tts.stop(); return }
@@ -225,6 +248,8 @@ const [findOpen, setFindOpen] = useState(false)
     if (!note || !settings) return []
     return [
       { id: 'image', label: t('inknote.action.add_image' as never), onSelect: () => { setMoreMenu(null); imageInput.current?.click() } },
+      { id: 'camera', label: t('inknote.action.camera' as never), onSelect: () => { setMoreMenu(null); cameraInput.current?.click() } },
+      { id: 'scan', label: t('inknote.action.scan' as never), onSelect: () => { setMoreMenu(null); setScanOpen(true) } },
       { id: 'pdf', label: t('inknote.action.import_pdf' as never), onSelect: () => { setMoreMenu(null); pdfInput.current?.click() } },
       { id: 'attach', label: t('inknote.action.attach' as never), onSelect: () => { setMoreMenu(null); attachInput.current?.click() } },
       { id: 'attachments', label: t('inknote.attachments.title' as never), onSelect: () => { setMoreMenu(null); setAttachmentsOpen(true) } },
@@ -232,6 +257,8 @@ const [findOpen, setFindOpen] = useState(false)
       { id: 'present', label: t('inknote.action.presentation' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setPresentationOpen(true) } },
       { id: 'pdf-export', label: t('inknote.action.export_pdf' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setPdfExportOpen(true) } },
       { id: 'png-export', label: t('inknote.action.export_page_png' as never), onSelect: () => { setMoreMenu(null); if (activePage) void exportPagePng(note, activePage, settings) } },
+      { id: 'library-pdf', label: t('inknote.action.export_library_pdf' as never), onSelect: () => { setMoreMenu(null); setLibraryPdfOpen(true) } },
+      { id: 'long-image', label: t('inknote.action.export_long_image' as never), onSelect: () => { setMoreMenu(null); void exportLongImage(note, pages, settings, { title: note.title }).then((ok) => { if (ok) toast({ title: t('inknote.export.long_done') }) }).catch((error) => toast({ title: String(error), tone: 'danger' })) } },
       { id: 'note-export', label: t('inknote.action.export_note' as never), onSelect: () => { setMoreMenu(null); void exportNoteFile(note, pages) } },
       { id: 'notebook-export', label: t('inknote.action.export_notebook' as never), onSelect: () => { setMoreMenu(null); void exportNotebookFile() } },
       { id: 'text-export', label: t('inknote.action.export_text' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'txt') } },
@@ -251,6 +278,7 @@ const [findOpen, setFindOpen] = useState(false)
 
   const showLibrary = !compact && !markup && libraryVisible
   const showPages = !compact && !markup && pagesVisible
+  const leftToolbar = !compact && !markup && settings?.toolbar === 'left'
   const conflictPage = activePage ? conflicts[activePage.id] : undefined
 
   return (
@@ -276,7 +304,7 @@ const [findOpen, setFindOpen] = useState(false)
         {compact && <IconButton label={t('inknote.action.pages')} size="sm" onClick={() => setPagesOpen(true)}><PanelRight size={16}/></IconButton>}
       </header>
 
-      {!markup && settings && (
+      {!markup && settings && !leftToolbar && (
         <div className={cn('relative z-[var(--z-float)] shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]', settings.toolbar === 'bottom' && 'order-3 border-b-0 border-t')}>
           <InkToolbar
             engine={engineRef.current}
@@ -288,6 +316,10 @@ const [findOpen, setFindOpen] = useState(false)
             onRead={readAloud}
             onMarkup={() => setMarkup((value) => !value)}
             onAi={() => toggleAssistantDock()}
+            favorites={settings.favorites}
+            showFavorites={settings.favoritesBar}
+            onApplyFavorite={applyFavorite}
+            onSaveFavorite={saveFavorite}
           />
         </div>
       )}
@@ -320,7 +352,27 @@ const [findOpen, setFindOpen] = useState(false)
             <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} />
           </div>
         )}
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className={cn('flex min-w-0 flex-1 overflow-hidden', leftToolbar ? 'flex-row' : 'flex-col')}>
+          {leftToolbar && settings && (
+            <div className="relative z-[var(--z-float)] w-11 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+              <InkToolbar
+                engine={engineRef.current}
+                tool={tool}
+                orientation="vertical"
+                onChange={changeTool}
+                onPages={() => setPagesOpen(true)}
+                onSettings={() => setSettingsOpen(true)}
+                onRecord={() => setRecordingOpen(true)}
+                onRead={readAloud}
+                onMarkup={() => setMarkup((value) => !value)}
+                onAi={() => toggleAssistantDock()}
+                favorites={settings.favorites}
+                showFavorites={settings.favoritesBar}
+                onApplyFavorite={applyFavorite}
+                onSaveFavorite={saveFavorite}
+              />
+            </div>
+          )}
           {note && activePage && settings
             ? <InkCanvasArea
                 note={note}
@@ -387,6 +439,7 @@ const [findOpen, setFindOpen] = useState(false)
       {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} onOpenTemplates={() => { setSettingsOpen(false); setTemplatesOpen(true) }} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} getEngine={() => engineRef.current} onPage={setActivePage} />
+      <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
       <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) setPdfFile(file) }} />
       <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
@@ -405,6 +458,8 @@ const [findOpen, setFindOpen] = useState(false)
       }}/>
       <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
+      <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
+      {note && settings && <ExportLibraryPdfDialog open={libraryPdfOpen} onClose={() => setLibraryPdfOpen(false)} notes={(library?.notes ?? []).filter((entry) => entry.notebookId === note.notebookId)} settings={settings}/>}
       <PdfImportDialog open={pdfFile !== null} onClose={() => setPdfFile(null)} file={pdfFile} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       {note && settings && <ExportPdfDialog open={pdfExportOpen} onClose={() => setPdfExportOpen(false)} note={note} pages={pages} settings={settings}/>}
       <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)}/>

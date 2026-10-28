@@ -55,6 +55,17 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
               <SettingRow title={t('inknote.settings.text_size')}><Slider value={settings.textSize} min={12} max={72} step={1} onChange={(value) => void updateSettings({ textSize: value })} label={t('inknote.settings.text_size')} className="w-40" /></SettingRow>
               <SettingRow title={t('inknote.settings.font')}><Segmented value={settings.fontFamily} options={([['system', 'inknote.settings.system'], ['rounded', 'inknote.settings.rounded'], ['serif', 'inknote.settings.serif'], ['mono', 'inknote.settings.mono']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ fontFamily: value })} label={t('inknote.settings.font')} /></SettingRow>
               <SettingRow title={t('inknote.settings.stroke_width')}><Slider value={settings.penWidth} min={1} max={30} step={0.5} onChange={(value) => void updateSettings({ penWidth: value, ballpenWidth: value })} label={t('inknote.settings.stroke_width')} className="w-40" /></SettingRow>
+              <SettingRow title={t('inknote.favorite.show')}><Switch checked={settings.favoritesBar} onChange={(value) => void updateSettings({ favoritesBar: value })} label={t('inknote.favorite.show')} /></SettingRow>
+              {settings.favorites.length === 0 && <p className="py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('inknote.favorite.empty')}</p>}
+              {settings.favorites.length > 0 && (
+                <div className="flex flex-wrap gap-1 py-2" role="group" aria-label={t('inknote.favorite.bar')}>
+                  {settings.favorites.map((favorite, index) => (
+                    <button key={`${favorite.tool}:${favorite.color}:${index}`} type="button" aria-label={`${t('inknote.delete')} ${favorite.color}`} onClick={() => void updateSettings({ favorites: settings.favorites.filter((_, position) => position !== index) })} className="relative size-7 rounded-full ring-1 ring-[var(--border-default)]" style={{ background: favorite.color }}>
+                      <span className="absolute -right-0.5 -top-0.5 text-[length:var(--text-9)] text-[var(--danger)]">×</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <SettingRow title={t('inknote.settings.tts_rate')}><Slider value={settings.ttsRate} min={0.5} max={2} step={0.25} onChange={(value) => void updateSettings({ ttsRate: value })} label={t('inknote.settings.tts_rate')} className="w-40" /></SettingRow>
             </div>
           )}

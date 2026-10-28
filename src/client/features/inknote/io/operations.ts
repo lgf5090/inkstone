@@ -34,6 +34,70 @@ export async function insertImage(file: File, note: InknoteNoteMeta, page: Inkno
   await useInknoteStore.getState().savePage(page.id)
 }
 
+export interface ScanOptions {
+  title: string
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+async function rasterizeImage(file: File, maxSide: number): Promise<{ blob: Blob; width: number; height: number }> {
+  const bitmap = await createImageBitmap(file)
+  try {
+    const scale = Math.min(1, maxSide / Math.max(1, Math.max(bitmap.width, bitmap.height)))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('This browser cannot prepare a scan')
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    const blob = await canvasBlob(canvas, 'image/jpeg', 0.82)
+    if (!blob) throw new Error('This browser cannot prepare a scan')
+    return { blob, width: canvas.width, height: canvas.height }
+  } finally {
+    bitmap.close()
+  }
+}
+
+/** Photos become one blank-paper note whose pages are the scanned images as backgrounds. */
+export async function scanImages(files: File[], notebookId: string, options: ScanOptions): Promise<{ noteId: string | null; pages: number; cancelled: boolean }> {
+  if (files.length === 0) return { noteId: null, pages: 0, cancelled: false }
+  const created = await inknoteApi.createNote({ notebookId, title: options.title.slice(0, 200) })
+  const note = created.note
+  try {
+    const first = await rasterizeImage(files[0]!, 1400)
+    const pageHeight = Math.round(Math.min(1600, Math.max(400, 816 * first.height / Math.max(1, first.width))))
+    await inknoteApi.updateNote(note.id, { pageWidth: 816, pageHeight, baseRev: note.rev })
+    const firstPage = created.pages[0]!
+    let reusedFirst = false
+    for (const [index, file] of files.entries()) {
+      if (options.isCancelled?.()) {
+        await purgeImportedNote(note.id)
+        return { noteId: null, pages: index, cancelled: true }
+      }
+      const raster = index === 0 ? first : await rasterizeImage(file, 1400)
+      const asset = await inknoteApi.uploadAsset(new File([raster.blob], `scan-${index + 1}.jpg`, { type: 'image/jpeg' }), 'background', note.id)
+      const content: InknotePageContent = {
+        ...emptyPageContent(),
+        bg: { kind: 'image', assetId: asset.id, url: asset.url, width: raster.width, height: raster.height, alpha: 1 },
+      }
+      if (!reusedFirst) {
+        await inknoteApi.savePage(note.id, firstPage.id, serializePageContent(content), firstPage.rev)
+        reusedFirst = true
+      } else {
+        await inknoteApi.createPage(note.id, { content: serializePageContent(content) })
+      }
+      options.onProgress?.(index + 1, files.length)
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    }
+    await useInknoteStore.getState().refreshLibrary()
+    await useInknoteStore.getState().openNote(note.id)
+    return { noteId: note.id, pages: files.length, cancelled: false }
+  } catch (error) {
+    await purgeImportedNote(note.id)
+    throw error
+  }
+}
+
 export interface PdfImportOptions {
   /** "1-3,7"; empty imports every page up to the sixty-page ceiling. */
   range?: string
@@ -219,6 +283,99 @@ export async function exportPdf(note: InknoteNoteMeta, pages: InknotePage[], set
   }
   if (!images.length || options.isCancelled?.()) return false
   downloadBlob(`${safeFileName(note.title) || 'inknote'}.pdf`, buildPdf(images))
+  return true
+}
+
+export interface LibraryPdfOptions {
+  title: string
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+const LIBRARY_PDF_MAX_PAGES = 200
+
+/** One cover page per note, then every page of every note, capped at two hundred pages. */
+export async function exportLibraryPdf(notes: InknoteNoteMeta[], settings: { fontFamily: string }, options: LibraryPdfOptions): Promise<boolean> {
+  if (notes.length === 0) throw new Error('The library has no notes to export')
+  let planned = notes.length
+  const details: { note: InknoteNoteMeta; pages: InknotePage[] }[] = []
+  for (const note of notes) {
+    const detail = await inknoteApi.note(note.id, 'all')
+    planned += detail.pages.length
+    details.push({ note, pages: detail.pages })
+  }
+  if (planned > LIBRARY_PDF_MAX_PAGES) throw new Error(`The library PDF would have ${planned} pages; export a notebook at a time (limit ${LIBRARY_PDF_MAX_PAGES})`)
+  const font = fontStackFor(settings.fontFamily as never)
+  const images: PdfPageImage[] = []
+  let done = 0
+  for (const { note, pages } of details) {
+    if (options.isCancelled?.()) return false
+    const point = pagePointSize(note)
+    const cover = coverCanvas(note, pages.length, font)
+    const coverBlob = cover ? await canvasBlob(cover, 'image/jpeg', 0.9) : null
+    if (cover && coverBlob) images.push({ width: cover.width, height: cover.height, jpeg: new Uint8Array(await coverBlob.arrayBuffer()), pdfWidth: point.width, pdfHeight: point.height })
+    done += 1
+    options.onProgress?.(done, planned)
+    for (const page of pages) {
+      if (options.isCancelled?.()) return false
+      const canvas = renderPageToCanvas(page.content, note.paper, {
+        width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight,
+      }, 1224, font)
+      if (canvas) {
+        const blob = await canvasBlob(canvas, 'image/jpeg', 0.9)
+        if (blob) images.push({ width: canvas.width, height: canvas.height, jpeg: new Uint8Array(await blob.arrayBuffer()), pdfWidth: point.width, pdfHeight: point.height })
+      }
+      done += 1
+      options.onProgress?.(done, planned)
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    }
+  }
+  if (!images.length || options.isCancelled?.()) return false
+  downloadBlob(`${safeFileName(options.title) || 'inknote-library'}.pdf`, buildPdf(images))
+  return true
+}
+
+export interface LongImageOptions {
+  title: string
+  onProgress?: (done: number, total: number) => void
+  isCancelled?: () => boolean
+}
+
+const LONG_IMAGE_MAX_PAGES = 12
+const LONG_IMAGE_WIDTH = 1000
+const LONG_IMAGE_GAP = 26
+
+export async function exportLongImage(note: InknoteNoteMeta, pages: InknotePage[], settings: { fontFamily: string }, options: LongImageOptions): Promise<boolean> {
+  if (pages.length === 0) return false
+  if (pages.length > LONG_IMAGE_MAX_PAGES) throw new Error(`A long image holds at most ${LONG_IMAGE_MAX_PAGES} pages; export a PDF instead`)
+  const font = fontStackFor(settings.fontFamily as never)
+  const rendered: HTMLCanvasElement[] = []
+  for (const page of pages) {
+    if (options.isCancelled?.()) return false
+    const canvas = renderPageToCanvas(page.content, note.paper, {
+      width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight,
+    }, LONG_IMAGE_WIDTH, font)
+    if (canvas) rendered.push(canvas)
+    options.onProgress?.(rendered.length, pages.length)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+  }
+  if (!rendered.length || options.isCancelled?.()) return false
+  const height = rendered.reduce((sum, canvas) => sum + canvas.height, 0) + LONG_IMAGE_GAP * (rendered.length - 1)
+  const out = document.createElement('canvas')
+  out.width = LONG_IMAGE_WIDTH
+  out.height = height
+  const context = out.getContext('2d')
+  if (!context) return false
+  context.fillStyle = '#cbd5e1'
+  context.fillRect(0, 0, out.width, out.height)
+  let top = 0
+  for (const canvas of rendered) {
+    context.drawImage(canvas, 0, top)
+    top += canvas.height + LONG_IMAGE_GAP
+  }
+  const blob = await canvasBlob(out, 'image/png')
+  if (!blob) return false
+  downloadBlob(`${safeFileName(options.title) || 'inknote'}-long.png`, blob)
   return true
 }
 
