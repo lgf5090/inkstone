@@ -34480,6 +34480,63 @@ const allowed = new Map([
     "/** An id list in chunks no statement can choke on. */",
     "/** The `IN` placeholders for one chunk, numbered after the tenant bind at `?1`. */",
   ]],
+  ["src/worker/development/xget/lib/app/handle-request.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/app/request-context.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/app/request-context.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/config.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/config/index.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/protocols/ai.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/protocols/ai.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/protocols/docker.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/protocols/docker.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/protocols/git.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/protocols/git.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/protocols/huggingface.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/protocols/huggingface.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/response/finalize-response.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/response/finalize-response.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/routing/platform-index.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/routing/platform-index.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/routing/platform-transformers.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/routing/platform-transformers.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/routing/resolve-target.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/routing/resolve-target.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/upstream/cache-policy.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/upstream/cache-policy.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/upstream/cache.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/upstream/cache.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/upstream/fetch-upstream.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/upstream/fetch-upstream.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/utils/headers.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/utils/security.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/utils/performance.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/utils/performance.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/utils/rewrite.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/utils/rewrite.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/utils/security.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/utils/security.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
+  ["src/worker/development/xget/lib/utils/validation.ts", [
+    "// Derived from Xget (AGPL-3.0-only) src/utils/validation.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
+  ]],
   ["src/worker/durable/credential-vault.ts", [
     "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n */",
     "/**\n * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and\n * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).\n * So the policy is structural — bounded field names, string or boolean values — rather than a whitelist\n * that would have to be edited in step with every channel form. The switch fields are booleans because\n * the settings screen reads them back as booleans; forcing them to `\"true\"` would make the form lie.\n */",
@@ -40235,6 +40292,9 @@ const allowed = new Map([
     "// The Cloudflare app's rows are named by `newId()` (lib/id.ts) and every query filters on",
     "// `user_id`; a 26-character random id is not a name another reader can offer, so the key cannot",
     "// collide across accounts and the read paths never rely on it alone.",
+  ]],
+  ["tests/development-xget-upstream.test.ts", [
+    "// The second call is the token request and is also answered with 401.",
   ]],
   ["tests/do-auth-guard.test.ts", [
     "/**\n * Both objects read one binding, `DO_AUTH_KEY`, so every case here is that key present, blank or\n * absent on top of a real `Env`.\n */",

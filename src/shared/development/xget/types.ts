@@ -9,6 +9,20 @@ export const XGET_CATEGORIES: readonly XgetCategory[] = [
   'registry',
 ]
 
+export interface XgetSecurityOverrides {
+  ALLOWED_METHODS?: string[]
+  ALLOWED_ORIGINS?: string[]
+  MAX_PATH_LENGTH?: number
+}
+
+export interface XgetConfigOverrides {
+  TIMEOUT_SECONDS?: number
+  MAX_RETRIES?: number
+  RETRY_DELAY_MS?: number
+  CACHE_DURATION?: number
+  SECURITY?: XgetSecurityOverrides
+}
+
 export interface XgetSettingsConfig {
   timeout_seconds: number
   max_retries: number
