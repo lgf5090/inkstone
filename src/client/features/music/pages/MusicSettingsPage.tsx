@@ -7,7 +7,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { formatBytes } from '@shared/music/format'
-import type { MusicQuality, MusicSettings } from '@shared/music/model'
+import { MUSIC_STAGE_STYLES, type MusicQuality, type MusicSettings } from '@shared/music/model'
 import { Button } from '../../../components/primitives'
 import { Input, Segmented, SettingRow, Slider, Switch } from '../../../components/form'
 import { SelectMenu } from '../../../components/select-menu'
@@ -155,6 +155,38 @@ export function MusicSettingsPage(): ReactElement {
             checked={local.eq.leveling}
             onChange={(leveling) => setEq({ leveling })}
             label={t('music.eq.leveling')}
+          />
+        </SettingRow>
+        <SettingRow title={t('music.settings.normalize')} description={t('music.settings.normalize_hint')}>
+          <Switch
+            checked={local.normalize}
+            onChange={(normalize) => setLocal({ normalize })}
+            label={t('music.settings.normalize')}
+          />
+        </SettingRow>
+        <SettingRow title={t('music.stage.style')} description={t('music.stage.style_hint')}>
+          <Segmented
+            value={local.stageStyle}
+            options={MUSIC_STAGE_STYLES.map((style) => ({
+              value: style,
+              label: t(`music.stage.style.${style}` as MessageKey),
+            }))}
+            onChange={(stageStyle) => setLocal({ stageStyle })}
+            label={t('music.stage.style')}
+          />
+        </SettingRow>
+        <SettingRow title={t('music.stage.sparks')} description={t('music.stage.sparks_hint')}>
+          <Switch
+            checked={local.stageSparks}
+            onChange={(stageSparks) => setLocal({ stageSparks })}
+            label={t('music.stage.sparks')}
+          />
+        </SettingRow>
+        <SettingRow title={t('music.comments.hot')} description={t('music.comments.hot_hint')}>
+          <Switch
+            checked={local.hotComments}
+            onChange={(hotComments) => setLocal({ hotComments })}
+            label={t('music.comments.hot')}
           />
         </SettingRow>
         <SettingRow title={t('music.settings.single_mode.title')}>

@@ -7,6 +7,7 @@
  */
 import type {
   MusicAccount,
+  MusicFmMode,
   MusicProviderId,
   MusicSearchType,
   MusicTrack,
@@ -16,6 +17,7 @@ import type {
   MusicAlbumDetail,
   MusicAlbumSummary,
   MusicArtistDetail,
+  MusicArtistEventPage,
   MusicArtistSummary,
   MusicHome,
   MusicLyricPayload,
@@ -27,9 +29,11 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
   MusicToplistSummary,
   MusicUserProfile,
 } from '../../../shared/music/api'
+import type { MusicCommentPage } from '../../../shared/music/comments'
 
 export interface MusicPageQuery {
   limit: number
@@ -46,8 +50,26 @@ export interface MusicSearchQuery extends MusicPageQuery {
   keywords: string
 }
 
-export interface MusicSearchSuggestion {
-  keywords: string[]
+export interface MusicSuggestionResult {
+  items: MusicSearchSuggestion[]
+}
+
+export interface MusicCommentQuery {
+  thread: string
+  offset: number
+  limit: number
+}
+
+export interface MusicCommentLike {
+  thread: string
+  commentId: string
+  liked: boolean
+}
+
+export interface MusicHeartModeQuery {
+  songId: string
+  startSongId: string
+  playlistId: string
 }
 
 export interface MusicHotSearchItem {
@@ -117,6 +139,12 @@ export interface MusicStreamSource {
   bitrate: number | null
   size: number | null
   quality: string
+  /** The level the provider actually served, which may be below the one asked for. */
+  level: string
+  /** ReplayGain in dB; 0 when the provider did not measure it. */
+  gain: number
+  /** The loudest sample, 1 at full scale; 0 when unknown. */
+  peak: number
   /** A trial clip: the player must say so instead of presenting it as the full track. */
   freeTrial: boolean
 }
@@ -170,12 +198,15 @@ export interface MusicProvider {
 
   search(query: MusicSearchQuery): Promise<MusicSearchResult>
   searchHot(): Promise<MusicHotSearch>
-  suggest(keywords: string): Promise<MusicSearchSuggestion>
+  suggest(keywords: string): Promise<MusicSuggestionResult>
 
   home(): Promise<MusicHome>
   dailyTracks(): Promise<MusicTrack[]>
-  personalFm(): Promise<MusicTrack[]>
+  personalFm(mode: MusicFmMode): Promise<MusicTrack[]>
   fmTrash(providerId: string): Promise<void>
+
+  comments(query: MusicCommentQuery): Promise<MusicCommentPage>
+  likeComment(input: MusicCommentLike): Promise<void>
 
   songDetail(providerIds: string[]): Promise<MusicTrack[]>
 
@@ -187,6 +218,9 @@ export interface MusicProvider {
   album(providerId: string): Promise<MusicAlbumDetail>
 
   artist(query: MusicArtistQuery): Promise<MusicArtistDetail>
+  artistSongs(providerId: string, order: 'hot' | 'time', page: MusicPageQuery): Promise<MusicTrack[]>
+  artistFollow(providerId: string, follow: boolean): Promise<void>
+  artistEvents(providerId: string, before: number | null, limit: number): Promise<MusicArtistEventPage>
   artistsTop(page: MusicPageQuery): Promise<MusicPage<MusicArtistSummary>>
   toplists(): Promise<MusicToplistSummary[]>
 
@@ -201,6 +235,9 @@ export interface MusicProvider {
   radioSubscriptions(page: MusicPageQuery): Promise<MusicPage<MusicRadioSummary>>
   radio(providerId: string, page: MusicPageQuery): Promise<MusicRadioDetail>
   radioSubscribe(providerId: string, subscribe: boolean): Promise<void>
+  heartMode(query: MusicHeartModeQuery): Promise<MusicTrack[]>
+  /** The listener's liked-songs playlist id, or an empty string when it is not visible. */
+  likedPlaylistId(): Promise<string>
 
   lyrics(providerId: string): Promise<MusicLyricPayload>
   stream(providerId: string, quality: string): Promise<MusicStreamSource>

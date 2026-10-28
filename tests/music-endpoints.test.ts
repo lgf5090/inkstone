@@ -7,7 +7,9 @@ import {
   normalizeAlbumDetail,
   normalizeAlbumSummary,
   normalizeArtistDetail,
+  normalizeArtistEvents,
   normalizeArtistSummary,
+  normalizeCommentPage,
   normalizeDefaultKeyword,
   normalizeHotSearchItems,
   normalizeLyric,
@@ -26,6 +28,7 @@ import {
   normalizeToplistSummary,
   normalizeTrack,
 } from '../src/worker/music/providers/netease/normalize'
+import { requestNetease } from '../src/worker/music/providers/netease/request'
 
 describe('netease endpoint builders', () => {
   it('marks the search call as eapi and keeps the raw keyword', () => {
@@ -98,6 +101,80 @@ describe('netease endpoint builders', () => {
     expect(neteaseEndpoints.album('a/b').path).toBe('/api/v1/album/a%2Fb')
     expect(neteaseEndpoints.artistAlbums('42', { limit: 10, offset: 0 }).path).toBe('/api/artist/albums/42')
     expect(neteaseEndpoints.logout().crypto).toBe('eapi')
+  })
+
+  it('reads the artist profile as a plain GET, the only form that carries accountId', () => {
+    expect(neteaseEndpoints.artistDetail('42')).toMatchObject({
+      path: '/api/v1/artist/42',
+      crypto: 'plain',
+      method: 'GET',
+    })
+  })
+
+  it('builds comment, follow, events, FM mode and heart-mode calls', () => {
+    expect(neteaseEndpoints.comments({ thread: 'R_SO_4_42', offset: 30, limit: 30 })).toMatchObject({
+      path: '/api/v1/resource/comments/R_SO_4_42',
+      crypto: 'weapi',
+      body: { offset: 30, limit: 30 },
+    })
+    expect(neteaseEndpoints.commentLike({ thread: 'A_DJ_1_7', commentId: '3', liked: true })).toMatchObject({
+      path: '/api/v1/comment/like',
+      crypto: 'eapi',
+      body: { threadId: 'A_DJ_1_7', commentId: '3' },
+    })
+    expect(neteaseEndpoints.artistFollow('42', true).body).toEqual({ artistId: '42', artistIds: '[42]' })
+    expect(neteaseEndpoints.artistEvents({ uid: '9', before: 100, limit: 20 }).body).toEqual({
+      time: 100, limit: 20, getcounts: true, total: false,
+    })
+    expect(neteaseEndpoints.personalFm('FAMILIAR').body).toEqual({ mode: 'FAMILIAR', limit: 3 })
+    expect(neteaseEndpoints.heartMode({ songId: '1', startSongId: '1', playlistId: '5' }).body).toMatchObject({
+      songId: '1', startMusicId: '1', playlistId: '5', type: 'fromPlayOne', count: 1,
+    })
+  })
+})
+
+describe('netease wire transport', () => {
+  it('sends a plain GET with the query string and no request body', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} })
+      return new Response(
+        JSON.stringify({ code: 200, artist: { id: 42, name: 'Singer', accountId: 7 } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    try {
+      const response = await requestNetease('/api/v1/artist/42', 'plain', {}, { method: 'GET' })
+      expect(calls).toHaveLength(1)
+      expect(calls[0].init.method).toBe('GET')
+      expect(calls[0].init.body).toBeUndefined()
+      expect(calls[0].url).toBe('https://music.163.com/api/v1/artist/42?e_r=false')
+      expect(calls[0].url).not.toContain('csrf_token')
+      expect(response.ok).toBe(true)
+      expect(response.body.artist).toMatchObject({ accountId: 7 })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps encrypted calls as form-encoded POSTs', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init: init ?? {} })
+      return new Response(JSON.stringify({ code: 200 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    try {
+      await requestNetease('/api/v1/artist/songs', 'eapi', { id: '42' })
+      const headers = calls[0].init.headers as Record<string, string>
+      expect(calls[0].init.method).toBe('POST')
+      expect(String(calls[0].init.body)).toContain('params=')
+      expect(headers['Content-Type']).toBe('application/x-www-form-urlencoded')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
@@ -248,17 +325,62 @@ describe('netease normalization', () => {
 
   it('normalizes artist detail from the head-info envelope', () => {
     const detail = normalizeArtistDetail(
-      { data: { artist: { id: 1, name: 'Singer', briefDesc: 'Bio', albumSize: 2, fansCount: 3 } } },
+      { data: { artist: { id: 1, name: 'Singer', briefDesc: 'Bio', albumSize: 2, fansCount: 3, followed: true, accountId: 88 } } },
       { songs: [{ id: 10, name: 'Hot' }] },
       { hotAlbums: [{ id: 2, name: 'First' }], total: 4 },
       4,
     )
     expect(detail.artist).toMatchObject({ id: '1', name: 'Singer', albumCount: 2, followCount: 3 })
     expect(detail.description).toBe('Bio')
+    expect(detail.followed).toBe(true)
+    expect(detail.accountId).toBe('88')
     expect(detail.hotTracks[0].title).toBe('Hot')
     expect(detail.albums).toHaveLength(1)
     expect(detail.albumTotal).toBe(4)
     expect(detail.albumHasMore).toBe(true)
+  })
+
+  it('normalizes comments, replies and the event feed', () => {
+    const page = normalizeCommentPage({
+      hotComments: [{
+        commentId: 1,
+        user: { userId: 2, nickname: 'N', avatarUrl: 'a' },
+        content: 'hi',
+        time: 10,
+        likedCount: 3,
+        liked: true,
+        ipLocation: { location: 'Earth' },
+        beReplied: [{ user: { nickname: 'R' }, content: 'reply' }],
+      }],
+      comments: [{ commentId: 2, user: { userId: 3, nickname: 'M' }, content: 'latest', time: 11 }],
+      total: 1,
+      more: false,
+    }, 0)
+    expect(page.hot[0]).toMatchObject({ id: '1', liked: true, ipLocation: 'Earth', replyTo: { nickname: 'R', content: 'reply' } })
+    expect(page.latest[0].content).toBe('latest')
+    expect(page.hasMore).toBe(false)
+
+    const events = normalizeArtistEvents({
+      events: [{
+        id: 5,
+        eventTime: 20,
+        user: { nickname: 'Singer', avatarUrl: 'avatar' },
+        pics: [{ squareUrl: 'pic' }],
+        info: { likedCount: 2, commentCount: 4 },
+        json: JSON.stringify({
+          msg: 'hello',
+          song: { id: 9, name: 'S', ar: [{ id: 1, name: 'A' }] },
+          event: { user: { nickname: 'F' }, json: JSON.stringify({ msg: 'forwarded' }) },
+        }),
+      }],
+      lasttime: 20,
+      more: true,
+    })
+    expect(events.items[0]).toMatchObject({
+      id: '5', authorName: 'Singer', content: 'hello', pictures: ['pic'], forwarded: 'F: forwarded',
+    })
+    expect(events.items[0].song?.title).toBe('S')
+    expect(events.before).toBe(20)
   })
 
   it('normalizes MV detail and sources', () => {
@@ -293,6 +415,11 @@ describe('netease normalization', () => {
     )
     expect(lyrics).toMatchObject({ hasTranslation: true, hasWordByWord: true })
     expect(lyrics.lyric).toMatchObject({ trackKey: 'netease:1', lrc: '[00:00]Hi', tlyric: '[00:00]Hey' })
+    const wordTranslation = normalizeLyric(
+      { lrc: { lyric: '[00:00]Hi' }, ytlyric: { lyric: '[00:00]Word translation' } },
+      'netease:2',
+    )
+    expect(wordTranslation.lyric?.tlyric).toBe('[00:00]Word translation')
 
     expect(normalizePlaylistCategories({ sub: [{ name: 'Pop', hot: true }, { name: '' }] })).toEqual([
       { name: 'Pop', hot: true },
@@ -323,6 +450,9 @@ describe('netease normalization', () => {
       bitrate: 320000,
       size: 4,
       quality: 'exhigh',
+      level: 'exhigh',
+      gain: 0,
+      peak: 0,
       freeTrial: true,
     })
     expect(source?.expiresAt).toBeGreaterThan(Date.now())

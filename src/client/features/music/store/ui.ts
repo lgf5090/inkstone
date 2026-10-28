@@ -18,8 +18,8 @@ import type { MusicPage } from '../music-address'
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.music.searchHistory' : 'inkstone.music.searchHistory'
 const MAX_TERM_LENGTH = 200
 
-/** The two panes the full-screen Now Playing layer offers. */
-export type MusicNowPlayingTab = 'lyrics' | 'queue'
+/** The panes the full-screen Now Playing layer offers. */
+export type MusicNowPlayingTab = 'lyrics' | 'stage' | 'queue' | 'wall' | 'comments' | 'program'
 
 export const MUSIC_UI_DEFAULTS = {
   queueOpen: false,

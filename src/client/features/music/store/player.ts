@@ -12,8 +12,11 @@
 import { create } from 'zustand'
 import { musicArtistNames } from '@shared/music/format'
 import type { MusicPlayMode, MusicTrack } from '@shared/music/model'
+import { ApiError } from '../../../lib/api'
 import { IS_DEMO_MODE } from '../../../lib/runtime'
+import { useUi } from '../../../store/ui'
 import { musicApi } from '../api'
+import { musicText } from '../components/labels'
 import {
   MAX_CONSECUTIVE_FAILURES,
   RESTART_THRESHOLD_MS,
@@ -44,6 +47,15 @@ import {
   updateMediaSessionPlaybackState,
   updateMediaSessionPosition,
 } from '../player/media-session'
+import {
+  appendRadioTracks,
+  nextFmTracks,
+  nextHeartTracks,
+  playableFilter,
+  sanitizeRadio,
+  type MusicRadioMode,
+  type MusicRadioState,
+} from '../radio/radio-feed'
 import { MUSIC_RATE_RANGE, MUSIC_VOLUME_RANGE, useMusicSettings } from './settings'
 import { useMusicLibrary } from './library'
 
@@ -66,6 +78,25 @@ export const MUSIC_PLAYER_ERROR_KEYS = {
 export interface MusicPlaybackErrorState {
   key: string
   detail: string | null
+}
+
+/** The feed keys live here so the store and its tests name the same copy. */
+export const MUSIC_RADIO_ERROR_KEYS = {
+  empty: 'music.home.fm.empty',
+  start: 'music.home.fm.error',
+  needTrack: 'music.radio.need_track',
+  heartUnavailable: 'music.radio.heart_unavailable',
+  feed: 'music.radio.feed_failed',
+  stopped: 'music.radio.stopped',
+  dislike: 'music.song.action_failed',
+} as const
+
+function notify(key: string, tone: 'default' | 'success' | 'warning' | 'danger', description?: string): void {
+  useUi.getState().toast({
+    title: musicText(key),
+    tone,
+    ...(description ? { description } : {}),
+  })
 }
 
 export interface SetQueueOptions {
@@ -103,10 +134,29 @@ export interface MusicPlayerState {
   awaitingGesture: boolean
   /** The provider only offered a trial clip for the current track. */
   preview: boolean
+  /** The level the stream actually served, for the quality badge. */
+  streamQuality: string
+  /** ReplayGain in dB and the track's peak; 0 when the provider did not measure them. */
+  streamGain: number
+  streamPeak: number
+  /** How much of the current stream the element has buffered, 0..1. */
+  bufferedFraction: number
   /** The URL the current track is (or would be) loaded from. */
   sourceUrl: string
+  /** The station growing this queue, or null when the reader is walking a fixed list. */
+  radio: MusicRadioState | null
+  /** A feed request is in flight; the store also uses it to keep prefetch and next from racing. */
+  radioLoading: boolean
+  /** Failed feed requests in a row; the station stops at MAX_CONSECUTIVE_FAILURES. */
+  radioFailures: number
   setQueue: (tracks: readonly MusicTrack[], options?: SetQueueOptions) => MusicTrack | null
   playTrack: (track: MusicTrack, options?: PlayTrackOptions) => Promise<boolean>
+  startRadio: (name: string, mode: MusicRadioMode, seedProviderId?: string) => Promise<boolean>
+  attachRadio: (radio: MusicRadioState) => void
+  detachRadio: () => void
+  prefetchRadio: () => Promise<void>
+  radioNext: () => Promise<boolean>
+  fmTrash: () => Promise<boolean>
   next: (reason?: MusicNextReason) => Promise<boolean>
   prev: () => Promise<boolean>
   toggle: () => Promise<boolean>
@@ -142,6 +192,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+/** NetEase brings normalised tracks to the quiet ReplayGain level; lift them before the peak guard. */
+export const NORMALIZATION_PREAMP_DB = 4
+
+/** The linear gain that brings a measured track as loud as others without clipping its peak. */
+export function normalizationGainFrom(gainDb: number, peak: number): number {
+  if (!Number.isFinite(gainDb) || (!gainDb && (!Number.isFinite(peak) || peak <= 0))) return 1
+  let gain = Math.pow(10, (gainDb + NORMALIZATION_PREAMP_DB) / 20)
+  if (Number.isFinite(peak) && peak > 0) gain = Math.min(gain, 1 / peak)
+  return Math.max(0.1, Math.min(4, gain))
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -156,18 +217,35 @@ interface PersistedPlayer {
   version: 1
   queue: MusicQueue
   positionMs: number
+  /** Absent when the queue is a fixed list; a hand-edited record is sanitized on restore. */
+  radio?: MusicRadioState
 }
 
 function persistPlayer(queue: MusicQueue, positionMs: number): void {
   if (typeof localStorage === 'undefined') return
   if (queue.tracks.length > MAX_PERSISTED_QUEUE_TRACKS) return
-  const snapshot: PersistedPlayer = { version: 1, queue, positionMs }
+  const radio = useMusicPlayer.getState().radio
+  const snapshot: PersistedPlayer = {
+    version: 1,
+    queue,
+    positionMs,
+    ...(radio ? { radio } : {}),
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   } catch {
     // Private mode or a full origin quota. Playback continues; the next launch simply starts with
     // an empty queue instead of the one this session had.
   }
+}
+
+function fetchRadioTracks(radio: MusicRadioState, currentProviderId: string | undefined): Promise<MusicTrack[]> {
+  if (radio.mode === 'heart') {
+    const providerId = currentProviderId ?? radio.seedProviderId
+    if (!providerId) return Promise.reject(new Error('Heart mode has no starting track'))
+    return nextHeartTracks(providerId, radio.seedProviderId ?? providerId)
+  }
+  return nextFmTracks(radio.mode)
 }
 
 function readPlayerSnapshot(): PersistedPlayer | null {
@@ -179,10 +257,12 @@ function readPlayerSnapshot(): PersistedPlayer | null {
     if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed.queue as MusicQueue | undefined)?.tracks)) {
       return null
     }
+    const radio = sanitizeRadio(parsed.radio)
     return {
       version: 1,
       queue: parsed.queue as MusicQueue,
       positionMs: typeof parsed.positionMs === 'number' ? parsed.positionMs : 0,
+      ...(radio ? { radio } : {}),
     }
   } catch {
     // A half-written record is discarded; restore falls back to the saved preferences.
@@ -216,6 +296,36 @@ function syncMediaSession(state: Pick<MusicPlayerState, 'queue' | 'status' | 'po
 export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
   /** Increments whenever the track the element should hold changes; stale loads compare against it. */
   let generation = 0
+  /** Invalidates a station request whose answer arrived after the reader left that station. */
+  let radioRequest = 0
+  /** One feed request at a time; next and prefetch share the batch instead of fetching twice. */
+  let feedRequest: Promise<MusicTrack[]> | null = null
+
+  const requestRadioFeed = (): Promise<MusicTrack[]> => {
+    if (feedRequest) return feedRequest
+    const state = get()
+    const radio = state.radio
+    if (!radio) return Promise.reject(new Error('No radio station is active'))
+    const current = currentTrack(state.queue)
+    let request: Promise<MusicTrack[]>
+    request = fetchRadioTracks(radio, current?.providerId).finally(() => {
+      if (feedRequest === request) feedRequest = null
+    })
+    feedRequest = request
+    return request
+  }
+
+  /**
+   * Stop growing the queue after repeated bad beats. The tracks already queued keep playing; only
+   * the station is released, so the next end of the queue behaves like an ordinary fixed list.
+   */
+  const stopRadioFeed = (): void => {
+    radioRequest++
+    feedRequest = null
+    set({ radio: null, radioLoading: false, radioFailures: 0 })
+    persistPlayer(get().queue, get().positionMs)
+    notify(MUSIC_RADIO_ERROR_KEYS.stopped, 'warning')
+  }
 
   const handleFailure = async (error: unknown): Promise<boolean> => {
     const state = get()
@@ -277,6 +387,10 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       errorDetail: null,
       awaitingGesture: false,
       preview: false,
+      streamQuality: track.sourceQuality || track.format || '',
+      streamGain: 0,
+      streamPeak: 0,
+      bufferedFraction: 0,
     })
     // A track opened from discovery has no library id yet; saving the snapshot is what lets the
     // stream and cover routes find it. An already-saved track is not written again: the queue's copy
@@ -289,6 +403,26 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       }
     }
     if (request !== generation) return false
+    let quality = track.sourceQuality || track.format || ''
+    let gainDb = 0
+    let peak = 0
+    let preview = false
+    if (track.provider === 'netease' && !track.r2Key) {
+      try {
+        // The audio element cannot read response headers, so a HEAD names the real level and the
+        // loudness before the first frame; an answer that fails only leaves the defaults.
+        const response = await fetch(sourceUrl, { method: 'HEAD' })
+        quality = response.headers.get('x-music-quality') || quality
+        gainDb = Number(response.headers.get('x-music-gain') ?? 0)
+        peak = Number(response.headers.get('x-music-peak') ?? 0)
+        preview = response.headers.get('x-music-free-trial') === '1'
+      } catch (error) {
+        console.warn('[inkstone] Music preview probe failed:', error)
+      }
+    }
+    if (request !== generation) return false
+    const prefs = useMusicSettings.getState().local
+    set({ streamQuality: quality, streamGain: gainDb, streamPeak: peak, preview })
     try {
       await musicAudioEngine.play({
         url: sourceUrl,
@@ -297,24 +431,14 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         volume: get().volume,
         muted: get().muted,
         rate: get().rate,
-        equalizer: useMusicSettings.getState().local.eq.enabled
-          || useMusicSettings.getState().local.eq.leveling,
+        equalizer: prefs.eq.enabled || prefs.eq.leveling || prefs.normalize,
+        normalizationGain: prefs.normalize ? normalizationGainFrom(gainDb, peak) : 1,
       })
       if (request !== generation) return false
       set({ status: 'playing', consecutiveFailures: 0, error: null, errorDetail: null })
       // One place records a play, so leaving and re-entering the music tab (or the floating player
       // remounting) cannot append the same listen again. The library still deduplicates within 30s.
       void useMusicLibrary.getState().recordHistory({ track, contextType: 'player' })
-      if (track.provider === 'netease' && !track.r2Key) {
-        // The audio element cannot read a response header, so a concurrent HEAD names a preview.
-        // It does not gate playback; the badge appears when the answer arrives.
-        void fetch(sourceUrl, { method: 'HEAD' }).then((response) => {
-          if (request !== generation) return
-          if (response.headers.get('x-music-free-trial') === '1') set({ preview: true })
-        }).catch((error: unknown) => {
-          console.warn('[inkstone] Music preview probe failed:', error)
-        })
-      }
       syncMediaSession(get())
       return true
     } catch (error) {
@@ -347,14 +471,14 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     return playCurrent(step.at === 'restart' ? 0 : undefined)
   }
 
-  musicAudioEngine.subscribe('timeupdate', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('timeupdate', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
   })
-  musicAudioEngine.subscribe('durationchange', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('durationchange', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
   })
-  musicAudioEngine.subscribe('seeked', ({ positionMs, durationMs }) => {
-    set({ positionMs, durationMs })
+  musicAudioEngine.subscribe('seeked', ({ positionMs, durationMs, bufferedFraction }) => {
+    set({ positionMs, durationMs, bufferedFraction })
     syncMediaSession(get())
   })
   musicAudioEngine.subscribe('play', () => {
@@ -428,10 +552,19 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     consecutiveFailures: 0,
     awaitingGesture: false,
     preview: false,
+    streamQuality: '',
+    streamGain: 0,
+    streamPeak: 0,
+    bufferedFraction: 0,
     sourceUrl: '',
+    radio: null,
+    radioLoading: false,
+    radioFailures: 0,
 
     setQueue(tracks, options = {}) {
       const state = get()
+      radioRequest++
+      feedRequest = null
       const mode = options.mode ?? state.queue.mode
       const queue = createQueue({
         tracks,
@@ -451,8 +584,15 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         error: null,
         errorDetail: null,
         preview: false,
+        streamQuality: '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
         consecutiveFailures: 0,
         awaitingGesture: false,
+        radio: null,
+        radioLoading: false,
+        radioFailures: 0,
       })
       if (mode !== state.queue.mode) useMusicSettings.getState().setMode(mode)
       persistPlayer(queue, 0)
@@ -464,6 +604,8 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
     async playTrack(track, options = {}) {
       if (!track || !track.id) return false
       const state = get()
+      radioRequest++
+      feedRequest = null
       const preferences = useMusicSettings.getState().server
       let queue: MusicQueue
       if (options.queue) {
@@ -498,10 +640,169 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         consecutiveFailures: 0,
         awaitingGesture: !preferences.autoPlay,
         preview: false,
+        streamQuality: '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
+        radio: null,
+        radioLoading: false,
+        radioFailures: 0,
       })
       persistPlayer(queue, 0)
       syncMediaSession(get())
       return preferences.autoPlay ? playCurrent() : false
+    },
+
+    async startRadio(name, mode, seedProviderId) {
+      const state = get()
+      if (state.radioLoading) return false
+      const seed = seedProviderId?.trim() || undefined
+      if (mode === 'heart' && !seed) {
+        notify(MUSIC_RADIO_ERROR_KEYS.needTrack, 'warning')
+        return false
+      }
+      const radio: MusicRadioState = {
+        name: name.trim(),
+        mode,
+        ...(seed ? { seedProviderId: seed } : {}),
+      }
+      const request = ++radioRequest
+      feedRequest = null
+      set({ radioLoading: true })
+      try {
+        const tracks = playableFilter(await fetchRadioTracks(radio, seed))
+        if (request !== radioRequest) return false
+        if (tracks.length === 0) {
+          notify(MUSIC_RADIO_ERROR_KEYS.empty, 'warning')
+          return false
+        }
+        // setQueue clears the previous station, so the new one is attached right after the queue
+        // it belongs to exists; both writes persist the queue once.
+        const selected = get().setQueue(tracks, { autoplay: true })
+        if (!selected) return false
+        set({ radio, radioFailures: 0, radioLoading: false })
+        persistPlayer(get().queue, 0)
+        return true
+      } catch (error) {
+        if (request !== radioRequest) return false
+        const key = radio.mode === 'heart' && error instanceof ApiError && error.status === 409
+          ? MUSIC_RADIO_ERROR_KEYS.heartUnavailable
+          : MUSIC_RADIO_ERROR_KEYS.start
+        notify(key, 'danger', describe(error))
+        return false
+      } finally {
+        if (request === radioRequest && get().radioLoading) set({ radioLoading: false })
+      }
+    },
+
+    attachRadio(radio) {
+      const clean = sanitizeRadio(radio)
+      if (!clean) return
+      radioRequest++
+      feedRequest = null
+      set({ radio: clean, radioLoading: false, radioFailures: 0 })
+      persistPlayer(get().queue, get().positionMs)
+    },
+
+    detachRadio() {
+      // Invalidate a station still being requested even when no station is attached yet.
+      radioRequest++
+      feedRequest = null
+      if (!get().radio && !get().radioLoading) return
+      set({ radio: null, radioLoading: false, radioFailures: 0 })
+      persistPlayer(get().queue, get().positionMs)
+    },
+
+    async prefetchRadio() {
+      const state = get()
+      if (!state.radio || state.radioLoading) return
+      if (state.radioFailures >= MAX_CONSECUTIVE_FAILURES) return
+      const total = state.queue.tracks.length
+      if (total === 0 || state.queue.index < total - 2) return
+      const request = radioRequest
+      set({ radioLoading: true })
+      try {
+        const incoming = await requestRadioFeed()
+        if (request !== radioRequest || !get().radio) return
+        const queue = appendRadioTracks(get().queue, incoming)
+        if (queue === get().queue) throw new Error('The radio feed returned no new tracks')
+        set({ queue, radioFailures: 0 })
+        persistPlayer(queue, get().positionMs)
+      } catch (error) {
+        if (request !== radioRequest) return
+        const failures = get().radioFailures + 1
+        set({ radioFailures: failures })
+        // Prefetch is best effort: a bad beat is logged and the station is tried again near the
+        // next end. Five in a row release the station instead of warning on every track.
+        console.warn('[inkstone] Music radio prefetch failed:', error)
+        if (failures >= MAX_CONSECUTIVE_FAILURES) stopRadioFeed()
+      } finally {
+        if (request === radioRequest) set({ radioLoading: false })
+      }
+    },
+
+    async radioNext() {
+      const state = get()
+      const radio = state.radio
+      if (!radio) return false
+      if (state.radioFailures >= MAX_CONSECUTIVE_FAILURES) {
+        stopRadioFeed()
+        set({ status: 'ended' })
+        return false
+      }
+      const request = radioRequest
+      set({ radioLoading: true })
+      try {
+        const incoming = await requestRadioFeed()
+        if (request !== radioRequest || get().radio !== radio) {
+          set({ radioLoading: false })
+          return false
+        }
+        // A prefetch may have consumed the same shared batch while this request was in flight; in
+        // that case the queue has already grown and only the step is missing.
+        const queue = get().queue
+        const appended = appendRadioTracks(queue, incoming)
+        const grown = appended === queue ? queue : appended
+        if (appended === queue && queue.tracks.length === state.queue.tracks.length) {
+          throw new Error('The radio feed returned no new tracks')
+        }
+        set({ radioLoading: false, radioFailures: 0 })
+        const step = nextInQueue(grown, 'auto')
+        if (step.at === 'end') {
+          set({ queue: grown, status: 'ended' })
+          persistPlayer(grown, get().positionMs)
+          syncMediaSession(get())
+          return false
+        }
+        return applyStep(step, false)
+      } catch (error) {
+        if (request !== radioRequest) return false
+        const failures = get().radioFailures + 1
+        set({ radioLoading: false, radioFailures: failures, status: 'ended' })
+        persistPlayer(get().queue, get().positionMs)
+        syncMediaSession(get())
+        console.warn('[inkstone] Music radio feed failed:', error)
+        if (failures >= MAX_CONSECUTIVE_FAILURES) {
+          stopRadioFeed()
+          set({ status: 'ended' })
+        } else {
+          notify(MUSIC_RADIO_ERROR_KEYS.feed, 'warning', describe(error))
+        }
+        return false
+      }
+    },
+
+    async fmTrash() {
+      const track = currentTrack(get().queue)
+      if (!track) return false
+      try {
+        await musicApi.fmTrash(track.providerId)
+      } catch (error) {
+        notify(MUSIC_RADIO_ERROR_KEYS.dislike, 'danger', describe(error))
+        return false
+      }
+      // The station already knows this track is disliked; moving on is the visible half of it.
+      return get().next('user')
     },
 
     async next(reason = 'user') {
@@ -511,6 +812,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       const queueReason: QueueReason = reason === 'ended' ? 'auto' : reason
       const step = nextInQueue(state.queue, queueReason)
       if (step.at === 'end') {
+        if (state.radio) return get().radioNext()
         if (reason === 'ended') {
           set({ status: 'ended', positionMs: state.durationMs })
           persistPlayer(state.queue, state.durationMs)
@@ -518,7 +820,9 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         }
         return false
       }
-      return applyStep(step, reason === 'user')
+      const played = await applyStep(step, reason === 'user')
+      void get().prefetchRadio()
+      return played
     },
 
     async prev() {
@@ -571,12 +875,27 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
 
     setMode(mode) {
       const state = get()
-      if (mode === state.queue.mode) return
-      const queue = setQueueMode(state.queue, mode)
-      set({ queue })
-      useMusicSettings.getState().setMode(mode)
-      persistPlayer(queue, state.positionMs)
-      syncMediaSession(get())
+      const sameMode = mode === state.queue.mode
+      // Intelligence is the one mode with a station behind it; pressing it again after a failure is
+      // a request to retry, not a no-op.
+      if (sameMode && !(mode === 'intelligence' && !state.radio)) return
+      if (!sameMode) {
+        const queue = setQueueMode(state.queue, mode)
+        set({ queue })
+        useMusicSettings.getState().setMode(mode)
+        persistPlayer(queue, state.positionMs)
+        syncMediaSession(get())
+      }
+      if (mode === 'intelligence') {
+        const track = currentTrack(get().queue)
+        if (!track) {
+          notify(MUSIC_RADIO_ERROR_KEYS.needTrack, 'warning')
+          return
+        }
+        void get().startRadio(musicText('music.mode.intelligence'), 'heart', track.providerId)
+        return
+      }
+      get().detachRadio()
     },
 
     setVolume(volume) {
@@ -727,6 +1046,9 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
           rate: local.rate,
           status: 'idle',
           preview: false,
+          radio: null,
+          radioLoading: false,
+          radioFailures: 0,
         })
         return false
       }
@@ -748,6 +1070,15 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
         consecutiveFailures: 0,
         awaitingGesture: Boolean(track),
         preview: false,
+        streamQuality: track?.sourceQuality || '',
+        streamGain: 0,
+        streamPeak: 0,
+        bufferedFraction: 0,
+        // A station is restored only with a track to attach it to; it never starts playback by
+        // itself, because a restored session still waits for the reader's first gesture.
+        radio: track ? sanitizeRadio(snapshot.radio) : null,
+        radioLoading: false,
+        radioFailures: 0,
       })
       useMusicSettings.getState().setMode(queue.mode)
       syncMediaSession(get())

@@ -22,6 +22,7 @@ import { createNeteaseProvider } from '../music/providers/netease/client'
 import { spendProviderRead } from '../music/providers/budget'
 import { MusicProviderError, type MusicProvider } from '../music/providers/types'
 import { createMusicDiscoveryRoutes } from './music-discovery'
+import { createMusicCommentsRoutes } from './music-comments'
 import { musicDriveRoutes } from './music-drive'
 import { musicLibraryRoutes } from './music-library'
 import { createMusicAccountRoutes } from './music-account'
@@ -179,4 +180,5 @@ musicRoutes.route('/uploads', musicUploadRoutes)
 musicRoutes.route('/downloads', musicDownloadRoutes)
 musicRoutes.route('/drive', musicDriveRoutes)
 musicRoutes.route('/settings', musicSettingsRoutes)
+musicRoutes.route('/', createMusicCommentsRoutes(deps))
 musicRoutes.route('/', createMusicDiscoveryRoutes(deps))

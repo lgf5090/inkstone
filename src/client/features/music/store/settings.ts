@@ -16,8 +16,10 @@ import { CLIENT_HEADER } from '@shared/constants'
 import {
   DEFAULT_MUSIC_SETTINGS,
   MUSIC_PLAY_MODES,
+  MUSIC_STAGE_STYLES,
   type MusicPlayMode,
   type MusicSettings,
+  type MusicStageStyle,
 } from '@shared/music/model'
 import { isDownloadableQuality } from '@shared/music/format'
 import { IS_DEMO_MODE } from '../../../lib/runtime'
@@ -65,6 +67,11 @@ export interface MusicLocalPreferences {
   rate: number
   eq: EqSettings
   lyrics: MusicLyricPreferences
+  stageStyle: MusicStageStyle
+  stageSparks: boolean
+  hotComments: boolean
+  normalize: boolean
+  preferredLyricsPane: 'lyrics' | 'stage'
 }
 
 export function defaultLocalPreferences(): MusicLocalPreferences {
@@ -75,6 +82,11 @@ export function defaultLocalPreferences(): MusicLocalPreferences {
     rate: 1,
     eq: { ...DEFAULT_EQ_SETTINGS, gains: [...DEFAULT_EQ_GAINS] },
     lyrics: { ...DEFAULT_LYRIC_PREFERENCES },
+    stageStyle: 'classic',
+    stageSparks: false,
+    hotComments: false,
+    normalize: false,
+    preferredLyricsPane: 'lyrics',
   }
 }
 
@@ -160,6 +172,11 @@ function readLocal(value: unknown): MusicLocalPreferences {
     ),
     eq: sanitizeEqSettings(value.eq),
     lyrics: readLyrics(value.lyrics),
+    stageStyle: oneOf(value.stageStyle, MUSIC_STAGE_STYLES, defaults.stageStyle),
+    stageSparks: booleanOr(value.stageSparks, defaults.stageSparks),
+    hotComments: booleanOr(value.hotComments, defaults.hotComments),
+    normalize: booleanOr(value.normalize, defaults.normalize),
+    preferredLyricsPane: value.preferredLyricsPane === 'stage' ? 'stage' : 'lyrics',
   }
 }
 
@@ -198,6 +215,8 @@ function mergeLocal(current: MusicLocalPreferences, patch: Partial<MusicLocalPre
   next.volume = clamp(next.volume, MUSIC_VOLUME_RANGE.min, MUSIC_VOLUME_RANGE.max)
   next.rate = clamp(next.rate, MUSIC_RATE_RANGE.min, MUSIC_RATE_RANGE.max)
   if (!isPlayMode(next.mode)) next.mode = current.mode
+  next.stageStyle = oneOf(next.stageStyle, MUSIC_STAGE_STYLES, current.stageStyle)
+  next.preferredLyricsPane = next.preferredLyricsPane === 'stage' ? 'stage' : 'lyrics'
   return next
 }
 

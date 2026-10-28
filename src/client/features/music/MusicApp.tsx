@@ -40,7 +40,8 @@ import { NowPlaying } from './components/NowPlaying'
 import { PlayBar } from './components/PlayBar'
 import { QueueDrawer } from './components/QueueDrawer'
 import { useMusicLibrary } from './store/library'
-import { useMusicPlayer } from './store/player'
+import { normalizationGainFrom, useMusicPlayer } from './store/player'
+import { musicAudioEngine } from './player/engine'
 import { useMusicSettings } from './store/settings'
 import { useMusicShortcuts } from './shortcuts'
 import { useMusicAssistantContext } from './assistant-surface'
@@ -195,6 +196,7 @@ export function MusicApp(): ReactElement {
   const page = useMemo(() => parseMusicAddress(pathname, search), [pathname, search])
   const musicContext = useMusicAssistantContext(page)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const normalize = useMusicSettings((state) => state.local.normalize)
   useMusicShortcuts()
   useMusicToolEffects()
 
@@ -214,6 +216,19 @@ export function MusicApp(): ReactElement {
   useEffect(() => {
     useMusicUi.getState().setPage(page)
   }, [page])
+
+  // Leveling a track that is already sounding must not wait for the next song. The graph is only
+  // attached when the stream is same-origin, which is the normal path; a cross-origin fallback keeps
+  // playing through the element untouched.
+  useEffect(() => {
+    if (!normalize) {
+      musicAudioEngine.setNormalizationGain(1)
+      return
+    }
+    const player = useMusicPlayer.getState()
+    musicAudioEngine.enableEqualizer()
+    musicAudioEngine.setNormalizationGain(normalizationGainFrom(player.streamGain, player.streamPeak))
+  }, [normalize])
 
   // The old heatmap address still reads as history; move the bar so the active nav matches again.
   useEffect(() => {
@@ -284,7 +299,7 @@ export function MusicApp(): ReactElement {
       </div>
 
       <PlayBar />
-      <MiniPlayer onOpenNowPlaying={() => useMusicUi.getState().setNowPlayingOpen(true, 'lyrics')} />
+      <MiniPlayer onOpenNowPlaying={() => useMusicUi.getState().setNowPlayingOpen(true, useMusicSettings.getState().local.preferredLyricsPane)} />
       <QueueDrawer />
       <NowPlaying />
       <FullLyrics />

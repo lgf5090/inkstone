@@ -1,0 +1,559 @@
+/* The immersive player: a dark stage made from the cover's own colour.
+   All colours come from the tokens above; the only literals are the fallback stage shades. */
+
+.music-np {
+  --music-stage-bg: #0b0b0d;
+  --music-stage-fg: oklch(98% 0 0);
+  --music-stage-fg-dim: oklch(78% 0.01 280);
+  --music-stage-hairline: color-mix(in oklab, white 14%, transparent);
+  --music-stage-surface: color-mix(in oklab, white 8%, transparent);
+  --music-stage-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.65);
+  /* The cover may publish its own tint on this element; until it does, the app accent is the answer.
+     Do not alias --accent back to --music-accent: that is a cycle and leaves both undefined. */
+  --music-accent: var(--accent);
+  --music-accent-soft: var(--accent-soft);
+  --music-on-accent: var(--accent-contrast);
+  --accent-soft: color-mix(in oklab, var(--music-accent) 22%, transparent);
+  --accent-on-soft: var(--music-stage-fg);
+  /* Re-point the shared primitives' tokens at the dark stage. */
+  --text-primary: var(--music-stage-fg);
+  --text-secondary: color-mix(in oklab, white 72%, transparent);
+  --text-tertiary: color-mix(in oklab, white 55%, transparent);
+  --text-quaternary: color-mix(in oklab, white 38%, transparent);
+  --bg-base: var(--music-stage-bg);
+  --bg-sunken: color-mix(in oklab, white 4%, var(--music-stage-bg));
+  --bg-raised: color-mix(in oklab, white 9%, var(--music-stage-bg));
+  --bg-surface: color-mix(in oklab, white 7%, var(--music-stage-bg));
+  --bg-overlay: color-mix(in oklab, white 10%, var(--music-stage-bg));
+  --bg-hover: color-mix(in oklab, white 12%, transparent);
+  --border-subtle: var(--music-stage-hairline);
+  --border-default: color-mix(in oklab, white 22%, transparent);
+  --scrim: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: hidden;
+  background: var(--music-stage-bg);
+  color: var(--music-stage-fg);
+}
+
+.music-np__backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.music-np__backdrop-image {
+  position: absolute;
+  inset: -10%;
+  background-position: center;
+  background-size: cover;
+  filter: blur(64px) saturate(1.1);
+  opacity: 0.55;
+  transform: scale(1.12);
+}
+
+.music-np__backdrop-wash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 22% 10%, color-mix(in oklab, var(--music-accent) 26%, transparent), transparent 62%),
+    linear-gradient(180deg, rgb(11 11 13 / 0.35), var(--music-stage-bg) 72%);
+}
+
+.music-np__topbar {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-block-size: 56px;
+  padding: var(--sp-2) var(--sp-4);
+}
+
+.music-np__brand {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: var(--text-10-5);
+  font-weight: 650;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.music-np__tabs {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  justify-content: center;
+}
+
+.music-np__tabs .music-tabs__tab {
+  color: var(--text-tertiary);
+  border-radius: 999px;
+}
+
+.music-np__tabs .music-tabs__tab[aria-selected="true"] {
+  color: var(--text-primary);
+  background: var(--music-stage-surface);
+}
+
+.music-np__tabs .music-tabs__tab:hover {
+  color: var(--text-secondary);
+  background: color-mix(in oklab, white 8%, transparent);
+}
+
+.music-np__close {
+  flex: 0 0 auto;
+}
+
+.music-np__content {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+
+.music-np__sidebar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  inline-size: clamp(320px, 36vw, 460px);
+  min-block-size: 0;
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.music-np__cover {
+  --music-cover-size: clamp(220px, 30vh, 380px);
+  flex: 0 0 auto;
+  border-radius: var(--r-xl);
+  box-shadow: var(--music-stage-shadow);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.music-np[data-playing="false"] .music-np__cover {
+  transform: scale(0.96);
+}
+
+.music-np__heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  text-align: center;
+}
+
+.music-np__title {
+  display: -webkit-box;
+  max-inline-size: 100%;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-display);
+  font-size: clamp(22px, 2.1vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.music-np__artists {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+}
+
+.music-np__artist {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+.music-np__artist:hover {
+  color: var(--text-primary);
+}
+
+.music-np__artist:focus-visible {
+  outline: 2px solid var(--music-accent);
+  outline-offset: 2px;
+}
+
+.music-np__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.music-np__quality {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in oklab, #f5d58a 55%, transparent);
+  border-radius: var(--r-xs);
+  font-size: var(--text-9-5);
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  color: #f5d58a;
+}
+
+.music-np__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  inline-size: 100%;
+  max-inline-size: 360px;
+}
+
+.music-np__time {
+  flex: 0 0 auto;
+  min-inline-size: 38px;
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.music-np__time--end {
+  text-align: end;
+}
+
+.music-np__scrubber {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.music-np__scrubber .music-np__slider {
+  inline-size: 100%;
+}
+
+.music-np__scrubber .music-np__slider > span {
+  display: none;
+}
+
+.music-np__scrubber .ink-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--pct),
+    color-mix(in oklab, white 30%, transparent) var(--pct) var(--music-buffered, 0%),
+    color-mix(in oklab, white 16%, transparent) var(--music-buffered, 0%)
+  );
+}
+
+.music-np__scrubber .ink-slider::-moz-range-track {
+  background: color-mix(in oklab, white 16%, transparent);
+}
+
+.music-np__progress--compact .music-np__time {
+  min-inline-size: 34px;
+  font-size: var(--text-10-5);
+}
+
+
+.music-np__transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(var(--sp-2), 2.4vw, var(--sp-4));
+}
+
+.music-np__play {
+  inline-size: 52px;
+  block-size: 52px;
+  background: var(--music-stage-fg);
+  color: var(--music-stage-bg);
+  border-radius: 999px;
+  box-shadow: 0 10px 28px -10px rgb(0 0 0 / 0.8);
+}
+
+.music-np__play:hover {
+  background: color-mix(in oklab, var(--music-stage-fg) 88%, var(--music-accent));
+}
+
+.music-np__volume {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  inline-size: 100%;
+  max-inline-size: 260px;
+  padding-block-start: var(--sp-1);
+}
+
+.music-np__volume .ink-slider > span {
+  display: none;
+}
+
+.music-np__volume-slider > span {
+  display: none;
+}
+
+.music-np__volume .ink-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--pct),
+    color-mix(in oklab, white 18%, transparent) var(--pct)
+  );
+}
+
+.music-np__volume .ink-slider::-moz-range-track {
+  background: color-mix(in oklab, white 18%, transparent);
+}
+
+.music-np__pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--music-stage-bg) 55%, transparent);
+  border-inline-start: 1px solid var(--music-stage-hairline);
+}
+
+.music-np__immersive {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.music-np__slim {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-5) calc(var(--sp-2) + env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--music-stage-hairline);
+  background: color-mix(in oklab, var(--music-stage-bg) 80%, transparent);
+}
+
+.music-np__slim-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-inline-size: 0;
+}
+
+.music-np__slim-cover {
+  --music-cover-size: 44px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+}
+
+.music-np__slim-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+
+.music-np__slim-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.music-np__slim-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-11);
+  color: var(--text-tertiary);
+}
+
+.music-np__slim-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  inline-size: 100%;
+}
+
+.music-np__empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  min-block-size: 240px;
+  padding: var(--sp-8);
+  text-align: center;
+}
+
+.music-np__empty-title {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.music-np__empty-hint {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--text-quaternary);
+}
+
+.music-np__pane-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.music-np__lyrics-pane {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+.music-np__queue {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.music-program {
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-6) var(--sp-8);
+}
+
+.music-program__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-22);
+  font-weight: 650;
+  letter-spacing: var(--tracking-title);
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.music-program__meta {
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--text-secondary);
+}
+
+.music-program__body {
+  max-inline-size: 68ch;
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: var(--text-14);
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+.music-program__empty {
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--text-quaternary);
+}
+
+
+.music-np__pane-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
+}
+
+.music-np__pane-title {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: 650;
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 1023px) {
+  .music-np__sidebar {
+    inline-size: clamp(280px, 34vw, 340px);
+    padding-inline: var(--sp-4);
+  }
+}
+
+@media (max-width: 767px) {
+  .music-np__topbar {
+    padding: var(--sp-2);
+  }
+
+  .music-np__brand {
+    display: none;
+  }
+
+  .music-np__tabs {
+    justify-content: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .music-np__content {
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .music-np__sidebar {
+    inline-size: 100%;
+    overflow: visible;
+    padding: var(--sp-2) var(--sp-4) var(--sp-2);
+  }
+
+  .music-np__cover {
+    --music-cover-size: min(58vw, 240px);
+  }
+
+  .music-np__pane {
+    flex: 1 1 auto;
+    min-block-size: 320px;
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--music-stage-hairline);
+    overflow: hidden;
+  }
+
+  .music-np__pane-body {
+    overflow: visible;
+  }
+
+  .music-np__slim {
+    position: sticky;
+    bottom: 0;
+  }
+
+  .music-np button {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-np__cover {
+    transition: none;
+  }
+}

@@ -11,19 +11,16 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactElement,
   type ReactNode,
-  type RefObject,
 } from 'react'
 import { Languages, Maximize2, Minus, Music2, Plus, RefreshCw, Settings2, Sparkles } from 'lucide-react'
 import {
   findActiveLineIndex,
-  lyricWordStateAt,
-  lyricWordTimings,
+  isInstrumentalLyrics,
   mergeLyricTranslation,
   parseLyrics,
   type LyricLine,
@@ -39,6 +36,11 @@ import { musicApi } from '../api'
 import { defaultLyricTranslationLang, translateTrackLyrics } from '../lyrics-ai'
 import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { musicAudioEngine } from '../player/engine'
+import { KaraokeLine } from '../lyrics/karaoke-line'
+import { useActiveLineScroll } from '../lyrics/lyrics-scroll'
+import { QuietCommentLayer } from '../comments/QuietCommentLayer'
+
+export { useActiveLineScroll } from '../lyrics/lyrics-scroll'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { LyricSettings } from './LyricSettings'
@@ -157,47 +159,6 @@ export function useActiveLyricLine(
   return playing && liveIndex !== null ? liveIndex : findActiveLineIndex(lines, fallback)
 }
 
-/**
- * The same clock for the line's own words, which need roughly sixty updates a second.
- *
- * The hook reads `currentTime` from the audio element rather than the store so a word starts within
- * one frame of the singer. When no element is sounding (paused, tests, a restored queue) it falls
- * back to the position the parent already has.
- */
-function useWordPlayhead(timeMs: number, offsetMs: number, enabled: boolean): number {
-  const fallbackRef = useRef(timeMs)
-  fallbackRef.current = timeMs
-  const [liveMs, setLiveMs] = useState(timeMs)
-
-  useEffect(() => {
-    if (!enabled || typeof requestAnimationFrame !== 'function') {
-      setLiveMs(fallbackRef.current)
-      return
-    }
-    let frame = 0
-    let last = Number.NaN
-    const tick = (): void => {
-      const engineMs = musicAudioEngine.currentTimeMs()
-      const next = Number.isFinite(engineMs) && engineMs > 0
-        ? engineMs + offsetMs
-        : fallbackRef.current
-      if (!Number.isFinite(last) || Math.abs(next - last) >= 8) {
-        last = next
-        setLiveMs(next)
-      }
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [enabled, offsetMs])
-
-  if (enabled) return liveMs
-  // A pause can arrive between two four-hertz `timeupdate`s; read the element once so the frozen
-  // fill is where the reader actually stopped rather than up to a quarter second behind it.
-  const pausedMs = musicAudioEngine.currentTimeMs()
-  return Number.isFinite(pausedMs) && pausedMs > 0 ? pausedMs + offsetMs : timeMs
-}
-
 /** A signed, one-decimal description of an offset, used beside the controls and in the aria text. */
 export function formatLyricOffset(offsetMs: number): string {
   const seconds = clampLyricOffset(offsetMs) / 1000
@@ -222,11 +183,12 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
   const [providerTranslation, setProviderTranslation] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const trackId = track?.id ?? null
+  const isPodcast = track?.kind === 'podcast'
 
   useEffect(() => {
-    if (!trackId) {
+    if (!trackId || isPodcast) {
       setLines([])
-      setStatus('idle')
+      setStatus(isPodcast ? 'ready' : 'idle')
       setError(null)
       setProviderTranslation(false)
       return
@@ -262,7 +224,7 @@ export function useTrackLyrics(track: MusicTrack | null): MusicLyricDocument {
     return () => {
       active = false
     }
-  }, [reloadKey, trackId])
+  }, [isPodcast, reloadKey, trackId])
 
   const retry = useCallback(() => setReloadKey((value) => value + 1), [])
 
@@ -312,28 +274,6 @@ export function useLyricOffset(track: MusicTrack | null): [number, (next: number
   return [offset, setOffset]
 }
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-export function useActiveLineScroll(
-  containerRef: RefObject<HTMLDivElement | null>,
-  activeIndex: number,
-): void {
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container || activeIndex < 0) return
-    const active = container.querySelector<HTMLElement>('[data-lyric-active="true"]')
-    // A browser without the method (or a test environment) simply leaves the list where it is.
-    active?.scrollIntoView?.({
-      block: 'center',
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    })
-  }, [activeIndex, containerRef])
-}
-
 /** One line's text, filled word by word at the audio element's own clock. */
 export function LyricLineContent({
   line,
@@ -348,35 +288,8 @@ export function LyricLineContent({
   offsetMs?: number
   playing?: boolean
 }): ReactElement {
-  const liveMs = useWordPlayhead(timeMs, offsetMs, wordByWord && playing)
-  // Estimated timings are recomputed only when the line changes, not on every animation frame.
-  const timings = useMemo(() => (wordByWord ? lyricWordTimings(line) : null), [line, wordByWord])
-  if (!wordByWord || !timings) return <>{line.fullText}</>
-  // Provider YRC when it exists; otherwise the line box is shared out into an estimated rhythm, and
-  // the panel says so rather than letting it pass for the provider's own timing.
-  const { words } = timings
-  if (!words.length) return <>{line.fullText}</>
-  const state = lyricWordStateAt(words, liveMs)
-  return (
-    <>
-      {words.map((word, index) => {
-        const phase = index < state.index
-          ? 'music-lyric-word--sung'
-          : index === state.index
-            ? 'music-lyric-word--singing'
-            : 'music-lyric-word--pending'
-        const style = index === state.index
-          ? ({ '--music-word-progress': `${(state.progress * 100).toFixed(1)}%` } as CSSProperties)
-          : undefined
-        return (
-          <span key={`${index}-${word.startTime}`} className={`music-lyric-word ${phase}`} style={style}>
-            {word.text}
-            {word.space ? ' ' : ''}
-          </span>
-        )
-      })}
-    </>
-  )
+  if (!wordByWord) return <>{line.fullText}</>
+  return <KaraokeLine line={line} timeMs={timeMs} offsetMs={offsetMs} playing={playing} />
 }
 
 function LyricTranslation({ line }: { line: LyricLine }): ReactElement | null {
@@ -477,7 +390,7 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
   const lyric = useTrackLyrics(resolved)
   const [offset, setOffset] = useLyricOffset(resolved)
   const activeIndex = useActiveLyricLine(lyric.lines, positionMs, offset, playing)
-  useActiveLineScroll(scrollRef, activeIndex)
+  useActiveLineScroll(scrollRef, activeIndex, resolved ? musicTrackKey(resolved.provider, resolved.providerId) : '')
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle')
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiModel, setAiModel] = useState('')
@@ -531,6 +444,7 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
   }, [mergeTranslation, preferences.showTranslation, resolved, setLyrics])
 
   const hasTimedLines = lyric.lines.some((line) => line.startTime >= 0 && line.fullText.trim())
+  const instrumental = isInstrumentalLyrics(lyric.lines)
   const offerAiTranslation = lyric.status === 'ready'
     && hasTimedLines
     && !lyric.providerTranslation
@@ -554,7 +468,7 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
     <section
       aria-label={musicText('music.lyrics.panel')}
       className={cn(
-        'flex min-h-0 flex-col bg-[var(--bg-sunken)] text-[var(--text-primary)]',
+        'relative flex min-h-0 flex-col bg-[var(--bg-sunken)] text-[var(--text-primary)]',
         variant === 'side'
           ? 'h-full w-[320px] shrink-0 border-l border-[var(--border-subtle)]'
           : 'flex-1',
@@ -599,7 +513,14 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
           </div>
         )}
 
-        {lyric.status !== 'loading' && lyric.lines.length === 0 && (
+        {lyric.status !== 'loading' && instrumental && (
+          <div className="flex min-h-[180px] flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+            <Music2 size={22} aria-hidden="true" className="text-[var(--text-quaternary)]" />
+            <p className="music-lyrics__empty">{musicText('music.lyrics.instrumental')}</p>
+          </div>
+        )}
+
+        {lyric.status !== 'loading' && !instrumental && lyric.lines.length === 0 && (
           <LyricEmpty
             status={lyric.status}
             noTrack={!resolved}
@@ -651,6 +572,8 @@ export function LyricPanel({ track, variant = 'embedded', className }: LyricPane
           )
         })}
       </div>
+
+      <QuietCommentLayer lines={lyric.lines} loaded={lyric.status !== 'loading'} />
 
       <footer className="shrink-0 border-t border-[var(--border-subtle)] px-2 py-1.5">
         <div className="flex flex-col gap-1">

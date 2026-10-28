@@ -10,6 +10,7 @@ import type {
   MusicAlistMountInput,
   MusicAlistMountPatch,
   MusicArtistDetail,
+  MusicArtistEventPage,
   MusicDownloadListPayload,
   MusicDriveDeleteResult,
   MusicDriveImportResult,
@@ -28,6 +29,7 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
   MusicToplistSummary,
   MusicUploadInit,
   MusicUploadPartResult,
@@ -37,8 +39,10 @@ import type {
   MusicDriveR2Listing,
   MusicTrackDeleteResult,
 } from '@shared/music/api'
+import type { MusicCommentPage } from '@shared/music/comments'
 import type {
   MusicAccount,
+  MusicFmMode,
   MusicMount,
   MusicDownload,
   MusicFavorite,
@@ -174,11 +178,30 @@ export const musicApi = {
 
   home: () => request<MusicHome>('/api/music/home'),
   daily: () => request<{ tracks: MusicTrack[] }>('/api/music/daily'),
-  fm: () => request<{ tracks: MusicTrack[] }>('/api/music/home/fm'),
+  fm: (mode: MusicFmMode = 'DEFAULT') =>
+    request<{ tracks: MusicTrack[] }>(`/api/music/home/fm${query({ mode })}`),
+  heart: (providerId: string, startProviderId?: string) =>
+    request<{ tracks: MusicTrack[] }>('/api/music/radio/heart', {
+      method: 'POST',
+      body: { providerId, ...(startProviderId ? { startProviderId } : {}) },
+    }),
+  fmTrash: (providerId: string) =>
+    request<{ ok: true }>('/api/music/home/fm/trash', { method: 'POST', body: { providerId } }),
+
+  comments: (trackId: string, offset = 0, limit = 30) =>
+    request<MusicCommentPage>(
+      `/api/music/comments/${encodeURIComponent(trackId)}${query({ offset, limit })}`,
+    ),
+  likeComment: (trackId: string, commentId: string, liked: boolean) =>
+    request<{ ok: true }>(`/api/music/comments/${encodeURIComponent(trackId)}/like`, {
+      method: 'POST',
+      body: { commentId, liked },
+    }),
 
   search: (type: MusicSearchType, keywords: string, page = 1, limit = 30) =>
     request<MusicSearchResult>(`/api/music/search${query({ type, q: keywords, page, limit })}`),
-  suggest: (keywords: string) => request<{ items: string[] }>(`/api/music/search/suggest${query({ q: keywords })}`),
+  suggest: (keywords: string) =>
+    request<{ items: MusicSearchSuggestion[] }>(`/api/music/search/suggest${query({ q: keywords })}`),
   hot: () => request<{ items: string[] }>('/api/music/search/hot'),
 
   playlistSquare: (page = 1, limit = 30, cat = '', order = 'hot') =>
@@ -195,10 +218,21 @@ export const musicApi = {
     request<MusicAlbumDetail>(`/api/music/albums/${encodeURIComponent(id)}${query({ page, limit })}`),
 
   artist: (id: string) => request<MusicArtistDetail>(`/api/music/artists/${encodeURIComponent(id)}`),
-  artistSongs: (id: string, page = 1, limit = 50) =>
-    request<MusicPage<MusicTrack>>(`/api/music/artists/${encodeURIComponent(id)}/songs${query({ page, limit })}`),
+  artistSongs: (id: string, page = 1, limit = 50, order: 'hot' | 'time' = 'hot') =>
+    request<MusicPage<MusicTrack>>(
+      `/api/music/artists/${encodeURIComponent(id)}/songs${query({ page, limit, order })}`,
+    ),
   artistAlbums: (id: string, page = 1, limit = 30) =>
-    request<MusicPage<MusicPlaylistSummary>>(`/api/music/artists/${encodeURIComponent(id)}/albums${query({ page, limit })}`),
+    request<MusicPage<MusicAlbumSummary>>(`/api/music/artists/${encodeURIComponent(id)}/albums${query({ page, limit })}`),
+  artistFollow: (id: string, follow: boolean) =>
+    request<{ followed: boolean }>(`/api/music/artists/${encodeURIComponent(id)}/follow`, {
+      method: 'POST',
+      body: { follow },
+    }),
+  artistEvents: (id: string, before: number | null = null, limit = 20) =>
+    request<MusicArtistEventPage>(
+      `/api/music/artists/${encodeURIComponent(id)}/events${query({ before: before ?? undefined, limit })}`,
+    ),
 
   toplists: () => request<{ items: MusicToplistSummary[] }>('/api/music/toplists'),
   toplist: (id: string, page = 1, limit = 100) =>

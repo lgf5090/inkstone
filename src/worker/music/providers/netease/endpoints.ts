@@ -12,6 +12,7 @@ export interface NeteaseCall {
   path: string
   crypto: NeteaseCryptoMode
   body: Record<string, unknown>
+  method?: 'GET' | 'POST'
 }
 
 /** The upstream's own name for "no filter"; not interface copy. */
@@ -53,6 +54,30 @@ export interface NeteaseArtistSongsInput extends NeteasePage {
   order?: 'hot' | 'time'
 }
 
+export interface NeteaseArtistEventsInput {
+  uid: string
+  before: number | null
+  limit: number
+}
+
+export interface NeteaseCommentPageInput {
+  thread: string
+  offset: number
+  limit: number
+}
+
+export interface NeteaseCommentLikeInput {
+  thread: string
+  commentId: string
+  liked: boolean
+}
+
+export interface NeteaseHeartModeInput {
+  songId: string
+  startSongId: string
+  playlistId: string
+}
+
 export interface NeteaseMvAllInput extends NeteasePage {
   area?: string
   type?: string
@@ -68,8 +93,13 @@ export interface NeteaseRadioProgramsInput extends NeteasePage {
   asc?: boolean
 }
 
-function call(path: string, crypto: NeteaseCryptoMode, body: Record<string, unknown>): NeteaseCall {
-  return { path, crypto, body }
+function call(
+  path: string,
+  crypto: NeteaseCryptoMode,
+  body: Record<string, unknown>,
+  method?: 'GET' | 'POST',
+): NeteaseCall {
+  return { path, crypto, body, method }
 }
 
 /** The URL endpoints take a JSON array of numbers, unlike the string ids the app carries. */
@@ -105,10 +135,48 @@ export const neteaseEndpoints = {
   personalizedNewSongs: (limit: number) =>
     call('/api/personalized/newsong', 'weapi', { type: 'recommend', limit, areaId: 0 }),
 
-  personalFm: () => call('/api/v1/radio/get', 'weapi', {}),
+  personalFm: (mode: string) => call('/api/v1/radio/get', 'weapi', { mode, limit: 3 }),
 
   fmTrash: (providerId: string) =>
     call('/api/radio/trash/add', 'weapi', { songId: providerId, alg: 'RT', time: 25 }),
+
+  heartMode: (input: NeteaseHeartModeInput) =>
+    call('/api/playmode/intelligence/list', 'eapi', {
+      songId: input.songId,
+      startMusicId: input.startSongId,
+      playlistId: input.playlistId,
+      type: 'fromPlayOne',
+      count: 1,
+    }),
+
+  likedPlaylist: (uid: string) =>
+    call('/api/user/playlist', 'weapi', { uid, limit: 1000, offset: 0 }),
+
+  comments: (input: NeteaseCommentPageInput) =>
+    call(`/api/v1/resource/comments/${input.thread}`, 'weapi', {
+      limit: input.limit,
+      offset: input.offset,
+    }),
+
+  commentLike: (input: NeteaseCommentLikeInput) =>
+    call(`/api/v1/comment/${input.liked ? 'like' : 'unlike'}`, 'eapi', {
+      threadId: input.thread,
+      commentId: input.commentId,
+    }),
+
+  artistFollow: (providerId: string, follow: boolean) =>
+    call(`/api/artist/${follow ? 'sub' : 'unsub'}`, 'weapi', {
+      artistId: providerId,
+      artistIds: `[${providerId}]`,
+    }),
+
+  artistEvents: (input: NeteaseArtistEventsInput) =>
+    call(`/api/event/get/${encodeURIComponent(input.uid)}`, 'weapi', {
+      time: input.before === null ? -1 : input.before,
+      limit: input.limit,
+      getcounts: true,
+      total: false,
+    }),
 
   recommendSongs: () => call('/api/v3/discovery/recommend/songs', 'weapi', {}),
 
@@ -200,7 +268,7 @@ export const neteaseEndpoints = {
   albumNewest: () => call('/api/discovery/newAlbum', 'weapi', {}),
 
   artistDetail: (providerId: string) =>
-    call('/api/artist/head/info/get', 'eapi', { id: providerId }),
+    call(`/api/v1/artist/${encodeURIComponent(providerId)}`, 'plain', {}, 'GET'),
 
   artistSongs: (input: NeteaseArtistSongsInput) =>
     call('/api/v1/artist/songs', 'eapi', {

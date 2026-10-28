@@ -2836,6 +2836,23 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // A podcast episode's comments and description belong to the programme, not to the audio file
+    // it streams from. Both columns are empty for songs and for rows written before this version;
+    // a provider snapshot backfills them without touching the reader's edited metadata.
+    version: 185,
+    skipIfColumnExists: { table: 'music_track', column: 'program_id' },
+    statements: [
+      `ALTER TABLE music_track ADD COLUMN program_id TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
+  {
+    version: 186,
+    skipIfColumnExists: { table: 'music_track', column: 'description' },
+    statements: [
+      `ALTER TABLE music_track ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

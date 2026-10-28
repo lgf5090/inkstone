@@ -166,6 +166,8 @@ function trackInputOf(value: unknown): MusicTrackInput {
     durationMs: integer(raw.durationMs, 0, DURATION_MAX_MS, 0, 'Duration'),
     format: text(raw.format, FORMAT_MAX, 'Format'),
     bitrate,
+    programId: text(raw.programId, PROVIDER_ID_MAX, 'Programme id'),
+    description: text(raw.description, DESCRIPTION_MAX, 'Description'),
     updatedAt: raw.updatedAt === undefined ? 0 : integer(raw.updatedAt, 0, Number.MAX_SAFE_INTEGER, 0, 'Track version'),
   }
 }

@@ -18,6 +18,8 @@ export interface MusicEngineFailure {
 export interface MusicEngineTime {
   positionMs: number
   durationMs: number
+  /** How much of the track the element has buffered, 0..1. */
+  bufferedFraction: number
 }
 
 interface EngineEvents {
@@ -44,8 +46,10 @@ export interface MusicEngineLoadRequest {
   volume: number
   muted: boolean
   rate: number
-  /** Capture the element into Web Audio only when the equalizer or leveling is actually on. */
+  /** Capture the element into Web Audio only when the equalizer, leveling or normalizing is on. */
   equalizer?: boolean
+  /** Linear gain from Netease's measured loudness; 1 leaves the track alone. */
+  normalizationGain?: number
 }
 
 export class MusicPlaybackError extends Error {
@@ -85,6 +89,8 @@ export function isAudioUnavailableError(error: unknown): boolean {
 const MAX_LOAD_ATTEMPTS = 2
 const RETRY_DELAY_MS = 250
 const LOAD_TIMEOUT_MS = 20_000
+const FADE_IN_MS = 260
+const FADE_OUT_MS = 180
 
 function failureFrom(error: MediaError | null): MusicEngineFailure {
   return {
@@ -121,6 +127,8 @@ export class MusicAudioEngine {
   private volume = 1
   private muted = false
   private rate = 1
+  private fadeGeneration = 0
+  private fadeFrame = 0
 
   subscribe<K extends MusicEngineEventName>(name: K, listener: Listener<EngineEvents[K]>): () => void {
     let set = this.listeners.get(name)
@@ -143,6 +151,17 @@ export class MusicAudioEngine {
     return Number.isFinite(duration) && duration && duration > 0 ? duration * 1000 : 0
   }
 
+  bufferedFraction(): number {
+    const audio = this.audio
+    if (!audio || !Number.isFinite(audio.duration) || audio.duration <= 0) return 0
+    let end = 0
+    for (let index = 0; index < audio.buffered.length; index += 1) {
+      const rangeEnd = audio.buffered.end(index)
+      if (rangeEnd > end) end = rangeEnd
+    }
+    return Math.min(1, Math.max(0, end / audio.duration))
+  }
+
   hasSource(): boolean {
     return Boolean(this.audio?.src)
   }
@@ -153,19 +172,26 @@ export class MusicAudioEngine {
     musicEqualizer.connect(this.audio, this.audio.src)
   }
 
+  setNormalizationGain(gain: number): void {
+    musicEqualizer.setNormalizationGain(gain)
+  }
+
   async play(request: MusicEngineLoadRequest): Promise<void> {
     const audio = this.element()
     const generation = ++this.loadGeneration
+    this.cancelFade()
     this.volume = clampVolume(request.volume)
     this.muted = request.muted
     this.rate = clampRate(request.rate)
-    audio.volume = this.volume
     audio.muted = this.muted
     audio.playbackRate = this.rate
 
     // Capture is a one-way door: if the response later redirects to another origin, Web Audio would
     // render silence. Only attach the graph when the reader actually asked for EQ or leveling.
-    if (request.equalizer) musicEqualizer.connect(audio, request.url)
+    if (request.equalizer) {
+      musicEqualizer.connect(audio, request.url)
+      musicEqualizer.setNormalizationGain(request.normalizationGain ?? 1)
+    }
 
     const source = absoluteUrl(request.url)
     const sameSource = audio.src === source && !audio.error && audio.readyState > 0
@@ -175,6 +201,7 @@ export class MusicAudioEngine {
       return
     }
 
+    audio.volume = this.volume
     await this.loadSource(audio, source, generation)
     if (generation !== this.loadGeneration) throw this.replacedError()
     if (request.startAtMs !== undefined) this.seek(request.startAtMs)
@@ -185,7 +212,13 @@ export class MusicAudioEngine {
     this.loadGeneration++
     this.cancelPending(this.replacedError())
     this.loading = false
-    this.audio?.pause()
+    const audio = this.audio
+    if (!audio) return
+    this.cancelFade()
+    if (audio.paused) return
+    this.fadeTo(audio, 0, FADE_OUT_MS, () => {
+      if (this.audio === audio) audio.pause()
+    })
   }
 
   /** Stop and release the stream. The element stays for the next track. */
@@ -193,6 +226,7 @@ export class MusicAudioEngine {
     this.loadGeneration++
     this.cancelPending(this.replacedError())
     this.loading = false
+    this.cancelFade()
     const audio = this.audio
     if (!audio) return
     audio.pause()
@@ -215,6 +249,7 @@ export class MusicAudioEngine {
 
   setVolume(volume: number): void {
     this.volume = clampVolume(volume)
+    this.cancelFade()
     if (this.audio) this.audio.volume = this.volume
   }
 
@@ -261,7 +296,43 @@ export class MusicAudioEngine {
   }
 
   private time(): MusicEngineTime {
-    return { positionMs: this.currentTimeMs(), durationMs: this.durationMs() }
+    return {
+      positionMs: this.currentTimeMs(),
+      durationMs: this.durationMs(),
+      bufferedFraction: this.bufferedFraction(),
+    }
+  }
+
+  private cancelFade(): void {
+    this.fadeGeneration++
+    if (this.fadeFrame) {
+      window.cancelAnimationFrame(this.fadeFrame)
+      this.fadeFrame = 0
+    }
+  }
+
+  private fadeTo(audio: HTMLAudioElement, to: number, durationMs: number, done?: () => void): void {
+    const from = audio.volume
+    if (Math.abs(from - to) < 0.001 || durationMs <= 0) {
+      audio.volume = to
+      done?.()
+      return
+    }
+    const generation = ++this.fadeGeneration
+    const start = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    const step = (): void => {
+      if (generation !== this.fadeGeneration) return
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const progress = Math.min(1, (now - start) / durationMs)
+      audio.volume = from + (to - from) * (0.5 - 0.5 * Math.cos(Math.PI * progress))
+      if (progress < 1) {
+        this.fadeFrame = window.requestAnimationFrame(step)
+        return
+      }
+      this.fadeFrame = 0
+      done?.()
+    }
+    this.fadeFrame = window.requestAnimationFrame(step)
   }
 
   private async loadSource(audio: HTMLAudioElement, source: string, generation: number): Promise<void> {
@@ -343,9 +414,11 @@ export class MusicAudioEngine {
     await musicEqualizer.resume()
     if (generation !== this.loadGeneration) throw this.replacedError()
     if (!autoplay) {
+      audio.volume = this.volume
       audio.pause()
       return
     }
+    audio.volume = 0
     try {
       await audio.play()
     } catch (error) {
@@ -357,6 +430,7 @@ export class MusicAudioEngine {
         ? error
         : new MusicPlaybackError(error instanceof Error ? error.message : 'The browser refused to play the track')
     }
+    if (generation === this.loadGeneration) this.fadeTo(audio, this.volume, FADE_IN_MS)
   }
 
   private cancelPending(error: Error): void {

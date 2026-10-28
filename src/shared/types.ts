@@ -1514,6 +1514,7 @@ export type ApiErrorCode =
   | 'email_group_exists'
   | 'music_provider_unavailable'
   | 'music_provider_auth_required'
+  | 'music_heart_unavailable'
   | 'music_source_unavailable'
   | 'music_preview_only'
   | 'music_storage_unavailable'

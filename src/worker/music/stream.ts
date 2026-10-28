@@ -274,6 +274,9 @@ async function serveOnlineTrack(
   const headers = baseStreamHeaders(contentType, track)
   headers.set('Cache-Control', 'private, no-store')
   headers.set('X-Music-Free-Trial', source.freeTrial ? '1' : '0')
+  headers.set('X-Music-Quality', source.level || source.quality)
+  headers.set('X-Music-Gain', String(source.gain))
+  headers.set('X-Music-Peak', String(source.peak))
   copyHeader(upstream, headers, 'content-length')
   copyHeader(upstream, headers, 'content-range')
   copyHeader(upstream, headers, 'etag')
@@ -313,6 +316,9 @@ async function resolveStreamSource(
         bitrate: null,
         size: mv.size,
         quality: 'original',
+        level: 'original',
+        gain: 0,
+        peak: 0,
         freeTrial: false,
       }
     }

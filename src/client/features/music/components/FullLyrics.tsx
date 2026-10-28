@@ -19,6 +19,8 @@ import {
   X,
 } from 'lucide-react'
 import { formatDuration, musicArtistNames } from '@shared/music/format'
+import { isInstrumentalLyrics } from '@shared/music/lyrics'
+import { musicTrackKey } from '@shared/music/model'
 import { IconButton, Spinner } from '../../../components/primitives'
 import { Slider, Switch } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
@@ -29,6 +31,7 @@ import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
 import { LyricSettings } from './LyricSettings'
+import { QuietCommentLayer } from '../comments/QuietCommentLayer'
 import {
   LyricLineContent,
   useActiveLyricLine,
@@ -68,7 +71,8 @@ function FullLyricsLayer(): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null)
   const playing = status === 'playing'
   const activeIndex = useActiveLyricLine(lyric.lines, positionMs, offset, playing)
-  useActiveLineScroll(scrollRef, activeIndex)
+  useActiveLineScroll(scrollRef, activeIndex, current ? musicTrackKey(current.provider, current.providerId) : '')
+  const instrumental = isInstrumentalLyrics(lyric.lines)
 
   // The cover tint belongs to the open layer. Closing it restores the design tokens for whatever
   // surface is mounted next.
@@ -167,7 +171,14 @@ function FullLyricsLayer(): ReactElement {
             </div>
           )}
 
-          {current && lyric.status !== 'loading' && lyric.lines.length === 0 && (
+          {current && lyric.status !== 'loading' && instrumental && (
+            <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 text-center">
+              <Music2 size={26} aria-hidden="true" className="text-[var(--text-quaternary)]" />
+              <p className="music-lyrics__empty">{musicText('music.lyrics.instrumental')}</p>
+            </div>
+          )}
+
+          {current && lyric.status !== 'loading' && !instrumental && lyric.lines.length === 0 && (
             <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-3 text-center">
               <Music2 size={26} aria-hidden="true" className="text-[var(--text-quaternary)]" />
               <p className="music-lyrics__empty" title={lyric.status === 'error' ? lyric.error ?? undefined : undefined}>
@@ -184,7 +195,7 @@ function FullLyricsLayer(): ReactElement {
             </div>
           )}
 
-          {current && lyric.lines.map((line, index) => {
+          {current && !instrumental && lyric.lines.map((line, index) => {
             const active = index === activeIndex
             const text = (
               <>
@@ -232,6 +243,8 @@ function FullLyricsLayer(): ReactElement {
             )
           })}
         </div>
+
+        <QuietCommentLayer lines={lyric.lines} loaded={lyric.status !== 'loading'} className="z-20" />
 
         {settingsOpen && current && (
           <div className="relative z-10 max-h-[42%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)]">

@@ -72,6 +72,9 @@ describe('online music stream', () => {
       bitrate: 320_000,
       size: AUDIO.byteLength,
       quality: 'exhigh',
+      level: 'hires',
+      gain: 3.2,
+      peak: 0.9,
       freeTrial: false,
     }
     const stream = vi.fn(async () => source)
@@ -108,6 +111,9 @@ describe('online music stream', () => {
       { headers: { range: 'bytes=0-3' } },
     ), env)
     expect(first.status).toBe(206)
+    expect(first.headers.get('x-music-quality')).toBe('hires')
+    expect(first.headers.get('x-music-gain')).toBe('3.2')
+    expect(first.headers.get('x-music-peak')).toBe('0.9')
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(AUDIO.slice(0, 4))
 
     const second = await app.fetch(new Request(

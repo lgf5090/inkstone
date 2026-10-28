@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from 'react'
 import { Search, X } from 'lucide-react'
 import { formatDuration } from '@shared/music/format'
+import type { MusicSearchSuggestion } from '@shared/music/api'
 import { MUSIC_SEARCH_TYPES, type MusicSearchType } from '@shared/music/model'
 import { Badge, Button, IconButton } from '../../../components/primitives'
 import { Empty, Skeleton } from '../../../components/feedback'
@@ -36,10 +37,12 @@ const PAGE_SIZE = 30
 
 const SEARCH_TYPE_KEYS: Record<MusicSearchType, string> = {
   song: 'music.search.type.song',
+  artist: 'music.search.type.artist',
   album: 'music.search.type.album',
   playlist: 'music.search.type.playlist',
   mv: 'music.search.type.mv',
   radio: 'music.search.type.radio',
+  user: 'music.search.type.user',
 }
 
 function HotSearchesSkeleton(): ReactElement {
@@ -115,6 +118,22 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
     replaceAddress('/music/search', next ? `q=${encodeURIComponent(next)}` : '')
     if (remember && next) pushSearchHistory(next)
   }, [pushSearchHistory])
+
+  const pickSuggestion = useCallback((suggestion: MusicSearchSuggestion): void => {
+    if (suggestion.kind === 'song') {
+      applyTerm(suggestion.name, true)
+      return
+    }
+    if (suggestion.kind === 'artist') {
+      navigateToAddress(musicPathFor({ kind: 'artist', id: suggestion.id }))
+      return
+    }
+    if (suggestion.kind === 'album') {
+      navigateToAddress(musicPathFor({ kind: 'album', id: suggestion.id }))
+      return
+    }
+    navigateToAddress(musicPathFor({ kind: 'playlist', id: suggestion.id }))
+  }, [applyTerm])
 
   const clearHistory = (): void => {
     void confirm({
@@ -206,6 +225,48 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
       )
     }
 
+    if (type === 'artist') {
+      if (result.artists.length === 0) return noResults
+      return (
+        <>
+          {errorBar}
+          <div className="music-card-grid">
+            {result.artists.map((item) => (
+              <MusicCard
+                key={item.id}
+                round
+                coverSrc={item.coverUrl}
+                title={item.name}
+                meta={musicText('music.common.albums', { count: item.albumCount })}
+                onOpen={() => navigateToAddress(musicPathFor({ kind: 'artist', id: item.id }))}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+
+    if (type === 'user') {
+      if (result.users.length === 0) return noResults
+      return (
+        <>
+          {errorBar}
+          <div className="music-card-grid">
+            {result.users.map((item) => (
+              <MusicCard
+                key={item.id}
+                round
+                coverSrc={item.avatarUrl}
+                title={item.nickname}
+                meta={item.signature}
+                onOpen={() => navigateToAddress(musicPathFor({ kind: 'user', id: item.id }))}
+              />
+            ))}
+          </div>
+        </>
+      )
+    }
+
     if (type === 'mv') {
       if (result.mvs.length === 0) return noResults
       return (
@@ -281,6 +342,7 @@ export function SearchPage({ query }: SearchPageProps): ReactElement {
             value={text}
             onChange={setText}
             onCommit={(value) => applyTerm(value, true)}
+            onPickSuggestion={pickSuggestion}
           />
         </div>
         <Button type="submit" variant="primary" icon={<Search size={14} />}>

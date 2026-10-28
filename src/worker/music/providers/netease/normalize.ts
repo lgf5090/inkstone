@@ -17,6 +17,8 @@ import type {
   MusicAlbumDetail,
   MusicAlbumSummary,
   MusicArtistDetail,
+  MusicArtistEvent,
+  MusicArtistEventPage,
   MusicArtistSummary,
   MusicLyricPayload,
   MusicMvDetail,
@@ -26,8 +28,12 @@ import type {
   MusicRadioDetail,
   MusicRadioSummary,
   MusicSearchResult,
+  MusicSearchSuggestion,
+  MusicSuggestionKind,
   MusicToplistSummary,
+  MusicUserSummary,
 } from '../../../../shared/music/api'
+import type { MusicComment, MusicCommentPage } from '../../../../shared/music/comments'
 import type {
   MusicHotSearchItem,
   MusicMvSource,
@@ -174,6 +180,8 @@ export function normalizeProgram(input: unknown): MusicTrack {
     r2Key: null,
     source: 'netease',
     sourceQuality: '',
+    programId: pickText(program, 'id'),
+    description: pickText(program, 'description', 'desc'),
     createdAt: 0,
     updatedAt: 0,
   }
@@ -222,6 +230,16 @@ export function normalizeArtistSummary(input: unknown): MusicArtistSummary {
     coverUrl: pickText(raw, 'picUrl', 'img1v1Url', 'cover', 'avatar'),
     albumCount: pickNumber(raw, 'albumSize', 'albumCount'),
     followCount: pickNumber(raw, 'fansCount', 'followCount'),
+  }
+}
+
+export function normalizeUserSummary(input: unknown): MusicUserSummary {
+  const raw = record(input)
+  return {
+    id: text(raw.userId) || text(raw.id) || text(raw.accountId),
+    nickname: pickText(raw, 'nickname', 'userName'),
+    avatarUrl: pickText(raw, 'avatarUrl', 'avatar', 'picUrl'),
+    signature: pickText(raw, 'signature', 'description'),
   }
 }
 
@@ -277,8 +295,10 @@ export function normalizeSearch(
   const empty: MusicSearchResult = {
     type,
     tracks: [],
+    artists: [],
     albums: [],
     playlists: [],
+    users: [],
     mvs: [],
     radios: [],
     total: 0,
@@ -288,6 +308,14 @@ export function normalizeSearch(
     const items = list(result.songs)
     empty.tracks = items.map((item) => normalizeTrack(item))
     empty.total = pickNumber(result, 'songCount') || empty.tracks.length
+  } else if (type === 'artist') {
+    const items = list(result.artists)
+    empty.artists = items.map(normalizeArtistSummary)
+    empty.total = pickNumber(result, 'artistCount') || empty.artists.length
+  } else if (type === 'user') {
+    const items = list(result.userprofiles)
+    empty.users = items.map(normalizeUserSummary)
+    empty.total = pickNumber(result, 'userprofileCount') || empty.users.length
   } else if (type === 'album') {
     const items = list(result.albums)
     empty.albums = items.map(normalizeAlbumSummary)
@@ -306,9 +334,46 @@ export function normalizeSearch(
     empty.total = pickNumber(result, 'djRadiosCount') || empty.radios.length
   }
   const loaded =
-    empty.tracks.length + empty.albums.length + empty.playlists.length + empty.mvs.length + empty.radios.length
+    empty.tracks.length + empty.artists.length + empty.albums.length + empty.playlists.length
+    + empty.users.length + empty.mvs.length + empty.radios.length
   empty.hasMore = (result.more === true || loaded >= limit) && pageHasMore(result.more, empty.total, offset, loaded)
   return empty
+}
+
+/**
+ * The suggest endpoint's typed entities. Keyword-only answers cannot be opened, so the list is
+ * rebuilt from the upstream ids the search page needs; an entry without an id or a name is dropped
+ * rather than rendered as a row that cannot go anywhere.
+ */
+export function normalizeSearchSuggestions(input: unknown): MusicSearchSuggestion[] {
+  const result = record(record(input).result)
+  const suggestions: MusicSearchSuggestion[] = []
+  const seen = new Set<string>()
+  const push = (kind: MusicSuggestionKind, raw: Raw, detail: string): void => {
+    const id = text(raw.id)
+    const name = pickText(raw, 'name')
+    if (!id || !name || seen.has(`${kind}:${id}`)) return
+    seen.add(`${kind}:${id}`)
+    suggestions.push({ kind, id, name, detail })
+  }
+  for (const item of list(result.songs)) {
+    const raw = record(item)
+    push('song', raw, normalizeArtists(raw).map((artist) => artist.name).join(' / '))
+  }
+  for (const item of list(result.artists)) {
+    const raw = record(item)
+    const aliases = list(raw.alias).map(text).filter(Boolean)
+    push('artist', raw, aliases.join(' / '))
+  }
+  for (const item of list(result.albums)) {
+    const raw = record(item)
+    push('album', raw, pickText(record(raw.artist), 'name'))
+  }
+  for (const item of list(result.playlists)) {
+    const raw = record(item)
+    push('playlist', raw, pickText(record(raw.creator), 'nickname'))
+  }
+  return suggestions.slice(0, 10)
 }
 
 export function normalizePlaylistDetail(input: unknown): MusicPlaylistDetail {
@@ -359,6 +424,8 @@ export function normalizeArtistDetail(
   return {
     artist: normalizeArtistSummary(artist),
     description: pickText(artist, 'briefDesc') || pickText(data, 'description'),
+    followed: artist.followed === true,
+    accountId: text(artist.accountId) || text(artist.accountID),
     hotTracks: list(record(songs).songs).map((item) => normalizeTrack(item)),
     albums: albumItems.map(normalizeAlbumSummary),
     albumTotal: albumTotal || pickNumber(albumRoot, 'total') || albumItems.length,
@@ -366,8 +433,99 @@ export function normalizeArtistDetail(
   }
 }
 
-export function normalizeMvDetail(input: unknown): MusicMvDetail {
+function normalizeComment(input: unknown): MusicComment | null {
+  const raw = record(input)
+  const id = text(raw.commentId) || text(raw.id)
+  if (!id) return null
+  const user = record(raw.user)
+  const replies = list(raw.beReplied)
+  const firstReply = record(replies[0])
+  const replyUser = record(firstReply.user)
+  return {
+    id,
+    userId: text(user.userId) || text(user.id),
+    nickname: pickText(user, 'nickname'),
+    avatarUrl: pickText(user, 'avatarUrl', 'avatar'),
+    content: pickText(raw, 'content'),
+    createdAt: count(raw.time),
+    likedCount: count(raw.likedCount),
+    liked: raw.liked === true,
+    ipLocation: pickText(record(raw.ipLocation), 'location'),
+    ...(replies.length > 0
+      ? { replyTo: { nickname: pickText(replyUser, 'nickname'), content: pickText(firstReply, 'content') } }
+      : {}),
+  }
+}
+
+export function normalizeCommentPage(input: unknown, offset: number): MusicCommentPage {
   const root = record(input)
+  const hot = list(root.hotComments).map(normalizeComment).filter((item): item is MusicComment => item !== null)
+  const latest = list(root.comments).map(normalizeComment).filter((item): item is MusicComment => item !== null)
+  const total = count(root.total) || latest.length
+  return {
+    hot,
+    latest,
+    total,
+    hasMore: root.more === true || (total > 0 && offset + latest.length < total),
+  }
+}
+
+function decodeEventJson(raw: unknown): Raw {
+  const source = record(raw)
+  const value = source.json
+  if (typeof value !== 'string' || !value) return {}
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return record(parsed)
+  } catch {
+    return {}
+  }
+}
+
+function normalizeEvent(input: unknown): MusicArtistEvent | null {
+  const raw = record(input)
+  const id = text(raw.id)
+  if (!id) return null
+  const user = record(raw.user)
+  const content = decodeEventJson(raw)
+  const forwardedRaw = record(content.event)
+  const forwardedJson = decodeEventJson(forwardedRaw)
+  const forwardedName = pickText(record(forwardedRaw.user), 'nickname')
+  const forwarded = pickText(forwardedJson, 'msg')
+  const info = record(raw.info)
+  const pictures = list(raw.pics)
+    .map((item) => pickText(record(item), 'squareUrl', 'url'))
+    .filter(Boolean)
+  const song = content.song ? normalizeTrack(content.song) : null
+  const albumRaw = record(content.album)
+  const playlistRaw = record(content.playlist)
+  return {
+    id,
+    createdAt: count(raw.eventTime),
+    authorName: pickText(user, 'nickname'),
+    authorAvatarUrl: pickText(user, 'avatarUrl', 'avatar'),
+    content: pickText(content, 'msg'),
+    pictures,
+    likedCount: count(info.likedCount),
+    commentCount: count(info.commentCount),
+    forwarded: forwarded ? (forwardedName ? `${forwardedName}: ${forwarded}` : forwarded) : '',
+    song: song && song.id ? song : null,
+    album: Object.keys(albumRaw).length > 0 ? normalizeAlbumSummary(albumRaw) : null,
+    playlist: Object.keys(playlistRaw).length > 0 ? normalizePlaylistSummary(playlistRaw) : null,
+  }
+}
+
+export function normalizeArtistEvents(input: unknown): MusicArtistEventPage {
+  const root = record(input)
+  const items = list(root.events).map(normalizeEvent).filter((item): item is MusicArtistEvent => item !== null)
+  const before = count(root.lasttime)
+  return {
+    items,
+    before: root.more === true && items.length > 0 && before > 0 ? before : null,
+  }
+}
+
+export function normalizeMvDetail(input: unknown): MusicMvDetail {  const root = record(input)
   const data = Object.keys(record(root.data)).length ? record(root.data) : root
   return {
     mv: normalizeMvSummary(data),
@@ -393,7 +551,7 @@ export function normalizeRadioDetail(input: unknown, programs: unknown, offset: 
 export function normalizeLyric(input: unknown, trackKey: string): MusicLyricPayload {
   const root = record(input)
   const lrc = lyricText(root.lrc)
-  const tlyric = lyricText(root.tlyric)
+  const tlyric = lyricText(root.tlyric) || lyricText(root.ytlyric)
   const yrc = lyricText(root.yrc)
   const lyric: MusicLyric = {
     trackKey,
@@ -446,6 +604,9 @@ export function normalizeStreamSource(input: unknown, quality: string): MusicStr
     format: pickText(item, 'type'),
     bitrate: positiveOrNull(pickNumber(item, 'br')),
     size: positiveOrNull(pickNumber(item, 'size')),
+    level: pickText(item, 'level') || quality,
+    gain: Number.isFinite(Number(item.gain)) ? Number(item.gain) : 0,
+    peak: Number.isFinite(Number(item.peak)) ? Number(item.peak) : 0,
     quality,
     freeTrial: Object.keys(record(item.freeTrialInfo)).length > 0,
   }
