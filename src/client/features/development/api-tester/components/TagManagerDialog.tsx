@@ -8,6 +8,7 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { Input, commitOnEnter } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { isImeComposing } from '../../../../lib/ime'
 import { CHART_COLOR_NAMES, tagColorValue } from '../lib/tag-colors'
 
 function tagPath(tags: readonly TagNode[], id: string): string {
@@ -257,6 +258,7 @@ export function TagManagerDialog({
                         value={editName}
                         onChange={(event) => setEditName(event.target.value)}
                         onKeyDown={(event) => {
+                          if (isImeComposing(event)) return
                           if (commitOnEnter(event, saveEdit)) return
                           if (event.key === 'Escape') setEditingId(null)
                         }}

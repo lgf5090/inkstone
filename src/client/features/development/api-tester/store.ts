@@ -100,10 +100,14 @@ let saver: StateSaver | null = null
 let initialization: Promise<void> | null = null
 let pagehideInstalled = false
 
+function flushBeforeLeaving(): void {
+  saver?.flushOnHide()
+}
+
 function installPagehide(): void {
   if (pagehideInstalled || typeof window === 'undefined') return
   pagehideInstalled = true
-  window.addEventListener('pagehide', () => saver?.flushOnHide())
+  window.addEventListener('pagehide', flushBeforeLeaving)
 }
 
 export const useApiTesterStore = create<ApiTesterStore>((set, get) => {

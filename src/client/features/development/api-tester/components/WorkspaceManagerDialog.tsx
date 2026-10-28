@@ -7,6 +7,7 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { isImeComposing } from '../../../../lib/ime'
 import { tagColorValue } from '../lib/tag-colors'
 import { useApiTesterStore } from '../store'
 
@@ -56,6 +57,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
             value={name}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') create()
             }}
             placeholder={t('development.apitester.workspace_name_placeholder')}
@@ -89,6 +91,7 @@ export function WorkspaceManagerDialog({ open, onClose }: { open: boolean; onClo
                   value={editName}
                   onChange={(event) => setEditName(event.target.value)}
                   onKeyDown={(event) => {
+                    if (isImeComposing(event)) return
                     if (event.key === 'Enter' && editName.trim()) {
                       void renameWorkspace(workspace.id, editName.trim())
                       setEditingId(null)

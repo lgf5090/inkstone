@@ -21,6 +21,8 @@ import { Badge, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { treeIndent } from '../../../../lib/tree/indent'
+import { isImeComposing } from '../../../../lib/ime'
 import { childrenOf, subtreeIds } from '../lib/tree'
 
 export interface CollectionFolderOption {
@@ -293,7 +295,7 @@ export function CollectionRow({
           dropPosition === 'before' && 'shadow-[inset_0_2px_0_0_var(--accent)]',
           dropPosition === 'after' && 'shadow-[inset_0_-2px_0_0_var(--accent)]',
         )}
-        style={{ paddingLeft: depth * 12 + 2 }}
+        style={{ paddingLeft: treeIndent(depth) + 2 }}
       >
         <span
           className={cn(
@@ -346,6 +348,7 @@ export function CollectionRow({
             onBlur={() => finishRename(true)}
             onFocus={(event) => event.target.select()}
             onKeyDown={(event) => {
+              if (isImeComposing(event)) return
               if (event.key === 'Enter') {
                 event.preventDefault()
                 finishRename(true)
@@ -421,7 +424,7 @@ export function CollectionRow({
           {kids.length === 0 && !filtering && (
             <p
               className="py-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"
-              style={{ paddingLeft: depth * 12 + 40 }}
+              style={{ paddingLeft: treeIndent(depth) + 40 }}
             >
               {t('development.apitester.empty_folder')}
             </p>

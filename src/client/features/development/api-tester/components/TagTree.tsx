@@ -3,6 +3,7 @@ import { ChevronRight, Hash } from 'lucide-react'
 import type { TagNode } from '@shared/development/api-tester/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
+import { treeIndent } from '../../../../lib/tree/indent'
 import { tagColorValue } from '../lib/tag-colors'
 
 interface TagTreeNode extends TagNode {
@@ -75,7 +76,7 @@ function TagTreeRow({
           'group flex min-h-7 items-center gap-1 rounded-[var(--r-sm)] pr-1.5 text-[length:var(--text-12)]',
           activeTagId === node.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
         )}
-        style={{ paddingLeft: depth * 12 + 2 }}
+        style={{ paddingLeft: treeIndent(depth) + 2 }}
         data-tag-id={node.id}
       >
         {node.children.length > 0 ? (

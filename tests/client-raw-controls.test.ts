@@ -111,6 +111,18 @@ const SHARED_RAW_BUTTONS = new Map<string, string>([
     'The chip every tag surface draws: a height-free, padding-sized inline-flex box carrying a colour dot or glyph, a truncating label with an optional `#`, a tabular count and an `aria-pressed` toggle. `Button` fixes a height per size and its responsive `md:h-*` still outranks a caller\'s `h-auto`, so a strip of chips holding different counts cannot keep one baseline through it. Every tag rail, chip filter and board label row reaches the box from here instead of writing its own.',
   ],
   [
+    'src/client/components/copy-button.tsx',
+    'A compact icon-only copy affordance: it is a 28px inline control whose padding and hover surface are deliberately smaller than every IconButton size, so it keeps its own element instead of enlarging a code-block toolbar.',
+  ],
+  [
+    'src/client/components/json-tree.tsx',
+    'The disclosure chevron on one JSON row: it is a 16px hit target aligned with the row text, while IconButton\'s smallest box would raise every row and break the tree\'s line rhythm.',
+  ],
+  [
+    'src/client/components/tabs.tsx',
+    'The tab itself: role="tab", aria-selected and roving tabindex are the component\'s contract, and the shared Button wraps its label in a truncating span and fixes a height that a tab strip cannot inherit.',
+  ],
+  [
     'src/client/components/ErrorBoundary.tsx',
     'The reload action on the crash screen. That screen is what renders after the tree above it has already thrown, so it holds a raw element rather than reaching back into the component system that failed.',
   ],
