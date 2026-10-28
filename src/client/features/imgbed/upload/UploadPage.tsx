@@ -8,7 +8,7 @@ import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { imgbedApi, imgbedExternalUpload, imgbedFetchUrl, imgbedUpload, type ImgbedConfigResponse } from '../api'
-import { optimizeImageFile } from '../../../lib/image'
+
 
 interface UploadItem {
   key: string
@@ -21,6 +21,29 @@ interface UploadItem {
 }
 
 const HISTORY_KEY = 'imgbed.upload_history'
+
+async function compressToTarget(file: File, thresholdMB: number, targetMB: number): Promise<File> {
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type) || /\.gif$/i.test(file.name)) return file
+  if (file.size <= thresholdMB * 1024 * 1024) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    let scale = 1
+    let best: Blob | null = null
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(64, Math.round(bitmap.width * scale))
+      canvas.height = Math.max(64, Math.round(bitmap.height * scale))
+      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      const quality = Math.max(0.4, 0.9 - attempt * 0.08)
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, file.type, quality))
+      if (blob) { best = blob; if (blob.size <= targetMB * 1024 * 1024) break }
+      scale *= 0.85
+    }
+    bitmap.close()
+    if (!best || best.size >= file.size) return file
+    return new File([best], file.name, { type: file.type })
+  } catch { return file }
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -55,6 +78,8 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
   const [nameType, setNameType] = useState('default')
   const [compress, setCompress] = useState(true)
   const [webp, setWebp] = useState(false)
+  const [compressBar, setCompressBar] = useState(5)
+  const [compressQuality, setCompressQuality] = useState(4)
   const [urlInput, setUrlInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [copyFormat, setCopyFormat] = useState('url')
@@ -77,6 +102,8 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
         setNameType(next.page.defaultNameType)
         setCompress(next.page.defaultCompress)
         setWebp(next.page.defaultConvertToWebp)
+        setCompressBar(next.page.defaultCompressBar)
+        setCompressQuality(next.page.defaultCompressQuality)
         if (next.page.announcement) {
           const acknowledged = Number(localStorage.getItem('imgbed.announcementAck') ?? 0)
           if (!acknowledged || (next.page.announcementRefreshAt ?? 0) > acknowledged) setAnnouncementOpen(true)
@@ -126,7 +153,7 @@ export function UploadPage({ owner: _owner }: { owner: boolean }): ReactElement 
       setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, status: 'uploading', progress: 0, error: undefined } : entry))
       try {
         let file = item.file
-        if (compress && file.type.startsWith('image/') && file.size > 1024 * 1024) file = await optimizeImageFile(file)
+        if (compress) file = await compressToTarget(file, compressBar, compressQuality)
         if (webp) file = await toWebp(file)
         const uploadFolder = folder.replace(/^\/+/, '')
         const result = await imgbedUpload(file, uploadFolder, nameType, channel, channelName, (percent) => {
