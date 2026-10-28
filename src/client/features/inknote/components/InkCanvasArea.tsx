@@ -455,9 +455,9 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
         )}
       </div>
       <div className="flex h-9 shrink-0 items-center justify-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-        <Button size="sm" variant="ghost" onClick={onPrevPage} disabled={pageIndex <= 0}>‹</Button>
+        <Button size="sm" variant="ghost" aria-label={t('inknote.page.prev')} onClick={onPrevPage} disabled={pageIndex <= 0}>‹</Button>
         <span data-page-indicator="" aria-live="polite">{pageIndex + 1} / {pageCount}</span>
-        <Button size="sm" variant="ghost" onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
+        <Button size="sm" variant="ghost" aria-label={t('inknote.page.next')} onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
         <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
       </div>
       <CropDialog open={cropImageId !== null} imageUrl={page.content.images.find((entry) => entry.id === cropImageId)?.url ?? null} onClose={() => setCropImageId(null)} onApply={applyCrop}/>
