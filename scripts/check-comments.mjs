@@ -6394,10 +6394,15 @@ const allowed = new Map([
     "/* an incomplete frame is normal at chunk boundaries */",
   ]],
   ["src/client/features/inknote/tools/PresentationOverlay.tsx", [
-    "/** A full-screen page viewer with keyboard/touch paging and optional auto-play. */",
+    "/** Full-screen presentation: paging, laser pointer, annotation strokes and timed autoplay. */",
   ]],
   ["src/client/features/inknote/tools/RecordingPanel.tsx", [
     "/** Audio recordings attached to one ink note. */",
+  ]],
+  ["src/client/features/inknote/tools/use-inknote-tts.ts", [
+    "/** Sentence-by-sentence read-aloud for one page or the whole note, with a highlight cue per sentence. */",
+    "/** Splits on the sentence enders Chinese and English share, keeping each ender with its sentence. */",
+    "/** The subset of `speechSynthesis` the hook needs, so tests can answer without a voice engine. */",
   ]],
   ["src/client/features/inknote/use-inknote-hotkeys.ts", [
     "/** The editor's keyboard layer: shortcuts that only act while a note is open and no field or dialog owns the key. */",

@@ -54,6 +54,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
               <SettingRow title={t('inknote.settings.text_size')}><Slider value={settings.textSize} min={12} max={72} step={1} onChange={(value) => void updateSettings({ textSize: value })} label={t('inknote.settings.text_size')} className="w-40" /></SettingRow>
               <SettingRow title={t('inknote.settings.font')}><Segmented value={settings.fontFamily} options={([['system', 'inknote.settings.system'], ['rounded', 'inknote.settings.rounded'], ['serif', 'inknote.settings.serif'], ['mono', 'inknote.settings.mono']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ fontFamily: value })} label={t('inknote.settings.font')} /></SettingRow>
               <SettingRow title={t('inknote.settings.stroke_width')}><Slider value={settings.penWidth} min={1} max={30} step={0.5} onChange={(value) => void updateSettings({ penWidth: value, ballpenWidth: value })} label={t('inknote.settings.stroke_width')} className="w-40" /></SettingRow>
+              <SettingRow title={t('inknote.settings.tts_rate')}><Slider value={settings.ttsRate} min={0.5} max={2} step={0.25} onChange={(value) => void updateSettings({ ttsRate: value })} label={t('inknote.settings.tts_rate')} className="w-40" /></SettingRow>
             </div>
           )}
           {section === 'paper' && (

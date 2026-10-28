@@ -25,6 +25,7 @@ import { useInknoteHotkeys } from './use-inknote-hotkeys'
 import { PresentationOverlay } from './tools/PresentationOverlay'
 import { RecordingPanel } from './tools/RecordingPanel'
 import { AiPanel } from './tools/AiPanel'
+import { useInknoteTts } from './tools/use-inknote-tts'
 import { exportNotebookFile, exportNoteFile, exportPagePng, exportPdf, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
@@ -172,16 +173,28 @@ export function InknoteApp() {
     if (patch.eraserMode !== undefined) void updateSettings({ eraserMode: patch.eraserMode })
   }
 
-  function readAloud() {
-    if (!activePage) return
-    if (typeof window.speechSynthesis === 'undefined') { toast({ title: t('inknote.read.unsupported' as never), tone: 'danger' }); return }
-    const text = activePage.content.texts.map((item) => item.text).filter(Boolean).join('\n')
-    if (!text.trim()) { toast({ title: t('inknote.read.empty' as never) }); return }
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = document.documentElement.lang || 'zh-CN'
-    utterance.rate = settings?.ttsRate ?? 1
-    window.speechSynthesis.speak(utterance)
+  const tts = useInknoteTts({
+    pages,
+    activePageId,
+    activePageIndex: activeIndex,
+    rate: settings?.ttsRate ?? 1,
+    language: typeof document === 'undefined' ? 'zh-CN' : document.documentElement.lang || 'zh-CN',
+    onPage: setActivePage,
+    onCue: (cue) => { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inknote:tts-cue', { detail: cue })) },
+  })
+
+  const readAloud = () => {
+    if (!tts.supported) { toast({ title: t('inknote.read.unsupported' as never), tone: 'danger' }); return }
+    if (tts.active) { tts.stop(); return }
+    if ((activePage?.content.texts ?? []).every((item) => !item.text.trim())) { toast({ title: t('inknote.read.empty' as never) }); return }
+    tts.togglePage()
+  }
+
+  const readWholeNote = () => {
+    if (!tts.supported) { toast({ title: t('inknote.read.unsupported' as never), tone: 'danger' }); return }
+    if (tts.active) { tts.stop(); return }
+    if (pages.every((page) => page.content.texts.every((item) => !item.text.trim()))) { toast({ title: t('inknote.read.empty' as never) }); return }
+    tts.readAll()
   }
 
   function moreItems(): MenuItem[] {
@@ -201,6 +214,7 @@ export function InknoteApp() {
       { id: 'outline', label: t('inknote.action.outline' as never), onSelect: () => { setMoreMenu(null); setOutlineOpen(true) } },
       { id: 'stats', label: t('inknote.action.stats' as never), onSelect: () => { setMoreMenu(null); setStatsOpen(true) } },
       { id: 'templates', label: t('inknote.action.templates' as never), onSelect: () => { setMoreMenu(null); setTemplatesOpen(true) } },
+      { id: 'read-all', label: t('inknote.action.read_all' as never), onSelect: () => { setMoreMenu(null); readWholeNote() } },
       { id: 'snapshot', label: t('inknote.settings.snapshots'), onSelect: () => { setMoreMenu(null); setSnapshotsOpen(true) } },
     ]
   }

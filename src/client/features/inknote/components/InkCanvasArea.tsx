@@ -59,6 +59,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   const [zoom, setZoom] = useState(1)
   const [selection, setSelection] = useState<string[]>([])
   const [editing, setEditing] = useState<Editing | null>(null)
+  const [ttsCue, setTtsCue] = useState<{ pageId: string; textId: string } | null>(null)
   const latest = useRef({ note, page, settings, tool })
   latest.current = { note, page, settings, tool }
   const toast = useUi((state) => state.toast)
@@ -181,6 +182,12 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   }, [note.id, page.id, note.paper, metrics, settings.fontFamily])
 
   useEffect(() => {
+    const handler = (event: Event) => setTtsCue((event as CustomEvent<{ pageId: string; textId: string } | null>).detail ?? null)
+    window.addEventListener('inknote:tts-cue', handler)
+    return () => window.removeEventListener('inknote:tts-cue', handler)
+  }, [])
+
+  useEffect(() => {
     engineRef.current?.loadContent(page.content)
   }, [page.content])
 
@@ -267,11 +274,28 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
     touchPage()
   }
 
+  const ttsItem = ttsCue && ttsCue.pageId === page.id ? page.content.texts.find((item) => item.id === ttsCue.textId) ?? null : null
+  const ttsBox = (() => {
+    const engine = engineRef.current
+    if (!ttsItem || !engine) return null
+    const origin = engine.worldToScreen(ttsItem.x * note.pageWidth, ttsItem.y * note.pageHeight)
+    const scale = engine.getScale()
+    return {
+      left: origin.x,
+      top: origin.y,
+      width: Math.max(40, ttsItem.w * note.pageWidth * scale),
+      height: Math.max(20, ttsItem.h * note.pageHeight * scale),
+    }
+  })()
+
   return (
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
       <div className="inknote-page-scroll flex min-h-0 flex-1 items-start justify-center overflow-auto p-3 md:p-6">
         <div className="inknote-page-frame relative shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
           <canvas ref={canvasRef} className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.tool.pen')} />
+          {ttsBox && (
+            <div data-ink-tts-cue="" aria-hidden="true" className="pointer-events-none absolute rounded-[3px] border-2 border-[var(--accent)]" style={{ left: ttsBox.left, top: ttsBox.top, width: ttsBox.width, height: ttsBox.height, background: 'color-mix(in oklab, var(--accent) 14%, transparent)', zIndex: 'calc(var(--z-float) - 2)' }}/>
+          )}
           {editing && (
             <div className="absolute inset-0 z-[var(--z-float)]" aria-hidden="true" onPointerDown={(event) => { event.preventDefault(); commitText() }} />
           )}
