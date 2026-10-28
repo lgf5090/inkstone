@@ -28826,6 +28826,9 @@ const allowed = new Map([
     "/**\n * The to-do app's own rows.\n *\n * One file for the whole app, in the shape a row dump takes, because a task is neither a document nor a\n * subscription: it has lists, tags, steps, alarms, a worklog and habits hanging off it, and every one of\n * them is written by its id. Splitting them across files would put the order a restore has to follow in\n * the archive's own layout rather than in the one module that owns the tables.\n */",
     "/** The to-do app's tasks, lists, tags, steps, alarms, worklog, habits and their history. */",
     "/** The calendar app's calendars, events and preferences, without remote credentials. */",
+    "/** The hand-written notebook: tables, pages, settings, templates, recordings and asset bytes. */",
+    "/** One JSON document for the hand-written notebook, asset bytes included as base64. */",
+    "/** The hand-written notebook, absent from a backup taken before it existed. */",
   ]],
   ["src/shared/byte-format.ts", [
     "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
@@ -34930,6 +34933,9 @@ const allowed = new Map([
     "// The cover key is shared, so only a different backend's old object is safe to queue.",
     "/** The quota figure the upload route reports to the client, kept beside the enforcement. */",
     "/** The assets one note owns, newest first, optionally narrowed to one kind. */",
+  ]],
+  ["src/worker/inknote/backup.ts", [
+    "/**\n * The Inknote slice of the account backup.\n *\n * Everything the app owns is written as one JSON document: tables, pages, settings, templates,\n * recordings with their timelines, and the bytes of every asset as base64. One file keeps the restore\n * inside the existing music/calendar path; the budget below is what keeps it inside the 64 MB upload\n * limit. Assets that would push the document past the budget are listed as missing instead of being\n * silently dropped, and the restore reports them.\n */",
   ]],
   ["src/worker/inknote/context.ts", [
     "/**\n * The hand-written note a turn was asked beside, read from the request body and written into the prompt.\n *\n * The client cannot decide what the model sees: the note id is re-read against this account, the title\n * and notebook come from the row rather than the body, every string is bounded, and a note that is not\n * the caller's, or is in the trash, is no context at all.\n */",

@@ -49,6 +49,7 @@ import { applyBackupQuickAdd } from '../backup/quickadd'
 import { applyBackupSubscriptions } from '../subscriptions/backup'
 import { applyBackupTodos } from '../todos/backup'
 import { applyBackupMusic } from '../music/backup'
+import { applyBackupInknote } from '../inknote/backup'
 import { applyBackupCalendar } from '../calendar/backup'
 import {
   backupEmailAttachmentPath,
@@ -283,6 +284,9 @@ transferRoutes.post('/import', async (c) => {
           if (backup.manifest.email) {
             expected.add(`${backup.rootPrefix}${backup.manifest.email.path}`.toLowerCase())
           }
+          if (backup.manifest.inknote) {
+            expected.add(`${backup.rootPrefix}${backup.manifest.inknote.path}`.toLowerCase())
+          }
           const entries = await readZip(bytes, {
             ...zipOptions,
             maxEntryBytes: LIMITS.importUploadMaxBytes,
@@ -479,6 +483,7 @@ async function importBackupFileBatch(
   const todosByPath = manifest.todos?.path.toLowerCase() ?? null
   const musicByPath = manifest.music?.path.toLowerCase() ?? null
   const calendarByPath = manifest.calendar?.path.toLowerCase() ?? null
+  const inknoteByPath = manifest.inknote?.path.toLowerCase() ?? null
   const emailByPath = manifest.email?.path.toLowerCase() ?? null
   const emailItem = emailByPath === null
     ? undefined
@@ -530,12 +535,13 @@ async function importBackupFileBatch(
     const todos = todosByPath !== null && key === todosByPath
     const music = musicByPath !== null && key === musicByPath
     const calendar = calendarByPath !== null && key === calendarByPath
+    const inknote = inknoteByPath !== null && key === inknoteByPath
     const email = emailByPath !== null && key === emailByPath
     const emailAttachment = emailAttachmentByPath.get(key) ?? null
-    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment) {
+    if (!note && !attachment && !templates && !automation && !subscriptions && !todos && !music && !calendar && !email && !emailAttachment && !inknote) {
       throw new Error(`The file is not listed in the backup manifest: ${path}`)
     }
-    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment }
+    return { file, path, note, attachment, templates, automation, subscriptions, todos, music, calendar, email, emailAttachment, inknote }
   })
 
   const cachedBytes = new Map<string, Uint8Array>()
@@ -573,6 +579,7 @@ async function importBackupFileBatch(
       ?? (item.todos ? manifest.todos ?? null : null)
       ?? (item.music ? manifest.music ?? null : null)
       ?? (item.calendar ? manifest.calendar ?? null : null)
+      ?? (item.inknote ? manifest.inknote ?? null : null)
     if (!entry) continue
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     await verifyBackupEntry(
@@ -584,11 +591,12 @@ async function importBackupFileBatch(
         : item.music ? manifest.music!.bytes
         : item.todos ? manifest.todos!.bytes
         : item.calendar ? manifest.calendar!.bytes
+        : item.inknote ? manifest.inknote!.bytes
         : manifest.subscriptions!.bytes,
       entry.sha256,
       entry.path,
     )
-    if (item.note || item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar) {
+    if (item.note || item.templates || item.automation || item.subscriptions || item.todos || item.music || item.calendar || item.inknote) {
       decodeBackupText(bytes, entry.path)
     }
   }
@@ -655,6 +663,16 @@ async function importBackupFileBatch(
     )
     const summary = await applyBackupCalendar(c.env.DB, userId, text)
     ctx.result.calendarEvents = (ctx.result.calendarEvents ?? 0) + summary.events
+  }
+  const inknoteItem = planned.find((item) => item.inknote)
+  if (inknoteItem) {
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(
+      new Uint8Array(await inknoteItem.file.arrayBuffer()),
+    )
+    const summary = await applyBackupInknote(c.env, userId, text)
+    if (summary.missingAssets.length) {
+      addWarning(ctx.result, `${summary.missingAssets.length} Inknote assets were not present in the backup`)
+    }
   }
   if (emailBundle && emailBytes) {
     const attachments = new Map<string, Uint8Array>()

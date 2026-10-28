@@ -7,6 +7,7 @@ import {
   backupManifestPath,
   backupCalendarPath,
   backupMusicPath,
+  backupInknotePath,
   backupSubscriptionsPath,
   backupTemplatesPath,
   backupTodosPath,
@@ -35,6 +36,7 @@ import { readBackupQuickAdd } from './quickadd'
 import { readBackupSubscriptions } from '../subscriptions/backup'
 import { readBackupTodos } from '../todos/backup'
 import { readBackupMusic } from '../music/backup'
+import { readBackupInknote } from '../inknote/backup'
 import { readBackupCalendar } from '../calendar/backup'
 import { readBackupEmail } from '../email/backup'
 import { attachmentObjectKey } from '../attachments/keys'
@@ -45,7 +47,7 @@ import { sha256Hex } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { safeAttachmentMime } from '../lib/image'
 
-export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment'
+export type BackupFileKind = 'note' | 'attachment' | 'readme' | 'manifest' | 'complete' | 'templates' | 'automation' | 'subscriptions' | 'todos' | 'music' | 'calendar' | 'email' | 'email-attachment' | 'inknote'
 
 export interface BackupFile {
   path: string
@@ -274,6 +276,15 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
       'application/json; charset=utf-8',
       'music',
     )
+  const inknoteText = await readBackupInknote(env, userId)
+  const inknoteFile = inknoteText === null
+    ? null
+    : await staticFile(
+      backupInknotePath(stamp),
+      inknoteText,
+      'application/json; charset=utf-8',
+      'inknote',
+    )
   const calendarText = await readBackupCalendar(env.DB, userId)
   const calendarFile = calendarText === null
     ? null
@@ -320,6 +331,9 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     calendar: calendarFile
       ? { path: calendarFile.path, bytes: calendarFile.byteLength, sha256: calendarFile.sha256 }
       : undefined,
+    inknote: inknoteFile
+      ? { path: inknoteFile.path, bytes: inknoteFile.byteLength, sha256: inknoteFile.sha256 }
+      : undefined,
     email: emailFile
       ? {
         path: emailFile.path,
@@ -357,6 +371,7 @@ export async function buildSnapshot(env: Env, userId: string): Promise<Snapshot>
     ...(todosFile ? [todosFile] : []),
     ...(musicFile ? [musicFile] : []),
     ...(calendarFile ? [calendarFile] : []),
+    ...(inknoteFile ? [inknoteFile] : []),
     ...(emailFile ? [emailFile] : []),
     ...(emailResult?.attachments ?? []),
   ]
