@@ -124,9 +124,13 @@ export function CropDialog({ open, imageUrl, onClose, onApply }: {
             <img src={imageUrl} alt="" className="block max-h-[52vh] max-w-full select-none" draggable={false}/>
             {natural && (
               <>
+                <div aria-hidden="true" className="pointer-events-none absolute bg-black/45" style={{ left: 0, top: 0, width: '100%', height: percent(rect.y, natural.height) }}/>
+                <div aria-hidden="true" className="pointer-events-none absolute bg-black/45" style={{ left: 0, top: percent(rect.y + rect.h, natural.height), right: 0, bottom: 0 }}/>
+                <div aria-hidden="true" className="pointer-events-none absolute bg-black/45" style={{ left: 0, top: percent(rect.y, natural.height), width: percent(rect.x, natural.width), height: percent(rect.h, natural.height) }}/>
+                <div aria-hidden="true" className="pointer-events-none absolute bg-black/45" style={{ left: percent(rect.x + rect.w, natural.width), top: percent(rect.y, natural.height), right: 0, height: percent(rect.h, natural.height) }}/>
                 <div
                   role="presentation"
-                  className="absolute cursor-move border border-[var(--accent)] shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+                  className="absolute cursor-move border border-[var(--accent)]"
                   style={{ left: percent(rect.x, natural.width), top: percent(rect.y, natural.height), width: percent(rect.w, natural.width), height: percent(rect.h, natural.height) }}
                   onPointerDown={begin('move')}
                 >
