@@ -77,7 +77,8 @@ export async function attachmentBytesUsed(db: D1Database, userId: string): Promi
   const usage = await db.prepare(
     `SELECT
        COALESCE((SELECT SUM(size) FROM attachments WHERE user_id = ?1), 0)
-       + COALESCE((SELECT SUM(size) FROM memos_attachments WHERE user_id = ?1), 0) AS bytes`,
+       + COALESCE((SELECT SUM(size) FROM memos_attachments WHERE user_id = ?1), 0)
+       + COALESCE((SELECT SUM(size) FROM inknote_assets WHERE user_id = ?1), 0) AS bytes`,
   ).bind(userId).first<{ bytes: number }>()
   return Number(usage?.bytes ?? 0)
 }
