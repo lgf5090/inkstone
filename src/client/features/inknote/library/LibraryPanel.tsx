@@ -7,6 +7,7 @@ import { paperSurfaceFor } from '@shared/inknote/color'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
+import { Select } from '../../../components/form'
 import { useFilterInput } from '../../../components/FilterInput'
 import { confirm, Menu, MenuSubmenuList, Modal, prompt, type MenuItem } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
@@ -71,6 +72,9 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<InknoteSearchResult[] | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const settings = useInknoteStore((state) => state.library?.settings)
+  const updateSettings = useInknoteStore((state) => state.updateSettings)
   const [trashOpen, setTrashOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const searchTimer = useRef<number | undefined>(undefined)
@@ -88,9 +92,16 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   useEffect(() => () => { if (searchTimer.current) window.clearTimeout(searchTimer.current) }, [])
 
   const visibleNotes = useMemo(() => {
-    const list = recent ? [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 15) : notes.filter((note) => note.notebookId === notebook?.id)
-    return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
-  }, [notes, notebook?.id, recent])
+    const sort = settings?.noteSort ?? 'updated'
+    const base = recent ? [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 15) : notes.filter((note) => note.notebookId === notebook?.id)
+    const filtered = tagFilter ? base.filter((note) => note.colorTag === tagFilter) : base
+    return [...filtered].sort((a, b) => {
+      if (Number(a.pinned) !== Number(b.pinned)) return Number(b.pinned) - Number(a.pinned)
+      if (sort === 'created') return b.createdAt - a.createdAt
+      if (sort === 'title') return a.title.localeCompare(b.title)
+      return b.updatedAt - a.updatedAt
+    })
+  }, [notes, notebook?.id, recent, settings?.noteSort, tagFilter])
 
   const runSearch = (value: string) => {
     setQuery(value)
@@ -177,6 +188,19 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
           {query && <IconButton label={t('notes.clear_filters')} size="xs" className="absolute right-1 top-1/2 -translate-y-1/2" onClick={clear}><X size={11}/></IconButton>}
         </div>
       </div>
+      <div className="flex items-center gap-1 px-2 pb-2">
+        <Select aria-label={t('inknote.sort.label')} value={settings?.noteSort ?? 'updated'} onChange={(event) => void updateSettings({ noteSort: event.target.value as 'updated' | 'created' | 'title' })} className="h-7 flex-1 text-[length:var(--text-11)]">
+          <option value="updated">{t('inknote.sort.updated')}</option>
+          <option value="created">{t('inknote.sort.created')}</option>
+          <option value="title">{t('inknote.sort.title')}</option>
+        </Select>
+        <div className="flex items-center gap-1" role="group" aria-label={t('inknote.tag_color')}>
+          <button type="button" aria-label={t('inknote.filter_all')} aria-pressed={tagFilter === null} onClick={() => setTagFilter(null)} className={cn('size-4 rounded-full border border-[var(--border-default)] text-[length:var(--text-9)]', tagFilter === null && 'ring-2 ring-[var(--accent)]')}>×</button>
+          {TAG_COLORS.map((color) => (
+            <button key={color} type="button" aria-label={color} aria-pressed={tagFilter === color} onClick={() => setTagFilter(tagFilter === color ? null : color)} className={cn('size-4 rounded-full', tagFilter === color && 'ring-2 ring-[var(--accent)]')} style={{ background: color }}/>
+          ))}
+        </div>
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {results !== null ? (
           <div className="space-y-0.5">
@@ -230,7 +254,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
             <div className="mt-1 space-y-0.5">
               {visibleNotes.length === 0 && <p className="px-2 py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
               {visibleNotes.map((note) => (
-                <button key={note.id} type="button" onClick={() => void openFromList(note)} onContextMenu={(event) => { event.preventDefault(); openMenu(event.clientX, event.clientY, noteMenuItems(note)) }} className={cn('flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1.5 text-left', note.id === activeNoteId ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
+                <button key={note.id} type="button" data-inknote-note-id={note.id} onClick={() => void openFromList(note)} onContextMenu={(event) => { event.preventDefault(); openMenu(event.clientX, event.clientY, noteMenuItems(note)) }} className={cn('flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1.5 text-left', note.id === activeNoteId ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
                   <NoteCover note={note} />
                   <span className="min-w-0 flex-1">
                     <span className={cn('block truncate text-[length:var(--text-12)]', note.pinned && 'font-semibold')}>{note.title || t('inknote.untitled')}</span>
