@@ -6407,6 +6407,7 @@ const allowed = new Map([
     "/* a corrupt draft is not a restore candidate */",
     "// A batch reports one count for every note it could not change; the caller shows it.",
     "/** The server keeps ten snapshots and the account may have switched automatic backups off. */",
+    "/** A replay is writing into the pages for the reader to watch; saves must not leave with it. */",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
@@ -19225,6 +19226,13 @@ const allowed = new Map([
     "/** Natural pixel size of the laid-out text, before it is normalized into a box. */",
     "/**\n * Size a text box for newly entered text, as normalized `w`/`h` with a 10 px inset.\n *\n * The width follows the longest explicit line rather than wrapping, which is what the reference's\n * commit path did; an empty box still gets the minimum width and one line of height.\n */",
     "/** Split into words, whitespace and single CJK/fullwidth characters, the units a line may break at. */",
+  ]],
+  ["src/client/lib/inknote/timeline.ts", [
+    "/** Recording timelines: the stroke deltas a page saw, and how a replay puts them back. */",
+    "/**\n * What one committed page edit changed about its ink.\n *\n * Text and images are deliberately absent: the recorder replays strokes, and a text box the reader\n * typed during a recording is already in the page a replay starts from.\n */",
+    "/** Apply one event to a page copy; a page event changes nothing in the page itself. */",
+    "/** Deep copy of the pages a replay will touch, so the recording cannot leave its ink behind. */",
+    "/** Timeline events in recorded order, capped to the byte budget the server accepts. */",
   ]],
   ["src/client/lib/inknote/tts.ts", [
     "/**\n * Read-aloud queue with an injected speaker.\n *\n * The browser adapter (S4-06) supplies `speak/cancel/pause/resume`; this module never touches\n * `window`. A generation token makes callbacks from a cancelled utterance harmless, and the pump is\n * iterative so a synchronous fake speaker cannot overflow the stack on a long note.\n */",
@@ -34936,6 +34944,7 @@ const allowed = new Map([
   ]],
   ["src/worker/inknote/backup.ts", [
     "/**\n * The Inknote slice of the account backup.\n *\n * Everything the app owns is written as one JSON document: tables, pages, settings, templates,\n * recordings with their timelines, and the bytes of every asset as base64. One file keeps the restore\n * inside the existing music/calendar path; the budget below is what keeps it inside the 64 MB upload\n * limit. Assets that would push the document past the budget are listed as missing instead of being\n * silently dropped, and the restore reports them.\n */",
+    "// A page can be nearly 1.8 MB; one statement at a time keeps a restore inside D1's batch payload.",
   ]],
   ["src/worker/inknote/context.ts", [
     "/**\n * The hand-written note a turn was asked beside, read from the request body and written into the prompt.\n *\n * The client cannot decide what the model sees: the note id is re-read against this account, the title\n * and notebook come from the row rather than the body, every string is bounded, and a note that is not\n * the caller's, or is in the trash, is no context at all.\n */",

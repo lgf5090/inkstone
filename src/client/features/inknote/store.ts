@@ -43,6 +43,8 @@ interface InknoteState {
   conflicts: Record<string, Conflict>
   /** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */
   drafts: Record<string, { content: InknotePageContent; savedAt: number }>
+  /** A replay is writing into the pages for the reader to watch; saves must not leave with it. */
+  replaying: boolean
   loading: boolean
   opening: boolean
   error: string | null
@@ -87,6 +89,9 @@ interface InknoteState {
   clearConflict: (pageId: string) => void
   restoreDrafts: () => Promise<void>
   discardDrafts: () => void
+  beginReplay: () => void
+  applyReplayContent: (pageId: string, content: InknotePageContent) => void
+  endReplay: (snapshot: Map<string, InknotePageContent>) => void
 }
 
 const saveTimers = new Map<string, number>()
@@ -121,6 +126,7 @@ function updateLibraryNote(
 
 export const useInknoteStore = create<InknoteState>((set, get) => {
   async function persist(pageId: string): Promise<boolean> {
+    if (get().replaying) return true
     const { note, pages } = get()
     if (!note) return false
     const page = pages.find((entry) => entry.id === pageId)
@@ -184,6 +190,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     saveError: null,
     conflicts: {},
     drafts: {},
+    replaying: false,
     loading: false,
     opening: false,
     error: null,
@@ -310,6 +317,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     },
 
     async savePage(pageId) {
+      if (get().replaying) return true
       const target = pageId ?? get().activePageId
       if (!target) return true
       const timer = saveTimers.get(target)
@@ -593,6 +601,25 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           return { drafts: next }
         })
       }
+    },
+
+    beginReplay() {
+      set({ replaying: true })
+    },
+
+    applyReplayContent(pageId, content) {
+      set((state) => ({
+        pages: state.pages.map((page) => page.id === pageId ? { ...page, content } : page),
+        contentVersion: state.contentVersion + 1,
+      }))
+    },
+
+    endReplay(snapshot) {
+      set((state) => ({
+        replaying: false,
+        pages: state.pages.map((page) => snapshot.has(page.id) ? { ...page, content: snapshot.get(page.id)! } : page),
+        contentVersion: state.contentVersion + 1,
+      }))
     },
 
     discardDrafts() {

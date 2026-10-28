@@ -128,7 +128,10 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
       getFont: () => cssFont(latest.current.settings),
       getTool: () => latest.current.tool,
       onContentChange: () => touchPage(),
-      onCommit: () => touchPage(),
+      onCommit: (before, after) => {
+        touchPage()
+        window.dispatchEvent(new CustomEvent('inknote:content', { detail: { pageId: latest.current.page.id, before, after, at: Date.now() } }))
+      },
       onTextTap: (world) => openTextEditor(world),
       onSelectionChange: (ids) => setSelection(ids),
       onGesture: (action) => {
@@ -190,6 +193,10 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   useEffect(() => {
     engineRef.current?.loadContent(page.content)
   }, [page.content])
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('inknote:page', { detail: { pageId: page.id, to: pageIndex, at: Date.now() } }))
+  }, [page.id, pageIndex])
 
   useEffect(() => {
     const invalidate = () => engineRef.current?.invalidate()
