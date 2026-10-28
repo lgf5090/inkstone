@@ -3,6 +3,7 @@ import {
   buildFileId,
   categoryFor,
   fileTypeCategory,
+  mimeFromExtension,
   resolveFileType,
   sanitizeFileName,
   sanitizeFolderPath,
@@ -166,7 +167,7 @@ export async function uploadSingle(
   }
   const fileName = sanitizeFileName(external ? externalName : file instanceof File ? file.name : '')
   if (!fileName) throw new StorageError('fileType or fileName is wrong', 400)
-  const fileType = resolveFileType(fileName, file instanceof File ? file.type : 'text/plain')
+  const fileType = external ? mimeFromExtension(fileName) : resolveFileType(fileName, file instanceof File ? file.type : 'text/plain')
   if (fileType === null) throw new StorageError('fileType is wrong', 400)
   const bytes = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array()
   const size = external ? 0 : bytes.byteLength

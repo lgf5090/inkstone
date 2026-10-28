@@ -126,6 +126,7 @@ export const EN_US_IMGBED = {
   'imgbed.format.html': 'HTML',
   'imgbed.format.bbcode': 'BBCode',
   'imgbed.upload.external': 'Save as external link',
+  'imgbed.demo_unavailable': 'The image bed needs D1 and R2, so it is unavailable in the demo.',
   'imgbed.common.loading': 'Loading',
   'imgbed.common.retry': 'Retry',
   'imgbed.common.cancel': 'Cancel',

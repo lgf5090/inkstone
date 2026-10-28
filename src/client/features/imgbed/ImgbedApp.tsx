@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { useSession } from '../../store/session'
+import { IS_DEMO_MODE } from '../../lib/runtime'
 import { UploadPage } from './upload/UploadPage'
 import { LibraryPage } from './library/LibraryPage'
 import { SettingsPage } from './settings/SettingsPage'
@@ -28,6 +29,7 @@ const NAV: readonly { page: ImgbedPage; path: string; labelKey: MessageKey; icon
 ]
 
 export function ImgbedApp(): ReactElement {
+  if (IS_DEMO_MODE) return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('imgbed.demo_unavailable' as never)}</div>
   const pathname = usePathname()
   const page = pageFor(pathname)
   const user = useSession((state) => state.user)

@@ -126,6 +126,7 @@ export const ZH_CN_IMGBED = {
   'imgbed.format.html': 'HTML',
   'imgbed.format.bbcode': 'BBCode',
   'imgbed.upload.external': '仅保存外链',
+  'imgbed.demo_unavailable': '图床需要 D1 与 R2，演示模式不可用。',
   'imgbed.common.loading': '加载中',
   'imgbed.common.retry': '重试',
   'imgbed.common.cancel': '取消',

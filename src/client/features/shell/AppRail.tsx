@@ -12,12 +12,13 @@ import { t } from '../../lib/i18n'
 import { Tooltip } from '../../components/overlay'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { useSession } from '../../store/session'
+import { IS_DEMO_MODE } from '../../lib/runtime'
 import { APP_TABS, tabIdForPath, type AppTab } from './app-tabs'
 
 export function AppRail() {
   const activeId = tabIdForPath(usePathname())
   const role = useSession((state) => state.user?.role)
-  const tabs = APP_TABS.filter((tab) => tab.id !== 'email' || role !== 'member')
+  const tabs = APP_TABS.filter((tab) => (tab.id !== 'email' || role !== 'member') && (tab.id !== 'imgbed' || !IS_DEMO_MODE))
   return (
     <nav
       aria-label={t('app.tabs.navigation')}
