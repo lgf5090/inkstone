@@ -1,6 +1,6 @@
 /** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, FilePlus2, FolderPlus, MoreHorizontal, NotebookPen, Search, Trash2, X } from 'lucide-react'
+import { CheckSquare, ChevronRight, FilePlus2, FolderInput, FolderPlus, MoreHorizontal, NotebookPen, Pin, Search, Trash2, X } from 'lucide-react'
 import type { InknoteNoteMeta, InknoteSearchResult } from '@shared/inknote/types'
 import { TAG_COLORS } from '@shared/inknote/constants'
 import { paperSurfaceFor } from '@shared/inknote/color'
@@ -64,6 +64,7 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   const deleteNote = useInknoteStore((state) => state.deleteNote)
   const duplicateNote = useInknoteStore((state) => state.duplicateNote)
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
+  const patchNotesMeta = useInknoteStore((state) => state.patchNotesMeta)
   const restoreNote = useInknoteStore((state) => state.restoreNote)
   const purgeNote = useInknoteStore((state) => state.purgeNote)
   const activeNoteId = useInknoteStore((state) => state.note?.id ?? null)
@@ -76,6 +77,10 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
   const settings = useInknoteStore((state) => state.library?.settings)
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveTarget, setMoveTarget] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const searchTimer = useRef<number | undefined>(undefined)
 
@@ -249,12 +254,32 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
             </div>
             <div className="mt-2 flex items-center justify-between px-1">
               <span className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{recent ? t('inknote.recent') : notebook?.name}</span>
-              <Button size="sm" variant="primary" icon={<FilePlus2 size={13}/>} onClick={() => void createNote(notebook?.id).then(() => onAfterOpen?.())}>{t('inknote.new_note')}</Button>
+              <div className="flex items-center gap-1">
+                <IconButton label={t('inknote.select')} size="sm" active={selectMode} onClick={() => { setSelectMode((value) => !value); setSelected(new Set()) }}><CheckSquare size={13}/></IconButton>
+                <Button size="sm" variant="primary" icon={<FilePlus2 size={13}/>} onClick={() => void createNote(notebook?.id).then(() => onAfterOpen?.())}>{t('inknote.new_note')}</Button>
+              </div>
             </div>
+            {selectMode && (
+              <div className="mt-1 flex flex-wrap items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-1 py-1">
+                <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => setSelected(new Set(visibleNotes.map((entry) => entry.id)))}>{t('inknote.select_all')}</button>
+                <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => setSelected(new Set())}>{t('inknote.clear_selection')}</button>
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('inknote.selected_count', { count: String(selected.size) })}</span>
+                <span className="flex-1"/>
+                <IconButton label={t('inknote.batch_move')} size="xs" disabled={selected.size === 0} onClick={() => { setMoveTarget(''); setMoveOpen(true) }}><FolderInput size={12}/></IconButton>
+                <IconButton label={t('inknote.batch_pin')} size="xs" disabled={selected.size === 0} onClick={() => void batchPatch({ pinned: true })}><Pin size={12}/></IconButton>
+                <IconButton label={t('inknote.tag_color')} size="xs" disabled={selected.size === 0} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.left, rect.bottom, TAG_COLORS.map((color) => ({ id: color, label: color, onSelect: () => { setMenu(null); void batchPatch({ colorTag: color }) } }))) }}><span className="size-3 rounded-full" style={{ background: TAG_COLORS[0] }}/></IconButton>
+                <IconButton label={t('inknote.batch_delete')} size="xs" disabled={selected.size === 0} onClick={() => void batchDelete()}><Trash2 size={12}/></IconButton>
+                <IconButton label={t('inknote.clear_selection')} size="xs" onClick={() => { setSelectMode(false); setSelected(new Set()) }}><X size={12}/></IconButton>
+              </div>
+            )}
             <div className="mt-1 space-y-0.5">
               {visibleNotes.length === 0 && <p className="px-2 py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
               {visibleNotes.map((note) => (
-                <button key={note.id} type="button" data-inknote-note-id={note.id} onClick={() => void openFromList(note)} onContextMenu={(event) => { event.preventDefault(); openMenu(event.clientX, event.clientY, noteMenuItems(note)) }} className={cn('flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1.5 text-left', note.id === activeNoteId ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
+                <button key={note.id} type="button" data-inknote-note-id={note.id} aria-pressed={selectMode ? selected.has(note.id) : undefined} onClick={() => {
+                  if (selectMode) { setSelected((current) => { const next = new Set(current); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next }); return }
+                  void openFromList(note)
+                }} onContextMenu={(event) => { event.preventDefault(); if (!selectMode) openMenu(event.clientX, event.clientY, noteMenuItems(note)) }} className={cn('flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1.5 text-left', note.id === activeNoteId ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]', selectMode && selected.has(note.id) && 'ring-1 ring-[var(--accent)]')}>
+                  {selectMode && <span aria-hidden="true" className={cn('flex size-4 shrink-0 items-center justify-center rounded-[3px] border border-[var(--border-strong)]', selected.has(note.id) && 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)]')}>{selected.has(note.id) ? '✓' : ''}</span>}
                   <NoteCover note={note} />
                   <span className="min-w-0 flex-1">
                     <span className={cn('block truncate text-[length:var(--text-12)]', note.pinned && 'font-semibold')}>{note.title || t('inknote.untitled')}</span>
@@ -271,8 +296,44 @@ export function LibraryPanel({ selectedNotebookId, onSelectNotebook, onAfterOpen
         <Menu anchor={{ x: menu.x, y: menu.y }} open onClose={() => setMenu(null)} items={menu.items} />
       )}
       <TrashDialog open={trashOpen} onClose={() => setTrashOpen(false)} onRestore={restoreNote} onPurge={purgeNote} />
+      <Modal open={moveOpen} onClose={() => setMoveOpen(false)} title={t('inknote.batch_move')} width={380}>
+        <div className="space-y-2">
+          <Select aria-label={t('inknote.move_target')} value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)} className="w-full">
+            <option value="">{t('inknote.move_target')}</option>
+            {subjects.map((entry) => (
+              <optgroup key={entry.id} label={entry.name}>
+                {notebooks.filter((item) => item.subjectId === entry.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </optgroup>
+            ))}
+          </Select>
+          <div className="flex justify-end">
+            <Button size="sm" variant="primary" disabled={!moveTarget || selected.size === 0} onClick={() => { setMoveOpen(false); void batchPatch({ notebookId: moveTarget }) }}>{t('inknote.batch_move')}</Button>
+          </div>
+        </div>
+      </Modal>
     </aside>
   )
+
+  async function batchPatch(patch: Partial<Pick<InknoteNoteMeta, 'notebookId' | 'colorTag' | 'pinned'>>) {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    const result = await patchNotesMeta(ids, patch)
+    setSelectMode(false)
+    setSelected(new Set())
+    toast({ title: result.failed > 0 ? t('inknote.batch_partial', { changed: String(result.changed), failed: String(result.failed) }) : t('inknote.batch_done', { count: String(result.changed) }), ...(result.failed > 0 ? { tone: 'danger' as const } : {}) })
+  }
+
+  async function batchDelete() {
+    const ok = await confirm({ title: t('inknote.batch_delete'), description: t('inknote.batch_delete_confirm'), confirmLabel: t('inknote.delete') })
+    if (!ok) return
+    let failed = 0
+    for (const id of [...selected]) {
+      try { await deleteNote(id) } catch { failed += 1 }
+    }
+    setSelectMode(false)
+    setSelected(new Set())
+    toast({ title: failed > 0 ? t('inknote.batch_partial', { changed: String(selected.size - failed), failed: String(failed) }) : t('inknote.batch_done', { count: String(selected.size) }), ...(failed > 0 ? { tone: 'danger' as const } : {}) })
+  }
 
   function subjectMenu(id: string, name: string, x: number, y: number) {
     openMenu(x, y, [

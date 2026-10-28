@@ -6394,6 +6394,7 @@ const allowed = new Map([
     "/* storage may be unavailable */",
     "/** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */",
     "/* a corrupt draft is not a restore candidate */",
+    "// A batch reports one count for every note it could not change; the caller shows it.",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",

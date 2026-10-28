@@ -61,6 +61,7 @@ interface InknoteState {
   saveAll: () => Promise<void>
   createNote: (notebookId?: string, title?: string) => Promise<string | null>
   updateNoteMeta: (patch: Partial<Pick<InknoteNoteMeta, 'title' | 'notebookId' | 'paper' | 'pageWidth' | 'pageHeight' | 'colorTag' | 'pinned'>>) => Promise<boolean>
+  patchNotesMeta: (ids: string[], patch: Partial<Pick<InknoteNoteMeta, 'notebookId' | 'colorTag' | 'pinned'>>) => Promise<{ changed: number; failed: number }>
   deleteNote: (id: string) => Promise<void>
   restoreNote: (id: string) => Promise<void>
   purgeNote: (id: string) => Promise<void>
@@ -350,6 +351,28 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         set({ error: message(error) })
         return false
       }
+    },
+
+    async patchNotesMeta(ids, patch) {
+      const notes = get().library?.notes ?? []
+      let changed = 0
+      let failed = 0
+      for (const id of ids) {
+        const meta = notes.find((entry) => entry.id === id)
+        if (!meta) continue
+        try {
+          const next = await inknoteApi.updateNote(id, { ...patch, baseRev: meta.rev })
+          set((state) => ({
+            library: state.library ? { ...state.library, notes: state.library.notes.map((entry) => entry.id === id ? next : entry) } : null,
+            ...(state.note?.id === id ? { note: next } : {}),
+          }))
+          changed += 1
+        } catch {
+          // A batch reports one count for every note it could not change; the caller shows it.
+          failed += 1
+        }
+      }
+      return { changed, failed }
     },
 
     async deleteNote(id) {
