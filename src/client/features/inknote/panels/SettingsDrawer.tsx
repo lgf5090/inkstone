@@ -19,13 +19,14 @@ const SECTIONS = [
   ['about', 'inknote.settings.about'],
 ] as const
 
-export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts }: {
+export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts, onOpenTemplates }: {
   open: boolean
   onClose: () => void
   note: InknoteNoteMeta | null
   settings: InknoteSettings
   onOpenSnapshots: () => void
   onOpenShortcuts: () => void
+  onOpenTemplates: () => void
 }) {
   const [section, setSection] = useState<string>('tools')
   const [usage, setUsage] = useState<{ assetsBytes: number; quotaBytes: number; notes: number; pages: number; assets: number } | null>(null)
@@ -74,6 +75,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots,
                 </div>
               </SettingRow>
               <SettingRow title={t('inknote.settings.spacing')}><Segmented value={paper.spacing} options={([['tight', 'inknote.settings.tight'], ['normal', 'inknote.settings.normal'], ['wide', 'inknote.settings.wide']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => setPaper({ spacing: value })} label={t('inknote.settings.spacing')} /></SettingRow>
+              <div className="pt-2"><Button block variant="secondary" onClick={onOpenTemplates}>{t('inknote.action.templates')}</Button></div>
               <SettingRow title={t('inknote.settings.page_size')}>
                 <Segmented value={(note?.pageWidth ?? 816) > (note?.pageHeight ?? 1056) ? 'wide' : 'standard'} options={[{ value: 'standard', label: t('inknote.settings.page_standard') }, { value: 'wide', label: t('inknote.settings.page_wide') }]} onChange={(value) => {
                   if (!note) return
