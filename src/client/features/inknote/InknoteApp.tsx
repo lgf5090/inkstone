@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Library, MoreHorizontal, PanelRight, Settings, Sparkles, X } from 'lucide-react'
+import { Library, MoreHorizontal, PanelRight, Plus, Settings, Sparkles, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { cn } from '../../lib/cn'
 import { useBreakpoint } from '../../lib/hooks'
 import { replaceAddress } from '../../lib/app-history'
-import { IconButton } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
@@ -17,6 +17,7 @@ import { InkCanvasArea } from './components/InkCanvasArea'
 import { InkPagesPanel } from './components/InkPagesPanel'
 import { InkToolbar } from './components/InkToolbar'
 import { LibraryPanel } from './library/LibraryPanel'
+import { NotePickerDialog } from './library/NotePickerDialog'
 import { SettingsDrawer } from './panels/SettingsDrawer'
 import { FindDialog, OutlineDialog, StatsDialog } from './panels/NoteToolsDialogs'
 import { TemplateCenter } from './panels/TemplateCenter'
@@ -60,6 +61,7 @@ export function InknoteApp() {
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const saveAll = useInknoteStore((state) => state.saveAll)
+  const copyPageTo = useInknoteStore((state) => state.copyPageTo)
   const clearConflict = useInknoteStore((state) => state.clearConflict)
   const toast = useUi((state) => state.toast)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
@@ -82,6 +84,7 @@ const [findOpen, setFindOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'open' | 'copy' | null>(null)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
@@ -333,7 +336,7 @@ const [findOpen, setFindOpen] = useState(false)
               </div>}
         </main>
         {showPages && note && settings && (
-          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
+          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
             const index = pages.findIndex((page) => page.id === id)
             const target = pages[index + direction]
             if (!target) return
@@ -346,7 +349,7 @@ const [findOpen, setFindOpen] = useState(false)
         {assistantDockOpen && <AssistantDock surface="inknote" inknote={assistantContext}/>}
       </div>
 
-      {tabs.length > 1 && (
+      {tabs.length > 0 && (
         <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1" role="tablist" aria-label={t('inknote.library')}>
           {tabs.map((id) => {
             const meta = library?.notes.find((entry) => entry.id === id)
@@ -360,6 +363,7 @@ const [findOpen, setFindOpen] = useState(false)
               </div>
             )
           })}
+          <IconButton label={t('inknote.open_note')} size="xs" onClick={() => setPickerMode('open')}><Plus size={11}/></IconButton>
         </div>
       )}
 
@@ -367,7 +371,7 @@ const [findOpen, setFindOpen] = useState(false)
         <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} onAfterOpen={() => setLibraryOpen(false)} />
       </Drawer>
       <Drawer open={pagesOpen} onClose={() => setPagesOpen(false)} title={t('inknote.action.pages')} side="right" width={190}>
-        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
+        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onClear={clearActivePage} onDeleteBlank={removeBlankPages} onCopyTo={() => setPickerMode('copy')} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
           const index = pages.findIndex((page) => page.id === id)
           const ids = pages.map((page) => page.id)
           ids.splice(index, 1)
@@ -386,6 +390,14 @@ const [findOpen, setFindOpen] = useState(false)
       {note && <FindDialog open={findOpen} onClose={() => setFindOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setFindOpen(false) }}/>}
       {note && <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setOutlineOpen(false) }}/>}
       {note && <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} pages={pages} note={note}/>}
+      <NotePickerDialog open={pickerMode !== null} onClose={() => setPickerMode(null)} title={pickerMode === 'copy' ? t('inknote.copy_page_to') : t('inknote.open_note')} excludeIds={pickerMode === 'open' ? tabs : []} onPick={(picked) => {
+        if (pickerMode === 'copy') {
+          if (!activePageId) return
+          void copyPageTo(picked.id, activePageId).then(() => toast({ title: t('inknote.copied_page', { title: picked.title }) })).catch((error) => toast({ title: String(error), tone: 'danger' }))
+          return
+        }
+        void openNote(picked.id)
+      }}/>
       <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
       <AttachmentsDialog open={attachmentsOpen} onClose={() => setAttachmentsOpen(false)} note={note}/>
       {note && settings && <ExportPdfDialog open={pdfExportOpen} onClose={() => setPdfExportOpen(false)} note={note} pages={pages} settings={settings}/>}
@@ -398,20 +410,31 @@ const [findOpen, setFindOpen] = useState(false)
   )
 }
 
+function snapSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function SnapshotsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useUi((state) => state.toast)
   const [items, setItems] = useState<{ id: string; label: string; noteCount: number; size: number; createdAt: number }[]>([])
+  const [busy, setBusy] = useState(false)
   const load = () => { if (open) inknoteApi.snapshots().then((response) => setItems(response.snapshots)).catch(() => setItems([])) }
   useEffect(load, [open])
   return (
     <Modal open={open} onClose={onClose} title={t('inknote.settings.snapshots')} width={520}>
       <div className="space-y-1">
-        <button type="button" className="mb-2 rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--accent-contrast)]" onClick={() => void inknoteApi.createSnapshot('manual').then(load)}>{t('inknote.settings.snapshots')}</button>
-        {items.length === 0 && <p className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
+        <div className="mb-2 flex items-center gap-2">
+          <Button size="sm" variant="primary" loading={busy} onClick={() => { setBusy(true); void inknoteApi.createSnapshot('manual').then(load).finally(() => setBusy(false)) }}>{t('inknote.settings.snapshots')}</Button>
+          <span className="text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{t('inknote.snapshots.retention')}</span>
+        </div>
+        {items.length === 0 && <p className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.snapshots.empty')}</p>}
         {items.map((item) => (
           <div key={item.id} className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{new Date(item.createdAt).toLocaleString()} · {item.noteCount}</span>
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{new Date(item.createdAt).toLocaleString()} · {t('inknote.snapshots.notes', { count: String(item.noteCount) })} · {snapSize(item.size)}{item.label !== 'manual' ? ` · ${item.label}` : ''}</span>
             <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => void (async () => {
+              const ok = await confirm({ title: t('inknote.restore'), description: t('inknote.snapshots.restore_confirm'), confirmLabel: t('inknote.restore') })
+              if (!ok) return
               try {
                 await inknoteApi.restoreSnapshot(item.id)
                 onClose()

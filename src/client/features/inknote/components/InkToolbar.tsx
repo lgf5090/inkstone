@@ -1,5 +1,5 @@
 /** The ink tools and their palette, shared by the top, left and bottom toolbar layouts. */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
   Circle,
@@ -53,6 +53,17 @@ export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onReco
   onAi: () => void
 }) {
   const [palette, setPalette] = useState<'pen' | 'highlighter' | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!palette) return
+    const outside = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setPalette(null)
+    }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPalette(null) }
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('keydown', escape)
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', escape) }
+  }, [palette])
   const [historyTick, setHistoryTick] = useState(0)
   const colors = palette === 'highlighter' ? HIGHLIGHTER_COLORS : PEN_COLORS
   const activeColor = tool.tool === 'highlighter' ? tool.color : tool.color
@@ -60,7 +71,7 @@ export function InkToolbar({ engine, tool, onChange, onPages, onSettings, onReco
   const redo = () => { engine?.redo(); setHistoryTick((value) => value + 1) }
   void historyTick
   return (
-    <div className="inknote-toolbar flex min-w-0 items-center gap-0.5 overflow-x-auto px-1 py-0.5" role="toolbar" aria-label={t('inknote.settings.tools')}>
+    <div ref={rootRef} className="inknote-toolbar flex min-w-0 items-center gap-0.5 overflow-x-auto px-1 py-0.5" role="toolbar" aria-label={t('inknote.settings.tools')}>
       <div className="flex shrink-0 items-center gap-0.5">
         {TOOLS.map(({ id, labelKey, icon: Icon }) => (
           <IconButton

@@ -92,6 +92,19 @@ interface InknoteState {
 const saveTimers = new Map<string, number>()
 const inFlight = new Set<string>()
 const SAVE_DELAY = 1_200
+const AUTO_SNAPSHOT_DELAY = 45_000
+let autoSnapshotAt = 0
+let autoSnapshotInFlight = false
+
+/** The server keeps ten snapshots and the account may have switched automatic backups off. */
+function maybeAutoSnapshot(autoBackup: boolean): void {
+  if (!autoBackup || autoSnapshotInFlight || Date.now() - autoSnapshotAt < AUTO_SNAPSHOT_DELAY) return
+  autoSnapshotInFlight = true
+  void inknoteApi.createSnapshot('auto')
+    .then(() => { autoSnapshotAt = Date.now() })
+    .catch((error) => { console.warn('[inkstone] Automatic snapshot failed; the next save retries:', error) })
+    .finally(() => { autoSnapshotInFlight = false })
+}
 
 function message(error: unknown): string {
   if (error instanceof ApiError) return error.serverMessage ?? error.message
@@ -125,6 +138,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         saveState: 'saved',
       }))
       get().refreshLibrary().catch(() => {})
+      maybeAutoSnapshot(get().library?.settings.autoBackup ?? true)
       return true
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {

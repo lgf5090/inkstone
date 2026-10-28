@@ -1,6 +1,6 @@
 /** Page thumbnails and the page-level actions that sit beside the canvas. */
 import { useEffect, useRef } from 'react'
-import { ArrowDown, ArrowUp, Copy, Eraser, FileMinus, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Copy, CopyPlus, Eraser, FileMinus, Plus, Trash2 } from 'lucide-react'
 import type { InknoteNoteMeta, InknotePage } from '@shared/inknote/types'
 import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
@@ -31,7 +31,7 @@ function PageThumb({ page, note, settings, active, onClick }: { page: InknotePag
   )
 }
 
-export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, onAdd, onDuplicate, onDelete, onMove, onClear, onDeleteBlank }: {
+export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, onAdd, onDuplicate, onDelete, onMove, onClear, onDeleteBlank, onCopyTo }: {
   note: InknoteNoteMeta
   pages: InknotePage[]
   activePageId: string | null
@@ -43,6 +43,7 @@ export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, o
   onMove: (id: string, direction: -1 | 1) => void
   onClear: () => void
   onDeleteBlank: () => void
+  onCopyTo: () => void
 }) {
   const activeIndex = pages.findIndex((page) => page.id === activePageId)
   return (
@@ -51,6 +52,7 @@ export function InkPagesPanel({ note, pages, activePageId, settings, onSelect, o
         <span className="text-[length:var(--text-12)] font-semibold">{t('inknote.action.pages')}</span>
         <div className="flex items-center gap-0.5">
           <IconButton label={t('inknote.page.clear')} size="sm" onClick={onClear} disabled={!activePageId}><Eraser size={13}/></IconButton>
+          <IconButton label={t('inknote.copy_page_to')} size="sm" onClick={onCopyTo} disabled={!activePageId}><CopyPlus size={13}/></IconButton>
           {pages.length > 1 && <IconButton label={t('inknote.page.delete_blank')} size="sm" onClick={onDeleteBlank}><FileMinus size={13}/></IconButton>}
           <IconButton label={t('inknote.page.add')} size="sm" onClick={onAdd}><Plus size={14}/></IconButton>
         </div>

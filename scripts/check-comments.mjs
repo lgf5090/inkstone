@@ -6378,6 +6378,9 @@ const allowed = new Map([
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
   ]],
+  ["src/client/features/inknote/library/NotePickerDialog.tsx", [
+    "/** A searchable list of the account's notes, used to open a tab or pick a copy target. */",
+  ]],
   ["src/client/features/inknote/panels/InkHelpDialogs.tsx", [
     "/** Welcome, shortcuts and the gesture cheat sheet. */",
   ]],
@@ -6398,6 +6401,7 @@ const allowed = new Map([
     "/** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */",
     "/* a corrupt draft is not a restore candidate */",
     "// A batch reports one count for every note it could not change; the caller shows it.",
+    "/** The server keeps ten snapshots and the account may have switched automatic backups off. */",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
