@@ -19,6 +19,10 @@ import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { sealHistory, sealState, openState, openHistory } from '../development/api-tester/crypto'
+import { relayRoutes } from '../development/api-tester/relay'
+import { oauthRoutes } from '../development/api-tester/oauth'
+import { wsRoutes } from '../development/api-tester/ws'
+import { fileRoutes } from '../development/api-tester/files'
 import {
   assertWorkspace,
   clearHistory,
@@ -35,6 +39,10 @@ import {
 export const developmentApiTesterRoutes = new Hono<AppBindings>()
 
 developmentApiTesterRoutes.use('*', requireAuth)
+developmentApiTesterRoutes.route('/', relayRoutes)
+developmentApiTesterRoutes.route('/', oauthRoutes)
+developmentApiTesterRoutes.route('/', wsRoutes)
+developmentApiTesterRoutes.route('/', fileRoutes)
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')
