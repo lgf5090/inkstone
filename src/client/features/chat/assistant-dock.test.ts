@@ -123,6 +123,24 @@ describe('the docked assistant', () => {
     expect(useAssistant.getState().inknoteContextOn).toBe(false)
   })
 
+  it('offers to keep a settled answer in the handwritten note', async () => {
+    const insert = vi.fn()
+    const read = vi.fn()
+    await show(
+      { loaded: true, activeId: 'c1', messages: [ANSWER], messagesReady: true, turn: null },
+      { surface: 'inknote', inknote: { noteId: 'n-ink', noteTitle: 'Physics', notebookName: 'Mechanics', pageIndex: 0, pageCount: 1, pageText: '' }, onInsertAnswer: insert, onReadAnswer: read },
+    )
+    const buttons = [...document.body.querySelectorAll('button')]
+    const insertButton = buttons.find((node) => node.textContent?.trim() === t('assistant.inknote.insert_answer'))
+    const readButton = buttons.find((node) => node.textContent?.trim() === t('assistant.inknote.read_answer'))
+    expect(insertButton, 'the insert action is missing').toBeTruthy()
+    expect(readButton, 'the read action is missing').toBeTruthy()
+    act(() => { insertButton!.click() })
+    act(() => { readButton!.click() })
+    expect(insert).toHaveBeenCalledWith(ANSWER.content)
+    expect(read).toHaveBeenCalledWith(ANSWER.content)
+  })
+
   it('closes itself', async () => {
     useUi.setState({ assistantDockOpen: true })
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })

@@ -1629,6 +1629,7 @@ const allowed = new Map([
     "// Same handover as the plan and the message, with the page as the primitive that changes most: the",
     "// music app rebuilds this object on every render, and a dependency on the object would re-attach the",
     "// chip after the reader took it off.",
+    "/** The inknote writer's two ways of keeping an answer: into the page, or read aloud. */",
   ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
@@ -6428,6 +6429,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/tools/RecordingPanel.tsx", [
     "/** Audio recordings attached to one ink note. */",
+  ]],
+  ["src/client/features/inknote/tools/Waveform.tsx", [
+    "/** The recording waveform: a seekable bar strip that also answers the arrow keys. */",
   ]],
   ["src/client/features/inknote/tools/use-inknote-tts.ts", [
     "/** Sentence-by-sentence read-aloud for one page or the whole note, with a highlight cue per sentence. */",
@@ -19135,6 +19139,12 @@ const allowed = new Map([
   ["src/client/lib/ime.ts", [
     "/**\n * The keyCode an IME keystroke carries: 229 means \"Process\", i.e. the input method owns this key.\n *\n * `isComposing` is false on the keystroke that *accepts* a candidate in some browsers, which is exactly\n * the one that used to run the action underneath - the classic \"Enter picks the word and submits the\n * form\" bug. Checking the keyCode catches that frame even when the flag has already been cleared.\n */",
     "/**\n * True while an input method owns the keystroke, so a key handler should leave the key to it.\n *\n * During a Chinese or Japanese composition Enter selects a candidate, Escape cancels it and the arrows\n * page the candidate list. A handler that reads the same key commits half a word and then fires the\n * action the user was still typing, so every bare-key handler on an editable element has to answer this\n * first. `tests/client-ime-guard.test.ts` is what keeps new ones from forgetting.\n */",
+  ]],
+  ["src/client/lib/inknote/assistant-answer.ts", [
+    "/** Lays an assistant answer onto a page as text boxes, paragraph by paragraph, top to bottom. */",
+  ]],
+  ["src/client/lib/inknote/audio-peaks.ts", [
+    "/** Recording peaks: one bar per bucket, stored with the recording so a list can draw it without decoding. */",
   ]],
   ["src/client/lib/inknote/document-ops.ts", [
     "/**\n * Document edits that need no canvas: pixel erasing, and moving or scaling a selection.\n *\n * These functions mutate the page they are given, because the engine owns that page and calls the\n * selection transforms on every pointer move; allocating a fresh page per frame would copy every\n * stroke on the page. Callers that need a snapshot take one before the gesture starts.\n */",

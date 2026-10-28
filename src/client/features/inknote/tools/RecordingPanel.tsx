@@ -13,6 +13,9 @@ import { useInknoteStore } from '../store'
 import type { InknoteEngineApi } from '../engine/inknote-engine'
 import { applyTimelineEvent, snapshotReplayPages, strokeEventsForCommit, trimTimeline, type InknoteTimelineEvent } from '../../../lib/inknote/timeline'
 import { INKNOTE_LIMITS } from '@shared/inknote/constants'
+import { computeAudioPeaks } from '../../../lib/inknote/audio-peaks'
+import { Waveform } from './Waveform'
+import { cn } from '../../../lib/cn'
 
 export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { open: boolean; noteId: string | null; onClose: () => void; getEngine: () => InknoteEngineApi | null; onPage: (pageId: string) => void }) {
   const [items, setItems] = useState<InknoteRecording[]>([])
@@ -20,6 +23,8 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const recordingRef = useRef<{ start: number; events: InknoteTimelineEvent[] } | null>(null)
   const [replayId, setReplayId] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
+  const [speed, setSpeed] = useState(1)
   const replayTimers = useRef<number[]>([])
   const replaySnapshot = useRef<Map<string, ReturnType<typeof JSON.parse>> | null>(null)
   const toast = useUi((state) => state.toast)
@@ -88,8 +93,9 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
       recordingRef.current = null
       if (!file || !noteId) return
       try {
+        const peaks = await computeAudioPeaks(file).catch((error) => { console.warn('[inkstone] Could not read the recording waveform:', error); return [] as number[] })
         const asset = await inknoteApi.uploadAsset(file, 'audio', noteId)
-        await inknoteApi.createRecording({ noteId, title: `Recording ${items.length + 1}`, durationMs: recorder.seconds * 1000, audioAssetId: asset.id, timeline, peaks: [] })
+        await inknoteApi.createRecording({ noteId, title: `Recording ${items.length + 1}`, durationMs: recorder.seconds * 1000, audioAssetId: asset.id, timeline, peaks })
         load()
       } catch (error) {
         toast({ title: String(error), tone: 'danger' })
@@ -135,13 +141,36 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
   }
 
   const play = (item: InknoteRecording) => {
+    if (playing === item.id) {
+      audioRef.current?.pause()
+      audioRef.current = null
+      setPlaying(null)
+      return
+    }
     stopReplay()
     audioRef.current?.pause()
     const audio = new Audio(item.audioUrl)
-    audio.onended = () => setPlaying(null)
+    audio.playbackRate = speed
+    audio.ontimeupdate = () => setProgress(audio.duration ? audio.currentTime / audio.duration : 0)
+    audio.onended = () => { setPlaying(null); setProgress(0) }
+    audio.onerror = () => { setPlaying(null); setProgress(0) }
     audioRef.current = audio
-    void audio.play().catch(() => setPlaying(null))
+    setProgress(0)
+    void audio.play().catch((error) => { console.warn('[inkstone] Recording playback refused to start:', error); setPlaying(null) })
     setPlaying(item.id)
+  }
+
+  const seek = (item: InknoteRecording, fraction: number) => {
+    const audio = audioRef.current
+    if (!audio || playing !== item.id) return
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : item.durationMs / 1000
+    audio.currentTime = Math.max(0, Math.min(duration, fraction * duration))
+    setProgress(fraction)
+  }
+
+  const changeSpeed = (next: number) => {
+    setSpeed(next)
+    if (audioRef.current) audioRef.current.playbackRate = next
   }
   const close = () => {
     if (recorder.status === 'recording') return
@@ -171,15 +200,23 @@ export function RecordingPanel({ open, noteId, onClose, getEngine, onPage }: { o
             {recorder.status === 'recording' ? <Square size={16}/> : <Mic size={16}/>}
           </IconButton>
           <span className="text-[length:var(--text-13)] tabular-nums">{Math.floor(recorder.seconds / 60)}:{String(recorder.seconds % 60).padStart(2, '0')}</span>
+          <span className="ml-auto flex items-center gap-0.5" role="group" aria-label={t('inknote.recording.speed')}>
+            {[1, 1.5, 2].map((value) => (
+              <button key={value} type="button" aria-pressed={speed === value} onClick={() => changeSpeed(value)} className={cn('rounded-[var(--r-xs)] px-1 py-0.5 text-[length:var(--text-10-5)]', speed === value ? 'bg-[var(--bg-active)]' : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]')}>{`${value}x`}</button>
+            ))}
+          </span>
         </div>
         {items.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.recording.empty')}</p>}
         {items.map((item) => (
-          <div key={item.id} className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-2">
-            <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)]" onClick={() => play(item)}>{playing === item.id ? '■ ' : '▶ '}{item.title}</button>
-            <span className="text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{`${Math.floor(item.durationMs / 1000)}s`}</span>
-            <IconButton label={t('inknote.recording.replay')} size="xs" active={replayId === item.id} onClick={() => void replay(item)}><RotateCcw size={11}/></IconButton>
-            <IconButton label={t('inknote.recording.export')} size="xs" onClick={() => { const anchor = document.createElement('a'); anchor.href = item.audioUrl; anchor.download = `${item.title}.webm`; anchor.click() }}>⤓</IconButton>
-            <IconButton label={t('inknote.delete')} size="xs" onClick={() => void inknoteApi.deleteRecording(item.id).then(load)}><Trash2 size={11}/></IconButton>
+          <div key={item.id} className="space-y-1 rounded-[var(--r-sm)] border border-[var(--border-subtle)] p-2">
+            <div className="flex items-center gap-2">
+              <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)]" onClick={() => play(item)}>{playing === item.id ? '■ ' : '▶ '}{item.title}</button>
+              <span className="text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{`${Math.floor(item.durationMs / 1000)}s`}</span>
+              <IconButton label={t('inknote.recording.replay')} size="xs" active={replayId === item.id} onClick={() => void replay(item)}><RotateCcw size={11}/></IconButton>
+              <IconButton label={t('inknote.recording.export')} size="xs" onClick={() => { const anchor = document.createElement('a'); anchor.href = item.audioUrl; anchor.download = `${item.title}.webm`; anchor.click() }}>⤓</IconButton>
+              <IconButton label={t('inknote.delete')} size="xs" onClick={() => void inknoteApi.deleteRecording(item.id).then(load)}><Trash2 size={11}/></IconButton>
+            </div>
+            {item.peaks.length > 0 && <Waveform peaks={item.peaks} progress={playing === item.id ? progress : 0} label={t('inknote.recording.seek', { title: item.title })} onSeek={(fraction) => seek(item, fraction)}/>}
           </div>
         ))}
       </div>

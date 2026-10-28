@@ -10,8 +10,11 @@ import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } 
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
 import { inknoteApi } from './api'
-import { inknoteToolState } from './tool-state'
+import { inknoteTextDefaults, inknoteToolState } from './tool-state'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
+import { serializePageContent } from '@shared/inknote/parse'
+import { randomLocalId } from '../../lib/random-id'
+import { answerTextBoxes } from '../../lib/inknote/assistant-answer'
 import type { InknoteFavorite, InknoteSettings } from '@shared/inknote/types'
 import { useInknoteStore } from './store'
 import { InkCanvasArea } from './components/InkCanvasArea'
@@ -66,6 +69,7 @@ export function InknoteApp() {
   const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
   const updateSettings = useInknoteStore((state) => state.updateSettings)
   const saveAll = useInknoteStore((state) => state.saveAll)
+  const savePage = useInknoteStore((state) => state.savePage)
   const copyPageTo = useInknoteStore((state) => state.copyPageTo)
   const clearConflict = useInknoteStore((state) => state.clearConflict)
   const toast = useUi((state) => state.toast)
@@ -212,6 +216,30 @@ const [findOpen, setFindOpen] = useState(false)
     onPage: setActivePage,
     onCue: (cue) => { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inknote:tts-cue', { detail: cue })) },
   })
+
+  const insertAssistantAnswer = (text: string) => {
+    const engine = engineRef.current
+    const page = activePage
+    if (!engine || !page || !settings || !note) return
+    const before = serializePageContent(page.content)
+    for (const box of answerTextBoxes(text, { pageHeight: note.pageHeight, textSize: settings.textSize })) {
+      page.content.texts.push({ ...inknoteTextDefaults(), id: randomLocalId(), ...box })
+    }
+    if (engine.commitExternal(before, serializePageContent(page.content), 'assistant')) {
+      engine.renderNow()
+      void savePage()
+      toast({ title: t('assistant.inknote.inserted') })
+    }
+  }
+
+  const readAssistantAnswer = (text: string) => {
+    if (typeof window.speechSynthesis === 'undefined') { toast({ title: t('inknote.read.unsupported'), tone: 'danger' }); return }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = document.documentElement.lang || 'zh-CN'
+    utterance.rate = settings?.ttsRate ?? 1
+    window.speechSynthesis.speak(utterance)
+  }
 
   const saveFavorite = () => {
     if (!settings) return
@@ -403,7 +431,7 @@ const [findOpen, setFindOpen] = useState(false)
             void reorderPages(ids)
           }} />
         )}
-        {assistantDockOpen && <AssistantDock surface="inknote" inknote={assistantContext}/>}
+        {assistantDockOpen && <AssistantDock surface="inknote" inknote={assistantContext} onInsertAnswer={insertAssistantAnswer} onReadAnswer={readAssistantAnswer}/>}
       </div>
 
       {tabs.length > 0 && (

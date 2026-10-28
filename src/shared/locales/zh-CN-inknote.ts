@@ -216,6 +216,8 @@ export const ZH_CN_INKNOTE = {
   'inknote.attachments.delete_confirm': '删除这个附件？文件会从存储中移除。',
   'inknote.attachments.uploaded': '附件已上传',
   'inknote.action.paste_selection': '粘贴',
+  'inknote.recording.speed': '播放速度',
+  'inknote.recording.seek': '定位录音 {title}',
   'inknote.favorite.save': '收藏当前工具',
   'inknote.favorite.bar': '收藏工具',
   'inknote.favorite.apply': '使用收藏的{tool}',

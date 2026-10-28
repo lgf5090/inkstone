@@ -69,7 +69,7 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null, inknote = null }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null, inknote = null, onInsertAnswer, onReadAnswer }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
@@ -77,6 +77,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   music?: MusicAssistantContext | null
   database?: DatabaseAssistantContext | null
   inknote?: InknoteAssistantContext | null
+  /** The inknote writer's two ways of keeping an answer: into the page, or read aloud. */
+  onInsertAnswer?: (text: string) => void
+  onReadAnswer?: (text: string) => void
 }) {
   const subscriptionId = subscription?.id ?? null
   const subscriptionName = subscription?.name ?? null
@@ -240,6 +243,12 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   // The answer a selection-request is waiting for. Read only once the turn is over: a paragraph still
   // being written is not something to paste into a note.
   const answer = request && !streaming ? lastAnswerText() : ''
+  const lastInknoteAnswer = useMemo(() => {
+    if (surface !== 'inknote') return ''
+    if (turnHere?.done && turnHere.text.trim()) return turnHere.text.trim()
+    const settled = [...messages].reverse().find((message) => message.role === 'assistant' && message.status === 'complete' && message.content.trim())
+    return settled?.content.trim() ?? ''
+  }, [surface, turnHere?.done, turnHere?.text, messages])
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -506,6 +515,12 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
               <X size={11} />
             </button>
           </span>
+        </div>
+      )}
+      {surface === 'inknote' && lastInknoteAnswer && (onInsertAnswer || onReadAnswer) && (
+        <div role="group" aria-label={t('assistant.inknote.answer_actions')} className="flex flex-wrap items-center gap-1 border-t border-[var(--border-subtle)] px-3 py-1.5">
+          {onInsertAnswer && <Button size="sm" variant="secondary" onClick={() => onInsertAnswer(lastInknoteAnswer)}>{t('assistant.inknote.insert_answer')}</Button>}
+          {onReadAnswer && <Button size="sm" variant="ghost" onClick={() => onReadAnswer(lastInknoteAnswer)}>{t('assistant.inknote.read_answer')}</Button>}
         </div>
       )}
       <ChatComposer

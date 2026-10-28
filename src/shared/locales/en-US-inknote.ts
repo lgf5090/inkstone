@@ -216,6 +216,8 @@ export const EN_US_INKNOTE = {
   'inknote.attachments.delete_confirm': 'Delete this attachment? The file is removed from storage.',
   'inknote.attachments.uploaded': 'Attachment uploaded',
   'inknote.action.paste_selection': 'Paste',
+  'inknote.recording.speed': 'Playback speed',
+  'inknote.recording.seek': 'Seek in {title}',
   'inknote.favorite.save': 'Save this tool',
   'inknote.favorite.bar': 'Favourite tools',
   'inknote.favorite.apply': 'Use the saved {tool}',
