@@ -1,6 +1,6 @@
 /** The live page: engine mount, text overlay and the selection bar. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Copy, RotateCw, SquareDashed, Trash2, X } from 'lucide-react'
+import { ClipboardCopy, Copy, FileImage, ImageUp, RotateCw, SquareDashed, Trash2, X } from 'lucide-react'
 import type { InknoteNoteMeta, InknotePage, InknotePageContent, InknoteSettings, InknoteTextBox } from '@shared/inknote/types'
 import { INKNOTE_LIMITS } from '@shared/inknote/constants'
 import { serializePageContent } from '@shared/inknote/parse'
@@ -10,6 +10,10 @@ import { t } from '../../../lib/i18n'
 import { isImeComposing } from '../../../lib/ime'
 import { Button, IconButton } from '../../../components/primitives'
 import { InknoteEngineImpl, type InknoteEngineApi, type InknoteEngineHostExtras } from '../engine/inknote-engine'
+import { renderPageToCanvas } from '../engine/renderer'
+import { shareOrDownload } from '../../../lib/inknote/share'
+import { safeFileName } from '../../../lib/export-note'
+import { inknoteApi } from '../api'
 import type { InknoteEngineHost, InknotePageMetrics, InknoteToolState } from '../engine/inknote-engine-types'
 import { InkTextStyleBar } from './InkTextStyleBar'
 import { useInknoteStore } from '../store'
@@ -58,6 +62,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   const engineRef = useRef<InknoteEngineApi | null>(null)
   const [zoom, setZoom] = useState(1)
   const [selection, setSelection] = useState<string[]>([])
+  const replaceInput = useRef<HTMLInputElement>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [ttsCue, setTtsCue] = useState<{ pageId: string; textId: string } | null>(null)
   const latest = useRef({ note, page, settings, tool })
@@ -281,6 +286,53 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
     touchPage()
   }
 
+  const selectedImages = selection.filter((id) => id.startsWith('i:') && page.content.images.some((image) => `i:${image.id}` === id))
+  const selectedTexts = selection.filter((id) => id.startsWith('t:') && page.content.texts.some((item) => `t:${item.id}` === id))
+
+  const copySelectedText = () => {
+    const text = page.content.texts.filter((item) => selectedTexts.includes(`t:${item.id}`)).map((item) => item.text).join('\n')
+    if (!text.trim()) { toast({ title: t('inknote.selection.no_text') }); return }
+    void navigator.clipboard.writeText(text)
+      .then(() => toast({ title: t('inknote.selection.copied') }))
+      .catch((error) => toast({ title: String(error), tone: 'danger' }))
+  }
+
+  const exportSelection = async () => {
+    const engine = engineRef.current
+    const box = engine?.selectionBox()
+    if (!engine || !box) return
+    const rendered = renderPageToCanvas(page.content, note.paper, metrics, 1600, cssFont(settings))
+    if (!rendered) return
+    const scale = rendered.width / note.pageWidth
+    const crop = document.createElement('canvas')
+    crop.width = Math.max(1, Math.round(box.w * scale))
+    crop.height = Math.max(1, Math.round(box.h * scale))
+    const context = crop.getContext('2d')
+    if (!context) return
+    context.drawImage(rendered, Math.round(box.x * scale), Math.round(box.y * scale), crop.width, crop.height, 0, 0, crop.width, crop.height)
+    const blob = await new Promise<Blob | null>((resolve) => crop.toBlob((value) => resolve(value), 'image/png'))
+    if (blob) await shareOrDownload(blob, `${safeFileName(note.title) || 'inknote'}-selection.png`).catch((error) => toast({ title: String(error), tone: 'danger' }))
+  }
+
+  const replaceSelectedImage = async (file: File) => {
+    const engine = engineRef.current
+    const imageId = selectedImages[0]?.slice(2)
+    if (!engine || !imageId) return
+    const image = page.content.images.find((entry) => entry.id === imageId)
+    if (!image) return
+    const before = serializePageContent(page.content)
+    try {
+      const asset = await inknoteApi.uploadAsset(file, 'image', note.id)
+      image.assetId = asset.id
+      image.url = asset.url
+      engine.commitExternal(before, serializePageContent(page.content), 'image')
+      engine.renderNow()
+      void savePage()
+    } catch (error) {
+      toast({ title: String(error), tone: 'danger' })
+    }
+  }
+
   const ttsItem = ttsCue && ttsCue.pageId === page.id ? page.content.texts.find((item) => item.id === ttsCue.textId) ?? null : null
   const ttsBox = (() => {
     const engine = engineRef.current
@@ -354,10 +406,14 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
         <Button size="sm" variant="ghost" onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
         <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
       </div>
+      <input ref={replaceInput} data-ink-replace-image="" type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void replaceSelectedImage(file) }}/>
       {selection.length > 0 && (
         <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]" role="toolbar" aria-label={t('inknote.action.select_all')}>
           <IconButton label={t('inknote.action.delete_selection')} size="sm" onClick={() => selectionAction('delete')}><Trash2 size={14}/></IconButton>
           <IconButton label={t('inknote.action.copy_selection')} size="sm" onClick={() => selectionAction('copy')}><Copy size={14}/></IconButton>
+          {selectedTexts.length > 0 && <IconButton label={t('inknote.selection.copy_text')} size="sm" onClick={copySelectedText}><ClipboardCopy size={14}/></IconButton>}
+          {selectedImages.length === 1 && <IconButton label={t('inknote.selection.replace_image')} size="sm" onClick={() => replaceInput.current?.click()}><ImageUp size={14}/></IconButton>}
+          <IconButton label={t('inknote.selection.export')} size="sm" onClick={() => void exportSelection()}><FileImage size={14}/></IconButton>
           <IconButton label={t('inknote.action.rotate')} size="sm" onClick={() => selectionAction('rotate')}><RotateCw size={14}/></IconButton>
           <IconButton label={t('inknote.action.select_all')} size="sm" onClick={() => selectionAction('select-all')}><SquareDashed size={14}/></IconButton>
           <IconButton label={t('inknote.action.close_selection')} size="sm" onClick={() => selectionAction('clear')}><X size={14}/></IconButton>
