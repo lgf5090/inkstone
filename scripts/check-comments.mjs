@@ -651,6 +651,8 @@ const allowed = new Map([
     "// switches it draws are the same ones the real catalog drives.",
     "// The template proxy answers the same refusal shape as the real route, so a template cannot tell the two",
     "// deployments apart except by the reason: `{ error: { code, message } }` with a Templater code, 403.",
+    "// Inknote is read-only in the demo: one seeded notebook with two drawn pages, the same refusal on",
+    "// every write, and no assets, recordings or snapshots to serve.",
   ]],
   ["src/client/editor/CodeEditor.tsx", [
     "// Preserve undo history across mode changes once editing has started.",
@@ -6366,11 +6368,17 @@ const allowed = new Map([
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
   ]],
+  ["src/client/features/inknote/panels/InkHelpDialogs.tsx", [
+    "/** Welcome, shortcuts and the gesture cheat sheet. */",
+  ]],
   ["src/client/features/inknote/panels/NoteToolsDialogs.tsx", [
     "/** Find/replace, outline and statistics over the pages the editor already holds. */",
   ]],
   ["src/client/features/inknote/panels/SettingsDrawer.tsx", [
     "/** Inknote's own settings, kept out of the account-wide settings panel. */",
+  ]],
+  ["src/client/features/inknote/panels/TemplateCenter.tsx", [
+    "/** The template shelf: the seven built-ins plus the account's saved pages. */",
   ]],
   ["src/client/features/inknote/store.ts", [
     "/** The Inknote client store: the library, one open note, page saves and optimistic metadata. */",
@@ -6390,6 +6398,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/tools/RecordingPanel.tsx", [
     "/** Audio recordings attached to one ink note. */",
+  ]],
+  ["src/client/features/inknote/use-inknote-hotkeys.ts", [
+    "/** The editor's keyboard layer: shortcuts that only act while a note is open and no field or dialog owns the key. */",
   ]],
   ["src/client/features/inkpad/ink-elements.tsx", [
     "// An old .ink path may name no attachment any more; the card stays in its missing state.",
@@ -19167,6 +19178,10 @@ const allowed = new Map([
     "/**\n * Alpha a tool paints with. Pencil and brush apply further layers while drawing, so this is the base\n * pass only: the reference draws those styles as several strokes at different alphas.\n */",
     "/** Midpoint-quadratic smoothing used by ballpen, pen and every non-highlighter style. */",
     "/** Highlighter trace: straight joins between successive midpoints, ending on the final sample. */",
+  ]],
+  ["src/client/lib/inknote/template.ts", [
+    "/** Turns a built-in or saved template into the page content a new page starts from. */",
+    "/** The name a template draws in a picker: built-ins carry an i18n key, saved ones a literal name. */",
   ]],
   ["src/client/lib/inknote/text-layout.test.ts", [
     "/** Ten pixels per code point, so expected line widths are readable. */",

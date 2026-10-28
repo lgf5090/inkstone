@@ -19,6 +19,9 @@ import { InkToolbar } from './components/InkToolbar'
 import { LibraryPanel } from './library/LibraryPanel'
 import { SettingsDrawer } from './panels/SettingsDrawer'
 import { FindDialog, OutlineDialog, StatsDialog } from './panels/NoteToolsDialogs'
+import { TemplateCenter } from './panels/TemplateCenter'
+import { ShortcutsDialog, WelcomeDialog } from './panels/InkHelpDialogs'
+import { useInknoteHotkeys } from './use-inknote-hotkeys'
 import { PresentationOverlay } from './tools/PresentationOverlay'
 import { RecordingPanel } from './tools/RecordingPanel'
 import { AiPanel } from './tools/AiPanel'
@@ -68,6 +71,8 @@ export function InknoteApp() {
   const [findOpen, setFindOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const pdfInput = useRef<HTMLInputElement>(null)
@@ -127,6 +132,24 @@ export function InknoteApp() {
     void deleteBlankPages().then((count) => toast({ title: count > 0 ? t('inknote.page.blank_removed', { count: String(count) }) : t('inknote.page.no_blank') }))
   }
 
+  useInknoteHotkeys({
+    enabled: () => Boolean(useInknoteStore.getState().note),
+    undo: () => { engineRef.current?.undo(); engineRef.current?.renderNow() },
+    redo: () => { engineRef.current?.redo(); engineRef.current?.renderNow() },
+    save: () => { void saveAll(); toast({ title: t('inknote.saved') }) },
+    newNote: () => { void createNote(note?.notebookId ?? library?.notebooks[0]?.id) },
+    find: () => setFindOpen(true),
+    outline: () => setOutlineOpen(true),
+    present: () => { if (note) setPresentationOpen(true) },
+    exportPage: () => { if (note && activePage && settings) void exportPagePng(note, activePage, settings) },
+    previousPage: () => { const state = useInknoteStore.getState(); const previous = state.pages[state.activePageIndex - 1]; if (previous) state.setActivePage(previous.id) },
+    nextPage: () => { const state = useInknoteStore.getState(); const next = state.pages[state.activePageIndex + 1]; if (next) state.setActivePage(next.id) },
+    selectAll: () => { engineRef.current?.selectAll(); engineRef.current?.renderNow() },
+    copySelection: () => { engineRef.current?.copySelection() },
+    pasteSelection: () => { engineRef.current?.pasteSelection(); engineRef.current?.renderNow() },
+    deleteSelection: () => { engineRef.current?.deleteSelection(); engineRef.current?.renderNow() },
+  })
+
   const changeTool = (patch: Partial<InknoteToolState>) => {
     if (!settings) return
     if (patch.tool !== undefined) { void updateSettings({ tool: patch.tool }); return }
@@ -177,6 +200,7 @@ export function InknoteApp() {
       { id: 'find', label: t('inknote.action.find' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setFindOpen(true) } },
       { id: 'outline', label: t('inknote.action.outline' as never), onSelect: () => { setMoreMenu(null); setOutlineOpen(true) } },
       { id: 'stats', label: t('inknote.action.stats' as never), onSelect: () => { setMoreMenu(null); setStatsOpen(true) } },
+      { id: 'templates', label: t('inknote.action.templates' as never), onSelect: () => { setMoreMenu(null); setTemplatesOpen(true) } },
       { id: 'snapshot', label: t('inknote.settings.snapshots'), onSelect: () => { setMoreMenu(null); setSnapshotsOpen(true) } },
     ]
   }
@@ -301,7 +325,7 @@ export function InknoteApp() {
           void reorderPages(ids)
         }} />}
       </Drawer>
-      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} />}
+      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} onOpenShortcuts={() => { setSettingsOpen(false); setShortcutsOpen(true) }} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
       <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} />
       {settings && <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} note={note} pages={pages} settings={settings} />}
@@ -313,6 +337,9 @@ export function InknoteApp() {
       {note && <FindDialog open={findOpen} onClose={() => setFindOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setFindOpen(false) }}/>}
       {note && <OutlineDialog open={outlineOpen} onClose={() => setOutlineOpen(false)} pages={pages} onJump={(id) => { setActivePage(id); setOutlineOpen(false) }}/>}
       {note && <StatsDialog open={statsOpen} onClose={() => setStatsOpen(false)} pages={pages} note={note}/>}
+      <TemplateCenter open={templatesOpen} onClose={() => setTemplatesOpen(false)} notebookId={note?.notebookId ?? library?.notebooks[0]?.id ?? null}/>
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)}/>
+      {settings && <WelcomeDialog open={initialized && !settings.welcomeSeen} onStart={() => void updateSettings({ welcomeSeen: true })} onClose={() => void updateSettings({ welcomeSeen: true })}/>}
       {presentationOpen && note && <PresentationOverlay note={note} pages={pages} initialIndex={activeIndex} onClose={() => setPresentationOpen(false)} />}
       <ConfirmHost />
       <PromptHost />

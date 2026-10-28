@@ -19,12 +19,13 @@ const SECTIONS = [
   ['about', 'inknote.settings.about'],
 ] as const
 
-export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots }: {
+export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts }: {
   open: boolean
   onClose: () => void
   note: InknoteNoteMeta | null
   settings: InknoteSettings
   onOpenSnapshots: () => void
+  onOpenShortcuts: () => void
 }) {
   const [section, setSection] = useState<string>('tools')
   const [usage, setUsage] = useState<{ assetsBytes: number; quotaBytes: number; notes: number; pages: number; assets: number } | null>(null)
@@ -100,6 +101,7 @@ export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots 
           {section === 'about' && (
             <div className="space-y-2 pt-2 text-[length:var(--text-12)]">
               <SettingRow title={t('inknote.settings.version')}><span className="text-[var(--text-tertiary)]">{APP_VERSION}</span></SettingRow>
+              <Button block variant="ghost" onClick={onOpenShortcuts}>{t('inknote.help.shortcuts')}</Button>
               <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.reset'), description: t('inknote.settings.reset_confirm'), confirmLabel: t('inknote.settings.reset') }).then((ok) => ok ? resetSettings() : undefined)}>{t('inknote.settings.reset')}</Button>
             </div>
           )}
