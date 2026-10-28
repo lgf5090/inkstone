@@ -30,6 +30,10 @@ type Language =
   | 'graphql'
   | 'scss'
   | 'less'
+  | 'kotlin'
+  | 'dart'
+  | 'clojure'
+  | 'swift'
 
 const aliases: Record<string, Language> = {
   html: 'markup',
@@ -85,6 +89,12 @@ const aliases: Record<string, Language> = {
   gql: 'graphql',
   scss: 'scss',
   less: 'less',
+  kotlin: 'kotlin',
+  kt: 'kotlin',
+  dart: 'dart',
+  clojure: 'clojure',
+  clj: 'clojure',
+  swift: 'swift',
 }
 
 const componentImports: Record<string, () => Promise<unknown>> = {
@@ -119,6 +129,10 @@ const componentImports: Record<string, () => Promise<unknown>> = {
   graphql: () => import('prismjs/components/prism-graphql'),
   scss: () => import('prismjs/components/prism-scss'),
   less: () => import('prismjs/components/prism-less'),
+  kotlin: () => import('prismjs/components/prism-kotlin'),
+  dart: () => import('prismjs/components/prism-dart'),
+  clojure: () => import('prismjs/components/prism-clojure'),
+  swift: () => import('prismjs/components/prism-swift'),
 }
 
 const loading = new Map<string, Promise<void>>()
@@ -168,6 +182,8 @@ function dependencies(language: string): string[] {
     case 'graphql': return ['markdown']
     case 'scss':
     case 'less': return ['css']
+    case 'kotlin':
+    case 'dart': return ['clike']
     default: return []
   }
 }

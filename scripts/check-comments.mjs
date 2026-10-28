@@ -97,6 +97,8 @@ const allowed = new Map([
     "// output, gitignored like dist, so scanning it would gate us on somebody else's source.",
     "// Password vault CSV/TXT import column vocabulary",
     "// Tools Color Assistant traditional datasets & AI prompt vocabularies",
+    "// The API Tester's mock pools are sample data a user generates, not interface copy: a Chinese",
+    "// mock record is what the zh generator is asked to produce.",
   ]],
   ["scripts/e2e.mjs", [
     "// The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form",
@@ -28680,6 +28682,9 @@ const allowed = new Map([
     "// A nested subgroup needs its own copy: a shallow spread would hand every clone the same",
     "// `pomodoro` object, and one reader's edit would show up in the next one's defaults.",
   ]],
+  ["src/shared/development/api-tester/mock-data.ts", [
+    "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",
+  ]],
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
   ]],
@@ -34464,6 +34469,7 @@ const allowed = new Map([
     "// a provider snapshot backfills them without touching the reader's edited metadata.",
     "// The development database Studio's tables: connections, saved queries, history, exports and",
     "// settings. Numbered after the Cloudflare and music migrations that were already on test.",
+    "// The API Tester's workspace state, encrypted history, R2 file registry and WebSocket tickets.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -34482,6 +34488,7 @@ const allowed = new Map([
     "/**\n * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and\n * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).\n * So the policy is structural — bounded field names, string or boolean values — rather than a whitelist\n * that would have to be edited in step with every channel form. The switch fields are booleans because\n * the settings screen reads them back as booleans; forcing them to `\"true\"` would make the form lie.\n */",
     "/**\n * How long one field of a record may be, by scope.\n *\n * A password, a TOTP secret and an API key are all short things, and the 4 kB bound is what stops a row\n * from being used to smuggle an archive into the vault. An OAuth token set is not: an access token, a\n * refresh token, a client secret and an in-flight verifier are each somebody else's opaque string, and the\n * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the\n * extra room is exactly as wide as the one kind of credential that needs it.\n */",
     "/**\n * The two request guards, exported for the test that builds a sample configuration out of every channel\n * definition and asks whether the vault would take it.\n *\n * They are not product API. The reason they are here is that the only other thing that could have caught\n * the mismatch — the channel routes' own tests — runs against a vault double that accepts anything, so a\n * policy the real vault rejects and the double swallows can only be proven against this file.\n */",
+    "/**\n * The API Tester's state is one encrypted archive, so the vault accepts a larger request for that\n * scope alone. Every other scope still bounds its own fields to a few kilobytes below, and D1's row\n * limit is what keeps this number from growing further.\n */",
   ]],
   ["src/worker/email/inbound.ts", [
     "/**\n * Email-to-task: the inbound half.\n *\n * A Cloudflare Email Worker hands this module one delivered message. The recipient address is the\n * capability — `u+<token>@<MAIL_DOMAIN>` — so the token's entropy is the whole authentication and\n * there is no sender allowlist to keep in step with anything. A recipient that does not name a live\n * token is dropped without a reply: a bounce would tell a scanner which guesses were wrong, and the\n * sender of a mistyped address has no way to fix it through us anyway.\n *\n * Only a plain-text body is read. HTML and attachments are deliberately out of scope this round: a\n * task note is text, and rendering a mail author's markup into a Markdown note would be a second\n * injection surface. The envelope sender is recorded on the note's first line, marked \"via email\",\n * because the visible `From:` header is forgeable while the envelope is what the receiving server\n * authenticated.\n *\n * Idempotency is the Message-ID: delivery is at least once, so a claim row is written before the task\n * and a repeated delivery finds the claim and stops. A message without a Message-ID falls back to a\n * digest of its raw bytes, which is stable across a retry of the same delivery.\n */",

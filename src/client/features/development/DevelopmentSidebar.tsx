@@ -1,4 +1,4 @@
-import { Database, PanelLeftClose, PanelLeft, Terminal } from 'lucide-react'
+import { Database, PanelLeftClose, PanelLeft, Send, Terminal } from 'lucide-react'
 import { usePathname, navigateToPath } from '../../lib/app-history'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -20,6 +20,12 @@ const NAV_ITEMS = [
     labelKey: 'development.database.module_name',
     icon: Database,
   },
+  {
+    id: 'api-tester',
+    path: '/development/api-tester',
+    labelKey: 'development.apitester.module_name',
+    icon: Send,
+  },
 ] as const
 
 export function DevelopmentSidebar({
@@ -30,7 +36,7 @@ export function DevelopmentSidebar({
 }: DevelopmentSidebarProps) {
   const pathname = usePathname()
   const navWidth = useDevelopmentStore((state) => state.navWidth)
-  const activeId = pathname.startsWith('/development/database') ? 'database' : 'database'
+  const activeId = pathname.startsWith('/development/api-tester') ? 'api-tester' : 'database'
 
   const go = (path: string) => {
     navigateToPath(path)

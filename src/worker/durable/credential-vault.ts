@@ -5,8 +5,13 @@ import type { Env } from '../env'
 
 const MASTER_KEY_NAME = 'backup-master-key-v1'
 const MASTER_KEY_BYTES = 32
-const MAX_REQUEST_BYTES = 24 * 1024
-const MAX_CIPHERTEXT_LENGTH = 24 * 1024
+/**
+ * The API Tester's state is one encrypted archive, so the vault accepts a larger request for that
+ * scope alone. Every other scope still bounds its own fields to a few kilobytes below, and D1's row
+ * limit is what keeps this number from growing further.
+ */
+const MAX_REQUEST_BYTES = 1_500_000
+const MAX_CIPHERTEXT_LENGTH = 1_400_000
 /**
  * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored
  * for one reader cannot be replayed against another's derived key even by someone who can write rows.
@@ -18,7 +23,7 @@ const MAX_CIPHERTEXT_LENGTH = 24 * 1024
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|apitester-history|apitester-ws|apitester):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -31,6 +36,9 @@ const MUSIC_SECRET_FIELDS = new Set(['cookie'])
 const MUSIC_MOUNT_SECRET_FIELDS = new Set(['token'])
 const CLOUDFLARE_ACCOUNT_SECRET_FIELDS = new Set(['api_token', 'api_key', 'password'])
 const DATABASE_SECRET_FIELDS = new Set(['token'])
+const APITESTER_STATE_FIELDS = new Set(['blob'])
+const APITESTER_HISTORY_FIELDS = new Set(['blob'])
+const APITESTER_WS_FIELDS = new Set(['payload'])
 /**
  * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and
  * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).
@@ -49,7 +57,14 @@ const MAX_CHANNEL_FIELDS = 24
  * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the
  * extra room is exactly as wide as the one kind of credential that needs it.
  */
-const MAX_FIELD_LENGTH: Record<string, number> = { mcp: 16 * 1024, music: 8 * 1024, 'music-mount': 8 * 1024 }
+const MAX_FIELD_LENGTH: Record<string, number> = {
+  mcp: 16 * 1024,
+  music: 8 * 1024,
+  'music-mount': 8 * 1024,
+  apitester: 1_400_000,
+  'apitester-history': 64_000,
+  'apitester-ws': 16_000,
+}
 const DEFAULT_MAX_FIELD_LENGTH = 4096
 
 type CredentialRecord = Record<string, string | boolean>
@@ -234,7 +249,13 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                   ? CLOUDFLARE_ACCOUNT_SECRET_FIELDS
                   : scope.startsWith('database:')
                     ? DATABASE_SECRET_FIELDS
-                  : BACKUP_SECRET_FIELDS
+                    : scope.startsWith('apitester-ws:')
+                      ? APITESTER_WS_FIELDS
+                      : scope.startsWith('apitester-history:')
+                        ? APITESTER_HISTORY_FIELDS
+                        : scope.startsWith('apitester:')
+                          ? APITESTER_STATE_FIELDS
+                          : BACKUP_SECRET_FIELDS
   const cap = MAX_FIELD_LENGTH[scope.split(':')[0]!] ?? DEFAULT_MAX_FIELD_LENGTH
   if (entries.length < 1 || entries.length > allowed.size) return false
   return entries.every(

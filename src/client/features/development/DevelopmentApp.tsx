@@ -1,16 +1,26 @@
+import { Suspense, lazy } from 'react'
 import { PanelLeft, Terminal } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { useBreakpoint } from '../../lib/hooks'
+import { usePathname } from '../../lib/app-history'
 import { Drawer, Tooltip } from '../../components/overlay'
 import { IconButton } from '../../components/primitives'
+import { LoadingBlock } from '../../components/feedback'
 import { Resizer } from '../shell/Resizer'
 import { DevelopmentSidebar } from './DevelopmentSidebar'
 import { DatabaseApp } from './database/DatabaseApp'
 import { DEVELOPMENT_NAV_WIDTH, useDevelopmentStore } from './store'
 
+const ApiTesterApp = lazy(() =>
+  import('./api-tester/ApiTesterApp').then((module) => ({ default: module.ApiTesterApp })),
+)
+
 export function DevelopmentApp() {
   const breakpoint = useBreakpoint()
   const isSmallScreen = breakpoint === 'mobile' || breakpoint === 'tablet'
+  const pathname = usePathname()
+  const apiTester = pathname.startsWith('/development/api-tester')
+  const moduleLabel = apiTester ? t('development.apitester.module_name') : t('development.database.module_name')
   const navWidth = useDevelopmentStore((s) => s.navWidth)
   const navCollapsed = useDevelopmentStore((s) => s.navCollapsed)
   const navDrawerOpen = useDevelopmentStore((s) => s.navDrawerOpen)
@@ -35,7 +45,7 @@ export function DevelopmentApp() {
             <span className="truncate">{t('development.sidebar.title')}</span>
             <span className="font-normal text-[var(--text-tertiary)]">/</span>
             <span className="truncate text-[length:var(--text-13)] font-normal text-[var(--text-secondary)]">
-              {t('development.database.module_name')}
+              {moduleLabel}
             </span>
           </div>
         </header>
@@ -68,7 +78,13 @@ export function DevelopmentApp() {
         )}
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
-          <DatabaseApp />
+          {apiTester ? (
+            <Suspense fallback={<LoadingBlock />}>
+              <ApiTesterApp />
+            </Suspense>
+          ) : (
+            <DatabaseApp />
+          )}
         </main>
       </div>
 

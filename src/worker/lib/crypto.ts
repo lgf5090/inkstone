@@ -150,6 +150,55 @@ export async function decryptDatabaseSecret(env: Env, connectionId: string, stor
   return typeof token === 'string' && token.length > 0 && token.length <= 4 * 1024 ? token : null
 }
 
+const APITESTER_STATE_CIPHERTEXT_MAX = 1_400_000
+const APITESTER_HISTORY_CIPHERTEXT_MAX = 64_000
+const APITESTER_WS_CIPHERTEXT_MAX = 16_000
+
+export async function encryptApiTesterState(env: Env, workspaceId: string, blob: string): Promise<string> {
+  if (!isValidId(workspaceId) || !blob || blob.length > APITESTER_STATE_CIPHERTEXT_MAX) {
+    throw new Error('invalid_apitester_state')
+  }
+  return encryptCredential(env, `apitester:${workspaceId}`, { blob })
+}
+
+export async function decryptApiTesterState(env: Env, workspaceId: string, stored: string): Promise<string | null> {
+  if (!isValidId(workspaceId) || stored.length > APITESTER_STATE_CIPHERTEXT_MAX) return null
+  const value = await decryptCredential(env, `apitester:${workspaceId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const blob = (value as Record<string, unknown>).blob
+  return typeof blob === 'string' && blob.length > 0 && blob.length <= APITESTER_STATE_CIPHERTEXT_MAX ? blob : null
+}
+
+export async function encryptApiTesterHistory(env: Env, historyId: string, blob: string): Promise<string> {
+  if (!isValidId(historyId) || !blob || blob.length > APITESTER_HISTORY_CIPHERTEXT_MAX) {
+    throw new Error('invalid_apitester_history')
+  }
+  return encryptCredential(env, `apitester-history:${historyId}`, { blob })
+}
+
+export async function decryptApiTesterHistory(env: Env, historyId: string, stored: string): Promise<string | null> {
+  if (!isValidId(historyId) || stored.length > APITESTER_HISTORY_CIPHERTEXT_MAX) return null
+  const value = await decryptCredential(env, `apitester-history:${historyId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const blob = (value as Record<string, unknown>).blob
+  return typeof blob === 'string' && blob.length > 0 && blob.length <= APITESTER_HISTORY_CIPHERTEXT_MAX ? blob : null
+}
+
+export async function encryptApiTesterWsTicket(env: Env, ticketId: string, payload: string): Promise<string> {
+  if (!isValidId(ticketId) || !payload || payload.length > APITESTER_WS_CIPHERTEXT_MAX) {
+    throw new Error('invalid_apitester_ws_ticket')
+  }
+  return encryptCredential(env, `apitester-ws:${ticketId}`, { payload })
+}
+
+export async function decryptApiTesterWsTicket(env: Env, ticketId: string, stored: string): Promise<string | null> {
+  if (!isValidId(ticketId) || stored.length > APITESTER_WS_CIPHERTEXT_MAX) return null
+  const value = await decryptCredential(env, `apitester-ws:${ticketId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const payload = (value as Record<string, unknown>).payload
+  return typeof payload === 'string' && payload.length > 0 && payload.length <= APITESTER_WS_CIPHERTEXT_MAX ? payload : null
+}
+
 /**
  * One Cloudflare account's credential bundle.
  *
