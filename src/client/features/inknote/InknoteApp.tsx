@@ -43,6 +43,9 @@ export function InknoteApp() {
   const tabs = useInknoteStore((state) => state.tabs)
   const saveState = useInknoteStore((state) => state.saveState)
   const conflicts = useInknoteStore((state) => state.conflicts)
+  const drafts = useInknoteStore((state) => state.drafts)
+  const restoreDrafts = useInknoteStore((state) => state.restoreDrafts)
+  const discardDrafts = useInknoteStore((state) => state.discardDrafts)
   const bootstrap = useInknoteStore((state) => state.bootstrap)
   const openNote = useInknoteStore((state) => state.openNote)
   const closeTab = useInknoteStore((state) => state.closeTab)
@@ -277,6 +280,20 @@ export function InknoteApp() {
           <span className="min-w-0 flex-1 truncate">{t('inknote.conflict')}</span>
           <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void openNote(note!.id, activeIndex) } }}>{t('inknote.reload')}</button>
           <button type="button" className="underline" onClick={() => { if (activePage && note) { const content = JSON.stringify(activePage.content); clearConflict(activePage.id); void inknoteApi.createPage(note.id, { afterPageId: activePage.id, content }).then(() => openNote(note.id)) } }}>{t('inknote.save_as_new_page')}</button>
+        </div>
+      )}
+
+      {Object.keys(drafts).length > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+          <span className="min-w-0 flex-1 truncate">{t('inknote.drafts.found', { count: String(Object.keys(drafts).length) })}</span>
+          <button type="button" className="underline" onClick={() => void restoreDrafts()}>{t('inknote.drafts.restore')}</button>
+          <button type="button" className="underline" onClick={discardDrafts}>{t('inknote.drafts.discard')}</button>
+        </div>
+      )}
+      {saveState === 'offline' && !conflictPage && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+          <span className="min-w-0 flex-1 truncate">{t('inknote.offline_hint')}</span>
+          <button type="button" className="underline" onClick={() => void saveAll()}>{t('inknote.retry')}</button>
         </div>
       )}
 

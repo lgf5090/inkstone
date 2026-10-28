@@ -10,7 +10,7 @@ import type {
   InknoteSubject,
   InknoteTemplate,
 } from '@shared/inknote/types'
-import { emptyPageContent, serializePageContent } from '@shared/inknote/parse'
+import { emptyPageContent, parseInknotePageContent, serializePageContent } from '@shared/inknote/parse'
 import { isEmptyPage } from '../../lib/inknote/note-search'
 import { sanitizeInknoteSettings } from '@shared/inknote/settings'
 import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
@@ -41,6 +41,8 @@ interface InknoteState {
   saveState: InknoteSaveState
   saveError: string | null
   conflicts: Record<string, Conflict>
+  /** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */
+  drafts: Record<string, { content: InknotePageContent; savedAt: number }>
   loading: boolean
   opening: boolean
   error: string | null
@@ -82,6 +84,8 @@ interface InknoteState {
   addTemplate: (input: Parameters<typeof inknoteApi.createTemplate>[0]) => Promise<void>
   removeTemplate: (id: string) => Promise<void>
   clearConflict: (pageId: string) => void
+  restoreDrafts: () => Promise<void>
+  discardDrafts: () => void
 }
 
 const saveTimers = new Map<string, number>()
@@ -164,6 +168,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     saveState: 'idle',
     saveError: null,
     conflicts: {},
+    drafts: {},
     loading: false,
     opening: false,
     error: null,
@@ -224,6 +229,16 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       try {
         const response = await inknoteApi.note(id, 'all')
         const index = Math.min(Math.max(0, pageIndex), Math.max(0, response.pages.length - 1))
+        const drafts: InknoteState['drafts'] = {}
+        for (const page of response.pages) {
+          try {
+            const raw = localStorage.getItem(`inknote-draft:${id}:${page.id}`)
+            if (!raw) continue
+            const parsed = JSON.parse(raw) as { content?: unknown; savedAt?: unknown }
+            const content = parseInknotePageContent(typeof parsed.content === 'string' ? parsed.content : '')
+            if (content.ok) drafts[page.id] = { content: content.content, savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0 }
+          } catch { /* a corrupt draft is not a restore candidate */ }
+        }
         set((state) => ({
           note: response.note,
           pages: response.pages,
@@ -233,6 +248,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
           opening: false,
           contentVersion: state.contentVersion + 1,
           conflicts: {},
+          drafts,
           saveState: 'saved',
         }))
       } catch (error) {
@@ -242,7 +258,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
 
     closeNote() {
       void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {} })
+      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {} })
     },
 
     closeTab(id) {
@@ -252,7 +268,7 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       const next = tabs[0]
       if (next) { void get().openNote(next); return }
       void get().saveAll()
-      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {} })
+      set({ note: null, pages: [], activePageId: null, activePageIndex: 0, conflicts: {}, drafts: {} })
     },
 
     setActivePage(id) {
@@ -525,6 +541,30 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         delete conflicts[pageId]
         return { conflicts, saveState: 'idle', saveError: null }
       })
+    },
+
+    async restoreDrafts() {
+      const { note, drafts } = get()
+      if (!note) return
+      for (const [pageId, draft] of Object.entries(drafts)) {
+        get().replacePageContent(pageId, draft.content)
+        const saved = await get().savePage(pageId)
+        if (!saved) continue
+        set((state) => {
+          const next = { ...state.drafts }
+          delete next[pageId]
+          return { drafts: next }
+        })
+      }
+    },
+
+    discardDrafts() {
+      const { note, drafts } = get()
+      if (!note) return
+      for (const pageId of Object.keys(drafts)) {
+        try { localStorage.removeItem(`inknote-draft:${note.id}:${pageId}`) } catch { /* storage may be unavailable */ }
+      }
+      set({ drafts: {} })
     },
   }
 })

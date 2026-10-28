@@ -6392,6 +6392,8 @@ const allowed = new Map([
     "// Trash is listed by the UI on demand; keeping the note count in the library is enough.",
     "// A background refresh is allowed to miss; the next save or focus retries it.",
     "/* storage may be unavailable */",
+    "/** Drafts left by a failed save, keyed by page id; the reader decides whether to restore. */",
+    "/* a corrupt draft is not a restore candidate */",
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
