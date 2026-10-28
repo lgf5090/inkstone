@@ -242,6 +242,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.guard.prod_description": "即将对标记为生产的连接执行写入操作，请确认。",
   "development.database.guard.prod_confirm": "确认执行",
   "development.database.guard.cancelled": "已取消写入操作",
+  "development.database.app.assistant": "AI 助手",
   "development.database.app.query": "查询",
   "development.database.app.data": "数据",
   "development.database.app.mass_ops": "批量操作表",

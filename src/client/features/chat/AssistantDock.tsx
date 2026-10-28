@@ -15,10 +15,11 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ArrowUpRight, ListChecks, Mail, Music, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import { ArrowUpRight, Database, ListChecks, Mail, Music, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -45,7 +46,7 @@ import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-dif
 import { saveReplyAsNote } from './save-to-note'
 
 /** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music'
+export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database'
 
 const TODO_VIEW_LABELS: Record<string, MessageKey> = {
   board: 'todo.view.board',
@@ -67,12 +68,13 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
   email?: EmailAssistantContext | null
   music?: MusicAssistantContext | null
+  database?: DatabaseAssistantContext | null
 }) {
   const subscriptionId = subscription?.id ?? null
   const subscriptionName = subscription?.name ?? null
@@ -103,6 +105,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const musicContext = useAssistant((state) => state.musicContext)
   const musicOn = useAssistant((state) => state.musicContextOn)
   const setMusicContextOn = useAssistant((state) => state.setMusicContextOn)
+  const databaseContext = useAssistant((state) => state.databaseContext)
+  const databaseOn = useAssistant((state) => state.databaseContextOn)
+  const setDatabaseContextOn = useAssistant((state) => state.setDatabaseContextOn)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -149,10 +154,18 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const emailSender = email?.sender ?? null
   const emailFolderId = email?.folderId ?? null
   const emailLabel = emailContext?.subject?.trim() || emailContext?.sender?.trim() || emailContext?.address || ''
+  const databaseLabel = databaseContext ? `${databaseContext.connectionName}${databaseContext.activeTable ? ` · ${databaseContext.activeTable}` : ''}` : ''
   useEffect(() => {
     if (surface !== 'email') return
     useAssistant.getState().setEmailContext(emailAccountId ? email ?? null : null)
   }, [surface, emailAccountId, emailMessageId, emailSubject, emailSender, emailFolderId])
+
+  const databaseConnection = database?.connectionName ?? null
+  const databaseTable = database?.activeTable ?? null
+  useEffect(() => {
+    if (surface !== 'database') return
+    useAssistant.getState().setDatabaseContext(database ?? null)
+  }, [surface, databaseConnection, databaseTable, database?.sql])
 
   // Same handover as the plan and the message, with the page as the primitive that changes most: the
   // music app rebuilds this object on every render, and a dependency on the object would re-attach the
@@ -227,6 +240,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     ? t('assistant.dock.hint_todo')
     : surface === 'email' && emailContext && emailOn
       ? t('assistant.dock.hint_email')
+      : surface === 'database' && databaseContext && databaseOn
+        ? t('assistant.dock.hint_database')
       : surface === 'music' && musicContext && musicOn
         ? t('assistant.dock.hint_music')
         : attached
@@ -388,6 +403,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
               type="button"
               aria-label={t('assistant.context.remove', { name: todoLabel(todo) })}
               onClick={() => setTodoContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
+      {surface === 'database' && databaseContext && databaseOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Database size={12} /></span>
+            <span className="min-w-0 max-w-[220px] truncate">{databaseLabel}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: databaseLabel })}
+              onClick={() => setDatabaseContextOn(false)}
               className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >
               <X size={11} />

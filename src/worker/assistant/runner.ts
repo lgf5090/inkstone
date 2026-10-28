@@ -22,7 +22,9 @@ import { resolveNoteMentions } from './note-mentions'
 import { resolveSubscriptionMentions, subscriptionContextById } from './subscription-mentions'
 import { renderTodoContext } from './todo-context'
 import { renderEmailContext } from './email-context'
+import { renderDatabaseContext } from './database-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import { renderMusicContext } from '../music/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
@@ -230,6 +232,8 @@ export interface TurnInput {
   activeArtifactId?: string
   contextTodo?: TodoAssistantContext
   contextEmail?: EmailAssistantContext
+  /** The database the reader is looking at, when the question is asked beside the Studio. */
+  contextDatabase?: DatabaseAssistantContext
   /** The music screen the reader has open, when the question is asked beside it. */
   contextMusic?: MusicAssistantContext
   /**
@@ -386,6 +390,7 @@ export class AssistantRunner {
   private contextSubscriptionId: string | null = null
   private contextTodo: TodoAssistantContext | null = null
   private contextEmail: EmailAssistantContext | null = null
+  private contextDatabase: DatabaseAssistantContext | null = null
   private contextMusic: MusicAssistantContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
@@ -468,6 +473,7 @@ export class AssistantRunner {
     this.contextArtifact = null
     this.contextTodo = input.contextTodo ?? null
     this.contextEmail = input.contextEmail ?? null
+    this.contextDatabase = input.contextDatabase ?? null
     this.contextMusic = input.contextMusic ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
@@ -1619,8 +1625,9 @@ export class AssistantRunner {
         : ''
       const todo = this.contextTodo ? renderTodoContext(this.contextTodo) : ''
       const email = this.contextEmail ? renderEmailContext(this.contextEmail) : ''
+      const database = this.contextDatabase ? renderDatabaseContext(this.contextDatabase) : ''
       const music = this.contextMusic ? renderMusicContext(this.contextMusic) : ''
-      const carried = [block, subscriptionBlock, screen, todo, email, music].filter(Boolean).join('\n\n')
+      const carried = [block, subscriptionBlock, screen, todo, email, database, music].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries
@@ -1930,6 +1937,7 @@ export class AssistantRunner {
       automations: this.automations,
       noteScope: () => this.noteScope(),
       webSearchKey: await this.webSearchKey(),
+      ...(this.contextDatabase?.connectionId ? { databaseConnectionId: this.contextDatabase.connectionId } : {}),
       ...(this.contextArtifact ? { artifactContext: { id: this.contextArtifact.id } } : {}),
       ...(generatedAttachments ? { generatedAttachments } : {}),
       ...(conversationId

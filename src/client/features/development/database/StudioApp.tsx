@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Bot,
   Code2,
   Database,
   FileCode2,
@@ -19,6 +20,11 @@ import { useBreakpoint } from '../../../lib/hooks'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
+import { IS_DEMO_MODE } from '../../../lib/runtime'
+import { AssistantDock } from '../../chat/AssistantDock'
+import { useAssistant } from '../../chat/assistant-store'
+import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
+import { MAX_DATABASE_CONTEXT_COLUMNS, MAX_DATABASE_CONTEXT_SQL, MAX_DATABASE_CONTEXT_TABLES } from '@shared/development/database/assistant-context'
 import { ApiError } from '../../../lib/api'
 import { copyText } from '../../../lib/clipboard'
 import { Button, IconButton } from '../../../components/primitives'
@@ -105,6 +111,7 @@ export function StudioApp() {
   const [dumpOpen, setDumpOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [compareOpen, setCompareOpen] = useState(false)
+  const [contextSql, setContextSql] = useState('')
   const [driver, setDriver] = useState<StudioDriver | null>(null)
   const [tabs, setTabs] = useState<StudioTab[]>(() => [queryTab()])
   const [activeTabId, setActiveTabId] = useState('')
@@ -425,6 +432,56 @@ export function StudioApp() {
     }
   }
 
+  const contextSqlTimer = useRef<number | null>(null)
+  const handleContextSql = useCallback((text: string) => {
+    if (contextSqlTimer.current !== null) window.clearTimeout(contextSqlTimer.current)
+    contextSqlTimer.current = window.setTimeout(() => setContextSql(text), 500)
+  }, [])
+  useEffect(() => () => {
+    if (contextSqlTimer.current !== null) window.clearTimeout(contextSqlTimer.current)
+  }, [])
+
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const databaseContext = useMemo<DatabaseAssistantContext | null>(() => {
+    if (!selection) return null
+    const name = selection.kind === 'local' ? selection.name : activeSaved?.name ?? ''
+    const tables = (schema?.tables ?? []).slice(0, MAX_DATABASE_CONTEXT_TABLES).map((table) => ({
+      name: table.name,
+      columns: table.columns.slice(0, MAX_DATABASE_CONTEXT_COLUMNS).map((column) => ({ name: column.name, type: column.type })),
+    }))
+    return {
+      ...(selection.kind === 'saved' ? { connectionId: selection.id } : {}),
+      connectionName: name,
+      connectionType: activeSaved?.type ?? 'sqlite',
+      ...(activeTab && (activeTab.kind === 'data' || activeTab.kind === 'schema') && activeTab.table ? { activeTable: activeTab.table } : {}),
+      ...(contextSql.trim() ? { sql: contextSql.slice(0, MAX_DATABASE_CONTEXT_SQL) } : {}),
+      tables,
+      views: (schema?.views ?? []).map((view) => view.name),
+    }
+  }, [activeSaved?.name, activeSaved?.type, activeTab, contextSql, schema, selection])
+
+  const assistantTools = useAssistant((state) => state.turn?.tools)
+  const assistantWriteCount = useMemo(
+    () => (assistantTools ?? []).filter((tool) => tool.name.startsWith('database_') && tool.status === 'success').length,
+    [assistantTools],
+  )
+  const lastAssistantWrite = useRef(0)
+  useEffect(() => {
+    if (assistantWriteCount <= lastAssistantWrite.current) return
+    lastAssistantWrite.current = assistantWriteCount
+    if (driver) void reloadSchema(driver)
+  }, [assistantWriteCount, driver, reloadSchema])
+
+  useEffect(() => {
+    const onChange = (event: Event) => {
+      const tool = (event as CustomEvent<{ tool?: string }>).detail?.tool
+      if (!tool || !tool.startsWith('database_') || !driver) return
+      void reloadSchema(driver)
+    }
+    window.addEventListener('inkstone:assistant-tool', onChange)
+    return () => window.removeEventListener('inkstone:assistant-tool', onChange)
+  }, [driver, reloadSchema])
+
   const handleFlags = async (connection: DatabaseConnectionView, flags: { isFavorite?: boolean; isPinned?: boolean }) => {
     const next = { ...connection, ...flags }
     setConnections((current) => sortConnections(current.map((entry) => entry.id === connection.id ? next : entry)))
@@ -644,6 +701,16 @@ export function StudioApp() {
           </IconButton>
         </Tooltip>
         <div className="flex-1" />
+        <Tooltip label={t('development.database.app.assistant')}>
+          <IconButton
+            label={t('development.database.app.assistant')}
+            size="sm"
+            active={assistantDockOpen}
+            onClick={() => useUi.getState().toggleAssistantDock()}
+          >
+            <Bot size={14} />
+          </IconButton>
+        </Tooltip>
         {!isSmall && selection && (
           <span className="max-w-48 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             {selection.kind === 'local' ? selection.name : activeSaved?.name}
@@ -696,6 +763,7 @@ export function StudioApp() {
             onSchemaChanged={() => void reloadSchema(driver)}
             ensureWritable={ensureWritable}
             onOpenSql={(text) => openQueryTab(text)}
+            onSqlChange={handleContextSql}
             onError={notifyError}
           />
         ) : activeTab.kind === 'data' && activeTable ? (
@@ -761,6 +829,9 @@ export function StudioApp() {
             </Tooltip>
           </header>
           <main className="min-h-0 flex-1">{main}</main>
+          {assistantDockOpen && !IS_DEMO_MODE && (
+            <AssistantDock surface="database" database={databaseContext} />
+          )}
           <Drawer
             open={mobileSidebarOpen}
             onClose={() => setMobileSidebarOpen(false)}
@@ -790,6 +861,9 @@ export function StudioApp() {
             />
           )}
           <main className="min-h-0 min-w-0 flex-1">{main}</main>
+          {assistantDockOpen && !IS_DEMO_MODE && (
+            <AssistantDock surface="database" database={databaseContext} />
+          )}
         </div>
       )}
 

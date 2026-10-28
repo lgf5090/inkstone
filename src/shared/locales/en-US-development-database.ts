@@ -242,6 +242,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.guard.prod_description": "This connection is marked as production. Confirm the write.",
   "development.database.guard.prod_confirm": "Write anyway",
   "development.database.guard.cancelled": "Write cancelled",
+  "development.database.app.assistant": "AI assistant",
   "development.database.app.query": "Query",
   "development.database.app.data": "Data",
   "development.database.app.mass_ops": "Bulk table actions",
