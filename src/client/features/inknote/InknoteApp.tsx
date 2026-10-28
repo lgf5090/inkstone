@@ -326,6 +326,8 @@ const [findOpen, setFindOpen] = useState(false)
                 page={activePage}
                 pageIndex={activeIndex}
                 pageCount={pages.length}
+                previousPage={pages[activeIndex - 1] ?? null}
+                nextPage={pages[activeIndex + 1] ?? null}
                 settings={settings}
                 tool={tool}
                 onPrevPage={() => { const previous = pages[activeIndex - 1]; if (previous) setActivePage(previous.id) }}

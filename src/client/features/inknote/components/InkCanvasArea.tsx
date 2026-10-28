@@ -24,6 +24,8 @@ interface Props {
   page: InknotePage
   pageIndex: number
   pageCount: number
+  previousPage: InknotePage | null
+  nextPage: InknotePage | null
   settings: InknoteSettings
   onSelectPage: (id: string) => void
   onPrevPage: () => void
@@ -56,9 +58,29 @@ function measureWithCanvas(): (text: string, fontSpec: string) => number {
   }
 }
 
-export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPrevPage, onNextPage, onEngine, tool }: Props) {
+function PagePreview({ page, note, settings, label, onSelect }: { page: InknotePage; note: InknoteNoteMeta; settings: InknoteSettings; label: string; onSelect: () => void }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const rendered = renderPageToCanvas(page.content, note.paper, {
+      width: note.pageWidth, height: note.pageHeight, contentWidth: note.contentWidth, contentHeight: note.contentHeight,
+    }, 640, cssFont(settings))
+    const target = ref.current
+    if (!rendered || !target) return
+    target.width = rendered.width
+    target.height = rendered.height
+    target.getContext('2d')?.drawImage(rendered, 0, 0)
+  }, [page.content, page.rev, note.paper, note.pageWidth, note.pageHeight, note.contentWidth, note.contentHeight, settings])
+  return (
+    <button type="button" aria-label={label} onClick={onSelect} className="block w-full overflow-hidden rounded-[2px] border border-[var(--border-subtle)] opacity-75 shadow-[var(--shadow-soft)] transition-opacity hover:opacity-100 focus-visible:opacity-100">
+      <canvas ref={ref} className="block w-full bg-white"/>
+    </button>
+  )
+}
+
+export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, nextPage, settings, onPrevPage, onNextPage, onEngine, tool }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const engineRef = useRef<InknoteEngineApi | null>(null)
   const [zoom, setZoom] = useState(1)
   const [selection, setSelection] = useState<string[]>([])
@@ -201,6 +223,10 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('inknote:page', { detail: { pageId: page.id, to: pageIndex, at: Date.now() } }))
+    if (typeof frameRef.current?.scrollIntoView === 'function') {
+      const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      frameRef.current.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
+    }
   }, [page.id, pageIndex])
 
   useEffect(() => {
@@ -349,8 +375,13 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
 
   return (
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
-      <div className="inknote-page-scroll flex min-h-0 flex-1 items-start justify-center overflow-auto p-3 md:p-6">
-        <div className="inknote-page-frame relative shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
+      <div className="inknote-page-scroll flex min-h-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 md:p-6">
+        {previousPage && (
+          <div style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }} className="shrink-0">
+            <PagePreview page={previousPage} note={note} settings={settings} label={`${t('inknote.page.prev')} ${pageIndex}`} onSelect={onPrevPage}/>
+          </div>
+        )}
+        <div ref={frameRef} className="inknote-page-frame relative shrink-0 shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
           <canvas ref={canvasRef} role="img" className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.canvas.label', { title: note.title, page: String(pageIndex + 1) })} />
           {ttsBox && (
             <div data-ink-tts-cue="" aria-hidden="true" className="pointer-events-none absolute rounded-[3px] border-2 border-[var(--accent)]" style={{ left: ttsBox.left, top: ttsBox.top, width: ttsBox.width, height: ttsBox.height, background: 'color-mix(in oklab, var(--accent) 14%, transparent)', zIndex: 'calc(var(--z-float) - 2)' }}/>
@@ -399,6 +430,11 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
             />
           )}
         </div>
+        {nextPage && (
+          <div style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }} className="shrink-0">
+            <PagePreview page={nextPage} note={note} settings={settings} label={`${t('inknote.page.next')} ${pageIndex + 2}`} onSelect={onNextPage}/>
+          </div>
+        )}
       </div>
       <div className="flex h-9 shrink-0 items-center justify-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[length:var(--text-11)] text-[var(--text-tertiary)]">
         <Button size="sm" variant="ghost" onClick={onPrevPage} disabled={pageIndex <= 0}>‹</Button>
