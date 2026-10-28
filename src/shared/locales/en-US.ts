@@ -16,6 +16,7 @@ import { EN_US_EMAIL_RAW } from './en-US-email-raw';
 import { EN_US_EMAIL_RULES } from './en-US-email-rules';
 import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 import { EN_US_MUSIC } from './en-US-music';
+import { EN_US_IMGBED } from './en-US-imgbed';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
@@ -10164,6 +10165,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_EMAIL_RULES,
     ...EN_US_EMAIL_TEMPLATES,
     ...EN_US_MUSIC,
+    ...EN_US_IMGBED,
     ...EN_US_TOOLS,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,

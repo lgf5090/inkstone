@@ -76,6 +76,40 @@ export async function decryptAssistantKey(env: Env, userId: string, stored: stri
   return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 4096 ? apiKey : null
 }
 
+export const IMGBED_SETTINGS_SECRET_SCOPE = '00000000000000000000000000'
+
+export type ImgbedSecretRecord = Record<string, string | boolean>
+
+export async function encryptImgbedSecret(
+  env: Env,
+  scopeId: string,
+  value: ImgbedSecretRecord,
+): Promise<string> {
+  if (!isValidId(scopeId)) throw new Error('invalid_imgbed_credential')
+  const entries = Object.entries(value).filter(([, field]) => typeof field === 'string' && field.length > 0 || typeof field === 'boolean')
+  if (!entries.length || entries.length > 24) throw new Error('invalid_imgbed_credential')
+  return encryptCredential(env, `imgbed:${scopeId}`, Object.fromEntries(entries))
+}
+
+export async function decryptImgbedSecret(
+  env: Env,
+  scopeId: string,
+  stored: string,
+): Promise<ImgbedSecretRecord | null> {
+  if (!isValidId(scopeId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `imgbed:${scopeId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (!entries.length || entries.length > 24) return null
+  const out: ImgbedSecretRecord = {}
+  for (const [key, field] of entries) {
+    if (typeof field !== 'string' && typeof field !== 'boolean') return null
+    out[key] = field
+  }
+  return out
+}
+
+
 export async function encryptEmailSecret(env: Env, ownerId: string, secret: string): Promise<string> {
   if (!isValidId(ownerId)) throw new Error('invalid_email_credential')
   const trimmed = secret.trim()

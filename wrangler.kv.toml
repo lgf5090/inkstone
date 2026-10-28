@@ -44,6 +44,8 @@ run_worker_first = [
   "/hooks/*",
   "/music",
   "/music/*",
+  "/imgbed",
+  "/imgbed/*",
   "/cloudflare",
   "/cloudflare/*",
   "/m",
@@ -55,6 +57,9 @@ run_worker_first = [
   "/l",
   "/l/*",
 ]
+
+[images]
+binding = "IMAGES"
 
 [[d1_databases]]
 binding = "DB"

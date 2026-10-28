@@ -11,6 +11,34 @@ export interface Env {
 
   FILES_KV?: KVNamespace
 
+  IMAGES?: ImagesBinding
+
+  R2_PUBLIC_URL?: string
+  TG_BOT_TOKEN?: string
+  TG_CHAT_ID?: string
+  TG_PROXY_URL?: string
+  S3_ACCESS_KEY_ID?: string
+  S3_SECRET_ACCESS_KEY?: string
+  S3_REGION?: string
+  S3_BUCKET_NAME?: string
+  S3_ENDPOINT?: string
+  S3_PATH_STYLE?: string
+  S3_CDN_DOMAIN?: string
+  S3_USER_AGENT?: string
+  DISCORD_BOT_TOKEN?: string
+  DISCORD_CHANNEL_ID?: string
+  DISCORD_PROXY_URL?: string
+  DISCORD_IS_NITRO?: string
+  HF_TOKEN?: string
+  HF_REPO?: string
+  HF_PRIVATE?: string
+  WEBDAV_BASE_URL?: string
+  WEBDAV_USERNAME?: string
+  WEBDAV_PASSWORD?: string
+  WEBDAV_PUBLIC_URL?: string
+  WEBDAV_HEADERS?: string
+  WEBDAV_CREATE_DIRECTORY?: string
+
   SHORTLINKS_KV?: KVNamespace
 
   OAUTH_KV: KVNamespace
