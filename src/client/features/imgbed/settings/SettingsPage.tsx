@@ -9,9 +9,9 @@ import { Modal, confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { imgbedApi, type ImgbedChannelResponse, type ImgbedStatsResponse, type ImgbedToken } from '../api'
+import { AiSettingsForm, OthersSettingsForm, PageSettingsForm, SecuritySettingsForm, UploadSettingsForm } from './forms'
 
 type Tab = 'status' | 'upload' | 'security' | 'page' | 'others' | 'ai'
-type Group = 'page' | 'upload' | 'security' | 'others' | 'ai'
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'status', label: 'imgbed.settings.status' },
@@ -36,11 +36,11 @@ export function SettingsPage(): ReactElement {
         ))}
       </div>
       {tab === 'status' && <StatusTab />}
-      {tab === 'upload' && <GroupTab group="upload" extra={<ChannelsPanel />} />}
-      {tab === 'security' && <GroupTab group="security" />}
-      {tab === 'page' && <GroupTab group="page" />}
-      {tab === 'others' && <GroupTab group="others" />}
-      {tab === 'ai' && <GroupTab group="ai" extra={<TokensPanel />} />}
+      {tab === 'upload' && <div className="flex flex-col gap-3"><UploadSettingsForm /><ChannelsPanel /></div>}
+      {tab === 'security' && <div className="flex flex-col gap-3"><SecuritySettingsForm /><TokensPanel /></div>}
+      {tab === 'page' && <PageSettingsForm />}
+      {tab === 'others' && <OthersSettingsForm />}
+      {tab === 'ai' && <AiSettingsForm />}
     </div>
   )
 }
@@ -97,42 +97,12 @@ function StatusTab(): ReactElement {
         )}
       </div>
       <div className="flex flex-wrap gap-2"><a href="/api/imgbed/manage/backup" className="inline-flex min-h-8 items-center rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">{t('imgbed.settings.export' as never)}</a><Button size="sm" variant="secondary" onClick={() => restoreRef.current?.click()}>{t('imgbed.settings.restore' as never)}</Button><input ref={restoreRef} type="file" accept="application/json,.json" hidden onChange={(event) => void restore(event)} /></div>
-      <TokensPanel />
     </div>
   )
 }
 
 function Metric({ label, value }: { label: string; value: string }): ReactElement {
   return <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3"><div className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{label}</div><div className="mt-1 text-[length:var(--text-18)] font-semibold text-[var(--text-primary)]">{value}</div></div>
-}
-
-function GroupTab({ group, extra }: { group: Group; extra?: ReactElement }): ReactElement {
-  const [text, setText] = useState('')
-  const [loaded, setLoaded] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const toast = useUi((state) => state.toast)
-  const load = (): void => {
-    imgbedApi<{ value: unknown }>(`/api/imgbed/settings/${group}`).then((result) => { setText(JSON.stringify(result.value, null, 2)); setLoaded(true) }).catch((error: Error) => toast({ title: error.message, tone: 'danger' }))
-  }
-  useEffect(load, [group])
-  const save = async (): Promise<void> => {
-    setSaving(true)
-    try {
-      const value = JSON.parse(text) as unknown
-      await imgbedApi(`/api/imgbed/settings/${group}`, { method: 'PUT', body: value })
-      toast({ title: t('imgbed.settings.saved'), tone: 'success' })
-    } catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
-    finally { setSaving(false) }
-  }
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-        {!loaded ? <LoadingBlock label={t('imgbed.common.loading')} /> : <Textarea value={text} onChange={(event) => setText(event.target.value)} rows={16} className="font-mono text-[length:var(--text-11-5)]" aria-label={group} />}
-        <div className="mt-2 flex justify-end"><Button loading={saving} onClick={() => void save()}>{t('imgbed.settings.save')}</Button></div>
-      </div>
-      {extra}
-    </div>
-  )
 }
 
 function ChannelsPanel(): ReactElement {
@@ -184,10 +154,12 @@ function ChannelDialog({ channel, onClose, onSaved }: { channel: ImgbedChannelRe
   const [config, setConfig] = useState(JSON.stringify(channel.config, null, 2))
   const [credentials, setCredentials] = useState('{}')
   const [enabled, setEnabled] = useState(channel.enabled)
+  const [quotaEnabled, setQuotaEnabled] = useState(channel.quota.enabled)
+  const [quotaLimit, setQuotaLimit] = useState(channel.quota.limitGB ?? 0)
   const [error, setError] = useState('')
   const save = async (): Promise<void> => {
     try {
-      const body = { type, name, config: JSON.parse(config) as unknown, credentials: JSON.parse(credentials) as unknown, enabled }
+      const body = { type, name, config: JSON.parse(config) as unknown, credentials: JSON.parse(credentials) as unknown, enabled, quota: { enabled: quotaEnabled, limitGB: quotaLimit || null, threshold: channel.quota.threshold } }
       if (channel.id) await imgbedApi(`/api/imgbed/channels/${channel.id}`, { method: 'PUT', body })
       else await imgbedApi('/api/imgbed/channels', { method: 'POST', body })
       onSaved()
@@ -201,7 +173,7 @@ function ChannelDialog({ channel, onClose, onSaved }: { channel: ImgbedChannelRe
         <Field label={t('imgbed.settings.name')}><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
         <Field label={t('imgbed.settings.config_json' as never)}><Textarea value={config} onChange={(event) => setConfig(event.target.value)} rows={7} className="font-mono text-[length:var(--text-11)]" /></Field>
         <Field label={t('imgbed.settings.credentials_json' as never)}><Textarea value={credentials} onChange={(event) => setCredentials(event.target.value)} rows={5} className="font-mono text-[length:var(--text-11)]" /></Field>
-        <Switch checked={enabled} onChange={setEnabled} label={t('imgbed.settings.enabled')} />
+        <div className="flex flex-wrap items-center gap-3"><Switch checked={enabled} onChange={setEnabled} label={t('imgbed.settings.enabled')} /><Checkbox checked={quotaEnabled} onChange={setQuotaEnabled} label={t('imgbed.settings.quota')} />{quotaEnabled && <Input type="number" value={quotaLimit} onChange={(event) => setQuotaLimit(Number(event.target.value))} className="w-28" />}</div>
       </div>
     </Modal>
   )
