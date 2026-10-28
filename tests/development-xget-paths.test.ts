@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { isXgetProxyPath } from '../src/worker/development/xget/paths'
+import { SCHEMA_MIGRATIONS, REQUIRED_TABLES } from '../src/worker/db/schema'
 import {
   DEVELOPMENT_XGET_REQUIRED_COLUMNS,
   DEVELOPMENT_XGET_REQUIRED_TABLES,
@@ -28,6 +29,12 @@ describe('the Xget proxy path boundary', () => {
 })
 
 describe('the Xget tables', () => {
+  it('are registered as migration 188 and required by the final schema', () => {
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 188)
+    expect(migration?.statements).toEqual(DEVELOPMENT_XGET_SCHEMA_STATEMENTS)
+    for (const table of DEVELOPMENT_XGET_REQUIRED_TABLES) expect(REQUIRED_TABLES).toContain(table)
+  })
+
   it('are created by their own statements with the required columns', () => {
     const db = new DatabaseSync(':memory:')
     for (const statement of DEVELOPMENT_XGET_SCHEMA_STATEMENTS) db.exec(statement)
