@@ -33,7 +33,9 @@ import { t, useLocale } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
 import { useBreakpoint, useThemeDark } from '../../lib/hooks'
 import { INK_BODY_LIMIT_BYTES, inkBodyBytes, parseInkDocumentResult } from '../../lib/inkpad/format'
+import { isInkNoteTitle } from '../../lib/inkpad/document'
 import { classifyInkLink } from '../../lib/inkpad/link'
+import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document'
 import type { InkTool } from '../../lib/inkpad/types'
 import { useNotes } from '../../store/notes'
 import { useUi, type WorkspacePane } from '../../store/ui'
@@ -78,8 +80,9 @@ function resolveCssColorToHex(value: string): string | null {
     }
 }
 
-function initialColor(defaultColor: string, dark: boolean): { color: string; auto: boolean } {
+function initialColor(defaultColor: string, dark: boolean, canvasBackground: 'theme' | 'dark'): { color: string; auto: boolean } {
     if (defaultColor !== 'auto') return { color: defaultColor, auto: false }
+    if (canvasBackground === 'dark') return { color: '#ffffff', auto: true }
     const resolved = resolveCssColorToHex(getComputedStyle(document.documentElement).getPropertyValue('--text-primary'))
     return { color: resolved ?? (dark ? '#ffffff' : '#111827'), auto: true }
 }
@@ -92,7 +95,7 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
     const closeSecondaryNote = useUi((state) => state.closeSecondaryNote)
     const patchNote = useNotes((state) => state.patchNote)
     const settings = useInkSettingsStore()
-    const initial = useMemo(() => initialColor(settings.defaultColor, dark), [])
+    const initial = useMemo(() => initialColor(settings.defaultColor, dark, settings.canvasBackground), [])
     const [viewMode, setViewMode] = useState<'ink' | 'code'>(() => {
         const parsed = parseInkDocumentResult(content)
         return parsed.ok ? 'ink' : 'code'
@@ -307,10 +310,13 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
 
     useEffect(() => {
         if (!autoColor) return
+        if (settings.canvasBackground === 'dark') {
+            setColor('#ffffff')
+            return
+        }
         const resolved = resolveCssColorToHex(getComputedStyle(document.documentElement).getPropertyValue('--text-primary'))
-        const next = resolved ?? (dark ? '#ffffff' : '#111827')
-        setColor(next)
-    }, [autoColor, dark])
+        setColor(resolved ?? (dark ? '#ffffff' : '#111827'))
+    }, [autoColor, dark, settings.canvasBackground])
 
     useEffect(() => {
         if (!externalChange) return
@@ -655,6 +661,7 @@ export function InkNoteEditor({ note, content, onChange, onTitleChange, onMobile
                 open={notePickerOpen}
                 title={t('ink.note_picker.title')}
                 excludeNoteId={note.id}
+                filter={(candidate) => !isInkNoteTitle(candidate.title) && !candidate.title.endsWith('.excalidraw') && !isMindmapDocumentTitle(candidate.title)}
                 onClose={() => setNotePickerOpen(false)}
                 onSelect={(picked) => engineRef.current?.insertNote(picked)}
             />

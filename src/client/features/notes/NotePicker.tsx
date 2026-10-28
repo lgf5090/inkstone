@@ -34,12 +34,14 @@ const NO_ROWS: NoteRow[] = [];
  * notes called "Reading" are only told apart by where they live, and picking the
  * wrong one writes a link nobody notices until it points somewhere unexpected.
  */
-export function NotePicker({ open, title, initialQuery, excludeNoteId, onClose, onSelect }: {
+export function NotePicker({ open, title, initialQuery, excludeNoteId, filter, onClose, onSelect }: {
     open: boolean;
     title: string;
     /** What the reader had already typed where the list was opened from. */
     initialQuery?: string;
     excludeNoteId?: string;
+    /** A surface that cannot render a note type leaves it out of the list entirely. */
+    filter?: (note: NoteSummary) => boolean;
     onClose: () => void;
     onSelect: (note: PickedNote) => void;
 }) {
@@ -67,11 +69,13 @@ export function NotePicker({ open, title, initialQuery, excludeNoteId, onClose, 
         for (const note of Object.values(notes)) {
             if (note.deletedAt || note.isArchived || note.id === excludeNoteId)
                 continue;
+            if (filter && !filter(note))
+                continue;
             matched.push({ note, label: note.title || t('common.untitled_note'), path: folderPathLabel(folders, note.folderId) });
         }
         matched.sort((a, b) => (a.note.title || '').localeCompare(b.note.title || ''));
         return matched;
-    }, [excludeNoteId, folders, notes, open]);
+    }, [excludeNoteId, filter, folders, notes, open]);
 
     const visible = useMemo(() => {
         // Every note is matched, and the cap is taken afterwards: stopping at the first N

@@ -154,4 +154,15 @@ describe('NotePicker', () => {
         expect(searchBox().value, 'a list opened from the menu has no query to carry in').toBe('');
         expect(drawnRows().length).toBe(3);
     });
+
+    it('leaves out every note a surface cannot render', () => {
+        render(createElement(NotePicker, {
+            open: true,
+            title: 'Insert note',
+            filter: (candidate) => candidate.title === 'Alpha',
+            onClose: () => {},
+            onSelect: () => {},
+        }));
+        expect(drawnRows().map((row) => row.title)).toEqual(['Alpha']);
+    });
 });

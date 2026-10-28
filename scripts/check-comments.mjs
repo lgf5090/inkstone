@@ -7260,6 +7260,7 @@ const allowed = new Map([
     "// Every note is matched, and the cap is taken afterwards: stopping at the first N",
     "// matches would hide the note the reader was about to type, because the store's order",
     "// is by recency and this list is ordered by name.",
+    "/** A surface that cannot render a note type leaves it out of the list entirely. */",
   ]],
   ["src/client/features/omnisearch/OmnisearchEntry.tsx", [
     "/** Both switches have to agree: `enabled` stops the index, `ribbonButton` only hides the entry. */",
