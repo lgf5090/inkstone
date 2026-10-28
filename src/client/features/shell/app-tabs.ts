@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, Images, ListChecks, Mail, MessageSquare, Music, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -26,6 +26,7 @@ export type AppTabId =
   | 'subscriptions'
   | 'reading'
   | 'rss'
+  | 'imgbed'
   | 'music'
   | 'cloudflare'
   | 'tools'
@@ -51,6 +52,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'subscriptions', path: '/subscriptions', labelKey: 'app.tabs.subscriptions', icon: Wallet },
   { id: 'reading', path: '/reading', labelKey: 'app.tabs.reading', icon: BookOpen },
   { id: 'rss', path: '/rss', labelKey: 'app.tabs.rss', icon: Rss },
+  { id: 'imgbed', path: '/imgbed', labelKey: 'app.tabs.imgbed', icon: Images },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
   { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
   { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
@@ -67,6 +69,7 @@ export const DEFAULT_APP_TAB: AppTabId = 'notes'
 /** Containers that own their own sub-addresses, so a deep link stays on the tab that made it. */
 const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/reading/', 'reading'],
+  ['/imgbed/', 'imgbed'],
   ['/memos/', 'memos'],
   ['/email/', 'email'],
   ['/music/', 'music'],

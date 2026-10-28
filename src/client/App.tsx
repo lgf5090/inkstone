@@ -40,6 +40,9 @@ const MemosPublicApp = lazy(() =>
 const PublicPlaylistPage = lazy(() =>
   import('./features/music/pages/PublicPlaylistPage').then((module) => ({ default: module.PublicPlaylistPage })),
 )
+const ImgbedPublicApp = lazy(() =>
+  import('./features/imgbed/public/PublicApp').then((module) => ({ default: module.PublicApp })),
+)
 const SettingsPanel = lazy(() =>
   import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
 )
@@ -145,11 +148,12 @@ export function App() {
   const [isPresenter] = useState(() => new URLSearchParams(location.search).has('presenter'))
   const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
   const memoAlwaysPublic = memoSurface.kind === 'public'
+  const [imgbedPublic] = useState(() => /^\/imgbed\/browse(\/|$)/.test(location.pathname))
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic) return
+    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -170,16 +174,16 @@ export function App() {
   useEffect(() => installTemplaterCreationTrigger(), [])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, status])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug, isPresenter, memoAlwaysPublic])
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic) return
     const timer = window.setTimeout(() => {
       dismissBootScreen()
       // Set whether or not the session has resolved by now: the flag only ever paints while the status is
@@ -196,6 +200,20 @@ export function App() {
           <PresenterWindow />
         </Suspense>
       </ErrorBoundary>
+    )
+  }
+
+  if (imgbedPublic) {
+    return (
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <ImgbedPublicApp />
+          </Suspense>
+        </ErrorBoundary>
+        <Toaster />
+        <UpdateCard />
+      </>
     )
   }
 

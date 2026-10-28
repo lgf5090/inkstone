@@ -38,6 +38,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   todo: lazy(() => import('../todos/TodosApp').then((module) => ({ default: module.TodosApp }))),
   email: lazy(() => import('../email/EmailApp').then((module) => ({ default: module.EmailApp }))),
   rss: lazy(() => import('../rss/RssApp').then(module => ({ default: module.RssApp }))),
+  imgbed: lazy(() => import('../imgbed/ImgbedApp').then((module) => ({ default: module.ImgbedApp }))),
   music: lazy(() => import('../music/MusicApp').then((module) => ({ default: module.MusicApp }))),
   cloudflare: lazy(() => import('../cloudflare/CloudflareApp').then((module) => ({ default: module.CloudflareApp }))),
   calendar: lazy(() => import('../calendar/CalendarApp').then((module) => ({ default: module.CalendarApp }))),
