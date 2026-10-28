@@ -170,6 +170,12 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
   }, [note.id, page.id, note.paper, metrics, settings.fontFamily])
 
   useEffect(() => {
+    const invalidate = () => engineRef.current?.invalidate()
+    window.addEventListener('inknote:invalidate', invalidate)
+    return () => window.removeEventListener('inknote:invalidate', invalidate)
+  }, [])
+
+  useEffect(() => {
     engineRef.current?.setTool(tool)
   }, [tool])
 

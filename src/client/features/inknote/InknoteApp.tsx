@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Library, PanelRight, Settings, Sparkles, X } from 'lucide-react'
+import { Library, MoreHorizontal, PanelRight, Settings, Sparkles, X } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { useBreakpoint } from '../../lib/hooks'
 import { IconButton } from '../../components/primitives'
-import { ConfirmHost, Drawer, Modal, PromptHost, confirm } from '../../components/overlay'
+import { ConfirmHost, Drawer, Menu, Modal, PromptHost, confirm, type MenuItem } from '../../components/overlay'
 import { Empty, LoadingBlock } from '../../components/feedback'
 import { useUi } from '../../store/ui'
 import { inknoteApi } from './api'
@@ -16,6 +16,10 @@ import { InkPagesPanel } from './components/InkPagesPanel'
 import { InkToolbar } from './components/InkToolbar'
 import { LibraryPanel } from './library/LibraryPanel'
 import { SettingsDrawer } from './panels/SettingsDrawer'
+import { PresentationOverlay } from './tools/PresentationOverlay'
+import { RecordingPanel } from './tools/RecordingPanel'
+import { AiPanel } from './tools/AiPanel'
+import { exportNoteFile, exportPagePng, exportPdf, exportTextFile, importNoteFile, insertImage, insertPdf } from './io/operations'
 import type { InknoteEngineApi } from './engine/inknote-engine'
 import type { InknoteToolState } from './engine/inknote-engine-types'
 
@@ -48,9 +52,19 @@ export function InknoteApp() {
   const compact = breakpoint !== 'desktop'
   const [selectedNotebook, setSelectedNotebook] = useState<string | null>(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  const [libraryVisible, setLibraryVisible] = useState(true)
   const [pagesOpen, setPagesOpen] = useState(false)
+  const [pagesVisible, setPagesVisible] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [snapshotsOpen, setSnapshotsOpen] = useState(false)
+  const [presentationOpen, setPresentationOpen] = useState(false)
+  const [recordingOpen, setRecordingOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
+  const pdfInput = useRef<HTMLInputElement>(null)
+  const attachInput = useRef<HTMLInputElement>(null)
+  const importInput = useRef<HTMLInputElement>(null)
   const [markup, setMarkup] = useState(false)
   const [title, setTitle] = useState('')
   const engineRef = useRef<InknoteEngineApi | null>(null)
@@ -105,17 +119,45 @@ export function InknoteApp() {
     if (patch.eraserMode !== undefined) void updateSettings({ eraserMode: patch.eraserMode })
   }
 
+  function readAloud() {
+    if (!activePage) return
+    if (typeof window.speechSynthesis === 'undefined') { toast({ title: t('inknote.read.unsupported' as never), tone: 'danger' }); return }
+    const text = activePage.content.texts.map((item) => item.text).filter(Boolean).join('\n')
+    if (!text.trim()) { toast({ title: t('inknote.read.empty' as never) }); return }
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = document.documentElement.lang || 'zh-CN'
+    utterance.rate = settings?.ttsRate ?? 1
+    window.speechSynthesis.speak(utterance)
+  }
+
+  function moreItems(): MenuItem[] {
+    if (!note || !settings) return []
+    return [
+      { id: 'image', label: t('inknote.action.add_image' as never), onSelect: () => { setMoreMenu(null); imageInput.current?.click() } },
+      { id: 'pdf', label: t('inknote.action.import_pdf' as never), onSelect: () => { setMoreMenu(null); pdfInput.current?.click() } },
+      { id: 'attach', label: t('inknote.action.attach' as never), onSelect: () => { setMoreMenu(null); attachInput.current?.click() } },
+      { id: 'import', label: t('inknote.action.import' as never), onSelect: () => { setMoreMenu(null); importInput.current?.click() } },
+      { id: 'present', label: t('inknote.action.presentation' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); setPresentationOpen(true) } },
+      { id: 'pdf-export', label: t('inknote.action.export_pdf' as never), separatorBefore: true, onSelect: () => { setMoreMenu(null); void exportPdf(note, pages, settings) } },
+      { id: 'png-export', label: t('inknote.action.export_page_png' as never), onSelect: () => { setMoreMenu(null); if (activePage) void exportPagePng(note, activePage, settings) } },
+      { id: 'note-export', label: t('inknote.action.export_note' as never), onSelect: () => { setMoreMenu(null); void exportNoteFile(note, pages) } },
+      { id: 'text-export', label: t('inknote.action.export_text' as never), onSelect: () => { setMoreMenu(null); exportTextFile(note, pages, 'txt') } },
+      { id: 'snapshot', label: t('inknote.settings.snapshots'), onSelect: () => { setMoreMenu(null); setSnapshotsOpen(true) } },
+    ]
+  }
+
   if (!initialized && loading) return <div className="flex h-full items-center justify-center bg-[var(--bg-base)]"><LoadingBlock /></div>
   if (error && !library) return <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-13)] text-[var(--danger)]">{error}</p><button type="button" className="text-[length:var(--text-12)] underline" onClick={() => void bootstrap()}>{t('inknote.reload')}</button></div>
 
-  const showLibrary = !compact && !markup
-  const showPages = !compact && !markup
+  const showLibrary = !compact && !markup && libraryVisible
+  const showPages = !compact && !markup && pagesVisible
   const conflictPage = activePage ? conflicts[activePage.id] : undefined
 
   return (
     <div className="inknote-app relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2">
-        <IconButton label={t('inknote.library')} size="sm" onClick={() => compact ? setLibraryOpen(true) : setSelectedNotebook((value) => value)}><Library size={16}/></IconButton>
+        <IconButton label={t('inknote.library')} size="sm" active={!compact && libraryVisible} onClick={() => compact ? setLibraryOpen(true) : setLibraryVisible((value) => !value)}><Library size={16}/></IconButton>
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
@@ -129,7 +171,8 @@ export function InknoteApp() {
         <span data-save-state={saveState} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
           {saveState === 'saving' ? t('inknote.saving') : saveState === 'pending' ? t('inknote.save') : saveState === 'offline' ? t('inknote.offline') : saveState === 'error' ? t('inknote.save_failed') : t('inknote.saved')}
         </span>
-        <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => setSnapshotsOpen(false)}><Sparkles size={15}/></IconButton>
+        <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => setAiOpen(true)}><Sparkles size={15}/></IconButton>
+        <IconButton label={t('inknote.action.more')} size="sm" onClick={(event) => setMoreMenu({ x: event.clientX, y: event.clientY, items: moreItems() })}><MoreHorizontal size={15}/></IconButton>
         <IconButton label={t('inknote.action.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings size={15}/></IconButton>
         {compact && <IconButton label={t('inknote.action.pages')} size="sm" onClick={() => setPagesOpen(true)}><PanelRight size={16}/></IconButton>}
       </header>
@@ -140,12 +183,12 @@ export function InknoteApp() {
             engine={engineRef.current}
             tool={tool}
             onChange={changeTool}
-            onPages={() => compact ? setPagesOpen(true) : setPagesOpen((value) => !value)}
+            onPages={() => compact ? setPagesOpen(true) : setPagesVisible((value) => !value)}
             onSettings={() => setSettingsOpen(true)}
-            onRecord={() => toast({ title: t('inknote.recording.title') })}
-            onRead={() => toast({ title: t('inknote.action.read') })}
+            onRecord={() => setRecordingOpen(true)}
+            onRead={readAloud}
             onMarkup={() => setMarkup((value) => !value)}
-            onAi={() => toast({ title: t('inknote.ai.title') })}
+            onAi={() => setAiOpen(true)}
           />
         </div>
       )}
@@ -224,6 +267,14 @@ export function InknoteApp() {
       </Drawer>
       {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} />}
       <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
+      <RecordingPanel open={recordingOpen} noteId={note?.id ?? null} onClose={() => setRecordingOpen(false)} />
+      {settings && <AiPanel open={aiOpen} onClose={() => setAiOpen(false)} note={note} pages={pages} settings={settings} />}
+      <input ref={imageInput} type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note && activePage) void insertImage(file, note, activePage).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={pdfInput} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void insertPdf(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((id) => { if (id) toast({ title: t('inknote.saved') }) }).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={attachInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file && note) void inknoteApi.uploadAsset(file, 'attachment', note.id).then(() => toast({ title: t('inknote.saved') })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      <input ref={importInput} type="file" accept=".note,.notebook,.json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importNoteFile(file, note?.notebookId ?? library?.notebooks[0]?.id ?? '').then((count) => toast({ title: `${count}` })).catch((error) => toast({ title: String(error), tone: 'danger' })) }} />
+      {moreMenu && <Menu anchor={{ x: moreMenu.x, y: moreMenu.y }} open onClose={() => setMoreMenu(null)} items={moreMenu.items} />}
+      {presentationOpen && note && <PresentationOverlay note={note} pages={pages} initialIndex={activeIndex} onClose={() => setPresentationOpen(false)} />}
       <ConfirmHost />
       <PromptHost />
     </div>

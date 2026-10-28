@@ -6350,6 +6350,9 @@ const allowed = new Map([
     "/**\n * Render a page into a fresh canvas at a target CSS width. Used by page thumbnails, covers and\n * exports; the caller owns the returned canvas.\n */",
     "/**\n * Wait for a page's background and images before exporting or snapshotting. Missing or timed-out\n * assets are reported so the caller can warn; they never block the export indefinitely.\n */",
   ]],
+  ["src/client/features/inknote/io/operations.ts", [
+    "/** Browser-side file operations: insert media, import PDF pages and export the current note. */",
+  ]],
   ["src/client/features/inknote/library/LibraryPanel.tsx", [
     "/** The project → notebook → note library. One panel, shared by the desktop column and mobile drawer. */",
   ]],
@@ -6363,6 +6366,16 @@ const allowed = new Map([
   ]],
   ["src/client/features/inknote/tool-state.ts", [
     "/** Derives the engine's tool state from the account's remembered per-tool choices. */",
+  ]],
+  ["src/client/features/inknote/tools/AiPanel.tsx", [
+    "/** A small assistant drawer scoped to the handwriting note on screen. */",
+    "/* an incomplete frame is normal at chunk boundaries */",
+  ]],
+  ["src/client/features/inknote/tools/PresentationOverlay.tsx", [
+    "/** A full-screen page viewer with keyboard/touch paging and optional auto-play. */",
+  ]],
+  ["src/client/features/inknote/tools/RecordingPanel.tsx", [
+    "/** Audio recordings attached to one ink note. */",
   ]],
   ["src/client/features/inkpad/ink-elements.tsx", [
     "// An old .ink path may name no attachment any more; the card stays in its missing state.",
@@ -36422,6 +36435,9 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/inknote-assets.ts", [
     "/** HTTP surface for Inknote assets: upload, owner-only reads with Range, delete and prune. */",
+  ]],
+  ["src/worker/routes/inknote-recordings.ts", [
+    "/** Recording metadata, timelines and the account usage summary. */",
   ]],
   ["src/worker/routes/inknote-settings.ts", [
     "/** Inknote settings and user templates. Both are per-account rows; built-in templates stay client-side. */",
