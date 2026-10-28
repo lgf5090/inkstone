@@ -1,12 +1,252 @@
-import { NotebookPen } from 'lucide-react'
-import { useLocale } from '../../lib/i18n'
+import { useEffect, useRef, useState } from 'react'
+import { Library, PanelRight, Settings, Sparkles, X } from 'lucide-react'
+import { t } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
+import { useBreakpoint } from '../../lib/hooks'
+import { IconButton } from '../../components/primitives'
+import { ConfirmHost, Drawer, Modal, PromptHost, confirm } from '../../components/overlay'
+import { Empty, LoadingBlock } from '../../components/feedback'
+import { useUi } from '../../store/ui'
+import { inknoteApi } from './api'
+import { inknoteToolState } from './tool-state'
+import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
+import { useInknoteStore } from './store'
+import { InkCanvasArea } from './components/InkCanvasArea'
+import { InkPagesPanel } from './components/InkPagesPanel'
+import { InkToolbar } from './components/InkToolbar'
+import { LibraryPanel } from './library/LibraryPanel'
+import { SettingsDrawer } from './panels/SettingsDrawer'
+import type { InknoteEngineApi } from './engine/inknote-engine'
+import type { InknoteToolState } from './engine/inknote-engine-types'
 
 export function InknoteApp() {
-  useLocale()
+  const initialized = useInknoteStore((state) => state.initialized)
+  const loading = useInknoteStore((state) => state.loading)
+  const error = useInknoteStore((state) => state.error)
+  const library = useInknoteStore((state) => state.library)
+  const note = useInknoteStore((state) => state.note)
+  const pages = useInknoteStore((state) => state.pages)
+  const activePageId = useInknoteStore((state) => state.activePageId)
+  const tabs = useInknoteStore((state) => state.tabs)
+  const saveState = useInknoteStore((state) => state.saveState)
+  const conflicts = useInknoteStore((state) => state.conflicts)
+  const bootstrap = useInknoteStore((state) => state.bootstrap)
+  const openNote = useInknoteStore((state) => state.openNote)
+  const closeNote = useInknoteStore((state) => state.closeNote)
+  const setActivePage = useInknoteStore((state) => state.setActivePage)
+  const createNote = useInknoteStore((state) => state.createNote)
+  const createPage = useInknoteStore((state) => state.createPage)
+  const duplicatePage = useInknoteStore((state) => state.duplicatePage)
+  const deletePage = useInknoteStore((state) => state.deletePage)
+  const reorderPages = useInknoteStore((state) => state.reorderPages)
+  const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
+  const updateSettings = useInknoteStore((state) => state.updateSettings)
+  const saveAll = useInknoteStore((state) => state.saveAll)
+  const clearConflict = useInknoteStore((state) => state.clearConflict)
+  const toast = useUi((state) => state.toast)
+  const breakpoint = useBreakpoint()
+  const compact = breakpoint !== 'desktop'
+  const [selectedNotebook, setSelectedNotebook] = useState<string | null>(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const [pagesOpen, setPagesOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false)
+  const [markup, setMarkup] = useState(false)
+  const [title, setTitle] = useState('')
+  const engineRef = useRef<InknoteEngineApi | null>(null)
+  const settings = library?.settings
+  const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null
+  const activeIndex = activePage ? pages.findIndex((page) => page.id === activePage.id) : 0
+  const tool = settings ? inknoteToolState(settings) : inknoteToolState(DEFAULT_INKNOTE_SETTINGS)
+
+  useEffect(() => { void bootstrap() }, [bootstrap])
+  useEffect(() => { if (note) setTitle(note.title) }, [note?.id, note?.title])
+  useEffect(() => {
+    if (!initialized || note) return
+    const match = /^\/inknote\/note\/([0-9a-hjkmnp-tv-z]{26})(?:\/page\/(\d+))?\/?$/.exec(window.location.pathname)
+    if (!match) return
+    void openNote(match[1]!, match[2] ? Number(match[2]) : 0)
+  }, [initialized, note, openNote])
+
+
+  useEffect(() => {
+    const handler = () => { void saveAll() }
+    window.addEventListener('pagehide', handler)
+    document.addEventListener('visibilitychange', handler)
+    return () => { window.removeEventListener('pagehide', handler); document.removeEventListener('visibilitychange', handler) }
+  }, [saveAll])
+
+  const persistTitle = () => {
+    if (!note) return
+    const next = title.trim()
+    if (!next) { setTitle(note.title); return }
+    if (next !== note.title) void updateNoteMeta({ title: next })
+  }
+
+  const changeTool = (patch: Partial<InknoteToolState>) => {
+    if (!settings) return
+    if (patch.tool !== undefined) { void updateSettings({ tool: patch.tool }); return }
+    if (patch.color !== undefined) {
+      if (settings.tool === 'highlighter') void updateSettings({ hlColor: patch.color, color: patch.color })
+      else if (settings.tool === 'pen') void updateSettings({ penColor: patch.color, color: patch.color })
+      else if (settings.tool === 'ballpen') void updateSettings({ ballpenColor: patch.color, color: patch.color })
+      else void updateSettings({ color: patch.color })
+      return
+    }
+    if (patch.width !== undefined) {
+      if (settings.tool === 'highlighter') void updateSettings({ hlWidth: patch.width })
+      else if (settings.tool === 'pen') void updateSettings({ penWidth: patch.width })
+      else void updateSettings({ ballpenWidth: patch.width })
+      return
+    }
+    if (patch.style !== undefined) void updateSettings(settings.tool === 'pen' ? { penStyle: patch.style } : { ballpenStyle: patch.style })
+    if (patch.shape !== undefined) void updateSettings({ shape: patch.shape })
+    if (patch.eraserSize !== undefined) void updateSettings({ eraserSize: patch.eraserSize })
+    if (patch.eraserMode !== undefined) void updateSettings({ eraserMode: patch.eraserMode })
+  }
+
+  if (!initialized && loading) return <div className="flex h-full items-center justify-center bg-[var(--bg-base)]"><LoadingBlock /></div>
+  if (error && !library) return <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-13)] text-[var(--danger)]">{error}</p><button type="button" className="text-[length:var(--text-12)] underline" onClick={() => void bootstrap()}>{t('inknote.reload')}</button></div>
+
+  const showLibrary = !compact && !markup
+  const showPages = !compact && !markup
+  const conflictPage = activePage ? conflicts[activePage.id] : undefined
+
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-[var(--bg-base)] text-[var(--text-secondary)]">
-      <NotebookPen size={28} aria-hidden="true" />
-      <p className="text-[length:var(--text-14)]">Inknote</p>
+    <div className="inknote-app relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2">
+        <IconButton label={t('inknote.library')} size="sm" onClick={() => compact ? setLibraryOpen(true) : setSelectedNotebook((value) => value)}><Library size={16}/></IconButton>
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          onBlur={persistTitle}
+          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }}
+          placeholder={t('inknote.untitled')}
+          aria-label={t('inknote.rename')}
+          className="min-w-0 flex-1 bg-transparent text-[length:var(--text-14)] font-semibold outline-none"
+          disabled={!note}
+        />
+        <span data-save-state={saveState} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
+          {saveState === 'saving' ? t('inknote.saving') : saveState === 'pending' ? t('inknote.save') : saveState === 'offline' ? t('inknote.offline') : saveState === 'error' ? t('inknote.save_failed') : t('inknote.saved')}
+        </span>
+        <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => setSnapshotsOpen(false)}><Sparkles size={15}/></IconButton>
+        <IconButton label={t('inknote.action.settings')} size="sm" onClick={() => setSettingsOpen(true)}><Settings size={15}/></IconButton>
+        {compact && <IconButton label={t('inknote.action.pages')} size="sm" onClick={() => setPagesOpen(true)}><PanelRight size={16}/></IconButton>}
+      </header>
+
+      {!markup && settings && (
+        <div className={cn('relative z-[var(--z-float)] shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]', settings.toolbar === 'bottom' && 'order-3 border-b-0 border-t')}>
+          <InkToolbar
+            engine={engineRef.current}
+            tool={tool}
+            onChange={changeTool}
+            onPages={() => compact ? setPagesOpen(true) : setPagesOpen((value) => !value)}
+            onSettings={() => setSettingsOpen(true)}
+            onRecord={() => toast({ title: t('inknote.recording.title') })}
+            onRead={() => toast({ title: t('inknote.action.read') })}
+            onMarkup={() => setMarkup((value) => !value)}
+            onAi={() => toast({ title: t('inknote.ai.title') })}
+          />
+        </div>
+      )}
+
+      {conflictPage && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--danger)] bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+          <span className="min-w-0 flex-1 truncate">{t('inknote.conflict')}</span>
+          <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void openNote(note!.id, activeIndex) } }}>{t('inknote.reload')}</button>
+          <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void createPage(activePage.id) } }}>{t('inknote.save_as_new_page')}</button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {showLibrary && (
+          <div className="w-[282px] shrink-0">
+            <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} />
+          </div>
+        )}
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {note && activePage && settings
+            ? <InkCanvasArea
+                note={note}
+                page={activePage}
+                pageIndex={activeIndex}
+                pageCount={pages.length}
+                settings={settings}
+                tool={tool}
+                onPrevPage={() => { const previous = pages[activeIndex - 1]; if (previous) setActivePage(previous.id) }}
+                onNextPage={() => { const next = pages[activeIndex + 1]; if (next) setActivePage(next.id) }}
+                onSelectPage={setActivePage}
+                onEngine={(engine) => { engineRef.current = engine }}
+              />
+            : <div className="flex h-full items-center justify-center p-6">
+                <Empty title={t('inknote.no_notes')} description={t('inknote.welcome.body')} action={<button type="button" className="rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--accent-contrast)]" onClick={() => void createNote(library?.notebooks[0]?.id)}>{t('inknote.new_note')}</button>} />
+              </div>}
+        </main>
+        {showPages && note && settings && (
+          <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={setActivePage} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void confirm({ title: t('inknote.page.delete'), description: t('inknote.confirm_delete_note'), confirmLabel: t('inknote.delete') }).then((ok) => ok ? deletePage(id) : undefined)} onMove={(id, direction) => {
+            const index = pages.findIndex((page) => page.id === id)
+            const target = pages[index + direction]
+            if (!target) return
+            const ids = pages.map((page) => page.id)
+            ids.splice(index, 1)
+            ids.splice(index + direction, 0, id)
+            void reorderPages(ids)
+          }} />
+        )}
+      </div>
+
+      {tabs.length > 1 && (
+        <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1" role="tablist" aria-label={t('inknote.library')}>
+          {tabs.map((id) => {
+            const meta = library?.notes.find((entry) => entry.id === id)
+            if (!meta) return null
+            return (
+              <button key={id} type="button" role="tab" aria-selected={note?.id === id} onClick={() => void openNote(id)} className={cn('flex max-w-40 shrink-0 items-center gap-1 rounded-[var(--r-xs)] px-2 py-1 text-[length:var(--text-11)]', note?.id === id ? 'bg-[var(--bg-surface)]' : 'text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]')}>
+                <span className="truncate">{meta.title}</span>
+                <span role="button" tabIndex={-1} aria-label={t('inknote.close')} className="rounded-full p-0.5 hover:bg-[var(--bg-active)]" onClick={(event) => { event.stopPropagation(); if (note?.id === id) closeNote() }}><X size={10}/></span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <Drawer open={libraryOpen} onClose={() => setLibraryOpen(false)} title={t('inknote.library')} side="left" width={300}>
+        <LibraryPanel selectedNotebookId={selectedNotebook} onSelectNotebook={setSelectedNotebook} onAfterOpen={() => setLibraryOpen(false)} />
+      </Drawer>
+      <Drawer open={pagesOpen} onClose={() => setPagesOpen(false)} title={t('inknote.action.pages')} side="right" width={190}>
+        {note && settings && <InkPagesPanel note={note} pages={pages} activePageId={activePageId} settings={settings} onSelect={(id) => { setActivePage(id); setPagesOpen(false) }} onAdd={() => void createPage(activePageId ?? undefined)} onDuplicate={(id) => void duplicatePage(id)} onDelete={(id) => void deletePage(id)} onMove={(id, direction) => {
+          const index = pages.findIndex((page) => page.id === id)
+          const ids = pages.map((page) => page.id)
+          ids.splice(index, 1)
+          ids.splice(index + direction, 0, id)
+          void reorderPages(ids)
+        }} />}
+      </Drawer>
+      {settings && <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} note={note} settings={settings} onOpenSnapshots={() => { setSettingsOpen(false); setSnapshotsOpen(true) }} />}
+      <SnapshotsDialog open={snapshotsOpen} onClose={() => setSnapshotsOpen(false)} />
+      <ConfirmHost />
+      <PromptHost />
     </div>
+  )
+}
+
+function SnapshotsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [items, setItems] = useState<{ id: string; label: string; noteCount: number; size: number; createdAt: number }[]>([])
+  const load = () => { if (open) inknoteApi.snapshots().then((response) => setItems(response.snapshots)).catch(() => setItems([])) }
+  useEffect(load, [open])
+  return (
+    <Modal open={open} onClose={onClose} title={t('inknote.settings.snapshots')} width={520}>
+      <div className="space-y-1">
+        <button type="button" className="mb-2 rounded-[var(--r-sm)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--accent-contrast)]" onClick={() => void inknoteApi.createSnapshot('manual').then(load)}>{t('inknote.settings.snapshots')}</button>
+        {items.length === 0 && <p className="py-4 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('inknote.no_notes')}</p>}
+        {items.map((item) => (
+          <div key={item.id} className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5">
+            <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{new Date(item.createdAt).toLocaleString()} · {item.noteCount}</span>
+            <button type="button" className="text-[length:var(--text-11)] underline" onClick={() => void inknoteApi.restoreSnapshot(item.id).then(() => { onClose(); void useInknoteStore.getState().bootstrap() })}>{t('inknote.restore')}</button>
+            <button type="button" className="text-[length:var(--text-11)] text-[var(--danger)]" onClick={() => void inknoteApi.deleteSnapshot(item.id).then(load)}>{t('inknote.delete')}</button>
+          </div>
+        ))}
+      </div>
+    </Modal>
   )
 }

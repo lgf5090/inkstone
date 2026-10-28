@@ -16,6 +16,7 @@ import { ZH_CN_EMAIL_RAW } from './zh-CN-email-raw';
 import { ZH_CN_EMAIL_RULES } from './zh-CN-email-rules';
 import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
+import { ZH_CN_INKNOTE } from './zh-CN-inknote';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
@@ -10165,4 +10166,5 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_INK,
     ...ZH_CN_INK_ELEMENTS,
     ...ZH_CN_INK_SETTINGS,
+    ...ZH_CN_INKNOTE,
 } as const satisfies Record<BaseMessageKey, string>;
