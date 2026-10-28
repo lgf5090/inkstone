@@ -213,6 +213,8 @@ export function consentPage(input: {
   const wantsTodoRead = requested.has(MCP_SCOPES.todoRead)
   const wantsTodoWrite = requested.has(MCP_SCOPES.todoWrite)
   const wantsTodoDanger = requested.has(MCP_SCOPES.todoDanger)
+  const wantsDatabaseRead = requested.has(MCP_SCOPES.databaseRead)
+  const wantsDatabaseWrite = requested.has(MCP_SCOPES.databaseWrite)
   const copy = authorizationCopy(input.locale)
   const clientName = escapeHtml(input.client.clientName || copy.mcpClient)
   return page(`
@@ -248,6 +250,8 @@ export function consentPage(input: {
             ${wantsTodoRead ? permission(MCP_SCOPES.todoRead, copy.todoReadTitle, copy.todoReadDetail, false) : ''}
             ${wantsTodoWrite ? permission(MCP_SCOPES.todoWrite, copy.todoWriteTitle, copy.todoWriteDetail, false) : ''}
             ${wantsTodoDanger ? permission(MCP_SCOPES.todoDanger, copy.todoDangerTitle, copy.todoDangerDetail, false) : ''}
+            ${wantsDatabaseRead ? permission(MCP_SCOPES.databaseRead, copy.databaseReadTitle, copy.databaseReadDetail, false) : ''}
+            ${wantsDatabaseWrite ? permission(MCP_SCOPES.databaseWrite, copy.databaseWriteTitle, copy.databaseWriteDetail, false) : ''}
           </div>
         </section>
         <section class="form-section" aria-labelledby="privacy-title">
@@ -333,6 +337,10 @@ function authorizationCopy(locale: AppLocale) {
       todoWriteDetail: '\u53ef\u521b\u5efa\u3001\u4fee\u6539\u5e76\u5b8c\u6210\u5f85\u529e\uff0c\u53ef\u63d0\u4ea4\u6b65\u9aa4\u3001\u6807\u7b7e\u4e0e\u6e05\u5355\u3002\u5b8c\u6210\u91cd\u590d\u4efb\u52a1\u4f1a\u767b\u8bb0\u5b83\u7684\u4e0b\u4e00\u6b21\u3002',
       todoDangerTitle: '\u6c38\u4e45\u5220\u9664\u5f85\u529e',
       todoDangerDetail: '\u786c\u5220\u9664\uff1a\u5f85\u529e\u4e0d\u50cf\u7b14\u8bb0\u90a3\u6837\u6709\u53ef\u6062\u590d\u7684\u56de\u6536\u7ad9\u3002',
+      databaseReadTitle: '\u8bfb\u53d6\u6570\u636e\u5e93',
+      databaseReadDetail: '\u53ef\u6d4f\u89c8\u6570\u636e\u5e93\u8868\u7ed3\u6784\u5e76\u6267\u884c\u53ea\u8bfb\u67e5\u8be2\u3002',
+      databaseWriteTitle: '\u4fee\u6539\u6570\u636e\u5e93',
+      databaseWriteDetail: '\u53ef\u6267\u884c\u5199\u5165\u3001DDL \u4e0e PRAGMA\uff1b\u6bcf\u6b21\u5199\u5165\u90fd\u9700\u8981\u786e\u8ba4\u3002',
       privacy: '隐私',
       privacyDetail: (clientName: string) =>
         `Cloudflare 托管静态加密的服务数据。只有工具读取笔记时，内容才会发送给 ${clientName}，之后由该客户端的隐私政策约束。`,
@@ -378,6 +386,10 @@ function authorizationCopy(locale: AppLocale) {
     todoWriteDetail: 'May create, edit and complete tasks and file their steps, tags and lists. Completing a repeating task files its next occurrence.',
     todoDangerTitle: 'Delete to-dos for good',
     todoDangerDetail: 'Hard delete: unlike a note there is no trash to restore a task from.',
+      databaseReadTitle: 'Read databases',
+      databaseReadDetail: 'Browse table schemas and run read-only queries.',
+      databaseWriteTitle: 'Change databases',
+      databaseWriteDetail: 'May run writes, DDL and PRAGMA; every write needs confirmation.',
     privacy: 'Privacy',
     privacyDetail: (clientName: string) =>
       `Cloudflare hosts the encrypted-at-rest service data. Note content is sent to ${clientName} only when a tool reads it, then follows that client’s privacy policy.`,

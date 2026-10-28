@@ -11,6 +11,8 @@ export const MCP_SCOPES = {
   emailWrite: 'email:write',
   emailSend: 'email:send',
   emailTrash: 'email:trash',
+  databaseRead: 'database:read',
+  databaseWrite: 'database:write',
 } as const
 
 /**
@@ -212,6 +214,8 @@ export function grantedMcpScopes(
   if (preferences.todoReadEnabled && requestedSet.has(MCP_SCOPES.todoRead)) granted.push(MCP_SCOPES.todoRead)
   if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.todoWrite)) granted.push(MCP_SCOPES.todoWrite)
   if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.todoDanger)) granted.push(MCP_SCOPES.todoDanger)
+  if (requestedSet.has(MCP_SCOPES.databaseRead)) granted.push(MCP_SCOPES.databaseRead)
+  if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.databaseWrite)) granted.push(MCP_SCOPES.databaseWrite)
   if (preferences.emailEnabled) {
     if (requestedSet.has(MCP_SCOPES.emailRead)) granted.push(MCP_SCOPES.emailRead)
     if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.emailWrite)) granted.push(MCP_SCOPES.emailWrite)

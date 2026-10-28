@@ -3394,6 +3394,9 @@ const allowed = new Map([
     "// The to-do chip is the same promise one app over: what the reader sees beside the dock is",
     "// what the turn may read, and taking it off leaves the list on screen unsent.",
     "/** The music screen the dock beside the player is carrying, and whether the chip is attached. */",
+    "// An approval runs after the turn has closed, so a surface that mirrors the tool's target (the",
+    "// database Studio's schema tree) has no other frame to hear about it. The event names the tool and",
+    "// nothing else: the page decides what in it needs re-reading.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -28677,6 +28680,9 @@ const allowed = new Map([
     "// A nested subgroup needs its own copy: a shallow spread would hand every clone the same",
     "// `pomodoro` object, and one reader's edit would show up in the next one's defaults.",
   ]],
+  ["src/shared/development/database/assistant-context.ts", [
+    "/** Absent for a local SQLite file, which only exists in the browser. */",
+  ]],
   ["src/shared/linter.test.ts", [
     "/**\n * The settings blob's boundary.\n *\n * A reader can bring this object into the app from a backup restore as well as from the settings\n * page, and the panel's own refusals are not in the way then. So everything that a lint run will\n * later compile or iterate is checked here: the shape, the size, and the flags. A value the\n * normaliser cannot recognise is dropped rather than passed on, because the alternative is a stored\n * string reaching `new RegExp` or a rule's option.\n */",
     "// Every value is checked for the kind it is, not against the type the rule declared: the worker",
@@ -31578,6 +31584,7 @@ const allowed = new Map([
     "// Budget, key, deadline and metering are the one-shot path's job. A call with no request left on",
     "// the day's ceiling, or one the provider refuses, yields nothing and leaves the derived title",
     "// standing — the answer is already filed, so this is the honest failure for a nicety.",
+    "/** The database the reader is looking at, when the question is asked beside the Studio. */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -32955,7 +32962,6 @@ const allowed = new Map([
     "// the app show\" must not be handed a shorter answer than the reader sees.",
     "// Only the days that charged something, which for one person is a dozen or so rows rather than",
     "// 182 — the same picture the heat grid paints, for a reader who asks in words.",
-    "/** `array`: every entry is a string. A step list and a tag list are the two callers. */",
     "/**\n   * An explicit `null` is a value the tool acts on, not a missing argument.\n   *\n   * Only the fields whose description says \"null clears it\" set this. Everywhere else a null is read\n   * as \"the model left this out\", because a model that sends null for a field it has nothing to say\n   * about must not be told its call was malformed.\n   */",
     "/**\n * A task as the model sees it.\n *\n * Everything the reader set is named, because a model that cannot see a list or a step count will\n * happily rewrite the field it cannot see. The list travels as an id: names are the reader's, and\n * `list_task_lists` is the one call that knows them.\n */",
     "/** The counts a listing answers with, so \"how many are left\" needs no second call. */",
@@ -33014,6 +33020,8 @@ const allowed = new Map([
     "// Read before the write, so a reference that matches nothing is refused as a tool error rather",
     "// than as a half-applied patch.",
     "/**\n * The tasks one argument names, as ids.\n *\n * A reader names another task the way they would say it out loud — a title, half-remembered — so every\n * entry is read exactly the way an update reads its own `task` argument: an id, or a title matching one\n * task, and an entry that matches nothing is refused with the sentence that says what to do instead.\n * The store still judges the set — its ceiling, a self-wait, a cycle, whose task it is; this turns words into ids.\n */",
+    "/** `array`: entries of one type. A step list and a tag list are strings; database rows are objects. */",
+    "/** The saved database connection the reader is looking at, so the tools can default to it. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -34454,6 +34462,8 @@ const allowed = new Map([
     "// A podcast episode's comments and description belong to the programme, not to the audio file",
     "// it streams from. Both columns are empty for songs and for rows written before this version;",
     "// a provider snapshot backfills them without touching the reader's edited metadata.",
+    "// The development database Studio's tables: connections, saved queries, history, exports and",
+    "// settings. Numbered after the Cloudflare and music migrations that were already on test.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

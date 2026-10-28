@@ -43,4 +43,10 @@ describe('the addresses the client routes on its own', () => {
     expect(tabIdForPath('/tools/password')).toBe('tools')
     expect(tabIdForPath('/tools/password/accounts')).toBe('tools')
   })
+
+  it('routes development paths to the development tab', () => {
+    expect(tabIdForPath('/development')).toBe('development')
+    expect(tabIdForPath('/development/')).toBe('development')
+    expect(tabIdForPath('/development/database')).toBe('development')
+  })
 })

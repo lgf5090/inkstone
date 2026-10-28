@@ -19,6 +19,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   music: true,
   cloudflare: true,
   tools: true,
+  development: true,
 }
 
 describe('the app tab registry', () => {

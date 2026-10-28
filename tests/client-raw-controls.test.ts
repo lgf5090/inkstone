@@ -70,10 +70,6 @@ const COMPONENT_NAMED_BUTTONS = new Map<string, string>([
     'The import buttons switch their own caption: while a download runs they draw a spinner plus a different string, so the read sees a conditional fragment where the name is. A screen reader reads the span the component writes, which is the name the button has at that moment.',
   ],
   [
-    'src/client/components/form.tsx',
-    'The checkbox row takes its name from its `label`, which the row draws inside a `<span>`: this read sees an element where a browser reads that span\'s text. A row created with no label is unnamed, and that is the caller\'s contract, not this element\'s.',
-  ],
-  [
     'src/client/features/settings/SettingsPanel.tsx',
     'A search hit is named by `<HitTitle>`, the component that emphasises the matched substring inside nested spans. The name is text a component writes, which is exactly what a static read cannot see and a screen reader does.',
   ],
