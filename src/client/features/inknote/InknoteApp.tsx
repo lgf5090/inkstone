@@ -266,7 +266,7 @@ const [findOpen, setFindOpen] = useState(false)
           className="min-w-0 flex-1 bg-transparent text-[length:var(--text-14)] font-semibold outline-none"
           disabled={!note}
         />
-        <span data-save-state={saveState} className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
+        <span data-save-state={saveState} aria-live="polite" className="hidden shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">
           {saveState === 'saving' ? t('inknote.saving') : saveState === 'pending' ? t('inknote.save') : saveState === 'offline' ? t('inknote.offline') : saveState === 'error' ? t('inknote.save_failed') : t('inknote.saved')}
         </span>
         <IconButton label={t('inknote.action.ai')} size="sm" onClick={() => toggleAssistantDock()}><Sparkles size={15}/></IconButton>
@@ -292,7 +292,7 @@ const [findOpen, setFindOpen] = useState(false)
       )}
 
       {conflictPage && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--danger)] bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--danger)] bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
           <span className="min-w-0 flex-1 truncate">{t('inknote.conflict')}</span>
           <button type="button" className="underline" onClick={() => { if (activePage) { clearConflict(activePage.id); void openNote(note!.id, activeIndex) } }}>{t('inknote.reload')}</button>
           <button type="button" className="underline" onClick={() => { if (activePage && note) { const content = JSON.stringify(activePage.content); clearConflict(activePage.id); void inknoteApi.createPage(note.id, { afterPageId: activePage.id, content }).then(() => openNote(note.id)) } }}>{t('inknote.save_as_new_page')}</button>
@@ -300,14 +300,14 @@ const [findOpen, setFindOpen] = useState(false)
       )}
 
       {Object.keys(drafts).length > 0 && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+        <div role="status" className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
           <span className="min-w-0 flex-1 truncate">{t('inknote.drafts.found', { count: String(Object.keys(drafts).length) })}</span>
           <button type="button" className="underline" onClick={() => void restoreDrafts()}>{t('inknote.drafts.restore')}</button>
           <button type="button" className="underline" onClick={discardDrafts}>{t('inknote.drafts.discard')}</button>
         </div>
       )}
       {saveState === 'offline' && !conflictPage && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
+        <div role="status" className="flex shrink-0 items-center gap-2 border-b border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-1.5 text-[length:var(--text-12)]">
           <span className="min-w-0 flex-1 truncate">{t('inknote.offline_hint')}</span>
           <button type="button" className="underline" onClick={() => void saveAll()}>{t('inknote.retry')}</button>
         </div>

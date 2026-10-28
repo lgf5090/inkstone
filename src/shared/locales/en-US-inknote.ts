@@ -216,6 +216,7 @@ export const EN_US_INKNOTE = {
   'inknote.attachments.delete_confirm': 'Delete this attachment? The file is removed from storage.',
   'inknote.attachments.uploaded': 'Attachment uploaded',
   'inknote.action.paste_selection': 'Paste',
+  'inknote.canvas.label': 'Handwritten canvas for {title}, page {page}; use the toolbar to switch tools',
   'inknote.selection.copy_text': 'Copy text',
   'inknote.selection.replace_image': 'Replace image',
   'inknote.selection.export': 'Export selection',

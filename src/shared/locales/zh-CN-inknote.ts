@@ -216,6 +216,7 @@ export const ZH_CN_INKNOTE = {
   'inknote.attachments.delete_confirm': '删除这个附件？文件会从存储中移除。',
   'inknote.attachments.uploaded': '附件已上传',
   'inknote.action.paste_selection': '粘贴',
+  'inknote.canvas.label': '{title}的手写画布，第 {page} 页；用工具栏切换工具',
   'inknote.selection.copy_text': '复制文字',
   'inknote.selection.replace_image': '替换图片',
   'inknote.selection.export': '导出选区',

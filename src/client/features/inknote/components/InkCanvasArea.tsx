@@ -351,7 +351,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
     <div className="inknote-canvas-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-sunken)]" ref={hostRef}>
       <div className="inknote-page-scroll flex min-h-0 flex-1 items-start justify-center overflow-auto p-3 md:p-6">
         <div className="inknote-page-frame relative shadow-[var(--shadow-soft)]" style={{ aspectRatio: `${note.pageWidth} / ${note.pageHeight}`, width: 'min(100%, 860px)' }}>
-          <canvas ref={canvasRef} className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.tool.pen')} />
+          <canvas ref={canvasRef} role="img" className="inknote-canvas block size-full touch-none rounded-[2px]" aria-label={t('inknote.canvas.label', { title: note.title, page: String(pageIndex + 1) })} />
           {ttsBox && (
             <div data-ink-tts-cue="" aria-hidden="true" className="pointer-events-none absolute rounded-[3px] border-2 border-[var(--accent)]" style={{ left: ttsBox.left, top: ttsBox.top, width: ttsBox.width, height: ttsBox.height, background: 'color-mix(in oklab, var(--accent) 14%, transparent)', zIndex: 'calc(var(--z-float) - 2)' }}/>
           )}
@@ -402,7 +402,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, settings, onPr
       </div>
       <div className="flex h-9 shrink-0 items-center justify-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[length:var(--text-11)] text-[var(--text-tertiary)]">
         <Button size="sm" variant="ghost" onClick={onPrevPage} disabled={pageIndex <= 0}>‹</Button>
-        <span data-page-indicator="">{pageIndex + 1} / {pageCount}</span>
+        <span data-page-indicator="" aria-live="polite">{pageIndex + 1} / {pageCount}</span>
         <Button size="sm" variant="ghost" onClick={onNextPage} disabled={pageIndex >= pageCount - 1}>›</Button>
         <span className="mx-2 opacity-60">{Math.round(zoom * 100)}%</span>
       </div>
