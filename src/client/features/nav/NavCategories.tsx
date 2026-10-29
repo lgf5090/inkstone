@@ -10,6 +10,7 @@ import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog-data'
 import { searchEmojiIn } from '../../lib/emoji-catalog-core'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { categoryOptions } from './api'
 import { NavIcon } from './nav-icons'
 import { useNavStore } from './nav-store'
@@ -31,10 +32,11 @@ type IconTab = 'emoji' | 'lucide'
 export function IconPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [tab, setTab] = useState<IconTab>(() => (isEmojiIcon(value) ? 'emoji' : 'lucide'))
   const [query, setQuery] = useState('')
+  const pinyinVersion = usePinyinVersion()
   const normalized = normalizeIconName(value)
   const emojiEntries = useMemo(
     () => (query.trim() ? searchEmojiIn(EMOJI_ICON_ENTRIES, query) : EMOJI_ICON_ENTRIES),
-    [query],
+    [query, pinyinVersion],
   )
   const lucideNames = useMemo(() => {
     const needle = query.trim().toLowerCase()

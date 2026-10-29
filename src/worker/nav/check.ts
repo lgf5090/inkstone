@@ -44,13 +44,13 @@ async function checkOne(url: string): Promise<NavCheckResult> {
   if (!isHttpUrl(url)) return { url, status: null, ok: false, level: 'skipped', durationMs: 0, errorCode: 'invalid_url' }
   let result = await guardedFetch(url, { method: 'HEAD', timeoutMs: 8000, maxRedirects: 5 })
   if (!result.error && (result.response.status === 405 || result.response.status === 403)) {
-    await result.response.body?.cancel().catch(() => {})
+    await result.response.body?.cancel().catch(() => null)
     result = await guardedFetch(url, { method: 'GET', timeoutMs: 8000, maxRedirects: 5 })
   } else if (result.error && result.error !== 'blocked_target' && result.error !== 'invalid_url') {
     result = await guardedFetch(url, { method: 'GET', timeoutMs: 8000, maxRedirects: 5 })
   }
   if (result.error) return failure(url, started, result.error, result.finalUrl)
-  await result.response.body?.cancel().catch(() => {})
+  await result.response.body?.cancel().catch(() => null)
   const level = levelFor(result.response.status)
   return {
     url,

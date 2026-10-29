@@ -54,7 +54,7 @@ async function verifyFile(base: URL, auth: string, filename: string, signal?: Ab
     headers: { Authorization: auth, Depth: '0' },
     signal,
   }, base.origin)
-  await response.body?.cancel().catch(() => {})
+  await response.body?.cancel().catch(() => null)
   return response.status === 207 || response.ok
 }
 
@@ -124,7 +124,7 @@ navBackupRoutes.post('/webdav/backup', async (c) => {
     body: payload as unknown as BodyInit,
     signal,
   }, base.origin)
-  await response.body?.cancel().catch(() => {})
+  await response.body?.cancel().catch(() => null)
   if (!response.ok) throw new ApiError(502, 'nav_webdav_failed', `WebDAV upload failed: HTTP ${response.status}`)
   const verified = await verifyFile(base, auth, filename, signal)
   return c.json({ ok: true, filename, verified })
@@ -147,7 +147,7 @@ navBackupRoutes.post('/webdav/restore', async (c) => {
   }, base.origin)
   if (response.status === 404) throw new ApiError(404, 'not_found', 'Backup file not found')
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {})
+    await response.body?.cancel().catch(() => null)
     throw new ApiError(502, 'nav_webdav_failed', `WebDAV download failed: HTTP ${response.status}`)
   }
   const bytes = await readResponseBytesWithinLimit(response, 20 * 1024 * 1024)

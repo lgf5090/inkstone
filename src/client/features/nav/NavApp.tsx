@@ -9,6 +9,7 @@ import { compileQuery, queryMatches } from '../../lib/query-match'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { copyText } from '../../lib/clipboard'
+import { usePinyinVersion } from '../../lib/pinyin'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { Button, Badge, IconButton } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
@@ -105,7 +106,7 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
           {!detailed && <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{link.url}</p>}
           {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="mt-0.5 w-fit whitespace-nowrap">{t('nav.visit_count', { count: visitCount })}</Badge>}
         </div>
-        <div className="pointer-events-auto absolute right-1 top-1 z-20 flex items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-surface)]/90 p-0.5 opacity-100 shadow-sm backdrop-blur-sm [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
+        <div className="pointer-events-auto absolute right-1 top-1 z-20 flex items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-surface)]/90 p-0.5 opacity-100 shadow-sm [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
           {sorting ? (
             <>
               <IconButton label={t('nav.move_up')} onClick={() => onMove(link, -1)}><ArrowUp size={13} /></IconButton>
@@ -210,6 +211,7 @@ export function NavApp() {
   const deleteLink = useNavStore((state) => state.deleteLink)
   const reorderLinks = useNavStore((state) => state.reorderLinks)
   const toast = useUi((state) => state.toast)
+  const pinyinVersion = usePinyinVersion()
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     if (typeof window === 'undefined') return false
     try { return window.localStorage.getItem('inkstone.nav.sidebarHidden') === '1' } catch { return false }
@@ -262,7 +264,7 @@ export function NavApp() {
       scoped = links.filter((link) => scope.has(link.categoryId))
     }
     return scoped.filter((link) => matches(link, query))
-  }, [links, selectedCategory, selectedSubcategory, categories, query])
+  }, [links, selectedCategory, selectedSubcategory, categories, query, pinyinVersion])
   const showSmart = !selectedCategory && !selectedSubcategory && !query.trim()
   const recent = useMemo(() => {
     if (!showSmart) return []

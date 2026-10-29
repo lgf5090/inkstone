@@ -84,7 +84,7 @@ async function insertIcon(
       .bind(id, userId(c), key, sniffed.contentType, bytes.byteLength, sniffed.width, sniffed.height, source, sourceUrl, Date.now())
       .run()
   } catch (error) {
-    await deleteNavObject(c.env, kind, key).catch(() => {})
+    await deleteNavObject(c.env, kind, key).catch(() => null)
     throw error
   }
   return { id, url: iconUrl(id), width: sniffed.width, height: sniffed.height }
@@ -150,7 +150,7 @@ navIconRoutes.delete('/icons/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM nav_favicons WHERE user_id = ?1 AND icon = ?2').bind(user, url).run()
   await c.env.DB.prepare('DELETE FROM nav_icons WHERE user_id = ?1 AND id = ?2').bind(user, id).run()
   const kind = selectNavStorage(c.env)
-  if (kind) await deleteNavObject(c.env, kind, row.object_key).catch(() => {})
+  if (kind) await deleteNavObject(c.env, kind, row.object_key).catch(() => null)
   return c.json({ ok: true })
 })
 
@@ -192,9 +192,9 @@ export async function pruneOrphanIcons(env: AppBindings['Bindings']): Promise<nu
       AND NOT EXISTS (SELECT 1 FROM nav_categories c WHERE c.user_id = i.user_id AND c.icon = '/api/nav/icons/' || i.id)
     LIMIT 100`).bind(cutoff).all<{ user_id: string; id: string; object_key: string }>()
   for (const row of results) {
-    await deleteNavObject(env, kind, row.object_key).catch(() => {})
-    await env.DB.prepare("DELETE FROM nav_favicons WHERE icon = ?1").bind(`/api/nav/icons/${row.id}`).run().catch(() => {})
-    await env.DB.prepare('DELETE FROM nav_icons WHERE user_id = ?1 AND id = ?2').bind(row.user_id, row.id).run().catch(() => {})
+    await deleteNavObject(env, kind, row.object_key).catch(() => null)
+    await env.DB.prepare("DELETE FROM nav_favicons WHERE icon = ?1").bind(`/api/nav/icons/${row.id}`).run().catch(() => null)
+    await env.DB.prepare('DELETE FROM nav_icons WHERE user_id = ?1 AND id = ?2').bind(row.user_id, row.id).run().catch(() => null)
   }
   return results.length
 }

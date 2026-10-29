@@ -146,7 +146,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       if (link) await updateLink(link.id, body)
       else await createLink(body)
       const domain = extractDomain(normalized)
-      if (domain && icon.startsWith('http')) await navApi.cacheFavicon(domain, icon.trim()).catch(() => {})
+      if (domain && icon.startsWith('http')) await navApi.cacheFavicon(domain, icon.trim()).catch(() => null)
       toast({ title: link ? t('nav.link.saved') : t('nav.link.added'), tone: 'success' })
       if (batchMode && !link) {
         setTitle('')
@@ -186,7 +186,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       const captured = await navApi.captureIcon(`${origin}/favicon.ico`)
       setIcon(captured.icon.url)
       const domain = extractDomain(url)
-      if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => {})
+      if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => null)
       if (manual) toast({ title: t('nav.link.icon_detected'), tone: 'success' })
     } catch (error) {
       if (manual) toast({ title: error instanceof Error ? error.message : t('nav.link.icon_not_found'), tone: 'danger' })
@@ -215,7 +215,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       const captured = await navApi.captureIcon(found)
       setIcon(captured.icon.url)
       const domain = extractDomain(url)
-      if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => {})
+      if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => null)
       toast({ title: t('nav.link.icon_detected'), tone: 'success' })
     } catch (error) {
       toast({ title: error instanceof Error ? error.message : t('nav.error.generic'), tone: 'danger' })

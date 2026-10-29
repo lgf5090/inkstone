@@ -60,7 +60,7 @@ export async function guardedFetch(raw: string, options: GuardedFetchOptions = {
       }
       if (!REDIRECTS.has(response.status)) return { response, finalUrl: current.toString(), error: null }
       const location = response.headers.get('location')
-      await response.body?.cancel().catch(() => {})
+      await response.body?.cancel().catch(() => null)
       if (!location) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'network' }
       if (hop === maxRedirects) return { response: new Response(null, { status: 502 }), finalUrl: current.toString(), error: 'too_many_redirects' }
       try {
@@ -85,7 +85,7 @@ export async function readGuardedBytes(response: Response, maxBytes: number, tim
     for (;;) {
       const result = await Promise.race([reader.read(), timeout])
       if (result === 'timeout') {
-        await reader.cancel().catch(() => {})
+        await reader.cancel().catch(() => null)
         return null
       }
       if (result.done) break
@@ -93,7 +93,7 @@ export async function readGuardedBytes(response: Response, maxBytes: number, tim
       if (!value) continue
       total += value.byteLength
       if (total > maxBytes) {
-        await reader.cancel().catch(() => {})
+        await reader.cancel().catch(() => null)
         return null
       }
       chunks.push(value)

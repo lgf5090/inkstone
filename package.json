@@ -160,7 +160,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.65.0",
-    "@cloudflare/workers-types": "^5.20261028.1",
+    "@cloudflare/workers-types": "^5.20261029.1",
     "@file-viewer/vite-plugin": "^3.2.3",
     "@tailwindcss/vite": "^4.3.3",
     "@types/bcryptjs": "^2.4.6",
