@@ -11,6 +11,7 @@ import type { CloudDriveEntry, CloudDriveListing } from '@shared/clouddrive/mode
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { listExternal } from './external'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
@@ -140,6 +141,9 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
   const path = parsePath(c.req.query('path') ?? '/')
+  if (mount.storageId !== 'primary') {
+    return c.json(await listExternal(c.env, c.env.DB, mount, path))
+  }
   const parent = await resolveEntry(c.env.DB, userId, mount.id, path)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The path is not a folder')
 

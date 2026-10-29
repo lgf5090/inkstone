@@ -12,6 +12,9 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { filenameOf } from '@shared/clouddrive/model'
+import { parseExternalEntryId, readExternal } from './external'
+import { resolveMount } from './lib'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
 
@@ -103,6 +106,18 @@ async function requireBucket(c: Context<AppBindings>): Promise<R2Bucket> {
 
 clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const userId = requireUserId(c)
+  const external = parseExternalEntryId(c.req.param('id'))
+  if (external) {
+    const mount = await resolveMount(c.env.DB, userId, external.mountId)
+    if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
+    const response = await readExternal(c.env, c.env.DB, mount, external.path, c.req.header('range') ?? null)
+    if (!response) throw ApiError.notFound('File not found')
+    const headers = new Headers(response.headers)
+    headers.set('Cache-Control', 'private, no-store')
+    const disposition = contentDisposition(headers.get('content-type') ?? 'application/octet-stream', filenameOf(external.path))
+    headers.set('Content-Disposition', c.req.query('download') === '1' ? disposition.replace(/^inline/, 'attachment') : disposition)
+    return new Response(c.req.method === 'HEAD' ? null : response.body, { status: response.status, headers })
+  }
   const file = await findLiveFile(c, userId, c.req.param('id'))
   if (file.storage_kind !== 'r2' || !file.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
@@ -157,6 +172,17 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
   const width = Number(widthParam)
   if (!THUMBNAIL_WIDTHS.has(width)) throw ApiError.badRequest('w must be one of 160, 320, 640 or 1280')
 
+  const external = parseExternalEntryId(c.req.param('id'))
+  if (external) {
+    const mount = await resolveMount(c.env.DB, userId, external.mountId)
+    if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
+    const response = await readExternal(c.env, c.env.DB, mount, external.path, null)
+    if (!response) throw ApiError.notFound('File not found')
+    const headers = new Headers(response.headers)
+    headers.set('Cache-Control', THUMBNAIL_CACHE)
+    headers.set('X-CloudDrive-Thumbnail', 'fallback')
+    return new Response(response.body, { status: 200, headers })
+  }
   const file = await findLiveFile(c, userId, c.req.param('id'))
   if (!file.mime.startsWith('image/')) throw ApiError.badRequest('Only images have thumbnails')
   if (file.storage_kind !== 'r2' || !file.storage_key) {

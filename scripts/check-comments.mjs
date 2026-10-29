@@ -34318,6 +34318,9 @@ const allowed = new Map([
   ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
+  ["src/worker/clouddrive/external.ts", [
+    "/** Read-only browsing and byte reads for S3-compatible and WebDAV mounts. */",
+  ]],
   ["src/worker/clouddrive/lib.ts", [
     "/**\n * Helpers shared by the CloudDrive file and settings routes.\n *\n * Everything that turns a path, a mount or a D1 row into the vocabulary the API speaks lives here, so\n * the routes only parse, call a store function and shape the response. D1 statements stay in the\n * store modules; this file owns the two lookups every request makes first (mount, then entry).\n */",
     "/** One `CloudDrive_files` row, by column name. */",
