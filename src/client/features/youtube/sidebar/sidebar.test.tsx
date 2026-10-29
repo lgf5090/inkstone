@@ -212,6 +212,25 @@ describe('YoutubeSidebar', () => {
     rendered.unmount()
   })
 
+  it('says so when the tag filter matches nothing and lets the reader clear it', async () => {
+    const rendered = renderElement(
+      <YoutubeSidebar activeView={{ kind: 'explore' }} sort="viewCount" range="week" />,
+    )
+    const input = rendered.container.querySelector<HTMLInputElement>(`input[placeholder="${t('tags.filter_placeholder')}"]`)
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input, 'zzz-no-tag')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(rendered.container.querySelectorAll('[data-tag-id]')).toHaveLength(0)
+    expect(rendered.container.textContent).toContain(t('tags.no_match'))
+    const clear = Array.from(rendered.container.querySelectorAll('button')).find((button) => button.textContent === t('common.clear'))
+    expect(clear).toBeTruthy()
+    await act(async () => { clear!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(rendered.container.textContent).not.toContain(t('tags.no_match'))
+    rendered.unmount()
+  })
+
   it('draws pinned tags before their unpinned siblings', () => {
     useYoutubeStore.setState({
       library: {

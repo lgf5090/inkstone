@@ -494,6 +494,14 @@ export function YoutubeSidebar({
               {t('tags.match_count', { value0: searchedTagRows.length })}
             </p>
           )}
+          {searchedTagRows && searchedTagRows.length === 0 && (
+            <div className="flex items-center gap-2 px-2 py-1 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
+              <span>{t('tags.no_match')}</span>
+              <button type="button" onClick={() => setTagFilterText('')} className="text-[var(--accent)] hover:underline">
+                {t('common.clear')}
+              </button>
+            </div>
+          )}
           {library.tags.length === 0 ? (
             <div className="px-1 py-1">
               <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
@@ -503,7 +511,7 @@ export function YoutubeSidebar({
                 {t('youtube.sidebar.new_tag')}
               </Button>
             </div>
-          ) : (
+          ) : searchedTagRows && searchedTagRows.length === 0 ? null : (
             <div className="px-1 pt-0.5">
               <TagTree
                 nodes={tree}
