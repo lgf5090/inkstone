@@ -67,7 +67,7 @@
 [data-clouddrive-files] .cd-list th {
   position: sticky;
   inset-block-start: 0;
-  z-index: 1;
+  z-index: var(--z-sticky);
   block-size: 32px;
   padding-inline: 8px;
   border-block-end: 1px solid var(--border-subtle);
@@ -161,7 +161,7 @@
   position: absolute;
   inset-block-start: 4px;
   inset-inline-start: 4px;
-  z-index: 1;
+  z-index: var(--z-sticky);
 }
 
 [data-clouddrive-files] .cd-gallery-stage {

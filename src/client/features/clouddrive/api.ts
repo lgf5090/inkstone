@@ -106,6 +106,18 @@ export const clouddriveApi = {
   addTag: (id: string, body: { tag: string; color: string }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags`, json(body)),
   removeTag: (id: string, tag: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),
 
+  mounts: () => request<{ mounts: { id: string; storageId: string; name: string; mountPath: string; readOnly: boolean; cacheTtl: number; sortOrder: number; enabled: boolean }[] }>('/api/clouddrive/mounts'),
+  createMount: (body: unknown) => request<{ mount: unknown }>('/api/clouddrive/mounts', json(body)),
+  patchMount: (id: string, body: unknown) => request<{ mount: unknown }>(`/api/clouddrive/mounts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteMount: (id: string) => request<{ ok: true }>(`/api/clouddrive/mounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  testMount: (id: string) => request<{ ok: boolean; message: string }>(`/api/clouddrive/mounts/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' }),
+  storages: () => request<{ storages: { id: string; name: string; type: string; config: Record<string, unknown>; status: string; isDefault: boolean; hasCredentials: boolean; lastUsedAt: number | null; createdAt: number }[] }>('/api/clouddrive/storages'),
+  createStorage: (body: unknown) => request<{ storage: unknown }>('/api/clouddrive/storages', json(body)),
+  patchStorage: (id: string, body: unknown) => request<{ storage: unknown }>(`/api/clouddrive/storages/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteStorage: (id: string) => request<{ ok: true }>(`/api/clouddrive/storages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  defaultStorage: (id: string) => request<{ ok: true }>(`/api/clouddrive/storages/${encodeURIComponent(id)}/default`, { method: 'POST', body: '{}' }),
+  testStorage: (id: string) => request<{ ok: boolean; message: string }>(`/api/clouddrive/storages/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' }),
+
   capacity: () => request<{ used: number; trashBytes: number; quota: number | null; mounts: unknown[] }>('/api/clouddrive/capacity'),
   settings: () => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings'),
   patchSettings: (patch: CloudDriveSettingsPatch) => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings', { method: 'PATCH', body: JSON.stringify(patch) }),

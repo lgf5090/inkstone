@@ -351,6 +351,13 @@ function findControl(element: ts.JsxElement): string | null {
  */
 const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: string }>([
   [
+    'src/client/features/clouddrive/files/FileList.tsx',
+    {
+      sites: 1,
+      reason: 'A file row selects on click and also hosts its checkbox; the checkbox click is ignored by the row handler so the two do not fight, and the row is the table\'s own selection affordance rather than a control container.',
+    },
+  ],
+  [
     'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
     {
       sites: 1,
@@ -868,6 +875,7 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/imgbed/storage.ts', { sites: 19, reason: 'Each cancels or aborts an upstream body after its status has decided the outcome (S3/Discord/HF/WebDAV reads and deletes), and one discards a WebDAV MKCOL answer when creating the destination folder before MOVE, where a 405 already means the folder exists; a failed cancel cannot change a response already chosen.' }],
   ['src/worker/imgbed/upload-routes.ts', { sites: 2, reason: 'One discards a redirect body while following the fetch-url guard, and one deletes a failed upload session; both are cleanup after the reported outcome.' }],
   ['src/worker/imgbed/upload-service.ts', { sites: 2, reason: 'Both release a remote object after a D1 write failed, where the original failure is the one returned to the caller.' }],
+  ['src/worker/clouddrive/routes-mounts.ts', { sites: 2, reason: 'Both discard a storage-test response body after its status has decided the answer; a failed cancel cannot change the result returned to the owner.' }],
 ])
 
 /**

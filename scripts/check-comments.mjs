@@ -34302,6 +34302,9 @@ const allowed = new Map([
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
   ]],
+  ["src/worker/clouddrive/routes-mounts.ts", [
+    "// A test response has no body worth reading once its status is known.",
+  ]],
   ["src/worker/clouddrive/routes-settings.ts", [
     "/**\n * CloudDrive user settings and the capacity card.\n *\n * Settings are per-user key/value rows. The WebDAV password arrives as plain text, is hashed here\n * with the same scrypt helper the login flow uses, and only the hash is stored — the response is the\n * public projection, which has no hash field at all.\n */",
   ]],

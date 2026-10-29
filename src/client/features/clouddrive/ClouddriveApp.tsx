@@ -14,6 +14,7 @@ import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './add
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
+import { MountsPage } from './mounts/MountsPage'
 import './clouddrive.css'
 
 const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive }[] = [
@@ -135,7 +136,9 @@ export function ClouddriveApp() {
                   onPreview={setPreview}
                 />
               )
-            : <PagePlaceholder page={address.page} />}
+            : address.page === 'mounts' || address.page === 'storage'
+              ? <MountsPage showStorages={address.page === 'storage'} />
+              : <PagePlaceholder page={address.page} />}
         </main>
       </div>
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>
