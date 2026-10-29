@@ -876,7 +876,8 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/imgbed/upload-routes.ts', { sites: 2, reason: 'One discards a redirect body while following the fetch-url guard, and one deletes a failed upload session; both are cleanup after the reported outcome.' }],
   ['src/worker/imgbed/upload-service.ts', { sites: 2, reason: 'Both release a remote object after a D1 write failed, where the original failure is the one returned to the caller.' }],
   ['src/worker/clouddrive/routes-mounts.ts', { sites: 2, reason: 'Both discard a storage-test response body after its status has decided the answer; a failed cancel cannot change the result returned to the owner.' }],
-])
+
+  ['src/worker/clouddrive/external.ts', { sites: 2, reason: 'Both discard a 404 response body after the missing object has already decided the answer; the caller receives null and a failed cancel cannot change it.' }],])
 
 /**
  * One walker for both rules below, so the Worker and the client cannot drift into two different policies.
