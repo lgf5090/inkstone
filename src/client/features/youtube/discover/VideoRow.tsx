@@ -130,7 +130,7 @@ export function VideoRow({
           )}
         </div>
 
-        <div className="min-w-0 flex-1 pr-16">
+        <div className="min-w-0 flex-1 sm:pr-16">
           <p className="line-clamp-2 text-[length:var(--text-13)] leading-snug font-medium text-[var(--text-primary)]">
             {video.title}
           </p>
@@ -166,35 +166,36 @@ export function VideoRow({
               </time>
             )}
           </div>
+
+          <div className="yt-row-actions pointer-events-auto mt-1 flex items-center justify-end gap-0.5 sm:absolute sm:top-0 sm:right-0 sm:mt-0">
+            <IconButton
+              label={saved?.pinned ? t('youtube.video.unpin') : t('youtube.video.pin')}
+              size="sm"
+              active={Boolean(saved?.pinned)}
+              onClick={togglePin}
+            >
+              <Pin size={13} />
+            </IconButton>
+            <IconButton
+              label={saved?.favorited ? t('youtube.video.unfavorite') : t('youtube.video.favorite')}
+              size="sm"
+              active={Boolean(saved?.favorited)}
+              onClick={toggleFavorite}
+            >
+              <Heart size={13} />
+            </IconButton>
+            <IconButton
+              label={copied ? t('youtube.video.copied') : t('youtube.video.copy')}
+              size="sm"
+              onClick={() => void copy()}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+            </IconButton>
+          </div>
+
           <div className="pointer-events-auto mt-1 flex flex-wrap items-center gap-1">
             <TagAssignBar video={video} assignedTags={assignedTags} allTags={allTags} onToggle={toggleTag} />
           </div>
-        </div>
-
-        <div className="yt-row-actions pointer-events-auto absolute top-0 right-0 flex items-center gap-0.5">
-          <IconButton
-            label={saved?.pinned ? t('youtube.video.unpin') : t('youtube.video.pin')}
-            size="sm"
-            active={Boolean(saved?.pinned)}
-            onClick={togglePin}
-          >
-            <Pin size={13} />
-          </IconButton>
-          <IconButton
-            label={saved?.favorited ? t('youtube.video.unfavorite') : t('youtube.video.favorite')}
-            size="sm"
-            active={Boolean(saved?.favorited)}
-            onClick={toggleFavorite}
-          >
-            <Heart size={13} />
-          </IconButton>
-          <IconButton
-            label={copied ? t('youtube.video.copied') : t('youtube.video.copy')}
-            size="sm"
-            onClick={() => void copy()}
-          >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-          </IconButton>
         </div>
       </div>
     </li>

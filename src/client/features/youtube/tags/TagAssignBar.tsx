@@ -35,6 +35,7 @@ export function TagAssignBar(props: {
 }) {
   const { assignedTags, allTags, onToggle } = props
   const [open, setOpen] = useState(false)
+  const [placement, setPlacement] = useState({ up: false, right: false })
   const barRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -101,6 +102,13 @@ export function TagAssignBar(props: {
           aria-controls={open ? panelId : undefined}
           onClick={(event) => {
             event.stopPropagation()
+            const rect = triggerRef.current?.getBoundingClientRect()
+            if (rect) {
+              setPlacement({
+                up: rect.bottom + 280 > window.innerHeight,
+                right: rect.right + 256 > window.innerWidth,
+              })
+            }
             setOpen((current) => !current)
           }}
           className="inline-flex items-center gap-1 rounded-[var(--r-full)] border border-dashed border-[var(--border-default)] px-[var(--sp-1-5)] py-[var(--sp-0-5)] text-[length:var(--text-11)] text-[var(--text-tertiary)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -114,7 +122,7 @@ export function TagAssignBar(props: {
             role="group"
             aria-label={t('youtube.tags.assign')}
             onClick={(event) => event.stopPropagation()}
-            className="absolute top-full left-0 z-[var(--z-pop)] mt-1 max-h-64 w-64 overflow-y-auto overscroll-contain rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)]"
+            className={`absolute z-[var(--z-pop)] max-h-64 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] ${placement.up ? 'bottom-full mb-1' : 'top-full mt-1'} ${placement.right ? 'right-0' : 'left-0'}`}
           >
             {orderedTags.length === 0 ? (
               <div className="px-2 py-3">

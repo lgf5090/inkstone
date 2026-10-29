@@ -383,9 +383,10 @@ function upstreamRefusal(status: number, body: JsonObject | null, key: string): 
 /**
  * One upstream request: key injected, timeout enforced, body capped, refusal translated.
  *
- * The ledger write happens after the request leaves and before its answer is interpreted, so a
- * quota-refused request is counted too. A request refused for a missing key never leaves, so it is
- * never counted.
+ * The ledger write happens once a response arrives and before its answer is interpreted, so a
+ * quota-refused request is counted too. A request that never got a response — a timeout or a
+ * network failure — is not counted, and neither is one refused for a missing key: no units were
+ * spent upstream.
  */
 export async function ytFetch(
   env: Env,
@@ -403,7 +404,6 @@ export async function ytFetch(
     response = await fetch(url, { redirect: NO_REDIRECT, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   }
   catch (error) {
-    await recordQuotaUsage(db, endpoint)
     const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     throw new ApiError(
       502,

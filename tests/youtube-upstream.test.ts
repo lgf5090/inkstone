@@ -404,7 +404,7 @@ describe('youtube quota guards', () => {
     expect(await usageRow('videos')).toEqual({ units: 2, count: 2 })
   })
 
-  it('counts a request that timed out and answers 502', async () => {
+  it('does not count a request that never got a response', async () => {
     stubFetch(() => {
       throw Object.assign(new Error('timed out'), { name: 'TimeoutError' })
     })
@@ -414,7 +414,7 @@ describe('youtube quota guards', () => {
     const body = await read<ApiErrorBody>(response)
     expect(body.error.code).toBe('youtube_upstream')
     expect(body.error.message).toContain('15 seconds')
-    expect(await usageRow('videos')).toEqual({ units: 1, count: 1 })
+    expect(await usageRow('videos')).toBeNull()
   })
 
   it('locks search after ten attempts in the window', async () => {
@@ -576,6 +576,19 @@ describe('youtube list routes', () => {
     const body = await read<YouTubeListResult<Record<string, unknown>>>(response)
     expect(body.items[0]!.itemCount).toBe(8)
     expect(body.total).toBe(1)
+  })
+
+  it('reads a whole channel URL encoded into one path segment', async () => {
+    stubFetch((url) => {
+      expect(url.pathname).toBe('/youtube/v3/channels')
+      expect(url.searchParams.get('forHandle')).toBe('demo')
+      return json({ items: [channelItem(CHANNEL_ID)] })
+    })
+
+    const response = await get(`/channels/${encodeURIComponent('https://www.youtube.com/@demo')}`)
+    expect(response.status).toBe(200)
+    const body = await read<{ channel: { id: string } }>(response)
+    expect(body.channel.id).toBe(CHANNEL_ID)
   })
 
   it('loads a playlist metadata row by id', async () => {

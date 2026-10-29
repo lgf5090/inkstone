@@ -151,7 +151,7 @@ export function AddChannelDialog({
         {channel && (
           <div className="flex items-center gap-[var(--sp-3)] rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-[var(--sp-3)]">
             <img
-              src={channelIconUrl(channel.id)}
+              src={channel.thumbnailUrl || channelIconUrl(channel.id)}
               alt=""
               loading="lazy"
               referrerPolicy="no-referrer"

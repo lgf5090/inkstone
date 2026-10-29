@@ -8,7 +8,7 @@ import {
 } from '@shared/youtube/model'
 import { t } from '../../lib/i18n'
 import { useBreakpoint } from '../../lib/hooks'
-import { replaceAddress } from '../../lib/app-history'
+import { navigateToAddress, replaceAddress } from '../../lib/app-history'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { IconButton } from '../../components/primitives'
 import { Drawer, Tooltip } from '../../components/overlay'
@@ -86,8 +86,18 @@ export function YoutubeApp() {
   )
 
   const selectVideo = (video: YouTubeVideo) => {
+    if (address.videoId === video.id) return
     setFoundVideo(video)
-    writeAddress({ q: address.q, sort: address.sort, range: address.range, videoId: video.id })
+    navigateToAddress(
+      youtubeViewPath(address.view),
+      youtubeSearchParams({
+        q: address.q,
+        sort: address.sort,
+        range: address.range,
+        videoId: video.id,
+        prefs: { sort, range },
+      }),
+    )
   }
 
   const backToList = () => {
