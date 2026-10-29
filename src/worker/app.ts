@@ -77,6 +77,12 @@ import { developmentApiTesterRoutes } from './routes/development-api-tester'
 import { developmentGithubRoutes } from './routes/development-github'
 import { imgbedUploadRoutes } from './imgbed/upload-routes'
 import { youtubeRoutes } from './youtube/routes'
+import {
+  clouddriveDavRoutes,
+  clouddrivePublicRoutes,
+  clouddriveRoutes,
+  clouddriveSharePageRoutes,
+} from './clouddrive/routes'
 import { imgbedManageRoutes } from './imgbed/manage'
 import { imgbedSettingsRoutes } from './imgbed/settings-routes'
 import { imgbedPublicRoutes } from './imgbed/public-routes'
@@ -268,6 +274,8 @@ export function createApp() {
   app.route('/api/development/github', developmentGithubRoutes)
   app.route('/api/imgbed', imgbedUploadRoutes)
   app.route('/api/youtube', youtubeRoutes)
+  app.route('/api/clouddrive', clouddriveRoutes)
+  app.route('/api/public/clouddrive', clouddrivePublicRoutes)
   app.route('/api/imgbed', imgbedManageRoutes)
   app.route('/api/imgbed', imgbedSettingsRoutes)
   app.route('/api/imgbed', imgbedPublicRoutes)
@@ -307,6 +315,8 @@ export function createApp() {
   app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
+  app.route('/d', clouddriveSharePageRoutes)
+  app.route('/clouddrive/dav', clouddriveDavRoutes)
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
