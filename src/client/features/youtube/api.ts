@@ -16,6 +16,7 @@ import type {
   YouTubeTag,
   YouTubeVideo,
 } from '@shared/youtube/model'
+import type { YouTubeSettingsPatch, YouTubeSettingsView } from '@shared/youtube/settings'
 
 export type {
   YouTubeCommentList,
@@ -65,6 +66,17 @@ export function fetchVideo(id: string, signal?: AbortSignal): Promise<{ video: Y
 
 export function fetchComments(id: string, pageToken?: string, signal?: AbortSignal): Promise<YouTubeCommentList> {
   return request(`/api/youtube/videos/${encodeURIComponent(id)}/comments${page(pageToken)}`, { signal })
+}
+
+export function fetchYouTubeSettings(signal?: AbortSignal): Promise<YouTubeSettingsView> {
+  return request('/api/youtube/settings', { signal })
+}
+
+export function updateYouTubeSettings(patch: YouTubeSettingsPatch): Promise<YouTubeSettingsView> {
+  return request('/api/youtube/settings', {
+    method: 'PUT',
+    body: patch as Record<string, unknown>,
+  })
 }
 
 export function fetchQuota(signal?: AbortSignal): Promise<YouTubeQuotaData> {

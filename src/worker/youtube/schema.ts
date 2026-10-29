@@ -75,6 +75,14 @@ export const YOUTUBE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_youtube_playlists_user_fav
      ON youtube_playlists(user_id, favorited, updated_at DESC)`,
 
+  `CREATE TABLE IF NOT EXISTS youtube_settings (
+    id TEXT PRIMARY KEY CHECK (id = 'instance'),
+    api_key_ciphertext TEXT NOT NULL DEFAULT '',
+    region_code TEXT NOT NULL DEFAULT '',
+    daily_quota INTEGER,
+    updated_at INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS youtube_quota_usage (
     date TEXT NOT NULL,
     endpoint TEXT NOT NULL,
@@ -90,6 +98,7 @@ export const YOUTUBE_REQUIRED_TABLES = [
   'youtube_channels',
   'youtube_playlists',
   'youtube_quota_usage',
+  'youtube_settings',
 ] as const
 
 export const YOUTUBE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -103,6 +112,7 @@ export const YOUTUBE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]
     'user_id', 'id', 'data_json', 'tag_ids', 'pinned', 'favorited', 'sort_order', 'notes', 'created_at', 'updated_at',
   ],
   youtube_quota_usage: ['date', 'endpoint', 'units', 'count'],
+  youtube_settings: ['id', 'api_key_ciphertext', 'region_code', 'daily_quota', 'updated_at'],
 }
 
 export const YOUTUBE_REQUIRED_INDEXES = [

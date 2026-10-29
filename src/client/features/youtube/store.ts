@@ -385,6 +385,7 @@ function readPrefs(state: YouTubeState): YouTubeUiPrefs {
     sidebarWidth: state.sidebarWidth,
     sidebarCollapsed: state.sidebarCollapsed,
     splitRatio: state.splitRatio,
+    showComments: state.showComments,
     expandedSections: state.expandedSections,
     expandedTags: state.expandedTags,
   }

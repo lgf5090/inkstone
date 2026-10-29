@@ -10,6 +10,7 @@ export interface YouTubeUiPrefs {
   sidebarWidth: number
   sidebarCollapsed: boolean
   splitRatio: number
+  showComments: boolean
   expandedSections: YouTubeSection[]
   expandedTags: string[]
 }
@@ -25,6 +26,7 @@ export function defaultYouTubeUiPrefs(): YouTubeUiPrefs {
     sidebarWidth: YOUTUBE_SIDEBAR_WIDTH.default,
     sidebarCollapsed: false,
     splitRatio: YOUTUBE_SPLIT_RATIO.default,
+    showComments: true,
     expandedSections: ['channels', 'playlists'],
     expandedTags: [],
   }
@@ -64,6 +66,7 @@ function normalize(value: Partial<YouTubeUiPrefs>, base: YouTubeUiPrefs): YouTub
     sidebarWidth: clamp(numberOr(value.sidebarWidth, base.sidebarWidth), YOUTUBE_SIDEBAR_WIDTH.min, YOUTUBE_SIDEBAR_WIDTH.max),
     sidebarCollapsed: typeof value.sidebarCollapsed === 'boolean' ? value.sidebarCollapsed : base.sidebarCollapsed,
     splitRatio: clamp(numberOr(value.splitRatio, base.splitRatio), YOUTUBE_SPLIT_RATIO.min, YOUTUBE_SPLIT_RATIO.max),
+    showComments: typeof value.showComments === 'boolean' ? value.showComments : base.showComments,
     expandedSections: sections,
     expandedTags: tags.slice(0, 200),
   }

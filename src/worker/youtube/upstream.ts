@@ -8,7 +8,6 @@
  * upstream status codes.
  */
 import {
-  YOUTUBE_DAILY_QUOTA_DEFAULT,
   YOUTUBE_QUOTA_COSTS,
   parseDuration,
   type YouTubeChannel,
@@ -20,11 +19,11 @@ import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT } from '../lib/no-redirect'
 import { readStreamTextWithinLimit } from '../lib/request'
+import { youtubeDeploymentConfig } from './config'
+import { resolveYouTubeApiKey, resolveYouTubeLimits } from './settings'
 
-const DEFAULT_API_BASE = 'https://www.googleapis.com/youtube/v3'
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
-const MAX_DAILY_QUOTA = 1_000_000
 
 export type YouTubeEndpoint =
   | 'search'
@@ -43,79 +42,20 @@ export interface YouTubeConfig {
 
 type JsonObject = Record<string, unknown>
 
-function configError(message: string): ApiError {
-  return new ApiError(500, 'internal', message)
-}
-
 /** Whether a key is present at all; the quota panel answers this without probing upstream. */
-export function youtubeConfigured(env: Env): boolean {
-  return Boolean((env.YOUTUBE_API_KEY ?? '').trim())
-}
-
-/**
- * The two-letter region `mostPopular` should describe.
- *
- * Optional, but a value that is set has to be exactly the shape the upstream accepts; guessing at a
- * malformed code would spend a request only to have it refused.
- */
-export function youtubeRegion(env: Env): string | null {
-  const region = (env.YOUTUBE_REGION_CODE ?? '').trim()
-  if (!region) return null
-  if (!/^[A-Z]{2}$/.test(region)) {
-    throw configError('YOUTUBE_REGION_CODE must be two uppercase letters')
-  }
-  return region
-}
-
-/** The deployment's own daily unit budget, which may be below Google's 10,000. */
-export function youtubeDailyLimit(env: Env): number {
-  const raw = (env.YOUTUBE_DAILY_QUOTA ?? '').trim()
-  if (!raw) return YOUTUBE_DAILY_QUOTA_DEFAULT
-  if (!/^\d+$/.test(raw)) {
-    throw configError('YOUTUBE_DAILY_QUOTA must be an integer between 1 and 1000000')
-  }
-  const limit = Number(raw)
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_DAILY_QUOTA) {
-    throw configError('YOUTUBE_DAILY_QUOTA must be an integer between 1 and 1000000')
-  }
-  return limit
-}
-
-function isLoopbackHost(hostname: string): boolean {
-  const name = hostname.toLowerCase()
-  return name === '127.0.0.1' || name === 'localhost' || name === '[::1]'
-}
-
-function youtubeApiBase(env: Env): string {
-  const raw = (env.YOUTUBE_API_BASE ?? '').trim() || DEFAULT_API_BASE
-  let url: URL
-  try {
-    url = new URL(raw)
-  }
-  catch {
-    throw configError('YOUTUBE_API_BASE must be an https URL')
-  }
-  // A loopback base is a local development adapter; it never leaves the machine.
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
-    throw configError('YOUTUBE_API_BASE must use https (http is allowed only for a loopback host)')
-  }
-  if (url.username || url.password) throw configError('YOUTUBE_API_BASE may not carry credentials')
-  if (url.search || url.hash) throw configError('YOUTUBE_API_BASE may not carry a query or fragment')
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`
+export async function youtubeConfigured(env: Env, db: D1Database): Promise<boolean> {
+  return Boolean(await resolveYouTubeApiKey(env, db))
 }
 
 /** The resolved configuration for a real upstream call; a missing key is the 503 the API promises. */
-export function youtubeConfig(env: Env): YouTubeConfig {
-  const key = (env.YOUTUBE_API_KEY ?? '').trim()
+export async function youtubeConfig(env: Env, db: D1Database): Promise<YouTubeConfig> {
+  const key = await resolveYouTubeApiKey(env, db)
   if (!key) {
     throw new ApiError(503, 'youtube_not_configured', 'The YouTube API key is not configured on this deployment')
   }
-  return {
-    key,
-    base: youtubeApiBase(env),
-    region: youtubeRegion(env),
-    limit: youtubeDailyLimit(env),
-  }
+  const { base } = youtubeDeploymentConfig(env)
+  const { region, limit } = await resolveYouTubeLimits(env, db)
+  return { key, base, region, limit }
 }
 
 function asObject(value: unknown): JsonObject {
@@ -316,7 +256,7 @@ export async function recordQuotaUsage(db: D1Database, endpoint: YouTubeEndpoint
  * and then failing on the follow-up lookup.
  */
 export async function assertYouTubeQuota(env: Env, db: D1Database, cost: number): Promise<void> {
-  const config = youtubeConfig(env)
+  const config = await youtubeConfig(env, db)
   const row = await db.prepare(
     'SELECT COALESCE(SUM(units), 0) AS used FROM youtube_quota_usage WHERE date = ?',
   )
@@ -402,7 +342,7 @@ export async function ytFetch(
   endpoint: YouTubeEndpoint,
   params: Record<string, string>,
 ): Promise<JsonObject> {
-  const config = youtubeConfig(env)
+  const config = await youtubeConfig(env, db)
   const url = new URL(`${config.base}/${endpoint}`)
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value)
   url.searchParams.set('key', config.key)

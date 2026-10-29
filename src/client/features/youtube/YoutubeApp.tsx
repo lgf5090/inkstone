@@ -24,6 +24,7 @@ import { RangeChips, RANGE_LABELS } from './discover/RangeChips'
 import { VideoList } from './discover/VideoList'
 import { VideoDetail } from './detail/VideoDetail'
 import { QuotaDialog } from './quota/QuotaDialog'
+import { YouTubeSettingsModal } from './settings/YouTubeSettingsModal'
 import { SplitPane } from '../../components/split-pane'
 import './youtube.css'
 
@@ -46,9 +47,11 @@ export function YoutubeApp() {
   const sort = useYoutubeStore((state) => state.sort)
   const range = useYoutubeStore((state) => state.range)
   const setPrefs = useYoutubeStore((state) => state.setPrefs)
+  const showComments = useYoutubeStore((state) => state.showComments)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [quotaOpen, setQuotaOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [listBusy, setListBusy] = useState(false)
   const [summary, setSummary] = useState<number | null>(null)
@@ -236,6 +239,7 @@ export function YoutubeApp() {
                 range={address.range}
                 collapsed={sidebarCollapsed}
                 onCollapse={toggleSidebar}
+                onOpenSettings={() => setSettingsOpen(true)}
               />
             </div>
             {!sidebarCollapsed && (
@@ -304,7 +308,7 @@ export function YoutubeApp() {
           <div className="min-h-0 flex-1">
             {isMobile ? (
               address.videoId ? (
-                <VideoDetail video={selectedVideo} onBack={backToList} />
+                <VideoDetail video={selectedVideo} onBack={backToList} showComments={showComments} />
               ) : (
                 list
               )
@@ -317,7 +321,7 @@ export function YoutubeApp() {
                 max={YOUTUBE_SPLIT_RATIO.max}
                 label={t('youtube.sidebar.resize')}
                 first={list}
-                second={<VideoDetail video={selectedVideo} />}
+                second={<VideoDetail video={selectedVideo} showComments={showComments} />}
               />
             )}
           </div>
@@ -336,11 +340,13 @@ export function YoutubeApp() {
           sort={address.sort}
           range={address.range}
           hideHeader
+          onOpenSettings={() => setSettingsOpen(true)}
           onNavigate={() => setDrawerOpen(false)}
         />
       </Drawer>
 
       <QuotaDialog open={quotaOpen} onClose={() => setQuotaOpen(false)} />
+      <YouTubeSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

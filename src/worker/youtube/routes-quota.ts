@@ -13,11 +13,8 @@ import {
   type YouTubeQuotaData,
 } from '@shared/youtube/model'
 import type { AppBindings } from '../env'
-import {
-  utcDate,
-  youtubeConfigured,
-  youtubeDailyLimit,
-} from './upstream'
+import { utcDate, youtubeConfigured } from './upstream'
+import { resolveYouTubeLimits } from './settings'
 
 export const youtubeQuotaRoutes = new Hono<AppBindings>()
 
@@ -60,7 +57,7 @@ function breakdownOf(row: TodayRow | WeekRow): YouTubeQuotaBreakdown {
 }
 
 youtubeQuotaRoutes.get('/', async (c) => {
-  const limit = youtubeDailyLimit(c.env)
+  const { limit } = await resolveYouTubeLimits(c.env, c.env.DB)
   const today = utcDate()
   const dates = lastSevenUtcDates(today)
   const first = dates[0]!
@@ -107,7 +104,7 @@ youtubeQuotaRoutes.get('/', async (c) => {
   const weekBreakdown = (weekRows.results ?? []).map(breakdownOf)
 
   const payload: YouTubeQuotaData = {
-    configured: youtubeConfigured(c.env),
+    configured: await youtubeConfigured(c.env, c.env.DB),
     limit,
     today: {
       date: today,

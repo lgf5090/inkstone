@@ -18241,6 +18241,9 @@ const allowed = new Map([
   ["src/client/features/youtube/quota/quota.test.tsx", [
     "/** The dialog loads in an effect, so the first paint's promise needs a turn to settle. */",
   ]],
+  ["src/client/features/youtube/settings/YouTubeSettingsModal.tsx", [
+    "/**\n * The YouTube settings dialog: the instance API connection for the owner, and this browser's\n * defaults and layout for everyone.\n */",
+  ]],
   ["src/client/features/youtube/sidebar/ChannelSection.tsx", [
     "/** The subscribed channels: pin/reorder, a right-click menu, and a touch-reachable more button. */",
   ]],
@@ -31113,6 +31116,10 @@ const allowed = new Map([
     "/** A tag cannot be moved under itself or one of its own descendants. */",
     "/** YouTube Data API quota units per endpoint, from the upstream's own cost table. */",
   ]],
+  ["src/shared/youtube/settings.ts", [
+    "/** The instance-wide YouTube API configuration, as the settings screen may see it. */",
+    "/** A new key, or null/empty to remove the stored key and fall back to the Worker secret. */",
+  ]],
   ["src/shared/youtube/validate.ts", [
     "/** The limits and validators every YouTube input passes before it reaches D1 or the upstream. */",
     "/** The reference stored colour names; a row imported from it still resolves to a palette entry. */",
@@ -35170,11 +35177,11 @@ const allowed = new Map([
     "// Derived from Xget (AGPL-3.0-only) src/utils/validation.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
   ]],
   ["src/worker/durable/credential-vault.ts", [
-    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n */",
     "/**\n * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and\n * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).\n * So the policy is structural — bounded field names, string or boolean values — rather than a whitelist\n * that would have to be edited in step with every channel form. The switch fields are booleans because\n * the settings screen reads them back as booleans; forcing them to `\"true\"` would make the form lie.\n */",
     "/**\n * How long one field of a record may be, by scope.\n *\n * A password, a TOTP secret and an API key are all short things, and the 4 kB bound is what stops a row\n * from being used to smuggle an archive into the vault. An OAuth token set is not: an access token, a\n * refresh token, a client secret and an in-flight verifier are each somebody else's opaque string, and the\n * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the\n * extra room is exactly as wide as the one kind of credential that needs it.\n */",
     "/**\n * The two request guards, exported for the test that builds a sample configuration out of every channel\n * definition and asks whether the vault would take it.\n *\n * They are not product API. The reason they are here is that the only other thing that could have caught\n * the mismatch — the channel routes' own tests — runs against a vault double that accepts anything, so a\n * policy the real vault rejects and the double swallows can only be proven against this file.\n */",
     "/**\n * The API Tester's state is one encrypted archive, so the vault accepts a larger request for that\n * scope alone. Every other scope still bounds its own fields to a few kilobytes below, and D1's row\n * limit is what keeps this number from growing further.\n */",
+    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n *\n * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one\n * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.\n */",
   ]],
   ["src/worker/email/inbound.ts", [
     "/**\n * Email-to-task: the inbound half.\n *\n * A Cloudflare Email Worker hands this module one delivered message. The recipient address is the\n * capability — `u+<token>@<MAIL_DOMAIN>` — so the token's entropy is the whole authentication and\n * there is no sender allowlist to keep in step with anything. A recipient that does not name a live\n * token is dropped without a reply: a bounce would tell a scanner which guesses were wrong, and the\n * sender of a mistyped address has no way to fix it through us anyway.\n *\n * Only a plain-text body is read. HTML and attachments are deliberately out of scope this round: a\n * task note is text, and rendering a mail author's markup into a Markdown note would be a second\n * injection surface. The envelope sender is recorded on the note's first line, marked \"via email\",\n * because the visible `From:` header is forgeable while the envelope is what the receiving server\n * authenticated.\n *\n * Idempotency is the Message-ID: delivery is at least once, so a claim row is written before the task\n * and a repeated delivery finds the claim and stops. A message without a Message-ID falls back to a\n * digest of its raw bytes, which is stable across a retry of the same delivery.\n */",
@@ -35376,6 +35383,7 @@ const allowed = new Map([
     "/**\n * The credential of one calendar connection.\n *\n * The payload is one JSON blob inside the vault's opaque-bundle field. The scope is the connection id\n * so a ciphertext cannot be moved to another connection and read back out there. The plaintext exists\n * only inside the worker call that talks to the provider; no route returns it, and a log line never\n * receives it.\n */",
     "/**\n * The PKCE verifier of one pending OAuth state.\n *\n * The state hash is already the row's public identifier and never leaves the server, so sealing under\n * its first 26 hex characters needs no extra column: those are valid vault-id characters, and the\n * callback hashes the state it received and can reopen exactly that one verifier. A raw verifier in\n * the table would let anyone who can read D1 mint the code exchange.\n */",
     "/**\n * One Cloudflare account's credential bundle.\n *\n * The ciphertext is stored in R2 (`cloudflare/txt/accounts/<id>.txt`), so this is the only place the\n * plaintext exists: it is opened for the duration of one upstream Cloudflare call and never returned\n * by a route. The scope is the account row's own generated id, so a bundle copied onto another row\n * cannot be decrypted with that row's key.\n */",
+    "/** The instance's YouTube API key: sealed, never returned, and separate from the Worker secret. */",
   ]],
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
@@ -38896,6 +38904,9 @@ const allowed = new Map([
   ["src/worker/wasm.d.ts", [
     "/**\n * A WebAssembly module imported as a file.\n *\n * Workers cannot compile WebAssembly from bytes at runtime — `WebAssembly.instantiate` on a buffer is\n * refused by the embedder — so a module has to arrive as an import the bundler compiles at deploy time.\n * The plugin that builds this worker recognises the `.wasm` extension and emits the file as a compiled\n * module next to the bundle; this declaration is the type of what the import hands back.\n */",
   ]],
+  ["src/worker/youtube/config.ts", [
+    "/** Deployment-level YouTube configuration: the upstream base, region and local quota budget. */",
+  ]],
   ["src/worker/youtube/media.ts", [
     "/**\n * The image cache behind the YouTube rows.\n *\n * A list of fifty rows would otherwise ask Google for fifty pictures on every render. Thumbnails\n * and channel icons are fetched once, validated, and kept in R2 under the fixed `YouTube/` prefix;\n * a deployment without R2 still gets the picture, but with a short-lived cache header and no write.\n * The image bytes never depend on a user's library, so one cache serves every account.\n */",
     "/**\n * The icon address a saved channel row may be fetched from.\n *\n * The snapshot is written by the client, so its `thumbnailUrl` is not trusted as a fetch target: only\n * an https address on one of Google's two image hosts is allowed, and anything else is refused\n * before the network is touched.\n */",
@@ -38913,6 +38924,9 @@ const allowed = new Map([
   ]],
   ["src/worker/youtube/routes-quota.ts", [
     "/**\n * The deployment's YouTube quota panel.\n *\n * The ledger is instance-wide because the key is: a reader sees what the whole deployment spent,\n * never who spent it. Seven UTC days are always returned, today included, so the week chart has a\n * bar for every day even when nothing ran; an unconfigured deployment still answers 200 with\n * `configured: false` so the app can explain the missing key instead of showing zeros.\n */",
+  ]],
+  ["src/worker/youtube/routes-settings.ts", [
+    "/** Owner-only YouTube API settings; the key is sealed and never returned. */",
   ]],
   ["src/worker/youtube/routes-upstream.ts", [
     "/**\n * The YouTube upstream routes: discover, channel, playlist, video and comment reads.\n *\n * Every handler here spends the deployment's shared Data API budget. Each one preflights the full\n * cost of the call it is about to make (search plus its statistics fill, channel plus its uploads\n * page), so a refusal happens before the upstream is touched. Search also spends a per-account\n * budget, because one reader holding a refresh button should not empty the deployment's day.\n */",
@@ -38932,6 +38946,11 @@ const allowed = new Map([
   ["src/worker/youtube/schema.ts", [
     "/**\n * The YouTube app's D1 tables. Every library row is scoped to one account; the quota ledger is\n * instance-wide because the API key it accounts for belongs to the deployment, not to a reader.\n *\n * All of these are new tables, so they ride in `SCHEMA_STATEMENTS` and need no numbered migration.\n */",
   ]],
+  ["src/worker/youtube/settings.ts", [
+    "/** The instance-level YouTube settings row and the key resolution that reads it. */",
+    "/**\n * The key the next upstream call should sign with: the stored key when the vault can open it,\n * otherwise the deployment's secret. A stored key that cannot be opened is reported and skipped,\n * never replaced by pretending the stored one is in force.\n */",
+    "/** The stored region/quota, with the deployment's values as the fallback. */",
+  ]],
   ["src/worker/youtube/store.ts", [
     "/**\n * The saved YouTube library in D1.\n *\n * Every statement here is scoped by `user_id`; nothing reads a row by id alone. Rows keep the full\n * upstream snapshot in `data_json` and only the columns the list views sort or render beside it. The\n * helpers below translate between those rows and the shared model, and every failure the client can\n * cause is an `ApiError` so the route layer never has to invent an error shape.\n */",
     "/** The body a PUT may carry. The store validates every field it actually reads. */",
@@ -38948,8 +38967,6 @@ const allowed = new Map([
   ["src/worker/youtube/upstream.ts", [
     "/**\n * The YouTube Data API client and the deployment's quota ledger.\n *\n * The API key belongs to the deployment, so every reader spends one shared daily budget. `ytFetch`\n * records each request it actually puts on the wire, successful or not, and the routes preflight a\n * composite call against the ledger before spending it. Upstream responses are capped and must be\n * JSON; refusals are translated into the app's own `ApiError` vocabulary so no route has to read\n * upstream status codes.\n */",
     "/** Whether a key is present at all; the quota panel answers this without probing upstream. */",
-    "/**\n * The two-letter region `mostPopular` should describe.\n *\n * Optional, but a value that is set has to be exactly the shape the upstream accepts; guessing at a\n * malformed code would spend a request only to have it refused.\n */",
-    "/** The deployment's own daily unit budget, which may be below Google's 10,000. */",
     "/** The resolved configuration for a real upstream call; a missing key is the 503 the API promises. */",
     "/** The id a `search.list` video result names, which may be a bare id or wrapped in `{ videoId }`. */",
     "/** The channel a `search.list type=channel` result names. */",
@@ -38962,7 +38979,6 @@ const allowed = new Map([
     "// A body this client refuses is released rather than left for the runtime to drain; a refusal",
     "// that is not JSON cannot be classified, so it is reported as an upstream failure.",
     "/**\n * One upstream request: key injected, timeout enforced, body capped, refusal translated.\n *\n * The ledger write happens once a response arrives and before its answer is interpreted, so a\n * quota-refused request is counted too. A request that never got a response — a timeout or a\n * network failure — is not counted, and neither is one refused for a missing key: no units were\n * spent upstream.\n */",
-    "// A loopback base is a local development adapter; it never leaves the machine.",
   ]],
   ["tests/accent-on-soft-contrast.test.ts", [
     "/**\n * Text drawn on the accent's own tint has to be readable for every accent.\n *\n * `--accent-soft` is the accent at 14% (and `--accent-softer` at 7%), so tinted chips, the selected\n * view tab and the calendar's today card all paint a colour derived from the very colour a lot of\n * them use as their text. Measured that way, the accent on its own wash sat at 3.60:1 for light amber\n * and 4.10:1 for cinnabar in both themes, which is below the AA floor `AGENTS.md` rule 13 sets.\n * `--accent-on-soft` is the token that answers it: the accent itself where the accent already clears\n * the floor, a darkened or lifted variant of it (same oklab chroma and hue) where it does not.\n *\n * The surfaces are enumerated because the wash lands on different backgrounds — a chip on the sunken\n * rail is not a chip on a card — and a gate that checked only one of them would pass while another\n * one failed.\n */",
@@ -44096,6 +44112,10 @@ const allowed = new Map([
   ["tests/youtube-quota.test.ts", [
     "// The quota panel contract: unconfigured deployments still answer 200, seven UTC days are always",
     "// present, and today's breakdown carries the same cost table the rest of the app uses.",
+  ]],
+  ["tests/youtube-settings.test.ts", [
+    "// Behavioural coverage for the instance YouTube settings: the key is sealed, never returned, and",
+    "// becomes the upstream key; region and quota override the deployment values; members cannot write.",
   ]],
   ["tests/youtube-upstream.test.ts", [
     "// Behavioural coverage for the YouTube upstream proxy: request shapes, transforms, quota preflight,",

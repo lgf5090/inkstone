@@ -36,8 +36,8 @@ import {
   videoFromItem,
   videoFromSearchItem,
   ytFetch,
-  youtubeRegion,
 } from './upstream'
+import { resolveYouTubeLimits } from './settings'
 
 export const youtubeUpstreamRoutes = new Hono<AppBindings>()
 
@@ -277,7 +277,7 @@ youtubeUpstreamRoutes.get('/discover', async (c) => {
       chart: 'mostPopular',
       maxResults: String(POPULAR_PAGE_SIZE),
     }
-    const region = youtubeRegion(c.env)
+    const { region } = await resolveYouTubeLimits(c.env, c.env.DB)
     if (region) params.regionCode = region
     const data = await ytFetch(c.env, c.env.DB, 'videos', params)
     const items = itemsOf(data).map(videoFromItem)

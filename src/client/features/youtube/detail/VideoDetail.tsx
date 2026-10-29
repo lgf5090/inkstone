@@ -27,9 +27,11 @@ import { Player } from './Player'
 export function VideoDetail({
   video,
   onBack,
+  showComments = true,
 }: {
   video: YouTubeVideo | null
   onBack?: () => void
+  showComments?: boolean
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -41,7 +43,7 @@ export function VideoDetail({
         </div>
       )}
       {video ? (
-        <VideoBody video={video} />
+        <VideoBody video={video} showComments={showComments} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <Empty art="select" title={t('youtube.detail.empty')} compact />
@@ -51,7 +53,7 @@ export function VideoDetail({
   )
 }
 
-function VideoBody({ video }: { video: YouTubeVideo }) {
+function VideoBody({ video, showComments }: { video: YouTubeVideo; showComments: boolean }) {
   const title = video.title?.trim() || video.id
   const channelTitle = video.channelTitle?.trim() || ''
   const channelId = video.channelId?.trim() || ''
@@ -177,9 +179,11 @@ function VideoBody({ video }: { video: YouTubeVideo }) {
         </a>
       </div>
 
-      <div className="p-[var(--sp-4)]">
-        <CommentList key={video.id} videoId={video.id} commentCount={comments} />
-      </div>
+      {showComments && (
+        <div className="p-[var(--sp-4)]">
+          <CommentList key={video.id} videoId={video.id} commentCount={comments} />
+        </div>
+      )}
     </>
   )
 }

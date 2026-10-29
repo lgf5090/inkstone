@@ -8,6 +8,7 @@ import {
   PanelLeftOpen,
   Pin,
   Plus,
+  Settings,
   Settings2,
   Tags,
 } from 'lucide-react'
@@ -46,6 +47,7 @@ export function YoutubeSidebar({
   hideHeader = false,
   onNavigate,
   onCollapse,
+  onOpenSettings,
 }: {
   activeView: YouTubeView
   sort: SortKey
@@ -54,6 +56,7 @@ export function YoutubeSidebar({
   hideHeader?: boolean
   onNavigate?: () => void
   onCollapse?: () => void
+  onOpenSettings?: () => void
 }) {
   const library = useYoutubeStore((state) => state.library)
   const libraryStatus = useYoutubeStore((state) => state.libraryStatus)
@@ -334,6 +337,13 @@ export function YoutubeSidebar({
               <Tags size={16} />
             </IconButton>
           </Tooltip>
+          {onOpenSettings && (
+            <Tooltip label={t('youtube.settings.open')} side="right">
+              <IconButton label={t('youtube.settings.open')} size="sm" onClick={onOpenSettings}>
+                <Settings size={16} />
+              </IconButton>
+            </Tooltip>
+          )}
         </nav>
         {dialogs}
       </div>
@@ -360,6 +370,13 @@ export function YoutubeSidebar({
             {t('app.tabs.youtube')}
           </span>
         </a>
+        {onOpenSettings && (
+          <Tooltip label={t('youtube.settings.open')} side="bottom">
+            <IconButton label={t('youtube.settings.open')} size="sm" onClick={onOpenSettings}>
+              <Settings size={15} />
+            </IconButton>
+          </Tooltip>
+        )}
         {onCollapse && (
           <Tooltip label={t('youtube.sidebar.collapse')} side="bottom">
             <IconButton
@@ -548,6 +565,13 @@ export function YoutubeSidebar({
           )}
         </section>
       </nav>
+      {hideHeader && onOpenSettings && (
+        <div className="shrink-0 border-t border-[var(--border-subtle)] p-2">
+          <Button variant="ghost" size="sm" icon={<Settings size={14} />} className="w-full justify-start" onClick={onOpenSettings}>
+            {t('youtube.settings.open')}
+          </Button>
+        </div>
+      )}
       {dialogs}
     </div>
   )

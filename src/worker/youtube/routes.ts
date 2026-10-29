@@ -12,6 +12,7 @@ import { youtubeMediaRoutes } from './routes-media'
 import { youtubeQuotaRoutes } from './routes-quota'
 import { youtubeLibraryRoutes } from './routes-library'
 import { youtubeUpstreamRoutes } from './routes-upstream'
+import { youtubeSettingsRoutes } from './routes-settings'
 
 export const youtubeRoutes = new Hono<AppBindings>()
 
@@ -19,4 +20,5 @@ youtubeRoutes.use('*', requireAuth)
 youtubeRoutes.route('/media', youtubeMediaRoutes)
 youtubeRoutes.route('/quota', youtubeQuotaRoutes)
 youtubeRoutes.route('/library', youtubeLibraryRoutes)
+youtubeRoutes.route('/settings', youtubeSettingsRoutes)
 youtubeRoutes.route('/', youtubeUpstreamRoutes)
