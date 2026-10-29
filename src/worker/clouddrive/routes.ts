@@ -3,6 +3,11 @@ import { publicCloudDriveSettings } from '@shared/clouddrive/settings'
 import type { CloudDriveBootstrap } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { cloudDriveFilesRoutes } from './routes-files'
+import { cloudDriveSettingsRoutes } from './routes-settings'
+import { clouddriveUploadRoutes } from './routes-upload'
+import { clouddriveContentRoutes } from './routes-content'
+import { clouddrivePublicShareRoutes, clouddriveShareRoutes } from './routes-shares'
 import { cloudDriveUsage, ensurePrimaryMount, listMounts, readCloudDriveSettings } from './store'
 
 export const clouddriveRoutes = new Hono<AppBindings>()
@@ -40,14 +45,17 @@ clouddriveRoutes.get('/health', async (c) => {
   return c.json({ ok: true, primaryAvailable: usage.primaryAvailable, usedBytes: usage.usedBytes })
 })
 
+clouddriveRoutes.route('/', cloudDriveFilesRoutes)
+clouddriveRoutes.route('/', cloudDriveSettingsRoutes)
+clouddriveRoutes.route('/', clouddriveUploadRoutes)
+clouddriveRoutes.route('/', clouddriveContentRoutes)
+clouddriveRoutes.route('/', clouddriveShareRoutes)
+
 clouddriveRoutes.all('*', () => {
   throw ApiError.notFound('CloudDrive endpoint not found')
 })
 
-export const clouddrivePublicRoutes = new Hono<AppBindings>()
-clouddrivePublicRoutes.all('*', () => {
-  throw ApiError.notFound('CloudDrive share not found')
-})
+export const clouddrivePublicRoutes = clouddrivePublicShareRoutes
 
 export const clouddriveSharePageRoutes = new Hono<AppBindings>()
 clouddriveSharePageRoutes.get('/:slug', async (c) => {

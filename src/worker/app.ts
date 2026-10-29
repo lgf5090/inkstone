@@ -83,6 +83,7 @@ import {
   clouddriveRoutes,
   clouddriveSharePageRoutes,
 } from './clouddrive/routes'
+import { clouddriveRawRoutes } from './clouddrive/routes-shares'
 import { imgbedManageRoutes } from './imgbed/manage'
 import { imgbedSettingsRoutes } from './imgbed/settings-routes'
 import { imgbedPublicRoutes } from './imgbed/public-routes'
@@ -315,6 +316,7 @@ export function createApp() {
   app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
+  app.route('/d', clouddriveRawRoutes)
   app.route('/d', clouddriveSharePageRoutes)
   app.route('/clouddrive/dav', clouddriveDavRoutes)
   app.route('/', toolsShortlinksRedirectRoutes)
