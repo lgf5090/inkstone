@@ -155,4 +155,6 @@ export const ZH_CN_YOUTUBE = {
   "youtube.retry": "重试",
   "youtube.truncated": "仅显示最近更新的 2000 条已保存视频。",
   "youtube.mobile.back": "返回列表",
+  "youtube.pagination.prev": "上一页",
+  "youtube.pagination.next": "下一页",
 } as const;

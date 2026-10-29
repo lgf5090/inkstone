@@ -155,4 +155,6 @@ export const EN_US_YOUTUBE = {
   "youtube.retry": "Try again",
   "youtube.truncated": "Showing the 2000 most recently updated saved videos.",
   "youtube.mobile.back": "Back to the list",
+  "youtube.pagination.prev": "Previous page",
+  "youtube.pagination.next": "Next page",
 } as const;
