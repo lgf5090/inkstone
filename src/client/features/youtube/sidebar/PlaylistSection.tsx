@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { ChevronRight, ListVideo, Pin, Plus, Trash2 } from 'lucide-react'
+/** The saved playlists: pin/reorder, a right-click menu, and a touch-reachable more button. */
+import { useRef, useState, type DragEvent } from 'react'
+import { ArrowDown, ArrowUp, ChevronRight, Copy, ExternalLink, ListVideo, MoreHorizontal, Pin, Plus, Trash2 } from 'lucide-react'
 import type { SavedYouTubePlaylist } from '@shared/youtube/model'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
-import { confirm } from '../../../components/overlay'
+import { confirm, Menu, Tooltip, useContextMenu, type MenuItem } from '../../../components/overlay'
 import { Button, IconButton } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { useYoutubeStore } from '../store'
@@ -24,32 +25,35 @@ export function PlaylistSection({
   onOpenAdd: () => void
   onSelect: (playlistId: string) => void
 }) {
-  const updatePlaylist = useYoutubeStore((state) => state.updatePlaylist)
-  const removePlaylist = useYoutubeStore((state) => state.removePlaylist)
+  const reorderPlaylists = useYoutubeStore((state) => state.reorderPlaylists)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   const ordered = playlists
     .slice()
-    .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt - left.updatedAt)
+    .sort((left, right) => Number(right.pinned) - Number(left.pinned)
+      || left.sortOrder - right.sortOrder
+      || right.updatedAt - left.updatedAt)
 
-  const togglePin = async (playlist: SavedYouTubePlaylist) => {
-    try {
-      await updatePlaylist({ ...playlist, pinned: !playlist.pinned, updatedAt: Date.now() })
-    } catch (error) {
-      reportFailure(error)
-    }
+  const move = (playlist: SavedYouTubePlaylist, direction: -1 | 1) => {
+    const group = ordered.filter((entry) => entry.pinned === playlist.pinned)
+    const index = group.findIndex((entry) => entry.id === playlist.id)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= group.length) return
+    const ids = group.map((entry) => entry.id)
+    ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
+    void reorderPlaylists(ids).catch(reportFailure)
   }
 
-  const remove = async (playlist: SavedYouTubePlaylist) => {
-    const title = playlist.data.title || playlist.id
-    const confirmed = await confirm({
-      title: t('youtube.sidebar.delete_playlist_title'),
-      description: t('youtube.sidebar.delete_playlist_desc', { name: title }),
-    })
-    if (!confirmed) return
-    try {
-      await removePlaylist(playlist.id)
-    } catch (error) {
-      reportFailure(error)
-    }
+  const drop = (sourceId: string, target: SavedYouTubePlaylist) => {
+    setDraggingId(null)
+    const source = ordered.find((entry) => entry.id === sourceId)
+    if (!source || source.id === target.id || source.pinned !== target.pinned) return
+    const sourceIndex = ordered.findIndex((entry) => entry.id === sourceId)
+    const targetIndex = ordered.findIndex((entry) => entry.id === target.id)
+    const rest = ordered.filter((entry) => entry.id !== sourceId)
+    const restTarget = rest.findIndex((entry) => entry.id === target.id)
+    if (restTarget < 0) return
+    rest.splice(sourceIndex < targetIndex ? restTarget + 1 : restTarget, 0, source)
+    void reorderPlaylists(rest.map((entry) => entry.id)).catch(reportFailure)
   }
 
   return (
@@ -84,50 +88,195 @@ export function PlaylistSection({
               </Button>
             </div>
           ) : (
-            ordered.map((playlist) => (
-              <div key={playlist.id} className="yt-sidebar-row relative flex min-w-0 items-center">
-                <SidebarLink
-                  href={`/youtube/playlists/${encodeURIComponent(playlist.id)}`}
-                  label={playlist.data.title || playlist.id}
-                  icon={<PlaylistThumb playlist={playlist} />}
-                  badge={
-                    playlist.pinned ? (
-                      <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
-                    ) : undefined
-                  }
-                  active={activePlaylistId === playlist.id}
-                  onActivate={() => onSelect(playlist.id)}
-                  className="pr-14"
-                />
-                <div className="yt-row-actions absolute right-0.5 flex items-center gap-0.5">
-                  <IconButton
-                    label={playlist.pinned ? t('youtube.sidebar.unpin') : t('youtube.sidebar.pin')}
-                    size="xs"
-                    active={playlist.pinned}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void togglePin(playlist)
-                    }}
-                  >
-                    <Pin size={12} />
-                  </IconButton>
-                  <IconButton
-                    label={t('youtube.sidebar.remove_playlist')}
-                    size="xs"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void remove(playlist)
-                    }}
-                  >
-                    <Trash2 size={12} />
-                  </IconButton>
-                </div>
-              </div>
-            ))
+            ordered.map((playlist) => {
+              const group = ordered.filter((entry) => entry.pinned === playlist.pinned)
+              return (
+              <PlaylistRow
+                key={playlist.id}
+                playlist={playlist}
+                active={activePlaylistId === playlist.id}
+                first={group[0]?.id === playlist.id}
+                last={group[group.length - 1]?.id === playlist.id}
+                dragging={draggingId === playlist.id}
+                onSelect={onSelect}
+                onMove={move}
+                onDragStart={() => setDraggingId(playlist.id)}
+                onDragEnd={() => setDraggingId(null)}
+                onDrop={drop}
+              />
+              )
+            })
           )}
         </div>
       )}
     </section>
+  )
+}
+
+function PlaylistRow({
+  playlist,
+  active,
+  first,
+  last,
+  dragging,
+  onSelect,
+  onMove,
+  onDragStart,
+  onDragEnd,
+  onDrop,
+}: {
+  playlist: SavedYouTubePlaylist
+  active: boolean
+  first: boolean
+  last: boolean
+  dragging: boolean
+  onSelect: (playlistId: string) => void
+  onMove: (playlist: SavedYouTubePlaylist, direction: -1 | 1) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDrop: (sourceId: string, target: SavedYouTubePlaylist) => void
+}) {
+  const updatePlaylist = useYoutubeStore((state) => state.updatePlaylist)
+  const removePlaylist = useYoutubeStore((state) => state.removePlaylist)
+  const menu = useContextMenu()
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [dropActive, setDropActive] = useState(false)
+  const title = playlist.data.title || playlist.id
+
+  const togglePin = () => {
+    void updatePlaylist({ ...playlist, pinned: !playlist.pinned, updatedAt: Date.now() }).catch(reportFailure)
+  }
+
+  const remove = async () => {
+    const confirmed = await confirm({
+      title: t('youtube.sidebar.delete_playlist_title'),
+      description: t('youtube.sidebar.delete_playlist_desc', { name: title }),
+    })
+    if (!confirmed) return
+    try {
+      await removePlaylist(playlist.id)
+    } catch (error) {
+      reportFailure(error)
+    }
+  }
+
+  const link = `https://www.youtube.com/playlist?list=${encodeURIComponent(playlist.id)}`
+
+  const copyLink = () => {
+    if (!navigator.clipboard?.writeText) {
+      reportFailure(new Error(t('youtube.sidebar.copy_link')))
+      return
+    }
+    void navigator.clipboard.writeText(link).then(() => {
+      useUi.getState().toast({ title: t('common.copied'), tone: 'success' })
+    }).catch(reportFailure)
+  }
+
+  const items: MenuItem[] = [
+    {
+      id: 'pin',
+      label: playlist.pinned ? t('youtube.sidebar.unpin') : t('youtube.sidebar.pin'),
+      icon: <Pin size={13} />,
+      onSelect: togglePin,
+    },
+    {
+      id: 'up',
+      label: t('youtube.sidebar.move_up'),
+      icon: <ArrowUp size={13} />,
+      disabled: first,
+      onSelect: () => onMove(playlist, -1),
+    },
+    {
+      id: 'down',
+      label: t('youtube.sidebar.move_down'),
+      icon: <ArrowDown size={13} />,
+      disabled: last,
+      onSelect: () => onMove(playlist, 1),
+    },
+    {
+      id: 'copy',
+      label: t('youtube.sidebar.copy_link'),
+      icon: <Copy size={13} />,
+      onSelect: copyLink,
+    },
+    {
+      id: 'open',
+      label: t('youtube.sidebar.open_youtube'),
+      icon: <ExternalLink size={13} />,
+      onSelect: () => window.open(link, '_blank', 'noopener'),
+    },
+    {
+      id: 'remove',
+      label: t('youtube.sidebar.remove_playlist'),
+      icon: <Trash2 size={13} />,
+      tone: 'danger',
+      separatorBefore: true,
+      onSelect: () => { void remove() },
+    },
+  ]
+
+  return (
+    <div
+      ref={rowRef}
+      className={cn(
+        'yt-sidebar-row group relative flex min-w-0 items-center rounded-[var(--r-sm)]',
+        dropActive && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]',
+        dragging && 'opacity-45',
+      )}
+      draggable
+      onContextMenu={(event) => {
+        setMenuOpen(false)
+        menu.onContextMenu(event)
+      }}
+      onDragStart={(event: DragEvent<HTMLDivElement>) => {
+        event.dataTransfer.setData('application/x-inkstone-youtube-row', playlist.id)
+        event.dataTransfer.effectAllowed = 'move'
+        onDragStart()
+      }}
+      onDragEnd={() => {
+        setDropActive(false)
+        onDragEnd()
+      }}
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDropActive(true)
+      }}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDropActive(false)
+        if (!event.dataTransfer.types.includes('application/x-inkstone-youtube-row')) return
+        const source = event.dataTransfer.getData('application/x-inkstone-youtube-row')
+        if (source) onDrop(source, playlist)
+      }}
+    >
+      <SidebarLink
+        href={`/youtube/playlists/${encodeURIComponent(playlist.id)}`}
+        label={title}
+        icon={<PlaylistThumb playlist={playlist} />}
+        badge={playlist.pinned ? <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" /> : undefined}
+        active={active}
+        onActivate={() => onSelect(playlist.id)}
+        className="pr-8"
+      />
+      <Tooltip label={t('common.more_actions')} side="left">
+        <IconButton
+          label={t('common.more_actions')}
+          size="xs"
+          onClick={(event) => {
+            event.stopPropagation()
+            menu.close()
+            setMenuOpen(true)
+          }}
+          className="absolute right-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100"
+        >
+          <MoreHorizontal size={12} />
+        </IconButton>
+      </Tooltip>
+      {menuOpen && <Menu anchor={rowRef} open onClose={() => setMenuOpen(false)} items={items} align="end" />}
+      {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} />}
+    </div>
   )
 }
 

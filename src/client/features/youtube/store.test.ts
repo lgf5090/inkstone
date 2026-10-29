@@ -13,6 +13,9 @@ vi.mock('./api', () => ({
   putChannel: vi.fn(),
   putPlaylist: vi.fn(),
   putVideo: vi.fn(),
+  reorderChannels: vi.fn(),
+  reorderPlaylists: vi.fn(),
+  reorderTags: vi.fn(),
   updateTag: vi.fn(),
 }))
 
@@ -53,7 +56,7 @@ function saved(patch: Partial<SavedYouTubeVideo> = {}): SavedYouTubeVideo {
 }
 
 function tag(id: string, parentId: string | null = null): YouTubeTag {
-  return { id, name: id, color: '#64748b', parentId, sortOrder: 0, createdAt: 1 }
+  return { id, name: id, color: '#64748b', parentId, sortOrder: 0, pinned: false, createdAt: 1 }
 }
 
 function reset(library: Partial<ReturnType<typeof useYoutubeStore.getState>['library']> = {}): void {
@@ -69,6 +72,7 @@ beforeEach(() => {
   reset()
   vi.mocked(api.putVideo).mockImplementation(async (row) => ({ video: row }))
   vi.mocked(api.deleteVideo).mockResolvedValue(undefined)
+  vi.mocked(api.reorderChannels).mockResolvedValue(undefined)
 })
 
 describe('saving a video', () => {
@@ -108,6 +112,33 @@ describe('saving a video', () => {
   })
 })
 
+describe('reordering the sidebar', () => {
+  it('applies the new order optimistically and persists it', async () => {
+    reset({
+      channels: [
+        { id: 'UC1', data: {} as never, tagIds: [], pinned: false, sortOrder: 0, notes: '', createdAt: 1, updatedAt: 1 },
+        { id: 'UC2', data: {} as never, tagIds: [], pinned: false, sortOrder: 1, notes: '', createdAt: 2, updatedAt: 2 },
+      ],
+    })
+    await useYoutubeStore.getState().reorderChannels(['UC2', 'UC1'])
+    const channels = useYoutubeStore.getState().library.channels
+    expect(channels.find((channel) => channel.id === 'UC2')?.sortOrder).toBe(0)
+    expect(channels.find((channel) => channel.id === 'UC1')?.sortOrder).toBe(1)
+    expect(api.reorderChannels).toHaveBeenCalledWith(['UC2', 'UC1'])
+  })
+
+  it('rolls the order back when the server refuses it', async () => {
+    const before = [
+      { id: 'UC1', data: {} as never, tagIds: [], pinned: false, sortOrder: 0, notes: '', createdAt: 1, updatedAt: 1 },
+      { id: 'UC2', data: {} as never, tagIds: [], pinned: false, sortOrder: 1, notes: '', createdAt: 2, updatedAt: 2 },
+    ]
+    reset({ channels: before })
+    vi.mocked(api.reorderChannels).mockRejectedValueOnce(new Error('offline'))
+    await expect(useYoutubeStore.getState().reorderChannels(['UC2', 'UC1'])).rejects.toThrow('offline')
+    expect(useYoutubeStore.getState().library.channels).toEqual(before)
+  })
+})
+
 describe('removing a tag', () => {
   it('strips the subtree from rows and deletes a video left with no marker', async () => {
     const parent = tag('parent')
@@ -115,7 +146,7 @@ describe('removing a tag', () => {
     reset({
       tags: [parent, child],
       videos: [saved({ tagIds: ['child'] })],
-      channels: [{ id: 'UC1', data: {} as never, tagIds: ['parent'], pinned: false, notes: '', createdAt: 1, updatedAt: 1 }],
+      channels: [{ id: 'UC1', data: {} as never, tagIds: ['parent'], pinned: false, sortOrder: 0, notes: '', createdAt: 1, updatedAt: 1 }],
       playlists: [],
     })
     vi.mocked(api.deleteTag).mockResolvedValue({ removedTagIds: ['parent', 'child'] })

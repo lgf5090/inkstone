@@ -76,7 +76,8 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
     'zh-CN': () => Promise.all([
         import('@shared/locales/zh-CN'),
         import('@shared/locales/zh-CN-imgbed'),
-    ]).then(([m, imgbed]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED }) as unknown as Record<string, string>),
+        import('@shared/locales/zh-CN-youtube'),
+    ]).then(([m, imgbed, youtube]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...youtube.ZH_CN_YOUTUBE }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**

@@ -15,7 +15,8 @@ import { Button, IconButton } from '../../../components/primitives'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { useYoutubeStore } from '../store'
-import { TagColorPicker } from './TagColorPicker'
+import { Swatch } from '../../../components/color-swatch'
+import { organizerColorLabel } from '@shared/organizer-colors'
 
 interface TagOption {
   tag: YouTubeTag
@@ -193,7 +194,7 @@ export function TagManagerModal({
                 {t('youtube.tags.color')}
               </span>
               <div className="mt-1.5">
-                <TagColorPicker value={color} onChange={setColor} />
+                <ColorSwatches value={color} onChange={setColor} />
               </div>
             </div>
             <Field label={t('youtube.tags.parent')}>
@@ -255,7 +256,7 @@ export function TagManagerModal({
                           <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                             {t('youtube.tags.color')}
                           </span>
-                          <TagColorPicker compact value={editColor} onChange={setEditColor} />
+                          <ColorSwatches compact value={editColor} onChange={setEditColor} />
                         </div>
                         <Field label={t('youtube.tags.parent')}>
                           <Select
@@ -327,5 +328,31 @@ export function TagManagerModal({
         </section>
       </div>
     </Modal>
+  )
+}
+
+function ColorSwatches({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: string
+  onChange: (color: string) => void
+  compact?: boolean
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {ORGANIZER_COLORS.map((color) => (
+        <Swatch
+          key={color}
+          color={color}
+          label={organizerColorLabel(color, t)}
+          active={value === color}
+          background={color}
+          size={compact ? 'sm' : 'md'}
+          onPick={() => onChange(color)}
+        />
+      ))}
+    </div>
   )
 }

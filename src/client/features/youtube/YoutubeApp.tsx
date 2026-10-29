@@ -15,6 +15,7 @@ import { Drawer, Tooltip } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
 import { useYouTubeAddress } from './address'
+import { fetchVideo } from './api'
 import { useYoutubeStore } from './store'
 import { YOUTUBE_SIDEBAR_WIDTH, YOUTUBE_SPLIT_RATIO } from './prefs'
 import { YoutubeSidebar } from './sidebar/YoutubeSidebar'
@@ -52,6 +53,7 @@ export function YoutubeApp() {
   const [listBusy, setListBusy] = useState(false)
   const [summary, setSummary] = useState<number | null>(null)
   const [foundVideo, setFoundVideo] = useState<YouTubeVideo | null>(null)
+  const [linkedVideo, setLinkedVideo] = useState<YouTubeVideo | null>(null)
 
   const viewKey = youtubeViewKey(address.view)
 
@@ -62,6 +64,7 @@ export function YoutubeApp() {
   useEffect(() => {
     setSummary(null)
     setFoundVideo(null)
+    setLinkedVideo(null)
     setListBusy(false)
   }, [viewKey])
 
@@ -140,7 +143,21 @@ export function YoutubeApp() {
   const selectedVideo = useMemo(() => {
     if (!address.videoId) return null
     if (foundVideo?.id === address.videoId) return foundVideo
+    if (linkedVideo?.id === address.videoId) return linkedVideo
     return library.videos.find((video) => video.id === address.videoId)?.data ?? null
+  }, [address.videoId, foundVideo, linkedVideo, library.videos])
+
+  useEffect(() => {
+    const videoId = address.videoId
+    if (!videoId || foundVideo?.id === videoId || library.videos.some((video) => video.id === videoId)) {
+      setLinkedVideo(null)
+      return
+    }
+    const controller = new AbortController()
+    void fetchVideo(videoId, controller.signal)
+      .then(({ video }) => setLinkedVideo(video))
+      .catch(() => { /* The list or the saved snapshot still has a chance to answer. */ })
+    return () => controller.abort()
   }, [address.videoId, foundVideo, library.videos])
 
   const view = address.view
@@ -206,26 +223,9 @@ export function YoutubeApp() {
       data-youtube-app=""
       className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]"
     >
-      {!isDesktop && (
-        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
-          <Tooltip label={t('youtube.sidebar.expand')} side="bottom">
-            <IconButton
-              label={t('youtube.sidebar.expand')}
-              size="sm"
-              onClick={() => setDrawerOpen(true)}
-            >
-              <PanelLeft size={16} />
-            </IconButton>
-          </Tooltip>
-          <span className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
-            {t('app.tabs.youtube')}
-          </span>
-        </header>
-      )}
-
       <div className="flex min-h-0 min-w-0 flex-1">
         {isDesktop && (
-          <>
+          <aside aria-label={t('app.tabs.youtube')} className="flex shrink-0">
             <div
               style={{ width: sidebarCollapsed ? YOUTUBE_SIDEBAR_WIDTH.collapsed : sidebarWidth }}
               className="shrink-0 overflow-hidden transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-out)]"
@@ -248,11 +248,28 @@ export function YoutubeApp() {
                 onReset={() => setSidebarWidth(YOUTUBE_SIDEBAR_WIDTH.default)}
               />
             )}
-          </>
+          </aside>
         )}
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
           <h1 className="sr-only">{t('app.tabs.youtube')}</h1>
+          {!isDesktop && (
+            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
+              <Tooltip label={t('youtube.sidebar.expand')} side="bottom">
+                <IconButton
+                  label={t('youtube.sidebar.expand')}
+                  size="sm"
+                  onClick={() => setDrawerOpen(true)}
+                >
+                  <PanelLeft size={16} />
+                </IconButton>
+              </Tooltip>
+              <span className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
+                {t('app.tabs.youtube')}
+              </span>
+            </div>
+          )}
+
           <DiscoverToolbar
             address={address}
             busy={busy}
@@ -318,6 +335,7 @@ export function YoutubeApp() {
           activeView={address.view}
           sort={address.sort}
           range={address.range}
+          hideHeader
           onNavigate={() => setDrawerOpen(false)}
         />
       </Drawer>

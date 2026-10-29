@@ -68,6 +68,7 @@ export interface YouTubeTag {
   color: string
   parentId: string | null
   sortOrder: number
+  pinned: boolean
   createdAt: number
 }
 
@@ -91,6 +92,7 @@ export interface SavedYouTubeChannel {
   data: YouTubeChannel
   tagIds: string[]
   pinned: boolean
+  sortOrder: number
   notes: string
   createdAt: number
   updatedAt: number
@@ -102,6 +104,7 @@ export interface SavedYouTubePlaylist {
   tagIds: string[]
   pinned: boolean
   favorited: boolean
+  sortOrder: number
   notes: string
   createdAt: number
   updatedAt: number
@@ -379,7 +382,7 @@ export function buildTagTree(tags: readonly YouTubeTag[]): YouTubeTagNode[] {
     else roots.push(node)
   }
   const sortRec = (nodes: YouTubeTagNode[]) => {
-    nodes.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+    nodes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.sortOrder - b.sortOrder || a.createdAt - b.createdAt || a.id.localeCompare(b.id))
     for (const node of nodes) if (node.children.length) sortRec(node.children)
   }
   sortRec(roots)

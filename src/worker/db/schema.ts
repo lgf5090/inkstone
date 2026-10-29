@@ -2938,6 +2938,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_imgbed_files_pinned ON imgbed_files(pinned, created_at DESC)`,
     ],
   },
+  {
+    version: 193,
+    skipIfColumnExists: { table: 'youtube_tags', column: 'pinned' },
+    statements: [`ALTER TABLE youtube_tags ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 194,
+    skipIfColumnExists: { table: 'youtube_channels', column: 'sort_order' },
+    statements: [`ALTER TABLE youtube_channels ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 195,
+    skipIfColumnExists: { table: 'youtube_playlists', column: 'sort_order' },
+    statements: [`ALTER TABLE youtube_playlists ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

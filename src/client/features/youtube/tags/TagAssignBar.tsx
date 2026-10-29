@@ -17,6 +17,16 @@ function flattenTagTree(nodes: YouTubeTagNode[]): YouTubeTag[] {
   return nodes.flatMap((node) => [node, ...flattenTagTree(node.children)])
 }
 
+const ORDER_CACHE = new WeakMap<readonly YouTubeTag[], YouTubeTag[]>()
+
+function orderedTagList(tags: readonly YouTubeTag[]): YouTubeTag[] {
+  const cached = ORDER_CACHE.get(tags)
+  if (cached) return cached
+  const ordered = flattenTagTree(buildTagTree(tags))
+  ORDER_CACHE.set(tags, ordered)
+  return ordered
+}
+
 /**
  * The tags a saved video wears, and the picker that changes them.
  *
@@ -39,7 +49,7 @@ export function TagAssignBar(props: {
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([])
   const panelId = useId()
 
-  const orderedTags = useMemo(() => flattenTagTree(buildTagTree(allTags)), [allTags])
+  const orderedTags = useMemo(() => orderedTagList(allTags), [allTags])
   const assignedIds = useMemo(() => new Set(assignedTags.map((tag) => tag.id)), [assignedTags])
 
   const close = () => setOpen(false)

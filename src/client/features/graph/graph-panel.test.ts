@@ -716,14 +716,14 @@ describe('graph pointer and keyboard interaction', () => {
     await mount()
     await takeRequest()
     await openSettings()
-    expect(document.querySelector('aside[role="dialog"]')).not.toBeNull()
+    expect(document.querySelector('[data-surface="drawer"][role="dialog"]')).not.toBeNull()
     expect(buttonByLabel(t('graph.settings'))?.getAttribute('aria-pressed')).toBe('true')
     expect(buttonByLabel(t('graph.settings'))?.className).toContain('accent-soft')
 
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
-    expect(document.querySelector('aside[role="dialog"]')).toBeNull()
+    expect(document.querySelector('[data-surface="drawer"][role="dialog"]')).toBeNull()
     expect(closeMock).not.toHaveBeenCalled()
 
     await act(async () => {

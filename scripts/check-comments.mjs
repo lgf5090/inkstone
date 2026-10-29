@@ -18183,6 +18183,9 @@ const allowed = new Map([
   ["src/client/features/workspace/versions-diff.test.ts", [
     "/** The pre-change implementation: materialize every line, then truncate the array. */",
   ]],
+  ["src/client/features/youtube/YoutubeApp.tsx", [
+    "/* The list or the saved snapshot still has a chance to answer. */",
+  ]],
   ["src/client/features/youtube/address.ts", [
     "/** The tab's address, read from the browser and answered with the same parser the tests use. */",
   ]],
@@ -18238,6 +18241,15 @@ const allowed = new Map([
   ["src/client/features/youtube/quota/quota.test.tsx", [
     "/** The dialog loads in an effect, so the first paint's promise needs a turn to settle. */",
   ]],
+  ["src/client/features/youtube/sidebar/ChannelSection.tsx", [
+    "/** The subscribed channels: pin/reorder, a right-click menu, and a touch-reachable more button. */",
+  ]],
+  ["src/client/features/youtube/sidebar/PlaylistSection.tsx", [
+    "/** The saved playlists: pin/reorder, a right-click menu, and a touch-reachable more button. */",
+  ]],
+  ["src/client/features/youtube/sidebar/TagTree.tsx", [
+    "/**\n * The sidebar tag forest: rows that select a tag, carry a count, open on right-click or a\n * \"more\" button, rename in place, drag onto another tag to re-parent, and accept a colour from the\n * same flyout the notebook uses.\n */",
+  ]],
   ["src/client/features/youtube/store.ts", [
     "/** The YouTube tab's one store: the saved library, its writes, and the layout the reader chose. */",
     "/** The same defaults the persisted loader starts from, for tests and a reset button. */",
@@ -18248,13 +18260,12 @@ const allowed = new Map([
     "/**\n * The tags a saved video wears, and the picker that changes them.\n *\n * The bar stays a row of chips, so the list of the video's own tags is readable without opening\n * anything. The picker is a popover rather than a dialog: it belongs to the row, and a dialog would\n * cover the row the reader is working on. Every option is a button, so a row can be toggled from the\n * keyboard, and the pointer only ever lands on this bar — never on the row's selection overlay.\n */",
     "// Opening the panel moves the caret to its first row, so the arrow keys work without a Tab first.",
   ]],
-  ["src/client/features/youtube/tags/TagColorPicker.tsx", [
-    "/** One grid row in the palette; the 24 colours are laid out eight across, so the arrow keys move by it. */",
-    "/**\n * The palette a YouTube tag can wear, as a single-select board.\n *\n * A tag colours a dot and a chip rather than a page, so all 24 organiser colours are valid here; the\n * two halves of the ramp sit in the same grid because the rows themselves (16 classic, then 8 vivid)\n * already read as the two groups. The checked swatch carries the accent ring and is the group's only\n * tab stop, which is the roving-radio pattern a `radiogroup` promises to a screen reader.\n */",
-  ]],
   ["src/client/features/youtube/tags/TagManagerModal.tsx", [
     "/** The tree in drawing order, each row carrying the depth its name is indented by in a flat list. */",
     "/**\n * The one place a tag is created, renamed, recoloured, re-parented or deleted.\n *\n * The add area stays at the top and keeps its values after a refusal, so a failed write costs a retry\n * rather than the whole form. Editing happens in the row it belongs to — a reader who changed their\n * mind about one tag should not have to read the add form again — and its parent list drops the tag\n * and its descendants, which is the one move the tree rules forbid. Deleting asks first because a tag\n * takes its children and every reference to them with it.\n */",
+  ]],
+  ["src/client/features/youtube/tags/tagDrag.ts", [
+    "/** Tag drags between YouTube sidebar rows: one type, one id, same document only. */",
   ]],
   ["src/client/lib/ai/stream-client.ts", [
     "// Reading the body only buys a better sentence about a failure that is already certain: `errText`",

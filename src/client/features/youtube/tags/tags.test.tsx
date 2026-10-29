@@ -1,4 +1,4 @@
-import { act, useState, type ReactNode } from 'react'
+import { act, type ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ORGANIZER_COLORS } from '@shared/organizer-colors'
 import type { YouTubeTag, YouTubeVideo } from '@shared/youtube/model'
@@ -6,7 +6,6 @@ import { initI18n, t } from '../../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../../lib/test-render'
 import { useYoutubeStore } from '../store'
 import { TagAssignBar } from './TagAssignBar'
-import { TagColorPicker } from './TagColorPicker'
 import { TagManagerModal } from './TagManagerModal'
 
 const video: YouTubeVideo = {
@@ -28,9 +27,9 @@ const video: YouTubeVideo = {
 }
 
 const tags: YouTubeTag[] = [
-  { id: 'parent', name: 'Parent', color: ORGANIZER_COLORS[15], parentId: null, sortOrder: 0, createdAt: 1 },
-  { id: 'child', name: 'Child', color: ORGANIZER_COLORS[21], parentId: 'parent', sortOrder: 0, createdAt: 2 },
-  { id: 'other', name: 'Other', color: ORGANIZER_COLORS[0], parentId: null, sortOrder: 1, createdAt: 3 },
+  { id: 'parent', name: 'Parent', color: ORGANIZER_COLORS[15], parentId: null, sortOrder: 0, pinned: false, createdAt: 1 },
+  { id: 'child', name: 'Child', color: ORGANIZER_COLORS[21], parentId: 'parent', sortOrder: 0, pinned: false, createdAt: 2 },
+  { id: 'other', name: 'Other', color: ORGANIZER_COLORS[0], parentId: null, sortOrder: 1, pinned: false, createdAt: 3 },
 ]
 
 let mounted: RenderedElement[] = []
@@ -124,34 +123,5 @@ describe('TagManagerModal', () => {
     expect(values).not.toContain('child')
     expect(values).toContain('')
     expect(values).toContain('other')
-  })
-})
-
-function PickerHarness() {
-  const [color, setColor] = useState<string>(ORGANIZER_COLORS[0])
-  return <TagColorPicker value={color} onChange={setColor} />
-}
-
-describe('TagColorPicker', () => {
-  it('moves the checked colour with the arrow keys', () => {
-    const rendered = render(<PickerHarness />)
-    const radios = () =>
-      Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('[role="radio"]'))
-
-    expect(radios()).toHaveLength(ORGANIZER_COLORS.length)
-    const first = radios()[0]!
-    expect(first.getAttribute('aria-checked')).toBe('true')
-
-    act(() => {
-      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
-    })
-
-    const checked = radios().filter((radio) => radio.getAttribute('aria-checked') === 'true')
-    expect(checked).toHaveLength(1)
-    expect(checked[0]).not.toBe(first)
-    expect(checked[0]!.getAttribute('aria-label')).toBe(
-      t('youtube.tags.color_name', { color: ORGANIZER_COLORS[1] }),
-    )
-    expect(document.activeElement).toBe(checked[0])
   })
 })

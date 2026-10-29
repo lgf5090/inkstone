@@ -7,6 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { AppBindings } from '../env'
+import { ApiError } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import {
   createTag,
@@ -15,6 +16,9 @@ import {
   deleteTag,
   deleteVideo,
   readLibrary,
+  reorderChannels,
+  reorderPlaylists,
+  reorderTags,
   saveChannel,
   savePlaylist,
   saveVideo,
@@ -22,6 +26,13 @@ import {
 } from './store'
 
 type LibraryBody = Record<string, unknown>
+
+function idsField(body: LibraryBody): string[] {
+  if (!Array.isArray(body.ids) || body.ids.some((id) => typeof id !== 'string')) {
+    throw ApiError.badRequest('ids must be a list of strings')
+  }
+  return body.ids as string[]
+}
 
 export const youtubeLibraryRoutes = new Hono<AppBindings>()
 
@@ -46,8 +57,20 @@ youtubeLibraryRoutes.put('/channels/:id', async (c) => {
   return c.json({ channel })
 })
 
+youtubeLibraryRoutes.patch('/channels/order', async (c) => {
+  const body = await readJson<LibraryBody>(c, JSON_BODY_LIMITS.youtube)
+  await reorderChannels(c.env.DB, c.get('userId'), idsField(body))
+  return c.body(null, 204)
+})
+
 youtubeLibraryRoutes.delete('/channels/:id', async (c) => {
   await deleteChannel(c.env.DB, c.get('userId'), c.req.param('id'))
+  return c.body(null, 204)
+})
+
+youtubeLibraryRoutes.patch('/playlists/order', async (c) => {
+  const body = await readJson<LibraryBody>(c, JSON_BODY_LIMITS.youtube)
+  await reorderPlaylists(c.env.DB, c.get('userId'), idsField(body))
   return c.body(null, 204)
 })
 
@@ -66,6 +89,12 @@ youtubeLibraryRoutes.post('/tags', async (c) => {
   const body = await readJson<LibraryBody>(c, JSON_BODY_LIMITS.youtube)
   const tag = await createTag(c.env.DB, c.get('userId'), body)
   return c.json({ tag })
+})
+
+youtubeLibraryRoutes.patch('/tags/order', async (c) => {
+  const body = await readJson<LibraryBody>(c, JSON_BODY_LIMITS.youtube)
+  await reorderTags(c.env.DB, c.get('userId'), idsField(body))
+  return c.body(null, 204)
 })
 
 youtubeLibraryRoutes.patch('/tags/:id', async (c) => {

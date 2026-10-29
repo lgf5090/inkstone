@@ -30,6 +30,7 @@ const tag: YouTubeTag = {
   color: '#64748b',
   parentId: null,
   sortOrder: 0,
+  pinned: false,
   createdAt: 1,
 }
 

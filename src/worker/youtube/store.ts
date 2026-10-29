@@ -29,7 +29,7 @@ import {
   youtubeColor,
 } from '@shared/youtube/validate'
 import { ApiError } from '../lib/errors'
-import { newId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 
 interface VideoRow {
   id: string
@@ -51,6 +51,7 @@ interface ChannelRow {
   data_json: string
   tag_ids: string
   pinned: number
+  sort_order: number
   notes: string
   created_at: number
   updated_at: number
@@ -62,6 +63,7 @@ interface PlaylistRow {
   tag_ids: string
   pinned: number
   favorited: number
+  sort_order: number
   notes: string
   created_at: number
   updated_at: number
@@ -73,6 +75,7 @@ interface TagRow {
   color: string
   parent_id: string | null
   sort_order: number
+  pinned: number
   created_at: number
 }
 
@@ -83,6 +86,7 @@ export interface SaveWriteInput {
   favorited?: unknown
   tagIds?: unknown
   notes?: unknown
+  sortOrder?: unknown
 }
 
 /** The body a tag create or patch may carry. */
@@ -91,13 +95,14 @@ export interface TagWriteInput {
   color?: unknown
   parentId?: unknown
   sortOrder?: unknown
+  pinned?: unknown
 }
 
 const VIDEO_COLUMNS = `id, title, thumbnail_url, channel_id, channel_title, data_json, tag_ids,
   pinned, favorited, notes, created_at, updated_at`
-const CHANNEL_COLUMNS = 'id, data_json, tag_ids, pinned, notes, created_at, updated_at'
-const PLAYLIST_COLUMNS = 'id, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
-const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, created_at'
+const CHANNEL_COLUMNS = 'id, data_json, tag_ids, pinned, sort_order, notes, created_at, updated_at'
+const PLAYLIST_COLUMNS = 'id, data_json, tag_ids, pinned, favorited, sort_order, notes, created_at, updated_at'
+const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, pinned, created_at'
 
 function invalidInput(message: string): ApiError {
   return new ApiError(400, 'youtube_invalid_input', message)
@@ -160,6 +165,7 @@ function rowToChannel(row: ChannelRow): SavedYouTubeChannel {
     data: parseJsonObject<YouTubeChannel>(row.data_json),
     tagIds: parseTagIds(row.tag_ids),
     pinned: row.pinned === 1,
+    sortOrder: row.sort_order,
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -173,6 +179,7 @@ function rowToPlaylist(row: PlaylistRow): SavedYouTubePlaylist {
     tagIds: parseTagIds(row.tag_ids),
     pinned: row.pinned === 1,
     favorited: row.favorited === 1,
+    sortOrder: row.sort_order,
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -186,6 +193,7 @@ function rowToTag(row: TagRow): YouTubeTag {
     color: row.color,
     parentId: row.parent_id,
     sortOrder: row.sort_order,
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
   }
 }
@@ -195,7 +203,7 @@ export async function readLibrary(db: D1Database, userId: string): Promise<YouTu
   const tags = await db.prepare(
     `SELECT ${TAG_COLUMNS} FROM youtube_tags
      WHERE user_id = ?1
-     ORDER BY sort_order ASC, created_at ASC, id ASC`,
+     ORDER BY pinned DESC, sort_order ASC, created_at ASC, id ASC`,
   ).bind(userId).all<TagRow>()
 
   // One row past the ceiling answers "was there more" without a second count query.
@@ -209,13 +217,13 @@ export async function readLibrary(db: D1Database, userId: string): Promise<YouTu
   const channels = await db.prepare(
     `SELECT ${CHANNEL_COLUMNS} FROM youtube_channels
      WHERE user_id = ?1
-     ORDER BY pinned DESC, updated_at DESC, id ASC`,
+     ORDER BY pinned DESC, sort_order ASC, updated_at DESC, id ASC`,
   ).bind(userId).all<ChannelRow>()
 
   const playlists = await db.prepare(
     `SELECT ${PLAYLIST_COLUMNS} FROM youtube_playlists
      WHERE user_id = ?1
-     ORDER BY pinned DESC, favorited DESC, updated_at DESC, id ASC`,
+     ORDER BY pinned DESC, sort_order ASC, updated_at DESC, id ASC`,
   ).bind(userId).all<PlaylistRow>()
 
   const truncated = videos.results.length > limit
@@ -248,6 +256,13 @@ function assertData(data: unknown, id: string): Record<string, unknown> {
 
 function booleanField(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw invalidInput(`${field} must be a boolean`)
+  return value
+}
+
+function sortOrderField(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw invalidInput('sortOrder must be a non-negative integer')
+  }
   return value
 }
 
@@ -369,16 +384,20 @@ export async function saveChannel(
     : tagIdsField(input.tagIds)
   if (input.tagIds !== undefined) await assertTagsExist(db, userId, tagIds)
   const notes = input.notes === undefined ? existing?.notes ?? '' : notesField(input.notes)
+  const sortOrder = input.sortOrder === undefined
+    ? existing?.sort_order ?? 0
+    : sortOrderField(input.sortOrder)
   const now = Date.now()
 
   await db.prepare(
     `INSERT INTO youtube_channels
-       (user_id, id, data_json, tag_ids, pinned, notes, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+       (user_id, id, data_json, tag_ids, pinned, sort_order, notes, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
      ON CONFLICT(user_id, id) DO UPDATE SET
        data_json = excluded.data_json,
        tag_ids = excluded.tag_ids,
        pinned = excluded.pinned,
+       sort_order = excluded.sort_order,
        notes = excluded.notes,
        updated_at = excluded.updated_at`,
   ).bind(
@@ -387,6 +406,7 @@ export async function saveChannel(
     JSON.stringify(input.data),
     JSON.stringify(tagIds),
     pinned ? 1 : 0,
+    sortOrder,
     notes,
     existing?.created_at ?? now,
     now,
@@ -419,17 +439,21 @@ export async function savePlaylist(
     : tagIdsField(input.tagIds)
   if (input.tagIds !== undefined) await assertTagsExist(db, userId, tagIds)
   const notes = input.notes === undefined ? existing?.notes ?? '' : notesField(input.notes)
+  const sortOrder = input.sortOrder === undefined
+    ? existing?.sort_order ?? 0
+    : sortOrderField(input.sortOrder)
   const now = Date.now()
 
   await db.prepare(
     `INSERT INTO youtube_playlists
-       (user_id, id, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+       (user_id, id, data_json, tag_ids, pinned, favorited, sort_order, notes, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
      ON CONFLICT(user_id, id) DO UPDATE SET
        data_json = excluded.data_json,
        tag_ids = excluded.tag_ids,
        pinned = excluded.pinned,
        favorited = excluded.favorited,
+       sort_order = excluded.sort_order,
        notes = excluded.notes,
        updated_at = excluded.updated_at`,
   ).bind(
@@ -439,6 +463,7 @@ export async function savePlaylist(
     JSON.stringify(tagIds),
     pinned ? 1 : 0,
     favorited ? 1 : 0,
+    sortOrder,
     notes,
     existing?.created_at ?? now,
     now,
@@ -500,7 +525,7 @@ export async function createTag(
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   ).bind(userId, id, name, color, parentId, sortOrder, createdAt).run()
 
-  return { id, name, color, parentId, sortOrder, createdAt }
+  return { id, name, color, parentId, sortOrder, pinned: false, createdAt }
 }
 
 export async function updateTag(
@@ -517,6 +542,7 @@ export async function updateTag(
   let color = existing.color
   let parentId = existing.parent_id
   let sortOrder = existing.sort_order
+  let pinned = existing.pinned === 1
 
   if (has('name')) {
     const normalized = normalizeTagName(patch.name)
@@ -533,22 +559,16 @@ export async function updateTag(
       }
     }
   }
-  if (has('sortOrder')) {
-    if (typeof patch.sortOrder !== 'number'
-      || !Number.isSafeInteger(patch.sortOrder)
-      || patch.sortOrder < 0) {
-      throw invalidInput('sortOrder must be a non-negative integer')
-    }
-    sortOrder = patch.sortOrder
-  }
+  if (has('sortOrder')) sortOrder = sortOrderField(patch.sortOrder)
+  if (has('pinned')) pinned = booleanField(patch.pinned, 'pinned')
 
   await db.prepare(
     `UPDATE youtube_tags
-     SET name = ?3, color = ?4, parent_id = ?5, sort_order = ?6
+     SET name = ?3, color = ?4, parent_id = ?5, sort_order = ?6, pinned = ?7
      WHERE user_id = ?1 AND id = ?2`,
-  ).bind(userId, id, name, color, parentId, sortOrder).run()
+  ).bind(userId, id, name, color, parentId, sortOrder, pinned ? 1 : 0).run()
 
-  return { id, name, color, parentId, sortOrder, createdAt: existing.created_at }
+  return { id, name, color, parentId, sortOrder, pinned, createdAt: existing.created_at }
 }
 
 /**
@@ -619,4 +639,41 @@ export async function deleteTag(
   ])
 
   return { removedTagIds }
+}
+
+type ReorderTable = 'youtube_tags' | 'youtube_channels' | 'youtube_playlists'
+
+async function reorderScoped(
+  db: D1Database,
+  table: ReorderTable,
+  userId: string,
+  ids: readonly string[],
+): Promise<void> {
+  if (ids.length === 0 || new Set(ids).size !== ids.length) {
+    throw invalidInput('ids must be a non-empty list of unique ids')
+  }
+  const rows = await db.prepare(
+    `SELECT id FROM ${table} WHERE user_id = ?1 AND id IN (SELECT value FROM json_each(?2))`,
+  ).bind(userId, JSON.stringify(ids)).all<{ id: string }>()
+  if (rows.results.length !== ids.length) {
+    throw invalidInput('ids contains a row that does not belong to this account')
+  }
+  await db.batch(ids.map((id, index) => db.prepare(
+    `UPDATE ${table} SET sort_order = ?3 WHERE user_id = ?1 AND id = ?2`,
+  ).bind(userId, id, index)))
+}
+
+export async function reorderTags(db: D1Database, userId: string, ids: readonly string[]): Promise<void> {
+  for (const id of ids) if (!isValidId(id)) throw invalidInput('A tag id is not valid')
+  await reorderScoped(db, 'youtube_tags', userId, ids)
+}
+
+export async function reorderChannels(db: D1Database, userId: string, ids: readonly string[]): Promise<void> {
+  for (const id of ids) if (!isYoutubeId(id)) throw invalidInput('A channel id is not valid')
+  await reorderScoped(db, 'youtube_channels', userId, ids)
+}
+
+export async function reorderPlaylists(db: D1Database, userId: string, ids: readonly string[]): Promise<void> {
+  for (const id of ids) if (!isYoutubeId(id)) throw invalidInput('A playlist id is not valid')
+  await reorderScoped(db, 'youtube_playlists', userId, ids)
 }

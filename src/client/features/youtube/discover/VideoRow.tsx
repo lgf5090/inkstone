@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy, Eye, Heart, MessageCircle, Pin, Play, ThumbsUp } from 'lucide-react'
+import { Check, Copy, Eye, ExternalLink, Heart, MessageCircle, Pin, Play, ThumbsUp } from 'lucide-react'
 import type { SavedYouTubeVideo, YouTubeTag, YouTubeVideo } from '@shared/youtube/model'
 import { formatCount, formatPublished, parseDuration } from '@shared/youtube/model'
 import { cn } from '../../../lib/cn'
 import { getLocale, t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { IconButton } from '../../../components/primitives'
+import { Menu, useContextMenu, type MenuItem } from '../../../components/overlay'
 import { TagAssignBar } from '../tags/TagAssignBar'
 import { thumbnailUrl } from '../api'
 import { useYoutubeStore } from '../store'
@@ -26,6 +27,9 @@ export function VideoRow({
   const saveVideo = useYoutubeStore((state) => state.saveVideo)
   const [sourceIndex, setSourceIndex] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const rowRef = useRef<HTMLLIElement>(null)
+  const menu = useContextMenu()
   const copyTimer = useRef(0)
 
   useEffect(() => () => window.clearTimeout(copyTimer.current), [])
@@ -81,8 +85,41 @@ export function VideoRow({
     }
   }
 
+  const link = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`
+  const items: MenuItem[] = [
+    {
+      id: 'pin',
+      label: saved?.pinned ? t('youtube.video.unpin') : t('youtube.video.pin'),
+      icon: <Pin size={13} />,
+      onSelect: togglePin,
+    },
+    {
+      id: 'favorite',
+      label: saved?.favorited ? t('youtube.video.unfavorite') : t('youtube.video.favorite'),
+      icon: <Heart size={13} />,
+      onSelect: toggleFavorite,
+    },
+    {
+      id: 'copy',
+      label: copied ? t('youtube.video.copied') : t('youtube.video.copy'),
+      icon: <Copy size={13} />,
+      onSelect: () => { void copy() },
+    },
+    {
+      id: 'open',
+      label: t('youtube.detail.open'),
+      icon: <ExternalLink size={13} />,
+      onSelect: () => window.open(link, '_blank', 'noopener'),
+    },
+  ]
+
   return (
     <li
+      ref={rowRef}
+      onContextMenu={(event) => {
+        setMenuOpen(false)
+        menu.onContextMenu(event)
+      }}
       className={cn(
         'yt-row group relative flex gap-3 px-2 py-2 transition-colors duration-[var(--dur-fast)]',
         selected ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]',
@@ -198,6 +235,8 @@ export function VideoRow({
           </div>
         </div>
       </div>
+      {menuOpen && <Menu anchor={rowRef} open onClose={() => setMenuOpen(false)} items={items} align="end" />}
+      {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} />}
     </li>
   )
 }

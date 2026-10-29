@@ -10178,7 +10178,6 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_EMAIL_TEMPLATES,
     ...EN_US_MUSIC,
     ...EN_US_TOOLS,
-    ...EN_US_YOUTUBE,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
     ...EN_US_DEVELOPMENT_APITESTER,
@@ -10192,6 +10191,6 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
 } as const;
-export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof EN_US_INKNOTE = { ...CORE_MESSAGES, ...EN_US_INKNOTE };
+export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE = { ...CORE_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE };
 export type BaseMessageKey = keyof typeof CORE_MESSAGES | keyof typeof EN_US_INKNOTE;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE;

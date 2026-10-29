@@ -18,7 +18,6 @@ import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
 import { ZH_CN_INKNOTE } from './zh-CN-inknote';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
-import { ZH_CN_YOUTUBE } from './zh-CN-youtube';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
 import { ZH_CN_DEVELOPMENT_APITESTER } from './zh-CN-development-apitester';
@@ -10178,7 +10177,6 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_EMAIL_TEMPLATES,
     ...ZH_CN_MUSIC,
     ...ZH_CN_TOOLS,
-    ...ZH_CN_YOUTUBE,
     ...ZH_CN_CALENDAR,
     ...ZH_CN_DEVELOPMENT_DATABASE,
     ...ZH_CN_DEVELOPMENT_APITESTER,

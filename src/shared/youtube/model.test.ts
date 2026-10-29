@@ -23,6 +23,7 @@ const tag = (id: string, parentId: string | null = null, sortOrder = 0, createdA
   color: '#64748b',
   parentId,
   sortOrder,
+  pinned: false,
   createdAt,
 })
 

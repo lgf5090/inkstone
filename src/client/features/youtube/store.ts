@@ -22,6 +22,9 @@ import {
   putChannel,
   putPlaylist,
   putVideo,
+  reorderChannels as apiReorderChannels,
+  reorderPlaylists as apiReorderPlaylists,
+  reorderTags as apiReorderTags,
   updateTag,
 } from './api'
 import {
@@ -57,6 +60,7 @@ export interface YouTubeState extends YouTubeUiPrefs {
   toggleSection: (section: YouTubeSection) => void
   toggleTagExpanded: (tagId: string) => void
   expandTag: (tagId: string) => void
+  setExpandedTags: (ids: string[]) => void
   saveVideo: (video: YouTubeVideo, patch: VideoPatch) => Promise<void>
   saveChannel: (channel: YouTubeChannel) => Promise<void>
   updateChannel: (channel: SavedYouTubeChannel) => Promise<void>
@@ -65,7 +69,10 @@ export interface YouTubeState extends YouTubeUiPrefs {
   updatePlaylist: (playlist: SavedYouTubePlaylist) => Promise<void>
   removePlaylist: (id: string) => Promise<void>
   addTag: (input: { name: string; color: string; parentId: string | null }) => Promise<YouTubeTag>
-  editTag: (id: string, patch: Partial<Pick<YouTubeTag, 'name' | 'color' | 'parentId' | 'sortOrder'>>) => Promise<void>
+  editTag: (id: string, patch: Partial<Pick<YouTubeTag, 'name' | 'color' | 'parentId' | 'sortOrder' | 'pinned'>>) => Promise<void>
+  reorderChannels: (ids: string[]) => Promise<void>
+  reorderPlaylists: (ids: string[]) => Promise<void>
+  reorderTags: (ids: string[]) => Promise<void>
   removeTag: (id: string) => Promise<void>
 }
 
@@ -144,6 +151,10 @@ export const useYoutubeStore = create<YouTubeState>((set, get) => {
       persist({ expandedTags: [...get().expandedTags, tagId] })
     },
 
+    setExpandedTags(ids) {
+      persist({ expandedTags: [...new Set(ids)] })
+    },
+
     async saveVideo(video, patch) {
       const previous = get().library
       const existing = previous.videos.find((entry) => entry.id === video.id)
@@ -190,6 +201,7 @@ export const useYoutubeStore = create<YouTubeState>((set, get) => {
         data: channel,
         tagIds: [],
         pinned: false,
+        sortOrder: 0,
         notes: '',
         createdAt: now,
         updatedAt: now,
@@ -237,6 +249,7 @@ export const useYoutubeStore = create<YouTubeState>((set, get) => {
         tagIds: [],
         pinned: false,
         favorited: false,
+        sortOrder: 0,
         notes: '',
         createdAt: now,
         updatedAt: now,
@@ -285,6 +298,63 @@ export const useYoutubeStore = create<YouTubeState>((set, get) => {
       const { tag } = await updateTag(id, patch)
       const library = get().library
       set({ library: { ...library, tags: library.tags.map((entry) => (entry.id === id ? tag : entry)) } })
+    },
+
+    async reorderChannels(ids) {
+      const previous = get().library
+      const order = new Map(ids.map((id, index) => [id, index]))
+      set({
+        library: {
+          ...previous,
+          channels: previous.channels.map((channel) => (
+            order.has(channel.id) ? { ...channel, sortOrder: order.get(channel.id)! } : channel
+          )),
+        },
+      })
+      try {
+        await apiReorderChannels(ids)
+      } catch (error) {
+        set({ library: previous })
+        throw error
+      }
+    },
+
+    async reorderPlaylists(ids) {
+      const previous = get().library
+      const order = new Map(ids.map((id, index) => [id, index]))
+      set({
+        library: {
+          ...previous,
+          playlists: previous.playlists.map((playlist) => (
+            order.has(playlist.id) ? { ...playlist, sortOrder: order.get(playlist.id)! } : playlist
+          )),
+        },
+      })
+      try {
+        await apiReorderPlaylists(ids)
+      } catch (error) {
+        set({ library: previous })
+        throw error
+      }
+    },
+
+    async reorderTags(ids) {
+      const previous = get().library
+      const order = new Map(ids.map((id, index) => [id, index]))
+      set({
+        library: {
+          ...previous,
+          tags: previous.tags.map((tag) => (
+            order.has(tag.id) ? { ...tag, sortOrder: order.get(tag.id)! } : tag
+          )),
+        },
+      })
+      try {
+        await apiReorderTags(ids)
+      } catch (error) {
+        set({ library: previous })
+        throw error
+      }
     },
 
     async removeTag(id) {

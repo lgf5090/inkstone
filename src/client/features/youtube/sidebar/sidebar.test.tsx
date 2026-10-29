@@ -1,4 +1,4 @@
-import { beforeEach, beforeAll, describe, expect, it } from 'vitest'
+import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type {
   SavedYouTubeChannel,
   SavedYouTubePlaylist,
@@ -7,6 +7,7 @@ import type {
   YouTubeTag,
   YouTubeVideo,
 } from '@shared/youtube/model'
+import { act } from 'react'
 import { initI18n, t } from '../../../lib/i18n'
 import { treeIndent } from '../../../lib/tree/indent'
 import { installTestGlobals, renderElement } from '../../../lib/test-render'
@@ -52,9 +53,9 @@ function saved(id: string, overrides: Partial<SavedYouTubeVideo> = {}): SavedYou
 }
 
 const tags: YouTubeTag[] = [
-  { id: 'root', name: 'Root', color: '#64748b', parentId: null, sortOrder: 0, createdAt: 1 },
-  { id: 'child', name: 'Child', color: '#64748b', parentId: 'root', sortOrder: 0, createdAt: 2 },
-  { id: 'other', name: 'Other', color: '#64748b', parentId: null, sortOrder: 1, createdAt: 3 },
+  { id: 'root', name: 'Root', color: '#64748b', parentId: null, sortOrder: 0, pinned: false, createdAt: 1 },
+  { id: 'child', name: 'Child', color: '#64748b', parentId: 'root', sortOrder: 0, pinned: false, createdAt: 2 },
+  { id: 'other', name: 'Other', color: '#64748b', parentId: null, sortOrder: 1, pinned: false, createdAt: 3 },
 ]
 
 const savedChannel: SavedYouTubeChannel = {
@@ -72,6 +73,7 @@ const savedChannel: SavedYouTubeChannel = {
   },
   tagIds: [],
   pinned: false,
+  sortOrder: 0,
   notes: '',
   createdAt: 1,
   updatedAt: 1,
@@ -92,6 +94,7 @@ const savedPlaylist: SavedYouTubePlaylist = {
   tagIds: [],
   pinned: false,
   favorited: false,
+  sortOrder: 0,
   notes: '',
   createdAt: 1,
   updatedAt: 1,
@@ -167,7 +170,7 @@ describe('YoutubeSidebar', () => {
     const rendered = renderElement(
       <YoutubeSidebar collapsed activeView={{ kind: 'library', filter: 'all' }} sort="viewCount" range="week" />,
     )
-    const aside = rendered.container.querySelector('aside')
+    const aside = rendered.container.querySelector('[data-collapsed]')
     const all = rendered.container.querySelector('a[href="/youtube/all"]')
 
     expect(aside?.getAttribute('data-collapsed')).toBe('true')
@@ -175,6 +178,56 @@ describe('YoutubeSidebar', () => {
     expect(all?.textContent?.trim()).toBe('')
     expect(all?.getAttribute('aria-current')).toBe('page')
 
+    rendered.unmount()
+  })
+
+  it('puts the expand button in the collapsed header and calls it', () => {
+    const onCollapse = vi.fn()
+    const rendered = renderElement(
+      <YoutubeSidebar collapsed activeView={{ kind: 'explore' }} sort="viewCount" range="week" onCollapse={onCollapse} />,
+    )
+    const button = rendered.container.querySelector<HTMLButtonElement>(`button[aria-label="${t('youtube.sidebar.expand')}"]`)
+    expect(button).not.toBeNull()
+    expect(button!.closest('[data-collapsed]')?.getAttribute('data-collapsed')).toBe('true')
+    act(() => { button!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(onCollapse).toHaveBeenCalledTimes(1)
+    rendered.unmount()
+  })
+
+  it('filters the tag forest without losing the indent', async () => {
+    const rendered = renderElement(
+      <YoutubeSidebar activeView={{ kind: 'explore' }} sort="viewCount" range="week" />,
+    )
+    const input = rendered.container.querySelector<HTMLInputElement>(`input[placeholder="${t('tags.filter_placeholder')}"]`)
+    expect(input).not.toBeNull()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setter.call(input, 'Chi')
+      input!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const links = Array.from(rendered.container.querySelectorAll('a[href^="/youtube/tags/"]'))
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/youtube/tags/child'])
+    expect((rendered.container.querySelector('[data-tag-depth="1"]') as HTMLElement | null)?.style.paddingLeft)
+      .toBe(`${treeIndent(1)}px`)
+    rendered.unmount()
+  })
+
+  it('draws pinned tags before their unpinned siblings', () => {
+    useYoutubeStore.setState({
+      library: {
+        ...library,
+        tags: [
+          { ...tags[0]!, pinned: false },
+          { ...tags[1]!, pinned: false },
+          { ...tags[2]!, pinned: true },
+        ],
+      },
+    })
+    const rendered = renderElement(
+      <YoutubeSidebar activeView={{ kind: 'explore' }} sort="viewCount" range="week" />,
+    )
+    const ids = Array.from(rendered.container.querySelectorAll('[data-tag-depth]')).map((row) => (row as HTMLElement).dataset.tagId)
+    expect(ids[0]).toBe('other')
     rendered.unmount()
   })
 })

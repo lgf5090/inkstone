@@ -12,6 +12,7 @@ export const YOUTUBE_SCHEMA_STATEMENTS: readonly string[] = [
     color TEXT NOT NULL DEFAULT '#64748b',
     parent_id TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    pinned INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
@@ -47,6 +48,7 @@ export const YOUTUBE_SCHEMA_STATEMENTS: readonly string[] = [
     data_json TEXT NOT NULL DEFAULT '{}',
     tag_ids TEXT NOT NULL DEFAULT '[]',
     pinned INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     notes TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -62,6 +64,7 @@ export const YOUTUBE_SCHEMA_STATEMENTS: readonly string[] = [
     tag_ids TEXT NOT NULL DEFAULT '[]',
     pinned INTEGER NOT NULL DEFAULT 0,
     favorited INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     notes TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -90,14 +93,14 @@ export const YOUTUBE_REQUIRED_TABLES = [
 ] as const
 
 export const YOUTUBE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  youtube_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at'],
+  youtube_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'pinned', 'created_at'],
   youtube_videos: [
     'user_id', 'id', 'title', 'thumbnail_url', 'channel_id', 'channel_title',
     'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at',
   ],
-  youtube_channels: ['user_id', 'id', 'data_json', 'tag_ids', 'pinned', 'notes', 'created_at', 'updated_at'],
+  youtube_channels: ['user_id', 'id', 'data_json', 'tag_ids', 'pinned', 'sort_order', 'notes', 'created_at', 'updated_at'],
   youtube_playlists: [
-    'user_id', 'id', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at',
+    'user_id', 'id', 'data_json', 'tag_ids', 'pinned', 'favorited', 'sort_order', 'notes', 'created_at', 'updated_at',
   ],
   youtube_quota_usage: ['date', 'endpoint', 'units', 'count'],
 }

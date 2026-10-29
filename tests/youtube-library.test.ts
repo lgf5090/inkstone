@@ -530,3 +530,52 @@ describe('youtube library store', () => {
     expect(sibling.sortOrder).toBe(1)
   })
 })
+
+describe('youtube sidebar ordering', () => {
+  it('reorders channels and playlists and pins a tag above its siblings', async () => {
+    const firstChannel = await putChannel(ALICE, channelData('UCaaaaaaaaaaaaaaaaaaaaaa'))
+    const secondChannel = await putChannel(ALICE, channelData('UCbbbbbbbbbbbbbbbbbbbbbb'))
+    const channelOrder = await send(ALICE, 'PATCH', '/channels/order', {
+      ids: [secondChannel.id, firstChannel.id],
+    })
+    expect(orderStatus(channelOrder)).toBe(204)
+    let lib = await library()
+    expect(lib.channels.map((channel) => channel.id)).toEqual([secondChannel.id, firstChannel.id])
+    expect(lib.channels.map((channel) => channel.sortOrder)).toEqual([0, 1])
+
+    const firstPlaylist = await putPlaylist(ALICE, playlistData('PLaaaaaaaaaaaaaaaaaaaaaa'))
+    const secondPlaylist = await putPlaylist(ALICE, playlistData('PLbbbbbbbbbbbbbbbbbbbbbb'))
+    const playlistOrder = await send(ALICE, 'PATCH', '/playlists/order', {
+      ids: [secondPlaylist.id, firstPlaylist.id],
+    })
+    expect(orderStatus(playlistOrder)).toBe(204)
+    lib = await library()
+    expect(lib.playlists.map((playlist) => playlist.id)).toEqual([secondPlaylist.id, firstPlaylist.id])
+
+    const firstTag = await createTag(ALICE, 'First')
+    const secondTag = await createTag(ALICE, 'Second')
+    await send(ALICE, 'PATCH', '/tags/order', { ids: [secondTag.id, firstTag.id] })
+    await send(ALICE, 'PATCH', `/tags/${firstTag.id}`, { pinned: true })
+    lib = await library()
+    expect(lib.tags.map((tag) => tag.id)).toEqual([firstTag.id, secondTag.id])
+    expect(lib.tags[0]?.pinned).toBe(true)
+  })
+
+  it('refuses an order list that names another account', async () => {
+    const aliceTag = await createTag(ALICE, 'Alice')
+    const bobTag = await createTag(BOB, 'Bob')
+    const response = await send(ALICE, 'PATCH', '/tags/order', { ids: [aliceTag.id, bobTag.id] })
+    expect(response.status).toBe(400)
+    expect((await errorBody(response)).error.code).toBe('youtube_invalid_input')
+  })
+
+  it('keeps the reorder list unique and non-empty', async () => {
+    const tag = await createTag(ALICE, 'Only')
+    expect((await send(ALICE, 'PATCH', '/tags/order', { ids: [] })).status).toBe(400)
+    expect((await send(ALICE, 'PATCH', '/tags/order', { ids: [tag.id, tag.id] })).status).toBe(400)
+  })
+})
+
+function orderStatus(response: Response): number {
+  return response.status
+}

@@ -95,7 +95,7 @@ export function deleteVideo(id: string): Promise<void> {
 export function putChannel(channel: SavedYouTubeChannel): Promise<{ channel: SavedYouTubeChannel }> {
   return request(`/api/youtube/library/channels/${encodeURIComponent(channel.id)}`, {
     method: 'PUT',
-    body: { data: channel.data, pinned: channel.pinned, tagIds: channel.tagIds, notes: channel.notes },
+    body: { data: channel.data, pinned: channel.pinned, sortOrder: channel.sortOrder, tagIds: channel.tagIds, notes: channel.notes },
   })
 }
 
@@ -110,6 +110,7 @@ export function putPlaylist(playlist: SavedYouTubePlaylist): Promise<{ playlist:
       data: playlist.data,
       pinned: playlist.pinned,
       favorited: playlist.favorited,
+      sortOrder: playlist.sortOrder,
       tagIds: playlist.tagIds,
       notes: playlist.notes,
     },
@@ -124,8 +125,20 @@ export function createTag(input: { name: string; color: string; parentId: string
   return request('/api/youtube/library/tags', { method: 'POST', body: input })
 }
 
-export function updateTag(id: string, patch: Partial<Pick<YouTubeTag, 'name' | 'color' | 'parentId' | 'sortOrder'>>): Promise<{ tag: YouTubeTag }> {
+export function updateTag(id: string, patch: Partial<Pick<YouTubeTag, 'name' | 'color' | 'parentId' | 'sortOrder' | 'pinned'>>): Promise<{ tag: YouTubeTag }> {
   return request(`/api/youtube/library/tags/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch })
+}
+
+export function reorderTags(ids: string[]): Promise<void> {
+  return request('/api/youtube/library/tags/order', { method: 'PATCH', body: { ids } })
+}
+
+export function reorderChannels(ids: string[]): Promise<void> {
+  return request('/api/youtube/library/channels/order', { method: 'PATCH', body: { ids } })
+}
+
+export function reorderPlaylists(ids: string[]): Promise<void> {
+  return request('/api/youtube/library/playlists/order', { method: 'PATCH', body: { ids } })
 }
 
 export function deleteTag(id: string): Promise<{ removedTagIds: string[] }> {
