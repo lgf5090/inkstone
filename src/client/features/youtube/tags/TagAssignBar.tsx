@@ -8,11 +8,9 @@ import {
   type YouTubeVideo,
 } from '@shared/youtube/model'
 import { useClickOutside, useEscape } from '../../../components/overlay'
+import { treeIndent } from '../../../lib/tree/indent'
 import { TagPill } from '../../../components/TagChip'
 import { t } from '../../../lib/i18n'
-
-const TAG_INDENT_BASE = 8
-const TAG_INDENT_STEP = 12
 
 /** Walk the tree in the order it is drawn, so a child is listed directly below its parent. */
 function flattenTagTree(nodes: YouTubeTagNode[]): YouTubeTag[] {
@@ -147,7 +145,7 @@ export function TagAssignBar(props: {
                       onToggle(tag.id)
                     }}
                     onKeyDown={(event) => onRowKeyDown(event, index)}
-                    style={{ paddingLeft: tagDepth(allTags, tag.id) * TAG_INDENT_STEP + TAG_INDENT_BASE }}
+                    style={{ paddingLeft: treeIndent(tagDepth(allTags, tag.id)) }}
                     className="flex w-full items-center gap-1.5 rounded-[var(--r-sm)] py-1 pr-2 text-left text-[length:var(--text-12)] text-[var(--text-secondary)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
                   >
                     <span

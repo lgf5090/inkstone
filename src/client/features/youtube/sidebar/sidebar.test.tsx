@@ -8,6 +8,7 @@ import type {
   YouTubeVideo,
 } from '@shared/youtube/model'
 import { initI18n, t } from '../../../lib/i18n'
+import { treeIndent } from '../../../lib/tree/indent'
 import { installTestGlobals, renderElement } from '../../../lib/test-render'
 import { useYoutubeStore } from '../store'
 import { YoutubeSidebar } from './YoutubeSidebar'
@@ -156,8 +157,8 @@ describe('YoutubeSidebar', () => {
 
     const rootRow = rendered.container.querySelector('[data-tag-depth="0"]') as HTMLElement | null
     const childRow = rendered.container.querySelector('[data-tag-depth="1"]') as HTMLElement | null
-    expect(rootRow?.style.paddingLeft).toBe('8px')
-    expect(childRow?.style.paddingLeft).toBe('20px')
+    expect(rootRow?.style.paddingLeft).toBe(`${treeIndent(0)}px`)
+    expect(childRow?.style.paddingLeft).toBe(`${treeIndent(1)}px`)
 
     rendered.unmount()
   })
