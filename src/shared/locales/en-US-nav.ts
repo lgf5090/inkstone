@@ -42,6 +42,7 @@ export const EN_US_NAV = {
   'nav.locked': 'Locked',
   'nav.empty.title': 'No links yet',
   'nav.empty.description': 'Add your first bookmark, or import a browser bookmark file.',
+  'nav.empty.no_more': 'No more unpinned links here',
   'nav.empty_search.title': 'Nothing matches',
   'nav.empty_search.description': 'Try another keyword, or clear the search.',
   'nav.search.placeholder': 'Search titles, descriptions or URLs',

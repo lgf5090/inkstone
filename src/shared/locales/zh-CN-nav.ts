@@ -42,6 +42,7 @@ export const ZH_CN_NAV = {
   'nav.locked': '已锁定',
   'nav.empty.title': '还没有链接',
   'nav.empty.description': '添加第一条书签，或导入浏览器书签文件。',
+  'nav.empty.no_more': '这里没有更多未置顶的链接',
   'nav.empty_search.title': '没有匹配的链接',
   'nav.empty_search.description': '换一个关键词，或清空搜索。',
   'nav.search.placeholder': '搜索标题、描述或 URL',

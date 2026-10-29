@@ -558,7 +558,9 @@ export function NavApp() {
               count={normal.length}
               action={canSortNormal ? <Button size="sm" variant={sortingNormal ? 'primary' : 'ghost'} icon={<GripVertical size={13} />} onClick={() => setSortingNormal(!sortingNormal)}>{sortingNormal ? t('nav.sort_done') : t('nav.sort')}</Button> : undefined}
             />
-            {normal.length === 0 ? (
+            {normal.length === 0 && pinned.length > 0 ? (
+              <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] px-3 py-5 text-center text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('nav.empty.no_more')}</p>
+            ) : normal.length === 0 ? (
               <Empty art="folder" title={query.trim() ? t('nav.empty_search.title') : t('nav.empty.title')} description={query.trim() ? t('nav.empty_search.description') : t('nav.empty.description')} action={!query.trim() ? <Button icon={<Plus size={13} />} onClick={() => openEditor()}>{t('nav.add')}</Button> : undefined} />
             ) : (
               <div className={cn('grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))]', detailed ? 'gap-2' : 'gap-1.5')}>
