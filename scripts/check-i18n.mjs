@@ -309,9 +309,13 @@ const navCatalogFiles = {
 const clouddriveCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-clouddrive.ts'), 'EN_US_CLOUDDRIVE'],
+        [path.join(localeRoot, 'en-US-clouddrive-admin.ts'), 'EN_US_CLOUDDRIVE_ADMIN'],
+        [path.join(localeRoot, 'en-US-clouddrive-media.ts'), 'EN_US_CLOUDDRIVE_MEDIA'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-clouddrive.ts'), 'ZH_CN_CLOUDDRIVE'],
+        [path.join(localeRoot, 'zh-CN-clouddrive-admin.ts'), 'ZH_CN_CLOUDDRIVE_ADMIN'],
+        [path.join(localeRoot, 'zh-CN-clouddrive-media.ts'), 'ZH_CN_CLOUDDRIVE_MEDIA'],
     ],
 };
 const imgbedCatalogFiles = {

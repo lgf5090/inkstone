@@ -152,6 +152,7 @@ clouddrivePublicShareRoutes.get('/shares/:slug', async (c) => {
   const unlocked = await shareUnlocked(c, share)
   return c.json({
     name: share.name,
+    path: share.path,
     targetKind: share.target_kind,
     size: share.size,
     mime: share.mime,

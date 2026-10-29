@@ -15,6 +15,11 @@ import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
 import { MountsPage } from './mounts/MountsPage'
+import { SharesPage } from './shares/SharesPage'
+import { DashboardPage } from './admin/DashboardPage'
+import { AlbumPage } from './album/AlbumPage'
+import { TransfersPage } from './transfers/TransfersPage'
+import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
 import './clouddrive.css'
 
 const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive }[] = [
@@ -136,9 +141,19 @@ export function ClouddriveApp() {
                   onPreview={setPreview}
                 />
               )
-            : address.page === 'mounts' || address.page === 'storage'
-              ? <MountsPage showStorages={address.page === 'storage'} />
-              : <PagePlaceholder page={address.page} />}
+            : address.page === 'album'
+              ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
+              : address.page === 'dashboard'
+                ? <DashboardPage />
+                : address.page === 'tasks'
+                  ? <TransfersPage />
+                  : address.page === 'settings'
+                    ? <CloudDriveSettingsPage owner={owner} />
+                    : address.page === 'shares'
+                      ? <SharesPage />
+                      : address.page === 'mounts' || address.page === 'storage'
+                        ? <MountsPage showStorages={address.page === 'storage'} />
+                        : <PagePlaceholder page={address.page} />}
         </main>
       </div>
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>

@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { HardDrive, LockKeyhole } from 'lucide-react'
+import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Input } from '../../../components/form'
 import { Button, Spinner } from '../../../components/primitives'
 
 interface ShareMeta {
   name: string
+  path: string
   targetKind: 'file' | 'folder'
   size?: number | null
   mime?: string | null
@@ -17,6 +19,7 @@ interface ShareMeta {
 }
 
 type Phase = 'loading' | 'ready' | 'locked' | 'unavailable' | 'expired'
+type ShareEntry = { name: string; path: string; kind: 'file' | 'folder'; size: number; mime: string; modifiedAt: number }
 
 export function DriveSharePage({ slug }: { slug: string }) {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -24,6 +27,8 @@ export function DriveSharePage({ slug }: { slug: string }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [entries, setEntries] = useState<ShareEntry[]>([])
+  const [sharePath, setSharePath] = useState('/')
 
   useEffect(() => {
     let cancelled = false
@@ -35,6 +40,7 @@ export function DriveSharePage({ slug }: { slug: string }) {
       .then((value) => {
         if (cancelled) return
         setMeta(value)
+        setSharePath(value.path || '/')
         setPhase(value.disabled ? 'unavailable' : value.locked ? 'locked' : 'ready')
       })
       .catch(() => {
@@ -69,6 +75,19 @@ export function DriveSharePage({ slug }: { slug: string }) {
       setSubmitting(false)
     }
   }
+
+  useEffect(() => {
+    if (phase !== 'ready' || meta?.targetKind !== 'folder') return
+    let cancelled = false
+    fetch(`/api/public/clouddrive/shares/${encodeURIComponent(slug)}/list?path=${encodeURIComponent(sharePath)}`, { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status))
+        return await response.json() as { entries: ShareEntry[] }
+      })
+      .then((value) => { if (!cancelled) setEntries(value.entries) })
+      .catch(() => { if (!cancelled) setEntries([]) })
+    return () => { cancelled = true }
+  }, [phase, meta?.targetKind, sharePath, slug])
 
   return (
     <main className="cd-share-page flex min-h-screen items-center justify-center bg-[var(--bg-base)] p-4">
@@ -109,7 +128,7 @@ export function DriveSharePage({ slug }: { slug: string }) {
             <div>
               <h1 className="truncate text-[length:var(--text-17)] font-semibold text-[var(--text-primary)]">{meta.name}</h1>
               <p className="mt-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-                {meta.targetKind === 'folder' ? t('clouddrive.nav.files') : meta.mime ?? ''}
+                {meta.targetKind === 'folder' ? t('clouddrive.share.folder') : meta.mime ?? ''}
               </p>
             </div>
             {meta.targetKind === 'file' && meta.allowDownload && (
@@ -122,6 +141,20 @@ export function DriveSharePage({ slug }: { slug: string }) {
             )}
             {meta.targetKind === 'file' && !meta.allowDownload && (
               <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.no_download')}</p>
+            )}
+            {meta.targetKind === 'folder' && (
+              <div className="flex flex-col gap-1">
+                {sharePath !== '/' && <button type="button" className="self-start text-[length:var(--text-11)] text-[var(--accent)]" onClick={() => setSharePath(sharePath.slice(0, Math.max(1, sharePath.lastIndexOf('/'))) || '/')}>{t('clouddrive.toolbar.back')}</button>}
+                {entries.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_empty')}</p>}
+                {entries.map((entry) => (
+                  <div key={entry.path} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5">
+                    {entry.kind === 'folder'
+                      ? <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]" onClick={() => setSharePath(entry.path)}>{entry.name}</button>
+                      : <a className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]" href={`/d/${encodeURIComponent(slug)}/raw?path=${encodeURIComponent(entry.path)}`} download>{entry.name}</a>}
+                    {entry.kind === 'file' && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

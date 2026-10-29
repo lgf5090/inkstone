@@ -260,6 +260,54 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, key)
   )`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_index_state (
+    user_id TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    last_indexed_at INTEGER,
+    status TEXT NOT NULL DEFAULT 'idle',
+    error TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, mount_id)
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_scheduled_jobs (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    handler TEXT NOT NULL,
+    schedule_type TEXT NOT NULL,
+    interval_sec INTEGER NOT NULL DEFAULT 0,
+    cron TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    builtin INTEGER NOT NULL DEFAULT 0,
+    config TEXT NOT NULL DEFAULT '{}',
+    last_run_at INTEGER,
+    next_run_after INTEGER,
+    lock_until INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_jobs_user
+     ON CloudDrive_scheduled_jobs(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_jobs_due
+     ON CloudDrive_scheduled_jobs(enabled, next_run_after)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_job_runs (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result TEXT,
+    error TEXT,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    duration_ms INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_job_runs_job
+     ON CloudDrive_job_runs(user_id, job_id, started_at DESC)`,
 ]
 
 export const CLOUDDRIVE_REQUIRED_TABLES = [
@@ -275,6 +323,9 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_tasks',
   'CloudDrive_api_keys',
   'CloudDrive_settings',
+  'CloudDrive_index_state',
+  'CloudDrive_scheduled_jobs',
+  'CloudDrive_job_runs',
 ] as const
 
 export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -318,6 +369,14 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'expires_at', 'last_used_at', 'created_at', 'revoked_at',
   ],
   CloudDrive_settings: ['user_id', 'key', 'value', 'updated_at'],
+  CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
+  CloudDrive_scheduled_jobs: [
+    'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
+    'builtin', 'config', 'last_run_at', 'next_run_after', 'lock_until', 'created_at', 'updated_at',
+  ],
+  CloudDrive_job_runs: [
+    'id', 'user_id', 'job_id', 'status', 'result', 'error', 'started_at', 'finished_at', 'duration_ms',
+  ],
 }
 
 export const CLOUDDRIVE_REQUIRED_INDEXES = [
@@ -348,4 +407,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_tasks_user',
   'idx_clouddrive_tasks_queue',
   'idx_clouddrive_keys_user',
+  'idx_clouddrive_jobs_user',
+  'idx_clouddrive_jobs_due',
+  'idx_clouddrive_job_runs_job',
 ] as const

@@ -83,14 +83,18 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
         import('@shared/locales/en-US-nav'),
         import('@shared/locales/en-US-youtube'),
         import('@shared/locales/en-US-clouddrive'),
-    ]).then(([m, imgbed, nav, youtube, clouddrive]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV, ...youtube.EN_US_YOUTUBE, ...clouddrive.EN_US_CLOUDDRIVE }) as unknown as Record<string, string>),
+        import('@shared/locales/en-US-clouddrive-admin'),
+        import('@shared/locales/en-US-clouddrive-media'),
+    ]).then(([m, imgbed, nav, youtube, clouddrive, admin, media]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV, ...youtube.EN_US_YOUTUBE, ...clouddrive.EN_US_CLOUDDRIVE, ...admin.EN_US_CLOUDDRIVE_ADMIN, ...media.EN_US_CLOUDDRIVE_MEDIA }) as unknown as Record<string, string>),
     'zh-CN': () => Promise.all([
         import('@shared/locales/zh-CN'),
         import('@shared/locales/zh-CN-imgbed'),
         import('@shared/locales/zh-CN-nav'),
         import('@shared/locales/zh-CN-youtube'),
         import('@shared/locales/zh-CN-clouddrive'),
-    ]).then(([m, imgbed, nav, youtube, clouddrive]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV, ...youtube.ZH_CN_YOUTUBE, ...clouddrive.ZH_CN_CLOUDDRIVE }) as unknown as Record<string, string>),
+        import('@shared/locales/zh-CN-clouddrive-admin'),
+        import('@shared/locales/zh-CN-clouddrive-media'),
+    ]).then(([m, imgbed, nav, youtube, clouddrive, admin, media]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV, ...youtube.ZH_CN_YOUTUBE, ...clouddrive.ZH_CN_CLOUDDRIVE, ...admin.ZH_CN_CLOUDDRIVE_ADMIN, ...media.ZH_CN_CLOUDDRIVE_MEDIA }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**

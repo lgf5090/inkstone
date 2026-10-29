@@ -5473,6 +5473,26 @@ const allowed = new Map([
     "/** What `api.todos.create` was pointed at, in order. */",
     "// The way back is the id, not a sentence about the note in the reader's own notes field.",
   ]],
+  ["src/client/features/clouddrive/admin/api-admin.ts", [
+    "/**\n * Owner-only CloudDrive endpoints.\n *\n * Kept apart from `../api` so the file browser never pulls the admin surface into its chunk. The\n * request wrapper repeats the few lines of the shared one because `../api` does not export its\n * transport; the error type is the shared class, so callers can translate failures the same way.\n */",
+  ]],
+  ["src/client/features/clouddrive/admin/shared.tsx", [
+    "/**\n * Small pieces every owner console page shares: the page frame, the three load states, a metric\n * tile and the date/size formatting that has to agree across the five pages.\n *\n * The translation helper is typed against the admin catalogue even though the shell registers that\n * catalogue later. A type-only import gives the compiler the key list without pulling any strings\n * into the bundle or into `t`'s runtime registry.\n */",
+    "/** `t` for admin copy: existing shell keys still work, new keys are checked against the shard. */",
+    "/** A local timestamp, with a dash for \"never\" rather than an epoch date. */",
+    "/** A day label for a chart axis: `2026-10-30` in, a short local month/day out. */",
+    "/** The hour a 24-hour activity bucket starts at. */",
+    "/** A quota meter. Without a quota the caller should not render this at all. */",
+  ]],
+  ["src/client/features/clouddrive/album/AlbumPage.tsx", [
+    "/** The shell decides where the empty-state action goes; the standalone default is the files page. */",
+    "/**\n * \"All media\" smart view over the primary mount: cursor paging from `/album`, grouped by the local\n * month, with a selection mode for batch downloads and a full-screen viewer on the same entries.\n */",
+  ]],
+  ["src/client/features/clouddrive/album/MediaViewer.tsx", [
+    "/** The shell may route the download through the transfer centre; otherwise a direct link is used. */",
+    "/**\n * Full-screen album viewer. The overlay is a `Modal`, so focus enters the panel, Tab stays inside and\n * closing returns focus to the tile that opened it. Arrow keys walk the album; Esc is the Modal's.\n */",
+    "// A focused media element owns its own arrow keys while the reader is scrubbing.",
+  ]],
   ["src/client/features/clouddrive/clouddrive.css", [
     "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the four variables\n   below are the only values the reader changes at runtime (density, gap, icon size, row height). */",
   ]],
@@ -5522,8 +5542,18 @@ const allowed = new Map([
     "// A binary endpoint may answer with HTML from a proxy; the status is still the useful part.",
     "// Best effort: an un-aborted session expires on its own and the cron cleans it up.",
   ]],
+  ["src/client/features/clouddrive/media-i18n.ts", [
+    "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
+  ]],
   ["src/client/features/clouddrive/prefs.ts", [
     "// A full or disabled localStorage only costs the preference, never the drive itself.",
+  ]],
+  ["src/client/features/clouddrive/transfers/useTransferStore.ts", [
+    "/**\n * Client-side transfer queue for CloudDrive.\n *\n * Uploads and downloads are browser transfers rather than server tasks, so they live here and not in\n * `CloudDrive_tasks`. Active items hold a live `File`/stream and are deliberately not persisted; only\n * terminal history is written, capped at the last 100 entries per account on this device.\n */",
+    "/** Present until the page reloads; a retry after that needs the reader to pick the file again. */",
+    "/** Load history for an account. Safe to call more than once for the same id. */",
+    "// Losing history only costs the record; the transfer itself is unaffected.",
+    "// A folder has no single content response; the caller should queue each file instead.",
   ]],
   ["src/client/features/cloudflare/CloudflareApp.tsx", [
     "/**\n * The Cloudflare container's frame: a second navigation rail and the screen it names.\n *\n * The app is a guest on the notebook's rail, so it brings its own navigation rather than borrowing\n * the notebook sidebar: ten screens is more than a sidebar section should carry, and the reader who\n * is inside Cloudflare is looking at Cloudflare's own vocabulary (DNS, Workers, R2), not at notes.\n *\n * Copy is loaded before the first screen is drawn. A reader who opens the app with a slow network\n * sees a loading state, not a screen full of dotted keys.\n */",
@@ -29372,6 +29402,12 @@ const allowed = new Map([
   ["src/shared/locales/en-US-calendar.ts", [
     "/**\n * The calendar app's own copy. DayFlow's built-in strings come from its locale packs; everything the\n * Inkstone shell draws around it lives here so both languages stay in step.\n */",
   ]],
+  ["src/shared/locales/en-US-clouddrive-admin.ts", [
+    "/**\n * English copy for the CloudDrive owner console.\n *\n * Loaded on demand beside `en-US-clouddrive` so the file browser never carries the admin strings.\n * Every key keeps the `clouddrive.admin.` prefix, which cannot collide with the shell catalogue.\n */",
+  ]],
+  ["src/shared/locales/en-US-clouddrive-media.ts", [
+    "/** Media, transfers and settings strings that ship beside the core CloudDrive catalog. */",
+  ]],
   ["src/shared/locales/en-US-cloudflare-accounts.ts", [
     "/**\n * English copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: accounts.\n */",
   ]],
@@ -29445,6 +29481,12 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-calendar.ts", [
     "/**\n * Chinese calendar copy. The final `satisfies Record<BaseMessageKey, string>` in `zh-CN.ts`\n * fails if this object misses a key, so the two fragments cannot drift apart silently.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-clouddrive-admin.ts", [
+    "/**\n * Chinese copy for the CloudDrive owner console.\n *\n * Mirrors `en-US-clouddrive-admin.ts`; both are loaded on demand by the shell's i18n registry.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-clouddrive-media.ts", [
+    "/** Media, transfer and settings copy kept separate from the core CloudDrive catalog. */",
   ]],
   ["src/shared/locales/zh-CN-cloudflare-accounts.ts", [
     "/**\n * Chinese copy for the Cloudflare app.\n *\n * Generated from the reference module's catalogue: keys are dotted and lowercase, and every one\n * carries the `cloudflare.` prefix so it can never collide with the shell's own catalogue. Loaded on\n * demand by `features/cloudflare/i18n.ts`; nothing here rides the first screen.\n *\n * Slice: accounts.\n */",
@@ -34294,13 +34336,53 @@ const allowed = new Map([
     "/** Tags for many rows in one pass, chunked because D1 caps the placeholders a statement may bind. */",
     "/** `foldedName` in one place, so a caller does not repeat NFC + lowercase. */",
   ]],
+  ["src/worker/clouddrive/routes-admin.ts", [
+    "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
+    "// The list cache is an isolate-local Map and no cache has been populated in this release yet.",
+    "// Reporting zeroes with the snapshot time is the honest answer; a global total cannot be known.",
+    "// The toggle is off: the table is the owner's own drive even if a creator filter was sent.",
+    "// The object keys are deliberately left in R2; the orphan scan is the documented cleanup path.",
+    "// Only the pinyin index is dropped; `name_folded` still backs search, sorting and uniqueness.",
+  ]],
   ["src/worker/clouddrive/routes-content.ts", [
     "/**\n * Authenticated file content for the primary R2 mount.\n *\n * One resolver decides whether a file is visible to the caller; the byte response, the Range\n * handling and the thumbnail all use that answer instead of their own SQL. The body of a live file\n * is immutable (an id is never reused), so the authenticated cache policy can be a long one.\n *\n * `GET /download/zip` is deliberately a 501 for now: a streaming archive needs its own size/item\n * limits and testing, and answering with a fake empty zip would hide that it is not implemented.\n */",
     "// Image Resizing refuses formats/corrupt files it cannot decode; the honest thumbnail is then",
     "// the original object, marked as a fallback rather than pretending a resize happened.",
   ]],
+  ["src/worker/clouddrive/routes-dav.ts", [
+    "/**\n * WebDAV access to the primary mount.\n *\n * The endpoint maps `/clouddrive/dav/<path>` onto the same D1 virtual path the rest of the file API\n * uses, so a DAV client sees exactly the tree the web UI sees. Authentication is either the user's\n * configured WebDAV username/password or `apikey` plus a `cdk_` key; there is no anonymous access.\n * When no account has enabled WebDAV the endpoint answers 503 instead of pretending to be a share.\n *\n * The implementation is deliberately a small, honest DAV server: Depth is limited to 0/1, LOCK is\n * stateless (tokens are handed out but not enforced), and a folder MOVE/COPY either completes or\n * answers a clear error rather than silently copying only part of a subtree.\n */",
+    "/** Is any account advertising WebDAV? Only used to pick 503 over 401 for an unauthenticated probe. */",
+    "/**\n * Settings are per user and a DAV request only carries a username, so the username lookup is the\n * one pre-authentication query in this module; every query after the owner is known binds `user_id`.\n */",
+    "// An empty configuration answers 503; a wrong password against a configured account is a 401.",
+    "/** `c.req.path` is still percent-encoded; `parsePath` decodes it exactly once. */",
+    "/** Create every missing folder on the way to `path`, the way a DAV PUT is allowed to. */",
+    "// Another request may have created the same folder between the lookup and the insert.",
+    "// The upload never became a row; R2 owns whatever bytes a failed put may have left.",
+    "// The row is the authority; an object whose row never landed would be an orphan.",
+    "/** Best-effort cleanup where the primary failure is already being reported. */",
+    "/** Resolve the `Destination` header on the same origin to a virtual path. */",
+    "// `substr`, not `LIKE`: a folder named `100%` must not rewrite `100x`.",
+    "// D1 refuses batches above about a hundred statements; a big copy may leave earlier chunks behind",
+    "// if a later one fails, which is reported as a 500 rather than as a successful copy.",
+    "// A copy shares the immutable object with its source; only the last row may delete it.",
+    "/**\n * The stateless lock Windows and macOS probe for. No token is enforced: this server has no\n * multi-writer guarantee to protect, and pretending otherwise would be worse than saying so here.\n */",
+  ]],
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-jobs.ts", [
+    "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
+    "// The column is written by this module; a corrupted value is reported rather than hidden.",
+    "/** A deliberately small five-field cron: `*`, `a`, `a-b`, `a-b/n` and comma lists. */",
+    "/** First matching minute strictly after `afterMs`, searched in UTC for at most a year. */",
+    "// R2 may already have dropped an upload the platform expired; the D1 row still must close.",
+    "// The object is unreferenced once the session expires; a failed delete is orphan-scan work.",
+    "/**\n * Claim the job, run its handler and record the outcome. Throws `conflict` when another run holds\n * the lease; a handler that throws is recorded as a failed run instead of failing the request.\n */",
+    "// The handler already ran; leaving the run unrecorded silently would be worse than a 500.",
+    "/**\n * The cron entry point: run every enabled job whose next slot has arrived. The scan is necessarily\n * across users (the scheduler has no session); each run still binds its own `user_id`.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-keys.ts", [
+    "// The token is deliberately present in this one response only; the listing has just its prefix.",
   ]],
   ["src/worker/clouddrive/routes-mounts.ts", [
     "// A test response has no body worth reading once its status is known.",
@@ -34342,6 +34424,15 @@ const allowed = new Map([
     "// The conflicting row is live, so the first `name (1)` candidate is the first free one.",
     "// A copy shares the object with its source; only the last row reference may delete it.",
     "/** Name match plus pinyin initials; prefix hits sort before interior ones. */",
+  ]],
+  ["src/worker/clouddrive/store-keys.ts", [
+    "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
+    "/** `last_used_at` is a diagnostic, not a write amplifier: at most one update per five minutes. */",
+    "/** Scopes arrive as a JSON array from the API and as a space-separated string from D1. */",
+    "// `write` necessarily reads, so a write key is stored with both and a caller never has to",
+    "// remember the implication.",
+    "/** A prefix of `/` is the whole drive; otherwise the path must be the prefix or live under it. */",
+    "/**\n * Resolve a bearer/DAV token to its owner. Expired, revoked and under-scoped keys answer `null` so\n * every caller responds the same way and no key state leaks through a different status.\n *\n * The hash lookup is the one query that cannot bind `user_id`: the owner is what it is finding. All\n * later work uses the returned id.\n */",
   ]],
   ["src/worker/cloudflare/account-probe.ts", [
     "/**\n * The import path that stores an account before Cloudflare has vouched for it.\n *\n * `createAccount` verifies the credential first, which is right for the add dialog and wrong for a\n * CSV import with `skipVerify`: that option exists so a bulk paste lands in seconds and the screen\n * tests the rows afterwards. This writes the same two things in the same order — the sealed file,\n * then the row — and leaves `cf_account_id` empty, which is exactly the \"Unverified\" filter.\n *\n * Nothing here talks to Cloudflare, so a row written by this module is inert until `testAccount`\n * probes it.\n */",

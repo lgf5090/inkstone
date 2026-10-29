@@ -9,6 +9,9 @@ import { clouddriveUploadRoutes } from './routes-upload'
 import { clouddriveContentRoutes } from './routes-content'
 import { clouddrivePublicShareRoutes, clouddriveShareRoutes } from './routes-shares'
 import { clouddriveMountRoutes } from './routes-mounts'
+import { clouddriveKeyRoutes } from './routes-keys'
+import { clouddriveAdminRoutes } from './routes-admin'
+import { clouddriveJobRoutes } from './routes-jobs'
 import { cloudDriveUsage, ensurePrimaryMount, listMounts, readCloudDriveSettings } from './store'
 
 export const clouddriveRoutes = new Hono<AppBindings>()
@@ -52,6 +55,9 @@ clouddriveRoutes.route('/', clouddriveUploadRoutes)
 clouddriveRoutes.route('/', clouddriveContentRoutes)
 clouddriveRoutes.route('/', clouddriveShareRoutes)
 clouddriveRoutes.route('/', clouddriveMountRoutes)
+clouddriveRoutes.route('/', clouddriveKeyRoutes)
+clouddriveRoutes.route('/', clouddriveAdminRoutes)
+clouddriveRoutes.route('/', clouddriveJobRoutes)
 
 clouddriveRoutes.all('*', () => {
   throw ApiError.notFound('CloudDrive endpoint not found')
