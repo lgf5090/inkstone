@@ -22,8 +22,11 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
+ *
+ * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one
+ * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -37,6 +40,7 @@ const MUSIC_MOUNT_SECRET_FIELDS = new Set(['token'])
 const CLOUDFLARE_ACCOUNT_SECRET_FIELDS = new Set(['api_token', 'api_key', 'password'])
 const DATABASE_SECRET_FIELDS = new Set(['token'])
 const GITHUB_SECRET_FIELDS = new Set(['token'])
+const YOUTUBE_SECRET_FIELDS = new Set(['apiKey'])
 const APITESTER_STATE_FIELDS = new Set(['blob'])
 const APITESTER_HISTORY_FIELDS = new Set(['blob'])
 const APITESTER_WS_FIELDS = new Set(['payload'])
@@ -252,6 +256,8 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                     ? DATABASE_SECRET_FIELDS
                     : scope.startsWith('github:')
                       ? GITHUB_SECRET_FIELDS
+                      : scope.startsWith('youtube:')
+                      ? YOUTUBE_SECRET_FIELDS
                       : scope.startsWith('apitester-ws:')
                       ? APITESTER_WS_FIELDS
                       : scope.startsWith('apitester-history:')

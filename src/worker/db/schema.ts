@@ -66,6 +66,12 @@ import {
   CLOUDFLARE_SCHEMA_STATEMENTS,
 } from '../cloudflare/schema'
 import {
+  YOUTUBE_REQUIRED_COLUMNS,
+  YOUTUBE_REQUIRED_INDEXES,
+  YOUTUBE_REQUIRED_TABLES,
+  YOUTUBE_SCHEMA_STATEMENTS,
+} from '../youtube/schema'
+import {
   TOOLS_PASSWORD_REQUIRED_COLUMNS,
   TOOLS_PASSWORD_REQUIRED_INDEXES,
   TOOLS_PASSWORD_REQUIRED_TABLES,
@@ -694,7 +700,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...DEVELOPMENT_APITESTER_SCHEMA_STATEMENTS,
   ...DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
   ...CALENDAR_SCHEMA_STATEMENTS,
-  ...CLOUDFLARE_SCHEMA_STATEMENTS,]
+  ...CLOUDFLARE_SCHEMA_STATEMENTS,
+  ...YOUTUBE_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -2931,6 +2938,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_imgbed_files_pinned ON imgbed_files(pinned, created_at DESC)`,
     ],
   },
+  {
+    version: 193,
+    skipIfColumnExists: { table: 'youtube_tags', column: 'pinned' },
+    statements: [`ALTER TABLE youtube_tags ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 194,
+    skipIfColumnExists: { table: 'youtube_channels', column: 'sort_order' },
+    statements: [`ALTER TABLE youtube_channels ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 195,
+    skipIfColumnExists: { table: 'youtube_playlists', column: 'sort_order' },
+    statements: [`ALTER TABLE youtube_playlists ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -3008,7 +3030,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...DEVELOPMENT_APITESTER_REQUIRED_COLUMNS,
   ...DEVELOPMENT_GITHUB_REQUIRED_COLUMNS,
   ...CALENDAR_REQUIRED_COLUMNS,
-  ...CLOUDFLARE_REQUIRED_COLUMNS,} as const
+  ...CLOUDFLARE_REQUIRED_COLUMNS,
+  ...YOUTUBE_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
   'app_meta',
@@ -3077,7 +3100,8 @@ export const REQUIRED_TABLES = [
   ...DEVELOPMENT_APITESTER_REQUIRED_TABLES,
   ...DEVELOPMENT_GITHUB_REQUIRED_TABLES,
   ...CALENDAR_REQUIRED_TABLES,
-  ...CLOUDFLARE_REQUIRED_TABLES,] as const
+  ...CLOUDFLARE_REQUIRED_TABLES,
+  ...YOUTUBE_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
   'idx_folders_user',
@@ -3161,7 +3185,8 @@ export const REQUIRED_INDEXES = [
   ...DEVELOPMENT_APITESTER_REQUIRED_INDEXES,
   ...DEVELOPMENT_GITHUB_REQUIRED_INDEXES,
   ...CALENDAR_REQUIRED_INDEXES,
-  ...CLOUDFLARE_REQUIRED_INDEXES,] as const
+  ...CLOUDFLARE_REQUIRED_INDEXES,
+  ...YOUTUBE_REQUIRED_INDEXES,] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()

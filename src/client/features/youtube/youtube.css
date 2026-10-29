@@ -1,0 +1,35 @@
+[data-youtube-app] {
+  --youtube-brand: #e11d48;
+  --yt-scrim: rgb(0 0 0 / 0.8);
+  --yt-scrim-fg: #fff;
+  --yt-logo-fg: #fff;
+  --yt-player-bg: #000;
+}
+
+:root[data-theme='dark'] [data-youtube-app] {
+  --youtube-brand: #fb7185;
+}
+
+[data-youtube-app] .yt-row-actions {
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+[data-youtube-app] .yt-row:hover .yt-row-actions,
+[data-youtube-app] .yt-row:focus-within .yt-row-actions,
+[data-youtube-app] .yt-sidebar-row:hover .yt-row-actions,
+[data-youtube-app] .yt-sidebar-row:focus-within .yt-row-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  [data-youtube-app] .yt-row-actions {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-youtube-app] .yt-row-actions {
+    transition: none;
+  }
+}

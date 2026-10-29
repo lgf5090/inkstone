@@ -18183,6 +18183,93 @@ const allowed = new Map([
   ["src/client/features/workspace/versions-diff.test.ts", [
     "/** The pre-change implementation: materialize every line, then truncate the array. */",
   ]],
+  ["src/client/features/youtube/YoutubeApp.tsx", [
+    "/* The list or the saved snapshot still has a chance to answer. */",
+  ]],
+  ["src/client/features/youtube/address.ts", [
+    "/** The tab's address, read from the browser and answered with the same parser the tests use. */",
+  ]],
+  ["src/client/features/youtube/api.ts", [
+    "/** The client half of `/api/youtube`: one typed function per route, no fetch calls elsewhere. */",
+  ]],
+  ["src/client/features/youtube/detail/CommentList.tsx", [
+    "/**\n * The comment thread under a video.\n *\n * Pages are appended by `nextPageToken`, deduplicated by comment id, and fenced by a generation\n * counter plus an `AbortController`: a response that belongs to a video the reader has already left\n * is dropped instead of painted under the new one. A video's comments can also be turned off, so a\n * failed load is a row in the thread — it never blocks the video itself.\n */",
+    "// `body.html` is the allowlisted, link-hardened output of `sanitizeCommentHtml`.",
+  ]],
+  ["src/client/features/youtube/detail/Player.tsx", [
+    "/** The embedded player surface: one privacy-enhanced iframe, rebuilt whenever the video changes. */",
+  ]],
+  ["src/client/features/youtube/detail/VideoDetail.test.tsx", [
+    "/**\n * The detail panel as a reader meets it: the desktop empty state, the privacy-enhanced embed, and\n * the phone's way back. The comment request is mocked so the case never leaves the process.\n */",
+  ]],
+  ["src/client/features/youtube/detail/VideoDetail.tsx", [
+    "/**\n * The selected video: player, the facts worth reading before the comments, and the thread itself.\n *\n * Every block is conditional on the data behind it. Upstream omits statistics for live or upcoming\n * videos and tags for most of them, and a saved row written by an older build can miss a field\n * outright — so a missing value draws nothing rather than the word \"undefined\" or an empty pill.\n */",
+  ]],
+  ["src/client/features/youtube/detail/comment-html.test.ts", [
+    "/**\n * A comment body is stranger-written HTML, so these cases pin the allowlist and the link hardening\n * rather than any particular formatting: markup that can act is gone, the few tags the comment\n * editor writes survive, and every surviving link is forced into a new tab.\n */",
+  ]],
+  ["src/client/features/youtube/detail/comment-html.ts", [
+    "/**\n * The comment body as the reader is allowed to see it.\n *\n * A comment's `textDisplay` is HTML written by a stranger, so it never reaches the DOM as given:\n * the allowlist below keeps the formatting the comment editor offers and drops every element that\n * can act (`script`, `style`, `img`, `iframe`, event-handler attributes). Links are forced into a\n * new tab with `noopener noreferrer nofollow` so a comment cannot navigate this tab or vouch for\n * its own destination.\n */",
+    "/**\n * Sanitized comment markup. Fails closed when there is no DOM to sanitize against, because handing\n * the raw string back would be worse than showing nothing.\n */",
+    "/**\n * The body to draw, or `null` when the sanitized markup carries no readable text — an empty\n * comment, a `<br>`-only body or one that was nothing but a stripped tag. The caller then falls\n * back to `textOriginal` as a plain text node.\n */",
+  ]],
+  ["src/client/features/youtube/library/AddChannelDialog.tsx", [
+    "/**\n * Looks a channel up by ID, handle or URL and offers it for subscription.\n *\n * The lookup is the only network work here; adding writes the same `YouTubeChannel` the worker\n * answered with, through the store's optimistic `saveChannel`. A duplicate stays visible instead of\n * erroring, because the reader may have arrived from a stale sidebar.\n */",
+    "// A response that belongs to a lookup the reader has already replaced must not paint.",
+    "/** A 404 means the reference named nothing; anything else is the route's own sentence. */",
+  ]],
+  ["src/client/features/youtube/library/AddPlaylistDialog.tsx", [
+    "/**\n * Collects playlists from a channel, or one playlist pasted as a URL.\n *\n * A pasted playlist link is resolved with one metadata request when it is added, so the sidebar shows\n * the playlist's real title rather than its id. A channel reference lists 25 playlists per page and\n * appends on demand. Adding keeps the dialog open so several playlists can be saved in one pass.\n */",
+    "// Late pages of a lookup the reader has replaced must not append to the new list.",
+    "/** A playlist link carries its own ID in `list=`; the rest of the URL is not needed. */",
+    "/**\n * A channel URL names its ID in the path; the playlists route takes only the ID. Handles and other\n * references are handed over as typed — the route answers with its own explanation.\n */",
+    "/**\n * The row a pasted link can add without a lookup. Only the ID is known, so the title is the ID and\n * the next read of the library replaces both with the playlist's own metadata.\n */",
+  ]],
+  ["src/client/features/youtube/library/dialogs.test.tsx", [
+    "// The link names its own ID, so the channel lookup is skipped; the metadata request is not.",
+  ]],
+  ["src/client/features/youtube/prefs.ts", [
+    "/** UI preferences for the YouTube tab. They belong to this browser, not to the account. */",
+    "// A refused write costs the next load its remembered layout, not the layout in force now.",
+  ]],
+  ["src/client/features/youtube/quota/QuotaDialog.tsx", [
+    "/** The endpoint names the ledger stores, and the catalog key each one is shown under. */",
+    "/** One token per endpoint, so the breakdown rows stay distinguishable without a colour table. */",
+    "/**\n * What this deployment has spent of its shared YouTube Data API quota.\n *\n * The ledger is instance-wide because the key is. Every figure comes from the worker's own request\n * log, so the panel is a report rather than a live gauge: the refresh button asks again, and seven\n * UTC days arrive with zero-filled gaps so the chart never skips a date.\n */",
+    "/** The chart's own tick label: the month and day of a UTC date, without a locale round trip. */",
+  ]],
+  ["src/client/features/youtube/quota/quota.test.tsx", [
+    "/** The dialog loads in an effect, so the first paint's promise needs a turn to settle. */",
+  ]],
+  ["src/client/features/youtube/settings/YouTubeSettingsModal.tsx", [
+    "/**\n * The YouTube settings dialog: the instance API connection for the owner, and this browser's\n * defaults and layout for everyone.\n */",
+  ]],
+  ["src/client/features/youtube/sidebar/ChannelSection.tsx", [
+    "/** The subscribed channels: pin/reorder, a right-click menu, and a touch-reachable more button. */",
+  ]],
+  ["src/client/features/youtube/sidebar/PlaylistSection.tsx", [
+    "/** The saved playlists: pin/reorder, a right-click menu, and a touch-reachable more button. */",
+  ]],
+  ["src/client/features/youtube/sidebar/TagTree.tsx", [
+    "/**\n * The sidebar tag forest: rows that select a tag, carry a count, open on right-click or a\n * \"more\" button, rename in place, drag onto another tag to re-parent, and accept a colour from the\n * same flyout the notebook uses.\n */",
+  ]],
+  ["src/client/features/youtube/store.ts", [
+    "/** The YouTube tab's one store: the saved library, its writes, and the layout the reader chose. */",
+    "/** The same defaults the persisted loader starts from, for tests and a reset button. */",
+    "// reloadLibrary already stored libraryError, which the sidebar and list render; this is a boot kick, not a second reporter.",
+  ]],
+  ["src/client/features/youtube/tags/TagAssignBar.tsx", [
+    "/** Walk the tree in the order it is drawn, so a child is listed directly below its parent. */",
+    "/**\n * The tags a saved video wears, and the picker that changes them.\n *\n * The bar stays a row of chips, so the list of the video's own tags is readable without opening\n * anything. The picker is a popover rather than a dialog: it belongs to the row, and a dialog would\n * cover the row the reader is working on. Every option is a button, so a row can be toggled from the\n * keyboard, and the pointer only ever lands on this bar — never on the row's selection overlay.\n */",
+    "// Opening the panel moves the caret to its first row, so the arrow keys work without a Tab first.",
+  ]],
+  ["src/client/features/youtube/tags/TagManagerModal.tsx", [
+    "/** The tree in drawing order, each row carrying the depth its name is indented by in a flat list. */",
+    "/**\n * The one place a tag is created, renamed, recoloured, re-parented or deleted.\n *\n * The add area stays at the top and keeps its values after a refusal, so a failed write costs a retry\n * rather than the whole form. Editing happens in the row it belongs to — a reader who changed their\n * mind about one tag should not have to read the add form again — and its parent list drops the tag\n * and its descendants, which is the one move the tree rules forbid. Deleting asks first because a tag\n * takes its children and every reference to them with it.\n */",
+  ]],
+  ["src/client/features/youtube/tags/tagDrag.ts", [
+    "/** Tag drags between YouTube sidebar rows: one type, one id, same document only. */",
+  ]],
   ["src/client/lib/ai/stream-client.ts", [
     "// Reading the body only buys a better sentence about a failure that is already certain: `errText`",
     "// above is the answer the caller gets when the server sent no JSON, and the `{ ok: false }` below",
@@ -31010,6 +31097,33 @@ const allowed = new Map([
     "// nothing left to do here.",
     "// The leaf's `Text` already carries its own description, and `Result` is the same words as markup.",
   ]],
+  ["src/shared/youtube/model.ts", [
+    "/**\n * The YouTube app's shared vocabulary: the upstream shapes the API hands over, the library rows a\n * reader saves, the address that names a view, and the pure formatting/tree rules both sides use.\n *\n * Nothing here touches the network or the DOM. The worker's transforms and the reader's rendering\n * have to agree on every field, so the types live once and are imported by both builds.\n */",
+    "/** -1 marks a channel that hides its subscriber count. */",
+    "/** A hex colour from the shared organiser palette. */",
+    "/** True when the saved-video list hit its ceiling and the response is a prefix. */",
+    "/** The tab's address. Any child path the router does not name falls back to the discover view. */",
+    "/** The discover query string, without a leading `?`. Empty when every value is the default. */",
+    "/** The compact count the reference uses: 1.2K, 3.4M, 1.1B, with a trailing `.0` removed. */",
+    "/** Parses an ISO 8601 duration (`PT1H2M3S`) into `1:02:03`. */",
+    "/**\n * A published timestamp as the reader reads it: relative inside the first week, then an absolute\n * date. The locale decides the wording; nothing here is hard-coded copy.\n */",
+    "/** Start of `today` in the reader's own timezone, as epoch milliseconds. */",
+    "/** The cutoff a time-range chip means. `all` has none. */",
+    "/** Whether a saved video should exist at all: one of pin, favourite or a tag has to hold it. */",
+    "/**\n * The tag forest, ordered by `sortOrder` then `createdAt`.\n *\n * A row whose parent is missing (or whose parent chain loops through a row written by an older\n * build) is shown at the root instead of disappearing: silently dropping a tag is worse than\n * drawing one at the wrong depth.\n */",
+    "/** How deep a tag sits, for indentation in the picker. */",
+    "/** The tag and every tag below it, for a delete that has to take the subtree with it. */",
+    "/** A tag cannot be moved under itself or one of its own descendants. */",
+    "/** YouTube Data API quota units per endpoint, from the upstream's own cost table. */",
+  ]],
+  ["src/shared/youtube/settings.ts", [
+    "/** The instance-wide YouTube API configuration, as the settings screen may see it. */",
+    "/** A new key, or null/empty to remove the stored key and fall back to the Worker secret. */",
+  ]],
+  ["src/shared/youtube/validate.ts", [
+    "/** The limits and validators every YouTube input passes before it reaches D1 or the upstream. */",
+    "/** The reference stored colour names; a row imported from it still resolves to a palette entry. */",
+  ]],
   ["src/worker/app.ts", [
     "// A 1xx handshake response carries the socket, and Hono rebuilds the Response to",
     "// mutate its headers — which the Response constructor rejects below 200.",
@@ -35063,11 +35177,11 @@ const allowed = new Map([
     "// Derived from Xget (AGPL-3.0-only) src/utils/validation.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",
   ]],
   ["src/worker/durable/credential-vault.ts", [
-    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n */",
     "/**\n * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and\n * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).\n * So the policy is structural — bounded field names, string or boolean values — rather than a whitelist\n * that would have to be edited in step with every channel form. The switch fields are booleans because\n * the settings screen reads them back as booleans; forcing them to `\"true\"` would make the form lie.\n */",
     "/**\n * How long one field of a record may be, by scope.\n *\n * A password, a TOTP secret and an API key are all short things, and the 4 kB bound is what stops a row\n * from being used to smuggle an archive into the vault. An OAuth token set is not: an access token, a\n * refresh token, a client secret and an in-flight verifier are each somebody else's opaque string, and the\n * large identity providers write JWTs of several kilobytes routinely. The bound stays per scope so the\n * extra room is exactly as wide as the one kind of credential that needs it.\n */",
     "/**\n * The two request guards, exported for the test that builds a sample configuration out of every channel\n * definition and asks whether the vault would take it.\n *\n * They are not product API. The reason they are here is that the only other thing that could have caught\n * the mismatch — the channel routes' own tests — runs against a vault double that accepts anything, so a\n * policy the real vault rejects and the double swallows can only be proven against this file.\n */",
     "/**\n * The API Tester's state is one encrypted archive, so the vault accepts a larger request for that\n * scope alone. Every other scope still bounds its own fields to a few kilobytes below, and D1's row\n * limit is what keeps this number from growing further.\n */",
+    "/**\n * `ai:` carries the chat assistant's provider key. The scope is the account id, so a ciphertext stored\n * for one reader cannot be replayed against another's derived key even by someone who can write rows.\n *\n * `mcp:` carries one server's outbound OAuth material, scoped to that server's id rather than the account\n * so a token minted for one third party cannot be read back out of another's row.\n *\n * `channel:` carries one notification channel's whole configuration, scoped to that channel's row id.\n *\n * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.\n *\n * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one\n * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.\n */",
   ]],
   ["src/worker/email/inbound.ts", [
     "/**\n * Email-to-task: the inbound half.\n *\n * A Cloudflare Email Worker hands this module one delivered message. The recipient address is the\n * capability — `u+<token>@<MAIL_DOMAIN>` — so the token's entropy is the whole authentication and\n * there is no sender allowlist to keep in step with anything. A recipient that does not name a live\n * token is dropped without a reply: a bounce would tell a scanner which guesses were wrong, and the\n * sender of a mistyped address has no way to fix it through us anyway.\n *\n * Only a plain-text body is read. HTML and attachments are deliberately out of scope this round: a\n * task note is text, and rendering a mail author's markup into a Markdown note would be a second\n * injection surface. The envelope sender is recorded on the note's first line, marked \"via email\",\n * because the visible `From:` header is forgeable while the envelope is what the receiving server\n * authenticated.\n *\n * Idempotency is the Message-ID: delivery is at least once, so a claim row is written before the task\n * and a repeated delivery finds the claim and stops. A message without a Message-ID falls back to a\n * digest of its raw bytes, which is stable across a retry of the same delivery.\n */",
@@ -35134,6 +35248,11 @@ const allowed = new Map([
     "/**\n   * Google Calendar OAuth client. Both halves are server secrets; with either unset the calendar\n   * sign-in route answers 503 instead of sending the reader to an authorization page that cannot\n   * come back. Plain CalDAV connections do not need them.\n   */",
     "/** Microsoft Graph OAuth client, with the same all-or-nothing rule as the Google pair. */",
     "/**\n   * The public origin the OAuth callback is registered under, as in `https://notes.example.com`.\n   * Optional: unset uses the origin of the request that started the flow. The callback path itself\n   * is fixed at `/api/calendar/oauth/callback`.\n   */",
+    "/**\n   * YouTube Data API v3 key, set as a secret (`wrangler secret put`). With it unset the YouTube\n   * app still opens its saved library, and every upstream route answers 503.\n   */",
+    "/** A proxy base for the YouTube Data API; must be https and carries no query or credentials. */",
+    "/** The two-letter region `mostPopular` should describe; unset leaves the upstream default. */",
+    "/** The deployment's own daily unit budget, which may be below Google's own 10,000. */",
+    "/** A proxy base for video thumbnails; https, or loopback http for a local adapter. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -35264,6 +35383,7 @@ const allowed = new Map([
     "/**\n * The credential of one calendar connection.\n *\n * The payload is one JSON blob inside the vault's opaque-bundle field. The scope is the connection id\n * so a ciphertext cannot be moved to another connection and read back out there. The plaintext exists\n * only inside the worker call that talks to the provider; no route returns it, and a log line never\n * receives it.\n */",
     "/**\n * The PKCE verifier of one pending OAuth state.\n *\n * The state hash is already the row's public identifier and never leaves the server, so sealing under\n * its first 26 hex characters needs no extra column: those are valid vault-id characters, and the\n * callback hashes the state it received and can reopen exactly that one verifier. A raw verifier in\n * the table would let anyone who can read D1 mint the code exchange.\n */",
     "/**\n * One Cloudflare account's credential bundle.\n *\n * The ciphertext is stored in R2 (`cloudflare/txt/accounts/<id>.txt`), so this is the only place the\n * plaintext exists: it is opened for the duration of one upstream Cloudflare call and never returned\n * by a route. The scope is the account row's own generated id, so a bundle copied onto another row\n * cannot be decrypted with that row's key.\n */",
+    "/** The instance's YouTube API key: sealed, never returned, and separate from the Worker secret. */",
   ]],
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
@@ -38783,6 +38903,82 @@ const allowed = new Map([
   ]],
   ["src/worker/wasm.d.ts", [
     "/**\n * A WebAssembly module imported as a file.\n *\n * Workers cannot compile WebAssembly from bytes at runtime — `WebAssembly.instantiate` on a buffer is\n * refused by the embedder — so a module has to arrive as an import the bundler compiles at deploy time.\n * The plugin that builds this worker recognises the `.wasm` extension and emits the file as a compiled\n * module next to the bundle; this declaration is the type of what the import hands back.\n */",
+  ]],
+  ["src/worker/youtube/config.ts", [
+    "/** Deployment-level YouTube configuration: the upstream base, region and local quota budget. */",
+  ]],
+  ["src/worker/youtube/media.ts", [
+    "/**\n * The image cache behind the YouTube rows.\n *\n * A list of fifty rows would otherwise ask Google for fifty pictures on every render. Thumbnails\n * and channel icons are fetched once, validated, and kept in R2 under the fixed `YouTube/` prefix;\n * a deployment without R2 still gets the picture, but with a short-lived cache header and no write.\n * The image bytes never depend on a user's library, so one cache serves every account.\n */",
+    "/**\n * The icon address a saved channel row may be fetched from.\n *\n * The snapshot is written by the client, so its `thumbnailUrl` is not trusted as a fetch target: only\n * an https address on one of Google's two image hosts is allowed, and anything else is refused\n * before the network is touched.\n */",
+    "// The refused body is dropped with the response; nothing downstream reads it.",
+    "// The picture is already in hand; a cache that refused the write costs a refetch next time and",
+    "// must not fail the reader's request, but it is still reported.",
+    "/**\n * Serve one image: R2 first, then the validated source, then write the bytes back.\n *\n * A zero-byte object is treated as a miss, because an interrupted write leaves a key that exists but\n * cannot be shown. Without an R2 binding nothing is written and the cache header is the short one.\n */",
+    "/** The image origin a deployment may route through its own local adapter. */",
+  ]],
+  ["src/worker/youtube/routes-library.ts", [
+    "/**\n * Saved-library routes, mounted at `/api/youtube/library` behind the app's session middleware.\n *\n * The handlers stay thin: read the body within the YouTube body ceiling, hand it to the store, and\n * answer with the row the store wrote. Ownership comes only from `userId`; a `user_id` in the body is\n * never read.\n */",
+  ]],
+  ["src/worker/youtube/routes-media.ts", [
+    "/**\n * Same-origin image endpoints for the YouTube rows.\n *\n * The images are public thumbnails, but they are fetched through this deployment so the browser\n * never talks to Google directly and the bytes can be cached once for every reader. A video\n * thumbnail has a fixed source; a channel icon has to come from the account's saved snapshot, so\n * the row is read with `user_id` in the predicate and its address is checked against the host\n * whitelist before anything leaves the worker.\n */",
+  ]],
+  ["src/worker/youtube/routes-quota.ts", [
+    "/**\n * The deployment's YouTube quota panel.\n *\n * The ledger is instance-wide because the key is: a reader sees what the whole deployment spent,\n * never who spent it. Seven UTC days are always returned, today included, so the week chart has a\n * bar for every day even when nothing ran; an unconfigured deployment still answers 200 with\n * `configured: false` so the app can explain the missing key instead of showing zeros.\n */",
+  ]],
+  ["src/worker/youtube/routes-settings.ts", [
+    "/** Owner-only YouTube API settings; the key is sealed and never returned. */",
+  ]],
+  ["src/worker/youtube/routes-upstream.ts", [
+    "/**\n * The YouTube upstream routes: discover, channel, playlist, video and comment reads.\n *\n * Every handler here spends the deployment's shared Data API budget. Each one preflights the full\n * cost of the call it is about to make (search plus its statistics fill, channel plus its uploads\n * page), so a refusal happens before the upstream is touched. Search also spends a per-account\n * budget, because one reader holding a refresh button should not empty the deployment's day.\n */",
+    "/** The RFC 3339 boundary a range chip means; `all` has none. */",
+    "/** One search per ten minutes is cheap; ten is the ceiling, and the lockout is short. */",
+    "/** Fill a page of ids with statistics and duration in one `videos.list` request. */",
+    "/**\n * One page of a playlist's videos.\n *\n * The page the upstream returns is the order the reader expects; a video `videos.list` omits (made\n * private, deleted) is dropped rather than shown with invented statistics.\n */",
+    "/** A handle is never resolved through search: `forHandle` is authoritative. */",
+    "/**\n * What a channel reference names, in the order the reference app resolves it.\n *\n * A raw `UC...` id is an id, `@handle` is a handle, a `youtube.com` address contributes the id or\n * handle it holds, and everything else is a legacy username.\n */",
+    "// A malformed handle is still a handle reference; searching for it would waste 100 units on a",
+    "// value the user meant as `@name`.",
+    "/**\n * The one search fallback a channel reference may take.\n *\n * It runs only after the direct lookup answered nothing, costs the search endpoint's full 100\n * units, and then resolves the id it found through `channels.list` for the complete row.\n */",
+  ]],
+  ["src/worker/youtube/routes.ts", [
+    "/**\n * The YouTube app's API surface. Every route needs a session: the upstream key belongs to the\n * deployment, so an anonymous reader would spend a shared quota.\n *\n * The routers are split by concern so the library, the upstream proxy, the media cache and the\n * quota ledger can be read (and changed) without stepping on each other.\n */",
+  ]],
+  ["src/worker/youtube/schema.ts", [
+    "/**\n * The YouTube app's D1 tables. Every library row is scoped to one account; the quota ledger is\n * instance-wide because the API key it accounts for belongs to the deployment, not to a reader.\n *\n * All of these are new tables, so they ride in `SCHEMA_STATEMENTS` and need no numbered migration.\n */",
+  ]],
+  ["src/worker/youtube/settings.ts", [
+    "/** The instance-level YouTube settings row and the key resolution that reads it. */",
+    "/**\n * The key the next upstream call should sign with: the stored key when the vault can open it,\n * otherwise the deployment's secret. A stored key that cannot be opened is reported and skipped,\n * never replaced by pretending the stored one is in force.\n */",
+    "/** The stored region/quota, with the deployment's values as the fallback. */",
+  ]],
+  ["src/worker/youtube/store.ts", [
+    "/**\n * The saved YouTube library in D1.\n *\n * Every statement here is scoped by `user_id`; nothing reads a row by id alone. Rows keep the full\n * upstream snapshot in `data_json` and only the columns the list views sort or render beside it. The\n * helpers below translate between those rows and the shared model, and every failure the client can\n * cause is an `ApiError` so the route layer never has to invent an error shape.\n */",
+    "/** The body a PUT may carry. The store validates every field it actually reads. */",
+    "/** The body a tag create or patch may carry. */",
+    "/**\n * A snapshot or tag list that cannot be parsed is read as empty rather than as an error: one bad\n * row must not make the whole library unreadable, and the write path always stores canonical JSON.\n */",
+    "// Corrupt JSON is handled by the empty-object answer below.",
+    "// Corrupt JSON is handled by the empty-list answer below.",
+    "// One row past the ceiling answers \"was there more\" without a second count query.",
+    "/** Every tag a write names has to belong to the same account that owns the row. */",
+    "/**\n * Delete a tag and everything below it, then repair every reference in the same transaction.\n *\n * The subtree is collected with a recursive CTE (UNION also stops a loop written by an older build),\n * and the write batch removes the tags, strips their ids from all three `tag_ids` columns, and drops\n * videos that are left with no pin, no favourite and no tag at all.\n */",
+    "// A video whose every tag is leaving the tree ends the batch as a row with no tag at all. It is",
+    "// removed only when that emptiness is caused by this deletion, not because it was already empty.",
+  ]],
+  ["src/worker/youtube/upstream.ts", [
+    "/**\n * The YouTube Data API client and the deployment's quota ledger.\n *\n * The API key belongs to the deployment, so every reader spends one shared daily budget. `ytFetch`\n * records each request it actually puts on the wire, successful or not, and the routes preflight a\n * composite call against the ledger before spending it. Upstream responses are capped and must be\n * JSON; refusals are translated into the app's own `ApiError` vocabulary so no route has to read\n * upstream status codes.\n */",
+    "/** Whether a key is present at all; the quota panel answers this without probing upstream. */",
+    "/** The resolved configuration for a real upstream call; a missing key is the 503 the API promises. */",
+    "/** The id a `search.list` video result names, which may be a bare id or wrapped in `{ videoId }`. */",
+    "/** The channel a `search.list type=channel` result names. */",
+    "/** A `playlistItems.list` entry's video id, from either place the API puts it. */",
+    "/** A video as `videos.list` describes it: statistics and duration included. */",
+    "/**\n * A search result before `videos.list` has filled it in.\n *\n * Search has no statistics and no duration, so the fields the upstream does not carry are zero or\n * empty rather than invented; the caller replaces this with the detailed row whenever one exists.\n */",
+    "/** Today's UTC date, the key the quota ledger files each day's units under. */",
+    "/**\n * Add one request to today's ledger.\n *\n * This runs after the request was sent, so a failure here says the accounting is incomplete, not\n * that the reader's call failed; the route must still answer. The warning is the only trace, which\n * is why it names the endpoint and never the key or the response.\n */",
+    "/**\n * Refuse a composite call whose known cost would cross today's budget.\n *\n * The upstream is not touched; a 429 here says the deployment's own ledger is full, which is the\n * number the quota panel shows. Checking before the call keeps a search from half-spending 100 units\n * and then failing on the follow-up lookup.\n */",
+    "// A body this client refuses is released rather than left for the runtime to drain; a refusal",
+    "// that is not JSON cannot be classified, so it is reported as an upstream failure.",
+    "/**\n * One upstream request: key injected, timeout enforced, body capped, refusal translated.\n *\n * The ledger write happens once a response arrives and before its answer is interpreted, so a\n * quota-refused request is counted too. A request that never got a response — a timeout or a\n * network failure — is not counted, and neither is one refused for a missing key: no units were\n * spent upstream.\n */",
   ]],
   ["tests/accent-on-soft-contrast.test.ts", [
     "/**\n * Text drawn on the accent's own tint has to be readable for every accent.\n *\n * `--accent-soft` is the accent at 14% (and `--accent-softer` at 7%), so tinted chips, the selected\n * view tab and the calendar's today card all paint a colour derived from the very colour a lot of\n * them use as their text. Measured that way, the accent on its own wash sat at 3.60:1 for light amber\n * and 4.10:1 for cinnabar in both themes, which is below the AA floor `AGENTS.md` rule 13 sets.\n * `--accent-on-soft` is the token that answers it: the accent itself where the accent already clears\n * the floor, a darkened or lifted variant of it (same oklab chroma and hue) where it does not.\n *\n * The surfaces are enumerated because the wash lands on different backgrounds — a chip on the sunken\n * rail is not a chip on a card — and a gate that checked only one of them would pass while another\n * one failed.\n */",
@@ -43904,6 +44100,27 @@ const allowed = new Map([
     "// must still be a thing a store could wrongly import.",
     "// Positive control: both halves of this rule were violated for months, so a scan that could not",
     "// see either would be reporting the world it wishes for rather than the one it is in.",
+  ]],
+  ["tests/youtube-library.test.ts", [
+    "// Behavioural coverage for the saved-library half of the YouTube app: the three saved kinds, the tag",
+    "// tree, and the account boundary every statement keeps.",
+  ]],
+  ["tests/youtube-media.test.ts", [
+    "// The image proxy: R2 hit/miss, exact key layout, passthrough without R2, byte validation and the",
+    "// channel-icon host whitelist. The upstream is a fetch stub and R2 is the in-memory double.",
+  ]],
+  ["tests/youtube-quota.test.ts", [
+    "// The quota panel contract: unconfigured deployments still answer 200, seven UTC days are always",
+    "// present, and today's breakdown carries the same cost table the rest of the app uses.",
+  ]],
+  ["tests/youtube-settings.test.ts", [
+    "// Behavioural coverage for the instance YouTube settings: the key is sealed, never returned, and",
+    "// becomes the upstream key; region and quota override the deployment values; members cannot write.",
+  ]],
+  ["tests/youtube-upstream.test.ts", [
+    "// Behavioural coverage for the YouTube upstream proxy: request shapes, transforms, quota preflight,",
+    "// ledger accumulation, search throttling and upstream error mapping. The upstream is a fetch stub;",
+    "// the database is real sqlite behind the D1 double.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

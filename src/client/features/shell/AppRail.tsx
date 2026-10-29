@@ -18,7 +18,7 @@ import { APP_TABS, tabIdForPath, type AppTab } from './app-tabs'
 export function AppRail() {
   const activeId = tabIdForPath(usePathname())
   const role = useSession((state) => state.user?.role)
-  const tabs = APP_TABS.filter((tab) => (tab.id !== 'email' || role !== 'member') && (tab.id !== 'imgbed' || !IS_DEMO_MODE))
+  const tabs = APP_TABS.filter((tab) => (tab.id !== 'email' || role !== 'member') && (tab.id !== 'imgbed' || !IS_DEMO_MODE) && (tab.id !== 'youtube' || !IS_DEMO_MODE))
   return (
     <nav
       aria-label={t('app.tabs.navigation')}

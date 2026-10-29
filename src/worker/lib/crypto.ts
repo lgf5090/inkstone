@@ -34,6 +34,25 @@ export async function decryptSecret<T>(env: Env, info: string, stored: string): 
   return isBackupCredentialRecord(value) ? (value as T) : null
 }
 
+export const YOUTUBE_SETTINGS_SECRET_SCOPE = '00000000000000000000000002'
+
+/** The instance's YouTube API key: sealed, never returned, and separate from the Worker secret. */
+export async function encryptYoutubeApiKey(env: Env, apiKey: string): Promise<string> {
+  const trimmed = apiKey.trim()
+  if (!trimmed || trimmed.length > 512 || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new Error('invalid_youtube_api_key')
+  }
+  return encryptCredential(env, `youtube:${YOUTUBE_SETTINGS_SECRET_SCOPE}`, { apiKey: trimmed })
+}
+
+export async function decryptYoutubeApiKey(env: Env, stored: string): Promise<string | null> {
+  if (stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `youtube:${YOUTUBE_SETTINGS_SECRET_SCOPE}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const apiKey = (value as Record<string, unknown>).apiKey
+  return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 512 ? apiKey : null
+}
+
 export async function encryptTotpSecret(env: Env, userId: string, secret: string): Promise<string> {
   if (!isValidId(userId) || !/^[A-Z2-7]{32}$/.test(secret)) {
     throw new Error('invalid_totp_credential')

@@ -52,6 +52,8 @@ run_worker_first = [
   "/cloudflare/*",
   "/m",
   "/m/*",
+  "/youtube",
+  "/youtube/*",
   "/tools",
   "/tools/*",
   "/development",

@@ -135,6 +135,8 @@ it('allows a sandboxed same-origin mail frame while refusing to be framed', asyn
   const csp = await cspOf('http://localhost/robots.txt')
   expect(directive(csp, 'frame-src')).toContain("'self'")
   expect(directive(csp, 'frame-src')).toContain('blob:')
+  expect(directive(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')
+  expect(directive(csp, 'frame-src')).toContain('https://www.youtube.com')
   expect(directive(csp, 'frame-ancestors')).toContain("'none'")
 })
 

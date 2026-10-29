@@ -14,6 +14,7 @@ export const JSON_BODY_LIMITS = {
   // A hub batch names up to a hundred files, and a tag write can carry a hundred tags of a hundred
   // characters each — the most either route can legitimately be asked to parse.
   attachmentHub: 64 * 1024,
+  youtube: 64 * 1024,
   profile: 256 * 1024,
   // A whole skill library arriving at once: the ceiling is the number of skills the list route will hand
   // over, times the most a single one may hold. Nothing smaller can refuse a file this app can produce.
