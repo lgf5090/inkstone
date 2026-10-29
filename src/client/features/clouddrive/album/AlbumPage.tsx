@@ -166,7 +166,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
-      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/95 px-3 py-2 backdrop-blur">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2">
         <span className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
           <LayoutGrid size={15} aria-hidden />
         </span>
@@ -262,7 +262,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
       </div>
 
       {selecting && (
-        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)]/95 px-2 py-2 backdrop-blur">
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-2">
           <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
             {ct('clouddrive.selection.count', { count: selected.size })}
           </span>
