@@ -121,6 +121,8 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.view.group_none': 'None',
   'clouddrive.view.group_date': 'Date',
 
+  'clouddrive.empty.recent': 'Nothing opened recently',
+  'clouddrive.empty.starred': 'No starred files',
   'clouddrive.empty.folder': 'This folder is empty',
   'clouddrive.empty.upload_hint': 'Drop files here, or use Upload.',
   'clouddrive.empty.search': 'No files match your search',

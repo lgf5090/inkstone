@@ -21,6 +21,7 @@ import { AdminFilesPage } from './admin/AdminFilesPage'
 import { IndexPage } from './admin/IndexPage'
 import { PreviewSettingsPage } from './admin/PreviewSettingsPage'
 import { JobsPage } from './admin/JobsPage'
+import { QuickFilesPage } from './quick/QuickFilesPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
@@ -146,7 +147,11 @@ export function ClouddriveApp() {
                   onPreview={setPreview}
                 />
               )
-            : address.page === 'album'
+            : address.page === 'recent'
+              ? <QuickFilesPage mode="recent" />
+              : address.page === 'starred'
+                ? <QuickFilesPage mode="starred" />
+                : address.page === 'album'
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
               : address.page === 'dashboard'
                 ? <DashboardPage />

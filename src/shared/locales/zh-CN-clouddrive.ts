@@ -121,6 +121,8 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.view.group_none': '不分组',
   'clouddrive.view.group_date': '按日期',
 
+  'clouddrive.empty.recent': '最近没有打开文件',
+  'clouddrive.empty.starred': '还没有收藏',
   'clouddrive.empty.folder': '当前文件夹为空',
   'clouddrive.empty.upload_hint': '拖入文件，或点击上传。',
   'clouddrive.empty.search': '没有匹配的文件',
