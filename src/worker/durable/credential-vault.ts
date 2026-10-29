@@ -23,7 +23,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -224,7 +224,7 @@ export { isScope, isCredentialRecord }
 function isCredentialRecord(scope: string, value: unknown): value is CredentialRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const entries = Object.entries(value)
-  if (scope.startsWith('channel:')) {
+  if (scope.startsWith('channel:') || scope.startsWith('imgbed:')) {
     const cap = DEFAULT_MAX_FIELD_LENGTH
     if (entries.length < 1 || entries.length > MAX_CHANNEL_FIELDS) return false
     return entries.every(([key, field]) => CHANNEL_FIELD_NAME.test(key) && (

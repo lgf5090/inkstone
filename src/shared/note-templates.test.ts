@@ -91,8 +91,8 @@ describe('built-in template catalog', () => {
   })
 
   it('resolves every message key the catalog names in both locale files', () => {
-    const en = { ...EN_US_MESSAGES, ...EN_US_NOTE_TEMPLATE_CONTENT }
-    const zh = { ...ZH_CN_MESSAGES, ...ZH_CN_NOTE_TEMPLATE_CONTENT }
+    const en = { ...EN_US_MESSAGES, ...EN_US_NOTE_TEMPLATE_CONTENT } as Record<string, string>
+    const zh = { ...ZH_CN_MESSAGES, ...ZH_CN_NOTE_TEMPLATE_CONTENT } as Record<string, string>
     const keys = [
       ...Object.values(BUILTIN_TEMPLATE_TAG_LABELS),
       ...BUILTIN_TEMPLATE_CATEGORIES.map((def) => def.nameKey),

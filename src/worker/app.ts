@@ -75,6 +75,14 @@ import { developmentXgetRoutes } from './routes/development-xget'
 import { isXgetProxyPath } from './development/xget/paths'
 import { developmentApiTesterRoutes } from './routes/development-api-tester'
 import { developmentGithubRoutes } from './routes/development-github'
+import { imgbedUploadRoutes } from './imgbed/upload-routes'
+import { imgbedManageRoutes } from './imgbed/manage'
+import { imgbedSettingsRoutes } from './imgbed/settings-routes'
+import { imgbedPublicRoutes } from './imgbed/public-routes'
+import { imgbedAiRoutes } from './imgbed/ai'
+import { imgbedServeRoutes } from './imgbed/serve'
+import { imgbedRandomRoutes } from './imgbed/public-routes'
+import { imgbedDavRoutes } from './imgbed/dav'
 import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
@@ -246,6 +254,14 @@ export function createApp() {
   app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/development/api-tester', developmentApiTesterRoutes)
   app.route('/api/development/github', developmentGithubRoutes)
+  app.route('/api/imgbed', imgbedUploadRoutes)
+  app.route('/api/imgbed', imgbedManageRoutes)
+  app.route('/api/imgbed', imgbedSettingsRoutes)
+  app.route('/api/imgbed', imgbedPublicRoutes)
+  app.route('/api/imgbed', imgbedAiRoutes)
+  app.route('/imgbed', imgbedServeRoutes)
+  app.route('/imgbed', imgbedRandomRoutes)
+  app.route('/imgbed/dav', imgbedDavRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)

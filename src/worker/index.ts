@@ -25,6 +25,7 @@ import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
 import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runMusicMaintenance } from './music/cleanup'
+import { runImgbedMaintenance } from './imgbed/cleanup'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
 import { runEmailFollowUpSweep } from './email/follow-up'
@@ -129,6 +130,10 @@ export default {
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),
             runEmailTrashCleanup(env),
+            runImgbedMaintenance(env).catch((error) => {
+              console.warn('[inkstone] Image bed maintenance sweep failed:', (error as Error).message)
+              return null
+            }),
             runMusicMaintenance(env).catch((error) => {
               console.warn('[inkstone] Music maintenance sweep failed:', (error as Error).message)
               return null

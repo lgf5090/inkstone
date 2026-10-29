@@ -54,6 +54,12 @@ import {
   INKNOTE_SCHEMA_STATEMENTS,
 } from '../inknote/schema'
 import {
+  IMGBED_REQUIRED_COLUMNS,
+  IMGBED_REQUIRED_INDEXES,
+  IMGBED_REQUIRED_TABLES,
+  IMGBED_SCHEMA_STATEMENTS,
+} from '../imgbed/schema'
+import {
   CLOUDFLARE_REQUIRED_COLUMNS,
   CLOUDFLARE_REQUIRED_INDEXES,
   CLOUDFLARE_REQUIRED_TABLES,
@@ -678,6 +684,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...EMAIL_SCHEMA_STATEMENTS,
   ...MUSIC_SCHEMA_STATEMENTS,
   ...INKNOTE_SCHEMA_STATEMENTS,
+  ...IMGBED_SCHEMA_STATEMENTS,
   ...TOOLS_PASSWORD_SCHEMA_STATEMENTS,
   ...TOOLS_QRCODE_SCHEMA_STATEMENTS,
   ...TOOLS_COLOR_SCHEMA_STATEMENTS,
@@ -2908,6 +2915,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 190,
     statements: DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
   },
+  {
+    version: 191,
+    skipIfColumnExists: { table: 'imgbed_files', column: 'favorite' },
+    statements: [
+      `ALTER TABLE imgbed_files ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_imgbed_files_favorite ON imgbed_files(favorite, created_at DESC)`,
+    ],
+  },
+  {
+    version: 192,
+    skipIfColumnExists: { table: 'imgbed_files', column: 'pinned' },
+    statements: [
+      `ALTER TABLE imgbed_files ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_imgbed_files_pinned ON imgbed_files(pinned, created_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -2974,6 +2997,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...EMAIL_REQUIRED_COLUMNS,
   ...MUSIC_REQUIRED_COLUMNS,
   ...INKNOTE_REQUIRED_COLUMNS,
+  ...IMGBED_REQUIRED_COLUMNS,
   ...TOOLS_PASSWORD_REQUIRED_COLUMNS,
   ...TOOLS_QRCODE_REQUIRED_COLUMNS,
   ...TOOLS_COLOR_REQUIRED_COLUMNS,
@@ -3042,6 +3066,7 @@ export const REQUIRED_TABLES = [
   ...EMAIL_REQUIRED_TABLES,
   ...MUSIC_REQUIRED_TABLES,
   ...INKNOTE_REQUIRED_TABLES,
+  ...IMGBED_REQUIRED_TABLES,
   ...TOOLS_PASSWORD_REQUIRED_TABLES,
   ...TOOLS_QRCODE_REQUIRED_TABLES,
   ...TOOLS_COLOR_REQUIRED_TABLES,
@@ -3125,6 +3150,7 @@ export const REQUIRED_INDEXES = [
   ...EMAIL_REQUIRED_INDEXES,
   ...MUSIC_REQUIRED_INDEXES,
   ...INKNOTE_REQUIRED_INDEXES,
+  ...IMGBED_REQUIRED_INDEXES,
   ...TOOLS_PASSWORD_REQUIRED_INDEXES,
   ...TOOLS_QRCODE_REQUIRED_INDEXES,
   ...TOOLS_COLOR_REQUIRED_INDEXES,

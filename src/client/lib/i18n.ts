@@ -64,8 +64,14 @@ let locale: AppLocale = detectInitialLocale();
 let resourcesVersion = 0;
 let initPromise: Promise<void> | null = null;
 const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = {
-    'en-US': () => import('@shared/locales/en-US').then((m) => m.EN_US_MESSAGES as unknown as Record<string, string>),
-    'zh-CN': () => import('@shared/locales/zh-CN').then((m) => m.ZH_CN_MESSAGES as unknown as Record<string, string>),
+    'en-US': () => Promise.all([
+        import('@shared/locales/en-US'),
+        import('@shared/locales/en-US-imgbed'),
+    ]).then(([m, imgbed]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED }) as unknown as Record<string, string>),
+    'zh-CN': () => Promise.all([
+        import('@shared/locales/zh-CN'),
+        import('@shared/locales/zh-CN-imgbed'),
+    ]).then(([m, imgbed]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**
@@ -196,9 +202,9 @@ export function translateServiceMessage(message: string | null | undefined): str
 export function getLocale(): AppLocale {
     return locale;
 }
-export function setLocale(next: AppLocale, persist = true): void {
+export function setLocale(next: AppLocale, persist = true): Promise<void> {
     if (next !== 'zh-CN' && next !== 'en-US')
-        return;
+        return Promise.resolve();
     locale = next;
     if (persist) {
         try {
@@ -213,9 +219,9 @@ export function setLocale(next: AppLocale, persist = true): void {
     if (loadedLocales.has(next)) {
         applyLocaleToDom();
         listeners.forEach((listener) => listener());
-        return;
+        return Promise.resolve();
     }
-    void ensureLocaleLoaded(next).then(() => {
+    return ensureLocaleLoaded(next).then(() => {
         applyLocaleToDom();
         listeners.forEach((listener) => listener());
     }).catch((error) => {

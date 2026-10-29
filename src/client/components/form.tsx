@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type InputHTMLAttributes,
+  type ButtonHTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type Ref,
@@ -139,14 +140,18 @@ export function Switch({
   onChange,
   disabled,
   label,
+  className,
+  ...rest
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
   label?: string
-}) {
+  className?: string
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onChange' | 'onClick' | 'type' | 'role' | 'aria-checked' | 'className'>) {
   return (
     <button
+      {...rest}
       type="button"
       role="switch"
       aria-checked={checked}
@@ -159,6 +164,7 @@ export function Switch({
         'ink-tap-pad relative h-6 w-11 shrink-0 rounded-full transition-colors duration-[var(--dur-base)] ease-[var(--ease-out)] md:h-[20px] md:w-[34px]',
         'disabled:opacity-45',
         checked ? 'bg-[var(--accent)]' : 'bg-[var(--border-strong)]',
+        className,
       )}
     >
       <span

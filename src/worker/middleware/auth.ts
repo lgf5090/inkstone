@@ -132,10 +132,15 @@ function isMemoPatRequest(c: Context<AppBindings>): boolean {
   return memoPatFromAuthorization(c.req.header('Authorization')) !== null
 }
 
+function isImgbedTokenRequest(c: Context<AppBindings>): boolean {
+  if (!c.req.path.startsWith('/api/imgbed/')) return false
+  return /^Bearer\s+img_[A-Za-z0-9_-]{43}$/i.test(c.req.header('Authorization') ?? '')
+}
+
 export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
   const method = c.req.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    if (!isXgetProxyPath(c.req.path) && !isMemoPatRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
+    if (!isXgetProxyPath(c.req.path) && !isMemoPatRequest(c) && !isImgbedTokenRequest(c) && c.req.header(CLIENT_HEADER) !== '1') {
       throw new ApiError(403, 'forbidden', 'Missing client identification header. Refresh and try again')
     }
   }
