@@ -41,6 +41,7 @@ const ERROR_KEYS: Record<string, string> = {
   nav_blocked_target: 'nav.error.blocked_target',
   nav_icon_invalid: 'nav.error.icon_invalid',
   nav_webdav_failed: 'nav.error.webdav',
+  nav_order_mismatch: 'nav.error.order_mismatch',
 }
 
 function localizedError(code: string, fallback: string): string {
@@ -95,7 +96,7 @@ export const navApi = {
   createLink: (body: unknown) => navFetch<NavLinkResponse>('/api/nav/links', { method: 'POST', body }),
   updateLink: (id: string, body: unknown) => navFetch<NavLinkResponse>(`/api/nav/links/${id}`, { method: 'PATCH', body }),
   deleteLink: (id: string) => navFetch<{ ok: true }>(`/api/nav/links/${id}`, { method: 'DELETE' }),
-  orderLinks: (body: { scope: 'pinned' | 'category'; categoryId?: string; orderedIds: string[] }) => navFetch<{ ok: true }>('/api/nav/links/order', { method: 'POST', body }),
+  orderLinks: (body: { scope: 'pinned' | 'category'; categoryId?: string; orderedIds: string[] }, unlocks?: readonly string[]) => navFetch<{ ok: true }>('/api/nav/links/order', { method: 'POST', body, unlocks }),
   visits: (visits: { linkId: string; count: number }[], keepalive = false) => navFetch<{ ok: true }>('/api/nav/visits', { method: 'POST', body: { visits }, keepalive }),
   importBookmarks: (body: { categories: NavImportCategory[]; links: NavImportLink[]; skipExisting?: boolean }) => navFetch<NavImportResponse>('/api/nav/import', { method: 'POST', body }),
   batch: (body: { action: 'delete' | 'move' | 'rewrite'; ids: string[]; fallbackCategoryId?: string; template?: string }) => navFetch<Record<string, unknown>>('/api/nav/links/batch', { method: 'POST', body }),

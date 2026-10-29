@@ -73,6 +73,7 @@ export const EN_US_NAV = {
   'nav.error.blocked_target': 'That address is not reachable from this server',
   'nav.error.icon_invalid': 'That image cannot be used as an icon',
   'nav.error.webdav': 'WebDAV request failed',
+  'nav.error.order_mismatch': 'The list changed. Refresh and try again',
   'nav.link.add_title': 'Add a link',
   'nav.link.edit_title': 'Edit link',
   'nav.link.title': 'Title',

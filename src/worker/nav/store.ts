@@ -410,7 +410,7 @@ export class NavStore {
     const group = scope === 'pinned'
       ? rows.filter((row) => row.pinned === 1 && !hiddenCategoryIds?.has(row.category_id)).map((row) => row.id)
       : rows.filter((row) => row.category_id === categoryId && row.pinned === 0).map((row) => row.id)
-    if (!sameSet(group, orderedIds)) throw ApiError.badRequest('Order must cover every link in this scope')
+    if (!sameSet(group, orderedIds)) throw new ApiError(409, 'nav_order_mismatch', 'The list changed; refresh and try again')
     const column = scope === 'pinned' ? 'pinned_order' : 'sort_order'
     const statements = orderedIds.map((id, index) =>
       this.db.prepare(`UPDATE nav_links SET ${column} = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4`).bind(index, Date.now(), this.userId, id),

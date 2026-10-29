@@ -1537,6 +1537,7 @@ export type ApiErrorCode =
   | 'nav_default_password_not_configured'
   | 'nav_webdav_failed'
   | 'nav_icon_invalid'
+  | 'nav_order_mismatch'
   | 'apitester_state_conflict'
   | 'apitester_state_too_large'
   | 'apitester_history_too_large'

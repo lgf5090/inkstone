@@ -73,6 +73,7 @@ export const ZH_CN_NAV = {
   'nav.error.blocked_target': '该地址在当前部署中不可访问',
   'nav.error.icon_invalid': '该图片不能用作图标',
   'nav.error.webdav': 'WebDAV 请求失败',
+  'nav.error.order_mismatch': '列表已变化，请刷新后重试',
   'nav.link.add_title': '添加链接',
   'nav.link.edit_title': '编辑链接',
   'nav.link.title': '标题',

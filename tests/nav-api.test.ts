@@ -426,6 +426,41 @@ describe('category passwords and unlock tokens', () => {
     expect(otherUser.links).toEqual([])
   })
 
+  it('needs the unlock token when reordering pinned links from an unlocked category', async () => {
+    const locked = await createCategory(USER_A, 'Locked Pins', {
+      passwordMode: 'custom',
+      password: 'pin-password',
+    })
+    const open = await createCategory(USER_A, 'Open Pins')
+    const secret = await createLink(USER_A, locked.id, 'Secret Pin', { pinned: true })
+    const openLink = await createLink(USER_A, open.id, 'Open Pin', { pinned: true })
+    const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, {
+      body: { password: 'pin-password' },
+    }))
+    const visible = await json<NavBootstrap>(await call('GET', '/api/nav', {
+      headers: { 'X-Nav-Unlocks': unlock.token },
+    }))
+    expect(visible.links.filter((link) => link.pinned).map((link) => link.id).sort())
+      .toEqual([secret.id, openLink.id].sort())
+
+    const withoutToken = await call('POST', '/api/nav/links/order', {
+      body: { scope: 'pinned', orderedIds: [secret.id, openLink.id] },
+    })
+    expect(withoutToken.status).toBe(409)
+    expect(await errorCode(withoutToken)).toBe('nav_order_mismatch')
+
+    const withToken = await call('POST', '/api/nav/links/order', {
+      headers: { 'X-Nav-Unlocks': unlock.token },
+      body: { scope: 'pinned', orderedIds: [openLink.id, secret.id] },
+    })
+    expect(withToken.status).toBe(200)
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav', {
+      headers: { 'X-Nav-Unlocks': unlock.token },
+    }))
+    expect(after.links.filter((link) => link.pinned).sort((left, right) => left.pinnedOrder - right.pinnedOrder).map((link) => link.id))
+      .toEqual([openLink.id, secret.id])
+  })
+
   it('hides a child category and its links when the parent is locked', async () => {
     const locked = await createCategory(USER_A, 'Locked Parent', {
       passwordMode: 'custom',
@@ -664,18 +699,18 @@ describe('link CRUD, pinning and ordering', () => {
 
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'pinned', orderedIds: [pinnedTwo.id] },
-    })).status).toBe(400)
+    })).status).toBe(409)
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'category', orderedIds: [one.id, two.id] },
     })).status).toBe(400)
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'category', categoryId: category.id, orderedIds: [one.id] },
-    })).status).toBe(400)
+    })).status).toBe(409)
     const other = await createCategory(USER_B, 'Other')
     const foreign = await createLink(USER_B, other.id, 'Foreign')
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'category', categoryId: category.id, orderedIds: [one.id, two.id, foreign.id] },
-    })).status).toBe(400)
+    })).status).toBe(409)
   })
 })
 

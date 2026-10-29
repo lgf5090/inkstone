@@ -248,7 +248,7 @@ export const useNavStore = create<NavState>((set, get) => {
     },
 
     async reorderLinks(scope, orderedIds, categoryId) {
-      await run(() => navApi.orderLinks({ scope, categoryId, orderedIds }))
+      await run(() => navApi.orderLinks({ scope, categoryId, orderedIds }, Object.values(get().unlockTokens)))
       await refresh()
     },
 
