@@ -81,6 +81,11 @@ export function youtubeDailyLimit(env: Env): number {
   return limit
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const name = hostname.toLowerCase()
+  return name === '127.0.0.1' || name === 'localhost' || name === '[::1]'
+}
+
 function youtubeApiBase(env: Env): string {
   const raw = (env.YOUTUBE_API_BASE ?? '').trim() || DEFAULT_API_BASE
   let url: URL
@@ -90,7 +95,10 @@ function youtubeApiBase(env: Env): string {
   catch {
     throw configError('YOUTUBE_API_BASE must be an https URL')
   }
-  if (url.protocol !== 'https:') throw configError('YOUTUBE_API_BASE must use https')
+  // A loopback base is a local development adapter; it never leaves the machine.
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+    throw configError('YOUTUBE_API_BASE must use https (http is allowed only for a loopback host)')
+  }
   if (url.username || url.password) throw configError('YOUTUBE_API_BASE may not carry credentials')
   if (url.search || url.hash) throw configError('YOUTUBE_API_BASE may not carry a query or fragment')
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`

@@ -20,15 +20,39 @@ const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif
 
 export const THUMBNAIL_PREFIX = 'YouTube/images/thumbnails/'
 export const CHANNEL_ICON_PREFIX = 'YouTube/icons/channels/'
-export const THUMBNAIL_SOURCE_BASE = 'https://i.ytimg.com/vi/'
+export const THUMBNAIL_SOURCE_BASE = 'https://i.ytimg.com/vi'
 export const CHANNEL_ICON_HOSTS = new Set(['yt3.googleusercontent.com', 'yt3.ggpht.com'])
 
 export function thumbnailKey(videoId: string): string {
   return `${THUMBNAIL_PREFIX}${videoId}.jpg`
 }
 
-export function thumbnailSource(videoId: string): string {
-  return `${THUMBNAIL_SOURCE_BASE}${videoId}/mqdefault.jpg`
+function isLoopbackHost(hostname: string): boolean {
+  const name = hostname.toLowerCase()
+  return name === '127.0.0.1' || name === 'localhost' || name === '[::1]'
+}
+
+/** The image origin a deployment may route through its own local adapter. */
+export function youtubeImageBase(env: Env): string {
+  const raw = (env.YOUTUBE_IMAGE_BASE ?? '').trim() || THUMBNAIL_SOURCE_BASE
+  let url: URL
+  try {
+    url = new URL(raw)
+  }
+  catch {
+    throw new ApiError(500, 'internal', 'YOUTUBE_IMAGE_BASE must be an https URL')
+  }
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopbackHost(url.hostname))) {
+    throw new ApiError(500, 'internal', 'YOUTUBE_IMAGE_BASE must use https (http is only allowed for a loopback host)')
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new ApiError(500, 'internal', 'YOUTUBE_IMAGE_BASE may not carry credentials, a query or a fragment')
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`
+}
+
+export function thumbnailSource(videoId: string, base: string = THUMBNAIL_SOURCE_BASE): string {
+  return `${base}/${videoId}/mqdefault.jpg`
 }
 
 export function channelIconKey(channelId: string): string {

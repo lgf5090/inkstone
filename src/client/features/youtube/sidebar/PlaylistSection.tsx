@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ChevronRight, ListVideo, Pin, Plus, Trash2 } from 'lucide-react'
 import type { SavedYouTubePlaylist } from '@shared/youtube/model'
 import { cn } from '../../../lib/cn'
@@ -88,7 +89,7 @@ export function PlaylistSection({
                 <SidebarLink
                   href={`/youtube/playlists/${encodeURIComponent(playlist.id)}`}
                   label={playlist.data.title || playlist.id}
-                  icon={<ListVideo size={14} />}
+                  icon={<PlaylistThumb playlist={playlist} />}
                   badge={
                     playlist.pinned ? (
                       <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
@@ -127,6 +128,21 @@ export function PlaylistSection({
         </div>
       )}
     </section>
+  )
+}
+
+function PlaylistThumb({ playlist }: { playlist: SavedYouTubePlaylist }) {
+  const [failed, setFailed] = useState(false)
+  if (failed || !playlist.data.thumbnailUrl) return <ListVideo size={14} />
+  return (
+    <img
+      src={playlist.data.thumbnailUrl}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="h-4 w-4 shrink-0 rounded-[var(--r-xs)] object-cover"
+    />
   )
 }
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ChevronRight, Pin, Plus, Trash2, Tv } from 'lucide-react'
 import type { SavedYouTubeChannel } from '@shared/youtube/model'
 import { cn } from '../../../lib/cn'
@@ -88,7 +89,7 @@ export function ChannelSection({
                 <SidebarLink
                   href={`/youtube/channels/${encodeURIComponent(channel.id)}`}
                   label={channel.data.title || channel.id}
-                  icon={<Tv size={14} />}
+                  icon={<ChannelAvatar channel={channel} />}
                   badge={
                     channel.pinned ? (
                       <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
@@ -127,6 +128,21 @@ export function ChannelSection({
         </div>
       )}
     </section>
+  )
+}
+
+function ChannelAvatar({ channel }: { channel: SavedYouTubeChannel }) {
+  const [failed, setFailed] = useState(false)
+  if (failed || !channel.data.thumbnailUrl) return <Tv size={14} />
+  return (
+    <img
+      src={channel.data.thumbnailUrl}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="size-4 shrink-0 rounded-[var(--r-full)] object-cover"
+    />
   )
 }
 

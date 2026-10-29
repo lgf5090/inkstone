@@ -722,6 +722,18 @@ describe('youtube upstream errors', () => {
     expect(body.error.code).toBe('youtube_upstream')
   })
 
+  it('accepts a loopback http base for a local adapter', async () => {
+    stubFetch((url) => {
+      expect(url.origin).toBe('http://127.0.0.1:5198')
+      expect(url.pathname).toBe('/youtube/v3/videos')
+      return json({ items: [] })
+    })
+    const response = await get('/discover', envWith({
+      YOUTUBE_API_BASE: 'http://127.0.0.1:5198/youtube/v3',
+    }))
+    expect(response.status).toBe(200)
+  })
+
   it('refuses an insecure API base without touching the network', async () => {
     stubFetch(() => json({ items: [] }))
     const response = await get('/discover', envWith({

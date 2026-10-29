@@ -130,7 +130,7 @@ export function VideoRow({
           )}
         </div>
 
-        <div className="min-w-0 flex-1 sm:pr-16">
+        <div className="min-w-0 flex-1 sm:pr-20">
           <p className="line-clamp-2 text-[length:var(--text-13)] leading-snug font-medium text-[var(--text-primary)]">
             {video.title}
           </p>

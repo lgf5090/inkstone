@@ -94,6 +94,9 @@ export interface Env {
   /** A proxy base for the YouTube Data API; must be https and carries no query or credentials. */
   YOUTUBE_API_BASE?: string
 
+  /** A proxy base for video thumbnails; https, or loopback http for a local adapter. */
+  YOUTUBE_IMAGE_BASE?: string
+
   /** The two-letter region `mostPopular` should describe; unset leaves the upstream default. */
   YOUTUBE_REGION_CODE?: string
 

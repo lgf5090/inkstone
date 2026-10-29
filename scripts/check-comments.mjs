@@ -35234,6 +35234,7 @@ const allowed = new Map([
     "/** A proxy base for the YouTube Data API; must be https and carries no query or credentials. */",
     "/** The two-letter region `mostPopular` should describe; unset leaves the upstream default. */",
     "/** The deployment's own daily unit budget, which may be below Google's own 10,000. */",
+    "/** A proxy base for video thumbnails; https, or loopback http for a local adapter. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -38891,6 +38892,7 @@ const allowed = new Map([
     "// The picture is already in hand; a cache that refused the write costs a refetch next time and",
     "// must not fail the reader's request, but it is still reported.",
     "/**\n * Serve one image: R2 first, then the validated source, then write the bytes back.\n *\n * A zero-byte object is treated as a miss, because an interrupted write leaves a key that exists but\n * cannot be shown. Without an R2 binding nothing is written and the cache header is the short one.\n */",
+    "/** The image origin a deployment may route through its own local adapter. */",
   ]],
   ["src/worker/youtube/routes-library.ts", [
     "/**\n * Saved-library routes, mounted at `/api/youtube/library` behind the app's session middleware.\n *\n * The handlers stay thin: read the body within the YouTube body ceiling, hand it to the store, and\n * answer with the row the store wrote. Ownership comes only from `userId`; a `user_id` in the body is\n * never read.\n */",
@@ -38949,6 +38951,7 @@ const allowed = new Map([
     "// A body this client refuses is released rather than left for the runtime to drain; a refusal",
     "// that is not JSON cannot be classified, so it is reported as an upstream failure.",
     "/**\n * One upstream request: key injected, timeout enforced, body capped, refusal translated.\n *\n * The ledger write happens once a response arrives and before its answer is interpreted, so a\n * quota-refused request is counted too. A request that never got a response — a timeout or a\n * network failure — is not counted, and neither is one refused for a missing key: no units were\n * spent upstream.\n */",
+    "// A loopback base is a local development adapter; it never leaves the machine.",
   ]],
   ["tests/accent-on-soft-contrast.test.ts", [
     "/**\n * Text drawn on the accent's own tint has to be readable for every accent.\n *\n * `--accent-soft` is the accent at 14% (and `--accent-softer` at 7%), so tinted chips, the selected\n * view tab and the calendar's today card all paint a colour derived from the very colour a lot of\n * them use as their text. Measured that way, the accent on its own wash sat at 3.60:1 for light amber\n * and 4.10:1 for cinnabar in both themes, which is below the AA floor `AGENTS.md` rule 13 sets.\n * `--accent-on-soft` is the token that answers it: the accent itself where the accent already clears\n * the floor, a darkened or lifted variant of it (same oklab chroma and hue) where it does not.\n *\n * The surfaces are enumerated because the wash lands on different backgrounds — a chip on the sunken\n * rail is not a chip on a card — and a gate that checked only one of them would pass while another\n * one failed.\n */",

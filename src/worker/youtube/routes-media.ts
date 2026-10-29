@@ -17,6 +17,7 @@ import {
   serveYouTubeImage,
   thumbnailKey,
   thumbnailSource,
+  youtubeImageBase,
 } from './media'
 
 export const youtubeMediaRoutes = new Hono<AppBindings>()
@@ -28,7 +29,7 @@ function idParam(value: string | undefined, label: string): string {
 
 youtubeMediaRoutes.get('/thumbnail/:id', async (c) => {
   const videoId = idParam(c.req.param('id'), 'video')
-  return await serveYouTubeImage(c.env, thumbnailKey(videoId), thumbnailSource(videoId))
+  return await serveYouTubeImage(c.env, thumbnailKey(videoId), thumbnailSource(videoId, youtubeImageBase(c.env)))
 })
 
 youtubeMediaRoutes.get('/channel/:id', async (c) => {
