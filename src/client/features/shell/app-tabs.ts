@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, Images, ListChecks, Mail, MessageSquare, Music, NotebookPen, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, Images, ListChecks, Mail, MessageSquare, Music, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -30,6 +30,7 @@ export type AppTabId =
   | 'imgbed'
   | 'music'
   | 'cloudflare'
+  | 'youtube'
   | 'tools'
   | 'development'
 
@@ -57,6 +58,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'imgbed', path: '/imgbed', labelKey: 'app.tabs.imgbed', icon: Images },
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
   { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
+  { id: 'youtube', path: '/youtube', labelKey: 'app.tabs.youtube', icon: PlaySquare },
   { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
   { id: 'development', path: '/development', labelKey: 'app.tabs.development', icon: Terminal },
 ]
@@ -77,6 +79,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/email/', 'email'],
   ['/music/', 'music'],
   ['/cloudflare/', 'cloudflare'],
+  ['/youtube/', 'youtube'],
   ['/tools/', 'tools'],
   ['/development/', 'development'],
 ]

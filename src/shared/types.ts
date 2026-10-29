@@ -1548,3 +1548,8 @@ export type ApiErrorCode =
   | 'github_token_required'
   | 'github_not_found'
   | 'github_upstream'
+  | 'youtube_not_configured'
+  | 'youtube_quota_exceeded'
+  | 'youtube_upstream'
+  | 'youtube_not_found'
+  | 'youtube_invalid_input'

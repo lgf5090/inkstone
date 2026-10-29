@@ -85,6 +85,21 @@ export interface Env {
    */
   MUSIC_UPSTREAM_API?: string
 
+  /**
+   * YouTube Data API v3 key, set as a secret (`wrangler secret put`). With it unset the YouTube
+   * app still opens its saved library, and every upstream route answers 503.
+   */
+  YOUTUBE_API_KEY?: string
+
+  /** A proxy base for the YouTube Data API; must be https and carries no query or credentials. */
+  YOUTUBE_API_BASE?: string
+
+  /** The two-letter region `mostPopular` should describe; unset leaves the upstream default. */
+  YOUTUBE_REGION_CODE?: string
+
+  /** The deployment's own daily unit budget, which may be below Google's own 10,000. */
+  YOUTUBE_DAILY_QUOTA?: string
+
   /** The per-account download queue; optional so a deployment without R2 can omit it. */
   MUSIC_QUEUE?: DurableObjectNamespace
 

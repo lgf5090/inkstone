@@ -20,6 +20,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   imgbed: true,
   music: true,
   cloudflare: true,
+  youtube: true,
   tools: true,
   development: true,
 }
@@ -56,6 +57,25 @@ describe('the app tab registry', () => {
   it('opens the notebook at the bare origin, with no address to type', () => {
     expect(tabIdForPath('/')).toBe('notes')
     expect(DEFAULT_APP_TAB).toBe('notes')
+  })
+
+  it('places the YouTube container directly above the toolbox', () => {
+    const ids = APP_TABS.map((tab) => tab.id)
+    expect(ids[ids.indexOf('youtube') + 1]).toBe('tools')
+    expect(ids[ids.indexOf('cloudflare') + 1]).toBe('youtube')
+  })
+
+  it('keeps every YouTube sub-address on its own tab', () => {
+    for (const path of [
+      '/youtube/all',
+      '/youtube/pinned',
+      '/youtube/favorites',
+      '/youtube/tags/t1',
+      '/youtube/channels/UC123',
+      '/youtube/playlists/PL1',
+    ]) {
+      expect(tabIdForPath(path)).toBe('youtube')
+    }
   })
 
   it('falls back to the notebook for an address that names no container', () => {
