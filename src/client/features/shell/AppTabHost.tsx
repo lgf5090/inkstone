@@ -32,6 +32,7 @@ import { ChatApp } from '../chat/ChatApp'
  */
 const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   notes: AppShell,
+  inknote: lazy(() => import('../inknote/InknoteApp').then((module) => ({ default: module.InknoteApp }))),
   memos: lazy(() => import('../memos/MemosApp').then((module) => ({ default: module.MemosApp }))),
   reading: ReadingApp,
   subscriptions: lazy(() => import('../subscriptions/SubscriptionsApp').then((module) => ({ default: module.SubscriptionsApp }))),

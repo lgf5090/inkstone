@@ -6,6 +6,7 @@ import { APP_TABS, DEFAULT_APP_TAB, appTab, tabIdForPath, type AppTabId } from '
 // with a button that goes nowhere.
 const EVERY_TAB_ID: Record<AppTabId, true> = {
   notes: true,
+  inknote: true,
   memos: true,
   calendar: true,
   todo: true,
@@ -27,9 +28,10 @@ describe('the app tab registry', () => {
     expect(APP_TABS.map((tab) => tab.id).sort()).toEqual(Object.keys(EVERY_TAB_ID).sort())
   })
 
-  it('places memos directly after notes', () => {
+  it('places the handwriting app directly under notes', () => {
     const ids = APP_TABS.map((tab) => tab.id)
-    expect(ids[ids.indexOf('notes') + 1]).toBe('memos')
+    expect(ids[ids.indexOf('notes') + 1]).toBe('inknote')
+    expect(ids[ids.indexOf('inknote') + 1]).toBe('memos')
   })
 
   it('gives each container an address of its own', () => {

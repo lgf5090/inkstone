@@ -6,6 +6,11 @@ import { loadSession, requireClientHeader } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
+import { inknoteRoutes } from './routes/inknote'
+import { inknoteAssetsRoutes } from './routes/inknote-assets'
+import { inknoteSettingsRoutes } from './routes/inknote-settings'
+import { inknoteSnapshotsRoutes } from './routes/inknote-snapshots'
+import { inknoteRecordingsRoutes } from './routes/inknote-recordings'
 import { memoListRoutes } from './routes/memos'
 import { memoSpaceRoutes } from './routes/memos/spaces'
 import { memoViewRoutes } from './routes/memos/views'
@@ -164,6 +169,11 @@ export function createApp() {
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
   app.route('/api/notes', notesRoutes)
+  app.route('/api/inknote', inknoteRoutes)
+  app.route('/api/inknote', inknoteAssetsRoutes)
+  app.route('/api/inknote', inknoteSettingsRoutes)
+  app.route('/api/inknote', inknoteSnapshotsRoutes)
+  app.route('/api/inknote', inknoteRecordingsRoutes)
   // Public reads and share-authorized files must be registered before the authenticated
   // `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous
   // share page into a 401 before these routes ever see it.

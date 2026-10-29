@@ -352,6 +352,10 @@ const cloudflareCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-cloudflare-settings.ts'), 'ZH_CN_CLOUDFLARE_SETTINGS'],
     ],
 };
+const inknoteCatalogFiles = {
+    en: [[path.join(localeRoot, 'en-US-inknote.ts'), 'EN_US_INKNOTE']],
+    zh: [[path.join(localeRoot, 'zh-CN-inknote.ts'), 'ZH_CN_INKNOTE']],
+};
 const developmentCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-development-database.ts'), 'EN_US_DEVELOPMENT_DATABASE'],
@@ -375,8 +379,8 @@ const developmentCatalogFiles = {
     ],
 };
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...developmentCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...developmentCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...developmentCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...developmentCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must
@@ -395,8 +399,8 @@ function readCatalog(variableFile, variableName, fragments) {
     }
     return messages;
 }
-const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'EN_US_MESSAGES', catalogFragments.en);
-const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CN_MESSAGES', catalogFragments.zh);
+const english = readCatalog(path.join(localeRoot, 'en-US.ts'), 'CORE_MESSAGES', catalogFragments.en);
+const chinese = readCatalog(path.join(localeRoot, 'zh-CN.ts'), 'ZH_CORE_MESSAGES', catalogFragments.zh);
 {
     const instructions = readMessages(assistantPromptBodyFiles.en[0], assistantPromptBodyFiles.en[1]);
     const translated = readMessages(assistantPromptBodyFiles.zh[0], assistantPromptBodyFiles.zh[1]);

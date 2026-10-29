@@ -16,6 +16,7 @@ import { EN_US_EMAIL_RAW } from './en-US-email-raw';
 import { EN_US_EMAIL_RULES } from './en-US-email-rules';
 import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 import { EN_US_MUSIC } from './en-US-music';
+import { EN_US_INKNOTE } from './en-US-inknote';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_CALENDAR } from './en-US-calendar';
 import { EN_US_DEVELOPMENT_DATABASE } from './en-US-development-database';
@@ -29,7 +30,7 @@ import { EN_US_DEVELOPMENT_XGET_SETTINGS } from './en-US-development-xget-settin
 import { EN_US_INK } from './en-US-ink';
 import { EN_US_INK_ELEMENTS } from './en-US-ink-elements';
 import { EN_US_INK_SETTINGS } from './en-US-ink-settings';
-export const EN_US_MESSAGES = {
+const CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "Sprint Board",
     "template.kanban_sprint_board.description": "A kanban board with the four columns a sprint actually needs.",
     "template.mindmap_reading_map.name": "Reading Mind Map",
@@ -6456,6 +6457,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "settings.excalidraw_sync_excalidraw": "Keep Excalidraw spec on sync",
     "settings.excalidraw_sync_excalidraw_desc": "Perform canonical validation on drawing data during sync and backup.",
     "app.tabs.notes": "Notes",
+    "app.tabs.inknote": "Handwriting",
     "app.tabs.calendar": "Calendar",
     "app.tabs.todo": "To-do",
     "app.tabs.email": "Mail",
@@ -7547,6 +7549,15 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "assistant.dock.suggest_email_reply": "Draft a reply",
     "assistant.dock.suggest_email_search": "Find emails about this",
     "assistant.dock.suggest_music_play": "Play what I am looking at",
+    "assistant.dock.inknote_label": "Handwritten note",
+    "assistant.dock.hint_inknote": "Ask about the handwritten note you are looking at. The page text and the whole note are in context; the chip below the box names what this turn carries.",
+    "assistant.dock.suggest_inknote_summary": "Summarise this page",
+    "assistant.dock.suggest_inknote_tidy": "Organise these notes",
+    "assistant.dock.suggest_inknote_questions": "What should I review?",
+    "assistant.inknote.answer_actions": "Keep this answer",
+    "assistant.inknote.insert_answer": "Insert into the page",
+    "assistant.inknote.read_answer": "Read aloud",
+    "assistant.inknote.inserted": "Answer inserted into the page",
     "assistant.dock.suggest_music_queue": "Add this to the queue",
     "assistant.dock.suggest_music_about": "What is this song?",
     "assistant.edit.menu": "AI",
@@ -10178,5 +10189,6 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
 } as const;
-export type BaseMessageKey = keyof typeof EN_US_MESSAGES;
+export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof EN_US_INKNOTE = { ...CORE_MESSAGES, ...EN_US_INKNOTE };
+export type BaseMessageKey = keyof typeof CORE_MESSAGES | keyof typeof EN_US_INKNOTE;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey;

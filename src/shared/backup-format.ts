@@ -24,6 +24,9 @@ export const BACKUP_SUBSCRIPTIONS_NAME = 'subscriptions.json'
 /** The music library's metadata, never its audio objects. */
 export const BACKUP_MUSIC_NAME = 'music.json'
 
+/** The hand-written notebook: tables, pages, settings, templates, recordings and asset bytes. */
+export const BACKUP_INKNOTE_NAME = 'inknote.json'
+
 /**
  * The to-do app's own rows.
  *
@@ -67,6 +70,9 @@ export interface MarkdownBackupTemplatesEntry {
   bytes: number
   sha256: string
 }
+
+/** One JSON document for the hand-written notebook, asset bytes included as base64. */
+export type MarkdownBackupInknoteEntry = MarkdownBackupTemplatesEntry
 
 export interface MarkdownBackupAutomationEntry {
   path: string
@@ -124,6 +130,8 @@ export interface MarkdownBackupManifest {
   music?: MarkdownBackupMusicEntry
   calendar?: MarkdownBackupCalendarEntry
   email?: MarkdownBackupEmailEntry
+  /** The hand-written notebook, absent from a backup taken before it existed. */
+  inknote?: MarkdownBackupInknoteEntry
 }
 
 const HASH_RE = /^[0-9a-f]{64}$/
@@ -196,6 +204,15 @@ export function backupMusicPath(
   if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_MUSIC_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_MUSIC_NAME
+}
+
+export function backupInknotePath(
+  stamp: string,
+  version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
+): string {
+  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_INKNOTE_NAME}`
+  if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
+  return BACKUP_INKNOTE_NAME
 }
 
 export function backupCalendarPath(
@@ -424,6 +441,20 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     }
   }
 
+  let inknote: MarkdownBackupInknoteEntry | undefined
+  if (value.inknote !== undefined) {
+    if (!isRecord(value.inknote)) return null
+    const expectedPath = backupInknotePath(value.snapshot, value.version)
+    if (
+      value.inknote.path !== expectedPath ||
+      !isSafeSize(value.inknote.bytes) ||
+      value.inknote.bytes > LIMITS.importUploadMaxBytes ||
+      typeof value.inknote.sha256 !== 'string' ||
+      !HASH_RE.test(value.inknote.sha256)
+    ) return null
+    inknote = { path: expectedPath, bytes: value.inknote.bytes, sha256: value.inknote.sha256 }
+  }
+
   return {
     format: MARKDOWN_BACKUP_FORMAT,
     version: value.version,
@@ -439,6 +470,7 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
     music,
     calendar,
     email,
+    inknote,
   }
 }
 

@@ -6,6 +6,7 @@ import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils'
 import { parseTemplateLibraryExport } from '@shared/note-templates'
 import { parseQuickAddText } from '@shared/quickadd'
 import { emptyLibrary, parseRssLibrary } from '@shared/rss/model'
+import { DEFAULT_INKNOTE_SETTINGS } from '@shared/inknote/constants'
 import { applyLibraryPatch, parseRssPatch } from '@shared/rss/patch'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import { applyTagNodes } from '@shared/graph-tag-nodes'
@@ -1387,9 +1388,119 @@ export function createDemoBackend(): DemoBackend {
   // deployments apart except by the reason: `{ error: { code, message } }` with a Templater code, 403.
   app.post('/api/templater/fetch', () => apiError(403, 'web-blocked', 'The demo cannot reach other websites'))
 
+  // Inknote is read-only in the demo: one seeded notebook with two drawn pages, the same refusal on
+  // every write, and no assets, recordings or snapshots to serve.
+  const inknote = inknoteDemoData()
+  app.get('/api/inknote/library', (c) => c.json({
+    subjects: inknote.subjects,
+    notebooks: inknote.notebooks,
+    notes: inknote.notes.map(({ note }) => note),
+    settings: inknote.settings,
+    templates: [],
+    counts: { subjects: inknote.subjects.length, notebooks: inknote.notebooks.length, notes: inknote.notes.length },
+  }))
+  app.get('/api/inknote/trash', (c) => c.json({ notes: [] }))
+  app.get('/api/inknote/settings', (c) => c.json({ config: inknote.settings, updatedAt: 1 }))
+  app.get('/api/inknote/templates', (c) => c.json({ templates: [] }))
+  app.get('/api/inknote/usage', (c) => c.json({ notes: 1, pages: 2, assets: 0, assetsBytes: 0, snapshotsBytes: 0, quotaBytes: 5 * 1024 * 1024 * 1024 }))
+  app.get('/api/inknote/recordings', (c) => c.json({ recordings: [] }))
+  app.get('/api/inknote/snapshots', (c) => c.json({ snapshots: [] }))
+  app.get('/api/inknote/search', (c) => {
+    const q = (c.req.query('q') ?? '').trim().toLowerCase()
+    const results = q ? inknote.notes.flatMap(({ note, pages }) => pages.flatMap((page, pageIndex) => page.content.texts
+      .filter((item) => item.text.toLowerCase().includes(q) || note.title.toLowerCase().includes(q))
+      .slice(0, 1)
+      .map((item) => ({
+        noteId: note.id,
+        title: note.title,
+        notebookId: note.notebookId,
+        notebookName: inknote.notebooks[0]!.name,
+        subjectName: inknote.subjects[0]!.name,
+        pageIndex,
+        snippet: item.text.slice(0, 80),
+        titleMatch: note.title.toLowerCase().includes(q),
+      })))) : []
+    return c.json({ results, total: results.length })
+  })
+  app.get('/api/inknote/notes/:id', (c) => {
+    const entry = inknote.notes.find(({ note }) => note.id === c.req.param('id'))
+    if (!entry) return apiError(404, 'not_found', 'Note not found')
+    return c.json(c.req.query('content') === 'none' ? { note: entry.note, pages: [] } : { note: entry.note, pages: entry.pages })
+  })
+  for (const method of ['post', 'put', 'patch', 'delete'] as const) {
+    app[method]('/api/inknote/*', () => apiError(403, 'forbidden', 'The demo is read-only'))
+  }
+
   app.all('/api/*', () => apiError(404, 'not_found', 'Demo endpoint not found'))
 
   return { fetch: (request) => Promise.resolve(app.fetch(request)) }
+}
+
+function inknoteDemoData() {
+  const now = Date.now()
+  const paper = { style: 'line' as const, color: 'white', spacing: 'normal' as const }
+  const text = (id: string, y: number, value: string, size: number, bold = false) => ({
+    id, x: 0.08, y, w: 0.84, h: 0.08, text: value, fontSize: size, color: '#1e293b',
+    align: 'left' as const, bold, italic: false, underline: false, hl: null, lh: 1.3, list: null,
+  })
+  const stroke = (id: string, color: string, points: [number, number][]) => ({
+    id, tool: 'pen' as const, style: 'normal' as const, shape: null, color, width: 3,
+    points: points.map(([x, y]) => ({ x, y, p: 0.6 })),
+  })
+  const pages = [
+    {
+      id: 'demo-inknote-page-1', position: 0, rev: 1, updatedAt: now - 60_000,
+      content: {
+        format: 'inknote-page' as const, version: 1 as const,
+        strokes: [
+          stroke('demo-stroke-1', '#2563eb', [[120, 300], [180, 260], [240, 300], [300, 260], [360, 300], [420, 260], [480, 300]]),
+          stroke('demo-stroke-2', '#dc2626', [[140, 420], [220, 380], [300, 420], [380, 380], [460, 420]]),
+        ],
+        texts: [
+          text('demo-text-1', 0.1, 'Welcome to Inknote', 34, true),
+          text('demo-text-2', 0.2, 'This page is drawn with real strokes — scroll, zoom and try the tools.', 18),
+        ],
+        images: [],
+        bg: null,
+      },
+    },
+    {
+      id: 'demo-inknote-page-2', position: 1, rev: 1, updatedAt: now - 50_000,
+      content: {
+        format: 'inknote-page' as const, version: 1 as const,
+        strokes: [stroke('demo-stroke-3', '#16a34a', [[160, 340], [260, 300], [360, 340], [460, 300], [560, 340]])],
+        texts: [text('demo-text-3', 0.1, 'The second page', 30, true)],
+        images: [],
+        bg: null,
+      },
+    },
+  ]
+  const note = {
+    id: 'demo-inknote-note-1',
+    notebookId: 'demo-inknote-notebook-1',
+    title: 'Sample handwritten note',
+    pageCount: pages.length,
+    contentBytes: pages.reduce((sum, page) => sum + utf8ByteLength(JSON.stringify(page.content)), 0),
+    pageWidth: 816,
+    pageHeight: 1056,
+    contentWidth: 816,
+    contentHeight: 1056,
+    paper,
+    colorTag: null,
+    pinned: false,
+    coverAssetId: null,
+    coverUrl: null,
+    rev: 1,
+    createdAt: now - 3_600_000,
+    updatedAt: now - 50_000,
+    deletedAt: null,
+  }
+  return {
+    subjects: [{ id: 'demo-inknote-subject-1', name: 'Sample project', position: 0 }],
+    notebooks: [{ id: 'demo-inknote-notebook-1', subjectId: 'demo-inknote-subject-1', name: 'Sample notebook', coverColor: '#38bdf8', emoji: '', position: 0 }],
+    notes: [{ note, pages }],
+    settings: { ...DEFAULT_INKNOTE_SETTINGS, openTabs: [note.id], welcomeSeen: true },
+  }
 }
 
 function demoMcpSettings(now = Date.now()): McpSettingsInfo {

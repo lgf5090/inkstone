@@ -379,3 +379,37 @@ describe('demo refusals', () => {
     expect(await response.json()).toMatchObject({ error: { code: 'web-blocked' } })
   })
 })
+
+describe('demo inknote is a read-only sample', () => {
+  it('serves one notebook with two drawn pages', async () => {
+    const library = await (await call('GET', '/api/inknote/library')).json() as { notes: Array<{ id: string, pageCount: number }>, notebooks: unknown[] }
+    expect(library.notebooks).toHaveLength(1)
+    expect(library.notes).toHaveLength(1)
+    expect(library.notes[0]!.pageCount).toBe(2)
+    const detail = await (await call('GET', `/api/inknote/notes/${library.notes[0]!.id}?content=all`)).json() as
+      { pages: Array<{ content: { strokes: unknown[], texts: Array<{ text: string }> } }> }
+    expect(detail.pages).toHaveLength(2)
+    expect(detail.pages[0]!.content.strokes.length).toBeGreaterThan(0)
+    expect(detail.pages[0]!.content.texts.map((item) => item.text).join(' ')).toContain('Inknote')
+  })
+
+  it('refuses every inknote write with the read-only reason', async () => {
+    for (const [method, path, body] of [
+      ['POST', '/api/inknote/notes', { notebookId: 'demo-inknote-notebook-1' }],
+      ['PUT', '/api/inknote/notes/demo-inknote-note-1/pages/demo-inknote-page-1', { content: '{}', baseRev: 1 }],
+      ['PATCH', '/api/inknote/settings', { config: {} }],
+      ['DELETE', '/api/inknote/notes/demo-inknote-note-1', undefined],
+    ] as const) {
+      const response = await call(method, path, body)
+      expect(response.status, `${method} ${path}`).toBe(403)
+      expect(await response.json()).toMatchObject({ error: { code: 'forbidden' } })
+    }
+  })
+
+  it('answers search and usage from the seed', async () => {
+    const search = await (await call('GET', '/api/inknote/search?q=second')).json() as { results: Array<{ pageIndex: number }> }
+    expect(search.results.some((result) => result.pageIndex === 1)).toBe(true)
+    const usage = await (await call('GET', '/api/inknote/usage')).json() as { notes: number, pages: number }
+    expect(usage).toMatchObject({ notes: 1, pages: 2 })
+  })
+})

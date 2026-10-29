@@ -358,8 +358,14 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     },
   ],
   [
-    'src/client/features/preview/wiki-link-hover-card/index.tsx',
+    'src/client/features/inknote/components/InkTextStyleBar.tsx',
     {
+      sites: 1,
+      reason: 'The text style toolbar: its mouse-down handler only prevents a pressed style button from taking focus away from the textarea, because blur would commit the edit before the style applies. The handler is not an affordance of the container; every child acts through its own button or select.',
+    },
+  ],
+  [
+    'src/client/features/preview/wiki-link-hover-card/index.tsx',    {
       sites: 1,
       reason: "The pinned window's header: a pointer-down drag handle whose children are the window's own pin and stack buttons. Clicking the header does nothing on its own — the drag is what the handler is for, and a drag handle has to be under the pointer the controls are drawn on.",
     },
@@ -571,6 +577,7 @@ const LIST_FILTER_BASELINE = new Map<string, { sites: number; reason: string }>(
   ['src/client/features/tags/tag-row-parts.tsx', { sites: 1, reason: 'Tag rename row (`tags.rename` at 42) with autoFocus and a default value; an inline editor, not a list filter.' }],
   ['src/client/features/workspace/Workspace.tsx', { sites: 1, reason: 'Inline text field in the workspace surface (557). Not verified as a list filter; baseline so the rule can block new ones.' }],
   ['src/client/features/inkpad/InkNoteEditor.tsx', { sites: 1, reason: 'The note title field in the editor header: it renames the open drawing, not a list filter, and has no result list to narrow.' }],
+  ['src/client/features/inknote/InknoteApp.tsx', { sites: 1, reason: 'The open note title field in the editor header (`inknote.rename`): it renames the current note on blur or Enter, not a list filter, the same shape as the inkpad editor title.' }],
   ['src/client/features/todos/OrganizerEditors.tsx', { sites: 1, reason: 'The custom-colour draft (`#rrggbb`, 124) beside the colour wheel: an inline editor for one value, the same shape as the editor colour menu\'s name draft, not a list filter.' }],
 ])
 
@@ -970,6 +977,8 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/settings/SettingsPanel.tsx', { sites: 1, reason: 'Remembering which section was last open in localStorage; the section has already been switched in state, and the read beside it falls back to appearance.' }],
   ['src/client/features/settings/SharedNotes.tsx', { sites: 1, reason: 'visitNote pulls to find a source note, and the same check two lines later is that pull error path — it says source_note_unavailable as a toast; swallowing only avoids reporting the missing note twice.' }],
   ['src/client/features/settings/TotpSettings.tsx', { sites: 1, reason: 'cancelSetup deletes a pending secret the reader walked away from; the row is bound to this session and expires before the confirm route could read it, and the form is already reset.' }],
+  ['src/client/features/inknote/library/LibraryPanel.tsx', { sites: 1, reason: 'The first-page cover render behind each library row: a note whose page cannot be read or rasterised keeps the title initial the row already draws, so the fallback is visible and the list is not blocked by one cover.' }],
+  ['src/client/features/inknote/store.ts', { sites: 1, reason: 'refreshLibrary after a page save that already answered successfully: the save state is `saved` on screen and the library panel re-reads on its own next open, so a failed side refresh has no reader waiting on it.' }],
   ['src/client/features/share/SharePage.tsx', { sites: 1, reason: 'Rewriting one asset URL in exported share markup: a href that does not parse or does not match the file route is left as it is and skipped, exactly like the origin check above it.' }],
   ['src/client/features/tags/tagMutations.ts', { sites: 3, reason: 'Two are the re-read that follows an optimistic rollback whose own failure the caller is told with the server reason, and one is a write queue tail kept un-rejecting so a failed link cannot become an unhandled rejection.' }],
   ['src/client/features/templates/gallery-actions.ts', { sites: 1, reason: 'communityTemplates.use bumps an author usage counter; the import itself was created and reported on the line above, and nothing on screen reads the count this answers with.' }],

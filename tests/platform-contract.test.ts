@@ -66,6 +66,9 @@ it('keeps lockfile sources on the pinned registries with content hashes', () => 
     'node_modules/esbuild',
     'node_modules/fsevents',
     'node_modules/workerd',
+    // Wrangler now pins its own workerd beside itself; it is the same runtime package as the
+    // top-level entry, whose postinstall resolves the platform binary.
+    'node_modules/wrangler/node_modules/workerd',
   ])
   for (const [name, entry] of Object.entries(lock.packages)) {
     if (!name || !entry.resolved) continue

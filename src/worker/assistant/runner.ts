@@ -27,6 +27,8 @@ import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import { renderMusicContext } from '../music/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
+import { renderInknoteContext } from '../inknote/context'
+import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
 import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
@@ -236,6 +238,8 @@ export interface TurnInput {
   contextDatabase?: DatabaseAssistantContext
   /** The music screen the reader has open, when the question is asked beside it. */
   contextMusic?: MusicAssistantContext
+  /** The hand-written note on screen, already re-read against this account by the route. */
+  contextInknote?: InknoteAssistantContext
   /**
    * The note this thread began beside.
    *
@@ -392,6 +396,7 @@ export class AssistantRunner {
   private contextEmail: EmailAssistantContext | null = null
   private contextDatabase: DatabaseAssistantContext | null = null
   private contextMusic: MusicAssistantContext | null = null
+  private contextInknote: InknoteAssistantContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
   private contextArtifactId: string | null = null
@@ -475,6 +480,7 @@ export class AssistantRunner {
     this.contextEmail = input.contextEmail ?? null
     this.contextDatabase = input.contextDatabase ?? null
     this.contextMusic = input.contextMusic ?? null
+    this.contextInknote = input.contextInknote ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -1627,7 +1633,8 @@ export class AssistantRunner {
       const email = this.contextEmail ? renderEmailContext(this.contextEmail) : ''
       const database = this.contextDatabase ? renderDatabaseContext(this.contextDatabase) : ''
       const music = this.contextMusic ? renderMusicContext(this.contextMusic) : ''
-      const carried = [block, subscriptionBlock, screen, todo, email, database, music].filter(Boolean).join('\n\n')
+      const inknote = this.contextInknote ? renderInknoteContext(this.contextInknote) : ''
+      const carried = [block, subscriptionBlock, screen, todo, email, database, music, inknote].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries

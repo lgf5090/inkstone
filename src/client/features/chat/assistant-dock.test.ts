@@ -107,6 +107,40 @@ describe('the docked assistant', () => {
     expect(useAssistant.getState().noteContextOn).toBe(true)
   })
 
+  it('carries the handwritten note, names it and lets the reader take it off', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'inknote', inknote: { noteId: 'n-ink', noteTitle: 'Physics', notebookName: 'Mechanics', pageIndex: 1, pageCount: 2, pageText: 'first law', noteText: 'whole note' } },
+    )
+    expect(useAssistant.getState().dockSurface).toBe('inknote')
+    expect(useAssistant.getState().inknoteContext).toMatchObject({ noteId: 'n-ink', pageIndex: 1, pageCount: 2, pageText: 'first law', noteText: 'whole note' })
+    expect(document.body.textContent).toContain('Physics')
+    expect(document.body.textContent).toContain(t('assistant.dock.hint_inknote'))
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: 'Physics' }))
+    expect(remove, 'the handwritten-note chip is missing').toBeTruthy()
+    act(() => { remove!.click() })
+    expect(useAssistant.getState().inknoteContextOn).toBe(false)
+  })
+
+  it('offers to keep a settled answer in the handwritten note', async () => {
+    const insert = vi.fn()
+    const read = vi.fn()
+    await show(
+      { loaded: true, activeId: 'c1', messages: [ANSWER], messagesReady: true, turn: null },
+      { surface: 'inknote', inknote: { noteId: 'n-ink', noteTitle: 'Physics', notebookName: 'Mechanics', pageIndex: 0, pageCount: 1, pageText: '' }, onInsertAnswer: insert, onReadAnswer: read },
+    )
+    const buttons = [...document.body.querySelectorAll('button')]
+    const insertButton = buttons.find((node) => node.textContent?.trim() === t('assistant.inknote.insert_answer'))
+    const readButton = buttons.find((node) => node.textContent?.trim() === t('assistant.inknote.read_answer'))
+    expect(insertButton, 'the insert action is missing').toBeTruthy()
+    expect(readButton, 'the read action is missing').toBeTruthy()
+    act(() => { insertButton!.click() })
+    act(() => { readButton!.click() })
+    expect(insert).toHaveBeenCalledWith(ANSWER.content)
+    expect(read).toHaveBeenCalledWith(ANSWER.content)
+  })
+
   it('closes itself', async () => {
     useUi.setState({ assistantDockOpen: true })
     await show({ loaded: true, activeId: null, messages: [], messagesReady: true })

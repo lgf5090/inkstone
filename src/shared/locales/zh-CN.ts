@@ -16,6 +16,7 @@ import { ZH_CN_EMAIL_RAW } from './zh-CN-email-raw';
 import { ZH_CN_EMAIL_RULES } from './zh-CN-email-rules';
 import { ZH_CN_EMAIL_TEMPLATES } from './zh-CN-email-templates';
 import { ZH_CN_MUSIC } from './zh-CN-music';
+import { ZH_CN_INKNOTE } from './zh-CN-inknote';
 import { ZH_CN_TOOLS } from './zh-CN-tools';
 import { ZH_CN_CALENDAR } from './zh-CN-calendar';
 import { ZH_CN_DEVELOPMENT_DATABASE } from './zh-CN-development-database';
@@ -29,7 +30,7 @@ import { ZH_CN_DEVELOPMENT_XGET_SETTINGS } from './zh-CN-development-xget-settin
 import { ZH_CN_INK } from './zh-CN-ink';
 import { ZH_CN_INK_ELEMENTS } from './zh-CN-ink-elements';
 import { ZH_CN_INK_SETTINGS } from './zh-CN-ink-settings';
-export const ZH_CN_MESSAGES = {
+const ZH_CORE_MESSAGES = {
     "template.kanban_sprint_board.name": "迭代看板",
     "template.kanban_sprint_board.description": "用看板排一个迭代：四条泳道，任务带勾选。",
     "template.mindmap_reading_map.name": "思维导图读书笔记",
@@ -6457,6 +6458,7 @@ console.log(\`Hello, \${name}!\`)
     "settings.excalidraw_sync_excalidraw": "同步时保持 Excalidraw 规范",
     "settings.excalidraw_sync_excalidraw_desc": "在云端同步与多端备份时对绘图数据结构执行规范校验。",
     "app.tabs.notes": "笔记",
+    "app.tabs.inknote": "手写笔记本",
     "app.tabs.calendar": "日历",
     "app.tabs.todo": "待办",
     "app.tabs.email": "邮箱",
@@ -7548,6 +7550,15 @@ console.log(\`Hello, \${name}!\`)
     "assistant.dock.suggest_email_reply": "起草一封回复",
     "assistant.dock.suggest_email_search": "找一下相关邮件",
     "assistant.dock.suggest_music_play": "播放我当前看的这首",
+    "assistant.dock.inknote_label": "手写笔记",
+    "assistant.dock.hint_inknote": "就你正在看的手写笔记提问。当前页文字和整篇文字已在上下文里，输入框下方的标签写着这一次带上了什么。",
+    "assistant.dock.suggest_inknote_summary": "总结这一页",
+    "assistant.dock.suggest_inknote_tidy": "整理这些笔记",
+    "assistant.dock.suggest_inknote_questions": "我该复习什么？",
+    "assistant.inknote.answer_actions": "保留这条回答",
+    "assistant.inknote.insert_answer": "插入当前页",
+    "assistant.inknote.read_answer": "朗读",
+    "assistant.inknote.inserted": "回答已插入当前页",
     "assistant.dock.suggest_music_queue": "把这首加入播放队列",
     "assistant.dock.suggest_music_about": "这首歌是什么来头？",
     "assistant.edit.menu": "AI",
@@ -10178,4 +10189,5 @@ console.log(\`Hello, \${name}!\`)
     ...ZH_CN_INK,
     ...ZH_CN_INK_ELEMENTS,
     ...ZH_CN_INK_SETTINGS,
-} as const satisfies Record<BaseMessageKey, string>;
+} as const;
+export const ZH_CN_MESSAGES: Record<BaseMessageKey, string> = { ...ZH_CORE_MESSAGES, ...ZH_CN_INKNOTE };

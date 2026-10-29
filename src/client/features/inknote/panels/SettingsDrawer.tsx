@@ -1,0 +1,146 @@
+/** Inknote's own settings, kept out of the account-wide settings panel. */
+import { useEffect, useState } from 'react'
+import type { InknoteNoteMeta, InknotePaperStyle, InknoteSettings } from '@shared/inknote/types'
+import { APP_VERSION } from '@shared/constants'
+import { PAPER_COLORS, PAPER_STYLES } from '@shared/inknote/constants'
+import { cn } from '../../../lib/cn'
+import { t, type MessageKey } from '../../../lib/i18n'
+import { Button } from '../../../components/primitives'
+import { Drawer, confirm } from '../../../components/overlay'
+import { Segmented, SettingRow, Slider, Switch } from '../../../components/form'
+import { useInknoteStore } from '../store'
+import { inknoteApi } from '../api'
+
+const SECTIONS = [
+  ['tools', 'inknote.settings.tools'],
+  ['paper', 'inknote.settings.paper'],
+  ['pages', 'inknote.action.pages'],
+  ['gestures', 'inknote.settings.gestures'],
+  ['data', 'inknote.settings.data'],
+  ['about', 'inknote.settings.about'],
+] as const
+
+export function SettingsDrawer({ open, onClose, note, settings, onOpenSnapshots, onOpenShortcuts, onOpenTemplates, pageCount = 1, onAddPage, onDuplicatePage, onClearPage, onDeleteBlankPages }: {
+  open: boolean
+  onClose: () => void
+  note: InknoteNoteMeta | null
+  settings: InknoteSettings
+  onOpenSnapshots: () => void
+  onOpenShortcuts: () => void
+  onOpenTemplates: () => void
+  pageCount?: number
+  onAddPage?: () => void
+  onDuplicatePage?: () => void
+  onClearPage?: () => void
+  onDeleteBlankPages?: () => void
+}) {
+  const [section, setSection] = useState<string>('tools')
+  const [usage, setUsage] = useState<{ assetsBytes: number; quotaBytes: number; notes: number; pages: number; assets: number } | null>(null)
+  useEffect(() => { if (open) void inknoteApi.usage().then(setUsage).catch(() => setUsage(null)) }, [open])
+  const updateSettings = useInknoteStore((state) => state.updateSettings)
+  const resetSettings = useInknoteStore((state) => state.resetSettings)
+  const updateNoteMeta = useInknoteStore((state) => state.updateNoteMeta)
+  const paper = note?.paper ?? settings.defaultPaper
+  const setPaper = (patch: Partial<InknoteNoteMeta['paper']>) => {
+    if (!note) return
+    void updateNoteMeta({ paper: { ...note.paper, ...patch } })
+  }
+  return (
+    <Drawer open={open} onClose={onClose} title={t('inknote.settings.title')} width={430}>
+      <div className="flex min-h-0 flex-1">
+        <nav className="w-32 shrink-0 border-r border-[var(--border-subtle)] p-2" aria-label={t('inknote.settings.title')}>
+          {SECTIONS.map(([id, key]) => (
+            <button key={id} type="button" onClick={() => setSection(id)} className={cn('mb-0.5 block w-full rounded-[var(--r-sm)] px-2 py-1.5 text-left text-[length:var(--text-12)]', section === id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'hover:bg-[var(--bg-hover)]')}>{t(key as MessageKey)}</button>
+          ))}
+        </nav>
+        <div className="min-w-0 flex-1 overflow-y-auto px-3 pb-6">
+          {section === 'tools' && (
+            <div>
+              <SettingRow title={t('inknote.settings.finger_draw')}><Switch checked={settings.fingerDraw} onChange={(value) => void updateSettings({ fingerDraw: value })} label={t('inknote.settings.finger_draw')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.auto_page')}><Switch checked={settings.autoPage} onChange={(value) => void updateSettings({ autoPage: value })} label={t('inknote.settings.auto_page')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.text_size')}><Slider value={settings.textSize} min={12} max={72} step={1} onChange={(value) => void updateSettings({ textSize: value })} label={t('inknote.settings.text_size')} className="w-40" /></SettingRow>
+              <SettingRow title={t('inknote.settings.font')}><Segmented value={settings.fontFamily} options={([['system', 'inknote.settings.system'], ['rounded', 'inknote.settings.rounded'], ['serif', 'inknote.settings.serif'], ['mono', 'inknote.settings.mono']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ fontFamily: value })} label={t('inknote.settings.font')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.stroke_width')}><Slider value={settings.penWidth} min={1} max={30} step={0.5} onChange={(value) => void updateSettings({ penWidth: value, ballpenWidth: value })} label={t('inknote.settings.stroke_width')} className="w-40" /></SettingRow>
+              <SettingRow title={t('inknote.favorite.show')}><Switch checked={settings.favoritesBar} onChange={(value) => void updateSettings({ favoritesBar: value })} label={t('inknote.favorite.show')} /></SettingRow>
+              {settings.favorites.length === 0 && <p className="py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('inknote.favorite.empty')}</p>}
+              {settings.favorites.length > 0 && (
+                <div className="flex flex-wrap gap-1 py-2" role="group" aria-label={t('inknote.favorite.bar')}>
+                  {settings.favorites.map((favorite, index) => (
+                    <button key={`${favorite.tool}:${favorite.color}:${index}`} type="button" aria-label={`${t('inknote.delete')} ${favorite.color}`} onClick={() => void updateSettings({ favorites: settings.favorites.filter((_, position) => position !== index) })} className="relative size-7 rounded-full ring-1 ring-[var(--border-default)]" style={{ background: favorite.color }}>
+                      <span className="absolute -right-0.5 -top-0.5 text-[length:var(--text-9)] text-[var(--danger)]">×</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <SettingRow title={t('inknote.settings.tts_rate')}><Slider value={settings.ttsRate} min={0.5} max={2} step={0.25} onChange={(value) => void updateSettings({ ttsRate: value })} label={t('inknote.settings.tts_rate')} className="w-40" /></SettingRow>
+            </div>
+          )}
+          {section === 'paper' && (
+            <div>
+              <SettingRow title={t('inknote.settings.paper')}>
+                <div className="grid max-w-[250px] grid-cols-2 gap-1">
+                  {PAPER_STYLES.map((style) => (
+                    <button key={style.id} type="button" aria-label={t(style.nameKey as MessageKey)} aria-pressed={paper.style === style.id} onClick={() => setPaper({ style: style.id as InknotePaperStyle })} className={cn('rounded-[var(--r-xs)] border px-1 py-1 text-[length:var(--text-10)]', paper.style === style.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-default)]')}>{t(style.nameKey as MessageKey)}</button>
+                  ))}
+                </div>
+              </SettingRow>
+              <SettingRow title={t('inknote.text.color')}>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {PAPER_COLORS.map((color) => (
+                    <button key={color.id} type="button" aria-label={t(color.nameKey as MessageKey)} aria-pressed={paper.color === color.id} onClick={() => setPaper({ color: color.id })} className={cn('size-6 rounded-full ring-1 ring-[var(--border-default)]', paper.color === color.id && 'ring-2 ring-[var(--accent)]')} style={{ background: color.bg }} />
+                  ))}
+                </div>
+              </SettingRow>
+              <SettingRow title={t('inknote.settings.spacing')}><Segmented value={paper.spacing} options={([['tight', 'inknote.settings.tight'], ['normal', 'inknote.settings.normal'], ['wide', 'inknote.settings.wide']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => setPaper({ spacing: value })} label={t('inknote.settings.spacing')} /></SettingRow>
+              <div className="pt-2"><Button block variant="secondary" onClick={onOpenTemplates}>{t('inknote.action.templates')}</Button></div>
+              <SettingRow title={t('inknote.settings.page_size')}>
+                <Segmented value={(note?.pageWidth ?? 816) > (note?.pageHeight ?? 1056) ? 'wide' : 'standard'} options={[{ value: 'standard', label: t('inknote.settings.page_standard') }, { value: 'wide', label: t('inknote.settings.page_wide') }]} onChange={(value) => {
+                  if (!note) return
+                  void updateNoteMeta(value === 'wide' ? { pageWidth: 1056, pageHeight: 816 } : { pageWidth: 816, pageHeight: 1056 })
+                }} label={t('inknote.settings.page_size')} />
+              </SettingRow>
+            </div>
+          )}
+          {section === 'pages' && (
+            <div className="space-y-1 pt-2">
+              <SettingRow title={t('inknote.action.pages')}><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{pageCount}</span></SettingRow>
+              <Button block variant="secondary" onClick={onAddPage} disabled={!note}>{t('inknote.page.add')}</Button>
+              <Button block variant="secondary" onClick={onDuplicatePage} disabled={!note}>{t('inknote.page.duplicate')}</Button>
+              <Button block variant="ghost" onClick={onClearPage} disabled={!note}>{t('inknote.page.clear')}</Button>
+              <Button block variant="ghost" onClick={onDeleteBlankPages} disabled={!note || pageCount <= 1}>{t('inknote.page.delete_blank')}</Button>
+            </div>
+          )}
+          {section === 'gestures' && (
+            <div>
+              <SettingRow title={t('inknote.settings.two_finger')}><Segmented value={settings.twoFingerAction} options={([['undo', 'inknote.gesture.undo'], ['redo', 'inknote.gesture.redo'], ['off', 'inknote.gesture.off']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ twoFingerAction: value })} label={t('inknote.settings.two_finger')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.three_finger')}><Segmented value={settings.threeFingerAction} options={([['redo', 'inknote.gesture.redo'], ['off', 'inknote.gesture.off']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ threeFingerAction: value })} label={t('inknote.settings.three_finger')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.toolbar')}><Segmented value={settings.toolbar} options={([['top', 'inknote.settings.top'], ['left', 'inknote.settings.left'], ['bottom', 'inknote.settings.bottom']] as const).map(([value, key]) => ({ value, label: t(key) }))} onChange={(value) => void updateSettings({ toolbar: value })} label={t('inknote.settings.toolbar')} /></SettingRow>
+            </div>
+          )}
+          {section === 'data' && (
+            <div>
+              <SettingRow title={t('inknote.settings.auto_backup')}><Switch checked={settings.autoBackup} onChange={(value) => void updateSettings({ autoBackup: value })} label={t('inknote.settings.auto_backup')} /></SettingRow>
+              <SettingRow title={t('inknote.settings.usage')}><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{usage ? `${(usage.assetsBytes / 1024 / 1024).toFixed(1)} MB / ${(usage.quotaBytes / 1024 / 1024 / 1024).toFixed(1)} GB · ${usage.notes} / ${usage.pages}` : '—'}</span></SettingRow>
+              <div className="space-y-1 pt-2">
+                <Button block variant="secondary" onClick={onOpenSnapshots}>{t('inknote.settings.snapshots')}</Button>
+                <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.cleanup'), confirmLabel: t('inknote.settings.cleanup') }).then((ok) => ok ? inknotePrune() : undefined)}>{t('inknote.settings.cleanup')}</Button>
+              </div>
+            </div>
+          )}
+          {section === 'about' && (
+            <div className="space-y-2 pt-2 text-[length:var(--text-12)]">
+              <SettingRow title={t('inknote.settings.version')}><span className="text-[var(--text-tertiary)]">{APP_VERSION}</span></SettingRow>
+              <Button block variant="ghost" onClick={onOpenShortcuts}>{t('inknote.help.shortcuts')}</Button>
+              <Button block variant="ghost" onClick={() => void confirm({ title: t('inknote.settings.reset'), description: t('inknote.settings.reset_confirm'), confirmLabel: t('inknote.settings.reset') }).then((ok) => ok ? resetSettings() : undefined)}>{t('inknote.settings.reset')}</Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Drawer>
+  )
+}
+
+async function inknotePrune(): Promise<void> {
+  const { inknoteApi } = await import('../api')
+  await inknoteApi.pruneAssets()
+}
