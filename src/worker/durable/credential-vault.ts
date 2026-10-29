@@ -23,7 +23,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  *
  * `memo-webhook:` carries one memo webhook's signing secret, scoped to that webhook's row id.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|nav):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -40,6 +40,7 @@ const GITHUB_SECRET_FIELDS = new Set(['token'])
 const APITESTER_STATE_FIELDS = new Set(['blob'])
 const APITESTER_HISTORY_FIELDS = new Set(['blob'])
 const APITESTER_WS_FIELDS = new Set(['payload'])
+const NAV_SECRET_FIELDS = new Set(['password'])
 /**
  * A channel bundle is not a fixed key list: which fields exist is what the channel definition says, and
  * the nine of them share no vocabulary at all (`botToken`/`chatId`, `serverUrl`/`appToken`, `sendKey`…).
@@ -256,6 +257,8 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
                       ? APITESTER_WS_FIELDS
                       : scope.startsWith('apitester-history:')
                         ? APITESTER_HISTORY_FIELDS
+                        : scope.startsWith('nav:')
+                          ? NAV_SECRET_FIELDS
                         : scope.startsWith('apitester:')
                           ? APITESTER_STATE_FIELDS
                           : BACKUP_SECRET_FIELDS

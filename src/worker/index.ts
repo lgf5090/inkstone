@@ -26,6 +26,7 @@ import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runMusicMaintenance } from './music/cleanup'
 import { runImgbedMaintenance } from './imgbed/cleanup'
+import { runNavMaintenance } from './nav/cleanup'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
 import { runEmailFollowUpSweep } from './email/follow-up'
@@ -130,6 +131,10 @@ export default {
             purgeExpiredEphemeralConversations(env.DB, env),
             purgeExpiredTodoTrash(env.DB),
             runEmailTrashCleanup(env),
+            runNavMaintenance(env).catch((error) => {
+              console.warn('[inkstone] Navigation maintenance sweep failed:', (error as Error).message)
+              return null
+            }),
             runImgbedMaintenance(env).catch((error) => {
               console.warn('[inkstone] Image bed maintenance sweep failed:', (error as Error).message)
               return null

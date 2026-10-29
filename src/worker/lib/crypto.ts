@@ -76,6 +76,22 @@ export async function decryptAssistantKey(env: Env, userId: string, stored: stri
   return typeof apiKey === 'string' && apiKey.length > 0 && apiKey.length <= 4096 ? apiKey : null
 }
 
+/** The navigation app's WebDAV password, scoped to one account. */
+export async function encryptNavSecret(env: Env, userId: string, password: string): Promise<string> {
+  if (!isValidId(userId)) throw new Error('invalid_nav_credential')
+  const trimmed = password.trim()
+  if (!trimmed || trimmed.length > 4096) throw new Error('invalid_nav_credential')
+  return encryptCredential(env, `nav:${userId}`, { password: trimmed })
+}
+
+export async function decryptNavSecret(env: Env, userId: string, stored: string): Promise<string | null> {
+  if (!isValidId(userId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `nav:${userId}`, stored)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const password = (value as Record<string, unknown>).password
+  return typeof password === 'string' && password.length > 0 && password.length <= 4096 ? password : null
+}
+
 export const IMGBED_SETTINGS_SECRET_SCOPE = '00000000000000000000000000'
 
 export type ImgbedSecretRecord = Record<string, string | boolean>

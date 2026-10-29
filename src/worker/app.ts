@@ -83,6 +83,11 @@ import { imgbedAiRoutes } from './imgbed/ai'
 import { imgbedServeRoutes } from './imgbed/serve'
 import { imgbedRandomRoutes } from './imgbed/public-routes'
 import { imgbedDavRoutes } from './imgbed/dav'
+import { navDataRoutes, navSettingsRoutes } from './nav/routes'
+import { navBackupRoutes } from './nav/backup'
+import { navIconRoutes } from './nav/icons'
+import { navAiRoutes } from './nav/ai'
+import { navCheckRoutes } from './nav/check'
 import { calendarRoutes } from './routes/calendar'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
@@ -214,6 +219,12 @@ export function createApp() {
   app.route('/api/calendar', calendarAttachmentRoutes)
   app.route('/feeds', calendarPublicRoutes)
   app.route('/api/calendar', calendarRoutes)
+  app.route('/api/nav/settings', navSettingsRoutes)
+  app.route('/api/nav', navDataRoutes)
+  app.route('/api/nav', navBackupRoutes)
+  app.route('/api/nav', navIconRoutes)
+  app.route('/api/nav', navAiRoutes)
+  app.route('/api/nav/check', navCheckRoutes)
   app.route('/api/subscriptions', subscriptionRoutes)
   app.route('/api', searchRoutes)
   app.route('/api/sync', syncRoutes)
