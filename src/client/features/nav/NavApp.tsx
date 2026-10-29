@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertCircle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronRight, Cloud,
+  AlertCircle, ArrowDown, ArrowUp, Bot, CheckCircle2, ChevronDown, ChevronRight, Cloud,
   ChevronsDown, ChevronsUp,
   Copy, ExternalLink, FolderCog, FolderPlus, GripVertical, History, LayoutGrid, List, Lock,
   RefreshCw,
@@ -20,10 +20,13 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { Drawer, Menu, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
 import { useUi } from '../../store/ui'
+import { useAssistantToolRefresh } from '../chat/tool-refresh'
+import { AssistantDock } from '../chat/AssistantDock'
 import {
   avatarColor, buildSearchUrl, initialFor, isHttpUrl, linkMatchesQuery,
   type NavCategory, type NavLink,
 } from '@shared/nav/model'
+import type { NavAssistantContext } from '@shared/nav/assistant-context'
 import { useNavStore } from './nav-store'
 import { NavIcon } from './nav-icons'
 import { NavLinkEditor } from './NavLinkEditor'
@@ -32,6 +35,18 @@ import { NavBackupModal } from './NavBackupPanel'
 import { CategoryManagerModal, UnlockModal } from './NavCategories'
 import { LinkCheckerModal } from './NavChecker'
 import { ImportExportModal, QrModal } from './NavImport'
+
+const NAV_WRITE_TOOLS = new Set([
+  'nav_create_link',
+  'nav_update_link',
+  'nav_move_links',
+  'nav_rewrite_links',
+  'nav_create_category',
+  'nav_update_category',
+  'nav_sort_links',
+  'nav_delete_links',
+  'nav_delete_category',
+])
 
 function createMatcher(query: string): (link: NavLink) => boolean {
   const text = query.trim()
@@ -271,6 +286,8 @@ export function NavApp() {
   const deleteLink = useNavStore((state) => state.deleteLink)
   const reorderLinks = useNavStore((state) => state.reorderLinks)
   const toast = useUi((state) => state.toast)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const setAssistantDock = useUi((state) => state.setAssistantDock)
   const pinyinVersion = usePinyinVersion()
   const deferredQuery = useDeferredValue(query)
   const matcher = useMemo(() => createMatcher(deferredQuery), [deferredQuery, pinyinVersion])
@@ -301,6 +318,7 @@ export function NavApp() {
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void load() }, [load])
+  useAssistantToolRefresh(NAV_WRITE_TOOLS, () => load(true))
   useEffect(() => {
     if (typeof window === 'undefined') return
     try { window.localStorage.setItem('inkstone.nav.sidebarHidden', sidebarHidden ? '1' : '0') } catch { /* ignore */ }
@@ -399,6 +417,19 @@ export function NavApp() {
       .map(([id]) => ({ link: byId.get(id)!, count: visits[id]!.visitCount }))
   }, [showSmart, settings.display.frequentLinksCount, visits, links])
   const pinned = useMemo(() => scopedLinks.filter((link) => link.pinned).sort((a, b) => a.pinnedOrder - b.pinnedOrder), [scopedLinks])
+  const selectedSubcategoryName = categories.find((category) => category.id === selectedSubcategory)?.name ?? null
+  const navContext = useMemo<NavAssistantContext>(() => ({
+    categoryId: selectedCategory,
+    categoryName: selectedRoot?.name ?? null,
+    subcategoryId: selectedSubcategory,
+    subcategoryName: selectedSubcategoryName,
+    query: query.trim() || null,
+    totalLinks: links.length,
+    visibleLinks: scopedLinks.length,
+    pinnedCount: pinned.length,
+    lockedCategories: categories.filter((category) => category.hasPassword).length,
+    unlockTokens: Object.values(unlockTokens),
+  }), [selectedCategory, selectedRoot?.name, selectedSubcategory, selectedSubcategoryName, query, links.length, scopedLinks.length, pinned.length, categories, unlockTokens])
   const normal = useMemo(() => scopedLinks.filter((link) => !link.pinned).sort((a, b) => a.sortOrder - b.sortOrder), [scopedLinks])
   const canSortPinned = !selectedCategory && !query.trim()
   const normalScopeId = selectedSubcategory ?? (selectedRoot && subcategories.length === 0 ? selectedRoot.id : null)
@@ -684,6 +715,7 @@ export function NavApp() {
             <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_detailed') : t('nav.card_simple')}</span></Button>
             <Button size="sm" variant="secondary" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
             <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
+            <IconButton label={t('nav.ai.open')} active={assistantDockOpen} onClick={() => setAssistantDock(!assistantDockOpen)}><Bot size={15} /></IconButton>
             <IconButton ref={settingsAnchor} label={t('nav.settings')} onClick={() => setSettingsMenuOpen(true)}><Settings size={15} /></IconButton>
           </div>
         </div>
@@ -773,6 +805,7 @@ export function NavApp() {
             )}
           </section>
         </main>
+        {assistantDockOpen && <AssistantDock surface="nav" nav={navContext} />}
       </div>
 
       <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} side="left" width={300} title={t('nav.categories')}>

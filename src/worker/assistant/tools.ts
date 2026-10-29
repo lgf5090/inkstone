@@ -153,6 +153,24 @@ import {
   updateEmailSettingsAgent,
   updateEmailTagAgent,
 } from '../email/agent'
+import { NavStore } from '../nav/store'
+import {
+  NavToolError,
+  navCategoryTarget,
+  navCreateCategory,
+  navCreateLink,
+  navFindDuplicates,
+  navGetLink,
+  navLinkTargets,
+  navListLinks,
+  navMoveLinks,
+  navOverview,
+  navRewriteLinks,
+  navSortLinks,
+  navToolScope,
+  navUpdateCategory,
+  navUpdateLink,
+} from '../nav/tools'
 
 export type FieldKind = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
 
@@ -193,6 +211,7 @@ export interface ToolContext {
   callId?: string
   /** The saved database connection the reader is looking at, so the tools can default to it. */
   databaseConnectionId?: string
+  navUnlockTokens?: readonly string[]
   memoryHistory: MemoryHistoryService
   /**
    * Which memories this turn may recall, edit or forget.
@@ -3474,6 +3493,15 @@ async function resolveSubscriptionOrThrow(ref: unknown, ctx: ToolContext): Promi
   throw new ToolError(`No subscription matches "${wanted.slice(0, 80)}". List them to find the exact name.`)
 }
 
+async function withNavTool<T>(task: () => Promise<T>): Promise<T> {
+  try {
+    return await task()
+  } catch (error) {
+    if (error instanceof NavToolError) throw new ToolError(error.message)
+    throw error
+  }
+}
+
 async function emailToolCall<T>(task: () => Promise<T>): Promise<T> {
   try {
     return await task()
@@ -3482,6 +3510,225 @@ async function emailToolCall<T>(task: () => Promise<T>): Promise<T> {
     throw error
   }
 }
+
+export const NAV_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'nav_overview',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Summarise the navigation library: categories, visible link counts, pinned links, protected categories and the most visited links. Start here before changing several rows.',
+    fields: {},
+    async run(_args, ctx) {
+      return withNavTool(async () => navOverview(await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_list_links',
+    permission: 'read',
+    maxCallsPerTurn: 5,
+    description: 'List navigation links, optionally for one category (its visible children included) or matching a query. Pinned links come back in pinned order.',
+    fields: {
+      categoryId: { type: 'string', description: 'Category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Exact category name, when the id is not known.', maxLength: 60, optional: true },
+      query: { type: 'string', description: 'Match title, description or URL.', maxLength: 200, optional: true },
+      pinned: { type: 'boolean', description: 'Only pinned links when true, only unpinned when false.', optional: true },
+      limit: { type: 'integer', description: 'Rows to return, at most 100.', minimum: 1, maximum: 100, optional: true },
+      offset: { type: 'integer', description: 'Rows to skip before returning, for long categories.', minimum: 0, maximum: 100000, optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navListLinks(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_get_link',
+    permission: 'read',
+    maxCallsPerTurn: 5,
+    description: 'Read one link with its description, category, pin state and visit count.',
+    fields: {
+      id: { type: 'string', description: 'Link id from nav_list_links.', minLength: 26, maxLength: 26 },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navGetLink(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_find_duplicates',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Find visible links that share the same URL, with their categories, so duplicates can be reviewed or removed.',
+    fields: {},
+    async run(_args, ctx) {
+      return withNavTool(async () => navFindDuplicates(await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_create_link',
+    permission: 'write',
+    maxCallsPerTurn: 10,
+    description: 'Create a navigation link in a category. The URL must be http(s), mailto: or tel:.',
+    fields: {
+      title: { type: 'string', description: 'Link title.', minLength: 1, maxLength: 200 },
+      url: { type: 'string', description: 'Destination URL.', minLength: 1, maxLength: 2048 },
+      categoryId: { type: 'string', description: 'Category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Exact category name when the id is unknown.', maxLength: 60, optional: true },
+      description: { type: 'string', description: 'Short description.', maxLength: 500, optional: true },
+      icon: { type: 'string', description: 'Emoji or http(s) icon URL.', maxLength: 2048, optional: true },
+      pinned: { type: 'boolean', description: 'Pin the new link.', optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navCreateLink(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_update_link',
+    permission: 'write',
+    maxCallsPerTurn: 10,
+    description: 'Change a link title, URL, description, icon, category or pinned state. Only visible links can be changed.',
+    fields: {
+      id: { type: 'string', description: 'Link id.', minLength: 26, maxLength: 26 },
+      title: { type: 'string', description: 'New title.', maxLength: 200, optional: true },
+      url: { type: 'string', description: 'New URL.', maxLength: 2048, optional: true },
+      description: { type: 'string', description: 'New description.', maxLength: 500, optional: true },
+      icon: { type: 'string', description: 'New emoji or icon URL.', maxLength: 2048, optional: true },
+      categoryId: { type: 'string', description: 'Move to this category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Move to this exact category name.', maxLength: 60, optional: true },
+      pinned: { type: 'boolean', description: 'Pin or unpin.', optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navUpdateLink(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_move_links',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Move up to 100 visible links into another category.',
+    fields: {
+      ids: { type: 'array', items: 'string', maxItems: 100, description: 'Link ids.' },
+      categoryId: { type: 'string', description: 'Destination category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Destination category name.', maxLength: 60, optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navMoveLinks(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_rewrite_links',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Rewrite up to 100 visible URLs with a template. Supports {old}, {old_host} and {path}.',
+    fields: {
+      ids: { type: 'array', items: 'string', maxItems: 100, description: 'Link ids.' },
+      template: { type: 'string', description: 'Template using {old}, {old_host} or {path}.', minLength: 1, maxLength: 2048 },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navRewriteLinks(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_create_category',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Create a category, optionally under an existing root. Categories nest one level deep.',
+    fields: {
+      name: { type: 'string', description: 'Category name.', minLength: 1, maxLength: 60 },
+      icon: { type: 'string', description: 'Emoji or kebab-case Lucide icon name.', maxLength: 80, optional: true },
+      parentId: { type: 'string', description: 'Parent category id.', maxLength: 26, optional: true },
+      parentName: { type: 'string', description: 'Parent category name.', maxLength: 60, optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navCreateCategory(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_update_category',
+    permission: 'write',
+    maxCallsPerTurn: 5,
+    description: 'Rename or change the icon of a visible category. Passwords and parent moves stay in the app.',
+    fields: {
+      categoryId: { type: 'string', description: 'Category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Exact category name.', maxLength: 60, optional: true },
+      name: { type: 'string', description: 'New name.', maxLength: 60, optional: true },
+      icon: { type: 'string', description: 'New emoji or kebab-case Lucide name.', maxLength: 80, optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navUpdateCategory(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_sort_links',
+    permission: 'write',
+    maxCallsPerTurn: 3,
+    description: 'Reorder visible links: pinned links globally, or the unpinned links of one category, by title, recent visits or creation time.',
+    fields: {
+      scope: { type: 'string', description: 'pinned, or category.', enum: ['pinned', 'category'] },
+      categoryId: { type: 'string', description: 'Category id for scope=category.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Category name for scope=category.', maxLength: 60, optional: true },
+      by: { type: 'string', description: 'title, recent or created.', enum: ['title', 'recent', 'created'], optional: true },
+    },
+    async run(args, ctx) {
+      return withNavTool(async () => navSortLinks(args, await navToolScope(ctx)))
+    },
+  }),
+  tool({
+    name: 'nav_delete_links',
+    permission: 'destructive',
+    maxCallsPerTurn: 2,
+    keepArgs: true,
+    description: 'Delete up to 100 visible links. The reader must approve this.',
+    fields: {
+      ids: { type: 'array', items: 'string', maxItems: 100, description: 'Link ids.' },
+    },
+    async prepare(args, ctx) {
+      return withNavTool(async () => {
+        const links = navLinkTargets(args, await navToolScope(ctx))
+        return {
+          targetId: links[0]!.id,
+          targetLabel: links.length === 1 ? links[0]!.title : `${links.length} links`,
+        }
+      })
+    },
+    async commit(_targetId, ctx, args) {
+      const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === 'string') : []
+      const result = await new NavStore(ctx.env.DB, ctx.store.userId).deleteLinks(ids)
+      return { deleted: result.deleted, failed: result.failed }
+    },
+  }),
+  tool({
+    name: 'nav_delete_category',
+    permission: 'destructive',
+    maxCallsPerTurn: 1,
+    keepArgs: true,
+    description: 'Delete a category and its child categories, moving their links into a fallback category. The reader must approve this.',
+    fields: {
+      categoryId: { type: 'string', description: 'Category id.', maxLength: 26, optional: true },
+      categoryName: { type: 'string', description: 'Exact category name.', maxLength: 60, optional: true },
+      fallbackId: { type: 'string', description: 'Category id that receives the links.', maxLength: 26, optional: true },
+      fallbackName: { type: 'string', description: 'Fallback category name.', maxLength: 60, optional: true },
+    },
+    async prepare(args, ctx) {
+      return withNavTool(async () => {
+        const { category } = navCategoryTarget(args, await navToolScope(ctx))
+        return { targetId: category.id, targetLabel: category.name }
+      })
+    },
+    async commit(targetId, ctx, args) {
+      const nav = new NavStore(ctx.env.DB, ctx.store.userId)
+      const categories = await nav.categories()
+      const find = (ref: unknown): string => {
+        const value = typeof ref === 'string' ? ref.trim() : ''
+        const byId = categories.find((category) => category.id === value)
+        if (byId) return byId.id
+        const byName = categories.filter((category) => category.name === value)
+        if (byName.length === 1) return byName[0]!.id
+        throw new ToolError('The fallback category no longer exists.')
+      }
+      const fallbackId = find(args.fallbackId ?? args.fallbackName)
+      await nav.deleteCategory(targetId, fallbackId)
+      return { deleted: targetId, fallbackId }
+    },
+  }),
+]
 
 export const EMAIL_TOOLS: ToolDefinition[] = [
   tool({
@@ -4488,6 +4735,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...MEMORY_TOOLS,
   ...NOTE_TOOLS,
   ...ARTIFACT_TOOLS,
+  ...NAV_TOOLS,
   ...EMAIL_TOOLS,
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,

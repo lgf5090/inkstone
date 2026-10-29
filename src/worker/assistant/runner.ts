@@ -22,8 +22,10 @@ import { resolveNoteMentions } from './note-mentions'
 import { resolveSubscriptionMentions, subscriptionContextById } from './subscription-mentions'
 import { renderTodoContext } from './todo-context'
 import { renderEmailContext } from './email-context'
+import { renderNavContext } from './nav-context'
 import { renderDatabaseContext } from './database-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import type { NavAssistantContext } from '@shared/nav/assistant-context'
 import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import { renderMusicContext } from '../music/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
@@ -234,6 +236,7 @@ export interface TurnInput {
   activeArtifactId?: string
   contextTodo?: TodoAssistantContext
   contextEmail?: EmailAssistantContext
+  contextNav?: NavAssistantContext
   /** The database the reader is looking at, when the question is asked beside the Studio. */
   contextDatabase?: DatabaseAssistantContext
   /** The music screen the reader has open, when the question is asked beside it. */
@@ -394,6 +397,7 @@ export class AssistantRunner {
   private contextSubscriptionId: string | null = null
   private contextTodo: TodoAssistantContext | null = null
   private contextEmail: EmailAssistantContext | null = null
+  private contextNav: NavAssistantContext | null = null
   private contextDatabase: DatabaseAssistantContext | null = null
   private contextMusic: MusicAssistantContext | null = null
   private contextInknote: InknoteAssistantContext | null = null
@@ -478,6 +482,7 @@ export class AssistantRunner {
     this.contextArtifact = null
     this.contextTodo = input.contextTodo ?? null
     this.contextEmail = input.contextEmail ?? null
+    this.contextNav = input.contextNav ?? null
     this.contextDatabase = input.contextDatabase ?? null
     this.contextMusic = input.contextMusic ?? null
     this.contextInknote = input.contextInknote ?? null
@@ -1631,10 +1636,11 @@ export class AssistantRunner {
         : ''
       const todo = this.contextTodo ? renderTodoContext(this.contextTodo) : ''
       const email = this.contextEmail ? renderEmailContext(this.contextEmail) : ''
+      const nav = this.contextNav ? renderNavContext(this.contextNav) : ''
       const database = this.contextDatabase ? renderDatabaseContext(this.contextDatabase) : ''
       const music = this.contextMusic ? renderMusicContext(this.contextMusic) : ''
       const inknote = this.contextInknote ? renderInknoteContext(this.contextInknote) : ''
-      const carried = [block, subscriptionBlock, screen, todo, email, database, music, inknote].filter(Boolean).join('\n\n')
+      const carried = [block, subscriptionBlock, screen, todo, email, nav, database, music, inknote].filter(Boolean).join('\n\n')
       if (carried) lastUser.content = `${lastUser.content}\n\n${carried}`
     }
     return entries
@@ -1942,6 +1948,7 @@ export class AssistantRunner {
       memoryHistory: this.memoryHistory,
       memoryScope: this.memoryScope,
       automations: this.automations,
+      ...(this.contextNav?.unlockTokens.length ? { navUnlockTokens: this.contextNav.unlockTokens } : {}),
       noteScope: () => this.noteScope(),
       webSearchKey: await this.webSearchKey(),
       ...(this.contextDatabase?.connectionId ? { databaseConnectionId: this.contextDatabase.connectionId } : {}),

@@ -15,10 +15,11 @@
  * drawn as a chip the reader can take off, because a context they cannot see is one they cannot correct.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { ArrowUpRight, Database, ListChecks, Mail, Music, NotebookPen, Plus, Sparkles, Wallet, X } from 'lucide-react'
+import { ArrowUpRight, Compass, Database, ListChecks, Mail, Music, NotebookPen, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import type { NavAssistantContext } from '@shared/nav/assistant-context'
 import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
@@ -47,7 +48,7 @@ import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-dif
 import { saveReplyAsNote } from './save-to-note'
 
 /** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database' | 'inknote'
+export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote'
 
 const TODO_VIEW_LABELS: Record<string, MessageKey> = {
   board: 'todo.view.board',
@@ -69,11 +70,12 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null, email = null, music = null, database = null, inknote = null, onInsertAnswer, onReadAnswer }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null, nav = null, music = null, database = null, inknote = null, onInsertAnswer, onReadAnswer }: {
   surface?: AssistantDockSurface
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
   email?: EmailAssistantContext | null
+  nav?: NavAssistantContext | null
   music?: MusicAssistantContext | null
   database?: DatabaseAssistantContext | null
   inknote?: InknoteAssistantContext | null
@@ -107,6 +109,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const emailContext = useAssistant((state) => state.emailContext)
   const emailOn = useAssistant((state) => state.emailContextOn)
   const setEmailContextOn = useAssistant((state) => state.setEmailContextOn)
+  const navContext = useAssistant((state) => state.navContext)
+  const navOn = useAssistant((state) => state.navContextOn)
+  const setNavContextOn = useAssistant((state) => state.setNavContextOn)
   const musicContext = useAssistant((state) => state.musicContext)
   const musicOn = useAssistant((state) => state.musicContextOn)
   const setMusicContextOn = useAssistant((state) => state.setMusicContextOn)
@@ -162,11 +167,25 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const emailSender = email?.sender ?? null
   const emailFolderId = email?.folderId ?? null
   const emailLabel = emailContext?.subject?.trim() || emailContext?.sender?.trim() || emailContext?.address || ''
+  const navCategoryId = nav?.categoryId ?? null
+  const navCategoryName = nav?.categoryName ?? null
+  const navSubcategoryId = nav?.subcategoryId ?? null
+  const navSubcategoryName = nav?.subcategoryName ?? null
+  const navQuery = nav?.query ?? null
+  const navUnlockKey = (nav?.unlockTokens ?? []).join(',')
+  const navLabel = navContext?.query
+    ? t('nav.ai.dock.context_search', { query: navContext.query })
+    : navContext?.subcategoryName?.trim() || navContext?.categoryName?.trim() || t('nav.ai.dock.context_all')
   const databaseLabel = databaseContext ? `${databaseContext.connectionName}${databaseContext.activeTable ? ` · ${databaseContext.activeTable}` : ''}` : ''
   useEffect(() => {
     if (surface !== 'email') return
     useAssistant.getState().setEmailContext(emailAccountId ? email ?? null : null)
   }, [surface, emailAccountId, emailMessageId, emailSubject, emailSender, emailFolderId])
+
+  useEffect(() => {
+    if (surface !== 'nav') return
+    useAssistant.getState().setNavContext(nav ?? null)
+  }, [surface, navCategoryId, navCategoryName, navSubcategoryId, navSubcategoryName, navQuery, navUnlockKey, nav?.totalLinks, nav?.visibleLinks, nav?.pinnedCount, nav?.lockedCategories])
 
   const databaseConnection = database?.connectionName ?? null
   const databaseTable = database?.activeTable ?? null
@@ -262,7 +281,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         ? ['assistant.dock.suggest_todo_focus', 'assistant.dock.suggest_todo_plan', 'assistant.dock.suggest_todo_review'] as const
         : surface === 'email'
           ? ['assistant.dock.suggest_email_summary', 'assistant.dock.suggest_email_reply', 'assistant.dock.suggest_email_search'] as const
-          : surface === 'music'
+          : surface === 'nav'
+            ? ['nav.ai.dock.suggest_organize', 'nav.ai.dock.suggest_duplicates', 'nav.ai.dock.suggest_review'] as const
+            : surface === 'music'
             ? ['assistant.dock.suggest_music_play', 'assistant.dock.suggest_music_queue', 'assistant.dock.suggest_music_about'] as const
             : surface === 'inknote'
               ? ['assistant.dock.suggest_inknote_summary', 'assistant.dock.suggest_inknote_tidy', 'assistant.dock.suggest_inknote_questions'] as const
@@ -281,7 +302,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     ? t('assistant.dock.hint_todo')
     : surface === 'email' && emailContext && emailOn
       ? t('assistant.dock.hint_email')
-      : surface === 'database' && databaseContext && databaseOn
+      : surface === 'nav' && navContext && navOn
+        ? t('nav.ai.dock.hint')
+        : surface === 'database' && databaseContext && databaseOn
         ? t('assistant.dock.hint_database')
       : surface === 'music' && musicContext && musicOn
         ? t('assistant.dock.hint_music')
@@ -478,6 +501,22 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
               type="button"
               aria-label={t('assistant.context.remove', { name: emailLabel })}
               onClick={() => setEmailContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
+      {surface === 'nav' && navContext && navOn && (
+        <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Compass size={12} /></span>
+            <span className="min-w-0 max-w-[220px] truncate">{navLabel}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: navLabel })}
+              onClick={() => setNavContextOn(false)}
               className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
             >
               <X size={11} />

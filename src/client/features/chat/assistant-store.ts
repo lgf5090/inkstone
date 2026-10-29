@@ -44,6 +44,7 @@ import type {
 import type { AssistantSkill } from '@shared/assistant'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
+import type { NavAssistantContext } from '@shared/nav/assistant-context'
 import type { DatabaseAssistantContext } from '@shared/development/database/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
@@ -257,7 +258,7 @@ interface AssistantState {
    * that has no note on it. The surface is therefore checked where the chips are drawn and where the turn
    * is sent, not only when the dock appears.
    */
-  dockSurface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database' | 'inknote'
+  dockSurface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote'
   folderContextOn: boolean
   /**
    * Whether the draft open in the canvas rides along with the next turn.
@@ -271,6 +272,8 @@ interface AssistantState {
   todoContextOn: boolean
   emailContext: EmailAssistantContext | null
   emailContextOn: boolean
+  navContext: NavAssistantContext | null
+  navContextOn: boolean
   databaseContext: DatabaseAssistantContext | null
   databaseContextOn: boolean
   /** The music screen the dock beside the player is carrying, and whether the chip is attached. */
@@ -281,13 +284,15 @@ interface AssistantState {
   inknoteContextOn: boolean
   setNoteContext: (on: boolean) => void
   setSubscriptionContext: (value: { id: string, name: string } | null) => void
-  setDockSurface: (surface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'music' | 'database' | 'inknote') => void
+  setDockSurface: (surface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote') => void
   setFolderContext: (on: boolean) => void
   setCanvasContext: (on: boolean) => void
   setTodoContext: (value: TodoAssistantContext | null) => void
   setTodoContextOn: (on: boolean) => void
   setEmailContext: (value: EmailAssistantContext | null) => void
   setEmailContextOn: (on: boolean) => void
+  setNavContext: (value: NavAssistantContext | null) => void
+  setNavContextOn: (on: boolean) => void
   setDatabaseContext: (value: DatabaseAssistantContext | null) => void
   setDatabaseContextOn: (on: boolean) => void
   setMusicContext: (value: MusicAssistantContext | null) => void
@@ -1454,6 +1459,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   todoContextOn: true,
   emailContext: null,
   emailContextOn: true,
+  navContext: null,
+  navContextOn: true,
   databaseContext: null,
   databaseContextOn: true,
   musicContext: null,
@@ -2100,7 +2107,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2187,7 +2194,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2200,7 +2207,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {
@@ -2416,6 +2423,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setTodoContextOn: (on) => set({ todoContextOn: on }),
   setEmailContext: (value) => set({ emailContext: value }),
   setEmailContextOn: (on) => set({ emailContextOn: on }),
+  setNavContext: (value) => set({ navContext: value }),
+  setNavContextOn: (on) => set({ navContextOn: on }),
   setDatabaseContext: (value) => set({ databaseContext: value }),
   setDatabaseContextOn: (on) => set({ databaseContextOn: on }),
   setMusicContext: (value) => set({ musicContext: value }),
@@ -2644,6 +2653,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             // what the turn may read, and taking it off leaves the list on screen unsent.
             ...(state.dockSurface === 'todos' && state.todoContextOn && state.todoContext ? { contextTodo: state.todoContext } : {}),
             ...(state.dockSurface === 'email' && state.emailContextOn && state.emailContext ? { contextEmail: state.emailContext } : {}),
+            ...(state.dockSurface === 'nav' && state.navContextOn && state.navContext ? { contextNav: state.navContext } : {}),
             ...(state.dockSurface === 'database' && state.databaseContextOn && state.databaseContext ? { contextDatabase: state.databaseContext } : {}),
             ...(state.dockSurface === 'music' && state.musicContextOn && state.musicContext ? { contextMusic: state.musicContext } : {}),
             // The hand-written note chip: the worker re-reads the id and replaces the title from its row.

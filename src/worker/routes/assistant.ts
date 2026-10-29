@@ -113,6 +113,7 @@ import {
 } from '../assistant/realtime'
 import { readTodoContext } from '../assistant/todo-context'
 import { readEmailContext } from '../assistant/email-context'
+import { readNavContext } from '../assistant/nav-context'
 import { readMusicContext } from '../music/assistant-context'
 import { resolveInknoteContext } from '../inknote/context'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
@@ -1555,7 +1556,7 @@ async function unstartableTurn(
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1577,6 +1578,7 @@ assistantRoutes.post('/chat', async (c) => {
   const scopes = pinnedScopes(body.scopes)
   const contextTodo = readTodoContext(body.contextTodo)
   const contextEmail = readEmailContext(body.contextEmail)
+  const contextNav = readNavContext(body.contextNav)
   const contextMusic = readMusicContext(body.contextMusic)
   const contextInknote = await resolveInknoteContext(c.env, c.get('userId'), body.contextInknote)
 
@@ -1699,6 +1701,7 @@ assistantRoutes.post('/chat', async (c) => {
           : { activeArtifactId: requiredId(body.activeArtifactId) }),
         ...(contextTodo ? { contextTodo } : {}),
         ...(contextEmail ? { contextEmail } : {}),
+        ...(contextNav ? { contextNav } : {}),
         ...(contextMusic ? { contextMusic } : {}),
         ...(contextInknote ? { contextInknote } : {}),
         // The note the thread began beside, recorded on the conversation rather than on the turn.

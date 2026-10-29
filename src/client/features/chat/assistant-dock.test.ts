@@ -107,6 +107,42 @@ describe('the docked assistant', () => {
     expect(useAssistant.getState().noteContextOn).toBe(true)
   })
 
+  it('carries the navigation screen, its filters and its unlock tokens', async () => {
+    const token = 't'.repeat(43)
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      {
+        surface: 'nav',
+        nav: {
+          categoryId: 'a'.repeat(26),
+          categoryName: 'Tools',
+          subcategoryId: null,
+          subcategoryName: null,
+          query: null,
+          totalLinks: 10,
+          visibleLinks: 4,
+          pinnedCount: 1,
+          lockedCategories: 1,
+          unlockTokens: [token],
+        },
+      },
+    )
+    expect(useAssistant.getState().dockSurface).toBe('nav')
+    expect(useAssistant.getState().navContext).toMatchObject({
+      categoryId: 'a'.repeat(26),
+      categoryName: 'Tools',
+      visibleLinks: 4,
+      unlockTokens: [token],
+    })
+    expect(document.body.textContent).toContain('Tools')
+    expect(document.body.textContent).toContain(t('nav.ai.dock.hint'))
+    const remove = [...document.body.querySelectorAll('button')]
+      .find((node) => node.getAttribute('aria-label') === t('assistant.context.remove', { name: 'Tools' }))
+    if (!remove) throw new Error('No navigation context remove button')
+    act(() => remove.click())
+    expect(useAssistant.getState().navContextOn).toBe(false)
+  })
+
   it('carries the handwritten note, names it and lets the reader take it off', async () => {
     await show(
       { loaded: true, activeId: null, messages: [], messagesReady: true },

@@ -2187,6 +2187,20 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'email_contact', labelKey: 'assistant.tool.email_contact', permission: 'write' },
   { name: 'email_update_settings', labelKey: 'assistant.tool.email_update_settings', permission: 'write' },
   { name: 'email_delete', labelKey: 'assistant.tool.email_delete', approvalKey: 'assistant.approval.email_delete', permission: 'destructive' },
+  { name: 'nav_overview', labelKey: 'assistant.tool.nav_overview', permission: 'read' },
+  { name: 'nav_list_links', labelKey: 'assistant.tool.nav_list_links', permission: 'read' },
+  { name: 'nav_get_link', labelKey: 'assistant.tool.nav_get_link', permission: 'read' },
+  { name: 'nav_find_duplicates', labelKey: 'assistant.tool.nav_find_duplicates', permission: 'read' },
+  { name: 'nav_create_link', labelKey: 'assistant.tool.nav_create_link', permission: 'write' },
+  { name: 'nav_update_link', labelKey: 'assistant.tool.nav_update_link', permission: 'write' },
+  { name: 'nav_move_links', labelKey: 'assistant.tool.nav_move_links', permission: 'write' },
+  { name: 'nav_rewrite_links', labelKey: 'assistant.tool.nav_rewrite_links', permission: 'write' },
+  { name: 'nav_create_category', labelKey: 'assistant.tool.nav_create_category', permission: 'write' },
+  { name: 'nav_update_category', labelKey: 'assistant.tool.nav_update_category', permission: 'write' },
+  { name: 'nav_sort_links', labelKey: 'assistant.tool.nav_sort_links', permission: 'write' },
+  { name: 'nav_delete_links', labelKey: 'assistant.tool.nav_delete_links', approvalKey: 'assistant.approval.nav_delete_links', permission: 'destructive' },
+  { name: 'nav_delete_category', labelKey: 'assistant.tool.nav_delete_category', approvalKey: 'assistant.approval.nav_delete_category', permission: 'destructive' },
+
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */
