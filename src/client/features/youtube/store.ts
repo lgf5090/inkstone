@@ -99,7 +99,9 @@ export const useYoutubeStore = create<YouTubeState>((set, get) => {
     ensureLibrary() {
       const status = get().libraryStatus
       if (status === 'idle' || status === 'error') {
-        void get().reloadLibrary().catch(() => {})
+        void get().reloadLibrary().catch(() => {
+          // reloadLibrary already stored libraryError, which the sidebar and list render; this is a boot kick, not a second reporter.
+        })
       }
     },
 

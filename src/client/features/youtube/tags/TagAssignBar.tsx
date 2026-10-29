@@ -88,7 +88,6 @@ export function TagAssignBar(props: {
       aria-label={t('youtube.tags.assign')}
       data-video-id={props.video.id}
       className="flex flex-wrap items-center gap-1"
-      onClick={(event) => event.stopPropagation()}
     >
       {assignedTags.map((tag) => (
         <TagPill key={tag.id} label={tag.name} color={tag.color} />
@@ -121,8 +120,7 @@ export function TagAssignBar(props: {
             id={panelId}
             role="group"
             aria-label={t('youtube.tags.assign')}
-            onClick={(event) => event.stopPropagation()}
-            className={`absolute z-[var(--z-pop)] max-h-64 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] ${placement.up ? 'bottom-full mb-1' : 'top-full mt-1'} ${placement.right ? 'right-0' : 'left-0'}`}
+                  className={`absolute z-[var(--z-pop)] max-h-64 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 shadow-[var(--shadow-pop)] ${placement.up ? 'bottom-full mb-1' : 'top-full mt-1'} ${placement.right ? 'right-0' : 'left-0'}`}
           >
             {orderedTags.length === 0 ? (
               <div className="px-2 py-3">

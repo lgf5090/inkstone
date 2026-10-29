@@ -18241,6 +18241,7 @@ const allowed = new Map([
   ["src/client/features/youtube/store.ts", [
     "/** The YouTube tab's one store: the saved library, its writes, and the layout the reader chose. */",
     "/** The same defaults the persisted loader starts from, for tests and a reset button. */",
+    "// reloadLibrary already stored libraryError, which the sidebar and list render; this is a boot kick, not a second reporter.",
   ]],
   ["src/client/features/youtube/tags/TagAssignBar.tsx", [
     "/** Walk the tree in the order it is drawn, so a child is listed directly below its parent. */",

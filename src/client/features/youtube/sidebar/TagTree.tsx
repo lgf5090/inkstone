@@ -4,10 +4,8 @@ import { youtubeViewPath } from '@shared/youtube/model'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { IconButton } from '../../../components/primitives'
+import { treeIndent } from '../../../lib/tree/indent'
 import { SidebarLink } from './SidebarLink'
-
-const TAG_INDENT_BASE = 8
-const TAG_INDENT_STEP = 12
 
 export function TagTree({
   nodes,
@@ -66,7 +64,7 @@ function TagNodeRow({
       <div
         data-tag-depth={depth}
         className="flex min-w-0 items-center"
-        style={{ paddingLeft: TAG_INDENT_BASE + depth * TAG_INDENT_STEP }}
+        style={{ paddingLeft: treeIndent(depth) }}
       >
         {hasChildren ? (
           <IconButton

@@ -6,7 +6,7 @@ import { installTestGlobals, renderElement, type RenderedElement } from '../../.
 import { useYoutubeStore } from '../store'
 import { AddChannelDialog } from './AddChannelDialog'
 import { AddPlaylistDialog } from './AddPlaylistDialog'
-import { channelIconUrl, fetchChannel, fetchChannelPlaylists, fetchPlaylist, putChannel, putPlaylist } from '../api'
+import { fetchChannel, fetchChannelPlaylists, fetchPlaylist, putChannel, putPlaylist } from '../api'
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>()
@@ -120,7 +120,7 @@ describe('AddChannelDialog', () => {
       t('youtube.channels.subscriber_count', { count: formatCount(channel.subscriberCount) }),
     )
     expect(document.body.textContent).toContain(channel.customUrl ?? '')
-    expect(document.body.querySelector('img')?.getAttribute('src')).toBe(channelIconUrl(channel.id))
+    expect(document.body.querySelector('img')?.getAttribute('src')).toBe(channel.thumbnailUrl)
 
     await click(t('youtube.channels.add_subscription'))
 
