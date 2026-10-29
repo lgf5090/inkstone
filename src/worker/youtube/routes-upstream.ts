@@ -380,6 +380,20 @@ youtubeUpstreamRoutes.get('/channels/:id/playlists', async (c) => {
   })
 })
 
+youtubeUpstreamRoutes.get('/playlists/:id', async (c) => {
+  const playlistId = c.req.param('id') ?? ''
+  if (!isYoutubeId(playlistId)) throw ApiError.badRequest('The playlist id is not valid')
+  await preflight(c, YOUTUBE_QUOTA_COSTS.playlists ?? 1)
+  const data = await ytFetch(c.env, c.env.DB, 'playlists', {
+    part: 'snippet,contentDetails',
+    id: playlistId,
+    maxResults: '1',
+  })
+  const item = itemsOf(data)[0]
+  if (!item) throw new ApiError(404, 'youtube_not_found', 'Playlist not found')
+  return c.json({ playlist: playlistFromItem(item) })
+})
+
 youtubeUpstreamRoutes.get('/playlists/:id/videos', async (c) => {
   const playlistId = c.req.param('id') ?? ''
   if (!isYoutubeId(playlistId)) throw ApiError.badRequest('The playlist id is not valid')

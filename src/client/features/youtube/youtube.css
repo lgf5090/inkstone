@@ -3,6 +3,7 @@
   --yt-scrim: rgb(0 0 0 / 0.8);
   --yt-scrim-fg: #fff;
   --yt-logo-fg: #fff;
+  --yt-player-bg: #000;
 }
 
 :root[data-theme='dark'] [data-youtube-app] {

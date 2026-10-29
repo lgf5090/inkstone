@@ -578,10 +578,25 @@ describe('youtube list routes', () => {
     expect(body.total).toBe(1)
   })
 
+  it('loads a playlist metadata row by id', async () => {
+    stubFetch((url) => {
+      expect(url.pathname).toBe('/youtube/v3/playlists')
+      expect(url.searchParams.get('id')).toBe('PL0000000001')
+      expect(url.searchParams.get('maxResults')).toBe('1')
+      return json({ items: [playlistEntry('PL0000000001')] })
+    })
+
+    const response = await get('/playlists/PL0000000001')
+    expect(response.status).toBe(200)
+    const body = await read<{ playlist: { title: string; itemCount: number } }>(response)
+    expect(body.playlist.title).toBe('Playlist title')
+    expect(body.playlist.itemCount).toBe(8)
+    expect(await usageRow('playlists')).toEqual({ units: 1, count: 1 })
+  })
+
   it('loads a playlist page and fills statistics', async () => {
     stubFetch((url) => {
       if (url.pathname.endsWith('/playlistItems')) {
-        expect(url.searchParams.get('playlistId')).toBe('PL0000000001')
         expect(url.searchParams.get('pageToken')).toBe('TOKEN')
         return json({
           items: [playlistItemEntry('vid00000001')],

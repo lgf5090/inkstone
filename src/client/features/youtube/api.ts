@@ -51,6 +51,10 @@ export function fetchChannelPlaylists(id: string, pageToken?: string, signal?: A
   return request(`/api/youtube/channels/${encodeURIComponent(id)}/playlists${page(pageToken)}`, { signal })
 }
 
+export function fetchPlaylist(id: string, signal?: AbortSignal): Promise<{ playlist: YouTubePlaylist }> {
+  return request(`/api/youtube/playlists/${encodeURIComponent(id)}`, { signal })
+}
+
 export function fetchPlaylistVideos(id: string, pageToken?: string, signal?: AbortSignal): Promise<YouTubeListResult<YouTubeVideo>> {
   return request(`/api/youtube/playlists/${encodeURIComponent(id)}/videos${page(pageToken)}`, { signal })
 }
