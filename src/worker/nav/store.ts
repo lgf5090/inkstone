@@ -514,11 +514,13 @@ export class NavStore {
         skipped += 1
         return false
       }
-      if (existingUrls.has(link.url)) {
-        skipped += 1
-        return false
+      if (skipExisting) {
+        if (existingUrls.has(link.url)) {
+          skipped += 1
+          return false
+        }
+        existingUrls.add(link.url)
       }
-      existingUrls.add(link.url)
       return true
     })
     for (let index = 0; index < keep.length; index += 100) {
@@ -549,6 +551,8 @@ export class NavStore {
   }
 
   async restore(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategoryNames: string[] }> {
+    const previousCategories = await this.categoryRows()
+    const previousCategoryIds = new Set(previousCategories.map((row) => row.id))
     await this.importData(backup.categories, backup.links, false)
     const categoryIds = new Set(backup.categories.map((category) => category.id))
     const linkIds = new Set(backup.links.map((link) => link.id))
@@ -577,7 +581,7 @@ export class NavStore {
           .bind(this.userId, linkId, visit.lastVisitedAt, visit.visitCount)))
       }
     }
-    const unlocked = backup.categories.filter((category) => category.hasPassword).map((category) => category.name)
+    const unlocked = backup.categories.filter((category) => category.hasPassword && !previousCategoryIds.has(category.id)).map((category) => category.name)
     return { restoredLinks: backup.links.length, restoredCategories: backup.categories.length, restoredVisits: visits.length, unlockedCategoryNames: unlocked }
   }
 }

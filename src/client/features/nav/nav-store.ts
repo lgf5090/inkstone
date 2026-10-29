@@ -38,6 +38,7 @@ interface NavState {
   updateCategory: (id: string, body: unknown) => Promise<NavCategory>
   deleteCategory: (id: string, fallbackCategoryId: string) => Promise<void>
   reorderCategories: (parentId: string | null, orderedIds: string[]) => Promise<void>
+  reorderCategoryGroups: (groups: { parentId: string | null; orderedIds: string[] }[]) => Promise<void>
   createLink: (body: unknown) => Promise<NavLink>
   updateLink: (id: string, body: unknown) => Promise<NavLink>
   deleteLink: (id: string) => Promise<void>
@@ -227,6 +228,13 @@ export const useNavStore = create<NavState>((set, get) => {
 
     async reorderCategories(parentId, orderedIds) {
       await run(() => navApi.orderCategories(parentId, orderedIds))
+      await refresh()
+    },
+
+    async reorderCategoryGroups(groups) {
+      await run(async () => {
+        for (const group of groups) await navApi.orderCategories(group.parentId, group.orderedIds)
+      })
       await refresh()
     },
 

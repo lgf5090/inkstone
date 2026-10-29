@@ -1,4 +1,4 @@
-import { Activity, Anchor, Apple, Archive, Atom, Banknote, Battery, Beer, Bell, Bike, BookOpen, Bookmark, Bot, Box, Brain, Briefcase, Building2, Cake, Calculator, Calendar, Camera, Car, Carrot, Castle, ChartLine, ChartPie, CheckSquare, Clock, Cloud, Code, Coffee, Columns3, Compass, Cpu, CreditCard, Database, Download, Droplet, Dumbbell, ExternalLink, Eye, Factory, FileText, Film, Flag, Flame, FlaskConical, Flower2, FolderOpen, Gamepad2, Gift, Globe, GraduationCap, HardDrive, Headphones, Heart, Home, Hospital, Image, Key, Landmark, Languages, Laptop, Layers, LayoutGrid, LayoutList, Leaf, Link, List, Lock, Mail, Map, MapPin, MessageSquare, Mic, Milestone, Monitor, Moon, Mountain, Music, Navigation, Newspaper, Package, Palette, Paperclip, PenTool, Phone, Pin, Pizza, Plane, Plug, Podcast, Printer, Puzzle, Radio, Route, Rows3, Rss, Ruler, Sailboat, School, Search, Server, Settings, Shield, ShoppingCart, Smartphone, Snowflake, Sparkles, Star, Store, Sun, Table, Tablet, Tag, Target, Tent, Terminal, Ticket, Train, Trash2, TreePine, Trophy, Tv, Umbrella, Upload, User, Users, Utensils, Video, Wallet, Warehouse, Wifi, Wind, Wine, Workflow, Wrench, Zap, Folder, type LucideIcon } from 'lucide-react'
+import { Activity, Anchor, Apple, Archive, Atom, Banknote, Battery, Beer, Bell, Bike, BookOpen, BookOpenText, Bookmark, Bot, Box, Brain, Briefcase, Building2, Cake, Calculator, Calendar, Camera, Car, Carrot, Castle, ChartLine, ChartPie, CheckSquare, Clock, Cloud, CloudCog, Code, Coffee, Columns3, Compass, Computer, Cpu, CreditCard, Database, Download, DraftingCompass, Droplet, Dumbbell, ExternalLink, Eye, Factory, FileText, Film, Flag, Flame, FlaskConical, Flower2, FolderLock, FolderOpen, Gamepad2, GitBranch, Gift, Globe, GraduationCap, HardDrive, Headphones, Heart, Home, Hospital, Image, Key, Landmark, Languages, Laptop, Layers, LayoutGrid, LayoutList, Leaf, Link, List, Lock, Mail, Map, MapPin, MessageSquare, Mic, Milestone, Monitor, MonitorCloud, Moon, Mountain, Music, Navigation, Newspaper, Package, Palette, Paperclip, PenTool, Phone, Pin, Pizza, Plane, Plug, PocketKnife, Podcast, Printer, Puzzle, Radio, Route, Rows3, Rss, Ruler, Sailboat, School, Search, Server, Settings, Shield, ShoppingCart, Smartphone, Snowflake, Sparkles, Star, Store, Sun, Table, Tablet, Tag, Target, Tent, Terminal, Ticket, Train, Trash2, TreePine, Trophy, Tv, Umbrella, Upload, User, Users, Utensils, Video, Wallet, Warehouse, Wifi, Wind, Wine, Workflow, Wrench, Zap, Folder, type LucideIcon } from 'lucide-react'
 import { isEmojiIcon, normalizeIconName } from '@shared/nav/model'
 import { cn } from '../../lib/cn'
 
@@ -142,6 +142,14 @@ const ICONS: Record<string, LucideIcon> = {
   "warehouse": Warehouse,
   "tent": Tent,
   "castle": Castle,
+  "cloud-cog": CloudCog,
+  "folder-lock": FolderLock,
+  "drafting-compass": DraftingCompass,
+  "git-branch": GitBranch,
+  "book-open-text": BookOpenText,
+  "monitor-cloud": MonitorCloud,
+  "pocket-knife": PocketKnife,
+  "computer": Computer,
 }
 
 export function NavIcon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {

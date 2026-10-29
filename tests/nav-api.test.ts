@@ -7,7 +7,7 @@ import { navBackupRoutes } from '../src/worker/nav/backup'
 import { navDataRoutes, navSettingsRoutes } from '../src/worker/nav/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import { sha256Hex } from '../src/worker/lib/encoding'
-import { newNavId, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
+import { newNavId, type NavBackup, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
 import { testBindings } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -835,6 +835,25 @@ describe('bookmark import', () => {
     expect(count('nav_links')).toBe(1)
   })
 
+  it('keeps duplicate URLs when skipExisting is off', async () => {
+    const categoryId = newNavId()
+    const firstId = newNavId()
+    const secondId = newNavId()
+    const response = await call('POST', '/api/nav/import', {
+      body: {
+        categories: [importCategory(categoryId, 'Duplicates')],
+        links: [
+          importLink(firstId, 'https://same.example.com/', categoryId, 'One'),
+          importLink(secondId, 'https://same.example.com/', categoryId, 'Two'),
+        ],
+        skipExisting: false,
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({ imported: 2, skipped: 0 })
+    expect(count('nav_links')).toBe(2)
+  })
+
   it('creates an uncategorized folder when imported links name a missing category', async () => {
     const response = await call('POST', '/api/nav/import', {
       user: USER_B,
@@ -1226,3 +1245,111 @@ describe('WebDAV settings and secrets', () => {
     expect(settings.webdav).toEqual({ url: '', username: '', hasPassword: false })
   })
 })
+
+describe('local JSON backup', () => {
+  it('exports locked links, visits and settings and restores the whole snapshot', async () => {
+    const open = await createCategory(USER_A, 'Open')
+    const locked = await createCategory(USER_A, 'Locked', { passwordMode: 'custom', password: 'password-123' })
+    const openLink = await createLink(USER_A, open.id, 'Open Link')
+    const hidden = await createLink(USER_A, locked.id, 'Hidden Link', { description: 'secret' })
+    await call('POST', '/api/nav/visits', { body: { visits: [{ linkId: openLink.id, count: 2 }] } })
+    await call('PUT', '/api/nav/settings/display', { body: { navTitle: 'Snapshot' } })
+
+    const exportedResponse = await call('GET', '/api/nav/backup')
+    expect(exportedResponse.status).toBe(200)
+    expect(exportedResponse.headers.get('cache-control')).toBe('no-store')
+    const exported = await json<NavBackup>(exportedResponse)
+    expect(exported.format).toBe('inkstone-nav-backup')
+    expect(exported.links.map((link) => link.id).sort()).toEqual([openLink.id, hidden.id].sort())
+    expect(exported.categories.find((category) => category.id === locked.id)!.hasPassword).toBe(true)
+    expect(JSON.stringify(exported)).not.toContain('passwordHash')
+    expect(exported.visits[openLink.id]!.visitCount).toBe(2)
+    expect(exported.settings.display.navTitle).toBe('Snapshot')
+
+    await call('DELETE', `/api/nav/links/${openLink.id}`)
+    await createLink(USER_A, open.id, 'Extra Link')
+    await call('PUT', '/api/nav/settings/display', { body: { navTitle: 'Changed' } })
+
+    const restoredResponse = await call('POST', '/api/nav/backup/restore', { body: exported })
+    expect(restoredResponse.status).toBe(200)
+    const restored = await json<{ restoredLinks: number; restoredCategories: number; unlockedCategoryNames: string[] }>(restoredResponse)
+    expect(restored.restoredLinks).toBe(2)
+    expect(restored.restoredCategories).toBe(2)
+    expect(restored.unlockedCategoryNames).toEqual([])
+
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(after.links.map((link) => link.title)).toEqual(['Open Link'])
+    expect(after.links.some((link) => link.title === 'Extra Link')).toBe(false)
+    expect(after.visits[openLink.id]!.visitCount).toBe(2)
+    expect(after.settings.display.navTitle).toBe('Snapshot')
+    expect(count('nav_links')).toBe(2)
+
+    const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, {
+      body: { password: 'password-123' },
+    }))
+    const visible = await json<NavBootstrap>(await call('GET', '/api/nav', {
+      headers: { 'X-Nav-Unlocks': unlock.token },
+    }))
+    expect(visible.links.map((link) => link.title).sort()).toEqual(['Hidden Link', 'Open Link'])
+  })
+
+  it('unlocks a protected category that the account does not have yet', async () => {
+    const categoryId = newNavId()
+    const linkId = newNavId()
+    const backup = {
+      format: 'inkstone-nav-backup',
+      version: 1,
+      categories: [{
+        id: categoryId,
+        name: 'From Backup',
+        icon: 'folder',
+        parentId: null,
+        sortOrder: 0,
+        createdAt: 1,
+        hasPassword: true,
+        passwordMode: 'custom',
+      }],
+      links: [{
+        id: linkId,
+        title: 'Restored Link',
+        url: 'https://restored.example.com/',
+        icon: null,
+        description: null,
+        categoryId,
+        pinned: false,
+        pinnedOrder: 0,
+        sortOrder: 0,
+        createdAt: 1,
+      }],
+    }
+    const restored = await call('POST', '/api/nav/backup/restore', { body: backup })
+    expect(restored.status).toBe(200)
+    expect(await json<{ unlockedCategoryNames: string[] }>(restored)).toMatchObject({ unlockedCategoryNames: ['From Backup'] })
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(after.links.map((link) => link.title)).toEqual(['Restored Link'])
+  })
+
+  it('rejects a snapshot with a broken reference without touching stored rows', async () => {
+    await createCategory(USER_A, 'Keep')
+    const before = count('nav_categories')
+    const malformed = {
+      format: 'inkstone-nav-backup',
+      version: 1,
+      categories: [importCategoryForBackup('1'.repeat(26), 'Orphan', '2'.repeat(26))],
+      links: [],
+    }
+    const response = await call('POST', '/api/nav/backup/restore', { body: malformed })
+    expect(response.status).toBe(400)
+    expect(await errorCode(response)).toBe('bad_request')
+    expect(count('nav_categories')).toBe(before)
+  })
+
+  it('requires a session for export and restore', async () => {
+    expect((await call('GET', '/api/nav/backup', { user: null })).status).toBe(401)
+    expect((await call('POST', '/api/nav/backup/restore', { user: null, body: {} })).status).toBe(401)
+  })
+})
+
+function importCategoryForBackup(id: string, name: string, parentId: string | null) {
+  return { id, name, icon: 'folder', parentId, sortOrder: 0, createdAt: 1, hasPassword: false }
+}

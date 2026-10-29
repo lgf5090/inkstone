@@ -314,6 +314,40 @@ describe('CategoryManagerModal', () => {
     expect(buttonByText(t('nav.save'))).not.toBeNull()
   })
 
+  it('narrows the tree by name and explains an empty result', () => {
+    mountManager()
+    const filter = document.querySelector<HTMLInputElement>('input[aria-label="' + t('nav.category.filter') + '"]')
+    if (!filter) throw new Error('No filter input')
+
+    fill(filter, 'Beta')
+    expect(categoryRow(BETA.id)).not.toBeNull()
+    expect(document.querySelector('[data-nav-category-id="' + ALPHA.id + '"]')).toBeNull()
+    expect(document.querySelector('[data-nav-category-id="' + ALPHA_CHILD.id + '"]')).toBeNull()
+
+    fill(filter, 'Alpha child')
+    expect(categoryRow(ALPHA.id)).not.toBeNull()
+    expect(categoryRow(ALPHA_CHILD.id)).not.toBeNull()
+    expect(document.querySelector('[data-nav-category-id="' + BETA.id + '"]')).toBeNull()
+
+    fill(filter, 'nothing-here')
+    expect(document.body.textContent).toContain(t('nav.category.no_match'))
+  })
+
+  it('sorts every group by name in one refresh', async () => {
+    const zeta = makeCategory({ id: 'cat-zeta', name: 'Zeta', sortOrder: 0 })
+    const alpha2 = makeCategory({ id: 'cat-alpha-2', name: 'Alpha', sortOrder: 1 })
+    const zulu = makeCategory({ id: 'cat-zulu', name: 'Zulu child', parentId: zeta.id, sortOrder: 0 })
+    const able = makeCategory({ id: 'cat-able', name: 'Able child', parentId: zeta.id, sortOrder: 1 })
+    seed([zeta, alpha2, zulu, able], [])
+    mountManager()
+
+    click(buttonByText(t('nav.category.sort_name')))
+    await flush()
+
+    expect(spies.order).toHaveBeenCalledWith(null, [alpha2.id, zeta.id])
+    expect(spies.order).toHaveBeenCalledWith(zeta.id, [able.id, zulu.id])
+  })
+
   it('opens the delete panel for a category named by the caller', () => {
     mountManager({ initialDeleteId: ALPHA.id })
 

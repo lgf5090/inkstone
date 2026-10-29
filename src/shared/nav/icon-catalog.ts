@@ -139,6 +139,14 @@ export const NAV_ICON_NAMES: readonly string[] = [
   "warehouse",
   "tent",
   "castle",
+  "cloud-cog",
+  "folder-lock",
+  "drafting-compass",
+  "git-branch",
+  "book-open-text",
+  "monitor-cloud",
+  "pocket-knife",
+  "computer",
 ]
 
 export const NAV_ICON_NAME_SET: ReadonlySet<string> = new Set(NAV_ICON_NAMES)

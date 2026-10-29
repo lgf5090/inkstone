@@ -3,8 +3,8 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { decryptNavSecret, encryptNavSecret } from '../lib/crypto'
-import { NavBackupSchema } from '@shared/nav/validation'
-import type { NavBackup } from '@shared/nav/model'
+import { NavBackupSchema, type NavBackupSettings } from '@shared/nav/validation'
+import { NAV_LIMITS, type NavBackup } from '@shared/nav/model'
 import type { WebdavConfig } from '@shared/types'
 import { parseBackupEndpoint } from '../backup/validation'
 import { authHeader, baseUrl, childUrl, ensureDirs, webdavFetch, webdavTest } from '../backup/webdav'
@@ -18,6 +18,50 @@ function userId(c: Context<AppBindings>): string {
   const id = c.get('userId') ?? c.get('user')?.id
   if (!id) throw ApiError.unauthenticated()
   return id
+}
+
+async function buildBackup(nav: NavStore): Promise<NavBackup> {
+  const [categories, links, visits, settings] = await Promise.all([
+    nav.categories(),
+    nav.links(),
+    nav.visits(),
+    nav.settings(),
+  ])
+  return {
+    format: 'inkstone-nav-backup',
+    version: 1,
+    createdAt: Date.now(),
+    categories: categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      icon: category.icon,
+      parentId: category.parentId,
+      sortOrder: category.sortOrder,
+      createdAt: category.createdAt,
+      hasPassword: category.hasPassword,
+      passwordMode: category.passwordMode,
+    })),
+    links: links.map((link) => ({
+      id: link.id,
+      title: link.title,
+      url: link.url,
+      icon: link.icon,
+      description: link.description,
+      categoryId: link.categoryId,
+      pinned: link.pinned,
+      pinnedOrder: link.pinnedOrder,
+      sortOrder: link.sortOrder,
+      createdAt: link.createdAt,
+    })),
+    visits,
+    settings,
+  }
+}
+
+async function applyBackupSettings(nav: NavStore, settings: NavBackupSettings | undefined): Promise<void> {
+  if (settings?.display) await nav.saveSettingsGroup('display', settings.display)
+  if (settings?.search) await nav.saveSettingsGroup('search', settings.search)
+  if (settings?.ai) await nav.saveSettingsGroup('ai', settings.ai)
 }
 
 interface RequestConfig {
@@ -75,41 +119,7 @@ navBackupRoutes.post('/webdav/backup', async (c) => {
   try {
   const { config, password } = await resolveConfig(c, raw)
   const nav = new NavStore(c.env.DB, userId(c))
-  const [categories, links, visits, settings] = await Promise.all([
-    nav.categories(),
-    nav.links(),
-    nav.visits(),
-    nav.settings(),
-  ])
-  const backup: NavBackup = {
-    format: 'inkstone-nav-backup',
-    version: 1,
-    createdAt: Date.now(),
-    categories: categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      icon: category.icon,
-      parentId: category.parentId,
-      sortOrder: category.sortOrder,
-      createdAt: category.createdAt,
-      hasPassword: category.hasPassword,
-      passwordMode: category.passwordMode,
-    })),
-    links: links.map((link) => ({
-      id: link.id,
-      title: link.title,
-      url: link.url,
-      icon: link.icon,
-      description: link.description,
-      categoryId: link.categoryId,
-      pinned: link.pinned,
-      pinnedOrder: link.pinnedOrder,
-      sortOrder: link.sortOrder,
-      createdAt: link.createdAt,
-    })),
-    visits,
-    settings,
-  }
+  const backup = await buildBackup(nav)
   const now = new Date()
   const stamp = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
   const filename = raw?.timestamped ? `inkstone-nav-backup_${stamp}.json` : 'inkstone-nav-backup.json'
@@ -161,15 +171,30 @@ navBackupRoutes.post('/webdav/restore', async (c) => {
   if (!parsed.success) throw ApiError.badRequest('Backup file has an unsupported format')
   const nav = new NavStore(c.env.DB, userId(c))
   const result = await nav.restore(parsed.data as NavBackup)
-  const settings = parsed.data.settings
-  if (settings?.display) await nav.saveSettingsGroup('display', settings.display)
-  if (settings?.search) await nav.saveSettingsGroup('search', settings.search)
-  if (settings?.ai) await nav.saveSettingsGroup('ai', settings.ai)
+  await applyBackupSettings(nav, parsed.data.settings)
   return c.json(result)
   } catch (error) {
     if (error instanceof ApiError) throw error
     throw new ApiError(502, 'nav_webdav_failed', friendlyError(error))
   }
+})
+
+navBackupRoutes.get('/backup', async (c) => {
+  const nav = new NavStore(c.env.DB, userId(c))
+  return c.json(await buildBackup(nav), 200, { 'Cache-Control': 'no-store' })
+})
+
+navBackupRoutes.post('/backup/restore', async (c) => {
+  const declared = Number(c.req.header('content-length') ?? 0)
+  if (declared > NAV_LIMITS.restoreBytes + 64 * 1024) throw new ApiError(413, 'payload_too_large', 'Backup file is too large')
+  const raw = await c.req.json().catch(() => null)
+  if (!raw) throw ApiError.badRequest('Backup file is not valid JSON')
+  const parsed = NavBackupSchema.safeParse(raw)
+  if (!parsed.success) throw ApiError.badRequest('Backup file has an unsupported format')
+  const nav = new NavStore(c.env.DB, userId(c))
+  const result = await nav.restore(parsed.data as NavBackup)
+  await applyBackupSettings(nav, parsed.data.settings)
+  return c.json(result)
 })
 
 navBackupRoutes.put('/webdav/secret', async (c) => {

@@ -13,6 +13,7 @@ import { useSession } from '../src/client/store/session'
 import { useUi } from '../src/client/store/ui'
 import { navApi } from '../src/client/features/nav/api'
 import { ImportExportModal, QrModal } from '../src/client/features/nav/NavImport'
+import { ConfirmHost } from '../src/client/components/overlay'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { renderElement, type RenderedElement } from '../src/client/lib/test-render'
 
@@ -181,7 +182,7 @@ describe('ImportExportModal', () => {
     }))
 
     rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
-    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    const input = document.querySelector<HTMLInputElement>('input[accept*=".html"]')
     if (!input) throw new Error('No file input')
     expect(input.accept).toContain('.html')
     expect(input.accept).toContain('.htm')
@@ -219,5 +220,128 @@ describe('ImportExportModal', () => {
 
     expect(document.body.textContent).toContain(t('nav.import.locked_hint', { count: 1 }))
     expect(document.body.textContent).toContain(t('nav.export'))
+  })
+})
+
+describe('JSON backup import', () => {
+  const categoryId = 'a'.repeat(26)
+  const linkId = 'b'.repeat(26)
+  const backup = {
+    format: 'inkstone-nav-backup',
+    version: 1,
+    createdAt: 1,
+    categories: [{
+      id: categoryId,
+      name: 'Restored',
+      icon: 'folder',
+      parentId: null,
+      sortOrder: 0,
+      createdAt: 1,
+      hasPassword: false,
+      passwordMode: 'none',
+    }],
+    links: [{
+      id: linkId,
+      title: 'Restored link',
+      url: 'https://restored.example.com/',
+      icon: null,
+      description: null,
+      categoryId,
+      pinned: false,
+      pinnedOrder: 0,
+      sortOrder: 0,
+      createdAt: 1,
+    }],
+    visits: {},
+    settings: DEFAULT_NAV_SETTINGS,
+  }
+
+  function jsonInput(): HTMLInputElement {
+    const input = document.querySelector<HTMLInputElement>('input[accept*=".json"]')
+    if (!input) throw new Error('No JSON file input')
+    return input
+  }
+
+  async function feed(input: HTMLInputElement, name: string, value: unknown): Promise<void> {
+    const text = typeof value === 'string' ? value : JSON.stringify(value)
+    const file = new File([text], name, { type: 'application/json' })
+    Object.defineProperty(file, 'text', { value: async () => text })
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    act(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await flush()
+  }
+
+  it('previews and replaces with a complete Inkstone backup after confirmation', async () => {
+    const restore = vi.spyOn(navApi, 'restoreBackup').mockResolvedValue({
+      restoredLinks: 1,
+      restoredCategories: 1,
+      restoredVisits: 0,
+      unlockedCategoryNames: [],
+    })
+    rendered = renderElement(
+      <>
+        <ImportExportModal open onClose={vi.fn()} />
+        <ConfirmHost />
+      </>,
+    )
+    await feed(jsonInput(), 'backup.json', backup)
+
+    expect(document.body.textContent).toContain(t('nav.json.preview_inkstone', { categories: 1, links: 1, visits: 0 }))
+    const replace = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === t('nav.json.replace'))
+    if (!replace) throw new Error('No replace button')
+    act(() => replace.click())
+    await flush()
+    const dialog = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)
+    const confirmButton = dialog ? [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === t('nav.json.replace')) : null
+    if (!confirmButton) throw new Error('No confirm button')
+    act(() => confirmButton.click())
+    await flush()
+    await flush()
+
+    expect(restore).toHaveBeenCalledWith(backup)
+    expect(useUi.getState().toasts.at(-1)?.title).toBe(t('nav.json.restore_done'))
+  })
+
+  it('merges a CloudNav backup with its warnings and keeps duplicate URLs by default', async () => {
+    const importSpy = vi.spyOn(navApi, 'importBookmarks').mockImplementation(async (body) => ({
+      imported: body.links.length,
+      skipped: 0,
+    }))
+    rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
+    await feed(jsonInput(), 'cloudnav_backup.json', {
+      categories: [
+        { id: '1', name: 'Root', icon: 'Star', password: null, parentId: null, sortOrder: 0, createdAt: 1_700_000_000 },
+        { id: '2', name: 'Secret', icon: 'Folder', password: '12345', parentId: '1', sortOrder: 0, createdAt: 1_700_000_000 },
+      ],
+      links: [
+        { id: '10', title: 'One', url: 'https://one.example.com/', icon: null, description: 'd', categoryId: '2', pinned: true, pinnedOrder: 0, sortOrder: 0, createdAt: 1_700_000_000 },
+        { id: '11', title: 'Bad', url: 'javascript:alert(1)', icon: null, description: null, categoryId: '2', pinned: false, pinnedOrder: 0, sortOrder: 1, createdAt: 1_700_000_000 },
+      ],
+    })
+
+    expect(document.body.textContent).toContain(t('nav.json.preview_cloudnav', { categories: 2, links: 1 }))
+    expect(document.body.textContent).toContain(t('nav.json.warn_passwords', { count: 1 }))
+    expect(document.body.textContent).toContain(t('nav.json.warn_invalid', { count: 1 }))
+    const merge = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === t('nav.json.merge'))
+    if (!merge) throw new Error('No merge button')
+    act(() => merge.click())
+    await flush()
+    await flush()
+
+    expect(importSpy).toHaveBeenCalledTimes(1)
+    expect(importSpy.mock.calls[0]?.[0].categories).toHaveLength(2)
+    expect(importSpy.mock.calls[0]?.[0].links).toHaveLength(1)
+    expect(importSpy.mock.calls[0]?.[0].skipExisting).toBe(false)
+    expect(useUi.getState().toasts.at(-1)?.title).toBe(t('nav.import.done'))
+  })
+
+  it('reports an unsupported JSON document without calling the API', async () => {
+    const restore = vi.spyOn(navApi, 'restoreBackup')
+    rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
+    await feed(jsonInput(), 'other.json', { hello: 'world' })
+    expect(document.body.textContent).toContain(t('nav.json.invalid'))
+    expect(restore).not.toHaveBeenCalled()
   })
 })

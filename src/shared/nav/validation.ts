@@ -133,6 +133,7 @@ export const NavSettingsGroupSchema = z.object({
   search: NavSearchSettingsSchema.optional(),
   ai: NavAiSettingsSchema.optional(),
 })
+export type NavBackupSettings = z.infer<typeof NavSettingsGroupSchema>
 
 export const NavImportSchema = z.object({
   categories: z.array(z.object({

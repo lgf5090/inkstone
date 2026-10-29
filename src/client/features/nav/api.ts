@@ -17,6 +17,7 @@ import type {
   NavWebdavTestResponse,
 } from '@shared/nav/api'
 import type {
+  NavBackup,
   NavCategory,
   NavCheckResult,
   NavImportCategory,
@@ -106,6 +107,8 @@ export const navApi = {
   webdavTest: (config?: { url: string; username: string; password?: string }) => navFetch<NavWebdavTestResponse>('/api/nav/webdav/test', { method: 'POST', body: config ?? {} }),
   webdavBackup: (body: { timestamped?: boolean; url?: string; username?: string; password?: string }) => navFetch<NavWebdavBackupResponse>('/api/nav/webdav/backup', { method: 'POST', body }),
   webdavRestore: (body: { url?: string; username?: string; password?: string }) => navFetch<NavRestoreResponse>('/api/nav/webdav/restore', { method: 'POST', body }),
+  exportBackup: () => navFetch<NavBackup>('/api/nav/backup'),
+  restoreBackup: (body: NavBackup) => navFetch<NavRestoreResponse>('/api/nav/backup/restore', { method: 'POST', body }),
   saveWebdavSecret: (password: string | null) => navFetch<{ hasPassword: boolean }>('/api/nav/webdav/secret', { method: 'PUT', body: password === null ? { clear: true } : { password } }),
   webdavForget: () => navFetch<{ ok: true }>('/api/nav/webdav/forget', { method: 'POST' }),
   uploadIcon: (file: File) => {

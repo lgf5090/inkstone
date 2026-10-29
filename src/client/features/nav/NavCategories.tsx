@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, FolderPlus, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, FolderPlus, Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { isEmojiIcon, normalizeCategoryName, normalizeIconName, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
 import { NAV_ICON_NAMES } from '@shared/nav/icon-catalog'
 import { Modal, confirm } from '../../components/overlay'
@@ -11,6 +11,7 @@ import { cn } from '../../lib/cn'
 import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog-data'
 import { searchEmojiIn } from '../../lib/emoji-catalog-core'
 import { usePinyinVersion } from '../../lib/pinyin'
+import { compileQuery, queryMatches } from '../../lib/query-match'
 import { categoryOptions } from './api'
 import { NavIcon } from './nav-icons'
 import { useNavStore } from './nav-store'
@@ -238,11 +239,14 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   const updateCategory = useNavStore((state) => state.updateCategory)
   const deleteCategory = useNavStore((state) => state.deleteCategory)
   const reorderCategories = useNavStore((state) => state.reorderCategories)
+  const reorderCategoryGroups = useNavStore((state) => state.reorderCategoryGroups)
   const toast = useUi((state) => state.toast)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [deleting, setDeleting] = useState<DeleteState | null>(null)
   const [busy, setBusy] = useState(false)
+  const [filter, setFilter] = useState('')
   const appliedTarget = useRef<string | null>(null)
+  const pinyinVersion = usePinyinVersion()
   const targetKey = `${initialEditId ?? ''}|${initialParentId === undefined ? 'none' : initialParentId ?? 'root'}|${initialDeleteId ?? ''}`
 
   const tree = useMemo(() => {
@@ -264,12 +268,27 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
     return counts
   }, [links])
 
+  const compiledFilter = useMemo(() => compileQuery(filter), [filter])
+  const visibleTree = useMemo(() => {
+    const text = filter.trim()
+    if (!text) return tree
+    const matches = (name: string): boolean => queryMatches(compiledFilter, name) !== null
+    const roots = tree.roots.filter((root) => matches(root.name) || (tree.children.get(root.id) ?? []).some((child) => matches(child.name)))
+    const children = new Map<string, NavCategory[]>()
+    for (const root of roots) {
+      const all = tree.children.get(root.id) ?? []
+      children.set(root.id, matches(root.name) ? all : all.filter((child) => matches(child.name)))
+    }
+    return { roots, children }
+  }, [tree, filter, compiledFilter, pinyinVersion])
+
   useEffect(() => {
     if (!open) {
       appliedTarget.current = null
       setEditor(null)
       setDeleting(null)
       setBusy(false)
+      setFilter('')
       return
     }
     if (appliedTarget.current === targetKey) return
@@ -325,6 +344,29 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   function startDelete(category: NavCategory) {
     setEditor(null)
     setDeleting({ target: category, fallbackId: fallbackChoices(category)[0]?.value ?? null })
+  }
+
+  async function sortByName(): Promise<void> {
+    if (rowsLocked) return
+    const byName = (left: NavCategory, right: NavCategory): number =>
+      left.name.localeCompare(right.name, 'zh-CN') || left.sortOrder - right.sortOrder
+    const groups: { parentId: string | null; orderedIds: string[] }[] = []
+    const roots = categories.filter((category) => !category.parentId).sort(byName)
+    if (roots.length > 1) groups.push({ parentId: null, orderedIds: roots.map((category) => category.id) })
+    for (const root of roots) {
+      const children = categories.filter((category) => category.parentId === root.id).sort(byName)
+      if (children.length > 1) groups.push({ parentId: root.id, orderedIds: children.map((category) => category.id) })
+    }
+    if (!groups.length) return
+    setBusy(true)
+    try {
+      await reorderCategoryGroups(groups)
+      toast({ title: t('nav.category.sorted'), tone: 'success' })
+    } catch (error) {
+      toast({ title: errorMessage(error), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const trimmedName = editor ? normalizeCategoryName(editor.name) : ''
@@ -456,6 +498,27 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       }
     >
       <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[150px] flex-1">
+            <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
+            <Input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder={t('nav.category.filter')}
+              aria-label={t('nav.category.filter')}
+              className="pl-7"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="shrink-0"
+            disabled={rowsLocked || categories.length < 2}
+            onClick={() => void sortByName()}
+          >
+            {t('nav.category.sort_name')}
+          </Button>
+        </div>
         {editor && (
           <form
             className="rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-3"
@@ -581,41 +644,51 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
           <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
             {t('nav.category.empty')}
           </p>
+        ) : visibleTree.roots.length === 0 ? (
+          <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-quaternary)]">
+            {t('nav.category.no_match')}
+          </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {tree.roots.map((root, index) => {
-              const children = tree.children.get(root.id) ?? []
+            {visibleTree.roots.map((root) => {
+              const fullRoots = tree.roots
+              const children = visibleTree.children.get(root.id) ?? []
+              const fullChildren = tree.children.get(root.id) ?? []
+              const rootIndex = fullRoots.findIndex((item) => item.id === root.id)
               return (
                 <li key={root.id}>
                   <CategoryRow
                     category={root}
                     count={linkCounts.get(root.id) ?? 0}
-                    first={index === 0}
-                    last={index === tree.roots.length - 1}
+                    first={rootIndex === 0}
+                    last={rootIndex === fullRoots.length - 1}
                     disabled={rowsLocked}
                     onEdit={() => startEdit(root)}
                     onAddChild={() => startCreate(root)}
-                    onMoveUp={() => void move(root, tree.roots, -1, null)}
-                    onMoveDown={() => void move(root, tree.roots, 1, null)}
+                    onMoveUp={() => void move(root, fullRoots, -1, null)}
+                    onMoveDown={() => void move(root, fullRoots, 1, null)}
                     onDelete={() => startDelete(root)}
                   />
                   {children.length > 0 && (
                     <ul className="mt-0.5 ml-4 flex flex-col gap-0.5 border-l border-[var(--border-subtle)] pl-2">
-                      {children.map((child, childIndex) => (
-                        <li key={child.id}>
-                          <CategoryRow
-                            category={child}
-                            count={linkCounts.get(child.id) ?? 0}
-                            first={childIndex === 0}
-                            last={childIndex === children.length - 1}
-                            disabled={rowsLocked}
-                            onEdit={() => startEdit(child)}
-                            onMoveUp={() => void move(child, children, -1, root.id)}
-                            onMoveDown={() => void move(child, children, 1, root.id)}
-                            onDelete={() => startDelete(child)}
-                          />
-                        </li>
-                      ))}
+                      {children.map((child) => {
+                        const childIndex = fullChildren.findIndex((item) => item.id === child.id)
+                        return (
+                          <li key={child.id}>
+                            <CategoryRow
+                              category={child}
+                              count={linkCounts.get(child.id) ?? 0}
+                              first={childIndex === 0}
+                              last={childIndex === fullChildren.length - 1}
+                              disabled={rowsLocked}
+                              onEdit={() => startEdit(child)}
+                              onMoveUp={() => void move(child, fullChildren, -1, root.id)}
+                              onMoveDown={() => void move(child, fullChildren, 1, root.id)}
+                              onDelete={() => startDelete(child)}
+                            />
+                          </li>
+                        )
+                      })}
                     </ul>
                   )}
                 </li>

@@ -283,6 +283,7 @@ export function NavApp() {
   const [unlockCategory, setUnlockCategory] = useState<NavCategory | null>(null)
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [categoryManagerTarget, setCategoryManagerTarget] = useState<{ editId?: string | null; parentId?: string | null; deleteId?: string | null } | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState('')
   const [checkerOpen, setCheckerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -342,6 +343,28 @@ export function NavApp() {
   const subcategories = useMemo(() => selectedRoot ? categories.filter((category) => category.parentId === selectedRoot.id).sort((a, b) => a.sortOrder - b.sortOrder) : [], [categories, selectedRoot])
   const expandableRoots = useMemo(() => categories.filter((category) => !category.parentId && categories.some((item) => item.parentId === category.id)), [categories])
   const allRootsExpanded = expandableRoots.length > 0 && expandableRoots.every((category) => expanded.has(category.id))
+  const sidebarTree = useMemo(() => {
+    const roots = categories.filter((category) => !category.parentId).sort((a, b) => a.sortOrder - b.sortOrder)
+    const children = new Map<string, NavCategory[]>()
+    for (const category of categories) {
+      if (!category.parentId) continue
+      const siblings = children.get(category.parentId) ?? []
+      siblings.push(category)
+      children.set(category.parentId, siblings)
+    }
+    for (const siblings of children.values()) siblings.sort((a, b) => a.sortOrder - b.sortOrder)
+    const text = categoryFilter.trim()
+    if (!text) return { roots, children, filtering: false }
+    const compiled = compileQuery(text)
+    const matches = (name: string): boolean => queryMatches(compiled, name) !== null
+    const visibleRoots = roots.filter((root) => matches(root.name) || (children.get(root.id) ?? []).some((child) => matches(child.name)))
+    const visibleChildren = new Map<string, NavCategory[]>()
+    for (const root of visibleRoots) {
+      const all = children.get(root.id) ?? []
+      visibleChildren.set(root.id, matches(root.name) ? all : all.filter((child) => matches(child.name)))
+    }
+    return { roots: visibleRoots, children: visibleChildren, filtering: true }
+  }, [categories, categoryFilter, pinyinVersion])
   const scopedLinks = useMemo(() => {
     let scoped = links
     if (selectedSubcategory) scoped = links.filter((link) => link.categoryId === selectedSubcategory)
@@ -546,10 +569,34 @@ export function NavApp() {
   function sidebar() {
     return (
       <div className="flex min-h-full flex-col gap-0.5 p-2" onContextMenu={(event) => { if (event.target === event.currentTarget) openCategoryMenu(event, null) }}>
+        <div className="relative mb-1">
+          <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
+          <Input
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+            placeholder={t('nav.category.filter')}
+            aria-label={t('nav.category.filter')}
+            className="pl-7 pr-7"
+          />
+          {categoryFilter && (
+            <IconButton
+              label={t('nav.search.clear')}
+              size="xs"
+              className="absolute right-0 top-1/2 -translate-y-1/2"
+              onClick={() => setCategoryFilter('')}
+            >
+              <X size={12} />
+            </IconButton>
+          )}
+        </div>
         <CategoryRow label={t('nav.all')} icon="layout-grid" count={counts.total} active={!selectedCategory} locked={false} onSelect={() => void chooseCategory(null)} onContextMenu={(event) => openCategoryMenu(event, null)} onMenuAt={(point) => setCategoryMenu({ category: null, point })} />
-        {categories.filter((category) => !category.parentId).sort((a, b) => a.sortOrder - b.sortOrder).map((root) => {
-          const children = categories.filter((category) => category.parentId === root.id).sort((a, b) => a.sortOrder - b.sortOrder)
-          const open = expanded.has(root.id)
+        {sidebarTree.roots.length === 0 && sidebarTree.filtering && (
+          <p className="px-2 py-3 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('nav.category.no_match')}</p>
+        )}
+        {sidebarTree.roots.map((root) => {
+          const children = sidebarTree.children.get(root.id) ?? []
+          const fullChildren = categories.filter((category) => category.parentId === root.id)
+          const open = sidebarTree.filtering || expanded.has(root.id)
           return (
             <div key={root.id}>
               <CategoryRow
@@ -558,7 +605,7 @@ export function NavApp() {
                 count={categoryCount(root)}
                 active={selectedCategory === root.id && !selectedSubcategory}
                 locked={isLocked(root)}
-                hasChildren={children.length > 0}
+                hasChildren={!sidebarTree.filtering && fullChildren.length > 0}
                 expanded={open}
                 onToggle={() => setExpanded((current) => { const next = new Set(current); if (next.has(root.id)) next.delete(root.id); else next.add(root.id); return next })}
                 onSelect={() => void chooseCategory(root)}
