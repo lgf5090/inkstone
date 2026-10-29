@@ -5481,9 +5481,12 @@ const allowed = new Map([
     "/** The compact tag column in list view: colour plus name, so colour is never the only cue. */",
     "/**\n * The folder palette. A custom hex is checked against the surface it will be painted on before\n * it is accepted: a folder that disappears into the background is not a preference, it is a bug.\n */",
     "/** Tags for one entry: existing rows with a remove button, plus a palette and a name field. */",
+    "/** The dot is drawn with utilities rather than feature CSS because menus portal out of the page root. */",
   ]],
   ["src/client/features/clouddrive/files/ContextMenu.tsx", [
     "/** The current selection the action applies to; the right-clicked entry is included. */",
+    "// The menu is repositioned for a new point, not for a row whose tags just changed.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/clouddrive/files/Dialogs.tsx", [
     "// The reset runs when the dialog opens, not on every render of its parent.",
@@ -5497,6 +5500,7 @@ const allowed = new Map([
   ["src/client/features/clouddrive/files/FilesPage.tsx", [
     "/** Opens the preview/Quick Look surface. The shell owns the renderer. */",
     "// The previous directory is still usable; the failed refresh explains itself in a toast.",
+    "/** The selection bar disappears with the selection, so focus has to land somewhere visible. */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "/** Share existence is not part of the entry model; the shell may supply it later. */",
