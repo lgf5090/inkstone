@@ -122,6 +122,10 @@ export const clouddriveApi = {
   settings: () => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings'),
   patchSettings: (patch: CloudDriveSettingsPatch) => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 
+  keys: () => request<{ keys: { id: string; name: string; prefix: string; scopes: string[]; pathPrefix: string; expiresAt: number | null; lastUsedAt: number | null; createdAt: number }[] }>('/api/clouddrive/api-keys'),
+  createKey: (body: { name: string; scopes: string[]; pathPrefix?: string; expiresAt?: number | null }) => request<{ key: unknown; token: string }>('/api/clouddrive/api-keys', json(body)),
+  revokeKey: (id: string) => request<{ ok: true }>(`/api/clouddrive/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   shares: () => request<{ shares: unknown[] }>('/api/clouddrive/shares'),
   createShare: (body: unknown) => request<{ share: { slug: string; url: string } }>('/api/clouddrive/shares', json(body)),
   patchShare: (slug: string, body: unknown) => request<{ share: unknown }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),

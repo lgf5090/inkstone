@@ -20,6 +20,7 @@ import { DashboardPage } from './admin/DashboardPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
+import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
 
 const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive }[] = [
@@ -149,7 +150,9 @@ export function ClouddriveApp() {
                   ? <TransfersPage />
                   : address.page === 'settings'
                     ? <CloudDriveSettingsPage owner={owner} />
-                    : address.page === 'shares'
+                    : address.page === 'keys'
+                      ? <ApiKeysPage />
+                      : address.page === 'shares'
                       ? <SharesPage />
                       : address.page === 'mounts' || address.page === 'storage'
                         ? <MountsPage showStorages={address.page === 'storage'} />
