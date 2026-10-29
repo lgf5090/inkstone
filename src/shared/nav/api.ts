@@ -1,4 +1,5 @@
 import type {
+  NavBackupConfig,
   NavBootstrap,
   NavCategory,
   NavCheckResult,
@@ -80,5 +81,7 @@ export interface NavWebdavBackupResponse {
   filename: string
   verified: boolean
 }
+
+export type NavBackupConfigResponse = NavBackupConfig
 
 export type NavBootstrapResponse = NavBootstrap

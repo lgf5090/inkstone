@@ -88,6 +88,30 @@ export interface NavWebdavSettings {
   hasPassword: boolean
 }
 
+export type NavBackupSchedule = 'off' | 'hourly' | 'sixHourly' | 'daily' | 'weekly'
+
+export interface NavBackupState {
+  schedule: NavBackupSchedule
+  retention: number
+  lastRunAt: number | null
+  lastStatus: 'success' | 'failed' | null
+  lastError: string | null
+  lastFilename: string | null
+  history: string[]
+}
+
+export const DEFAULT_NAV_BACKUP_STATE: NavBackupState = {
+  schedule: 'off',
+  retention: 0,
+  lastRunAt: null,
+  lastStatus: null,
+  lastError: null,
+  lastFilename: null,
+  history: [],
+}
+
+export type NavBackupConfig = NavWebdavSettings & NavBackupState
+
 export interface NavSettings {
   display: NavDisplaySettings
   search: NavSearchSettings

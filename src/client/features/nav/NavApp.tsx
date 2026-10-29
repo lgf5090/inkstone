@@ -27,7 +27,8 @@ import {
 import { useNavStore } from './nav-store'
 import { NavIcon } from './nav-icons'
 import { NavLinkEditor } from './NavLinkEditor'
-import { NavSettingsModal, NavBackupModal } from './NavSettings'
+import { NavSettingsModal } from './NavSettings'
+import { NavBackupModal } from './NavBackupPanel'
 import { CategoryManagerModal, UnlockModal } from './NavCategories'
 import { LinkCheckerModal } from './NavChecker'
 import { ImportExportModal, QrModal } from './NavImport'
@@ -679,7 +680,7 @@ export function NavApp() {
           <SyncBadge status={sync} />
           <div className="ml-auto flex items-center gap-1">
             <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<FolderCog size={14} />} onClick={() => openCategoryManager()} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
-            <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.webdav')}><span className="hidden sm:inline">{t('nav.webdav')}</span></Button>
+            <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.backup.title')}><span className="hidden sm:inline">{t('nav.backup.title')}</span></Button>
             <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_detailed') : t('nav.card_simple')}</span></Button>
             <Button size="sm" variant="secondary" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
             <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
@@ -811,7 +812,7 @@ export function NavApp() {
           { id: 'categories', label: t('nav.category_manager'), icon: <FolderCog size={13} />, onSelect: () => openCategoryManager() },
           { id: 'import', label: t('nav.import_export'), icon: <Upload size={13} />, onSelect: () => setImportOpen(true) },
           { id: 'checker', label: t('nav.checker'), icon: <Unplug size={13} />, onSelect: () => setCheckerOpen(true) },
-          { id: 'webdav', label: t('nav.webdav'), icon: <Cloud size={13} />, onSelect: () => setBackupOpen(true) },
+          { id: 'webdav', label: t('nav.backup.title'), icon: <Cloud size={13} />, onSelect: () => setBackupOpen(true) },
           { id: 'settings', label: t('nav.settings'), icon: <Settings size={13} />, separatorBefore: true, onSelect: () => setSettingsOpen(true) },
         ]}
         align="end"

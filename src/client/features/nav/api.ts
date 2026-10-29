@@ -4,6 +4,7 @@ import { getLocale, t } from '../../lib/i18n'
 import type {
   NavAiModelsResponse,
   NavAiSuggestResponse,
+  NavBackupConfigResponse,
   NavBootstrapResponse,
   NavCategoryResponse,
   NavCheckResponse,
@@ -23,7 +24,6 @@ import type {
   NavImportCategory,
   NavImportLink,
   NavSettings,
-  NavWebdavSettings,
 } from '@shared/nav/model'
 
 const ERROR_KEYS: Record<string, string> = {
@@ -103,13 +103,13 @@ export const navApi = {
   batch: (body: { action: 'delete' | 'move' | 'rewrite'; ids: string[]; fallbackCategoryId?: string; template?: string }) => navFetch<Record<string, unknown>>('/api/nav/links/batch', { method: 'POST', body }),
   settings: () => navFetch<NavSettingsResponse>('/api/nav/settings'),
   saveSettings: <K extends keyof NavSettings>(group: K, value: NavSettings[K]) => navFetch<{ value: NavSettings[K] }>(`/api/nav/settings/${group}`, { method: 'PUT', body: value }),
-  saveWebdavConfig: (value: { url: string; username: string }) => navFetch<NavWebdavSettings>('/api/nav/settings/webdav', { method: 'PUT', body: value }),
-  webdavTest: (config?: { url: string; username: string; password?: string }) => navFetch<NavWebdavTestResponse>('/api/nav/webdav/test', { method: 'POST', body: config ?? {} }),
+  backupConfig: () => navFetch<NavBackupConfigResponse>('/api/nav/webdav/config'),
+  saveBackupConfig: (body: { url?: string; username?: string; password?: string; schedule?: string; retention?: number }) => navFetch<NavBackupConfigResponse>('/api/nav/webdav/config', { method: 'PUT', body }),
+  webdavTest: (config?: { url?: string; username?: string; password?: string }) => navFetch<NavWebdavTestResponse>('/api/nav/webdav/test', { method: 'POST', body: config ?? {} }),
   webdavBackup: (body: { timestamped?: boolean; url?: string; username?: string; password?: string }) => navFetch<NavWebdavBackupResponse>('/api/nav/webdav/backup', { method: 'POST', body }),
   webdavRestore: (body: { url?: string; username?: string; password?: string }) => navFetch<NavRestoreResponse>('/api/nav/webdav/restore', { method: 'POST', body }),
   exportBackup: () => navFetch<NavBackup>('/api/nav/backup'),
   restoreBackup: (body: NavBackup) => navFetch<NavRestoreResponse>('/api/nav/backup/restore', { method: 'POST', body }),
-  saveWebdavSecret: (password: string | null) => navFetch<{ hasPassword: boolean }>('/api/nav/webdav/secret', { method: 'PUT', body: password === null ? { clear: true } : { password } }),
   webdavForget: () => navFetch<{ ok: true }>('/api/nav/webdav/forget', { method: 'POST' }),
   uploadIcon: (file: File) => {
     const form = new FormData()

@@ -4,6 +4,7 @@ import {
   normalizeLinkUrl,
   type NavAiSettings,
   type NavBackup,
+  type NavBackupState,
   type NavBootstrap,
   type NavCategory,
   type NavCounts,
@@ -15,7 +16,7 @@ import {
   type NavVisit,
 } from '@shared/nav/model'
 import { rowToCategory, type NavCategoryRow } from './access'
-import { parseAiSettings, parseDisplaySettings, parseSearchSettings } from '@shared/nav/validation'
+import { parseAiSettings, parseDisplaySettings, parseNavBackupState, parseSearchSettings } from '@shared/nav/validation'
 
 export interface NavLinkRow {
   id: string
@@ -252,6 +253,22 @@ export class NavStore {
   async webdavSettings(): Promise<{ url: string; username: string; hasPassword: boolean }> {
     const [config, secret] = await Promise.all([this.webdavConfig(), this.webdavSecret()])
     return { ...config, hasPassword: Boolean(secret) }
+  }
+
+  async backupState(): Promise<NavBackupState> {
+    const row = await this.db
+      .prepare("SELECT value FROM nav_settings WHERE user_id = ?1 AND key = 'backup'")
+      .bind(this.userId)
+      .first<{ value: string }>()
+    return parseNavBackupState(row ? safeJson(row.value) : null)
+  }
+
+  async saveBackupState(state: NavBackupState): Promise<void> {
+    await this.db
+      .prepare(`INSERT INTO nav_settings (user_id, key, value, updated_at) VALUES (?1, 'backup', ?2, ?3)
+        ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+      .bind(this.userId, JSON.stringify(state), Date.now())
+      .run()
   }
 
   async createCategory(input: NavCategoryInput): Promise<NavCategory> {

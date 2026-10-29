@@ -1,15 +1,16 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NAV_SCHEMA_STATEMENTS } from '../src/worker/nav/schema'
 import { navBackupRoutes } from '../src/worker/nav/backup'
+import { runScheduledNavBackups } from '../src/worker/nav/backup-scheduler'
 import { navDataRoutes, navSettingsRoutes } from '../src/worker/nav/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import { sha256Hex } from '../src/worker/lib/encoding'
-import { newNavId, type NavBackup, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
+import { newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
-import { testBindings } from './doubles/bindings'
+import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
 
 const USER_A = 'user-alice'
@@ -47,6 +48,27 @@ function testApp(): Hono<AppBindings> {
   app.route('/api/nav', navDataRoutes)
   app.route('/api/nav', navBackupRoutes)
   return app
+}
+
+
+function makeVault(): DurableObjectNamespace {
+  const entries = new Map<string, { scope: string; value: unknown }>()
+  let sequence = 0
+  return testDurableObjectNamespace(async (request) => {
+    const url = new URL(request.url)
+    const body = await request.json() as { scope?: string; value?: unknown; ciphertext?: string }
+    if (url.pathname === '/encrypt') {
+      const ciphertext = `vault-${++sequence}`
+      entries.set(ciphertext, { scope: body.scope ?? '', value: body.value })
+      return Response.json({ ciphertext })
+    }
+    if (url.pathname === '/decrypt') {
+      const entry = entries.get(body.ciphertext ?? '')
+      if (!entry || entry.scope !== body.scope) return Response.json({}, { status: 422 })
+      return Response.json({ value: entry.value })
+    }
+    return new Response('not found', { status: 404 })
+  })
 }
 
 const app = testApp()
@@ -130,10 +152,12 @@ async function insertExpiredUnlock(user: string, categoryId: string, token: stri
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  sqlite.exec('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
   env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   sqlite.close()
 })
 
@@ -1243,6 +1267,134 @@ describe('WebDAV settings and secrets', () => {
       await call('GET', '/api/nav/settings'),
     )
     expect(settings.webdav).toEqual({ url: '', username: '', hasPassword: false })
+  })
+})
+
+describe('WebDAV backup runs', () => {
+  const NAV_USER = 'b'.repeat(26)
+
+  function webdavStub(): { calls: Array<{ method: string; url: string }>; mock: ReturnType<typeof vi.fn> } {
+    const calls: Array<{ method: string; url: string }> = []
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      calls.push({ method, url })
+      const status = method === 'PROPFIND' ? 207 : method === 'PUT' ? 201 : method === 'DELETE' ? 200 : 200
+      return new Response(null, { status })
+    })
+    vi.stubGlobal('fetch', mock)
+    return { calls, mock }
+  }
+
+  async function configure(retention: number): Promise<void> {
+    const response = await call('PUT', '/api/nav/webdav/config', {
+      user: NAV_USER,
+      body: { url: 'https://dav.example.com/root', username: 'alice', password: 'dav-password', schedule: 'hourly', retention },
+    })
+    expect(response.status).toBe(200)
+  }
+
+  it('uploads, records the run and prunes the oldest timestamped files', async () => {
+    env = testBindings(makeD1(sqlite), { CREDENTIAL_VAULT: makeVault() })
+    await configure(2)
+    sqlite.prepare("UPDATE nav_settings SET value = ?1 WHERE user_id = ?2 AND key = 'backup'").run(JSON.stringify({
+      schedule: 'hourly',
+      retention: 2,
+      lastRunAt: null,
+      lastStatus: null,
+      lastError: null,
+      lastFilename: null,
+      history: ['inkstone-nav-backup_2026-01-01_00-00-00.json', 'inkstone-nav-backup_2026-01-02_00-00-00.json'],
+    }), NAV_USER)
+    const { calls } = webdavStub()
+
+    const response = await call('POST', '/api/nav/webdav/backup', { user: NAV_USER, body: { timestamped: true } })
+    expect(response.status).toBe(200)
+    const body = await json<{ filename: string; verified: boolean }>(response)
+    expect(body.filename).toMatch(/^inkstone-nav-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.json$/)
+    expect(body.verified).toBe(true)
+
+    const state = JSON.parse((sqlite.prepare("SELECT value FROM nav_settings WHERE user_id = ?1 AND key = 'backup'").get(NAV_USER) as { value: string }).value) as {
+      lastStatus: string
+      history: string[]
+    }
+    expect(state.lastStatus).toBe('success')
+    expect(state.history[0]).toBe(body.filename)
+    expect(state.history).toContain('inkstone-nav-backup_2026-01-01_00-00-00.json')
+    expect(state.history).not.toContain('inkstone-nav-backup_2026-01-02_00-00-00.json')
+    expect(calls.some((call) => call.method === 'DELETE' && call.url.endsWith('inkstone-nav-backup_2026-01-02_00-00-00.json'))).toBe(true)
+    expect(calls.some((call) => call.method === 'DELETE' && call.url.endsWith('inkstone-nav-backup_2026-01-01_00-00-00.json'))).toBe(false)
+  })
+
+  it('runs the scheduled backup for a due account', async () => {
+    env = testBindings(makeD1(sqlite), { CREDENTIAL_VAULT: makeVault() })
+    await configure(0)
+    const { calls } = webdavStub()
+    await runScheduledNavBackups(env, Date.now() + 2 * 60 * 60 * 1000)
+    const state = JSON.parse((sqlite.prepare("SELECT value FROM nav_settings WHERE user_id = ?1 AND key = 'backup'").get(NAV_USER) as { value: string }).value) as {
+      lastStatus: string
+      filename?: string
+    }
+    expect(state.lastStatus).toBe('success')
+    expect(calls.some((call) => call.method === 'PUT')).toBe(true)
+  })
+})
+
+describe('saved WebDAV credentials', () => {
+  const NAV_USER = 'a'.repeat(26)
+
+  it('saves a target once and reuses the encrypted password without asking again', async () => {
+    env = testBindings(makeD1(sqlite), { CREDENTIAL_VAULT: makeVault() })
+    const saved = await call('PUT', '/api/nav/webdav/config', {
+      user: NAV_USER,
+      body: { url: 'https://dav.example.com/root', username: 'alice', password: 'dav-password', schedule: 'daily', retention: 7 },
+    })
+    expect(saved.status).toBe(200)
+    const body = await json<NavBackupConfig>(saved)
+    expect(body).toMatchObject({
+      url: 'https://dav.example.com/root',
+      username: 'alice',
+      hasPassword: true,
+      schedule: 'daily',
+      retention: 7,
+    })
+    expect(JSON.stringify(body)).not.toContain('dav-password')
+    expect(count('nav_secrets')).toBe(1)
+
+    const second = await call('PUT', '/api/nav/webdav/config', {
+      user: NAV_USER,
+      body: { url: 'https://dav.example.com/other', username: 'alice' },
+    })
+    expect(second.status).toBe(200)
+    expect((await json<NavBackupConfig>(second)).hasPassword).toBe(true)
+    expect(count('nav_secrets')).toBe(1)
+
+    const onlySchedule = await call('PUT', '/api/nav/webdav/config', { user: NAV_USER, body: { schedule: 'weekly', retention: 14 } })
+    expect(onlySchedule.status).toBe(200)
+    const status = await json<NavBackupConfig>(await call('GET', '/api/nav/webdav/config', { user: NAV_USER }))
+    expect(status).toMatchObject({
+      url: 'https://dav.example.com/other',
+      username: 'alice',
+      hasPassword: true,
+      schedule: 'weekly',
+      retention: 14,
+    })
+  })
+
+  it('requires a password on the first save and refuses a non-HTTPS endpoint', async () => {
+    env = testBindings(makeD1(sqlite), { CREDENTIAL_VAULT: makeVault() })
+    const missing = await call('PUT', '/api/nav/webdav/config', {
+      user: NAV_USER,
+      body: { url: 'https://dav.example.com/root', username: 'alice' },
+    })
+    expect(missing.status).toBe(401)
+    expect(await errorCode(missing)).toBe('wrong_password')
+    const insecure = await call('PUT', '/api/nav/webdav/config', {
+      user: NAV_USER,
+      body: { url: 'http://dav.example.com/root', username: 'alice', password: 'dav-password' },
+    })
+    expect(insecure.status).toBe(400)
+    expect(count('nav_secrets')).toBe(0)
   })
 })
 

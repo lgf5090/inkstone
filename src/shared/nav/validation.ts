@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   DEFAULT_NAV_AI,
+  DEFAULT_NAV_BACKUP_STATE,
   DEFAULT_NAV_DISPLAY,
   DEFAULT_NAV_SEARCH,
   NAV_LIMITS,
@@ -11,6 +12,7 @@ import {
   normalizeIconName,
   normalizeLinkUrl,
   normalizeSearchSource,
+  type NavBackupState,
   type NavSearchSettings,
 } from './model'
 
@@ -182,6 +184,32 @@ const backupLink = z.object({
   createdAt: z.number().int().nonnegative(),
 })
 const backupVisit = z.object({ lastVisitedAt: z.number().int().nonnegative(), visitCount: z.number().int().nonnegative() })
+
+export const NavBackupScheduleSchema = z.enum(['off', 'hourly', 'sixHourly', 'daily', 'weekly'])
+
+export const NavBackupConfigSchema = z.object({
+  url: z.string().trim().max(NAV_LIMITS.url).optional(),
+  username: z.string().trim().max(200).optional(),
+  password: z.string().max(512).optional(),
+  clearPassword: z.boolean().optional(),
+  schedule: NavBackupScheduleSchema.optional(),
+  retention: z.number().int().min(0).max(3650).optional(),
+})
+
+export const NavBackupStateSchema = z.object({
+  schedule: NavBackupScheduleSchema.default('off'),
+  retention: z.number().int().min(0).max(3650).default(0),
+  lastRunAt: z.number().int().nonnegative().nullable().default(null),
+  lastStatus: z.enum(['success', 'failed']).nullable().default(null),
+  lastError: z.string().max(500).nullable().default(null),
+  lastFilename: z.string().max(200).nullable().default(null),
+  history: z.array(z.string().max(200)).max(400).default([]),
+})
+
+export function parseNavBackupState(raw: unknown): NavBackupState {
+  const parsed = NavBackupStateSchema.safeParse(raw ?? {})
+  return parsed.success ? parsed.data : { ...DEFAULT_NAV_BACKUP_STATE }
+}
 
 export const NavBackupSchema = z.object({
   format: z.literal('inkstone-nav-backup'),
