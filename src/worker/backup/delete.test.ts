@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+vi.mock('../lib/host-guard', () => ({ resolvePublicHost: vi.fn(async () => 'ok') }))
 import { s3DeleteArchive } from './s3'
 import { webdavDeleteArchive } from './webdav'
 import type { S3Config, WebdavConfig } from '@shared/types'

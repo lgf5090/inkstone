@@ -1,4 +1,5 @@
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
+import { resolvePublicHost } from '../lib/host-guard'
 import type { NavCheckError } from '@shared/nav/model'
 
 export interface GuardedFetchOptions {
@@ -38,6 +39,14 @@ export async function guardedFetch(raw: string, options: GuardedFetchOptions = {
       }
       if (isBlockedTarget(current.hostname)) {
         return { response: new Response(null, { status: 403 }), finalUrl: current.toString(), error: 'blocked_target' }
+      }
+      const hostVerdict = await resolvePublicHost(current.hostname)
+      if (hostVerdict !== 'ok') {
+        return {
+          response: new Response(null, { status: hostVerdict === 'blocked' ? 403 : 502 }),
+          finalUrl: current.toString(),
+          error: hostVerdict === 'blocked' ? 'blocked_target' : 'network',
+        }
       }
       let response: Response
       try {

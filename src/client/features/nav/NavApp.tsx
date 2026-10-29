@@ -23,7 +23,7 @@ import { useUi } from '../../store/ui'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import { AssistantDock } from '../chat/AssistantDock'
 import {
-  avatarColor, buildSearchUrl, initialFor, isHttpUrl, linkMatchesQuery,
+  avatarTint, buildSearchUrl, initialFor, isHttpUrl, linkMatchesQuery,
   type NavCategory, type NavLink,
 } from '@shared/nav/model'
 import type { NavAssistantContext } from '@shared/nav/assistant-context'
@@ -49,6 +49,7 @@ const NAV_WRITE_TOOLS = new Set([
 ])
 
 const NAV_RENDER_PAGE = 120
+const AUTO_LOAD_LIMIT = 600
 
 function createMatcher(query: string): (link: NavLink) => boolean {
   const text = query.trim()
@@ -74,7 +75,7 @@ function LinkIcon({ link, size = 40 }: { link: NavLink; size?: number }) {
     )
   }
   return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-[var(--r-md)] font-semibold', avatarColor(link.title || link.url))} style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden>
+    <span className="flex shrink-0 items-center justify-center rounded-[var(--r-md)] font-semibold text-[var(--text-primary)]" style={{ width: size, height: size, fontSize: size * 0.38, backgroundColor: 'var(--bg-inset)', background: `color-mix(in oklab, ${avatarTint(link.title || link.url)} 18%, var(--bg-surface))` }} aria-hidden>
       {initialFor(link.title, link.url)}
     </span>
   )
@@ -251,7 +252,7 @@ function CategoryRow({ label, icon, count, active, locked, small, expanded, hasC
         onPointerCancel={endPress}
         onPointerLeave={endPress}
         aria-current={active ? 'page' : undefined}
-        className={cn('flex min-h-9 min-w-0 flex-1 items-center gap-1.5 py-2 pr-1 text-left md:min-h-0 md:py-1.5', small ? 'pl-2 text-[length:var(--text-11-5)]' : 'text-[length:var(--text-12)]')}
+        className={cn('flex min-h-11 min-w-0 flex-1 items-center gap-1.5 py-2 pr-1 text-left md:min-h-0 md:py-1.5', small ? 'pl-2 text-[length:var(--text-11-5)]' : 'text-[length:var(--text-12)]')}
       >
         <NavIcon name={icon} size={small ? 13 : 15} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -278,6 +279,7 @@ export function NavApp() {
   const selectedCategory = useNavStore((state) => state.selectedCategory)
   const selectedSubcategory = useNavStore((state) => state.selectedSubcategory)
   const query = useNavStore((state) => state.query)
+  const pageKey = `${selectedCategory ?? ''}|${selectedSubcategory ?? ''}|${query}`
   const load = useNavStore((state) => state.load)
   const setQuery = useNavStore((state) => state.setQuery)
   const selectCategory = useNavStore((state) => state.selectCategory)
@@ -311,7 +313,8 @@ export function NavApp() {
   const [qr, setQr] = useState<{ url: string; title: string } | null>(null)
   const [sortingPinned, setSortingPinned] = useState(false)
   const [sortingNormal, setSortingNormal] = useState(false)
-  const [renderLimit, setRenderLimit] = useState(NAV_RENDER_PAGE)
+  const [renderPage, setRenderPage] = useState({ key: pageKey, limit: NAV_RENDER_PAGE })
+  const renderLimit = renderPage.key === pageKey ? renderPage.limit : NAV_RENDER_PAGE
   const [dragId, setDragId] = useState<string | null>(null)
   const [menuLink, setMenuLink] = useState<NavLink | null>(null)
   const [categoryMenu, setCategoryMenu] = useState<{ category: NavCategory | null; point: { x: number; y: number } } | null>(null)
@@ -339,8 +342,10 @@ export function NavApp() {
   useEffect(() => {
     setSortingPinned(false)
     setSortingNormal(false)
-    setRenderLimit(NAV_RENDER_PAGE)
   }, [selectedCategory, selectedSubcategory, query])
+  useEffect(() => {
+    setRenderPage((current) => current.key === pageKey ? current : { key: pageKey, limit: NAV_RENDER_PAGE })
+  }, [pageKey])
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
@@ -439,15 +444,18 @@ export function NavApp() {
   const hasMoreNormal = visibleNormal.length < normal.length
   useEffect(() => {
     const node = loadMoreRef.current
-    if (!node) return
+    if (!node || renderLimit >= AUTO_LOAD_LIMIT) return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
-        setRenderLimit((current) => current + NAV_RENDER_PAGE)
+        setRenderPage((current) => ({
+          key: pageKey,
+          limit: (current.key === pageKey ? current.limit : NAV_RENDER_PAGE) + NAV_RENDER_PAGE,
+        }))
       }
     }, { rootMargin: '800px 0px' })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [hasMoreNormal, normal.length])
+  }, [hasMoreNormal, normal.length, pageKey, renderLimit])
   const canSortPinned = !selectedCategory && !query.trim()
   const normalScopeId = selectedSubcategory ?? (selectedRoot && subcategories.length === 0 ? selectedRoot.id : null)
   const canSortNormal = !query.trim() && Boolean(normalScopeId)
@@ -729,7 +737,7 @@ export function NavApp() {
           <div className="ml-auto flex items-center gap-1">
             <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<FolderCog size={14} />} onClick={() => openCategoryManager()} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
             <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.backup.title')}><span className="hidden sm:inline">{t('nav.backup.title')}</span></Button>
-            <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_detailed') : t('nav.card_simple')}</span></Button>
+            <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_switch_simple') : t('nav.card_switch_detailed')}</span></Button>
             <Button size="sm" variant="secondary" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
             <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
             <IconButton label={t('nav.ai.open')} active={assistantDockOpen} onClick={() => setAssistantDock(!assistantDockOpen)}><Bot size={15} /></IconButton>
@@ -822,7 +830,7 @@ export function NavApp() {
                 </div>
                 {hasMoreNormal && (
                   <div ref={loadMoreRef} className="mt-3 flex justify-center">
-                    <Button size="sm" variant="secondary" onClick={() => setRenderLimit((current) => current + NAV_RENDER_PAGE)}>
+                    <Button size="sm" variant="secondary" onClick={() => setRenderPage({ key: pageKey, limit: renderLimit + NAV_RENDER_PAGE })}>
                       {t('nav.load_more', { shown: visibleNormal.length, total: normal.length })}
                     </Button>
                   </div>

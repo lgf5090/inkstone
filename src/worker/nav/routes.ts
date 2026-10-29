@@ -3,6 +3,7 @@ import type { ZodType } from 'zod'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { requestClientIp } from '../lib/request'
 import {
   NavCategoryCreateSchema,
   NavCategoryDeleteSchema,
@@ -23,6 +24,7 @@ import { NavStore, hiddenCategories } from './store'
 import {
   assertUnlockAllowed,
   clearCategoryUnlocks,
+  clearUnlockFailures,
   createCategoryUnlock,
   newCategoryPasswordHash,
   parseUnlockTokens,
@@ -88,12 +90,12 @@ async function passwordFields(
   return { passwordHash: null, useDefaultPassword: false }
 }
 
-async function fallbackCategory(nav: NavStore): Promise<string> {
+async function fallbackCategory(nav: NavStore, name = 'Uncategorized'): Promise<string> {
   const categories = await nav.categories()
   const root = categories.find((category) => !category.parentId)
   if (root) return root.id
   const created = await nav.createCategory({
-    name: 'Uncategorized',
+    name,
     icon: 'folder',
     parentId: null,
     passwordHash: null,
@@ -165,13 +167,15 @@ navDataRoutes.post('/categories/:id/unlock', async (c) => {
   const user = userId(c)
   const category = await nav.category(id)
   if (!category) throw ApiError.notFound('Category not found')
-  assertUnlockAllowed(user, id)
+  const clientIp = requestClientIp(c)
+  await assertUnlockAllowed(c.env.DB, user, id, clientIp)
   const input = await body(c, zod(NavUnlockSchema))
   const ok = await verifyCategoryPassword(category, input.password, c.env.NAV_DEFAULT_CATEGORY_PASSWORD)
   if (!ok) {
-    recordUnlockFailure(user, id)
+    await recordUnlockFailure(c.env.DB, user, id, clientIp)
     throw new ApiError(401, 'wrong_password', 'Wrong category password')
   }
+  await clearUnlockFailures(c.env.DB, user, id, clientIp)
   const unlock = await createCategoryUnlock(c.env.DB, user, id)
   return c.json(unlock)
 })
@@ -237,7 +241,7 @@ navDataRoutes.post('/import', async (c) => {
   const input = await body(c, zod(NavImportSchema))
   const existing = new Set((await nav.categories()).map((category) => category.id))
   const imported = new Set(input.categories.map((category) => category.id))
-  const fallback = existing.size || imported.size ? null : await fallbackCategory(nav)
+  const fallback = existing.size || imported.size ? null : await fallbackCategory(nav, input.fallbackCategoryName)
   const known = new Set([...existing, ...imported])
   const links = input.links.map((link) => ({
     ...link,

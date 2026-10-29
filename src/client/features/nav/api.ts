@@ -99,7 +99,7 @@ export const navApi = {
   deleteLink: (id: string) => navFetch<{ ok: true }>(`/api/nav/links/${id}`, { method: 'DELETE' }),
   orderLinks: (body: { scope: 'pinned' | 'category'; categoryId?: string; orderedIds: string[] }, unlocks?: readonly string[]) => navFetch<{ ok: true }>('/api/nav/links/order', { method: 'POST', body, unlocks }),
   visits: (visits: { linkId: string; count: number }[], keepalive = false) => navFetch<{ ok: true }>('/api/nav/visits', { method: 'POST', body: { visits }, keepalive }),
-  importBookmarks: (body: { categories: NavImportCategory[]; links: NavImportLink[]; skipExisting?: boolean }) => navFetch<NavImportResponse>('/api/nav/import', { method: 'POST', body }),
+  importBookmarks: (body: { categories: NavImportCategory[]; links: NavImportLink[]; skipExisting?: boolean }) => navFetch<NavImportResponse>('/api/nav/import', { method: 'POST', body: { ...body, fallbackCategoryName: t('nav.link.default_category') } }),
   batch: (body: { action: 'delete' | 'move' | 'rewrite'; ids: string[]; fallbackCategoryId?: string; template?: string }) => navFetch<Record<string, unknown>>('/api/nav/links/batch', { method: 'POST', body }),
   settings: () => navFetch<NavSettingsResponse>('/api/nav/settings'),
   saveSettings: <K extends keyof NavSettings>(group: K, value: NavSettings[K]) => navFetch<{ value: NavSettings[K] }>(`/api/nav/settings/${group}`, { method: 'PUT', body: value }),

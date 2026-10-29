@@ -166,6 +166,11 @@ export function isBlockedTarget(hostname: string): boolean {
   return isBlockedIpv4(parts)
 }
 
+export function isIpLiteralHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  return host.includes(':') || looksLikeIpv4(host)
+}
+
 export function assertRelayableEndpoint(endpoint: string): URL {
   let parsed: URL
   try {

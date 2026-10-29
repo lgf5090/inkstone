@@ -329,25 +329,21 @@ export function initialFor(title: string, url: string): string {
   return /[a-z]/i.test(first) ? first.toUpperCase() : first
 }
 
-const AVATAR_COLORS = [
-  'bg-blue-600 text-white',
-  'bg-emerald-600 text-white',
-  'bg-amber-600 text-white',
-  'bg-violet-600 text-white',
-  'bg-rose-600 text-white',
-  'bg-indigo-600 text-white',
-  'bg-cyan-600 text-white',
-  'bg-teal-600 text-white',
-  'bg-fuchsia-600 text-white',
+const AVATAR_TINTS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
 ]
 
-export function avatarColor(seed: string): string {
+export function avatarTint(seed: string): string {
   let hash = 0
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash << 5) - hash + seed.charCodeAt(i)
     hash |= 0
   }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]!
+  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length]!
 }
 
 export function normalizeSearchSource(raw: {

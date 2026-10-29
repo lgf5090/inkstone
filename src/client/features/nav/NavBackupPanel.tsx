@@ -30,6 +30,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : t('nav.error.generic')
 }
 
+function webdavTestMessage(message: string | undefined): string {
+  const text = message ?? ''
+  if (/incorrect username|password/i.test(text)) return t('nav.backup.test_error.auth')
+  if (/path does not exist|path not found/i.test(text)) return t('nav.backup.test_error.path_missing')
+  if (/write access is missing/i.test(text)) return t('nav.backup.test_error.write_forbidden')
+  if (/read access is missing/i.test(text)) return t('nav.backup.test_error.read_forbidden')
+  if (/out of storage/i.test(text)) return t('nav.backup.test_error.storage')
+  if (/redirect/i.test(text)) return t('nav.backup.test_error.redirect')
+  if (/publicly reachable/i.test(text)) return t('nav.backup.test_error.connect')
+  if (/could not connect|connection|network/i.test(text)) return t('nav.backup.test_error.connect')
+  return t('nav.backup.test_error.generic')
+}
+
 const FREQUENCIES: NavBackupSchedule[] = ['off', 'hourly', 'sixHourly', 'daily', 'weekly']
 const RETENTIONS = [0, 7, 14, 30, 90, 365]
 
@@ -135,7 +148,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
         : {})
       setStatus(result.ok
         ? { kind: 'success', text: t('nav.backup.test_ok') }
-        : { kind: 'error', text: result.error ?? t('nav.backup.test_failed') })
+        : { kind: 'error', text: webdavTestMessage(result.error) })
     } catch (error) {
       setStatus({ kind: 'error', text: errorMessage(error) })
     } finally {
@@ -161,7 +174,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
   async function restoreLatest(): Promise<void> {
     if (!(await confirm({
       title: t('nav.backup.restore_confirm'),
-      description: t('nav.backup.restore_hint'),
+      description: t('nav.backup.restore_locked_hint'),
       confirmLabel: t('nav.backup.restore'),
       tone: 'danger',
     }))) return
@@ -378,8 +391,11 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
 
             {configured && (
               <section className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-3">
-                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('nav.backup.restore_hint')}</p>
-                <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} disabled={busy} onClick={() => void restoreLatest()}>
+                <div className="min-w-0">
+                  <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('nav.backup.restore_hint')}</p>
+                  <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('nav.backup.hidden_hint')}</p>
+                </div>
+                <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} disabled={busy || !(config?.lastFilename || config?.history?.length)} onClick={() => void restoreLatest()}>
                   {t('nav.backup.restore')}
                 </Button>
               </section>

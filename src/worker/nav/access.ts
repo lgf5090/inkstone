@@ -1,4 +1,5 @@
 import { ApiError } from '../lib/errors'
+import { assertAttemptBudget, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { sha256Hex, timingSafeEqual, toBase64Url } from '../lib/encoding'
 import { NAV_LIMITS, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
@@ -36,36 +37,24 @@ export function rowToCategory(row: NavCategoryRow): NavCategory {
 }
 
 export const UNLOCK_TTL_MS = 12 * 60 * 60 * 1000
-const ATTEMPT_WINDOW_MS = 10 * 60 * 1000
-const ATTEMPT_LIMIT = 10
-const attempts = new Map<string, { count: number; resetAt: number }>()
 
-function attemptKey(userId: string, categoryId: string): string {
-  return `${userId}:${categoryId}`
+function unlockTargets(userId: string, categoryId: string, clientIp: string) {
+  return [
+    { key: `nav-unlock:${userId}:${categoryId}`, freeFails: 5 },
+    { key: `nav-unlock-ip:${clientIp}`, freeFails: 20 },
+  ]
 }
 
-export function assertUnlockAllowed(userId: string, categoryId: string): void {
-  const now = Date.now()
-  const entry = attempts.get(attemptKey(userId, categoryId))
-  if (!entry || entry.resetAt <= now) {
-    if (attempts.size > 2048) {
-      for (const [key, value] of attempts) {
-        if (value.resetAt <= now) attempts.delete(key)
-      }
-      if (attempts.size > 2048) attempts.clear()
-    }
-    attempts.set(attemptKey(userId, categoryId), { count: 0, resetAt: now + ATTEMPT_WINDOW_MS })
-    return
-  }
-  if (entry.count >= ATTEMPT_LIMIT) throw new ApiError(429, 'too_many_attempts', 'Too many attempts, try again later')
+export async function assertUnlockAllowed(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
+  await assertAttemptBudget(() => assertNotLocked(db, unlockTargets(userId, categoryId, clientIp)))
 }
 
-export function recordUnlockFailure(userId: string, categoryId: string): void {
-  const now = Date.now()
-  const key = attemptKey(userId, categoryId)
-  const entry = attempts.get(key)
-  if (!entry || entry.resetAt <= now) attempts.set(key, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS })
-  else entry.count += 1
+export async function recordUnlockFailure(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
+  await recordLoginFailure(db, unlockTargets(userId, categoryId, clientIp))
+}
+
+export async function clearUnlockFailures(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
+  await clearLoginFailures(db, unlockTargets(userId, categoryId, clientIp))
 }
 
 export async function verifyCategoryPassword(

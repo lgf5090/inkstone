@@ -159,6 +159,7 @@ export const NavImportSchema = z.object({
     createdAt: z.number().int().nonnegative(),
   })).max(NAV_LIMITS.importLinksPerRequest),
   skipExisting: z.boolean().optional(),
+  fallbackCategoryName: categoryName.optional(),
 })
 
 const backupCategory = z.object({

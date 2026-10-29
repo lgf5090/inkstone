@@ -9,6 +9,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../src/worker/lib/host-guard', () => ({ resolvePublicHost: vi.fn(async () => 'ok') }))
 import { MUSIC_DRIVE_UPLOAD_MAX_BYTES } from '../src/shared/music/api'
 import { DEFAULT_MUSIC_SETTINGS } from '../src/shared/music/model'
 import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'

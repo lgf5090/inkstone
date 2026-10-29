@@ -2,9 +2,11 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../src/worker/lib/host-guard', () => ({ resolvePublicHost: vi.fn(async () => 'ok') }))
 import { NAV_SCHEMA_STATEMENTS } from '../src/worker/nav/schema'
 import { navCheckRoutes } from '../src/worker/nav/check'
 import { navIconRoutes } from '../src/worker/nav/icons'
+import { resolvePublicHost } from '../src/worker/lib/host-guard'
 import { errorResponse } from '../src/worker/lib/errors'
 import { NAV_LIMITS, isNavId } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -292,6 +294,18 @@ describe('icon delivery', () => {
 })
 
 describe('link check classification', () => {
+  it('refuses a DNS name that resolves to a private address without fetching it', async () => {
+    vi.mocked(resolvePublicHost).mockResolvedValueOnce('blocked')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await call('POST', '/api/nav/check', {
+      body: { urls: ['https://public-name.example/'] },
+    })
+    const body = await json<NavCheckResponse>(response)
+    expect(body.results[0]).toMatchObject({ level: 'skipped', errorCode: 'blocked_target' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('classifies 2xx, 4xx and 5xx HEAD answers', async () => {
     stubFetch((url) => {
       if (url === 'https://ok.example.com/') return new Response(null, { status: 200 })

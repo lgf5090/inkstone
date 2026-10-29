@@ -149,6 +149,7 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     }
     setNoteContext(false)
     setFolderContext(false)
+    for (const scope of useAssistant.getState().turnScopes) useAssistant.getState().dropTurnScope(scope.id)
   }, [surface, setNoteContext, setFolderContext])
 
   // The dock hands the plan over and takes it back as the reader moves through the list; the chip below is

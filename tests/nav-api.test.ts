@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../src/worker/lib/host-guard', () => ({ resolvePublicHost: vi.fn(async () => 'ok') }))
 import { NAV_SCHEMA_STATEMENTS } from '../src/worker/nav/schema'
 import { navBackupRoutes } from '../src/worker/nav/backup'
 import { runScheduledNavBackups } from '../src/worker/nav/backup-scheduler'
@@ -153,6 +154,7 @@ beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
   sqlite.exec('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+  sqlite.exec('CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, last_fail_at INTEGER NOT NULL, locked_until INTEGER)')
   env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
 })
 
@@ -448,6 +450,19 @@ describe('category passwords and unlock tokens', () => {
       headers: { 'X-Nav-Unlocks': unlockBody.token },
     }))
     expect(otherUser.links).toEqual([])
+  })
+
+  it('locks repeated wrong password attempts in the database', async () => {
+    const locked = await createCategory(USER_A, 'Locked attempts', {
+      passwordMode: 'custom',
+      password: 'attempt-password',
+    })
+    const statuses: number[] = []
+    for (let index = 0; index < 7; index += 1) {
+      statuses.push((await call('POST', `/api/nav/categories/${locked.id}/unlock`, { body: { password: 'wrong-password' } })).status)
+    }
+    expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
+    expect(statuses[5]).toBe(429)
   })
 
   it('needs the unlock token when reordering pinned links from an unlocked category', async () => {

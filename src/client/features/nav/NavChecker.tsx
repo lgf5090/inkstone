@@ -34,6 +34,10 @@ import { useNavStore } from './nav-store'
 const CHECK_BATCH = 8
 const CHECK_CONCURRENCY = 3
 const CHECK_RENDER_PAGE = 200
+const LIVE_STATE_LIMIT = 400
+const PUBLISH_INTERVAL_MS = 250
+const CACHE_INTERVAL_MS = 2000
+const SCAN_DEADLINE_MS = 10 * 60_000
 const CACHE_LIMIT = 20_000
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MODAL_WIDTH = 960
@@ -259,17 +263,42 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [progress, setProgress] = useState({ checked: 0, total: 0 })
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null)
-  const [renderLimit, setRenderLimit] = useState(CHECK_RENDER_PAGE)
+  const [renderPage, setRenderPage] = useState({ key: 'all', limit: CHECK_RENDER_PAGE })
   const [busy, setBusy] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
 
   const abortRef = useRef<AbortController | null>(null)
   const resultsRef = useRef<Record<string, CheckRow>>({})
+  const checkingRef = useRef<Set<string>>(new Set())
+  const checkedRef = useRef(0)
+  const totalRef = useRef(0)
+  const scanLargeRef = useRef(false)
+  const deadlineHitRef = useRef(false)
+  const publishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!open) return
     abortRef.current?.abort()
     abortRef.current = null
+    if (publishTimerRef.current !== null) {
+      clearTimeout(publishTimerRef.current)
+      publishTimerRef.current = null
+    }
+    if (cacheTimerRef.current !== null) {
+      clearTimeout(cacheTimerRef.current)
+      cacheTimerRef.current = null
+    }
+    if (deadlineTimerRef.current !== null) {
+      clearTimeout(deadlineTimerRef.current)
+      deadlineTimerRef.current = null
+    }
+    scanLargeRef.current = false
+    checkedRef.current = 0
+    totalRef.current = 0
+    checkingRef.current = new Set()
+    deadlineHitRef.current = false
     const cached = readCache()
     resultsRef.current = cached.rows
     setResults(cached.rows)
@@ -281,11 +310,14 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     setProgress({ checked: 0, total: 0 })
     setBusy(false)
     setMoveTarget('')
-    setRenderLimit(CHECK_RENDER_PAGE)
+    setRenderPage({ key: 'all', limit: CHECK_RENDER_PAGE })
   }, [open])
 
   useEffect(() => () => {
     abortRef.current?.abort()
+    if (publishTimerRef.current !== null) clearTimeout(publishTimerRef.current)
+    if (cacheTimerRef.current !== null) clearTimeout(cacheTimerRef.current)
+    if (deadlineTimerRef.current !== null) clearTimeout(deadlineTimerRef.current)
   }, [])
 
   const categoryNames = useMemo(() => {
@@ -313,21 +345,68 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     () => links.filter((link) => filter === 'all' || results[link.id]?.level === filter),
     [links, results, filter],
   )
+  const renderLimit = renderPage.key === filter ? renderPage.limit : CHECK_RENDER_PAGE
   const renderedLinks = visibleLinks.slice(0, renderLimit)
   const hasMoreRows = renderedLinks.length < visibleLinks.length
   useEffect(() => {
-    setRenderLimit(CHECK_RENDER_PAGE)
+    setRenderPage((current) => current.key === filter ? current : { key: filter, limit: CHECK_RENDER_PAGE })
   }, [filter])
 
   const hasResults = lastCheckedAt !== null || Object.keys(results).length > 0
   const percent = progress.total > 0 ? Math.round((progress.checked / progress.total) * 100) : 0
   const moveOptions = useMemo(() => categoryOptions(categories), [categories])
 
-  function applyResults(rows: Record<string, CheckRow>): void {
+  function writeCacheSoon(): void {
+    if (cacheTimerRef.current !== null) return
+    cacheTimerRef.current = setTimeout(() => {
+      cacheTimerRef.current = null
+      writeCache(resultsRef.current)
+    }, CACHE_INTERVAL_MS)
+  }
+
+  function publishNow(): void {
+    if (publishTimerRef.current !== null) {
+      clearTimeout(publishTimerRef.current)
+      publishTimerRef.current = null
+    }
+    setResults(resultsRef.current)
+    setChecking(new Set(checkingRef.current))
+    setProgress({ checked: checkedRef.current, total: totalRef.current })
+  }
+
+  function schedulePublish(): void {
+    if (publishTimerRef.current !== null) return
+    publishTimerRef.current = setTimeout(() => {
+      publishTimerRef.current = null
+      publishNow()
+      writeCacheSoon()
+    }, PUBLISH_INTERVAL_MS)
+  }
+
+  function flushScanState(): void {
+    if (publishTimerRef.current !== null) {
+      clearTimeout(publishTimerRef.current)
+      publishTimerRef.current = null
+    }
+    if (cacheTimerRef.current !== null) {
+      clearTimeout(cacheTimerRef.current)
+      cacheTimerRef.current = null
+    }
+    setResults(resultsRef.current)
+    setChecking(new Set())
+    setProgress({ checked: checkedRef.current, total: totalRef.current })
+    writeCache(resultsRef.current)
+  }
+
+  function applyResults(rows: Record<string, CheckRow>, immediate = !scanLargeRef.current): void {
     if (!Object.keys(rows).length) return
     resultsRef.current = { ...resultsRef.current, ...rows }
-    setResults(resultsRef.current)
-    writeCache(resultsRef.current)
+    if (immediate) {
+      setResults(resultsRef.current)
+      writeCache(resultsRef.current)
+      return
+    }
+    schedulePublish()
   }
 
   function clearResults(ids: readonly string[]): void {
@@ -348,9 +427,21 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    const startedAt = Date.now()
+    if (deadlineTimerRef.current !== null) clearTimeout(deadlineTimerRef.current)
+    deadlineTimerRef.current = setTimeout(() => {
+      deadlineTimerRef.current = null
+      deadlineHitRef.current = true
+      controller.abort()
+    }, SCAN_DEADLINE_MS)
+    scanLargeRef.current = queue.length > LIVE_STATE_LIMIT
+    checkedRef.current = 0
+    totalRef.current = queue.length
+    checkingRef.current = new Set(queue.map((link) => link.id))
+    deadlineHitRef.current = false
     setPhase('scanning')
     setProgress({ checked: 0, total: queue.length })
-    setChecking(new Set(queue.map((link) => link.id)))
+    setChecking(new Set(checkingRef.current))
     setSelected(new Set())
 
     const chunks: NavLink[][] = []
@@ -358,10 +449,14 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       chunks.push(queue.slice(index, index + CHECK_BATCH))
     }
     let nextChunk = 0
-    let checked = 0
 
     const worker = async (): Promise<void> => {
       while (!controller.signal.aborted) {
+        if (Date.now() - startedAt > SCAN_DEADLINE_MS) {
+          deadlineHitRef.current = true
+          controller.abort()
+          return
+        }
         const chunk = chunks[nextChunk]
         nextChunk += 1
         if (!chunk) return
@@ -377,13 +472,14 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
             if (result) rows[link.id] = toRow(result, now)
           }
           applyResults(rows)
-          checked += chunk.length
-          setProgress({ checked, total: queue.length })
-          setChecking((current) => {
-            const next = new Set(current)
-            for (const link of chunk) next.delete(link.id)
-            return next
-          })
+          checkedRef.current += chunk.length
+          for (const link of chunk) checkingRef.current.delete(link.id)
+          if (scanLargeRef.current) {
+            schedulePublish()
+          } else {
+            setProgress({ checked: checkedRef.current, total: totalRef.current })
+            setChecking(new Set(checkingRef.current))
+          }
         } catch (error) {
           if (controller.signal.aborted) return
           throw error
@@ -394,23 +490,34 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     try {
       await Promise.all(Array.from({ length: Math.min(CHECK_CONCURRENCY, chunks.length) }, worker))
     } catch (error) {
+      if (deadlineTimerRef.current !== null) { clearTimeout(deadlineTimerRef.current); deadlineTimerRef.current = null }
       controller.abort()
-      setChecking(new Set())
+      flushScanState()
       setPhase('cancelled')
       toast({ title: errorMessage(error), tone: 'danger' })
       return
     }
-    if (controller.signal.aborted) return
+    if (controller.signal.aborted) {
+      if (deadlineTimerRef.current !== null) { clearTimeout(deadlineTimerRef.current); deadlineTimerRef.current = null }
+      flushScanState()
+      if (deadlineHitRef.current) {
+        setPhase('cancelled')
+        toast({ title: t('nav.checker.deadline'), tone: 'danger' })
+      }
+      return
+    }
+    if (deadlineTimerRef.current !== null) { clearTimeout(deadlineTimerRef.current); deadlineTimerRef.current = null }
     abortRef.current = null
-    setChecking(new Set())
+    flushScanState()
     setPhase('done')
     setLastCheckedAt(Date.now())
   }
 
   function stopScan(): void {
+    if (deadlineTimerRef.current !== null) { clearTimeout(deadlineTimerRef.current); deadlineTimerRef.current = null }
     abortRef.current?.abort()
     abortRef.current = null
-    setChecking(new Set())
+    flushScanState()
     setPhase('cancelled')
   }
 
@@ -423,8 +530,13 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
         cancelLabel: t('nav.cancel'),
       })
       if (!confirmed) return
+      if (deadlineTimerRef.current !== null) {
+        clearTimeout(deadlineTimerRef.current)
+        deadlineTimerRef.current = null
+      }
       abortRef.current?.abort()
       abortRef.current = null
+      flushScanState()
     }
     onClose()
   }
@@ -436,7 +548,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       const { results: rows } = await navApi.check([link.url])
       const row = rows[0]
       if (row) {
-        applyResults({ [link.id]: toRow(row, Date.now()) })
+        applyResults({ [link.id]: toRow(row, Date.now()) }, true)
         setLastCheckedAt(Date.now())
       }
     } catch (error) {
@@ -482,6 +594,10 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
   }
 
   function selectVisible(): void {
+    setSelected(new Set(renderedLinks.map((link) => link.id)))
+  }
+
+  function selectAllFiltered(): void {
     setSelected(new Set(visibleLinks.map((link) => link.id)))
   }
 
@@ -724,6 +840,11 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
             <Button size="sm" variant="ghost" onClick={selectVisible}>
               {t('nav.checker.select_current')}
             </Button>
+            {hasMoreRows && (
+              <Button size="sm" variant="ghost" onClick={selectAllFiltered}>
+                {t('nav.checker.select_all_results', { count: visibleLinks.length })}
+              </Button>
+            )}
             <Button size="sm" variant="ghost" disabled={brokenLinks.length === 0} onClick={selectBroken}>
               {t('nav.checker.select_broken')}
             </Button>
@@ -784,6 +905,11 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
             </p>
           ) : (
             <>
+              {hasMoreRows && (
+                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                  {t('nav.checker.showing', { shown: renderedLinks.length, total: visibleLinks.length })}
+                </p>
+              )}
               <div className="hidden md:block">
                 <table className="w-full table-fixed border-collapse text-left">
                   <caption className="sr-only">{t('nav.checker.title')}</caption>
@@ -880,7 +1006,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
               </ul>
               {hasMoreRows && (
                 <div className="mt-2 flex justify-center">
-                  <Button size="sm" variant="secondary" onClick={() => setRenderLimit((current) => current + CHECK_RENDER_PAGE)}>
+                  <Button size="sm" variant="secondary" onClick={() => setRenderPage({ key: filter, limit: renderLimit + CHECK_RENDER_PAGE })}>
                     {t('nav.load_more', { shown: renderedLinks.length, total: visibleLinks.length })}
                   </Button>
                 </div>

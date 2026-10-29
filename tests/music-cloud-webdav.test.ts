@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../src/worker/lib/host-guard', () => ({ resolvePublicHost: vi.fn(async () => 'ok') }))
 import { musicWebdavProviderId, parseMusicWebdavProviderId } from '../src/shared/music/model'
 import {
   createMusicWebdavContext,

@@ -1,4 +1,5 @@
 import type { TestConnectionResult, WebdavConfig } from '@shared/types'
+import { resolvePublicHost } from '../lib/host-guard'
 import type { Snapshot } from './snapshot'
 import { backupArchivePath, createBackupArchive } from './archive'
 import {
@@ -53,6 +54,8 @@ export async function webdavFetch(
   let current = new URL(input)
 
   for (let redirects = 0; redirects <= MAX_WEBDAV_REDIRECTS; redirects++) {
+    const hostVerdict = await resolvePublicHost(current.hostname)
+    if (hostVerdict !== 'ok') throw new Error('WebDAV host is not publicly reachable')
     const response = await fetch(current, { ...init, redirect: 'manual' })
     if (!WEBDAV_REDIRECTS.has(response.status)) return response
 

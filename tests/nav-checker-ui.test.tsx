@@ -281,13 +281,44 @@ describe('LinkCheckerModal', () => {
     expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes(t('nav.load_more', { shown: 200, total: 250 })))).toBe(false)
   })
 
+  it('selects the rendered page unless asked for every filtered result', async () => {
+    const links = Array.from({ length: 250 }, (_, index) => makeLink({ id: `select-${index}`, title: `Select ${index}`, url: `https://select-${index}.example/` }))
+    seed(links)
+    mount()
+    await flush()
+
+    click(buttonByText(t('nav.checker.select_current')))
+    expect(document.body.textContent).toContain(t('nav.checker.selected', { count: 200 }))
+    click(buttonByText(t('nav.checker.clear_selection')))
+    click(buttonByText(t('nav.checker.select_all_results', { count: 250 })))
+    expect(document.body.textContent).toContain(t('nav.checker.selected', { count: 250 }))
+  })
+
+  it('writes the result cache once for a large scan instead of once per batch', async () => {
+    const links = Array.from({ length: 600 }, (_, index) => makeLink({ id: `cache-${index}`, title: `Cache ${index}`, url: `https://cache-${index}.example/` }))
+    seed(links)
+    const writeSpy = vi.spyOn(Storage.prototype, 'setItem')
+    checkSpy.mockImplementation(async (urls: string[]) => ({
+      results: urls.map((url) => ({ url, status: 200, ok: true, level: 'ok' as const, durationMs: 1 })),
+    }))
+    mount()
+    await flush()
+    click(buttonByText(t('nav.checker.start')))
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await flush()
+
+    const cacheWrites = writeSpy.mock.calls.filter(([key]) => String(key).startsWith('inkstone.nav.linkCheck.')).length
+    expect(cacheWrites).toBeLessThanOrEqual(2)
+    expect(document.body.textContent).toContain(`${t('nav.checker.ok')} 600`)
+  })
+
   it('chunks bulk actions over the request limit', async () => {
     const links = Array.from({ length: 600 }, (_, index) => makeLink({ id: `bulk-${index}`, title: `Bulk ${index}`, url: `https://bulk-${index}.example/` }))
     seed(links)
     mount()
     await flush()
 
-    click(buttonByText(t('nav.checker.select_current')))
+    click(buttonByText(t('nav.checker.select_all_results', { count: 600 })))
     click(buttonByText(t('nav.checker.batch_delete')))
     click(buttonByText(t('nav.delete'), lastDialog()))
     await flush()
