@@ -546,13 +546,13 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       <div className="flex shrink-0 items-center justify-end gap-0.5">
         <IconButton
           label={`${t('nav.retry')} ${link.title}`}
-          size="xs"
+          size="sm"
           disabled={scanning || checking.has(link.id)}
           onClick={() => void recheck(link)}
         >
           <RefreshCw size={12} />
         </IconButton>
-        <IconButton label={`${t('nav.edit')} ${link.title}`} size="xs" onClick={() => onEditLink(link)}>
+        <IconButton label={`${t('nav.edit')} ${link.title}`} size="sm" onClick={() => onEditLink(link)}>
           <Pencil size={12} />
         </IconButton>
         <a
@@ -560,13 +560,13 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`${t('nav.open')} ${link.title}`}
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           <ExternalLink size={12} />
         </a>
         <IconButton
           label={`${t('nav.delete')} ${link.title}`}
-          size="xs"
+          size="sm"
           className="text-[var(--danger)]"
           onClick={() => void removeLink(link)}
         >

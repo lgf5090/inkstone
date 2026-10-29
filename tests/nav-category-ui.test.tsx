@@ -156,11 +156,11 @@ function lastDialog(): HTMLElement {
   return dialog
 }
 
-function mountManager(): { onClose: ReturnType<typeof vi.fn> } {
+function mountManager(target: { initialEditId?: string | null; initialParentId?: string | null; initialDeleteId?: string | null } = {}): { onClose: ReturnType<typeof vi.fn> } {
   const onClose = vi.fn()
   rendered = renderElement(
     <>
-      <CategoryManagerModal open onClose={onClose} />
+      <CategoryManagerModal open onClose={onClose} initialEditId={target.initialEditId} initialParentId={target.initialParentId} initialDeleteId={target.initialDeleteId} />
       <ConfirmHost />
     </>,
   )
@@ -304,6 +304,33 @@ describe('CategoryManagerModal', () => {
     }))
     const body = spies.update.mock.calls.at(-1)?.[1] as Record<string, unknown>
     expect(body).not.toHaveProperty('password')
+  })
+
+  it('opens the edit form directly for a category named by the caller', () => {
+    mountManager({ initialEditId: ALPHA.id })
+
+    const name = document.querySelector<HTMLInputElement>('input[maxlength="60"]')
+    expect(name?.value).toBe('Alpha')
+    expect(buttonByText(t('nav.save'))).not.toBeNull()
+  })
+
+  it('opens the delete panel for a category named by the caller', () => {
+    mountManager({ initialDeleteId: ALPHA.id })
+
+    expect(document.body.textContent).toContain(`${t('nav.category.delete_title')}: Alpha`)
+    expect(document.querySelector('select')).not.toBeNull()
+  })
+
+  it('opens a prefilled child form when the caller names a parent', async () => {
+    mountManager({ initialParentId: ALPHA.id })
+
+    const name = document.querySelector<HTMLInputElement>('input[maxlength="60"]')
+    expect(name?.value).toBe('')
+    fill(name!, 'From menu')
+    click(buttonByText(t('nav.save')))
+    await flush()
+
+    expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'From menu', parentId: ALPHA.id }))
   })
 
   it('moves a category with the up/down buttons', async () => {

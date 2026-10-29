@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronRight, Cloud,
-  Copy, ExternalLink, FolderCog, GripVertical, History, LayoutGrid, List, Lock,
+  ChevronsDown, ChevronsUp,
+  Copy, ExternalLink, FolderCog, FolderPlus, GripVertical, History, LayoutGrid, List, Lock,
+  RefreshCw,
   MoreHorizontal, PanelLeft, Pencil, Pin, Plus, QrCode, Rows3, Search, Settings,
   Trash2, TrendingUp, Unplug, Upload, X,
 } from 'lucide-react'
@@ -10,6 +12,7 @@ import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { copyText } from '../../lib/clipboard'
 import { usePinyinVersion } from '../../lib/pinyin'
+import { isImeComposing } from '../../lib/ime'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { Button, Badge, IconButton } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
@@ -29,16 +32,18 @@ import { CategoryManagerModal, UnlockModal } from './NavCategories'
 import { LinkCheckerModal } from './NavChecker'
 import { ImportExportModal, QrModal } from './NavImport'
 
-function matches(link: NavLink, query: string): boolean {
+function createMatcher(query: string): (link: NavLink) => boolean {
   const text = query.trim()
-  if (!text) return true
+  if (!text) return () => true
   const compiled = compileQuery(text)
-  if (compiled.error) return true
+  if (compiled.error) return () => true
   if (compiled.pattern) {
-    compiled.pattern.lastIndex = 0
-    return compiled.pattern.test(link.title) || compiled.pattern.test(link.description ?? '') || compiled.pattern.test(link.url)
+    return (link) => {
+      compiled.pattern!.lastIndex = 0
+      return compiled.pattern!.test(link.title) || compiled.pattern!.test(link.description ?? '') || compiled.pattern!.test(link.url)
+    }
   }
-  return queryMatches(compiled, link.title) !== null || linkMatchesQuery(link, text)
+  return (link) => queryMatches(compiled, link.title) !== null || linkMatchesQuery(link, text)
 }
 
 function LinkIcon({ link, size = 40 }: { link: NavLink; size?: number }) {
@@ -80,58 +85,56 @@ interface CardProps {
   onMove: (link: NavLink, direction: -1 | 1) => void
   onDropOn: (target: NavLink) => void
   onDragStart?: (link: NavLink) => void
+  onDragEnd?: () => void
 }
 
-function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelete, onMenu, onMove, onDropOn, onDragStart }: CardProps) {
+function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelete, onMenu, onMove, onDropOn, onDragStart, onDragEnd }: CardProps) {
   const titleId = `nav-title-${link.id}`
   const anchorProps = isHttpUrl(link.url)
     ? { href: link.url, target: '_blank', rel: 'noopener noreferrer' }
     : { href: link.url }
   return (
     <article
-      className={cn('group relative flex min-w-0 flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-raised)]', detailed ? 'min-h-[92px]' : 'min-h-[52px]')}
+      draggable={sorting}
+      className={cn(
+        'group relative flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)] hover:-translate-y-0.5 hover:border-[var(--border-default)] hover:bg-[var(--bg-raised)] hover:shadow-[var(--shadow-soft)] [content-visibility:auto]',
+        detailed ? 'gap-1 p-3 [contain-intrinsic-size:auto_88px]' : 'min-h-[56px] justify-center p-2.5 [contain-intrinsic-size:auto_56px]',
+        sorting && 'cursor-grab',
+      )}
       onContextMenu={(event) => { event.preventDefault(); onMenu(link, { x: event.clientX, y: event.clientY }) }}
+      onDragStart={(event) => { if (!sorting) { event.preventDefault(); return }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', link.id); onDragStart?.(link) }}
+      onDragEnd={() => onDragEnd?.()}
       onDragOver={(event) => { if (sorting) event.preventDefault() }}
       onDrop={(event) => { if (sorting) { event.preventDefault(); onDropOn(link) } }}
     >
-      <a {...anchorProps} aria-labelledby={titleId} className="absolute inset-0 z-0 rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpen(link)} onAuxClick={(event) => { if (event.button === 1) onOpen(link) }} />
+      <a {...anchorProps} draggable={sorting ? false : undefined} aria-labelledby={titleId} className="absolute inset-0 z-0 rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]" onClick={() => onOpen(link)} onAuxClick={(event) => { if (event.button === 1) onOpen(link) }} />
       <div className="pointer-events-none relative z-10 flex min-w-0 items-center gap-2.5">
-        <LinkIcon link={link} size={detailed ? 36 : 30} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span id={titleId} className={cn('min-w-0 truncate font-medium text-[var(--text-primary)]', detailed ? 'text-[length:var(--text-13)]' : 'text-[length:var(--text-12)]')}>{link.title}</span>
-            {link.pinned && <Pin size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.pinned')} />}
-          </div>
-          {detailed && <p className="mt-0.5 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{link.description || link.url}</p>}
-          {!detailed && <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{link.url}</p>}
-          {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="mt-0.5 w-fit whitespace-nowrap">{t('nav.visit_count', { count: visitCount })}</Badge>}
+        <LinkIcon link={link} size={detailed ? 40 : 32} />
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-9 [@media(hover:hover)]:pr-0">
+          <span id={titleId} className={cn('min-w-0 truncate font-medium text-[var(--text-primary)]', detailed ? 'text-[length:var(--text-14)]' : 'text-[length:var(--text-13)]')}>{link.title}</span>
+          {link.pinned && <Pin size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.pinned')} />}
+          {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="shrink-0 whitespace-nowrap">{t('nav.visit_count', { count: visitCount })}</Badge>}
         </div>
-        <div className="pointer-events-auto absolute right-1 top-1 z-20 flex items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-surface)]/90 p-0.5 opacity-100 shadow-sm [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
-          {sorting ? (
-            <>
-              <IconButton label={t('nav.move_up')} onClick={() => onMove(link, -1)}><ArrowUp size={13} /></IconButton>
-              <IconButton label={t('nav.move_down')} onClick={() => onMove(link, 1)}><ArrowDown size={13} /></IconButton>
-            </>
-          ) : (
-            <>
-              <IconButton label={t('nav.edit')} onClick={() => onEdit(link)}><Pencil size={13} /></IconButton>
-              <IconButton label={t('nav.delete')} onClick={() => onDelete(link)}><Trash2 size={13} /></IconButton>
-            </>
-          )}
+        <div className={cn('pointer-events-auto absolute right-0.5 top-0.5 z-20 flex items-center gap-0.5', !sorting && 'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100')}>
+          <span className="hidden [@media(hover:hover)]:inline-flex"><IconButton label={t('nav.edit')} onClick={() => onEdit(link)}><Pencil size={13} /></IconButton><IconButton label={t('nav.delete')} onClick={() => onDelete(link)}><Trash2 size={13} /></IconButton></span>
           <IconButton label={t('nav.more')} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(link, { x: rect.right, y: rect.bottom }) }}><MoreHorizontal size={14} /></IconButton>
         </div>
       </div>
+      {detailed && link.description && (
+        <p className="pointer-events-none relative z-10 mt-0.5 line-clamp-2 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{link.description}</p>
+      )}
+      {detailed && (
+        <p className="pointer-events-none relative z-10 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{link.url}</p>
+      )}
       {sorting && (
-        <div className="pointer-events-auto relative z-10 flex items-center gap-1 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
-          <button
-            type="button"
-            draggable
-            aria-label={`${t('nav.sort')}: ${link.title}`}
-            onDragStart={(event) => { event.dataTransfer.setData('text/plain', link.id); onDragStart?.(link) }}
-            className="inline-flex cursor-grab items-center gap-1 rounded-[var(--r-xs)] px-1 py-0.5 hover:bg-[var(--bg-hover)]"
-          >
+        <div className="pointer-events-auto relative z-10 mt-1 flex items-center justify-between gap-1 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+          <span aria-hidden="true" className="inline-flex cursor-grab items-center gap-1 rounded-[var(--r-xs)] px-1 py-0.5">
             <GripVertical size={12} /> {t('nav.sort')}
-          </button>
+          </span>
+          <span className="flex items-center gap-0.5">
+            <IconButton label={t('nav.move_up')} onClick={() => onMove(link, -1)}><ArrowUp size={13} /></IconButton>
+            <IconButton label={t('nav.move_down')} onClick={() => onMove(link, 1)}><ArrowDown size={13} /></IconButton>
+          </span>
         </div>
       )}
     </article>
@@ -162,21 +165,77 @@ interface CategoryRowProps {
   hasChildren?: boolean
   onSelect: () => void
   onToggle?: () => void
+  onContextMenu?: (event: React.MouseEvent) => void
+  onMenuAt?: (point: { x: number; y: number }) => void
 }
 
-function CategoryRow({ label, icon, count, active, locked, small, expanded, hasChildren, onSelect, onToggle }: CategoryRowProps) {
+const LONG_PRESS_MS = 480
+
+function CategoryRow({ label, icon, count, active, locked, small, expanded, hasChildren, onSelect, onToggle, onContextMenu, onMenuAt }: CategoryRowProps) {
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null)
+  const suppressed = useRef(false)
+
+  function endPress(): void {
+    if (!press.current) return
+    clearTimeout(press.current.timer)
+    press.current = null
+  }
+
+  function beginPress(event: React.PointerEvent): void {
+    if (event.pointerType === 'mouse' || !onMenuAt) return
+    const { clientX: x, clientY: y } = event
+    suppressed.current = false
+    press.current = {
+      x,
+      y,
+      timer: setTimeout(() => {
+        press.current = null
+        suppressed.current = true
+        onMenuAt({ x, y })
+      }, LONG_PRESS_MS),
+    }
+  }
+
+  function movePress(event: React.PointerEvent): void {
+    if (!press.current) return
+    if (Math.abs(event.clientX - press.current.x) > 8 || Math.abs(event.clientY - press.current.y) > 8) endPress()
+  }
+
+  useEffect(() => () => {
+    if (press.current) clearTimeout(press.current.timer)
+  }, [])
+
   return (
-    <div className={cn('flex items-center gap-0.5 rounded-[var(--r-sm)]', active ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
+    <div
+      onContextMenu={onContextMenu}
+      className={cn('flex items-center gap-0.5 rounded-[var(--r-sm)]', active ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
+    >
       {!small && (
-        <span className="flex size-7 shrink-0 items-center justify-center">
+        <span className="flex size-9 shrink-0 items-center justify-center md:size-7">
           {hasChildren ? (
-            <button type="button" onClick={onToggle} aria-label={expanded ? t('nav.collapse_sidebar') : t('nav.expand_sidebar')} aria-expanded={expanded} className="flex size-7 items-center justify-center rounded-[var(--r-xs)] hover:bg-[var(--bg-active)]">
+            <button type="button" onClick={onToggle} aria-label={expanded ? t('nav.collapse_sidebar') : t('nav.expand_sidebar')} aria-expanded={expanded} className="flex size-9 items-center justify-center rounded-[var(--r-xs)] hover:bg-[var(--bg-active)] md:size-7">
               {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
             </button>
           ) : null}
         </span>
       )}
-      <button type="button" onClick={onSelect} aria-current={active ? 'page' : undefined} className={cn('flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 text-left', small ? 'pl-2 text-[length:var(--text-11-5)]' : 'text-[length:var(--text-12)]')}>
+      <button
+        type="button"
+        onClick={() => { if (suppressed.current) { suppressed.current = false; return } onSelect() }}
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onMenuAt?.({ x: rect.left + 12, y: rect.bottom - 2 })
+        }}
+        onPointerDown={beginPress}
+        onPointerMove={movePress}
+        onPointerUp={endPress}
+        onPointerCancel={endPress}
+        onPointerLeave={endPress}
+        aria-current={active ? 'page' : undefined}
+        className={cn('flex min-h-9 min-w-0 flex-1 items-center gap-1.5 py-2 pr-1 text-left md:min-h-0 md:py-1.5', small ? 'pl-2 text-[length:var(--text-11-5)]' : 'text-[length:var(--text-12)]')}
+      >
         <NavIcon name={icon} size={small ? 13 : 15} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {locked && <Lock size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.locked')} />}
@@ -212,6 +271,8 @@ export function NavApp() {
   const reorderLinks = useNavStore((state) => state.reorderLinks)
   const toast = useUi((state) => state.toast)
   const pinyinVersion = usePinyinVersion()
+  const deferredQuery = useDeferredValue(query)
+  const matcher = useMemo(() => createMatcher(deferredQuery), [deferredQuery, pinyinVersion])
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     if (typeof window === 'undefined') return false
     try { return window.localStorage.getItem('inkstone.nav.sidebarHidden') === '1' } catch { return false }
@@ -221,6 +282,7 @@ export function NavApp() {
   const [editor, setEditor] = useState<{ open: boolean; link: NavLink | null; initial: { title: string; url: string } | null; defaultCategoryId?: string }>({ open: false, link: null, initial: null })
   const [unlockCategory, setUnlockCategory] = useState<NavCategory | null>(null)
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
+  const [categoryManagerTarget, setCategoryManagerTarget] = useState<{ editId?: string | null; parentId?: string | null; deleteId?: string | null } | null>(null)
   const [checkerOpen, setCheckerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -231,8 +293,10 @@ export function NavApp() {
   const [sortingNormal, setSortingNormal] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [menuLink, setMenuLink] = useState<NavLink | null>(null)
+  const [categoryMenu, setCategoryMenu] = useState<{ category: NavCategory | null; point: { x: number; y: number } } | null>(null)
   const context = useContextMenu()
   const settingsAnchor = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { void load() }, [load])
   useEffect(() => {
@@ -253,9 +317,31 @@ export function NavApp() {
     setSortingPinned(false)
     setSortingNormal(false)
   }, [selectedCategory, selectedSubcategory, query])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return
+      if (event.key === '/') {
+        event.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+        return
+      }
+      if (event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        openEditor()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const selectedRoot = categories.find((category) => category.id === selectedCategory && !category.parentId) ?? null
   const subcategories = useMemo(() => selectedRoot ? categories.filter((category) => category.parentId === selectedRoot.id).sort((a, b) => a.sortOrder - b.sortOrder) : [], [categories, selectedRoot])
+  const expandableRoots = useMemo(() => categories.filter((category) => !category.parentId && categories.some((item) => item.parentId === category.id)), [categories])
+  const allRootsExpanded = expandableRoots.length > 0 && expandableRoots.every((category) => expanded.has(category.id))
   const scopedLinks = useMemo(() => {
     let scoped = links
     if (selectedSubcategory) scoped = links.filter((link) => link.categoryId === selectedSubcategory)
@@ -263,8 +349,8 @@ export function NavApp() {
       const scope = new Set([selectedCategory, ...categories.filter((category) => category.parentId === selectedCategory).map((category) => category.id)])
       scoped = links.filter((link) => scope.has(link.categoryId))
     }
-    return scoped.filter((link) => matches(link, query))
-  }, [links, selectedCategory, selectedSubcategory, categories, query, pinyinVersion])
+    return scoped.filter(matcher)
+  }, [links, selectedCategory, selectedSubcategory, categories, matcher])
   const showSmart = !selectedCategory && !selectedSubcategory && !query.trim()
   const recent = useMemo(() => {
     if (!showSmart) return []
@@ -307,13 +393,27 @@ export function NavApp() {
     setEditor({ open: true, link, initial, defaultCategoryId: selectedSubcategory ?? selectedCategory ?? undefined })
   }
 
+  function openCategoryManager(target: { editId?: string | null; parentId?: string | null; deleteId?: string | null } | null = null): void {
+    setCategoryManagerTarget(target)
+    setCategoryManagerOpen(true)
+  }
+
+  function closeCategoryManager(): void {
+    setCategoryManagerOpen(false)
+    setCategoryManagerTarget(null)
+  }
+
   async function chooseCategory(category: NavCategory | null, subcategory: string | null = null): Promise<void> {
     setMobileOpen(false)
     if (category && isLocked(category)) {
       setUnlockCategory(category)
       return
     }
-    if (category && !category.parentId) {
+    if (category?.parentId) {
+      selectCategory(category.parentId, category.id)
+      return
+    }
+    if (category) {
       setExpanded((current) => {
         const next = new Set(current)
         if (next.has(category.id)) next.delete(category.id)
@@ -345,6 +445,42 @@ export function NavApp() {
   function openMenu(link: NavLink, point: { x: number; y: number }): void {
     setMenuLink(link)
     context.openAt(point)
+  }
+
+  function openCategoryMenu(event: React.MouseEvent, category: NavCategory | null): void {
+    event.preventDefault()
+    event.stopPropagation()
+    setCategoryMenu({ category, point: { x: event.clientX, y: event.clientY } })
+  }
+
+  async function copyCategoryName(category: NavCategory): Promise<void> {
+    if (await copyText(category.name)) toast({ title: t('nav.category.copied'), tone: 'success' })
+    else toast({ title: t('nav.error.generic'), tone: 'danger' })
+  }
+
+  function categoryMenuItemsFor(category: NavCategory | null): MenuItem[] {
+    if (!category) {
+      return [
+        { id: 'new-root', label: t('nav.category.add_root'), icon: <FolderPlus size={13} />, onSelect: () => openCategoryManager({ parentId: null }) },
+        { id: 'manage', label: t('nav.category_manager'), icon: <FolderCog size={13} />, onSelect: () => openCategoryManager() },
+        { id: 'refresh', label: t('nav.refresh'), icon: <RefreshCw size={13} />, onSelect: () => void load(true) },
+      ]
+    }
+    const hasChildren = categories.some((item) => item.parentId === category.id)
+    return [
+      { id: 'open', label: t('nav.open'), icon: <ExternalLink size={13} />, onSelect: () => void chooseCategory(category) },
+      ...(category.parentId ? [] : [{
+        id: 'child', label: t('nav.category.add_child', { name: category.name }), icon: <FolderPlus size={13} />, onSelect: () => openCategoryManager({ parentId: category.id }),
+      }]),
+      { id: 'edit', label: t('nav.edit'), icon: <Pencil size={13} />, onSelect: () => openCategoryManager({ editId: category.id }) },
+      { id: 'copy-name', label: t('nav.copy_name'), icon: <Copy size={13} />, onSelect: () => void copyCategoryName(category) },
+      ...(category.parentId || !hasChildren ? [] : [{
+        id: 'toggle', label: expanded.has(category.id) ? t('nav.category.collapse') : t('nav.category.expand'), icon: <ChevronRight size={13} />, onSelect: () => setExpanded((current) => { const next = new Set(current); if (next.has(category.id)) next.delete(category.id); else next.add(category.id); return next }),
+      }]),
+      ...(isLocked(category) ? [{ id: 'unlock', label: t('nav.unlock.action'), icon: <Lock size={13} />, onSelect: () => setUnlockCategory(category) }] : []),
+      { id: 'manage', label: t('nav.category_manager'), icon: <FolderCog size={13} />, onSelect: () => openCategoryManager() },
+      { id: 'delete', label: t('nav.category.delete_title'), icon: <Trash2 size={13} />, tone: 'danger' as const, separatorBefore: true, onSelect: () => openCategoryManager({ deleteId: category.id }) },
+    ]
   }
 
   async function moveWithin(list: NavLink[], link: NavLink, direction: -1 | 1, categoryId: string | null): Promise<void> {
@@ -409,8 +545,8 @@ export function NavApp() {
 
   function sidebar() {
     return (
-      <div className="flex flex-col gap-0.5 p-2">
-        <CategoryRow label={t('nav.all')} icon="layout-grid" count={counts.total} active={!selectedCategory} locked={false} onSelect={() => void chooseCategory(null)} />
+      <div className="flex min-h-full flex-col gap-0.5 p-2" onContextMenu={(event) => { if (event.target === event.currentTarget) openCategoryMenu(event, null) }}>
+        <CategoryRow label={t('nav.all')} icon="layout-grid" count={counts.total} active={!selectedCategory} locked={false} onSelect={() => void chooseCategory(null)} onContextMenu={(event) => openCategoryMenu(event, null)} onMenuAt={(point) => setCategoryMenu({ category: null, point })} />
         {categories.filter((category) => !category.parentId).sort((a, b) => a.sortOrder - b.sortOrder).map((root) => {
           const children = categories.filter((category) => category.parentId === root.id).sort((a, b) => a.sortOrder - b.sortOrder)
           const open = expanded.has(root.id)
@@ -426,6 +562,7 @@ export function NavApp() {
                 expanded={open}
                 onToggle={() => setExpanded((current) => { const next = new Set(current); if (next.has(root.id)) next.delete(root.id); else next.add(root.id); return next })}
                 onSelect={() => void chooseCategory(root)}
+                onContextMenu={(event) => openCategoryMenu(event, root)} onMenuAt={(point) => setCategoryMenu({ category: root, point })}
               />
               {open && children.map((child) => (
                 <div key={child.id} className="ml-3 border-l border-[var(--border-subtle)] pl-1">
@@ -437,6 +574,7 @@ export function NavApp() {
                     locked={isLocked(child)}
                     small
                     onSelect={() => void chooseCategory(root, child.id)}
+                    onContextMenu={(event) => openCategoryMenu(event, child)} onMenuAt={(point) => setCategoryMenu({ category: child, point })}
                   />
                 </div>
               ))}
@@ -475,8 +613,15 @@ export function NavApp() {
             <div className="relative min-w-[160px] flex-1">
               <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
               <Input
+                ref={searchRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape' || isImeComposing(event)) return
+                  event.preventDefault()
+                  setQuery('')
+                  event.currentTarget.blur()
+                }}
                 placeholder={activeSearchSource && settings.search.mode === 'external' ? t('nav.search.use_engine', { name: activeSearchSource.name }) : t('nav.search.placeholder')}
                 aria-label={t('nav.search.placeholder')}
                 className="pl-7 pr-7"
@@ -486,8 +631,8 @@ export function NavApp() {
           </form>
           <SyncBadge status={sync} />
           <div className="ml-auto flex items-center gap-1">
-            <Button size="sm" variant="secondary" icon={<FolderCog size={14} />} onClick={() => setCategoryManagerOpen(true)} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
-            <Button size="sm" variant="secondary" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.webdav')}><span className="hidden sm:inline">{t('nav.webdav')}</span></Button>
+            <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<FolderCog size={14} />} onClick={() => openCategoryManager()} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
+            <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.webdav')}><span className="hidden sm:inline">{t('nav.webdav')}</span></Button>
             <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_detailed') : t('nav.card_simple')}</span></Button>
             <Button size="sm" variant="secondary" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
             <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
@@ -498,10 +643,21 @@ export function NavApp() {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!sidebarHidden && (
-          <aside className="hidden w-[228px] shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:block">
+          <aside onContextMenu={(event) => { if (event.target === event.currentTarget) openCategoryMenu(event, null) }} className="hidden w-[228px] shrink-0 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:block">
             <div className="flex items-center justify-between px-3 py-2">
               <span className="text-[length:var(--text-10-5)] font-semibold uppercase tracking-wide text-[var(--text-quaternary)]">{t('nav.categories')}</span>
-              <IconButton label={t('nav.collapse_sidebar')} size="sm" onClick={() => setSidebarHidden(true)}><ChevronRight size={13} className="rotate-180" /></IconButton>
+              <div className="flex items-center gap-0.5">
+                {expandableRoots.length > 0 && (
+                  <IconButton
+                    label={allRootsExpanded ? t('nav.collapse_all') : t('nav.expand_all')}
+                    size="sm"
+                    onClick={() => setExpanded(allRootsExpanded ? new Set() : new Set(expandableRoots.map((category) => category.id)))}
+                  >
+                    {allRootsExpanded ? <ChevronsUp size={13} /> : <ChevronsDown size={13} />}
+                  </IconButton>
+                )}
+                <IconButton label={t('nav.collapse_sidebar')} size="sm" onClick={() => setSidebarHidden(true)}><ChevronRight size={13} className="rotate-180" /></IconButton>
+              </div>
             </div>
             {sidebar()}
           </aside>
@@ -521,32 +677,32 @@ export function NavApp() {
           )}
 
           {showSmart && recent.length > 0 && (
-            <section className="mb-4">
+            <section className="mb-5">
               <SectionTitle icon={<History size={14} />} title={t('nav.recent')} count={recent.length} action={<span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('nav.recent_quota', { shown: recent.length, quota: settings.display.recentLinksCount })}</span>} />
-              <div className={cn('grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))]', detailed ? 'gap-2' : 'gap-1.5')}>
+              <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
                 {recent.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={false} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
               </div>
             </section>
           )}
           {showSmart && frequent.length > 0 && (
-            <section className="mb-4">
+            <section className="mb-5">
               <SectionTitle icon={<TrendingUp size={14} />} title={t('nav.frequent')} count={frequent.length} action={<span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('nav.frequent_quota', { shown: frequent.length, quota: settings.display.frequentLinksCount })}</span>} />
-              <div className={cn('grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))]', detailed ? 'gap-2' : 'gap-1.5')}>
+              <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
                 {frequent.map(({ link, count }) => <LinkCard key={link.id} link={link} detailed={detailed} visitCount={count} sorting={false} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
               </div>
             </section>
           )}
 
           {pinned.length > 0 && (
-            <section className="mb-4">
+            <section className="mb-5">
               <SectionTitle
                 icon={<Pin size={14} />}
                 title={t('nav.pinned')}
                 count={pinned.length}
                 action={canSortPinned ? <Button size="sm" variant={sortingPinned ? 'primary' : 'ghost'} icon={<GripVertical size={13} />} onClick={() => setSortingPinned(!sortingPinned)}>{sortingPinned ? t('nav.sort_done') : t('nav.sort')}</Button> : undefined}
               />
-              <div className={cn('grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))]', detailed ? 'gap-2' : 'gap-1.5')}>
-                {pinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} />)}
+              <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
+                {pinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
               </div>
             </section>
           )}
@@ -561,10 +717,10 @@ export function NavApp() {
             {normal.length === 0 && pinned.length > 0 ? (
               <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] px-3 py-5 text-center text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('nav.empty.no_more')}</p>
             ) : normal.length === 0 ? (
-              <Empty art="folder" title={query.trim() ? t('nav.empty_search.title') : t('nav.empty.title')} description={query.trim() ? t('nav.empty_search.description') : t('nav.empty.description')} action={!query.trim() ? <Button icon={<Plus size={13} />} onClick={() => openEditor()}>{t('nav.add')}</Button> : undefined} />
+              <Empty art="folder" title={query.trim() ? t('nav.empty_search.title') : t('nav.empty.title')} description={query.trim() ? t('nav.empty_search.description') : t('nav.empty.description')} action={!query.trim() ? <div className="flex flex-wrap justify-center gap-2"><Button icon={<Plus size={13} />} onClick={() => openEditor()}>{t('nav.add')}</Button><Button variant="secondary" icon={<Upload size={13} />} onClick={() => setImportOpen(true)}>{t('nav.import_short')}</Button></div> : undefined} />
             ) : (
-              <div className={cn('grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),1fr))]', detailed ? 'gap-2' : 'gap-1.5')}>
-                {normal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} />)}
+              <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
+                {normal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
               </div>
             )}
           </section>
@@ -582,7 +738,7 @@ export function NavApp() {
         defaultCategoryId={editor.defaultCategoryId}
         onClose={() => setEditor({ open: false, link: null, initial: null })}
       />
-      <CategoryManagerModal open={categoryManagerOpen} onClose={() => setCategoryManagerOpen(false)} />
+      <CategoryManagerModal open={categoryManagerOpen} onClose={closeCategoryManager} initialEditId={categoryManagerTarget?.editId ?? null} initialParentId={categoryManagerTarget?.parentId} initialDeleteId={categoryManagerTarget?.deleteId ?? null} />
       <UnlockModal
         category={unlockCategory}
         onClose={() => {
@@ -605,7 +761,7 @@ export function NavApp() {
         open={settingsMenuOpen}
         onClose={() => setSettingsMenuOpen(false)}
         items={[
-          { id: 'categories', label: t('nav.category_manager'), icon: <FolderCog size={13} />, onSelect: () => setCategoryManagerOpen(true) },
+          { id: 'categories', label: t('nav.category_manager'), icon: <FolderCog size={13} />, onSelect: () => openCategoryManager() },
           { id: 'import', label: t('nav.import_export'), icon: <Upload size={13} />, onSelect: () => setImportOpen(true) },
           { id: 'checker', label: t('nav.checker'), icon: <Unplug size={13} />, onSelect: () => setCheckerOpen(true) },
           { id: 'webdav', label: t('nav.webdav'), icon: <Cloud size={13} />, onSelect: () => setBackupOpen(true) },
@@ -622,6 +778,14 @@ export function NavApp() {
         items={menuItems}
         width={200}
         label={t('nav.more')}
+      />
+      <Menu
+        anchor={categoryMenu?.point ?? { x: 0, y: 0 }}
+        open={Boolean(categoryMenu)}
+        onClose={() => setCategoryMenu(null)}
+        items={categoryMenu ? categoryMenuItemsFor(categoryMenu.category) : []}
+        width={220}
+        label={t('nav.categories')}
       />
     </div>
   )

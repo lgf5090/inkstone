@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, FolderPlus, Lock, Pencil, Plus, Trash2 } from 'lucide-react'
 import { isEmojiIcon, normalizeCategoryName, normalizeIconName, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
 import { NAV_ICON_NAMES } from '@shared/nav/icon-catalog'
@@ -48,7 +48,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
       <div className="flex flex-wrap items-center gap-2">
         <Segmented<IconTab>
           label={t('nav.category.icon')}
-          size="sm" className="size-9 md:size-6"
+          size="sm"
           value={tab}
           options={[
             { value: 'emoji', label: t('nav.icon.emoji') },
@@ -231,7 +231,7 @@ interface DeleteState {
  * work from a keyboard and a touch screen. The form edits one category at a time, and a delete asks
  * for the category that receives the orphaned links before the confirmation dialog opens.
  */
-export function CategoryManagerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CategoryManagerModal({ open, onClose, initialEditId = null, initialParentId, initialDeleteId = null }: { open: boolean; onClose: () => void; initialEditId?: string | null; initialParentId?: string | null; initialDeleteId?: string | null }) {
   const categories = useNavStore((state) => state.categories)
   const links = useNavStore((state) => state.links)
   const createCategory = useNavStore((state) => state.createCategory)
@@ -242,6 +242,8 @@ export function CategoryManagerModal({ open, onClose }: { open: boolean; onClose
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [deleting, setDeleting] = useState<DeleteState | null>(null)
   const [busy, setBusy] = useState(false)
+  const appliedTarget = useRef<string | null>(null)
+  const targetKey = `${initialEditId ?? ''}|${initialParentId === undefined ? 'none' : initialParentId ?? 'root'}|${initialDeleteId ?? ''}`
 
   const tree = useMemo(() => {
     const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
@@ -263,11 +265,31 @@ export function CategoryManagerModal({ open, onClose }: { open: boolean; onClose
   }, [links])
 
   useEffect(() => {
-    if (open) return
-    setEditor(null)
-    setDeleting(null)
-    setBusy(false)
-  }, [open])
+    if (!open) {
+      appliedTarget.current = null
+      setEditor(null)
+      setDeleting(null)
+      setBusy(false)
+      return
+    }
+    if (appliedTarget.current === targetKey) return
+    if (initialEditId) {
+      const category = categories.find((item) => item.id === initialEditId)
+      if (!category) return
+      appliedTarget.current = targetKey
+      startEdit(category)
+      return
+    }
+    if (initialDeleteId) {
+      const category = categories.find((item) => item.id === initialDeleteId)
+      if (!category) return
+      appliedTarget.current = targetKey
+      startDelete(category)
+      return
+    }
+    appliedTarget.current = targetKey
+    if (initialParentId !== undefined) startCreate(initialParentId ? categories.find((item) => item.id === initialParentId) ?? null : null)
+  }, [open, initialEditId, initialParentId, initialDeleteId, categories, targetKey])
 
   const rowsLocked = busy || editor !== null || deleting !== null
 

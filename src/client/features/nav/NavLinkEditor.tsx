@@ -45,6 +45,7 @@ function imageExists(url: string): Promise<boolean> {
 
 export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose }: Props) {
   const categories = useNavStore((state) => state.categories)
+  const links = useNavStore((state) => state.links)
   const settings = useNavStore((state) => state.settings)
   const createCategory = useNavStore((state) => state.createCategory)
   const createLink = useNavStore((state) => state.createLink)
@@ -134,6 +135,20 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
     setSaving(true)
     try {
       const normalized = normalizeLinkUrl(url)!
+      if (!link) {
+        const duplicate = links.find((item) => item.url === normalized)
+        if (duplicate) {
+          const keep = await confirm({
+            title: t('nav.link.duplicate'),
+            description: `${duplicate.title} · ${duplicate.url} — ${t('nav.link.duplicate_hint')}`,
+            confirmLabel: t('nav.add'),
+          })
+          if (!keep) {
+            setSaving(false)
+            return
+          }
+        }
+      }
       const targetCategory = await ensureCategory()
       const body = {
         title: title.trim(),
