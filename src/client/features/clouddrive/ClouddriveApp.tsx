@@ -17,6 +17,10 @@ import { FilesPage } from './files/FilesPage'
 import { MountsPage } from './mounts/MountsPage'
 import { SharesPage } from './shares/SharesPage'
 import { DashboardPage } from './admin/DashboardPage'
+import { AdminFilesPage } from './admin/AdminFilesPage'
+import { IndexPage } from './admin/IndexPage'
+import { PreviewSettingsPage } from './admin/PreviewSettingsPage'
+import { JobsPage } from './admin/JobsPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
@@ -146,6 +150,14 @@ export function ClouddriveApp() {
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
               : address.page === 'dashboard'
                 ? <DashboardPage />
+                : address.page === 'files-admin'
+                  ? <AdminFilesPage />
+                  : address.page === 'index'
+                    ? <IndexPage />
+                    : address.page === 'preview-settings'
+                      ? <PreviewSettingsPage />
+                      : address.page === 'jobs'
+                        ? <JobsPage />
                 : address.page === 'tasks'
                   ? <TransfersPage />
                   : address.page === 'settings'

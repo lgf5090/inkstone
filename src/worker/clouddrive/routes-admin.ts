@@ -216,6 +216,8 @@ function adminFileView(row: AdminFileRow) {
     mime: row.mime,
     size: row.size,
     storageKind: row.storage_kind,
+    storage: row.storage_kind === 'r2' ? 'Cloud Drive' : row.storage_kind,
+    remainingViews: null,
     uploadedAt: row.uploaded_at,
     modifiedAt: row.modified_at,
     createdAt: row.created_at,
@@ -302,6 +304,7 @@ clouddriveAdminRoutes.get('/admin/files', async (c) => {
     cursor,
     total: count > 10_000 ? null : count,
     canViewMemberFiles,
+    ownerCanViewMemberFiles: canViewMemberFiles,
   })
 })
 
@@ -439,8 +442,18 @@ clouddriveAdminRoutes.get('/admin/index', async (c) => {
     })
   }
   return c.json({
-    mounts: view,
-    totals: { pending: totalPending, indexed: totalIndexed },
+    mounts: view.map((mount) => ({
+      mountId: mount.mountId,
+      mountName: mount.name,
+      mountPath: mount.mountPath,
+      external: mount.external,
+      status: mount.status,
+      pending: mount.pending,
+      lastIndexedAt: mount.lastIndexedAt,
+      lastError: mount.error,
+    })),
+    pending: totalPending,
+    lastIndexedAt: view.reduce<number | null>((latest, mount) => mount.lastIndexedAt && (!latest || mount.lastIndexedAt > latest) ? mount.lastIndexedAt : latest, null),
     generatedAt: Date.now(),
   })
 })
