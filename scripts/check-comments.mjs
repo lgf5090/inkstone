@@ -7827,6 +7827,36 @@ const allowed = new Map([
   ["src/client/features/music/wall/wall.css", [
     "/* The song wall: a still heading over one oversized plane of queue covers.\n   wall-layout.ts owns the geometry; this file only paints what the layout placed. */",
   ]],
+  ["src/client/features/nav/NavApp.tsx", [
+    "/* ignore */",
+  ]],
+  ["src/client/features/nav/NavCategories.tsx", [
+    "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
+    "/** Editing a category that already carries a custom password: a blank field means \"keep it\". */",
+    "/**\n * Category management: roots with their direct children, each group reorderable with buttons that\n * work from a keyboard and a touch screen. The form edits one category at a time, and a delete asks\n * for the category that receives the orphaned links before the confirmation dialog opens.\n */",
+    "/**\n * Unlocks one protected category for the tab's session. The dialog owns the in-flight state so a\n * refused password leaves the field where the reader can correct it, and a success closes it.\n */",
+  ]],
+  ["src/client/features/nav/NavChecker.tsx", [
+    "/** The reference implementation scans eight links per request and keeps three requests in flight. */",
+    "// A corrupt cache only costs a rescan; opening the checker must never fail because of it.",
+    "// The scan itself still worked; a full or unavailable storage only loses the cache.",
+    "/**\n * The link checker: every bookmark scanned in small batches, filtered and selectively acted on.\n *\n * The panel only holds what the reader is looking at — results live in a per-user cache keyed by link\n * id, so a refresh within a day brings the last verdicts back without touching the network.\n */",
+  ]],
+  ["src/client/features/nav/NavImport.tsx", [
+    "// Nothing to resolve against: the panel still shows exactly what it was handed.",
+    "/**\n * Netscape bookmark import and export.\n *\n * Import is chunked so a large file never becomes one oversized request and the progress line stays\n * truthful between chunks; export walks the same format so a file this app writes can be read back by\n * this app or by a browser.\n */",
+    "// Entries the parser had to drop (unsupported schemes, malformed hrefs) count as skipped too.",
+    "/**\n * The link as a code a phone camera can read. The plate stays white in both themes, because a dark\n * frame would cut into the quiet zone the scanner needs around the code.\n */",
+  ]],
+  ["src/client/features/nav/NavLinkEditor.tsx", [
+    "// Automatic fetching is best-effort; the field stays empty and the reader can retry manually.",
+  ]],
+  ["src/client/features/nav/nav-store.ts", [
+    "// A full session storage must not take the navigation app down; the tokens live in memory too.",
+    "// The store is a module singleton, so this listener is intentionally never removed; a page is the",
+    "// lifetime of this app and a second one after a full reload starts from a new module graph.",
+    "// Storage may be unavailable in private windows; the in-memory state below still clears.",
+  ]],
   ["src/client/features/notes/NotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
     "// many times it is asked for is the whole point of the tests below.",
@@ -29496,6 +29526,19 @@ const allowed = new Map([
     "/** The Netease programme id of a podcast episode; absent for every other kind. */",
     "/** The provider's description of a podcast episode; absent for every other kind. */",
   ]],
+  ["src/shared/nav/bookmark.ts", [
+    "/** Read a Netscape bookmark file without executing or trusting any of its content. */",
+    "/** Chrome, Edge and Firefox all import this shape; nesting is preserved. */",
+  ]],
+  ["src/shared/nav/favicon-paths.ts", [
+    "/** Ordered candidates for a site's own logo, most specific first. */",
+  ]],
+  ["src/shared/nav/icon-catalog.ts", [
+    "/** The category icons the picker offers, as kebab-case Lucide names. */",
+  ]],
+  ["src/shared/nav/model.ts", [
+    "/** A URL a bookmark may store, or null. Mail and phone links are kept but never fetched. */",
+  ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
   ]],
@@ -35134,6 +35177,7 @@ const allowed = new Map([
     "/**\n   * Google Calendar OAuth client. Both halves are server secrets; with either unset the calendar\n   * sign-in route answers 503 instead of sending the reader to an authorization page that cannot\n   * come back. Plain CalDAV connections do not need them.\n   */",
     "/** Microsoft Graph OAuth client, with the same all-or-nothing rule as the Google pair. */",
     "/**\n   * The public origin the OAuth callback is registered under, as in `https://notes.example.com`.\n   * Optional: unset uses the origin of the request that started the flow. The callback path itself\n   * is fixed at `/api/calendar/oauth/callback`.\n   */",
+    "/** Optional default password for navigation categories that choose \"use default\". Set as a secret. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -35264,6 +35308,7 @@ const allowed = new Map([
     "/**\n * The credential of one calendar connection.\n *\n * The payload is one JSON blob inside the vault's opaque-bundle field. The scope is the connection id\n * so a ciphertext cannot be moved to another connection and read back out there. The plaintext exists\n * only inside the worker call that talks to the provider; no route returns it, and a log line never\n * receives it.\n */",
     "/**\n * The PKCE verifier of one pending OAuth state.\n *\n * The state hash is already the row's public identifier and never leaves the server, so sealing under\n * its first 26 hex characters needs no extra column: those are valid vault-id characters, and the\n * callback hashes the state it received and can reopen exactly that one verifier. A raw verifier in\n * the table would let anyone who can read D1 mint the code exchange.\n */",
     "/**\n * One Cloudflare account's credential bundle.\n *\n * The ciphertext is stored in R2 (`cloudflare/txt/accounts/<id>.txt`), so this is the only place the\n * plaintext exists: it is opened for the duration of one upstream Cloudflare call and never returned\n * by a route. The scope is the account row's own generated id, so a bundle copied onto another row\n * cannot be decrypted with that row's key.\n */",
+    "/** The navigation app's WebDAV password, scoped to one account. */",
   ]],
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",

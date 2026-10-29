@@ -298,6 +298,14 @@ const musicCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-music.ts'), 'ZH_CN_MUSIC'],
     ],
 };
+const navCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-nav.ts'), 'EN_US_NAV'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-nav.ts'), 'ZH_CN_NAV'],
+    ],
+};
 const imgbedCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-imgbed.ts'), 'EN_US_IMGBED'],
@@ -387,8 +395,8 @@ const developmentCatalogFiles = {
     ],
 };
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...imgbedCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...developmentCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...developmentCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...developmentCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...developmentCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

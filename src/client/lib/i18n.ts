@@ -67,11 +67,13 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
     'en-US': () => Promise.all([
         import('@shared/locales/en-US'),
         import('@shared/locales/en-US-imgbed'),
-    ]).then(([m, imgbed]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED }) as unknown as Record<string, string>),
+        import('@shared/locales/en-US-nav'),
+    ]).then(([m, imgbed, nav]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV }) as unknown as Record<string, string>),
     'zh-CN': () => Promise.all([
         import('@shared/locales/zh-CN'),
         import('@shared/locales/zh-CN-imgbed'),
-    ]).then(([m, imgbed]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED }) as unknown as Record<string, string>),
+        import('@shared/locales/zh-CN-nav'),
+    ]).then(([m, imgbed, nav]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**
