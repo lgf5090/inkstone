@@ -475,36 +475,15 @@ clouddriveUploadRoutes.put('/uploads/:id/content', async (c) => {
     if (length > session.size) throw ApiError.tooLarge('The request body is larger than the declared file size')
   }
 
-  const body = c.req.raw.body
-  if (!body && session.size > 0) throw ApiError.badRequest('A request body is required')
-  let received = 0
-  let overflow = false
-  let object: R2Object
-  if (body) {
-    const counted = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        received += chunk.byteLength
-        if (received > session.size) {
-          overflow = true
-          controller.error(new Error('clouddrive_body_too_large'))
-          return
-        }
-        controller.enqueue(chunk)
-      },
-    }))
-    try {
-      object = await bucket.put(key, counted, { httpMetadata: { contentType: session.mime } })
-    } catch (error) {
-      if (overflow) throw ApiError.tooLarge('The request body is larger than the declared file size')
-      throw error
-    }
-  } else {
-    object = await bucket.put(key, new Uint8Array(0), { httpMetadata: { contentType: session.mime } })
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+  const received = bytes.byteLength
+  if (received > session.size) {
+    throw ApiError.tooLarge('The request body is larger than the declared file size')
   }
   if (received !== session.size) {
-    await bucket.delete(key)
     throw ApiError.badRequest(`The request body was ${received} bytes but the session declared ${session.size}`)
   }
+  const object = await bucket.put(key, bytes, { httpMetadata: { contentType: session.mime } })
 
   const now = Date.now()
   await c.env.DB.prepare(
@@ -536,32 +515,12 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
     if (!Number.isSafeInteger(length) || length < 0) throw ApiError.badRequest('Content-Length is not a byte count')
     if (length > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
   }
-  const body = c.req.raw.body
-  if (!body) throw ApiError.badRequest('A part body is required')
-
-  let received = 0
-  let overflow = false
-  const counted = body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      received += chunk.byteLength
-      if (received > session.part_size) {
-        overflow = true
-        controller.error(new Error('clouddrive_part_too_large'))
-        return
-      }
-      controller.enqueue(chunk)
-    },
-  }))
-
-  let uploaded: R2UploadedPart
-  try {
-    uploaded = await bucket
-      .resumeMultipartUpload(key, session.provider_upload_id)
-      .uploadPart(partNumber, counted)
-  } catch (error) {
-    if (overflow) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
-    throw error
-  }
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+  const received = bytes.byteLength
+  if (received > session.part_size) throw ApiError.tooLarge('A part cannot be larger than the declared part size')
+  const uploaded = await bucket
+    .resumeMultipartUpload(key, session.provider_upload_id)
+    .uploadPart(partNumber, bytes)
 
   const isLast = partNumber === session.total_parts
   if ((!isLast && received !== session.part_size) || (isLast && received === 0)) {

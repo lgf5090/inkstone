@@ -144,7 +144,6 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     setAnchorId(null)
     setFocusedId(null)
     setMenuTarget(null)
-    setClipboard(null)
     setSearch('')
     setQuery('')
   }, [mountId, path])
@@ -224,6 +223,16 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     setAnchorId(null)
   }, [])
 
+  /** The selection bar disappears with the selection, so focus has to land somewhere visible. */
+  const focusFirstEntry = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const root = document.querySelector<HTMLElement>('[data-clouddrive-files]')
+      const target = root?.querySelector<HTMLElement>('[data-cd-entry]')
+        ?? root?.querySelector<HTMLElement>('[role="region"]')
+      target?.focus({ preventScroll: true })
+    })
+  }, [])
+
   const targetsFor = useCallback(
     (entry: CloudDriveEntry) => (selected.has(entry.id) ? entries.filter((item) => selected.has(item.id)) : [entry]),
     [entries, selected],
@@ -256,6 +265,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
   const handleContextMenu = useCallback((entry: CloudDriveEntry, event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
+    event.currentTarget.focus({ preventScroll: true })
     setSelected((current) => (current.has(entry.id) ? current : new Set([entry.id])))
     setAnchorId((current) => (selected.has(entry.id) ? current : entry.id))
     setFocusedId(entry.id)
@@ -276,6 +286,11 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         event.preventDefault()
         clearSelection()
       }
+      return true
+    }
+    if (event.key === ' ') {
+      event.preventDefault()
+      previewEntry(entry)
       return true
     }
     if (event.key === 'Enter') {
@@ -316,8 +331,11 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     const ok = clipboard.mode === 'copy'
       ? await actions.copy(clipboard.ids, path)
       : await actions.move(clipboard.ids, path)
-    if (ok && clipboard.mode === 'cut') setClipboard(null)
-  }, [actions, clipboard, path])
+    if (ok && clipboard.mode === 'cut') {
+      setClipboard(null)
+      focusFirstEntry()
+    }
+  }, [actions, clipboard, focusFirstEntry, path])
 
   const handleUploadPicked = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
@@ -472,6 +490,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
       <div className="flex min-h-0 min-w-0 flex-1">
         <div
           role="region"
+          tabIndex={-1}
           aria-label={t('clouddrive.nav.files')}
           aria-busy={status === 'loading'}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto"
@@ -574,7 +593,10 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         onCut={() => setClipboard({ mode: 'cut', ids: selectedEntries.map((entry) => entry.id) })}
         onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path })}
         onDelete={() => requestDelete(selectedEntries)}
-        onClear={clearSelection}
+        onClear={() => {
+          clearSelection()
+          focusFirstEntry()
+        }}
       />
 
       <ContextMenu
@@ -620,14 +642,26 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         initialPath={dialog?.kind === 'move' ? dialog.initialPath : path}
         busy={actions.busy}
         onClose={() => setDialog(null)}
-        onSubmit={(destination) => (dialog?.kind === 'move' ? actions.move(dialog.ids, destination) : Promise.resolve(false))}
+        onSubmit={(destination) => {
+          if (dialog?.kind !== 'move') return Promise.resolve(false)
+          return actions.move(dialog.ids, destination).then((ok) => {
+            if (ok) focusFirstEntry()
+            return ok
+          })
+        }}
       />
       <ConfirmDeleteDialog
         open={dialog?.kind === 'delete'}
         count={dialog?.kind === 'delete' ? dialog.ids.length : 0}
         busy={actions.busy}
         onClose={() => setDialog(null)}
-        onConfirm={() => (dialog?.kind === 'delete' ? actions.trash(dialog.ids) : Promise.resolve(false))}
+        onConfirm={() => {
+          if (dialog?.kind !== 'delete') return Promise.resolve(false)
+          return actions.trash(dialog.ids).then((ok) => {
+            if (ok) focusFirstEntry()
+            return ok
+          })
+        }}
       />
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>

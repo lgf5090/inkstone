@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
-import { HardDrive, LayoutGrid, List, RefreshCw, Trash2 } from 'lucide-react'
+import { HardDrive, LayoutGrid, List, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
@@ -8,6 +8,7 @@ import { navigateToPath } from '../../lib/app-history'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Drawer } from '../../components/overlay'
 import { FilePreviewModal } from '../file-preview'
 import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './address'
 import { cloudDriveCssVars } from './prefs'
@@ -52,6 +53,8 @@ export function ClouddriveApp() {
   useEffect(() => { void load() }, [load])
 
   const vars = useMemo(() => cloudDriveCssVars(prefs), [prefs])
+  const [preview, setPreview] = useState<CloudDriveEntry | null>(null)
+  const [mobileNav, setMobileNav] = useState(false)
 
   if (IS_DEMO_MODE) {
     return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.demo_unavailable')}</div>
@@ -74,11 +77,10 @@ export function ClouddriveApp() {
   const owner = user?.role === 'owner' || bootstrap.user.role === 'owner'
   const mounts = bootstrap.mounts.filter((mount) => mount.enabled)
   const navigate = (path: string) => navigateToPath(path)
-  const [preview, setPreview] = useState<CloudDriveEntry | null>(null)
 
   return (
     <div className="cd-app flex h-full min-h-0 bg-[var(--bg-base)]" style={vars as CSSProperties} data-clouddrive-app="">
-      <aside className={cn('cd-sidebar flex h-full min-h-0 w-[220px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]', !prefs.sidebarVisible && 'hidden')}>
+      <aside className={cn('cd-sidebar flex h-full min-h-0 w-[220px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] max-md:hidden', !prefs.sidebarVisible && 'md:hidden')}>
         <div className="flex h-11 shrink-0 items-center gap-2 px-3">
           <span className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]"><HardDrive size={16} /></span>
           <span className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('clouddrive.title')}</span>
@@ -111,6 +113,7 @@ export function ClouddriveApp() {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
+          <IconButton className="md:hidden" label={t('clouddrive.toolbar.menu')} onClick={() => setMobileNav(true)}><PanelLeft size={15} /></IconButton>
           <IconButton label={t('clouddrive.toolbar.refresh')} onClick={bumpRefresh}><RefreshCw size={15} /></IconButton>
           <nav aria-label={t('clouddrive.title')} className="flex min-w-0 items-center gap-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
             <span className="truncate">{mounts.find((mount) => mount.id === address.mountId)?.name ?? t('clouddrive.sidebar.primary')}</span>
@@ -135,6 +138,20 @@ export function ClouddriveApp() {
             : <PagePlaceholder page={address.page} />}
         </main>
       </div>
+      <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>
+        <div className="flex flex-col gap-1 p-2">
+          {[...FAVORITES, ...MANAGE.filter((item) => !item.ownerOnly || owner)].map((item) => (
+            <a key={item.page} href={cloudDrivePath(item.page, address.mountId, '/')} onClick={(event) => { event.preventDefault(); setMobileNav(false); navigate(cloudDrivePath(item.page, address.mountId, '/')) }} className="flex h-9 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+              {t(item.labelKey)}
+            </a>
+          ))}
+          {mounts.map((mount) => (
+            <a key={mount.id} href={cloudDrivePath('files', mount.id, '/')} onClick={(event) => { event.preventDefault(); setMobileNav(false); navigate(cloudDrivePath('files', mount.id, '/')) }} className="flex h-9 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+              {mount.name}
+            </a>
+          ))}
+        </div>
+      </Drawer>
       {preview && (
         <FilePreviewModal
           open
