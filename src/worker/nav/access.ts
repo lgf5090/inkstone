@@ -48,6 +48,12 @@ export function assertUnlockAllowed(userId: string, categoryId: string): void {
   const now = Date.now()
   const entry = attempts.get(attemptKey(userId, categoryId))
   if (!entry || entry.resetAt <= now) {
+    if (attempts.size > 2048) {
+      for (const [key, value] of attempts) {
+        if (value.resetAt <= now) attempts.delete(key)
+      }
+      if (attempts.size > 2048) attempts.clear()
+    }
     attempts.set(attemptKey(userId, categoryId), { count: 0, resetAt: now + ATTEMPT_WINDOW_MS })
     return
   }

@@ -190,6 +190,31 @@ export const NavBackupSchema = z.object({
   links: z.array(backupLink).max(NAV_LIMITS.importMaxLinks),
   visits: z.record(z.string(), backupVisit).optional(),
   settings: NavSettingsGroupSchema.partial().optional(),
+}).superRefine((backup, ctx) => {
+  const categoryIds = new Set(backup.categories.map((category) => category.id))
+  if (categoryIds.size !== backup.categories.length) {
+    ctx.addIssue({ code: 'custom', path: ['categories'], message: 'Duplicate category id' })
+  }
+  const parentOf = new Map(backup.categories.map((category) => [category.id, category.parentId]))
+  backup.categories.forEach((category, index) => {
+    if (category.parentId === null) return
+    if (!parentOf.has(category.parentId)) {
+      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Unknown parent category' })
+      return
+    }
+    if (parentOf.get(category.parentId) !== null) {
+      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Categories nest only one level' })
+    }
+  })
+  const linkIds = new Set(backup.links.map((link) => link.id))
+  if (linkIds.size !== backup.links.length) {
+    ctx.addIssue({ code: 'custom', path: ['links'], message: 'Duplicate link id' })
+  }
+  backup.links.forEach((link, index) => {
+    if (!categoryIds.has(link.categoryId)) {
+      ctx.addIssue({ code: 'custom', path: ['links', index, 'categoryId'], message: 'Unknown category for link' })
+    }
+  })
 })
 
 export const NavIconCaptureSchema = z.object({ url: z.string().trim().min(1).max(NAV_LIMITS.url) })

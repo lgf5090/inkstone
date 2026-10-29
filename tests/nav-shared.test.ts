@@ -13,7 +13,7 @@ import {
   type NavCategory,
   type NavLink,
 } from '../src/shared/nav/model'
-import { parseSearchSettings } from '../src/shared/nav/validation'
+import { NavBackupSchema, parseSearchSettings } from '../src/shared/nav/validation'
 import { exportBookmarkHtml, parseBookmarkHtml } from '../src/shared/nav/bookmark'
 
 function idFactory(): () => string {
@@ -441,5 +441,50 @@ describe('local link filtering', () => {
     expect(linkMatchesQuery(link, 'reference')).toBe(true)
     expect(linkMatchesQuery(link, '/guide')).toBe(true)
     expect(linkMatchesQuery(link, 'missing')).toBe(false)
+  })
+})
+
+describe('backup referential integrity', () => {
+  const rootId = 'a'.repeat(26)
+  const childId = 'b'.repeat(26)
+  const linkId = 'c'.repeat(26)
+  const base = () => ({
+    format: 'inkstone-nav-backup',
+    version: 1,
+    categories: [
+      { id: rootId, name: 'Root', icon: 'folder', parentId: null, sortOrder: 0, createdAt: 1 },
+      { id: childId, name: 'Child', icon: 'folder', parentId: rootId, sortOrder: 0, createdAt: 1 },
+    ],
+    links: [
+      { id: linkId, title: 'Site', url: 'https://example.com/', icon: null, description: null, categoryId: childId, pinned: false, pinnedOrder: 0, sortOrder: 0, createdAt: 1 },
+    ],
+  })
+
+  it('accepts a well-formed backup', () => {
+    expect(NavBackupSchema.safeParse(base()).success).toBe(true)
+  })
+
+  it('rejects a category whose parent is missing', () => {
+    const backup = base()
+    backup.categories[1]!.parentId = 'd'.repeat(26)
+    expect(NavBackupSchema.safeParse(backup).success).toBe(false)
+  })
+
+  it('rejects nesting deeper than one level', () => {
+    const backup = base()
+    backup.categories[1]!.parentId = childId
+    expect(NavBackupSchema.safeParse(backup).success).toBe(false)
+  })
+
+  it('rejects a link in a missing category', () => {
+    const backup = base()
+    backup.links[0]!.categoryId = 'd'.repeat(26)
+    expect(NavBackupSchema.safeParse(backup).success).toBe(false)
+  })
+
+  it('rejects duplicate ids', () => {
+    const backup = base()
+    backup.categories.push({ ...backup.categories[0]! })
+    expect(NavBackupSchema.safeParse(backup).success).toBe(false)
   })
 })

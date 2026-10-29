@@ -163,10 +163,10 @@ navDataRoutes.post('/categories/:id/unlock', async (c) => {
   const nav = store(c)
   const id = c.req.param('id')
   const user = userId(c)
-  assertUnlockAllowed(user, id)
-  const input = await body(c, zod(NavUnlockSchema))
   const category = await nav.category(id)
   if (!category) throw ApiError.notFound('Category not found')
+  assertUnlockAllowed(user, id)
+  const input = await body(c, zod(NavUnlockSchema))
   const ok = await verifyCategoryPassword(category, input.password, c.env.NAV_DEFAULT_CATEGORY_PASSWORD)
   if (!ok) {
     recordUnlockFailure(user, id)

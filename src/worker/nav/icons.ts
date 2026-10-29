@@ -91,6 +91,8 @@ async function insertIcon(
 }
 
 navIconRoutes.post('/icons', async (c) => {
+  const declared = Number(c.req.header('content-length') ?? 0)
+  if (declared > NAV_LIMITS.iconBytes + 64 * 1024) throw new ApiError(413, 'payload_too_large', 'Icon is too large')
   const form = await c.req.formData().catch(() => null)
   const file = form?.get('file')
   if (!(file instanceof File)) throw ApiError.badRequest('A file field is required')

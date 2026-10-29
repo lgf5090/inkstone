@@ -266,7 +266,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
         setStatus({ kind: 'loading', text: t('nav.webdav.restore') })
         const result = await navApi.webdavRestore(config())
         setStatus({ kind: 'success', text: t('nav.webdav.restore_ok') })
-        toast({ title: t('nav.webdav.restore_ok'), description: result.unlockedCategories.length ? t('nav.webdav.unlocked', { names: result.unlockedCategories.join(', ') }) : undefined, tone: 'success' })
+        toast({ title: t('nav.webdav.restore_ok'), description: result.unlockedCategoryNames.length ? t('nav.webdav.unlocked', { names: result.unlockedCategoryNames.join(', ') }) : undefined, tone: 'success' })
         await useNavStore.getState().load(true)
       } else {
         setStatus({ kind: 'loading', text: t('nav.webdav.backup') })

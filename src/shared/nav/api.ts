@@ -59,7 +59,7 @@ export interface NavRestoreResponse {
   restoredLinks: number
   restoredCategories: number
   restoredVisits: number
-  unlockedCategories: string[]
+  unlockedCategoryNames: string[]
 }
 
 export interface NavSettingsResponse {

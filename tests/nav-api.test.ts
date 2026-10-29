@@ -130,7 +130,7 @@ async function insertExpiredUnlock(user: string, categoryId: string, token: stri
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
-  env = testBindings(makeD1(sqlite))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
 })
 
 afterEach(() => {
@@ -830,6 +830,28 @@ describe('bookmark import', () => {
     const tooMany = Array.from({ length: 201 }, (_, index) => importLink(newNavId(), `https://many.example.com/${index}`, categoryId))
     expect((await call('POST', '/api/nav/import', { body: { categories: [category], links: tooMany } })).status).toBe(400)
     expect(count('nav_links')).toBe(0)
+  })
+
+  it('keeps bulk import and large category deletion under the D1 bound-parameter ceiling', async () => {
+    const fallback = await createCategory(USER_A, 'Fallback')
+    const rootId = newNavId()
+    const categories = [importCategory(rootId, 'Root')]
+    const links = []
+    for (let index = 0; index < 150; index += 1) {
+      const childId = newNavId()
+      categories.push(importCategory(childId, `Child ${index}`, rootId))
+      links.push(importLink(newNavId(), `https://bulk.example.com/${index}`, childId))
+    }
+    const imported = await call('POST', '/api/nav/import', { body: { categories, links, skipExisting: true } })
+    expect(imported.status).toBe(200)
+    expect(await json(imported)).toEqual({ imported: 150, skipped: 0 })
+
+    const removed = await call('DELETE', `/api/nav/categories/${rootId}`, { body: { fallbackCategoryId: fallback.id } })
+    expect(removed.status).toBe(200)
+    expect(count('nav_categories')).toBe(1)
+    const body = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(body.links).toHaveLength(150)
+    expect(body.links.every((link) => link.categoryId === fallback.id)).toBe(true)
   })
 
   it('does not let one user overwrite another user\'s rows by reusing their ids', async () => {

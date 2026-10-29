@@ -80,7 +80,8 @@ export async function readGuardedBytes(response: Response, maxBytes: number, tim
   if (!reader) return new Uint8Array()
   const chunks: Uint8Array[] = []
   let total = 0
-  const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), timeoutMs))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), timeoutMs) })
   try {
     for (;;) {
       const result = await Promise.race([reader.read(), timeout])
@@ -100,6 +101,8 @@ export async function readGuardedBytes(response: Response, maxBytes: number, tim
     }
   } catch {
     return null
+  } finally {
+    if (timer) clearTimeout(timer)
   }
   const out = new Uint8Array(total)
   let offset = 0

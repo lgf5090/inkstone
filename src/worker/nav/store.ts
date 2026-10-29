@@ -308,15 +308,19 @@ export class NavStore {
     if (!fallback || fallbackCategoryId === id) throw ApiError.badRequest('Fallback category not found')
     const children = (await this.categoryRows()).filter((row) => row.parent_id === id)
     if (children.some((row) => row.id === fallbackCategoryId)) throw ApiError.badRequest('Fallback cannot be a child of the deleted category')
-    const ids = new Set([id, ...children.map((row) => row.id)])
+    const ids = [id, ...children.map((row) => row.id)]
     const now = Date.now()
-    const statements: D1PreparedStatement[] = [
-      this.db.prepare(`UPDATE nav_links SET category_id = ?1, updated_at = ?2 WHERE user_id = ?3 AND category_id IN (${[...ids].map((_, i) => `?${i + 4}`).join(', ')})`)
-        .bind(fallbackCategoryId, now, this.userId, ...ids),
-      this.db.prepare(`DELETE FROM nav_category_unlocks WHERE user_id = ?1 AND category_id IN (${[...ids].map((_, i) => `?${i + 2}`).join(', ')})`)
-        .bind(this.userId, ...ids),
-      this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id),
-    ]
+    const statements: D1PreparedStatement[] = []
+    for (let index = 0; index < ids.length; index += 90) {
+      const chunk = ids.slice(index, index + 90)
+      statements.push(
+        this.db.prepare(`UPDATE nav_links SET category_id = ?1, updated_at = ?2 WHERE user_id = ?3 AND category_id IN (${chunk.map((_, i) => `?${i + 4}`).join(', ')})`)
+          .bind(fallbackCategoryId, now, this.userId, ...chunk),
+        this.db.prepare(`DELETE FROM nav_category_unlocks WHERE user_id = ?1 AND category_id IN (${chunk.map((_, i) => `?${i + 2}`).join(', ')})`)
+          .bind(this.userId, ...chunk),
+      )
+    }
+    statements.push(this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id))
     for (const child of children) statements.push(this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, child.id))
     await this.db.batch(statements)
   }
@@ -531,8 +535,8 @@ export class NavStore {
 
   async idsOwnedByAnotherUser(table: 'nav_categories' | 'nav_links', ids: readonly string[]): Promise<Set<string>> {
     const out = new Set<string>()
-    for (let index = 0; index < ids.length; index += 200) {
-      const chunk = ids.slice(index, index + 200)
+    for (let index = 0; index < ids.length; index += 90) {
+      const chunk = ids.slice(index, index + 90)
       if (!chunk.length) continue
       const placeholders = chunk.map((_, i) => `?${i + 2}`).join(', ')
       const { results } = await this.db
@@ -544,7 +548,7 @@ export class NavStore {
     return out
   }
 
-  async restore(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategories: string[] }> {
+  async restore(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategoryNames: string[] }> {
     await this.importData(backup.categories, backup.links, false)
     const categoryIds = new Set(backup.categories.map((category) => category.id))
     const linkIds = new Set(backup.links.map((link) => link.id))
@@ -573,8 +577,8 @@ export class NavStore {
           .bind(this.userId, linkId, visit.lastVisitedAt, visit.visitCount)))
       }
     }
-    const unlocked = backup.categories.filter((category) => category.hasPassword).map((category) => category.id)
-    return { restoredLinks: backup.links.length, restoredCategories: backup.categories.length, restoredVisits: visits.length, unlockedCategories: unlocked }
+    const unlocked = backup.categories.filter((category) => category.hasPassword).map((category) => category.name)
+    return { restoredLinks: backup.links.length, restoredCategories: backup.categories.length, restoredVisits: visits.length, unlockedCategoryNames: unlocked }
   }
 }
 
