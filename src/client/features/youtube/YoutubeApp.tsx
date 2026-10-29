@@ -252,6 +252,7 @@ export function YoutubeApp() {
         )}
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
+          <h1 className="sr-only">{t('app.tabs.youtube')}</h1>
           <DiscoverToolbar
             address={address}
             busy={busy}

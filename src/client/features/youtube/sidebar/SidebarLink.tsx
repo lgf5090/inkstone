@@ -40,7 +40,7 @@ export function SidebarLink({
         'text-[length:var(--text-12)] transition-colors duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
         active
-          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+          ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
         collapsed && 'justify-center px-0',
         className,
