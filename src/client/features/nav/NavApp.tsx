@@ -48,6 +48,8 @@ const NAV_WRITE_TOOLS = new Set([
   'nav_delete_category',
 ])
 
+const NAV_RENDER_PAGE = 120
+
 function createMatcher(query: string): (link: NavLink) => boolean {
   const text = query.trim()
   if (!text) return () => true
@@ -63,12 +65,11 @@ function createMatcher(query: string): (link: NavLink) => boolean {
 }
 
 function LinkIcon({ link, size = 40 }: { link: NavLink; size?: number }) {
-  const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [link.icon])
-  if (link.icon && !failed) {
+  const [failedIcon, setFailedIcon] = useState<string | null>(null)
+  if (link.icon && failedIcon !== link.icon) {
     return (
       <span className="flex shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)]" style={{ width: size, height: size }}>
-        <img src={link.icon} alt="" width={size * 0.7} height={size * 0.7} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="object-contain" onError={() => setFailed(true)} />
+        <img src={link.icon} alt="" width={size * 0.7} height={size * 0.7} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="object-contain" onError={() => setFailedIcon(link.icon)} />
       </span>
     )
   }
@@ -310,12 +311,14 @@ export function NavApp() {
   const [qr, setQr] = useState<{ url: string; title: string } | null>(null)
   const [sortingPinned, setSortingPinned] = useState(false)
   const [sortingNormal, setSortingNormal] = useState(false)
+  const [renderLimit, setRenderLimit] = useState(NAV_RENDER_PAGE)
   const [dragId, setDragId] = useState<string | null>(null)
   const [menuLink, setMenuLink] = useState<NavLink | null>(null)
   const [categoryMenu, setCategoryMenu] = useState<{ category: NavCategory | null; point: { x: number; y: number } } | null>(null)
   const context = useContextMenu()
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { void load() }, [load])
   useAssistantToolRefresh(NAV_WRITE_TOOLS, () => load(true))
@@ -336,6 +339,7 @@ export function NavApp() {
   useEffect(() => {
     setSortingPinned(false)
     setSortingNormal(false)
+    setRenderLimit(NAV_RENDER_PAGE)
   }, [selectedCategory, selectedSubcategory, query])
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -431,6 +435,19 @@ export function NavApp() {
     unlockTokens: Object.values(unlockTokens),
   }), [selectedCategory, selectedRoot?.name, selectedSubcategory, selectedSubcategoryName, query, links.length, scopedLinks.length, pinned.length, categories, unlockTokens])
   const normal = useMemo(() => scopedLinks.filter((link) => !link.pinned).sort((a, b) => a.sortOrder - b.sortOrder), [scopedLinks])
+  const visibleNormal = normal.slice(0, renderLimit)
+  const hasMoreNormal = visibleNormal.length < normal.length
+  useEffect(() => {
+    const node = loadMoreRef.current
+    if (!node) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setRenderLimit((current) => current + NAV_RENDER_PAGE)
+      }
+    }, { rootMargin: '800px 0px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMoreNormal, normal.length])
   const canSortPinned = !selectedCategory && !query.trim()
   const normalScopeId = selectedSubcategory ?? (selectedRoot && subcategories.length === 0 ? selectedRoot.id : null)
   const canSortNormal = !query.trim() && Boolean(normalScopeId)
@@ -799,9 +816,18 @@ export function NavApp() {
             ) : normal.length === 0 ? (
               <Empty art="folder" title={query.trim() ? t('nav.empty_search.title') : t('nav.empty.title')} description={query.trim() ? t('nav.empty_search.description') : t('nav.empty.description')} action={!query.trim() ? <div className="flex flex-wrap justify-center gap-2"><Button icon={<Plus size={13} />} onClick={() => openEditor()}>{t('nav.add')}</Button><Button variant="secondary" icon={<Upload size={13} />} onClick={() => setImportOpen(true)}>{t('nav.import_short')}</Button></div> : undefined} />
             ) : (
-              <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                {normal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
-              </div>
+              <>
+                <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
+                  {visibleNormal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
+                </div>
+                {hasMoreNormal && (
+                  <div ref={loadMoreRef} className="mt-3 flex justify-center">
+                    <Button size="sm" variant="secondary" onClick={() => setRenderLimit((current) => current + NAV_RENDER_PAGE)}>
+                      {t('nav.load_more', { shown: visibleNormal.length, total: normal.length })}
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </section>
         </main>

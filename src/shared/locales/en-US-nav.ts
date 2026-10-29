@@ -14,6 +14,7 @@ export const EN_US_NAV = {
   'nav.unpin': 'Unpin',
   'nav.more': 'More actions',
   'nav.loading': 'Loading navigation',
+  'nav.load_more': 'Load more ({shown} of {total} shown)',
   'nav.retry': 'Retry',
   'nav.demo_unavailable': 'The navigation app is unavailable in demo mode',
   'nav.all': 'All',

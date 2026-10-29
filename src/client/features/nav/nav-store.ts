@@ -119,6 +119,8 @@ function applyBootstrap(data: NavBootstrap): Partial<NavState> {
   }
 }
 
+const BATCH_CHUNK = 500
+
 export const useNavStore = create<NavState>((set, get) => {
   const run = async <T>(task: () => Promise<T>): Promise<T> => {
     set({ sync: 'saving' })
@@ -261,7 +263,11 @@ export const useNavStore = create<NavState>((set, get) => {
     },
 
     async batch(body) {
-      await run(() => navApi.batch(body))
+      await run(async () => {
+        for (let index = 0; index < body.ids.length; index += BATCH_CHUNK) {
+          await navApi.batch({ ...body, ids: body.ids.slice(index, index + BATCH_CHUNK) })
+        }
+      })
       await refresh()
     },
 

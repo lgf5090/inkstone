@@ -14,6 +14,7 @@ export const ZH_CN_NAV = {
   'nav.unpin': '取消置顶',
   'nav.more': '更多操作',
   'nav.loading': '正在加载导航',
+  'nav.load_more': '加载更多（已显示 {shown} / {total}）',
   'nav.retry': '重试',
   'nav.demo_unavailable': '演示模式下导航不可用',
   'nav.all': '全部',

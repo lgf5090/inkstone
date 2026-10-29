@@ -260,4 +260,39 @@ describe('LinkCheckerModal', () => {
     expect(brokenFilter).toBeTruthy()
     expect(document.querySelectorAll('tbody tr')).toHaveLength(4)
   })
+
+  it('renders no rows while closed', () => {
+    seed(Array.from({ length: 250 }, (_, index) => makeLink({ id: `closed-${index}`, title: `Closed ${index}`, url: `https://closed-${index}.example/` })))
+    rendered = renderElement(<LinkCheckerModal open={false} onClose={() => {}} onEditLink={() => {}} />)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(0)
+  })
+
+  it('renders one page of rows and loads the rest on request', async () => {
+    const links = Array.from({ length: 250 }, (_, index) => makeLink({ id: `page-${index}`, title: `Page ${index}`, url: `https://page-${index}.example/` }))
+    seed(links)
+    mount()
+    await flush()
+
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(200)
+    click(buttonByText(t('nav.load_more', { shown: 200, total: 250 })))
+    await flush()
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(250)
+    expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes(t('nav.load_more', { shown: 200, total: 250 })))).toBe(false)
+  })
+
+  it('chunks bulk actions over the request limit', async () => {
+    const links = Array.from({ length: 600 }, (_, index) => makeLink({ id: `bulk-${index}`, title: `Bulk ${index}`, url: `https://bulk-${index}.example/` }))
+    seed(links)
+    mount()
+    await flush()
+
+    click(buttonByText(t('nav.checker.select_current')))
+    click(buttonByText(t('nav.checker.batch_delete')))
+    click(buttonByText(t('nav.delete'), lastDialog()))
+    await flush()
+
+    const calls = (batchSpy.mock.calls as Array<[{ ids: string[] }]>).map(([body]) => body.ids.length)
+    expect(calls).toEqual([500, 100])
+  })
 })

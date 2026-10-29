@@ -33,6 +33,7 @@ import { useNavStore } from './nav-store'
 /** The reference implementation scans eight links per request and keeps three requests in flight. */
 const CHECK_BATCH = 8
 const CHECK_CONCURRENCY = 3
+const CHECK_RENDER_PAGE = 200
 const CACHE_LIMIT = 20_000
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MODAL_WIDTH = 960
@@ -258,6 +259,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [progress, setProgress] = useState({ checked: 0, total: 0 })
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null)
+  const [renderLimit, setRenderLimit] = useState(CHECK_RENDER_PAGE)
   const [busy, setBusy] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
 
@@ -279,6 +281,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     setProgress({ checked: 0, total: 0 })
     setBusy(false)
     setMoveTarget('')
+    setRenderLimit(CHECK_RENDER_PAGE)
   }, [open])
 
   useEffect(() => () => {
@@ -310,6 +313,11 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     () => links.filter((link) => filter === 'all' || results[link.id]?.level === filter),
     [links, results, filter],
   )
+  const renderedLinks = visibleLinks.slice(0, renderLimit)
+  const hasMoreRows = renderedLinks.length < visibleLinks.length
+  useEffect(() => {
+    setRenderLimit(CHECK_RENDER_PAGE)
+  }, [filter])
 
   const hasResults = lastCheckedAt !== null || Object.keys(results).length > 0
   const percent = progress.total > 0 ? Math.round((progress.checked / progress.total) * 100) : 0
@@ -590,6 +598,8 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     )
   }
 
+  if (!open) return null
+
   return (
     <Modal
       open={open}
@@ -790,7 +800,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleLinks.map((link) => (
+                    {renderedLinks.map((link) => (
                       <tr key={link.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
                         <td className="py-2 pr-1 align-top">
                           <Checkbox
@@ -832,7 +842,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
               </div>
 
               <ul className="flex flex-col gap-2 md:hidden">
-                {visibleLinks.map((link) => (
+                {renderedLinks.map((link) => (
                   <li
                     key={link.id}
                     className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5"
@@ -868,6 +878,13 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                   </li>
                 ))}
               </ul>
+              {hasMoreRows && (
+                <div className="mt-2 flex justify-center">
+                  <Button size="sm" variant="secondary" onClick={() => setRenderLimit((current) => current + CHECK_RENDER_PAGE)}>
+                    {t('nav.load_more', { shown: renderedLinks.length, total: visibleLinks.length })}
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </>
