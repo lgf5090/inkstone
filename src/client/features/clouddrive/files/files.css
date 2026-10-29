@@ -250,6 +250,7 @@
 
 [data-clouddrive-files] .cd-selection-bar {
   display: flex;
+  flex-shrink: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;

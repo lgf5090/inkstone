@@ -74,14 +74,20 @@ export function ContextMenu({
 }: ContextMenuProps) {
   const menu = useContextMenu()
 
+  const pointX = target?.point.x
+  const pointY = target?.point.y
+  const pointKey = target === null ? 'closed' : `${pointX}:${pointY}`
   useEffect(() => {
     if (target) menu.openAt(target.point)
     else menu.close()
-  }, [target])
+    // The menu is repositioned for a new point, not for a row whose tags just changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pointKey])
 
   const entry = target?.entry ?? null
   const writable = !readOnly && targets.every((item) => !item.readOnly) && targets.length > 0
   const metadataWritable = writable && targets.every((item) => item.storageKind !== 'external')
+  const copyable = writable && targets.every((item) => item.storageKind !== 'external')
   const single = targets.length === 1 && entry !== null
   const isFolder = entry?.kind === 'folder'
 
@@ -110,7 +116,7 @@ export function ContextMenu({
         id: 'copy',
         label: t('clouddrive.action.copy'),
         icon: <Copy size={14} />,
-        disabled: !writable,
+        disabled: !copyable,
         separatorBefore: true,
         onSelect: () => onCopy(targets),
       },
@@ -196,6 +202,7 @@ export function ContextMenu({
     isFolder,
     writable,
     metadataWritable,
+    copyable,
     single,
     busy,
     showCheckboxes,

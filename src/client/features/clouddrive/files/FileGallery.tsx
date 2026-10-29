@@ -52,6 +52,7 @@ export function FileGallery({
         <button
           type="button"
           aria-pressed={selected.has(active.id)}
+          data-cd-entry={active.id}
           className="cd-gallery-open"
           onClick={(event) => {
             event.currentTarget.focus({ preventScroll: true })
@@ -92,6 +93,7 @@ export function FileGallery({
                 type="button"
                 tabIndex={tabIndex}
                 aria-pressed={isSelected}
+                data-cd-entry={entry.id}
                 className="cd-gallery-thumb"
                 onClick={(event) => {
                   event.currentTarget.focus({ preventScroll: true })

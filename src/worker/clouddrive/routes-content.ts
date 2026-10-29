@@ -173,7 +173,6 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
     'X-CloudDrive-Thumbnail': 'fallback',
   })
 
-  // SVG is not a bitmap Image Resizing can decode; every other image is tried and falls back below.
   if (!c.env.IMAGES || file.mime === 'image/svg+xml') {
     const object = await bucket.get(file.storage_key)
     if (!object) throw ApiError.notFound('File data is missing')
