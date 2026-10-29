@@ -10,6 +10,7 @@ import { getWholeFile, deleteWholeFile, moveWholeFile } from './storage'
 import { deleteFileRow, renameFileRow } from './store'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import type { ImgbedActor } from './auth'
+import { imgbedResponseHeaders } from './file-headers'
 
 export const imgbedDavRoutes = new Hono<AppBindings>()
 
@@ -86,9 +87,11 @@ imgbedDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
   if (!channel) return new Response('Channel is not configured', { status: 503 })
   const response = await getWholeFile(c.env, channel, file, c.req.header('range') ?? null)
   if (!response) return new Response('Not Found', { status: 404 })
-  const headers = new Headers(response.headers)
-  headers.set('Content-Type', file.fileType)
-  headers.set('Accept-Ranges', 'bytes')
+  const headers = imgbedResponseHeaders(file, { admin: true, download: false, cacheControl: 'private, no-store' })
+  const contentType = response.headers.get('content-type')
+  const contentLength = response.headers.get('content-length')
+  if (contentType) headers.set('Content-Type', contentType)
+  if (contentLength) headers.set('Content-Length', contentLength)
   return new Response(c.req.method === 'HEAD' ? null : response.body, { status: response.status, headers })
 })
 
