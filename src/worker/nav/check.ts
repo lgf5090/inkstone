@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { NavCheckSchema } from '@shared/nav/validation'
 import { isHttpUrl, type NavCheckError, type NavCheckLevel, type NavCheckResult } from '@shared/nav/model'
 import { guardedFetch } from './safe-fetch'
@@ -10,6 +11,11 @@ export const navCheckRoutes = new Hono<AppBindings>()
 navCheckRoutes.use('*', requireAuth)
 
 navCheckRoutes.post('/', async (c) => {
+  const owner = c.get('userId') ?? c.get('user')?.id
+  if (!owner) throw ApiError.unauthenticated()
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `nav-check:${owner}`, maxAttempts: 300, windowMs: 60_000 },
+  ]))
   const raw = await c.req.json().catch(() => null)
   const parsed = NavCheckSchema.safeParse(raw)
   if (!parsed.success) throw ApiError.badRequest('urls must be an array of at most 10 addresses')

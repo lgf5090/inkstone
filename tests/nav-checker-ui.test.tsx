@@ -243,7 +243,7 @@ describe('LinkCheckerModal', () => {
     click(buttonByText(t('nav.delete'), lastDialog()))
     await flush()
 
-    expect(batchSpy).toHaveBeenCalledWith({ action: 'delete', ids: [BROKEN.id] })
+    expect(batchSpy).toHaveBeenCalledWith(expect.objectContaining({ action: 'delete', ids: [BROKEN.id] }), expect.any(Array))
     expect(bootstrapSpy).toHaveBeenCalled()
   })
 

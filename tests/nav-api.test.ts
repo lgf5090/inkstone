@@ -116,13 +116,22 @@ async function createLink(
   categoryId: string,
   title: string,
   extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
 ): Promise<NavLink> {
   const response = await call('POST', '/api/nav/links', {
     user,
+    headers,
     body: { title, url: `https://${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.example.com/`, categoryId, ...extra },
   })
   expect(response.status, await response.clone().text()).toBe(200)
   return (await json<{ link: NavLink }>(response)).link
+}
+
+async function seedUnlock(user: string, categoryId: string, password: string): Promise<Record<string, string>> {
+  const response = await call('POST', `/api/nav/categories/${categoryId}/unlock`, { user, body: { password } })
+  expect(response.status).toBe(200)
+  const { token } = await json<{ token: string }>(response)
+  return { 'X-Nav-Unlocks': token }
 }
 
 function count(table: string): number {
@@ -410,7 +419,8 @@ describe('category passwords and unlock tokens', () => {
     expect(locked.hasPassword).toBe(true)
     expect(locked.passwordMode).toBe('custom')
     const visible = await createCategory(USER_A, 'Visible')
-    const secretLink = await createLink(USER_A, locked.id, 'Secret Link')
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'correct-horse')
+    const secretLink = await createLink(USER_A, locked.id, 'Secret Link', {}, seedHeaders)
     const openLink = await createLink(USER_A, visible.id, 'Open Link')
 
     const before = await json<NavBootstrap>(await call('GET', '/api/nav'))
@@ -465,13 +475,38 @@ describe('category passwords and unlock tokens', () => {
     expect(statuses[5]).toBe(429)
   })
 
+  it('refuses hidden link writes until the category is unlocked', async () => {
+    const locked = await createCategory(USER_A, 'Locked writes', {
+      passwordMode: 'custom',
+      password: 'write-password',
+    })
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'write-password')
+    const link = await createLink(USER_A, locked.id, 'Hidden write target', {}, seedHeaders)
+    const patchWithout = await call('PATCH', `/api/nav/links/${link.id}`, { body: { title: 'Changed' } })
+    const deleteWithout = await call('DELETE', `/api/nav/links/${link.id}`)
+    const createWithout = await call('POST', '/api/nav/links', { body: { title: 'Blocked', url: 'https://blocked.example/', categoryId: locked.id } })
+    expect(patchWithout.status).toBe(404)
+    expect(deleteWithout.status).toBe(404)
+    expect(createWithout.status).toBe(404)
+
+    const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, { body: { password: 'write-password' } }))
+    const headers = { 'X-Nav-Unlocks': unlock.token }
+    const patchWith = await call('PATCH', `/api/nav/links/${link.id}`, { headers, body: { title: 'Changed' } })
+    const createWith = await call('POST', '/api/nav/links', { headers, body: { title: 'Allowed', url: 'https://allowed.example/', categoryId: locked.id } })
+    const deleteWith = await call('DELETE', `/api/nav/links/${link.id}`, { headers })
+    expect(patchWith.status).toBe(200)
+    expect(createWith.status).toBe(200)
+    expect(deleteWith.status).toBe(200)
+  })
+
   it('needs the unlock token when reordering pinned links from an unlocked category', async () => {
     const locked = await createCategory(USER_A, 'Locked Pins', {
       passwordMode: 'custom',
       password: 'pin-password',
     })
     const open = await createCategory(USER_A, 'Open Pins')
-    const secret = await createLink(USER_A, locked.id, 'Secret Pin', { pinned: true })
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'pin-password')
+    const secret = await createLink(USER_A, locked.id, 'Secret Pin', { pinned: true }, seedHeaders)
     const openLink = await createLink(USER_A, open.id, 'Open Pin', { pinned: true })
     const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, {
       body: { password: 'pin-password' },
@@ -507,7 +542,8 @@ describe('category passwords and unlock tokens', () => {
     })
     const child = await createCategory(USER_A, 'Child', { parentId: locked.id })
     const open = await createCategory(USER_A, 'Open')
-    const childLink = await createLink(USER_A, child.id, 'Child Link')
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'parent-password')
+    const childLink = await createLink(USER_A, child.id, 'Child Link', {}, seedHeaders)
     const openLink = await createLink(USER_A, open.id, 'Open Link')
 
     const before = await json<NavBootstrap>(await call('GET', '/api/nav'))
@@ -527,7 +563,8 @@ describe('category passwords and unlock tokens', () => {
       passwordMode: 'custom',
       password: 'correct-horse',
     })
-    const secretLink = await createLink(USER_A, locked.id, 'Expired Secret')
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'correct-horse')
+    const secretLink = await createLink(USER_A, locked.id, 'Expired Secret', {}, seedHeaders)
     const token = 'e'.repeat(43)
     await insertExpiredUnlock(USER_A, locked.id, token)
 
@@ -1418,7 +1455,8 @@ describe('local JSON backup', () => {
     const open = await createCategory(USER_A, 'Open')
     const locked = await createCategory(USER_A, 'Locked', { passwordMode: 'custom', password: 'password-123' })
     const openLink = await createLink(USER_A, open.id, 'Open Link')
-    const hidden = await createLink(USER_A, locked.id, 'Hidden Link', { description: 'secret' })
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'password-123')
+    const hidden = await createLink(USER_A, locked.id, 'Hidden Link', { description: 'secret' }, seedHeaders)
     await call('POST', '/api/nav/visits', { body: { visits: [{ linkId: openLink.id, count: 2 }] } })
     await call('PUT', '/api/nav/settings/display', { body: { navTitle: 'Snapshot' } })
 

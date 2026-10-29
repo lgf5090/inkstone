@@ -122,6 +122,7 @@ function iconRow(id: string): Record<string, unknown> | undefined {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  sqlite.exec('CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, last_fail_at INTEGER NOT NULL, locked_until INTEGER)')
   r2 = testR2Bucket()
   env = testBindings(makeD1(sqlite), { FILES: r2 })
   fetchCalls = []

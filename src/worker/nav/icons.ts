@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { newId } from '../lib/id'
 import { hasExpectedImageSignature, readImageSize } from '../lib/image'
 import { NAV_LIMITS, isNavId, isSafeIconValue } from '@shared/nav/model'
@@ -91,6 +92,10 @@ async function insertIcon(
 }
 
 navIconRoutes.post('/icons', async (c) => {
+  const user = userId(c)
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `nav-icon:${user}`, maxAttempts: 60, windowMs: 60_000 },
+  ]))
   const declared = Number(c.req.header('content-length') ?? 0)
   if (declared > NAV_LIMITS.iconBytes + 64 * 1024) throw new ApiError(413, 'payload_too_large', 'Icon is too large')
   const form = await c.req.formData().catch(() => null)
@@ -103,6 +108,10 @@ navIconRoutes.post('/icons', async (c) => {
 })
 
 navIconRoutes.post('/icons/capture', async (c) => {
+  const user = userId(c)
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `nav-icon:${user}`, maxAttempts: 60, windowMs: 60_000 },
+  ]))
   const raw = await c.req.json().catch(() => null)
   const parsed = NavIconCaptureSchema.safeParse(raw)
   if (!parsed.success) throw ApiError.badRequest('A valid url is required')

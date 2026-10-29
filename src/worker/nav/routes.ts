@@ -180,9 +180,22 @@ navDataRoutes.post('/categories/:id/unlock', async (c) => {
   return c.json(unlock)
 })
 
+async function hiddenFor(c: Context<AppBindings>, nav: NavStore): Promise<Set<string>> {
+  return hiddenCategories(await nav.categories(), await unlocked(c))
+}
+
+async function assertLinkWritable(c: Context<AppBindings>, nav: NavStore, id: string, targetCategoryId?: string): Promise<void> {
+  const row = await nav.linkRow(id)
+  if (!row) throw ApiError.notFound('Link not found')
+  const hidden = await hiddenFor(c, nav)
+  if (hidden.has(row.category_id)) throw ApiError.notFound('Link not found')
+  if (targetCategoryId && hidden.has(targetCategoryId)) throw ApiError.notFound('Category not found')
+}
+
 navDataRoutes.post('/links', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavLinkCreateSchema))
+  if ((await hiddenFor(c, nav)).has(input.categoryId)) throw ApiError.notFound('Category not found')
   const url = normalizeLinkUrl(input.url)
   if (!url) throw ApiError.badRequest('Unsupported url')
   const link = await nav.createLink({
@@ -200,6 +213,7 @@ navDataRoutes.post('/links', async (c) => {
 navDataRoutes.patch('/links/:id', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavLinkPatchSchema))
+  await assertLinkWritable(c, nav, c.req.param('id'), input.categoryId)
   const patch: Parameters<NavStore['updateLink']>[1] = {}
   if (input.title !== undefined) patch.title = input.title
   if (input.url !== undefined) {
@@ -216,7 +230,9 @@ navDataRoutes.patch('/links/:id', async (c) => {
 })
 
 navDataRoutes.delete('/links/:id', async (c) => {
-  await store(c).deleteLink(c.req.param('id'))
+  const nav = store(c)
+  await assertLinkWritable(c, nav, c.req.param('id'))
+  await nav.deleteLink(c.req.param('id'))
   return c.json({ ok: true })
 })
 
@@ -254,9 +270,16 @@ navDataRoutes.post('/import', async (c) => {
 navDataRoutes.post('/links/batch', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavBatchSchema))
+  const hidden = await hiddenFor(c, nav)
+  const rows = await nav.linkRows()
+  for (const id of input.ids) {
+    const row = rows.find((entry) => entry.id === id)
+    if (row && hidden.has(row.category_id)) throw ApiError.notFound('Link not found')
+  }
   if (input.action === 'delete') return c.json(await nav.deleteLinks(input.ids))
   if (input.action === 'move') {
     if (!input.fallbackCategoryId) throw ApiError.badRequest('fallbackCategoryId is required')
+    if (hidden.has(input.fallbackCategoryId)) throw ApiError.notFound('Category not found')
     return c.json(await nav.moveLinks(input.ids, input.fallbackCategoryId))
   }
   if (!input.template) throw ApiError.badRequest('template is required')

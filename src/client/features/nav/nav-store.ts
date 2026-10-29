@@ -241,19 +241,19 @@ export const useNavStore = create<NavState>((set, get) => {
     },
 
     async createLink(body) {
-      const { link } = await run(() => navApi.createLink(body))
+      const { link } = await run(() => navApi.createLink(body, Object.values(get().unlockTokens)))
       await refresh()
       return link
     },
 
     async updateLink(id, body) {
-      const { link } = await run(() => navApi.updateLink(id, body))
+      const { link } = await run(() => navApi.updateLink(id, body, Object.values(get().unlockTokens)))
       await refresh()
       return link
     },
 
     async deleteLink(id) {
-      await run(() => navApi.deleteLink(id))
+      await run(() => navApi.deleteLink(id, Object.values(get().unlockTokens)))
       await refresh()
     },
 
@@ -263,9 +263,10 @@ export const useNavStore = create<NavState>((set, get) => {
     },
 
     async batch(body) {
+      const unlocks = Object.values(get().unlockTokens)
       await run(async () => {
         for (let index = 0; index < body.ids.length; index += BATCH_CHUNK) {
-          await navApi.batch({ ...body, ids: body.ids.slice(index, index + BATCH_CHUNK) })
+          await navApi.batch({ ...body, ids: body.ids.slice(index, index + BATCH_CHUNK) }, unlocks)
         }
       })
       await refresh()
