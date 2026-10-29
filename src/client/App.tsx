@@ -43,6 +43,9 @@ const PublicPlaylistPage = lazy(() =>
 const ImgbedPublicApp = lazy(() =>
   import('./features/imgbed/public/PublicApp').then((module) => ({ default: module.PublicApp })),
 )
+const DriveSharePage = lazy(() =>
+  import('./features/clouddrive/public/DriveSharePage').then((module) => ({ default: module.DriveSharePage })),
+)
 const SettingsPanel = lazy(() =>
   import('./features/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel })),
 )
@@ -153,11 +156,15 @@ export function App() {
   const [memoSurface] = useState(() => classifyMemoSurface(location.pathname))
   const memoAlwaysPublic = memoSurface.kind === 'public'
   const [imgbedPublic] = useState(() => /^\/imgbed\/browse(\/|$)/.test(location.pathname))
+  const [driveShareSlug] = useState(() => {
+    const match = /^\/d\/([A-Za-z0-9_-]{20})\/?$/.exec(location.pathname)
+    return match?.[1] ?? null
+  })
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic) return
+    if (shareSlug || conversationShareSlug || collectionSlug || musicShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug) return
     void load()
-  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic])
+  }, [load, shareSlug, conversationShareSlug, collectionSlug, musicShareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug])
 
   useEffect(() => watchSystemTheme(), [])
 
@@ -178,16 +185,16 @@ export function App() {
   useEffect(() => installTemplaterCreationTrigger(), [])
 
   useEffect(() => {
-    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic) || status !== 'loading') return
+    if ((shareSlug || conversationShareSlug || collectionSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug) || status !== 'loading') return
     requestOfflineWarmup()
-  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, status])
+  }, [shareSlug, conversationShareSlug, collectionSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug, status])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || status !== 'loading') dismissBootScreen()
-  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic])
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug || status !== 'loading') dismissBootScreen()
+  }, [status, shareSlug, isPresenter, memoAlwaysPublic, imgbedPublic, driveShareSlug])
 
   useEffect(() => {
-    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic) return
+    if (shareSlug || conversationShareSlug || isPresenter || memoAlwaysPublic || imgbedPublic || driveShareSlug) return
     const timer = window.setTimeout(() => {
       dismissBootScreen()
       // Set whether or not the session has resolved by now: the flag only ever paints while the status is
@@ -204,6 +211,20 @@ export function App() {
           <PresenterWindow />
         </Suspense>
       </ErrorBoundary>
+    )
+  }
+
+  if (driveShareSlug) {
+    return (
+      <>
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <DriveSharePage slug={driveShareSlug} />
+          </Suspense>
+        </ErrorBoundary>
+        <Toaster />
+        <UpdateCard />
+      </>
     )
   }
 

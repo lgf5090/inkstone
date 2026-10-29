@@ -11,13 +11,14 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, Images, ListChecks, Mail, MessageSquare, Music, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
   | 'notes'
   | 'inknote'
   | 'memos'
+  | 'clouddrive'
   | 'calendar'
   | 'todo'
   | 'email'
@@ -47,6 +48,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'inknote', path: '/inknote', labelKey: 'app.tabs.inknote', icon: NotebookPen },
   { id: 'memos', path: '/memos', labelKey: 'app.tabs.memos', icon: StickyNote },
   { id: 'nav', path: '/nav', labelKey: 'app.tabs.nav', icon: Compass },
+  { id: 'clouddrive', path: '/clouddrive', labelKey: 'app.tabs.clouddrive', icon: HardDrive },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
   { id: 'email', path: '/email', labelKey: 'app.tabs.email', icon: Mail },
@@ -76,6 +78,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/reading/', 'reading'],
   ['/imgbed/', 'imgbed'],
   ['/memos/', 'memos'],
+  ['/clouddrive/', 'clouddrive'],
   ['/email/', 'email'],
   ['/music/', 'music'],
   ['/cloudflare/', 'cloudflare'],

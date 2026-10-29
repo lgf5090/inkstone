@@ -5473,6 +5473,54 @@ const allowed = new Map([
     "/** What `api.todos.create` was pointed at, in order. */",
     "// The way back is the id, not a sentence about the note in the reader's own notes field.",
   ]],
+  ["src/client/features/clouddrive/clouddrive.css", [
+    "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the four variables\n   below are the only values the reader changes at runtime (density, gap, icon size, row height). */",
+  ]],
+  ["src/client/features/clouddrive/files/ColorTagMenus.tsx", [
+    "/** The colour dots a row or grid tile carries. Names stay in the inspector and list. */",
+    "/** The compact tag column in list view: colour plus name, so colour is never the only cue. */",
+    "/**\n * The folder palette. A custom hex is checked against the surface it will be painted on before\n * it is accepted: a folder that disappears into the background is not a preference, it is a bug.\n */",
+    "/** Tags for one entry: existing rows with a remove button, plus a palette and a name field. */",
+  ]],
+  ["src/client/features/clouddrive/files/ContextMenu.tsx", [
+    "/** The current selection the action applies to; the right-clicked entry is included. */",
+  ]],
+  ["src/client/features/clouddrive/files/Dialogs.tsx", [
+    "// The reset runs when the dialog opens, not on every render of its parent.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
+  ]],
+  ["src/client/features/clouddrive/files/FileIcon.tsx", [
+    "/**\n * Category tints are CSS custom properties declared on the feature root, so the palette is\n * the theme's own tokens rather than a second set of hexes. The folder tint comes from the\n * entry (`ORGANIZER_COLORS` or a guarded custom hex) and falls back to the same token.\n */",
+    "/** Pixel size for list rows, headers and inspector thumbnails. */",
+    "/** Icon-view sizing: the size comes from `--cd-icon-size` instead of a number. */",
+  ]],
+  ["src/client/features/clouddrive/files/FilesPage.tsx", [
+    "/** Opens the preview/Quick Look surface. The shell owns the renderer. */",
+    "// The previous directory is still usable; the failed refresh explains itself in a toast.",
+  ]],
+  ["src/client/features/clouddrive/files/Inspector.tsx", [
+    "/** Share existence is not part of the entry model; the shell may supply it later. */",
+  ]],
+  ["src/client/features/clouddrive/files/files.css", [
+    "/* CloudDrive file browser surfaces. Every colour is a theme token; the only runtime colours\n   are the folder tint and tag dots, which arrive as data from the server. */",
+    "/* The native checkbox is the selection control: it keeps the browser's keyboard and\n   accessibility behaviour, and only its accent is themed. */",
+  ]],
+  ["src/client/features/clouddrive/files/format.ts", [
+    "/** One formatter per locale; the list can draw hundreds of dates in one render. */",
+  ]],
+  ["src/client/features/clouddrive/files/types.ts", [
+    "/** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */",
+    "/**\n * The contract every file layout shares. The page owns selection, dialogs and the context\n * menu; a layout owns only the markup and the arrow-key movement inside its own list.\n */",
+    "/**\n   * Enter/Space/F2/Delete/Ctrl+A/Esc/Shift+F10, answered by the page because each one opens\n   * a surface the layout does not own. Returns true when the key was consumed.\n   */",
+  ]],
+  ["src/client/features/clouddrive/files/useFileActions.ts", [
+    "/** Local list updates applied before the refresh confirms them. */",
+    "// A binary endpoint may answer with HTML from a proxy; the status is still the useful part.",
+    "// Best effort: an un-aborted session expires on its own and the cron cleans it up.",
+  ]],
+  ["src/client/features/clouddrive/prefs.ts", [
+    "// A full or disabled localStorage only costs the preference, never the drive itself.",
+  ]],
   ["src/client/features/cloudflare/CloudflareApp.tsx", [
     "/**\n * The Cloudflare container's frame: a second navigation rail and the screen it names.\n *\n * The app is a guest on the notebook's rail, so it brings its own navigation rather than borrowing\n * the notebook sidebar: ten screens is more than a sidebar section should carry, and the reader who\n * is inside Cloudflare is looking at Cloudflare's own vocabulary (DNS, Workers, R2), not at notes.\n *\n * Copy is loaded before the first screen is drawn. A reader who opens the app with a slow network\n * sees a loading state, not a screen full of dotted keys.\n */",
     "// A modified press or a middle click belongs to the browser: let it open a new tab.",
@@ -29133,6 +29181,15 @@ const allowed = new Map([
     "/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */",
     "/**\n * The rows of one range, reduced to the numbers that change when any of them changes.\n *\n * `count` moves on insert and delete, `revSum` on every write, and `maxUpdatedAt` on the one race the\n * other two can miss (a delete and a create leaving both totals equal).\n */",
   ]],
+  ["src/shared/clouddrive/model.ts", [
+    "/** Shared vocabulary for the CloudDrive app: paths, names, categories, listing and preferences. */",
+    "/** `report (1).pdf`, `report (2).pdf`; the extension stays at the end. */",
+    "/** `report (restored).pdf` */",
+  ]],
+  ["src/shared/clouddrive/settings.ts", [
+    "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
+    "/** Returns the rows to upsert for a patch, or a human-readable problem. */",
+  ]],
   ["src/shared/cloudflare/model.ts", [
     "/**\n * The vocabulary the Cloudflare app shares between the worker and the browser.\n *\n * Field names keep the spelling Cloudflare's API uses (`auth_type`, `account_id`, `is_active`), which\n * is also the reference module's spelling. Translating every one of these at the API boundary would\n * add a mapping layer with no reader to serve: the values come from Cloudflare, are stored as they\n * arrive, and the screen that shows them is the only consumer.\n */",
   ]],
@@ -34214,6 +34271,70 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
+  ]],
+  ["src/worker/clouddrive/lib.ts", [
+    "/**\n * Helpers shared by the CloudDrive file and settings routes.\n *\n * Everything that turns a path, a mount or a D1 row into the vocabulary the API speaks lives here, so\n * the routes only parse, call a store function and shape the response. D1 statements stay in the\n * store modules; this file owns the two lookups every request makes first (mount, then entry).\n */",
+    "/** One `CloudDrive_files` row, by column name. */",
+    "/** A thrown `invalid_path` from the shared model becomes the API's own code. */",
+    "/** Normalize a path, turning the shared model's `invalid_path` into the documented error code. */",
+    "/** Validate a name segment the way a path segment is validated, with a readable message. */",
+    "/** The mount must exist, be enabled and belong to this user; a foreign id is simply absent. */",
+    "/** Mutating routes reject a read-only mount before touching a row. */",
+    "/**\n * Resolve an absolute path to its row. The root has no row of its own (children point at `''`), so\n * it is answered with a synthetic folder whose id is empty — callers then use `row.id` uniformly.\n */",
+    "// The partial unique index only covers live rows, so a trashed row can share the path with a",
+    "// newer live one; the trash lookup takes the most recently deleted of that path.",
+    "/**\n * First letters of the Han characters in a name, so a Chinese title can be found by its initials.\n *\n * `pinyin-pro` is a dictionary call that can throw on input it cannot segment; a name whose reading\n * is unavailable is still a perfectly good name, so the index is left empty and the filename search\n * still works.\n */",
+    "/**\n * The opaque cursor is the shared base64url helper over the sort key and value the ordering used.\n * Encoding the key alongside the value means a client cannot change `sort` mid-listing and silently\n * get the wrong page.\n */",
+    "/** The core row → entry conversion; mount-specific fields are empty until {@link buildEntry}. */",
+    "/** An entry with the mount context the listing surface needs. */",
+    "/** Tags for many rows in one pass, chunked because D1 caps the placeholders a statement may bind. */",
+    "/** `foldedName` in one place, so a caller does not repeat NFC + lowercase. */",
+  ]],
+  ["src/worker/clouddrive/routes-content.ts", [
+    "/**\n * Authenticated file content for the primary R2 mount.\n *\n * One resolver decides whether a file is visible to the caller; the byte response, the Range\n * handling and the thumbnail all use that answer instead of their own SQL. The body of a live file\n * is immutable (an id is never reused), so the authenticated cache policy can be a long one.\n *\n * `GET /download/zip` is deliberately a 501 for now: a streaming archive needs its own size/item\n * limits and testing, and answering with a fake empty zip would hide that it is not implemented.\n */",
+    "// Image Resizing refuses formats/corrupt files it cannot decode; the honest thumbnail is then",
+    "// the original object, marked as a fallback rather than pretending a resize happened.",
+  ]],
+  ["src/worker/clouddrive/routes-files.ts", [
+    "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-settings.ts", [
+    "/**\n * CloudDrive user settings and the capacity card.\n *\n * Settings are per-user key/value rows. The WebDAV password arrives as plain text, is hashed here\n * with the same scrypt helper the login flow uses, and only the hash is stored — the response is the\n * public projection, which has no hash field at all.\n */",
+  ]],
+  ["src/worker/clouddrive/routes-upload.ts", [
+    "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n *\n * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.\n */",
+    "/**\n * The session table has no `conflict` column, so the one decision that must survive from init to\n * complete is kept in its free-text `error` column behind a recognisable JSON prefix. A real error\n * is never valid JSON of this shape, so `decodeSessionConflict` cannot mistake one for the other.\n */",
+    "// The field is ours, but a corrupted row must still leave the upload usable under the default.",
+    "/** The quota is the deduplicated object bytes of the user's primary-mount rows, trash included. */",
+    "/**\n * The pinyin first letters written next to a name. `pinyin-pro` is a dictionary call that can fail\n * on input it cannot segment; the file is still valid then, so the index stays empty and the folded\n * name search keeps working.\n */",
+    "// R2 refuses to abort an upload it no longer knows (already completed, expired by the platform,",
+    "// or removed with the bucket binding); the D1 row is the authority for the client either way.",
+    "/** A direct upload has already put its object, so aborting or expiring it must remove those bytes. */",
+    "// The object is unreferenced either way; a failed delete leaves work for the orphan scan.",
+    "// The old row is now in the trash; its public links must stop resolving to it.",
+    "// A retried abort still clears any part rows a partial earlier attempt left behind.",
+  ]],
+  ["src/worker/clouddrive/schema.ts", [
+    "/**\n * CloudDrive's D1 tables. Every table is new, so the statements ride in `SCHEMA_STATEMENTS`:\n * a fresh database creates them with everything else, and an existing database gets them from\n * `TABLE_SCHEMA_STATEMENTS` on the next boot. No numbered migration is needed until a column has\n * to be added to a table that already exists in the ledger.\n */",
+  ]],
+  ["src/worker/clouddrive/store-files.ts", [
+    "/**\n * D1 access for the CloudDrive file surface.\n *\n * The route layer resolves mounts and paths; this module owns every statement over\n * `CloudDrive_files` and `CloudDrive_file_tags`. Sorting and cursor values are whitelisted here as\n * well, because they are interpolated into SQL. Every read binds `user_id`.\n */",
+    "/**\n * The conditions shared by the folder half, the file half and the count half of a listing.\n * `EXISTS` for a tag keeps the row shape unchanged and still binds the owner.\n */",
+    "/** `(sortValue, id)` comparison for the next page; every branch uses only whitelisted columns. */",
+    "/** Trash is one flat page; the route splits it into the folder and file groups it presents. */",
+    "/** `name`, then `name (1)`, … and a random tail after a hundred attempts. */",
+    "/** Look a row up by id alone; the route then resolves its mount for the entry view. */",
+    "// `substr` rather than `LIKE`: a folder named `100%` must not match `100x`.",
+    "// `null` and the empty string both mean \"no colour\"; the route has already validated the rest.",
+    "/** Move the requested roots and their subtrees to the trash under one batch id. */",
+    "// A share points at a live target; once that target is in the trash the public face must not",
+    "// resolve it, so every affected id (including descendants) revokes its shares in the same batch.",
+    "/** Restore each row after its trashed ancestors, renaming on a path conflict. */",
+    "// The row is already gone, so the object is now an orphan rather than a failed delete of a",
+    "// referenced object. Report it in `failed` instead of pretending the purge completed.",
+    "// The conflicting row is live, so the first `name (1)` candidate is the first free one.",
+    "// A copy shares the object with its source; only the last row reference may delete it.",
+    "/** Name match plus pinyin initials; prefix hits sort before interior ones. */",
   ]],
   ["src/worker/cloudflare/account-probe.ts", [
     "/**\n * The import path that stores an account before Cloudflare has vouched for it.\n *\n * `createAccount` verifies the credential first, which is right for the add dialog and wrong for a\n * CSV import with `skipVerify`: that option exists so a bulk paste lands in seconds and the screen\n * tests the rows afterwards. This writes the same two things in the same order — the sealed file,\n * then the row — and leaves `cf_account_id` empty, which is exactly the \"Unverified\" filter.\n *\n * Nothing here talks to Cloudflare, so a row written by this module is inert until `testAccount`\n * probes it.\n */",
@@ -40849,6 +40970,15 @@ const allowed = new Map([
     "/**\n * One live instance of the bug, recorded rather than excused.\n *\n * `AutomationsView`'s new-automation form hands its close to the success branch of a promise it has already\n * written `void` in front of: `addAutomation` catches its own failure and toasts it, so the `then` runs on a\n * refused create too and the dialog closes happily over an automation that was never made. That is the\n * model-editor bug in a second spelling. Converging it — await the action and close on its answer, the way\n * `ModelEditorDialog.tsx` does now — deletes this entry, and an entry dropped without the fix fails here.\n */",
     "/**\n * Whether this call is a write whose answer nobody is watching.\n *\n * A promise is read as pending only when the code says so: written with `void`, or an `on…` handler prop\n * called as its own statement — a prop's type is the contract at a component's boundary, and `onSave` is\n * exactly how the model editor's bug was written. A bare call to a store action is not enough, because\n * without a type checker it cannot be told from a synchronous one (`updateTemplate` answers `boolean`,\n * `editContent` answers `void`), and a guard that cried wolf on every local write would be read as noise.\n */",
     "/**\n * The pre-filter, and why it is allowed.\n *\n * Reading every feature file through the TS parser costs the suite seconds it does not need: a file that\n * never names a close, a `.then(` or a dialog-state setter cannot hold either shape. The filter is checked\n * against the tree below, so a rule-relevant file that stops matching it fails here rather than passing\n * quietly.\n */",
+  ]],
+  ["tests/clouddrive-files.test.ts", [
+    "// Deleting the folder trashes its child, not just the folder row.",
+    "// Restoring the child alone must first bring its trashed folder ancestor back.",
+    "// Trash the original, purge it: the copy still holds the same storage key.",
+  ]],
+  ["tests/clouddrive-upload.test.ts", [
+    "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",
+    "// The first request builds every table on the real schema, the way the worker boots.",
   ]],
   ["tests/cloudflare-accounts-store.test.ts", [
     "// Still restorable at this point, which is why the sealed file is still there.",

@@ -63,6 +63,14 @@ const apiCodeMessages: Record<string, MessageKey> = {
     youtube_upstream: 'youtube.error.upstream',
     youtube_not_found: 'youtube.error.not_found',
     youtube_invalid_input: 'youtube.error.invalid_input',
+    clouddrive_path_invalid: 'clouddrive.error.path_invalid',
+    clouddrive_quota_exceeded: 'clouddrive.error.quota_exceeded',
+    clouddrive_read_only: 'clouddrive.error.read_only',
+    clouddrive_mount_unavailable: 'clouddrive.error.mount_unavailable',
+    clouddrive_upload_expired: 'clouddrive.error.upload_expired',
+    clouddrive_share_locked: 'clouddrive.error.share_locked',
+    clouddrive_share_expired: 'clouddrive.error.share_expired',
+    clouddrive_share_disabled: 'clouddrive.error.share_disabled',
 };
 let englishMessageKeys = new Map<string, MessageKey>();
 let locale: AppLocale = detectInitialLocale();
@@ -74,13 +82,15 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
         import('@shared/locales/en-US-imgbed'),
         import('@shared/locales/en-US-nav'),
         import('@shared/locales/en-US-youtube'),
-    ]).then(([m, imgbed, nav, youtube]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV, ...youtube.EN_US_YOUTUBE }) as unknown as Record<string, string>),
+        import('@shared/locales/en-US-clouddrive'),
+    ]).then(([m, imgbed, nav, youtube, clouddrive]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV, ...youtube.EN_US_YOUTUBE, ...clouddrive.EN_US_CLOUDDRIVE }) as unknown as Record<string, string>),
     'zh-CN': () => Promise.all([
         import('@shared/locales/zh-CN'),
         import('@shared/locales/zh-CN-imgbed'),
         import('@shared/locales/zh-CN-nav'),
         import('@shared/locales/zh-CN-youtube'),
-    ]).then(([m, imgbed, nav, youtube]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV, ...youtube.ZH_CN_YOUTUBE }) as unknown as Record<string, string>),
+        import('@shared/locales/zh-CN-clouddrive'),
+    ]).then(([m, imgbed, nav, youtube, clouddrive]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV, ...youtube.ZH_CN_YOUTUBE, ...clouddrive.ZH_CN_CLOUDDRIVE }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**
