@@ -72,12 +72,15 @@ const localeLoaders: Record<AppLocale, () => Promise<Record<string, string>>> = 
     'en-US': () => Promise.all([
         import('@shared/locales/en-US'),
         import('@shared/locales/en-US-imgbed'),
-    ]).then(([m, imgbed]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED }) as unknown as Record<string, string>),
+        import('@shared/locales/en-US-nav'),
+        import('@shared/locales/en-US-youtube'),
+    ]).then(([m, imgbed, nav, youtube]) => ({ ...m.EN_US_MESSAGES, ...imgbed.EN_US_IMGBED, ...nav.EN_US_NAV, ...youtube.EN_US_YOUTUBE }) as unknown as Record<string, string>),
     'zh-CN': () => Promise.all([
         import('@shared/locales/zh-CN'),
         import('@shared/locales/zh-CN-imgbed'),
+        import('@shared/locales/zh-CN-nav'),
         import('@shared/locales/zh-CN-youtube'),
-    ]).then(([m, imgbed, youtube]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...youtube.ZH_CN_YOUTUBE }) as unknown as Record<string, string>),
+    ]).then(([m, imgbed, nav, youtube]) => ({ ...m.ZH_CN_MESSAGES, ...imgbed.ZH_CN_IMGBED, ...nav.ZH_CN_NAV, ...youtube.ZH_CN_YOUTUBE }) as unknown as Record<string, string>),
 };
 const loadedLocales = new Set<AppLocale>();
 /**

@@ -113,7 +113,11 @@ function BootStalled({ onRetry }: { onRetry: () => void }) {
 export function App() {
 
   useLocale()
-  useEffect(() => onSessionCleared(clearMusicSessionStorage), [])
+  useEffect(() => {
+    const offMusic = onSessionCleared(clearMusicSessionStorage)
+    const offNav = onSessionCleared(() => { void import('./features/nav/nav-store').then((module) => module.clearNavSessionState()) })
+    return () => { offMusic(); offNav() }
+  }, [])
   const status = useSession((s) => s.status)
   const load = useSession((s) => s.load)
   // One-way: raised when the boot screen's ceiling is reached, never lowered again. A retry that hangs

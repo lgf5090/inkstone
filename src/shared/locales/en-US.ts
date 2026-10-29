@@ -18,6 +18,7 @@ import { EN_US_EMAIL_TEMPLATES } from './en-US-email-templates';
 import { EN_US_MUSIC } from './en-US-music';
 import { EN_US_INKNOTE } from './en-US-inknote';
 import { EN_US_IMGBED } from './en-US-imgbed';
+import { EN_US_NAV } from './en-US-nav';
 import { EN_US_TOOLS } from './en-US-tools';
 import { EN_US_YOUTUBE } from './en-US-youtube';
 import { EN_US_CALENDAR } from './en-US-calendar';
@@ -10193,4 +10194,4 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
 } as const;
 export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE = { ...CORE_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE };
 export type BaseMessageKey = keyof typeof CORE_MESSAGES | keyof typeof EN_US_INKNOTE;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE;
+export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV;

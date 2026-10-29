@@ -53,7 +53,7 @@ function topLevelVerb(sql: string): string | null {
   return null
 }
 
-export function makeD1(sqlite: DatabaseSync): D1Database {
+export function makeD1(sqlite: DatabaseSync, options: { maxBoundParameters?: number } = {}): D1Database {
   // D1 serializes transactions against one database; node:sqlite has a single connection, so two
   // overlapping `batch()` calls would nest BEGINs and fail with an error the platform never returns.
   let batchTail: Promise<unknown> = Promise.resolve()
@@ -71,7 +71,13 @@ export function makeD1(sqlite: DatabaseSync): D1Database {
       // decided from the SQL text the way D1 does: reads return rows, writes return meta.
       const isRead = topLevelVerb(sql) === 'select' || /^\s*(?:pragma|explain|values)\b/i.test(sql)
       const prepared = {
-        bind(...bound: unknown[]) { values = bound; return prepared },
+        bind(...bound: unknown[]) {
+          if (options.maxBoundParameters !== undefined && bound.length > options.maxBoundParameters) {
+            throw new Error(`D1 accepts at most ${options.maxBoundParameters} bound parameters, got ${bound.length}: ${sql.slice(0, 120)}`)
+          }
+          values = bound
+          return prepared
+        },
         async first() { return toD1Row(exec<object | null>('get')) ?? null },
         async all() {
           if (isRead) return { results: (exec<object[]>('all')).map(toD1Row) }

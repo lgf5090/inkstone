@@ -49,6 +49,9 @@ export interface Env {
 
   CREDENTIAL_VAULT?: DurableObjectNamespace
 
+  /** Optional default password for navigation categories that choose "use default". Set as a secret. */
+  NAV_DEFAULT_CATEGORY_PASSWORD?: string
+
   APP_NAME?: string
 
   PUBLIC_URL?: string
