@@ -19,6 +19,8 @@ export const IMGBED_SCHEMA_STATEMENTS: readonly string[] = [
     is_chunked INTEGER NOT NULL DEFAULT 0,
     parts TEXT,
     uploader_id TEXT,
+    favorite INTEGER NOT NULL DEFAULT 0,
+    pinned INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   )`,
@@ -34,6 +36,10 @@ export const IMGBED_SCHEMA_STATEMENTS: readonly string[] = [
      ON imgbed_files(upload_ip, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_imgbed_files_channel
      ON imgbed_files(channel, channel_name, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_imgbed_files_favorite
+     ON imgbed_files(favorite, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_imgbed_files_pinned
+     ON imgbed_files(pinned, created_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS imgbed_channels (
     id TEXT PRIMARY KEY,
@@ -128,7 +134,7 @@ export const IMGBED_REQUIRED_TABLES = [
 const FILES_COLUMNS = [
   'id', 'object_key', 'file_name', 'file_type', 'file_size_bytes', 'width', 'height',
   'upload_ip', 'upload_address', 'list_type', 'label', 'directory', 'source', 'external_link',
-  'channel', 'channel_name', 'is_chunked', 'parts', 'uploader_id', 'created_at', 'updated_at',
+  'channel', 'channel_name', 'is_chunked', 'parts', 'uploader_id', 'favorite', 'pinned', 'created_at', 'updated_at',
 ]
 const CHANNEL_COLUMNS = [
   'id', 'type', 'name', 'config', 'credentials_ciphertext', 'credentials_hint', 'enabled',
@@ -159,6 +165,8 @@ export const IMGBED_REQUIRED_INDEXES = [
   'idx_imgbed_files_access',
   'idx_imgbed_files_ip',
   'idx_imgbed_files_channel',
+  'idx_imgbed_files_favorite',
+  'idx_imgbed_files_pinned',
   'idx_imgbed_channels_type',
   'idx_imgbed_file_tags_tag',
   'idx_imgbed_tokens_creator',

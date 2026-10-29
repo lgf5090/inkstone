@@ -293,7 +293,7 @@ export async function buildFileId(input: BuildFileIdInput): Promise<string> {
   throw new Error('file_id_collision')
 }
 
-const TAG_RE = /^[\w\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af-]+$/u
+const TAG_RE = /^[\w\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af-]+(?:\/[\w\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af-]+)*$/u
 
 export function normalizeTag(tag: string): string | null {
   const value = String(tag ?? '').trim().toLowerCase()
@@ -356,6 +356,8 @@ export interface ImgbedFile {
   isChunked: boolean
   parts: ImgbedPart[] | null
   uploaderId: string | null
+  favorite: boolean
+  pinned: boolean
   createdAt: number
   updatedAt: number
   tags: string[]
@@ -391,6 +393,11 @@ export interface ImgbedListQuery {
   fileType?: string[]
   channel?: string[]
   channelName?: string[]
+  favorite?: boolean
+  pinned?: boolean
+  tagPrefix?: string
+  createdFrom?: number
+  createdTo?: number
   recursive?: boolean
   sort?: 'time' | 'size' | 'rawName' | 'fileName'
   sortOrder?: 'asc' | 'desc'

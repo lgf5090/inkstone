@@ -1015,7 +1015,6 @@ const CLIENT_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/client/features/tools/qrcode/history/QrHistoryView.tsx', { sites: 1, reason: 'A record whose stored options do not parse is restored without them: the toast on the next line still tells the reader the record was opened, and the defaults of the generator are what it falls back to.' }],
   ['src/client/features/tools/qrcode/settings/QrSettingsView.tsx', { sites: 1, reason: 'The first read of saved preferences falls back to the defaults the component already holds; every save reports its own failure through the toast in handleSave.' }],
   ['src/client/features/imgbed/api.ts', { sites: 1, reason: 'Deleting an upload session after the part that failed is already reported to the caller; a refused cleanup leaves only an expired row for the cron sweep.' }],
-  ['src/client/features/imgbed/library/LibraryPage.tsx', { sites: 1, reason: 'Reading the channel list for the filter dropdown; the file list still loads and the filter simply stays empty when that read fails.' }],
   ['src/client/features/imgbed/upload/UploadPage.tsx', { sites: 1, reason: 'Reading saved upload history for the history panel; an unreadable history is shown as empty and never blocks an upload.' }],
 ])
 

@@ -5,7 +5,7 @@ import { IMGBED_SCHEMA_STATEMENTS } from '../src/worker/imgbed/schema'
 import { buildFileId, categoryFor, normalizeTags, parseSearchQuery, sanitizeFolderPath, sanitizeFileName } from '../src/shared/imgbed/model'
 import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed/access'
 import { scopeAllows } from '../src/worker/imgbed/tokens'
-import { insertFile, listFiles, getFileTags, setFileTags } from '../src/worker/imgbed/store'
+import { getSidebarData, insertFile, listFiles, getFileTags, setFileFlags, setFileTags } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
 import { moveWholeFile } from '../src/worker/imgbed/storage'
 import type { ResolvedChannel } from '../src/worker/imgbed/channels'
@@ -32,6 +32,8 @@ describe('imgbed schema', () => {
       'imgbed_api_tokens', 'imgbed_blocked_ips', 'imgbed_upload_sessions',
     ]))
     expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining(['idx_imgbed_files_dir', 'idx_imgbed_file_tags_tag']))
+    const columns = (sqlite.prepare("PRAGMA table_info(imgbed_files)").all() as { name: string }[]).map((row) => row.name)
+    expect(columns).toEqual(expect.arrayContaining(['favorite', 'pinned']))
   })
 })
 
@@ -79,6 +81,11 @@ describe('imgbed access', () => {
     expect(fileAccessDecision({ file: { listType: 'White', label: 'adult' }, access: { ...access, whiteListMode: true }, referer: null, requestHost: 'x', admin: false }).allowed).toBe(true)
     expect(publicDirectoryAllowed('a/b', 'a')).toBe(true)
     expect(publicDirectoryAllowed('c', 'a')).toBe(false)
+  })
+
+  it('accepts hierarchical tags but not empty segments', () => {
+    expect(normalizeTags(['工作/会议', '报告', '工作/会议'])).toEqual(['工作/会议', '报告'])
+    expect(normalizeTags(['/工作', '工作/', '工作//会议', '  '])).toEqual([])
   })
 
   it('keeps token scopes minimal', () => {
@@ -138,6 +145,33 @@ describe('imgbed WebDAV move', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+
+describe('imgbed flags, tag scope and sidebar', () => {
+  it('filters by favorite, pinned, tag prefix and tag search', async () => {
+    const { db } = database()
+    const base = {
+      fileType: 'image/png', width: null, height: null, uploadIp: null, uploadAddress: null,
+      source: 'cfr2', channel: 'CloudflareR2', channelName: 'R2', uploaderId: null, createdAt: 1,
+    }
+    await insertFile(db, { ...base, id: 'root.png', objectKey: 'k1', fileName: 'root.png', sizeBytes: 1 })
+    await insertFile(db, { ...base, id: 'a/one.png', objectKey: 'k2', fileName: 'one.png', sizeBytes: 1 })
+    await insertFile(db, { ...base, id: 'a/b/two.png', objectKey: 'k3', fileName: 'two.png', sizeBytes: 1 })
+    await setFileTags(db, 'a/b/two.png', ['工作/会议', '报告'])
+    await setFileFlags(db, ['root.png'], { favorite: true })
+    await setFileFlags(db, ['a/one.png'], { pinned: true })
+    expect((await listFiles(db, { dir: '', count: 50, favorite: true })).files.map((file) => file.id)).toEqual(['root.png'])
+    const all = await listFiles(db, { dir: '', count: 50, recursive: true })
+    expect(all.files[0]!.id).toBe('a/one.png')
+    expect(all.files[0]!.pinned).toBe(true)
+    expect((await listFiles(db, { dir: '', count: 50, recursive: true, tagPrefix: '工作' })).files.map((file) => file.id)).toEqual(['a/b/two.png'])
+    expect((await listFiles(db, { dir: '', count: 50, recursive: true, search: '#工作' })).files.map((file) => file.id)).toEqual(['a/b/two.png'])
+    const sidebar = await getSidebarData(db, { timezoneOffset: 0, days: 30 })
+    expect(sidebar.counts).toMatchObject({ all: 3, favorite: 1, pinned: 1, images: 3, videos: 0, audios: 0, other: 0 })
+    expect(sidebar.tags).toEqual([{ tag: '工作/会议', count: 1 }, { tag: '报告', count: 1 }])
+    expect(sidebar.channels).toEqual([{ channel: 'CloudflareR2', channelName: 'R2', count: 3 }])
   })
 })
 

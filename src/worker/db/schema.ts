@@ -2908,6 +2908,22 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 190,
     statements: DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
   },
+  {
+    version: 191,
+    skipIfColumnExists: { table: 'imgbed_files', column: 'favorite' },
+    statements: [
+      `ALTER TABLE imgbed_files ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_imgbed_files_favorite ON imgbed_files(favorite, created_at DESC)`,
+    ],
+  },
+  {
+    version: 192,
+    skipIfColumnExists: { table: 'imgbed_files', column: 'pinned' },
+    statements: [
+      `ALTER TABLE imgbed_files ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_imgbed_files_pinned ON imgbed_files(pinned, created_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

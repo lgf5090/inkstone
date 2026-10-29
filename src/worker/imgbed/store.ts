@@ -29,6 +29,8 @@ export interface FileRow {
   is_chunked: number
   parts: string | null
   uploader_id: string | null
+  favorite: number
+  pinned: number
   created_at: number
   updated_at: number
 }
@@ -58,6 +60,8 @@ export function rowToFile(row: FileRow, tags: string[] = []): ImgbedFile {
     isChunked: row.is_chunked === 1,
     parts,
     uploaderId: row.uploader_id,
+    favorite: row.favorite === 1,
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     tags,
@@ -278,8 +282,22 @@ function buildListWhere(query: ImgbedListQuery, dirPrefix: string, includeDirect
   const search = String(query.search ?? '').trim().toLowerCase()
   if (search) {
     const pattern = `%${search.replace(/[%_\\]/g, '\\$&')}%`
-    clauses.push(`(lower(f.file_name) LIKE ${bind(pattern)} ESCAPE '\\' OR lower(f.id) LIKE ${bind(pattern)} ESCAPE '\\')`)
+    if (search.startsWith('#')) {
+      const tagPattern = `%${search.slice(1).replace(/[%_\\]/g, '\\$&')}%`
+      clauses.push(`EXISTS (SELECT 1 FROM imgbed_file_tags st WHERE st.file_id = f.id AND lower(st.tag) LIKE ${bind(tagPattern)} ESCAPE '\\')`)
+    } else {
+      clauses.push(`(lower(f.file_name) LIKE ${bind(pattern)} ESCAPE '\\' OR lower(f.id) LIKE ${bind(pattern)} ESCAPE '\\' OR EXISTS (SELECT 1 FROM imgbed_file_tags st WHERE st.file_id = f.id AND lower(st.tag) LIKE ${bind(pattern)} ESCAPE '\\'))`)
+    }
   }
+  if (query.favorite === true) clauses.push('f.favorite = 1')
+  if (query.pinned === true) clauses.push('f.pinned = 1')
+  const tagPrefix = String(query.tagPrefix ?? '').trim()
+  if (tagPrefix) {
+    const tagPattern = `${tagPrefix.replace(/[%_\\]/g, '\\$&')}/%`
+    clauses.push(`EXISTS (SELECT 1 FROM imgbed_file_tags pt WHERE pt.file_id = f.id AND (pt.tag = ${bind(tagPrefix)} OR pt.tag LIKE ${bind(tagPattern)} ESCAPE '\\'))`)
+  }
+  if (typeof query.createdFrom === 'number' && Number.isFinite(query.createdFrom)) clauses.push(`f.created_at >= ${bind(query.createdFrom)}`)
+  if (typeof query.createdTo === 'number' && Number.isFinite(query.createdTo)) clauses.push(`f.created_at <= ${bind(query.createdTo)}`)
   const listTypes = (query.listType ?? []).filter(Boolean)
   if (listTypes.length) {
     const parts = listTypes.map((type) => {
@@ -332,7 +350,7 @@ function sortSql(query: ImgbedListQuery): string {
       : query.sort === 'fileName' ? 'f.file_name'
         : 'f.created_at'
   const order = query.sortOrder === 'asc' ? 'ASC' : 'DESC'
-  return `${field} ${order}, f.id ${order}`
+  return `f.pinned DESC, ${field} ${order}, f.id ${order}`
 }
 
 export async function listFiles(db: D1Database, query: ImgbedListQuery): Promise<ImgbedListResult> {
@@ -550,6 +568,76 @@ export interface ChannelUsageRow {
   channelName: string
   count: number
   usedMB: number
+}
+
+export async function setFileFlags(
+  db: D1Database,
+  ids: readonly string[],
+  flags: { favorite?: boolean; pinned?: boolean },
+): Promise<void> {
+  const now = Date.now()
+  const sets: string[] = []
+  const values: number[] = []
+  if (typeof flags.favorite === 'boolean') { values.push(flags.favorite ? 1 : 0); sets.push(`favorite = ?${values.length}`) }
+  if (typeof flags.pinned === 'boolean') { values.push(flags.pinned ? 1 : 0); sets.push(`pinned = ?${values.length}`) }
+  if (!sets.length) return
+  const nowIndex = values.length + 1
+  const statements = ids.map((id) => db.prepare(
+    `UPDATE imgbed_files SET ${sets.join(', ')}, updated_at = ?${nowIndex} WHERE id = ?${nowIndex + 1}`,
+  ).bind(...values, now, id))
+  if (statements.length) await db.batch(statements)
+}
+
+export interface ImgbedSidebarData {
+  counts: { all: number; favorite: number; pinned: number; images: number; videos: number; audios: number; other: number }
+  channels: { channel: string; channelName: string; count: number }[]
+  tags: { tag: string; count: number }[]
+  activity: { date: string; count: number }[]
+}
+
+export async function getSidebarData(
+  db: D1Database,
+  options: { timezoneOffset?: number; days?: number } = {},
+): Promise<ImgbedSidebarData> {
+  const offset = Math.max(-840, Math.min(840, Math.trunc(options.timezoneOffset ?? 0)))
+  const days = Math.max(7, Math.min(366, Math.trunc(options.days ?? 90)))
+  const cutoff = Date.now() - days * 86_400_000
+  const counts = await db.prepare(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(favorite), 0) AS favorite,
+            COALESCE(SUM(pinned), 0) AS pinned,
+            COALESCE(SUM(CASE WHEN file_type LIKE 'image/%' THEN 1 ELSE 0 END), 0) AS images,
+            COALESCE(SUM(CASE WHEN file_type LIKE 'video/%' THEN 1 ELSE 0 END), 0) AS videos,
+            COALESCE(SUM(CASE WHEN file_type LIKE 'audio/%' THEN 1 ELSE 0 END), 0) AS audios
+       FROM imgbed_files`,
+  ).first<{ total: number; favorite: number; pinned: number; images: number; videos: number; audios: number }>()
+  const channelRows = await db.prepare(
+    `SELECT channel, channel_name AS channelName, COUNT(*) AS n
+       FROM imgbed_files GROUP BY channel, channel_name ORDER BY n DESC, channel, channel_name`,
+  ).all<{ channel: string; channelName: string; n: number }>()
+  const tagRows = await db.prepare(
+    `SELECT tag, COUNT(*) AS n FROM imgbed_file_tags GROUP BY tag ORDER BY n DESC, tag LIMIT 1000`,
+  ).all<{ tag: string; n: number }>()
+  const activityRows = await db.prepare(
+    `SELECT strftime('%Y-%m-%d', (created_at + ?1 * 60000) / 1000, 'unixepoch') AS day, COUNT(*) AS n
+       FROM imgbed_files WHERE created_at >= ?2 GROUP BY day ORDER BY day`,
+  ).bind(offset, cutoff).all<{ day: string; n: number }>()
+  const total = Number(counts?.total ?? 0)
+  const images = Number(counts?.images ?? 0)
+  const videos = Number(counts?.videos ?? 0)
+  const audios = Number(counts?.audios ?? 0)
+  return {
+    counts: {
+      all: total,
+      favorite: Number(counts?.favorite ?? 0),
+      pinned: Number(counts?.pinned ?? 0),
+      images, videos, audios,
+      other: Math.max(0, total - images - videos - audios),
+    },
+    channels: (channelRows.results ?? []).map((row) => ({ channel: row.channel, channelName: row.channelName, count: Number(row.n) })),
+    tags: (tagRows.results ?? []).map((row) => ({ tag: row.tag, count: Number(row.n) })),
+    activity: (activityRows.results ?? []).map((row) => ({ date: row.day, count: Number(row.n) })),
+  }
 }
 
 export async function getChannelUsage(db: D1Database): Promise<ChannelUsageRow[]> {

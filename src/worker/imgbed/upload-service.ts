@@ -249,6 +249,7 @@ export async function uploadSingle(
       listType: 'None' as const, label: 'None' as const, directory: '', source: channel.type,
       externalLink: null, channel: canonicalChannel(channel),
       channelName: channel.name, isChunked: false, parts: null, uploaderId: actor.userId,
+      favorite: false, pinned: false,
       createdAt: now, updatedAt: now, tags: [],
     } satisfies ImgbedFile
     await deleteWholeFile(env, channel, fileRecord).catch(() => {})

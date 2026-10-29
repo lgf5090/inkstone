@@ -52,6 +52,21 @@ export interface ImgbedStatsResponse {
   }
 }
 
+export interface ImgbedSidebarResponse {
+  counts: { all: number; favorite: number; pinned: number; images: number; videos: number; audios: number; other: number }
+  channels: { channel: string; channelName: string; count: number }[]
+  tags: { tag: string; count: number }[]
+  activity: { date: string; count: number }[]
+}
+
+export function imgbedSidebar(tz: number, days = 120): Promise<ImgbedSidebarResponse> {
+  return imgbedApi(`/api/imgbed/manage/sidebar${imgbedQuery({ tz, days })}`)
+}
+
+export async function imgbedSetFlags(ids: string[], flags: { favorite?: boolean; pinned?: boolean }): Promise<void> {
+  await imgbedApi('/api/imgbed/manage/files/flags', { method: 'POST', body: { ids, ...flags } })
+}
+
 export function imgbedQuery(params: Record<string, string | number | boolean | string[] | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {

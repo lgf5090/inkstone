@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement, type PointerEvent as ReactPointerEvent } from 'react'
 import { downloadZip } from 'client-zip'
-import { ArrowLeft, Copy, Download, FileText, Folder, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderInput, ListFilter, MoreHorizontal, PanelLeft, Pencil, Pin, RefreshCw, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import type { ImgbedFile, ImgbedListResult } from '@shared/imgbed/model'
 import { imgbedChannelDisplayName, imgbedChannelLabel } from '@shared/imgbed/model'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
-import { Modal, confirm, prompt } from '../../../components/overlay'
+import { Menu, Modal, confirm, prompt, useContextMenu, useEscape, type MenuItem } from '../../../components/overlay'
 import { copyText } from '../../../lib/clipboard'
 import { downloadBlob } from '../../../lib/export-note'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
-import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedFileLinks, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetTags } from '../api'
+import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedFileLinks, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetFlags, imgbedSetTags, imgbedSidebar, type ImgbedSidebarResponse } from '../api'
+import { cn } from '../../../lib/cn'
+import { ImgbedSidebar, type ImgbedFilters } from './ImgbedSidebar'
 
 const PAGE_SIZE = 30
 
@@ -27,6 +29,13 @@ const LINK_LABEL: Record<string, string> = {
   s3Location: 'imgbed.link.s3_key',
   s3CdnFileUrl: 'imgbed.link.s3_cdn_url',
   webdavPublicUrl: 'imgbed.link.webdav_public_url',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  image: 'imgbed.public.images',
+  video: 'imgbed.public.videos',
+  audio: 'imgbed.public.audio',
+  other: 'imgbed.public.other',
 }
 
 function accessLabel(listType: string): string {
@@ -52,21 +61,42 @@ export function LibraryPage(): ReactElement {
   const [accessFilter, setAccessFilter] = useState('')
   const [channelFilter, setChannelFilter] = useState('')
   const [start, setStart] = useState(0)
-  const [channels, setChannels] = useState<{ type: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detail, setDetail] = useState<ImgbedFile | null>(null)
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [quick, setQuick] = useState<ImgbedFilters['quick']>('all')
+  const [tagFilter, setTagFilter] = useState('')
+  const [sidebar, setSidebar] = useState<ImgbedSidebarResponse | null>(null)
+  const [sidebarLoading, setSidebarLoading] = useState(true)
+  const [sidebarHidden, setSidebarHidden] = useState(() => { try { return localStorage.getItem('inkstone.imgbed.sidebarHidden') === '1' } catch (error) { console.warn('[inkstone] Image bed sidebar preference is unreadable', error); return false } })
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [menuFile, setMenuFile] = useState<ImgbedFile | null>(null)
+  const filtersTriggerRef = useRef<HTMLElement>(null)
+  const menu = useContextMenu()
   const gridRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ x: number; y: number; base: Set<string> } | null>(null)
   const toast = useUi((state) => state.toast)
+  const globalScope = quick !== 'all' || Boolean(typeFilter) || Boolean(channelFilter) || Boolean(tagFilter)
+  const filters: ImgbedFilters = { quick, type: typeFilter, channel: channelFilter, tag: tagFilter }
+  const updateFilters = (patch: Partial<ImgbedFilters>): void => {
+    if (patch.quick !== undefined) setQuick(patch.quick)
+    if (patch.type !== undefined) setTypeFilter(patch.type)
+    if (patch.channel !== undefined) setChannelFilter(patch.channel)
+    if (patch.tag !== undefined) setTagFilter(patch.tag)
+  }
+  const closeFilters = (): void => {
+    setFiltersOpen(false)
+    window.setTimeout(() => filtersTriggerRef.current?.focus(), 0)
+  }
+  useEscape(filtersOpen, closeFilters)
 
   const onGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.pointerType !== 'mouse' || event.button !== 0) return
     const target = event.target as HTMLElement
-    if (target.closest('button,a,input,label')) return
+    if (target.closest('button,a,input,label,[data-imgbed-sidebar],[role=dialog]')) return
     dragRef.current = { x: event.clientX, y: event.clientY, base: new Set(selected) }
     setMarquee({ left: event.clientX, top: event.clientY, width: 0, height: 0 })
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -100,7 +130,11 @@ export function LibraryPage(): ReactElement {
     try {
       const offset = reset ? 0 : start
       const next = await imgbedList({
-        dir, search, sort, count: PAGE_SIZE, start: offset, recursive: Boolean(search),
+        dir: globalScope ? '' : dir, search, sort, count: PAGE_SIZE, start: offset,
+        recursive: globalScope || Boolean(search),
+        favorite: quick === 'favorite' || undefined,
+        pinned: quick === 'pinned' || undefined,
+        tagPrefix: tagFilter || undefined,
         fileType: typeFilter ? [typeFilter] : undefined,
         accessStatus: accessFilter ? [accessFilter] : undefined,
         channel: channelFilter ? [channelFilter] : undefined,
@@ -118,12 +152,16 @@ export function LibraryPage(): ReactElement {
     } finally {
       setLoading(false)
     }
-  }, [dir, search, sort, typeFilter, accessFilter, channelFilter, start])
+  }, [dir, search, sort, typeFilter, accessFilter, channelFilter, quick, tagFilter, globalScope, start])
 
-  useEffect(() => { void load(true) }, [dir, search, sort, typeFilter, accessFilter, channelFilter])
-  useEffect(() => {
-    imgbedApi<{ channels: { type: string; name: string }[] }>('/api/imgbed/channels').then((result) => setChannels(result.channels)).catch(() => {})
+  const loadSidebar = useCallback(async (): Promise<void> => {
+    setSidebarLoading(true)
+    try { setSidebar(await imgbedSidebar(-new Date().getTimezoneOffset(), 120)) }
+    catch (error) { console.warn('[inkstone] Image bed sidebar counts failed to load', error); setSidebar(null) }
+    finally { setSidebarLoading(false) }
   }, [])
+  useEffect(() => { void load(true) }, [dir, search, sort, typeFilter, accessFilter, channelFilter, quick, tagFilter])
+  useEffect(() => { void loadSidebar() }, [loadSidebar])
 
   const ids = [...selected]
   const allSelected = Boolean(data?.files.length) && data!.files.every((file) => selected.has(file.id))
@@ -144,7 +182,7 @@ export function LibraryPage(): ReactElement {
       for (const id of ids) await imgbedDelete(id)
       setSelected(new Set())
       toast({ title: t('imgbed.library.deleted'), tone: 'success' })
-      await load(true)
+      await refresh()
     } catch (deleteError) {
       toast({ title: deleteError instanceof Error ? deleteError.message : t('imgbed.common.error'), tone: 'danger' })
     }
@@ -171,6 +209,7 @@ export function LibraryPage(): ReactElement {
     try {
       for (const id of ids) await imgbedSetTags(id, tags, 'add')
       toast({ title: t('imgbed.library.saved'), tone: 'success' })
+      await refresh()
     } catch (tagError) {
       toast({ title: tagError instanceof Error ? tagError.message : t('imgbed.common.error'), tone: 'danger' })
     }
@@ -210,6 +249,82 @@ export function LibraryPage(): ReactElement {
     }
   }
 
+  const refresh = async (): Promise<void> => { await Promise.all([load(true), loadSidebar()]) }
+  const toggleFlag = async (file: ImgbedFile, key: 'favorite' | 'pinned'): Promise<void> => {
+    const next = !file[key]
+    const patchFile = (entry: ImgbedFile): ImgbedFile => entry.id === file.id ? { ...entry, [key]: next } : entry
+    setData((current) => current ? { ...current, files: current.files.map(patchFile) } : current)
+    setDetail((current) => current ? patchFile(current) : current)
+    try {
+      await imgbedSetFlags([file.id], { [key]: next })
+      await refresh()
+    } catch (error) {
+      setData((current) => current ? { ...current, files: current.files.map((entry) => entry.id === file.id ? { ...entry, [key]: !next } : entry) } : current)
+      toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' })
+    }
+  }
+  const absoluteFileUrl = (file: ImgbedFile): string => `${location.origin}/imgbed/file/${filePath(file.id)}`
+  const copyFileLink = async (file: ImgbedFile): Promise<void> => {
+    const ok = await copyText(absoluteFileUrl(file))
+    toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' })
+  }
+  const copyFileMarkdown = async (file: ImgbedFile): Promise<void> => {
+    const ok = await copyText(`![${file.fileName}](${absoluteFileUrl(file)})`)
+    toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' })
+  }
+  const openFileInNewTab = (file: ImgbedFile): void => { window.open(absoluteFileUrl(file), '_blank', 'noopener,noreferrer') }
+  const downloadFile = (file: ImgbedFile): void => {
+    const anchor = document.createElement('a')
+    anchor.href = `${absoluteFileUrl(file)}?download=1`
+    anchor.download = file.fileName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  }
+  const tagFile = async (file: ImgbedFile): Promise<void> => {
+    const value = await prompt({ title: t('imgbed.library.tags'), description: t('imgbed.library.tags_prompt'), defaultValue: file.tags.join(', ') })
+    if (value === null) return
+    try {
+      await imgbedSetTags(file.id, value.split(',').map((tag) => tag.trim()).filter(Boolean), 'set')
+      toast({ title: t('imgbed.library.saved'), tone: 'success' })
+      await refresh()
+    } catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
+  }
+  const renameFile = async (file: ImgbedFile): Promise<void> => {
+    const next = await prompt({ title: t('imgbed.library.rename'), description: t('imgbed.library.rename_prompt'), defaultValue: file.id })
+    if (!next) return
+    try { await imgbedRename(file.id, next); toast({ title: t('imgbed.library.saved'), tone: 'success' }); await refresh() }
+    catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
+  }
+  const moveFile = async (file: ImgbedFile): Promise<void> => {
+    const dist = await prompt({ title: t('imgbed.library.move'), description: t('imgbed.library.move_prompt'), defaultValue: dir })
+    if (dist === null) return
+    try { await imgbedMove([file.id], dist); await refresh() }
+    catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
+  }
+  const deleteFile = async (file: ImgbedFile): Promise<void> => {
+    if (!(await confirm({ title: t('imgbed.library.confirm_delete'), tone: 'danger', confirmLabel: t('imgbed.library.delete') }))) return
+    try { await imgbedDelete(file.id); toast({ title: t('imgbed.library.deleted'), tone: 'success' }); setDetail(null); await refresh() }
+    catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
+  }
+  const closeCardMenu = (): void => { menu.close(); setMenuFile(null) }
+  const openCardMenu = (file: ImgbedFile, at: { x: number; y: number }): void => {
+    setMenuFile(file)
+    menu.openAt(at)
+  }
+  const cardMenuItems = (file: ImgbedFile): MenuItem[] => [
+    { id: 'open', label: t('imgbed.library.preview' as never), icon: <Eye size={13} />, onSelect: () => setDetail(file) },
+    { id: 'new-tab', label: t('imgbed.library.open_new_tab' as never), icon: <ExternalLink size={13} />, onSelect: () => openFileInNewTab(file) },
+    { id: 'download', label: t('imgbed.library.download'), icon: <Download size={13} />, onSelect: () => downloadFile(file) },
+    { id: 'copy', label: t('imgbed.upload.copy'), icon: <Copy size={13} />, onSelect: () => void copyFileLink(file) },
+    { id: 'copy-md', label: t('imgbed.library.copy_markdown' as never), icon: <FileText size={13} />, onSelect: () => void copyFileMarkdown(file) },
+    { id: 'favorite', label: t((file.favorite ? 'imgbed.library.unfavorite' : 'imgbed.library.favorite') as never), icon: <Star size={13} />, checked: file.favorite, separatorBefore: true, onSelect: () => void toggleFlag(file, 'favorite') },
+    { id: 'pinned', label: t((file.pinned ? 'imgbed.library.unpin' : 'imgbed.library.pinned') as never), icon: <Pin size={13} />, checked: file.pinned, onSelect: () => void toggleFlag(file, 'pinned') },
+    { id: 'tags', label: t('imgbed.library.tags'), icon: <Tag size={13} />, separatorBefore: true, onSelect: () => void tagFile(file) },
+    { id: 'rename', label: t('imgbed.library.rename'), icon: <Pencil size={13} />, onSelect: () => void renameFile(file) },
+    { id: 'move', label: t('imgbed.library.move'), icon: <FolderInput size={13} />, onSelect: () => void moveFile(file) },
+    { id: 'delete', label: t('imgbed.library.delete'), icon: <Trash2 size={13} />, tone: 'danger', separatorBefore: true, onSelect: () => void deleteFile(file) },
+  ]
   const up = (): void => {
     const parts = dir.split('/').filter(Boolean)
     parts.pop()
@@ -219,41 +334,45 @@ export function LibraryPage(): ReactElement {
   return (
     <div
       ref={gridRef}
-      className="flex min-h-full flex-col gap-3 p-3 md:p-5"
+      className="flex min-h-full"
       onPointerDown={onGridPointerDown}
       onPointerMove={onGridPointerMove}
       onPointerUp={endMarquee}
       onPointerCancel={endMarquee}
     >
+      <aside inert={filtersOpen || undefined} data-imgbed-sidebar className={cn('hidden w-[236px] shrink-0 overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] lg:block', sidebarHidden && 'lg:hidden')}>
+        <ImgbedSidebar data={sidebar} loading={sidebarLoading} filters={filters} onChange={updateFilters} />
+      </aside>
+      <div inert={filtersOpen || undefined} className="flex min-w-0 flex-1 flex-col gap-3 p-3 md:p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <IconButton label={t('imgbed.library.folder_up')} onClick={up} disabled={!dir}><ArrowLeft size={15} /></IconButton>
-        <div className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">/{dir}</div>
-        <div className="flex min-w-[220px] items-center gap-1">
+        <span ref={filtersTriggerRef} className="lg:hidden"><IconButton label={t('imgbed.library.filters' as never)} onClick={() => setFiltersOpen(true)}><ListFilter size={15} /></IconButton></span>
+        <span className="hidden lg:inline-flex"><IconButton label={t((sidebarHidden ? 'imgbed.library.sidebar_show' : 'imgbed.library.sidebar_hide') as never)} onClick={() => setSidebarHidden((current) => { const next = !current; try { localStorage.setItem('inkstone.imgbed.sidebarHidden', next ? '1' : '0') } catch (error) { console.warn('[inkstone] Image bed sidebar preference could not be saved', error) } return next })}><PanelLeft size={15} /></IconButton></span>
+        <IconButton label={t('imgbed.library.folder_up')} onClick={up} disabled={!dir || globalScope}><ArrowLeft size={15} /></IconButton>
+        <div className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">{globalScope || !dir ? t('imgbed.library.all_files' as never) : `/${dir}`}</div>
+        <div className="order-last w-full min-w-[200px] sm:order-none sm:w-auto sm:min-w-[220px] sm:flex-1">
           <Input leading={<Search size={13} />} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('imgbed.library.search')} />
         </div>
-        <Select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="w-[110px]">
-          <option value="">{t('imgbed.public.all')}</option>
-          <option value="image">{t('imgbed.public.images')}</option>
-          <option value="video">{t('imgbed.public.videos')}</option>
-          <option value="audio">{t('imgbed.public.audio')}</option>
-          <option value="other">{t('imgbed.public.other')}</option>
-        </Select>
-        <Select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="w-[120px]">
+        <Select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="w-[112px]">
           <option value="">{t('imgbed.library.access')}</option>
           <option value="normal">{t('imgbed.library.normal')}</option>
           <option value="blocked">{t('imgbed.library.blocked')}</option>
         </Select>
-        <Select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} className="w-[130px]">
-          <option value="">{t('imgbed.library.channel')}</option>
-          {[...new Set(channels.map((channel) => channel.type))].map((type) => <option key={type} value={type}>{imgbedChannelLabel(type)}</option>)}
-        </Select>
-        <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[130px]">
+        <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[116px]">
           <option value="time">{t('imgbed.sort.time' as never)}</option>
           <option value="size">{t('imgbed.sort.size' as never)}</option>
           <option value="fileName">{t('imgbed.sort.file_name' as never)}</option>
         </Select>
-        <IconButton label={t('imgbed.common.retry')} onClick={() => void load(true)}><RefreshCw size={15} /></IconButton>
+        <IconButton label={t('imgbed.common.retry')} onClick={() => void refresh()}><RefreshCw size={15} /></IconButton>
       </div>
+      {globalScope ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('imgbed.library.showing_all' as never)}</span>
+          {quick !== 'all' ? <FilterChip label={t((quick === 'favorite' ? 'imgbed.library.favorite' : 'imgbed.library.pinned') as never)} onClear={() => setQuick('all')} /> : null}
+          {typeFilter ? <FilterChip label={t((TYPE_LABELS[typeFilter] ?? 'imgbed.public.all') as never)} onClear={() => setTypeFilter('')} /> : null}
+          {channelFilter ? <FilterChip label={imgbedChannelLabel(channelFilter)} onClear={() => setChannelFilter('')} /> : null}
+          {tagFilter ? <FilterChip label={`#${tagFilter}`} onClear={() => setTagFilter('')} /> : null}
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <Checkbox checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(data?.files.map((file) => file.id) ?? []))} label={t('imgbed.library.select_all')} />
@@ -277,27 +396,54 @@ export function LibraryPage(): ReactElement {
       ) : !data?.files.length && !data?.directories.length ? (
         <Empty art="search" title={t('imgbed.library.empty')} />
       ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="flex flex-col gap-3">
           {marquee && <div className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent-soft)]/20" style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
-          {data.directories.map((directory) => (
-            <button
-              key={directory}
-              type="button"
-              onClick={() => setDir(directory)}
-              className="flex min-h-[92px] flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 text-center hover:bg-[var(--bg-hover)]"
-            >
-              <Folder size={22} className="text-[var(--accent)]" />
-              <span className="w-full truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{directory.split('/').filter(Boolean).pop()}</span>
-            </button>
-          ))}
+          {!globalScope && data.directories.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
+              {data.directories.map((directory) => (
+                <button
+                  key={directory}
+                  type="button"
+                  onClick={() => setDir(directory)}
+                  className="flex min-h-[64px] items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  <Folder size={18} className="shrink-0 text-[var(--accent)]" />
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{directory.split('/').filter(Boolean).pop()}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {data.files.map((file) => {
             const image = file.fileType.startsWith('image/') && file.fileType !== 'image/svg+xml'
             return (
-              <div key={file.id} data-file-id={file.id} className="group relative overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                <div className="absolute left-1.5 top-1.5 z-10 rounded bg-[var(--bg-overlay)]/80 p-0.5">
+              <div
+                key={file.id}
+                data-file-id={file.id}
+                className="group relative overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"
+                onContextMenu={(event) => { setMenuFile(file); menu.onContextMenu(event) }}
+              >
+                <div className="absolute left-1.5 top-1.5 z-20 rounded bg-[var(--bg-overlay)]/80 p-0.5">
                   <Checkbox checked={selected.has(file.id)} onChange={() => toggle(file.id)} ariaLabel={file.id} />
                 </div>
-                <button type="button" onClick={() => setDetail(file)} className="block w-full text-left">
+                <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)]/90 p-0.5 opacity-100 shadow-[var(--shadow-pop)] transition-opacity duration-[var(--dur-fast)] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                  <IconButton size="xs" data-card-action="favorite" label={t((file.favorite ? 'imgbed.library.unfavorite' : 'imgbed.library.favorite') as never)} active={file.favorite} onClick={() => void toggleFlag(file, 'favorite')}><Star size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="pinned" label={t((file.pinned ? 'imgbed.library.unpin' : 'imgbed.library.pinned') as never)} active={file.pinned} onClick={() => void toggleFlag(file, 'pinned')}><Pin size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="copy" label={t('imgbed.upload.copy')} onClick={() => void copyFileLink(file)}><Copy size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="tags" label={t('imgbed.library.tags')} onClick={() => void tagFile(file)}><Tag size={12} /></IconButton>
+                  <IconButton size="xs" data-card-action="more" label={t('imgbed.library.more_actions' as never)} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); openCardMenu(file, { x: rect.left, y: rect.bottom + 4 }) }}><MoreHorizontal size={12} /></IconButton>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetail(file)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+                    event.preventDefault()
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    openCardMenu(file, { x: rect.left + 12, y: rect.top + 12 })
+                  }}
+                  className="block w-full text-left"
+                >
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-inset)]">
                     {image
                       ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
@@ -305,14 +451,36 @@ export function LibraryPage(): ReactElement {
                   </div>
                   <div className="px-2 py-1.5">
                     <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-primary)]">{file.fileName}</div>
-                    <div className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{formatBytes(file.sizeBytes)} · {imgbedChannelDisplayName(file.channelName)}</div>
+                    <div className="flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                      <span className="min-w-0 flex-1 truncate">{formatBytes(file.sizeBytes)} · {imgbedChannelDisplayName(file.channelName)}</span>
+                      {file.pinned ? <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--warning)]" /> : null}
+                      {file.favorite ? <Star size={10} aria-hidden="true" className="shrink-0 text-[var(--warning)]" /> : null}
+                    </div>
                   </div>
                 </button>
               </div>
             )
           })}
+          </div>
         </div>
       )}
+
+      </div>
+
+      {filtersOpen ? (
+        <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
+          <button type="button" tabIndex={-1} aria-label={t('imgbed.common.close')} className="absolute inset-0 bg-[var(--scrim)]" onClick={closeFilters} />
+          <div role="dialog" aria-modal="true" aria-label={t('imgbed.library.filters' as never)} className="absolute inset-y-0 left-0 flex w-[286px] max-w-[86vw] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-[var(--shadow-modal)]">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
+              <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('imgbed.library.filters' as never)}</span>
+              <IconButton autoFocus label={t('imgbed.common.close')} onClick={closeFilters}><X size={15} /></IconButton>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden"><ImgbedSidebar data={sidebar} loading={sidebarLoading} filters={filters} onChange={updateFilters} /></div>
+          </div>
+        </div>
+      ) : null}
+
+      <Menu anchor={menu.point ?? { x: 0, y: 0 }} open={Boolean(menu.point && menuFile)} onClose={closeCardMenu} items={menuFile ? cardMenuItems(menuFile).map((item) => ({ ...item, onSelect: () => { closeCardMenu(); item.onSelect?.() } })) : []} width={224} label={t('imgbed.library.more_actions' as never)} />
 
       <Modal open={actionsOpen} onClose={() => setActionsOpen(false)} title={t('imgbed.library.actions' as never)} width={360}>
         <div className="flex flex-col gap-2">
@@ -330,12 +498,12 @@ export function LibraryPage(): ReactElement {
         </div>
       </Modal>
 
-      <FileDetail file={detail} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); void load() }} />
+      <FileDetail file={detail} onClose={() => setDetail(null)} onChanged={() => { setDetail(null); void refresh() }} onToggleFlag={(file, key) => void toggleFlag(file, key)} />
     </div>
   )
 }
 
-function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onClose: () => void; onChanged: () => void }): ReactElement {
+function FileDetail({ file, onClose, onChanged, onToggleFlag }: { file: ImgbedFile | null; onClose: () => void; onChanged: () => void; onToggleFlag: (file: ImgbedFile, key: 'favorite' | 'pinned') => void }): ReactElement {
   const toast = useUi((state) => state.toast)
   const [busy, setBusy] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(false)
@@ -410,7 +578,9 @@ function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onC
   }
   return (
     <Modal open onClose={onClose} title={file.fileName} width={720} footer={
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <IconButton label={t((file.favorite ? 'imgbed.library.unfavorite' : 'imgbed.library.favorite') as never)} active={file.favorite} onClick={() => onToggleFlag(file, 'favorite')}><Star size={14} /></IconButton>
+        <IconButton label={t((file.pinned ? 'imgbed.library.unpin' : 'imgbed.library.pinned') as never)} active={file.pinned} onClick={() => onToggleFlag(file, 'pinned')}><Pin size={14} /></IconButton>
         {aiEnabled && <Button size="sm" variant="secondary" loading={aiBusy} onClick={() => void (aiTags ? applyAi() : generateAi())}>{aiTags ? t('imgbed.ai.apply') : t('imgbed.ai.generate')}</Button>}
         <Button size="sm" variant="secondary" onClick={() => void tags()}>{t('imgbed.library.tags')}</Button>
         <Button size="sm" variant="secondary" onClick={() => void rename()}>{t('imgbed.library.rename')}</Button>
@@ -444,6 +614,15 @@ function FileDetail({ file, onClose, onChanged }: { file: ImgbedFile | null; onC
         </dl>
       </div>
     </Modal>
+  )
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }): ReactElement {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-10-5)] text-[var(--accent-on-soft)]">
+      {label}
+      <button type="button" aria-label={t('imgbed.library.clear_filter' as never)} onClick={onClear} className="rounded-full p-0.5 hover:bg-[var(--bg-hover)]"><X size={10} /></button>
+    </span>
   )
 }
 

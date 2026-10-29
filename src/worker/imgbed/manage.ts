@@ -19,6 +19,8 @@ import { listResolvedChannels } from './channels'
 import {
   addFileTags,
   allDirectories,
+  getSidebarData,
+  setFileFlags,
   autocompleteTags,
   deleteFileRow,
   fileExists,
@@ -57,6 +59,11 @@ function queryList(c: { req: { url: string } }): ImgbedListQuery {
     fileType: list('fileType'),
     channel: list('channel'),
     channelName: list('channelName'),
+    favorite: url.searchParams.get('favorite') === 'true',
+    pinned: url.searchParams.get('pinned') === 'true',
+    tagPrefix: url.searchParams.get('tagPrefix') ?? '',
+    createdFrom: url.searchParams.get('createdFrom') ? Number(url.searchParams.get('createdFrom')) : undefined,
+    createdTo: url.searchParams.get('createdTo') ? Number(url.searchParams.get('createdTo')) : undefined,
     recursive: url.searchParams.get('recursive') === 'true',
     sort: (url.searchParams.get('sort') ?? 'time') as ImgbedListQuery['sort'],
     sortOrder: (url.searchParams.get('sortOrder') ?? 'desc') as ImgbedListQuery['sortOrder'],
@@ -71,7 +78,7 @@ function fileForBackup(file: ImgbedFile) {
     label: file.label, directory: file.directory, source: file.source, externalLink: file.externalLink,
     channel: file.channel, channelName: file.channelName, isChunked: file.isChunked,
     parts: file.parts, uploaderId: file.uploaderId, createdAt: file.createdAt,
-    updatedAt: file.updatedAt, tags: file.tags,
+    updatedAt: file.updatedAt, favorite: file.favorite, pinned: file.pinned, tags: file.tags,
   }
 }
 
@@ -99,6 +106,26 @@ function directoryTree(directories: string[]): { name: string; path: string; chi
 imgbedManageRoutes.get('/manage/list', async (c) => {
   await requireImgbedActor(c, 'list')
   return c.json(await listFiles(c.env.DB, queryList(c)))
+})
+
+imgbedManageRoutes.get('/manage/sidebar', async (c) => {
+  await requireImgbedActor(c, 'list')
+  const url = new URL(c.req.url)
+  return c.json(await getSidebarData(c.env.DB, {
+    timezoneOffset: Number(url.searchParams.get('tz') ?? 0),
+    days: Number(url.searchParams.get('days') ?? 90),
+  }))
+})
+
+imgbedManageRoutes.post('/manage/files/flags', async (c) => {
+  await requireImgbedActor(c, 'upload')
+  const body = await c.req.json().catch(() => null) as { ids?: string[]; favorite?: boolean; pinned?: boolean } | null
+  const ids = Array.isArray(body?.ids) ? body!.ids.filter((id) => typeof id === 'string').slice(0, 1000) : []
+  if (!ids.length) throw ApiError.badRequest('ids are required')
+  const flags = { ...(typeof body?.favorite === 'boolean' ? { favorite: body.favorite } : {}), ...(typeof body?.pinned === 'boolean' ? { pinned: body.pinned } : {}) }
+  if (!Object.keys(flags).length) throw ApiError.badRequest('favorite or pinned is required')
+  await setFileFlags(c.env.DB, ids, flags)
+  return c.json({ ok: true, updated: ids.length })
 })
 
 imgbedManageRoutes.get('/manage/stats', async (c) => {
@@ -394,6 +421,12 @@ imgbedManageRoutes.post('/manage/restore', async (c) => {
         createdAt: Number.isFinite(Number(raw.createdAt)) ? Number(raw.createdAt) : Date.now(),
       })
       if (Array.isArray(raw.tags)) await replaceFileTags(c.env.DB, id, normalizeTags(raw.tags.map(String)))
+      if (raw.favorite === true || raw.favorite === 1 || raw.pinned === true || raw.pinned === 1) {
+        await setFileFlags(c.env.DB, [id], {
+          ...(raw.favorite === true || raw.favorite === 1 ? { favorite: true } : {}),
+          ...(raw.pinned === true || raw.pinned === 1 ? { pinned: true } : {}),
+        })
+      }
       restoredFiles++
     } catch {
       failedFiles++

@@ -43,9 +43,9 @@ export function ImgbedApp(): ReactElement {
           <span className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
             <Images size={16} />
           </span>
-          <h1 className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">{t('imgbed.title')}</h1>
+          <h1 className="hidden truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] sm:block">{t('imgbed.title')}</h1>
         </div>
-        <nav aria-label={t('imgbed.title')} className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <nav aria-label={t('imgbed.title')} className="flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto [scrollbar-width:none] sm:gap-1">
           {nav.map((item) => {
             const Icon = item.icon
             const active = item.page === page
@@ -60,7 +60,7 @@ export function ImgbedApp(): ReactElement {
                   navigateToPath(item.path)
                 }}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)]',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1.5 text-[length:var(--text-12)] sm:px-2',
                   'transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
                   active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                 )}
@@ -75,10 +75,10 @@ export function ImgbedApp(): ReactElement {
           href="/imgbed/browse"
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" aria-label={t('imgbed.nav.public')}
         >
           <HardDrive size={14} />
-          {t('imgbed.nav.public')}
+          <span className="hidden sm:inline">{t('imgbed.nav.public')}</span>
         </a>
       </header>
       <main className="min-h-0 flex-1 overflow-auto">
