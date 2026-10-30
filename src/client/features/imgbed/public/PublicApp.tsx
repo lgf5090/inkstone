@@ -33,12 +33,14 @@ function formatSize(value?: string): string {
   return value ? `${value} MB` : ''
 }
 
-function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; onPrev: () => void; onNext: () => void }): ReactElement {
+export function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; onPrev: () => void; onNext: () => void }): ReactElement {
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const drag = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null)
   const touch = useRef<{ x: number; y: number } | null>(null)
+  const pinch = useRef<{ distance: number; zoom: number; panX: number; panY: number; midX: number; midY: number } | null>(null)
+  const pinched = useRef(false)
   const clamp = (value: number): number => Math.min(5, Math.max(0.5, value))
   const reset = (): void => { setZoom(1); setRotation(0); setPan({ x: 0, y: 0 }) }
   useEffect(() => {
@@ -50,6 +52,7 @@ function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; 
     return () => window.removeEventListener('keydown', onKey)
   }, [onPrev, onNext])
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!event.isPrimary) return
     drag.current = { startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -64,18 +67,57 @@ function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; 
     setZoom((current) => clamp(current * (event.deltaY < 0 ? 1.15 : 0.87)))
   }
   const onTouchStart = (event: ReactTouchEvent<HTMLDivElement>): void => {
-    const point = event.touches[0]
-    if (point) touch.current = { x: point.clientX, y: point.clientY }
+    const first = event.touches[0]
+    const second = event.touches[1]
+    if (first && second) {
+      pinch.current = {
+        distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+        zoom,
+        panX: pan.x,
+        panY: pan.y,
+        midX: (first.clientX + second.clientX) / 2,
+        midY: (first.clientY + second.clientY) / 2,
+      }
+      pinched.current = true
+      drag.current = null
+      touch.current = null
+      return
+    }
+    if (!first) return
+    pinch.current = null
+    pinched.current = false
+    touch.current = { x: first.clientX, y: first.clientY }
+  }
+  const onTouchMove = (event: ReactTouchEvent<HTMLDivElement>): void => {
+    const first = event.touches[0]
+    const second = event.touches[1]
+    const start = pinch.current
+    if (!first || !second || !start || start.distance <= 0) return
+    const midX = (first.clientX + second.clientX) / 2
+    const midY = (first.clientY + second.clientY) / 2
+    const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+    setZoom(clamp(start.zoom * (distance / start.distance)))
+    setPan({ x: start.panX + midX - start.midX, y: start.panY + midY - start.midY })
   }
   const onTouchEnd = (event: ReactTouchEvent<HTMLDivElement>): void => {
     const start = touch.current
+    const wasPinched = pinched.current
     touch.current = null
+    if (event.touches.length === 0) {
+      pinch.current = null
+      pinched.current = false
+    }
     const point = event.changedTouches[0]
-    if (!start || !point || zoom !== 1) return
+    if (!start || !point || wasPinched || zoom !== 1) return
     const dx = point.clientX - start.x
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(point.clientY - start.y)) return
     if (dx > 0) onPrev()
     else onNext()
+  }
+  const onTouchCancel = (): void => {
+    touch.current = null
+    pinch.current = null
+    pinched.current = false
   }
   return (
     <div className="flex flex-col gap-2">
@@ -88,7 +130,9 @@ function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; 
         onWheel={onWheel}
         onDoubleClick={reset}
         onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         <img
           src={url}
@@ -207,27 +251,35 @@ export function PublicApp(): ReactElement {
       </div>
       {loading && !data ? <LoadingBlock label={t('imgbed.common.loading')} /> : error ? <Empty art="search" title={error} action={<Button onClick={() => void load(true)}>{t('imgbed.common.retry')}</Button>} /> : (
         <>
-          <div className="mx-auto mt-3 max-w-6xl columns-2 gap-2 sm:columns-3 lg:columns-4">
-            {data?.directories.map((directory) => (
-              <a key={directory} href={`/imgbed/browse/${directory.replace(/\/$/, '')}`} className="mb-2 flex min-h-[90px] break-inside-avoid flex-col items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 text-center">
-                <Folder size={22} className="text-[var(--accent)]" />
-                <span className="mt-1 max-w-full truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{directory.split('/').filter(Boolean).pop()}</span>
-              </a>
-            ))}
-            {data?.files.map((file) => {
-              const fileType = file.metadata.FileType ?? ''
-              const url = `/imgbed/file/${filePath(file.name)}?v=${file.metadata.UpdatedAt ?? file.metadata.TimeStamp ?? 0}`
-              return (
-                <button key={file.name} type="button" onClick={() => setPreview(file)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-left">
-                  {fileType.startsWith('image/') && fileType !== 'image/svg+xml'
-                    ? <img src={`${url}&width=480&height=360&fit=cover&fallback=original`} alt={file.name} loading="lazy" decoding="async" className="w-full" />
-                    : fileType.startsWith('video/')
-                      ? <video src={url} className="w-full" muted playsInline preload="metadata" />
-                      : <div className="flex min-h-[100px] items-center justify-center"><FileText size={24} className="text-[var(--text-quaternary)]" /></div>}
-                  <div className="p-2 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]"><span className="block truncate">{file.name.split('/').pop()}</span>{formatSize(file.metadata.FileSize)}{file.metadata.TimeStamp ? ` · ${new Date(file.metadata.TimeStamp).toLocaleDateString()}` : ''}</div>
-                </button>
-              )
-            })}
+          <div className="mx-auto mt-3 max-w-6xl space-y-2">
+            {data?.directories.length ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                {data.directories.map((directory) => (
+                  <a key={directory} href={`/imgbed/browse/${directory.replace(/\/$/, '')}`} className="flex min-h-[64px] items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3">
+                    <Folder size={18} className="shrink-0 text-[var(--accent)]" />
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{directory.split('/').filter(Boolean).pop()}</span>
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {data?.files.map((file) => {
+                const fileType = file.metadata.FileType ?? ''
+                const url = `/imgbed/file/${filePath(file.name)}?v=${file.metadata.UpdatedAt ?? file.metadata.TimeStamp ?? 0}`
+                return (
+                  <button key={file.name} type="button" onClick={() => setPreview(file)} className="block w-full overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-left">
+                    <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-inset)]">
+                      {fileType.startsWith('image/') && fileType !== 'image/svg+xml'
+                        ? <img src={`${url}&width=480&height=360&fit=cover&fallback=original`} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
+                        : fileType.startsWith('video/')
+                          ? <video src={url} className="size-full object-cover" muted playsInline preload="metadata" />
+                          : <FileText size={26} className="text-[var(--text-quaternary)]" />}
+                    </div>
+                    <div className="p-2 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]"><span className="block truncate">{file.name.split('/').pop()}</span>{formatSize(file.metadata.FileSize)}{file.metadata.TimeStamp ? ` · ${new Date(file.metadata.TimeStamp).toLocaleDateString()}` : ''}</div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           {!data?.files.length && !data?.directories.length && <Empty art="search" title={t('imgbed.public.empty')} />}
           {data && data.files.length > 0 && start < data.totalCount && <div className="flex flex-wrap items-center justify-center gap-2 p-3"><span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('imgbed.library.loaded_count' as never, { loaded: data.files.length, total: data.totalCount })}</span><Button loading={loading} onClick={() => void load(false)}>{t('imgbed.library.load_more' as never)}</Button></div>}
