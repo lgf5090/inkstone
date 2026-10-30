@@ -11,6 +11,7 @@ import { useUi } from '../../../store/ui'
 import { createDriver, type StudioDriver } from './drivers'
 import { buildRowInsert } from './transfer-ops'
 import { loadGuards } from './guards'
+import { stableOrderBy } from './schema-utils'
 
 type Mode = 'both' | 'structure' | 'data'
 type Status = { state: 'pending' | 'running' | 'done' | 'failed'; rows?: number; message?: string }
@@ -85,6 +86,7 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
     }
     let done = 0
     let failed = 0
+    let objectsFailed = 0
     try {
       for (let index = 0; index < chosen.length; index++) {
         const tableName = chosen[index]!
@@ -100,9 +102,10 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
           }
           if (mode !== 'structure') {
             let offset = 0
+            const orderBy = table ? stableOrderBy(table) : ''
             for (;;) {
               if (cancelRef.current) break
-              const page = await sourceDriver.query(`SELECT * FROM ${quoteIdent(tableName)} LIMIT ${PAGE} OFFSET ${offset}`)
+              const page = await sourceDriver.query(`SELECT * FROM ${quoteIdent(tableName)}${orderBy ? ` ${orderBy}` : ''} LIMIT ${PAGE} OFFSET ${offset}`)
               if (page.rows.length === 0) break
               for (const row of page.rows) {
                 if (rows >= ROW_CAP) break
@@ -120,9 +123,29 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
           setStatus((current) => ({ ...current, [tableName]: { state: 'failed', message: error instanceof Error ? error.message : String(error) } }))
         }
       }
+      if (mode !== 'data' && !cancelRef.current) {
+        const objects = [
+          ...schema.indexes.filter((index) => index.sql).map((index) => index.sql as string),
+          ...schema.views.map((view) => view.sql),
+          ...schema.triggers.map((trigger) => trigger.sql),
+        ]
+        for (const sql of objects) {
+          if (cancelRef.current) break
+          try {
+            await targetDriver.query(sql.trim().replace(/;+$/, ''))
+          } catch (error) {
+            objectsFailed += 1
+            onError(t('development.database.transfer.object_failed', { message: error instanceof Error ? error.message : String(error) }))
+          }
+        }
+      }
+      const description = [
+        failed > 0 ? t('development.database.transfer.failed_summary', { count: failed }) : '',
+        objectsFailed > 0 ? t('development.database.transfer.object_failed_summary', { count: objectsFailed }) : '',
+      ].filter(Boolean).join(' · ')
       useUi.getState().toast({
         title: t('development.database.transfer.done', { done }),
-        ...(failed > 0 ? { description: t('development.database.transfer.failed_summary', { count: failed }), tone: 'warning' as const } : { tone: 'success' as const }),
+        ...(description ? { description, tone: 'warning' as const } : { tone: 'success' as const }),
       })
     } finally {
       targetDriver.close()

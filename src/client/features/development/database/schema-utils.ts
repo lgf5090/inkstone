@@ -100,3 +100,9 @@ export function primaryKeyColumns(table: ParsedTable): string[] {
     .sort((a, b) => a.pkPosition - b.pkPosition)
     .map((column) => column.name)
 }
+
+export function stableOrderBy(table: ParsedTable): string {
+  const keys = primaryKeyColumns(table)
+  if (keys.length > 0) return `ORDER BY ${keys.map(quoteIdent).join(', ')}`
+  return table.withoutRowid ? '' : 'ORDER BY rowid'
+}

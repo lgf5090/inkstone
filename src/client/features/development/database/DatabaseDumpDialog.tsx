@@ -9,6 +9,7 @@ import { Modal } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import type { StudioDriver } from './drivers'
 import { downloadTextFile, toInsertSql } from './export-utils'
+import { stableOrderBy } from './schema-utils'
 
 const PAGE_SIZE = 500
 const MAX_ROWS_PER_TABLE = 20_000
@@ -45,8 +46,9 @@ export function DatabaseDumpDialog({ open, driver, schema, connectionName, onClo
         if (includeData) {
           let offset = 0
           let written = 0
+          const orderBy = stableOrderBy(table)
           for (;;) {
-            const result = await driver.query(`SELECT * FROM ${quoteIdent(table.name)} LIMIT ${PAGE_SIZE} OFFSET ${offset}`)
+            const result = await driver.query(`SELECT * FROM ${quoteIdent(table.name)}${orderBy ? ` ${orderBy}` : ''} LIMIT ${PAGE_SIZE} OFFSET ${offset}`)
             if (result.rows.length === 0) break
             const remaining = MAX_ROWS_PER_TABLE - written
             const rows = result.rows.slice(0, Math.max(0, remaining))
@@ -62,6 +64,12 @@ export function DatabaseDumpDialog({ open, driver, schema, connectionName, onClo
               break
             }
           }
+        }
+      }
+      if (includeStructure) {
+        for (const index of schema.indexes) {
+          if (!index.sql) continue
+          parts.push(`${index.sql.trim().replace(/;+$/, '')};`)
         }
       }
       if (includeObjects) {

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { parseCreateTable, parseCreateIndex } from '../src/client/features/development/database/schema-parse'
 import { buildRebuildSql } from '../src/client/features/development/database/ddl'
-import { buildTableDataSql, loadSchema } from '../src/client/features/development/database/schema-utils'
+import { buildTableDataSql, loadSchema, stableOrderBy } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
 import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
@@ -340,6 +340,15 @@ describe('development database core', () => {
     expect(statements).toContain('CREATE TABLE fresh (id INTEGER);')
     expect(statements).toContain('ALTER TABLE "users" ADD COLUMN "age" INTEGER;')
     expect(statements.some((statement) => statement.startsWith('DROP'))).toBe(false)
+  })
+
+  it('orders paginated reads by primary key or rowid', () => {
+    const composite = parseCreateTable('CREATE TABLE t (a INTEGER, b TEXT, PRIMARY KEY (a, b))')!
+    expect(stableOrderBy(composite)).toBe('ORDER BY "a", "b"')
+    const plain = parseCreateTable('CREATE TABLE t (a INTEGER)')!
+    expect(stableOrderBy(plain)).toBe('ORDER BY rowid')
+    const withoutRowid = parseCreateTable('CREATE TABLE t (a TEXT PRIMARY KEY) WITHOUT ROWID')!
+    expect(stableOrderBy(withoutRowid)).toBe('ORDER BY "a"')
   })
 
   it('diffs rows into insert/update/delete statements', () => {

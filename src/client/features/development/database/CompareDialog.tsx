@@ -97,6 +97,14 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
         const targetSchema = await loadSchema(targetDriver)
         const diffs = diffSchemas(shapesOf(sourceSchema), shapesOf(targetSchema))
         const statements = schemaStatements(diffs, shapesOf(sourceSchema))
+        const missingObjects = [
+          ...sourceSchema.indexes
+            .filter((index) => index.sql && !targetSchema.indexes.some((entry) => entry.name === index.name))
+            .map((index) => index.sql as string),
+          ...sourceSchema.views.filter((view) => !targetSchema.views.some((entry) => entry.name === view.name)).map((view) => view.sql),
+          ...sourceSchema.triggers.filter((trigger) => !targetSchema.triggers.some((entry) => entry.name === trigger.name)).map((trigger) => trigger.sql),
+        ]
+        statements.push(...missingObjects.map((sql) => `${sql.trim().replace(/;+$/, '')};`))
         const missing = diffs.filter((diff) => diff.missingInTarget).length
         const added = diffs.reduce((total, diff) => total + diff.addedColumns.length, 0)
         const changed = diffs.filter((diff) => diff.typeChanges.length > 0 || diff.removedColumns.length > 0).length
