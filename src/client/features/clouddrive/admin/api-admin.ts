@@ -264,6 +264,52 @@ export interface CloudDriveJobInput {
   config?: Record<string, unknown>
 }
 
+export interface CloudDriveOrphanObject {
+  key: string
+  size: number
+  uploaded: number
+}
+
+export interface CloudDriveOrphanScan {
+  orphans: CloudDriveOrphanObject[]
+  scanned: number
+  cursor: string | null
+  done: boolean
+}
+
+export interface CloudDriveManifestEntry {
+  path: string
+  name: string
+  kind: 'file' | 'folder'
+  category?: string
+  mime?: string
+  size?: number
+  etag?: string | null
+  checksum?: string | null
+  storageKey?: string | null
+  color?: string | null
+  starredAt?: number | null
+  createdAt?: number
+  updatedAt?: number
+  uploadedAt?: number
+  modifiedAt?: number
+  tags?: { tag: string; color: string }[]
+}
+
+export interface CloudDriveManifest {
+  format: 'inkstone-clouddrive'
+  version: 1
+  exportedAt: number
+  truncated: boolean
+  entries: CloudDriveManifestEntry[]
+}
+
+export interface CloudDriveImportResult {
+  imported: number
+  skipped: number
+  errors: { path: string; reason: string }[]
+}
+
 export const clouddriveAdminApi = {
   overview: () => request<CloudDriveAdminOverview>('/api/clouddrive/admin/overview'),
   activity: (days = 7) => request<CloudDriveAdminActivity>(`/api/clouddrive/admin/activity${query({ days })}`),
@@ -285,6 +331,12 @@ export const clouddriveAdminApi = {
   clearIndex: (mountId?: string) => request<CloudDriveAdminIndexJob>('/api/clouddrive/admin/index/clear', json(mountId ? { mountId } : {})),
 
   tasks: () => request<CloudDriveTasks>('/api/clouddrive/tasks'),
+  cancelTask: (id: string) => request<{ ok: true }>(`/api/clouddrive/tasks/${encodeURIComponent(id)}/cancel`, json({})),
+
+  orphans: (cursor?: string | null, limit = 200) => request<CloudDriveOrphanScan>(`/api/clouddrive/admin/maintenance/orphans${query({ cursor, limit })}`),
+  deleteOrphans: (keys: string[]) => request<{ deleted: number; skipped: number }>('/api/clouddrive/admin/maintenance/orphans/delete', json({ keys })),
+  exportManifest: () => request<CloudDriveManifest>('/api/clouddrive/admin/maintenance/export'),
+  importManifest: (manifest: CloudDriveManifest) => request<CloudDriveImportResult>('/api/clouddrive/admin/maintenance/import', json(manifest)),
 
   jobs: () => request<CloudDriveJobsResponse>('/api/clouddrive/jobs'),
   job: (id: string) => request<{ job: CloudDriveJob }>(`/api/clouddrive/jobs/${encodeURIComponent(id)}`),

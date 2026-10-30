@@ -874,10 +874,7 @@ const WORKER_CATCH_BASELINE = new Map<string, { sites: number; reason: string }>
   ['src/worker/imgbed/serve.ts', { sites: 2, reason: 'Both cancel a body that has already been answered by a 304 or HEAD, where a failed cancel has no surface left to report on.' }],
   ['src/worker/imgbed/storage.ts', { sites: 19, reason: 'Each cancels or aborts an upstream body after its status has decided the outcome (S3/Discord/HF/WebDAV reads and deletes), and one discards a WebDAV MKCOL answer when creating the destination folder before MOVE, where a 405 already means the folder exists; a failed cancel cannot change a response already chosen.' }],
   ['src/worker/imgbed/upload-routes.ts', { sites: 2, reason: 'One discards a redirect body while following the fetch-url guard, and one deletes a failed upload session; both are cleanup after the reported outcome.' }],
-  ['src/worker/imgbed/upload-service.ts', { sites: 2, reason: 'Both release a remote object after a D1 write failed, where the original failure is the one returned to the caller.' }],
-  ['src/worker/clouddrive/routes-mounts.ts', { sites: 2, reason: 'Both discard a storage-test response body after its status has decided the answer; a failed cancel cannot change the result returned to the owner.' }],
-
-  ['src/worker/clouddrive/external.ts', { sites: 2, reason: 'Both discard a 404 response body after the missing object has already decided the answer; the caller receives null and a failed cancel cannot change it.' }],])
+  ['src/worker/imgbed/upload-service.ts', { sites: 2, reason: 'Both release a remote object after a D1 write failed, where the original failure is the one returned to the caller.' }],])
 
 /**
  * One walker for both rules below, so the Worker and the client cannot drift into two different policies.

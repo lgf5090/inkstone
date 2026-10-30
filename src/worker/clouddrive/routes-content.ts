@@ -110,7 +110,7 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   if (external) {
     const mount = await resolveMount(c.env.DB, userId, external.mountId)
     if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
-    const response = await readExternal(c.env, c.env.DB, mount, external.path, c.req.header('range') ?? null)
+    const response = await readExternal(c.env, c.env.DB, mount, external.path, c.req.header('range') ?? null, external.ref)
     if (!response) throw ApiError.notFound('File not found')
     const headers = new Headers(response.headers)
     headers.set('Cache-Control', 'private, no-store')

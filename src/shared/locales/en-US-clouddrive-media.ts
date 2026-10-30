@@ -41,6 +41,11 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.transfers.cancel': 'Cancel',
   'clouddrive.transfers.remove': 'Remove',
   'clouddrive.transfers.file_unavailable': 'The original file is no longer available. Choose it again.',
+  'clouddrive.tasks.server_section': 'Server tasks',
+  'clouddrive.tasks.empty': 'No server tasks yet.',
+  'clouddrive.tasks.status_completed': 'Completed',
+  'clouddrive.tasks.status_failed': 'Failed',
+  'clouddrive.tasks.type_reindex': 'Index rebuild',
 
   'clouddrive.settings.title': 'Cloud Drive settings',
   'clouddrive.settings.load_failed': 'Could not load settings',

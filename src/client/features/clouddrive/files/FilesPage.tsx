@@ -41,6 +41,7 @@ import { Menu, type MenuItem } from '../../../components/overlay'
 import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { cloudDriveCssVars } from '../prefs'
 import { useCloudDriveStore } from '../store'
+import { useTransferStore } from '../transfers/useTransferStore'
 import { FileList } from './FileList'
 import { FileGrid } from './FileGrid'
 import { FileGallery } from './FileGallery'
@@ -49,7 +50,7 @@ import { ConfirmDeleteDialog, MoveDialog, NewFolderDialog, RenameDialog } from '
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
 import { useFileActions, type FileListChange } from './useFileActions'
-import type { SelectMode } from './types'
+import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
 import './files.css'
 
@@ -84,7 +85,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [focusedId, setFocusedId] = useState<string | null>(null)
-  const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'cut'; ids: string[] } | null>(null)
+  const [clipboard, setClipboard] = useState<FileClipboard | null>(null)
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [sortOpen, setSortOpen] = useState(false)
@@ -151,6 +152,30 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
   useEffect(() => {
     void load()
   }, [load, refreshKey])
+
+  useEffect(() => {
+    let active = true
+    void clouddriveApi.clipboard()
+      .then(({ clipboard: saved }) => {
+        if (!active || !saved || saved.ids.length === 0) return
+        setClipboard({ mode: saved.mode, mountId: saved.mountId, sourcePath: saved.sourcePath, ids: saved.ids })
+      })
+      .catch((error) => {
+        console.warn('[inkstone] CloudDrive clipboard could not be restored', error)
+      })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => useTransferStore.subscribe((state, previous) => {
+    const previousStatus = new Map(previous.items.map((item) => [item.id, item.status]))
+    const arrived = state.items.some((item) =>
+      item.kind === 'upload'
+      && item.status === 'success'
+      && item.mountId === mountId
+      && item.parentPath === path
+      && previousStatus.get(item.id) !== 'success')
+    if (arrived) void load()
+  }), [load, mountId, path])
 
   const entries = useMemo(
     () => (listing ? [...listing.folders, ...listing.files] : []),
@@ -326,6 +351,19 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     return false
   }, [clearSelection, isMutable, openEntry, requestDelete, selectAll, selected, targetsFor])
 
+  const rememberClipboard = useCallback((mode: 'copy' | 'cut', ids: string[]) => {
+    if (ids.length === 0) return
+    const next: FileClipboard = { mode, mountId, sourcePath: path, ids }
+    setClipboard(next)
+    void clouddriveApi.setClipboard(next).catch((error) => {
+      useUi.getState().toast({
+        title: t(cloudDriveErrorKey(error) as MessageKey),
+        description: t('clouddrive.clipboard.save_failed'),
+        tone: 'danger',
+      })
+    })
+  }, [mountId, path])
+
   const pasteClipboard = useCallback(async () => {
     if (!clipboard) return
     const ok = clipboard.mode === 'copy'
@@ -333,6 +371,9 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
       : await actions.move(clipboard.ids, path)
     if (ok && clipboard.mode === 'cut') {
       setClipboard(null)
+      void clouddriveApi.clearClipboard().catch((error) => {
+        console.warn('[inkstone] CloudDrive clipboard could not be cleared', error)
+      })
       focusFirstEntry()
     }
   }, [actions, clipboard, focusFirstEntry, path])
@@ -382,7 +423,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     () => (menuTarget && menuEntry ? { entry: menuEntry, point: menuTarget.point } : null),
     [menuTarget, menuEntry],
   )
-  const canPaste = clipboard !== null
+  const canPaste = clipboard !== null && clipboard.mountId === mountId
   const writableSelection = writable && selectedEntries.length > 0 && selectedEntries.every((entry) => !entry.readOnly)
   const announcement = `${t('clouddrive.status.items', { count: entries.length })}. ${selected.size > 0
     ? t('clouddrive.selection.count', { count: selected.size })
@@ -589,8 +630,8 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         writable={writableSelection}
         onDownload={() => actions.download(selectedEntries)}
         onShare={() => void actions.share(selectedEntries)}
-        onCopy={() => setClipboard({ mode: 'copy', ids: selectedEntries.map((entry) => entry.id) })}
-        onCut={() => setClipboard({ mode: 'cut', ids: selectedEntries.map((entry) => entry.id) })}
+        onCopy={() => rememberClipboard('copy', selectedEntries.map((entry) => entry.id))}
+        onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
         onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path })}
         onDelete={() => requestDelete(selectedEntries)}
         onClear={() => {
@@ -611,8 +652,8 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         onPreview={previewEntry}
         onDownload={actions.download}
         onShare={(targets) => void actions.share(targets)}
-        onCopy={(targets) => setClipboard({ mode: 'copy', ids: targets.map((entry) => entry.id) })}
-        onCut={(targets) => setClipboard({ mode: 'cut', ids: targets.map((entry) => entry.id) })}
+        onCopy={(targets) => rememberClipboard('copy', targets.map((entry) => entry.id))}
+        onCut={(targets) => rememberClipboard('cut', targets.map((entry) => entry.id))}
         onPaste={() => void pasteClipboard()}
         onRename={(entry) => setDialog({ kind: 'rename', entry })}
         onMove={(targets) => setDialog({ kind: 'move', ids: targets.map((entry) => entry.id), initialPath: path })}

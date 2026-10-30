@@ -7,18 +7,38 @@ import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
-import { testBindings, testR2Bucket } from './doubles/bindings'
+import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 let sqlite: DatabaseSync
 let db: D1Database
 let env: Env
 
+function makeVault(): DurableObjectNamespace {
+  const entries = new Map<string, { scope: string; value: unknown }>()
+  let sequence = 0
+  return testDurableObjectNamespace(async (request) => {
+    const url = new URL(request.url)
+    const body = await request.json() as { scope?: string; value?: unknown; ciphertext?: string }
+    if (url.pathname === '/encrypt') {
+      const ciphertext = `vault-${++sequence}`
+      entries.set(ciphertext, { scope: body.scope ?? '', value: body.value })
+      return Response.json({ ciphertext })
+    }
+    if (url.pathname === '/decrypt') {
+      const entry = entries.get(body.ciphertext ?? '')
+      if (!entry || entry.scope !== body.scope) return Response.json({}, { status: 422 })
+      return Response.json({ value: entry.value })
+    }
+    return new Response('not found', { status: 404 })
+  })
+}
+
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
   db = makeD1(sqlite)
-  env = testBindings(db, { FILES: testR2Bucket() })
+  env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
 })
 
 function app(): Hono<AppBindings> {
@@ -71,5 +91,36 @@ describe('cloud drive mounts', () => {
   it('rejects an unsupported storage type before touching credentials', async () => {
     const result = await call('POST', '/api/clouddrive/storages', { name: 'Nope', type: 'ftp', config: {}, credentials: {} })
     expect(result.status).toBe(400)
+  })
+
+  it('seals storage credentials and mounts an external storage read-only', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'dav',
+      type: 'webdav',
+      config: { baseUrl: 'https://dav.example.com', rootPath: '/' },
+      credentials: { username: 'reader', password: 'secret' },
+    })
+    expect(storage.status).toBe(200)
+    expect(storage.body.storage.hasCredentials).toBe(true)
+
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'dav',
+      storageId: storage.body.storage.id,
+      mountPath: '/dav',
+      readOnly: false,
+    })
+    expect(mount.status).toBe(200)
+    expect(mount.body.mount.readOnly).toBe(true)
+  })
+
+  it('accepts a public storage with no credentials', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'public',
+      type: 's3',
+      config: { endpoint: 'https://s3.example.com', bucketName: 'public' },
+      credentials: {},
+    })
+    expect(storage.status).toBe(200)
+    expect(storage.body.storage.hasCredentials).toBe(false)
   })
 })

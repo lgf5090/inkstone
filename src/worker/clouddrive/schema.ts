@@ -261,6 +261,16 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id, key)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_clipboard (
+    user_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    ids TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id)
+  )`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_index_state (
     user_id TEXT NOT NULL,
     mount_id TEXT NOT NULL,
@@ -323,6 +333,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_tasks',
   'CloudDrive_api_keys',
   'CloudDrive_settings',
+  'CloudDrive_clipboard',
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
@@ -369,6 +380,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'expires_at', 'last_used_at', 'created_at', 'revoked_at',
   ],
   CloudDrive_settings: ['user_id', 'key', 'value', 'updated_at'],
+  CloudDrive_clipboard: ['user_id', 'mode', 'mount_id', 'source_path', 'ids', 'updated_at'],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',

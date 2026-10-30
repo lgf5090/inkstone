@@ -137,7 +137,7 @@ export async function resolveMount(
 
 /** Mutating routes reject a read-only mount before touching a row. */
 export function assertWritable(mount: CloudDriveMountInfo): void {
-  if (mount.readOnly) {
+  if (mount.readOnly || mount.storageId !== PRIMARY_MOUNT) {
     throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
   }
 }

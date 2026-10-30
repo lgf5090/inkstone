@@ -41,6 +41,11 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.transfers.cancel': '取消',
   'clouddrive.transfers.remove': '移除',
   'clouddrive.transfers.file_unavailable': '原文件已不可用，请重新选择。',
+  'clouddrive.tasks.server_section': '服务端任务',
+  'clouddrive.tasks.empty': '暂无服务端任务。',
+  'clouddrive.tasks.status_completed': '已完成',
+  'clouddrive.tasks.status_failed': '失败',
+  'clouddrive.tasks.type_reindex': '重建索引',
 
   'clouddrive.settings.title': '云盘设置',
   'clouddrive.settings.load_failed': '设置加载失败',

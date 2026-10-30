@@ -21,6 +21,7 @@ import { AdminFilesPage } from './admin/AdminFilesPage'
 import { IndexPage } from './admin/IndexPage'
 import { PreviewSettingsPage } from './admin/PreviewSettingsPage'
 import { JobsPage } from './admin/JobsPage'
+import { MaintenancePage } from './admin/MaintenancePage'
 import { QuickFilesPage } from './quick/QuickFilesPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
@@ -163,6 +164,8 @@ export function ClouddriveApp() {
                       ? <PreviewSettingsPage />
                       : address.page === 'jobs'
                         ? <JobsPage />
+                        : address.page === 'maintenance'
+                          ? <MaintenancePage />
                 : address.page === 'tasks'
                   ? <TransfersPage />
                   : address.page === 'settings'

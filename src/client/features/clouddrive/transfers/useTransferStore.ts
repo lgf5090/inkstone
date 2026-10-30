@@ -411,11 +411,12 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     if (historyUserId === userId) return
     historyUserId = userId
     const history = readHistory(userId)
-    set((state) => ({
-      items: [
-        ...state.items.filter((item) => !isTerminal(item.status)),
-        ...history.filter((record) => !state.items.some((item) => item.id === record.id)),
-      ],
-    }))
+    set((state) => {
+      const merged = new Map(state.items.map((item) => [item.id, item]))
+      for (const record of history) {
+        if (!merged.has(record.id)) merged.set(record.id, record)
+      }
+      return { items: [...merged.values()] }
+    })
   },
 }))

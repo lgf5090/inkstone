@@ -34,6 +34,25 @@ export async function decryptSecret<T>(env: Env, info: string, stored: string): 
   return isBackupCredentialRecord(value) ? (value as T) : null
 }
 
+export async function encryptCloudDriveCredentials(
+  env: Env,
+  storageId: string,
+  value: Record<string, string | number>,
+): Promise<string> {
+  if (!isValidId(storageId)) throw new Error('invalid_credential_scope')
+  return encryptCredential(env, `clouddrive:${storageId}`, value)
+}
+
+export async function decryptCloudDriveCredentials(
+  env: Env,
+  storageId: string,
+  stored: string,
+): Promise<Record<string, string | number> | null> {
+  if (!isValidId(storageId) || !stored || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `clouddrive:${storageId}`, stored)
+  return isCloudDriveCredentialRecord(value) ? value : null
+}
+
 export const YOUTUBE_SETTINGS_SECRET_SCOPE = '00000000000000000000000002'
 
 /** The instance's YouTube API key: sealed, never returned, and separate from the Worker secret. */
@@ -455,6 +474,16 @@ function readStringField(value: unknown, key: string): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const field = (value as Record<string, unknown>)[key]
   return typeof field === 'string' ? field : null
+}
+
+function isCloudDriveCredentialRecord(value: unknown): value is Record<string, string | number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const entries = Object.entries(value)
+  if (entries.length === 0 || entries.length > 16) return false
+  return entries.every(([key, field]) =>
+    /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(key)
+    && ((typeof field === 'string' && field.length <= 8192) || (typeof field === 'number' && Number.isFinite(field))),
+  )
 }
 
 function isBackupCredentialRecord(value: unknown): value is Record<string, string> {

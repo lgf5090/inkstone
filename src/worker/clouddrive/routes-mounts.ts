@@ -3,7 +3,7 @@ import { AwsClient } from 'aws4fetch'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { encryptSecret, decryptSecret } from '../lib/crypto'
+import { encryptCloudDriveCredentials, decryptCloudDriveCredentials } from '../lib/crypto'
 import { checkTarget } from '../lib/outbound'
 import { requireOwner } from '../middleware/auth'
 
@@ -11,7 +11,7 @@ export const clouddriveMountRoutes = new Hono<AppBindings>()
 
 clouddriveMountRoutes.use('*', requireOwner)
 
-const STORAGE_TYPES = ['s3', 'webdav'] as const
+const STORAGE_TYPES = ['s3', 'webdav', 'telegram', 'discord', 'huggingface', 'github', 'onedrive', 'googledrive'] as const
 type StorageType = (typeof STORAGE_TYPES)[number]
 
 interface StorageRow {
@@ -60,10 +60,10 @@ clouddriveMountRoutes.post('/storages', async (c) => {
   const name = cleanName(body.name)
   const type = storageType(body.type)
   const config = objectValue(body.config)
-  const credentials = objectValue(body.credentials)
+  const credentials = credentialRecord(body.credentials)
   const now = Date.now()
   const id = newId()
-  const secret = await encryptSecret(c.env, `clouddrive:${id}`, credentials)
+  const secret = Object.keys(credentials).length > 0 ? await encryptCloudDriveCredentials(c.env, id, credentials) : ''
   try {
     await c.env.DB.prepare(
       `INSERT INTO CloudDrive_storages
@@ -94,7 +94,7 @@ clouddriveMountRoutes.patch('/storages/:id', async (c) => {
   if (body.name !== undefined) put('name = ?', cleanName(body.name))
   if (body.status !== undefined) put('status = ?', body.status === 'disabled' ? 'disabled' : 'enabled')
   if (body.config !== undefined) put('config = ?', JSON.stringify(objectValue(body.config)))
-  if (body.credentials !== undefined) put('credentials = ?', await encryptSecret(c.env, `clouddrive:${row.id}`, objectValue(body.credentials)))
+  if (body.credentials !== undefined) { const credentials = credentialRecord(body.credentials); put('credentials = ?', Object.keys(credentials).length > 0 ? await encryptCloudDriveCredentials(c.env, row.id, credentials) : '') }
   if (body.isDefault !== undefined) put('is_default = ?', body.isDefault ? 1 : 0)
   if (body.apiKeyVisible !== undefined) put('api_key_visible = ?', body.apiKeyVisible ? 1 : 0)
   if (body.readQuota !== undefined) put('read_quota = ?', body.readQuota ? 1 : 0)
@@ -155,7 +155,7 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
       `INSERT INTO CloudDrive_mounts
          (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, created_at, updated_at)
        VALUES (?1,?2,?3,?4,?5,?6,?7,0,'native_proxy',1,?8,?9,?10,?10)`,
-    ).bind(userId, id, storageId, name, mountPath, body.readOnly ? 1 : 0, clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0), body.enabled === false ? 0 : 1, now).run()
+    ).bind(userId, id, storageId, name, mountPath, storageId !== 'primary' || body.readOnly ? 1 : 0, clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0), body.enabled === false ? 0 : 1, now).run()
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
     throw error
@@ -178,7 +178,7 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   const values: unknown[] = []
   const put = (sql: string, value: unknown) => { sets.push(sql); values.push(value) }
   if (body.name !== undefined) put('name = ?', cleanName(body.name))
-  if (body.readOnly !== undefined) put('read_only = ?', body.readOnly ? 1 : 0)
+  if (body.readOnly !== undefined) put('read_only = ?', row.storage_id !== 'primary' || body.readOnly ? 1 : 0)
   if (body.cacheTtl !== undefined) put('cache_ttl = ?', clampInt(body.cacheTtl, 0, 86400, 300))
   if (body.sortOrder !== undefined) put('sort_order = ?', clampInt(body.sortOrder, -10000, 10000, 0))
   if (body.enabled !== undefined) put('enabled = ?', body.enabled ? 1 : 0)
@@ -261,7 +261,8 @@ function toMountView(row: MountRow) {
 
 async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ ok: boolean; message: string; quota?: { used: number; total: number | null } }> {
   const config = safeObject(row.config)
-  const credentials = await decryptSecret<Record<string, string>>(c.env, `clouddrive:${row.id}`, row.credentials).catch(() => null) ?? {}
+  const stored = await decryptCloudDriveCredentials(c.env, row.id, row.credentials).catch(() => null) ?? {}
+  const credentials: Record<string, string> = Object.fromEntries(Object.entries(stored).map(([key, value]) => [key, String(value)]))
   if (row.type === 's3') {
     const endpoint = String(config.endpoint ?? '')
     const target = checkTarget(endpoint)
@@ -280,7 +281,7 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
       url.searchParams.set('max-keys', '1')
       const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual' })
       // A test response has no body worth reading once its status is known.
-      await response.body?.cancel().catch(() => {})
+      await discard(response)
       return { ok: response.ok, message: response.ok ? 'S3 is reachable' : `S3 answered HTTP ${response.status}` }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'S3 test failed' }
@@ -296,11 +297,92 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
     try {
       const response = await fetch(target.url.toString(), { method: 'PROPFIND', headers, redirect: 'manual' })
       // A test response has no body worth reading once its status is known.
-      await response.body?.cancel().catch(() => {})
+      await discard(response)
       return { ok: response.status < 500 && response.status !== 401, message: `WebDAV answered HTTP ${response.status}` }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'WebDAV test failed' }
     }
+  }
+  const tokenType = row.type as string
+  try {
+    const result = await testTokenStorage(tokenType, config, credentials)
+    return result
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : 'Storage test failed' }
+  }
+}
+
+async function discard(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    console.warn('[inkstone] CloudDrive could not cancel an unused response body', error)
+  }
+}
+
+async function testTokenStorage(
+  type: string,
+  config: Record<string, unknown>,
+  credentials: Record<string, string>,
+): Promise<{ ok: boolean; message: string }> {
+  const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+  if (type === 'telegram') {
+    const token = text(credentials.botToken)
+    if (!token) return { ok: false, message: 'A Telegram bot token is required' }
+    const response = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/getMe`)
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'Telegram is reachable' : `Telegram answered HTTP ${response.status}` }
+  }
+  if (type === 'discord') {
+    const token = text(credentials.botToken)
+    const channelId = text(credentials.channelId) || text(config.channelId)
+    if (!token) return { ok: false, message: 'A Discord bot token is required' }
+    if (!/^\d{5,32}$/.test(channelId)) return { ok: false, message: 'A Discord channel id is required' }
+    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+      headers: { Authorization: `Bot ${token}`, 'User-Agent': 'inkstone-clouddrive' },
+    })
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'Discord is reachable' : `Discord answered HTTP ${response.status}` }
+  }
+  if (type === 'huggingface') {
+    const token = text(credentials.token)
+    const response = await fetch('https://huggingface.co/api/whoami-v2', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'Hugging Face is reachable' : `Hugging Face answered HTTP ${response.status}` }
+  }
+  if (type === 'github') {
+    const repo = text(config.repo)
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { ok: false, message: 'A GitHub owner/name repository is required' }
+    const token = text(credentials.token)
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'inkstone-clouddrive',
+      'X-GitHub-Api-Version': '2022-11-28',
+    }
+    if (token) headers.Authorization = `Bearer ${token}`
+    const response = await fetch(`https://api.github.com/repos/${repo}`, { headers })
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'GitHub is reachable' : `GitHub answered HTTP ${response.status}` }
+  }
+  if (type === 'onedrive') {
+    const token = text(credentials.accessToken)
+    if (!token) return { ok: false, message: 'A OneDrive access token is required' }
+    const response = await fetch('https://graph.microsoft.com/v1.0/me/drive?$select=id', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'OneDrive is reachable' : `OneDrive answered HTTP ${response.status}` }
+  }
+  if (type === 'googledrive') {
+    const token = text(credentials.accessToken)
+    if (!token) return { ok: false, message: 'A Google Drive access token is required' }
+    const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    await discard(response)
+    return { ok: response.ok, message: response.ok ? 'Google Drive is reachable' : `Google Drive answered HTTP ${response.status}` }
   }
   return { ok: false, message: 'Unsupported storage type' }
 }
@@ -324,6 +406,24 @@ function safeObject(value: string): Record<string, unknown> {
 }
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+function credentialRecord(value: unknown): Record<string, string | number> {
+  const source = objectValue(value)
+  const entries = Object.entries(source)
+  if (entries.length > 16) throw ApiError.badRequest('credentials holds at most 16 fields')
+  const record: Record<string, string | number> = {}
+  for (const [key, field] of entries) {
+    if (!/^[A-Za-z][A-Za-z0-9]{0,31}$/.test(key)) throw ApiError.badRequest('credentials contains an unsupported field name')
+    if (typeof field === 'string') {
+      if (field.length > 8192) throw ApiError.badRequest('A credential field is too long')
+      if (field.length > 0) record[key] = field
+    } else if (typeof field === 'number' && Number.isFinite(field)) {
+      record[key] = field
+    } else {
+      throw ApiError.badRequest('Credential values must be strings or numbers')
+    }
+  }
+  return record
 }
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const number = Number(value)

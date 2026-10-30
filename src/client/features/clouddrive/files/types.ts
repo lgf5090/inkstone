@@ -4,6 +4,13 @@ import type { CloudDriveEntry } from '@shared/clouddrive/model'
 /** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */
 export type SelectMode = 'single' | 'toggle' | 'range'
 
+export interface FileClipboard {
+  mode: 'copy' | 'cut'
+  mountId: string
+  sourcePath: string
+  ids: string[]
+}
+
 export function selectModeFor(event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): SelectMode {
   if (event.shiftKey) return 'range'
   if (event.metaKey || event.ctrlKey) return 'toggle'

@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react'
-import { CLIENT_HEADER } from '@shared/constants'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
+import { useTransferStore } from '../transfers/useTransferStore'
 
 export type FileListChange =
   | { type: 'remove'; ids: string[] }
@@ -47,23 +47,6 @@ function failedResults(results: unknown[]): number {
     if (!result || typeof result !== 'object') return false
     return (result as { ok?: unknown }).ok === false
   }).length
-}
-
-async function putBytes(url: string, body: Blob): Promise<void> {
-  const response = await fetch(url, {
-    method: 'PUT',
-    body,
-    credentials: 'same-origin',
-    headers: { [CLIENT_HEADER]: '1', 'Content-Type': 'application/octet-stream' },
-  })
-  if (response.ok) return
-  // A binary endpoint may answer with HTML from a proxy; the status is still the useful part.
-  const payload = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
-  throw new CloudDriveApiError(
-    payload?.error?.code ?? 'internal',
-    payload?.error?.message ?? response.statusText,
-    response.status,
-  )
 }
 
 export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsOptions): FileActions {
@@ -150,61 +133,10 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
 
   const upload = useCallback(async (files: File[], parentPath: string): Promise<boolean> => {
     if (files.length === 0) return true
-    setPending((count) => count + 1)
-    let uploaded = 0
-    let failed = 0
-    try {
-      for (const file of files) {
-        let sessionId: string | null = null
-        try {
-          useUi.getState().toast({ title: t('clouddrive.upload.running', { name: file.name }) })
-          const init = await clouddriveApi.initUpload({
-            mountId,
-            parentPath,
-            name: file.name,
-            size: file.size,
-            mime: file.type || 'application/octet-stream',
-            conflict: 'rename',
-          })
-          sessionId = init.session.id
-          if (init.session.strategy === 'direct') {
-            await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/content`, file)
-          } else {
-            const { partSize, totalParts } = init.session
-            for (let part = 1; part <= totalParts; part += 1) {
-              const start = (part - 1) * partSize
-              const chunk = file.slice(start, Math.min(file.size, start + partSize))
-              await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/parts/${part}`, chunk)
-            }
-          }
-          await clouddriveApi.completeUpload(sessionId)
-          uploaded += 1
-        } catch (error) {
-          failed += 1
-          if (sessionId) {
-            // Best effort: an un-aborted session expires on its own and the cron cleans it up.
-            void clouddriveApi.abortUpload(sessionId).catch((abortError) => {
-              console.warn('[inkstone] CloudDrive upload session could not be aborted', abortError)
-            })
-          }
-          useUi.getState().toast({
-            title: t('clouddrive.upload.failed'),
-            description: t(cloudDriveErrorKey(error) as MessageKey),
-            tone: 'danger',
-          })
-        }
-      }
-    } finally {
-      setPending((count) => Math.max(0, count - 1))
-    }
-    if (uploaded > 0) showSuccess(t('clouddrive.upload.done', { count: uploaded }))
-    try {
-      await refresh()
-    } catch (error) {
-      showError(error)
-    }
-    return failed === 0
-  }, [mountId, refresh])
+    useTransferStore.getState().enqueueUpload(files, { mountId, parentPath })
+    showSuccess(t('clouddrive.upload.queued', { count: files.length }))
+    return true
+  }, [mountId])
 
   const download = useCallback((entries: CloudDriveEntry[]) => {
     for (const entry of entries) {

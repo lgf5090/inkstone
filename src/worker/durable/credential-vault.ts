@@ -26,7 +26,7 @@ const MAX_CIPHERTEXT_LENGTH = 1_400_000
  * `youtube:` carries the instance's YouTube Data API key. The instance id is a fixed sentinel because one
  * deployment has exactly one key, and the worker secret is the fallback when no key is stored here.
  */
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai|mcp|channel|memo-webhook|email|music|music-mount|cloudflare-account|database|github|apitester-history|apitester-ws|apitester|imgbed|youtube|nav|clouddrive):[0-9a-hjkmnp-tv-z]{26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('inkstone.backup-credentials.v1')
 const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
@@ -70,6 +70,7 @@ const MAX_FIELD_LENGTH: Record<string, number> = {
   apitester: 1_400_000,
   'apitester-history': 64_000,
   'apitester-ws': 16_000,
+  clouddrive: 8 * 1024,
 }
 const DEFAULT_MAX_FIELD_LENGTH = 4096
 
@@ -235,6 +236,15 @@ function isCredentialRecord(scope: string, value: unknown): value is CredentialR
     return entries.every(([key, field]) => CHANNEL_FIELD_NAME.test(key) && (
       typeof field === 'boolean'
       || (typeof field === 'string' && field.length > 0 && field.length <= cap)
+    ))
+  }
+  if (scope.startsWith('clouddrive:')) {
+    const cap = MAX_FIELD_LENGTH.clouddrive ?? DEFAULT_MAX_FIELD_LENGTH
+    if (entries.length < 1 || entries.length > 16) return false
+    return entries.every(([key, field]) => CHANNEL_FIELD_NAME.test(key) && (
+      typeof field === 'number'
+      ? Number.isFinite(field)
+      : typeof field === 'string' && field.length <= cap
     ))
   }
   const allowed = scope.startsWith('totp:')

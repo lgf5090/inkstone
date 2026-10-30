@@ -102,6 +102,13 @@ export const clouddriveApi = {
   thumbnailUrl: (id: string, width = 320) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?w=${width}`,
   zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams(params).toString()}`,
 
+  tasks: () => request<{ tasks: { id: string; type: string; status: string; payload: Record<string, unknown>; progress: Record<string, unknown>; error: string | null; createdAt: number; startedAt: number | null; finishedAt: number | null }[] }>('/api/clouddrive/tasks'),
+  cancelTask: (id: string) => request<{ ok: true }>(`/api/clouddrive/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
+
+  clipboard: () => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } | null }>('/api/clouddrive/clipboard'),
+  setClipboard: (body: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[] }) => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } }>('/api/clouddrive/clipboard', { method: 'PUT', body: JSON.stringify(body) }),
+  clearClipboard: () => request<{ ok: true }>('/api/clouddrive/clipboard', { method: 'DELETE' }),
+
   tags: () => request<{ tags: { name: string; color: string; count: number }[] }>('/api/clouddrive/tags'),
   addTag: (id: string, body: { tag: string; color: string }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags`, json(body)),
   removeTag: (id: string, tag: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),

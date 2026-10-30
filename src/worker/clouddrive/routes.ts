@@ -10,6 +10,9 @@ import { clouddriveContentRoutes } from './routes-content'
 import { clouddrivePublicShareRoutes, clouddriveShareRoutes } from './routes-shares'
 import { clouddriveMountRoutes } from './routes-mounts'
 import { clouddriveKeyRoutes } from './routes-keys'
+import { clouddriveClipboardRoutes } from './routes-clipboard'
+import { clouddriveTaskRoutes } from './routes-tasks'
+import { clouddriveMaintenanceRoutes } from './routes-maintenance'
 import { clouddriveAdminRoutes } from './routes-admin'
 import { clouddriveJobRoutes } from './routes-jobs'
 import { cloudDriveUsage, ensurePrimaryMount, listMounts, readCloudDriveSettings } from './store'
@@ -56,6 +59,9 @@ clouddriveRoutes.route('/', clouddriveContentRoutes)
 clouddriveRoutes.route('/', clouddriveShareRoutes)
 clouddriveRoutes.route('/', clouddriveMountRoutes)
 clouddriveRoutes.route('/', clouddriveKeyRoutes)
+clouddriveRoutes.route('/', clouddriveClipboardRoutes)
+clouddriveRoutes.route('/', clouddriveTaskRoutes)
+clouddriveRoutes.route('/', clouddriveMaintenanceRoutes)
 clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)
 

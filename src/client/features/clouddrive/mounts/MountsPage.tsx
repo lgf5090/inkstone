@@ -65,18 +65,152 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
   }
 
   const createStorage = () => run(async () => {
-    const config = form.type === 's3'
-      ? { endpoint: form.endpoint ?? '', bucketName: form.bucketName ?? '', region: form.region ?? 'auto', pathStyle: form.pathStyle === '1' }
-      : { baseUrl: form.baseUrl ?? '', rootPath: form.rootPath ?? '/', readQuota: false }
-    const credentials = form.type === 's3'
-      ? { accessKeyId: form.accessKeyId ?? '', secretAccessKey: form.secretAccessKey ?? '' }
-      : { username: form.username ?? '', password: form.password ?? '' }
-    await clouddriveApi.createStorage({ name: form.name, type: form.type, config, credentials, defaultPath: form.defaultPath || '/' })
+    const type = form.type
+    const rootPath = form.rootPath ?? '/'
+    let config: Record<string, unknown> = {}
+    let credentials: Record<string, string> = {}
+    if (type === 's3') {
+      config = { endpoint: form.endpoint ?? '', bucketName: form.bucketName ?? '', region: form.region ?? 'auto', pathStyle: form.pathStyle === '1' }
+      credentials = { accessKeyId: form.accessKeyId ?? '', secretAccessKey: form.secretAccessKey ?? '' }
+    } else if (type === 'webdav') {
+      config = { baseUrl: form.baseUrl ?? '', rootPath }
+      credentials = { username: form.username ?? '', password: form.password ?? '' }
+    } else if (type === 'github') {
+      config = { repo: form.repo ?? '', branch: form.branch ?? '', rootPath }
+      credentials = { token: form.token ?? '' }
+    } else if (type === 'huggingface') {
+      config = { repo: form.repo ?? '', repoType: form.repoType ?? 'model', revision: form.revision ?? 'main', rootPath }
+      credentials = { token: form.token ?? '' }
+    } else if (type === 'discord') {
+      config = { channelId: form.channelId ?? '' }
+      credentials = { botToken: form.botToken ?? '' }
+    } else if (type === 'telegram') {
+      config = { chatId: form.chatId ?? '' }
+      credentials = { botToken: form.botToken ?? '' }
+    } else if (type === 'onedrive') {
+      config = { driveId: form.driveId ?? '', rootPath }
+      credentials = {
+        accessToken: form.token ?? '',
+        refreshToken: form.refreshToken ?? '',
+        clientId: form.clientId ?? '',
+        clientSecret: form.clientSecret ?? '',
+      }
+    } else {
+      config = { folderId: form.folderId ?? 'root' }
+      credentials = {
+        accessToken: form.token ?? '',
+        refreshToken: form.refreshToken ?? '',
+        clientId: form.clientId ?? '',
+        clientSecret: form.clientSecret ?? '',
+      }
+    }
+    await clouddriveApi.createStorage({ name: form.name, type, config, credentials, defaultPath: form.defaultPath || '/' })
   }, t('clouddrive.settings.saved'))
 
   const createMount = () => run(async () => {
     await clouddriveApi.createMount({ name: form.name, mountPath: form.mountPath, storageId: form.storageId, readOnly: form.readOnly === '1', cacheTtl: Number(form.cacheTtl || 300) })
   }, t('clouddrive.settings.saved'))
+
+  const field = (key: string, label: string, options: { type?: string; placeholder?: string } = {}) => (
+    <Field label={label}>
+      <Input
+        type={options.type ?? 'text'}
+        value={form[key] ?? ''}
+        onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+        placeholder={options.placeholder}
+      />
+    </Field>
+  )
+
+  const oauthFields = () => (
+    <>
+      {field('token', t('clouddrive.storage.token'), { type: 'password' })}
+      {field('refreshToken', t('clouddrive.storage.refresh_token'), { type: 'password' })}
+      {field('clientId', t('clouddrive.storage.client_id'))}
+      {field('clientSecret', t('clouddrive.storage.client_secret'), { type: 'password' })}
+    </>
+  )
+
+  const storageFields = () => {
+    if (form.type === 's3') {
+      return (
+        <>
+          {field('endpoint', t('clouddrive.storage.endpoint'), { placeholder: 'https://s3.example.com' })}
+          {field('bucketName', t('clouddrive.storage.bucket'))}
+          {field('region', t('clouddrive.storage.region'))}
+          {field('accessKeyId', t('clouddrive.storage.access_key'))}
+          {field('secretAccessKey', t('clouddrive.storage.secret_key'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'webdav') {
+      return (
+        <>
+          {field('baseUrl', t('clouddrive.storage.base_url'), { placeholder: 'https://dav.example.com' })}
+          {field('rootPath', t('clouddrive.storage.root_path'))}
+          {field('username', t('clouddrive.storage.username'))}
+          {field('password', t('clouddrive.storage.password'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'github') {
+      return (
+        <>
+          {field('repo', t('clouddrive.storage.repo'), { placeholder: 'owner/repository' })}
+          {field('branch', t('clouddrive.storage.branch'))}
+          {field('rootPath', t('clouddrive.storage.root_path'))}
+          {field('token', t('clouddrive.storage.token'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'huggingface') {
+      return (
+        <>
+          {field('repo', t('clouddrive.storage.repo'), { placeholder: 'owner/repository' })}
+          <Field label={t('clouddrive.storage.repo_type')}>
+            <Select value={form.repoType ?? 'model'} onChange={(event) => setForm({ ...form, repoType: event.target.value })}>
+              <option value="model">{t('clouddrive.storage.repo_type_model')}</option>
+              <option value="dataset">{t('clouddrive.storage.repo_type_dataset')}</option>
+            </Select>
+          </Field>
+          {field('revision', t('clouddrive.storage.revision'))}
+          {field('rootPath', t('clouddrive.storage.root_path'))}
+          {field('token', t('clouddrive.storage.token'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'discord') {
+      return (
+        <>
+          {field('channelId', t('clouddrive.storage.channel_id'))}
+          {field('botToken', t('clouddrive.storage.bot_token'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'telegram') {
+      return (
+        <>
+          {field('chatId', t('clouddrive.storage.chat_id'))}
+          {field('botToken', t('clouddrive.storage.bot_token'), { type: 'password' })}
+        </>
+      )
+    }
+    if (form.type === 'onedrive') {
+      return (
+        <>
+          {field('driveId', t('clouddrive.storage.drive_id'))}
+          {field('rootPath', t('clouddrive.storage.root_path'))}
+          {oauthFields()}
+        </>
+      )
+    }
+    return (
+      <>
+        {field('folderId', t('clouddrive.storage.folder_id'), { placeholder: 'root' })}
+        {oauthFields()}
+      </>
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto p-4">
@@ -101,7 +235,9 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
                   <strong className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{storage.name}</strong>
                   <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{storage.type.toUpperCase()}</span>
                 </div>
-                <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{String(storage.config.endpoint ?? storage.config.baseUrl ?? '')}</p>
+                <p className="mt-1 truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {String(storage.config.endpoint ?? storage.config.baseUrl ?? storage.config.repo ?? storage.config.channelId ?? storage.config.chatId ?? storage.config.driveId ?? storage.config.folderId ?? '')}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-1">
                   <Button size="sm" variant="ghost" onClick={() => void clouddriveApi.testStorage(storage.id).then((result) => toast({ title: result.ok ? 'OK' : t('clouddrive.toast.failed'), description: result.message, tone: result.ok ? 'default' : 'danger' }))}>{t('clouddrive.storage.test')}</Button>
                   <Button size="sm" variant="ghost" onClick={() => void clouddriveApi.defaultStorage(storage.id).then(load)}>{t('clouddrive.storage.set_default')}</Button>
@@ -129,23 +265,19 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
           <Field label={t('clouddrive.storage.name')}><Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           {open === 'storage' ? (
             <>
-              <Field label={t('clouddrive.storage.type')}><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="s3">{t('clouddrive.storage.type_s3')}</option><option value="webdav">{t('clouddrive.storage.type_webdav')}</option></Select></Field>
-              {form.type === 's3' ? (
-                <>
-                  <Field label={t('clouddrive.storage.endpoint')}><Input value={form.endpoint ?? ''} onChange={(e) => setForm({ ...form, endpoint: e.target.value })} placeholder="https://s3.example.com" /></Field>
-                  <Field label={t('clouddrive.storage.bucket')}><Input value={form.bucketName ?? ''} onChange={(e) => setForm({ ...form, bucketName: e.target.value })} /></Field>
-                  <Field label={t('clouddrive.storage.region')}><Input value={form.region ?? ''} onChange={(e) => setForm({ ...form, region: e.target.value })} /></Field>
-                  <Field label={t('clouddrive.storage.access_key')}><Input value={form.accessKeyId ?? ''} onChange={(e) => setForm({ ...form, accessKeyId: e.target.value })} /></Field>
-                  <Field label={t('clouddrive.storage.secret_key')}><Input type="password" value={form.secretAccessKey ?? ''} onChange={(e) => setForm({ ...form, secretAccessKey: e.target.value })} /></Field>
-                </>
-              ) : (
-                <>
-                  <Field label={t('clouddrive.storage.base_url')}><Input value={form.baseUrl ?? ''} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://dav.example.com" /></Field>
-                  <Field label={t('clouddrive.storage.root_path')}><Input value={form.rootPath ?? '/'} onChange={(e) => setForm({ ...form, rootPath: e.target.value })} /></Field>
-                  <Field label={t('clouddrive.storage.username')}><Input value={form.username ?? ''} onChange={(e) => setForm({ ...form, username: e.target.value })} /></Field>
-                  <Field label={t('clouddrive.storage.password')}><Input type="password" value={form.password ?? ''} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
-                </>
-              )}
+              <Field label={t('clouddrive.storage.type')}>
+                <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                  <option value="s3">{t('clouddrive.storage.type_s3')}</option>
+                  <option value="webdav">{t('clouddrive.storage.type_webdav')}</option>
+                  <option value="github">{t('clouddrive.storage.type_github')}</option>
+                  <option value="huggingface">{t('clouddrive.storage.type_huggingface')}</option>
+                  <option value="discord">{t('clouddrive.storage.type_discord')}</option>
+                  <option value="telegram">{t('clouddrive.storage.type_telegram')}</option>
+                  <option value="onedrive">{t('clouddrive.storage.type_onedrive')}</option>
+                  <option value="googledrive">{t('clouddrive.storage.type_googledrive')}</option>
+                </Select>
+              </Field>
+              {storageFields()}
             </>
           ) : (
             <>

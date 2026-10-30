@@ -5539,8 +5539,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/files/useFileActions.ts", [
     "/** Local list updates applied before the refresh confirms them. */",
-    "// A binary endpoint may answer with HTML from a proxy; the status is still the useful part.",
-    "// Best effort: an un-aborted session expires on its own and the cron cleans it up.",
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
@@ -34319,7 +34317,8 @@ const allowed = new Map([
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
   ["src/worker/clouddrive/external.ts", [
-    "/** Read-only browsing and byte reads for S3-compatible and WebDAV mounts. */",
+    "/** Read-only browsing and byte reads for the external storage drivers. */",
+    "/** A driver-native item id used to read the entry without resolving its display path again. */",
   ]],
   ["src/worker/clouddrive/lib.ts", [
     "/**\n * Helpers shared by the CloudDrive file and settings routes.\n *\n * Everything that turns a path, a mount or a D1 row into the vocabulary the API speaks lives here, so\n * the routes only parse, call a store function and shape the response. D1 statements stay in the\n * store modules; this file owns the two lookups every request makes first (mount, then entry).\n */",
