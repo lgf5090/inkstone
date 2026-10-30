@@ -261,8 +261,9 @@ function toMountView(row: MountRow) {
 
 async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ ok: boolean; message: string; quota?: { used: number; total: number | null } }> {
   const config = safeObject(row.config)
-  const stored = await decryptCloudDriveCredentials(c.env, row.id, row.credentials).catch(() => null) ?? {}
-  const credentials: Record<string, string> = Object.fromEntries(Object.entries(stored).map(([key, value]) => [key, String(value)]))
+  const stored = await decryptCloudDriveCredentials(c.env, row.id, row.credentials).catch(() => null)
+  if (!stored && row.credentials) return { ok: false, message: 'The stored storage credentials could not be read' }
+  const credentials: Record<string, string> = Object.fromEntries(Object.entries(stored ?? {}).map(([key, value]) => [key, String(value)]))
   if (row.type === 's3') {
     const endpoint = String(config.endpoint ?? '')
     const target = checkTarget(endpoint)

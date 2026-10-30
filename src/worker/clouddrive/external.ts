@@ -171,8 +171,11 @@ async function storageFor(db: D1Database, mountId: string, storageId: string): P
 }
 
 async function credentialsOf(env: Env, storage: StorageRow): Promise<Record<string, string>> {
-  const stored = await decryptCloudDriveCredentials(env, storage.id, storage.credentials).catch(() => null) ?? {}
-  return Object.fromEntries(Object.entries(stored).map(([key, value]) => [key, String(value)]))
+  const stored = await decryptCloudDriveCredentials(env, storage.id, storage.credentials).catch(() => null)
+  if (!stored && storage.credentials) {
+    throw new ApiError(502, 'clouddrive_mount_unavailable', 'The stored storage credentials could not be read')
+  }
+  return Object.fromEntries(Object.entries(stored ?? {}).map(([key, value]) => [key, String(value)]))
 }
 
 function configOf(storage: StorageRow): Record<string, unknown> {
