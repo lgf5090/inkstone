@@ -448,7 +448,7 @@ describe('query endpoint', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const response = await call('POST', '/query', {
-      body: { connectionId: created.id, sql: 'select * from t where id = ?', params: [1] },
+      body: { connectionId: created.id, sql: 'select * from t where id = ?', params: [1], recordHistory: true },
     })
     expect(response.status).toBe(200)
     const result = (await bodyOf<QueryResult>(response)).data!
@@ -469,6 +469,19 @@ describe('query endpoint', () => {
     expect(history.data?.[0]?.error).toBeNull()
   })
 
+  it('does not record history for internal reads without the flag', async () => {
+    const created = await createConnection('Primary')
+    vi.stubGlobal('fetch', vi.fn(async () => queryResponse([])))
+    const response = await call('POST', '/query', {
+      body: { connectionId: created.id, sql: 'select * from t' },
+    })
+    expect(response.status).toBe(200)
+    const history = await bodyOf<QueryHistoryEntry[]>(
+      await call('GET', `/history?connectionId=${created.id}`),
+    )
+    expect(history.data).toHaveLength(0)
+  })
+
   it('rejects multiple statements and empty input', async () => {
     const created = await createConnection('Primary')
     for (const sql of ['select 1; select 2', '   ']) {
@@ -485,7 +498,7 @@ describe('query endpoint', () => {
       vi.fn(async () => jsonResponse({ success: false, errors: [{ message: 'no such table: users' }] }, 400)),
     )
     const missingTable = await call('POST', '/query', {
-      body: { connectionId: created.id, sql: 'select * from users' },
+      body: { connectionId: created.id, sql: 'select * from users', recordHistory: true },
     })
     expect(missingTable.status).toBe(400)
     const missingBody = await bodyOf(missingTable)
@@ -526,7 +539,7 @@ describe('query endpoint', () => {
     vi.stubGlobal('fetch', vi.fn(async () => queryResponse([])))
     for (let index = 1; index <= 7; index++) {
       const response = await call('POST', '/query', {
-        body: { connectionId: created.id, sql: `select ${index}` },
+        body: { connectionId: created.id, sql: `select ${index}`, recordHistory: true },
       })
       expect(response.status).toBe(200)
       await sleep(2)

@@ -99,6 +99,7 @@ export const QuerySchema = z.object({
   connectionId: ConnectionIdSchema,
   sql: z.string().min(1).max(MAX_SQL_LENGTH),
   params: ParamsSchema.optional(),
+  recordHistory: z.boolean().optional(),
 })
 
 export const QueryBatchSchema = z.object({
@@ -112,6 +113,7 @@ export const QueryBatchSchema = z.object({
     )
     .min(1)
     .max(20),
+  recordHistory: z.boolean().optional(),
 })
 
 export const SavedQueryCreateSchema = z.object({

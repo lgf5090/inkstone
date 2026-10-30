@@ -128,20 +128,22 @@ export function runQuery(
   connectionId: string,
   sql: string,
   params: unknown[] = [],
+  recordHistory = false,
 ): Promise<QueryResult> {
   return requestData<QueryResult>('/query', {
     method: 'POST',
-    body: { connectionId, sql, params },
+    body: { connectionId, sql, params, ...(recordHistory ? { recordHistory: true } : {}) },
   })
 }
 
 export async function runBatch(
   connectionId: string,
   statements: QueryStatement[],
+  recordHistory = false,
 ): Promise<QueryResult[]> {
   const data = await requestData<{ results?: QueryResult[] }>('/query/batch', {
     method: 'POST',
-    body: { connectionId, statements },
+    body: { connectionId, statements, ...(recordHistory ? { recordHistory: true } : {}) },
   })
   return data.results ?? []
 }

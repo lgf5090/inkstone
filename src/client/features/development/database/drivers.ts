@@ -8,10 +8,14 @@ import {
 import { utf8ByteLength } from '@shared/text-utils'
 import { runQuery, runBatch, MAX_BATCH_STATEMENTS } from './api'
 
+export interface StudioQueryOptions {
+  recordHistory?: boolean
+}
+
 export interface StudioDriver {
   readonly type: 'd1' | 'turso' | 'sqlite'
   readonly label: string
-  query(sql: string, params?: unknown[]): Promise<QueryResult>
+  query(sql: string, params?: unknown[], options?: StudioQueryOptions): Promise<QueryResult>
   batch?(statements: string[]): Promise<void>
   exportFile?(): Promise<Uint8Array>
   close(): void
@@ -33,8 +37,8 @@ export class RemoteDriver implements StudioDriver {
     readonly label: string,
   ) {}
 
-  query(sql: string, params: unknown[] = []): Promise<QueryResult> {
-    return runQuery(this.connectionId, sql, params)
+  query(sql: string, params: unknown[] = [], options?: StudioQueryOptions): Promise<QueryResult> {
+    return runQuery(this.connectionId, sql, params, options?.recordHistory === true)
   }
 
   async batch(statements: string[]): Promise<void> {
@@ -121,7 +125,7 @@ export class SqliteDriver implements StudioDriver {
     return this.initPromise
   }
 
-  async query(sql: string, params: unknown[] = []): Promise<QueryResult> {
+  async query(sql: string, params: unknown[] = [], _options?: StudioQueryOptions): Promise<QueryResult> {
     const db = await this.getDb()
     const started = Date.now()
     const statement = db.prepare(sql)

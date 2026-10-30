@@ -355,12 +355,12 @@ developmentDatabaseRoutes.post('/query', async (c) => {
       body.sql,
       body.params ?? [],
     )
-    await recordQueryRun(c, body.connectionId, body.sql, Date.now() - startedAt, null)
+    if (body.recordHistory) await recordQueryRun(c, body.connectionId, body.sql, Date.now() - startedAt, null)
     return c.json({ ok: true, data: result })
   } catch (error) {
     if (error instanceof QueryFailure) {
       const detail = error.detail || error.message
-      await recordQueryRun(c, body.connectionId, body.sql, Date.now() - startedAt, detail)
+      if (body.recordHistory) await recordQueryRun(c, body.connectionId, body.sql, Date.now() - startedAt, detail)
       throw failureToApiError(error)
     }
     throw error
@@ -376,6 +376,8 @@ developmentDatabaseRoutes.post('/query/batch', async (c) => {
       throw ApiError.badRequest('Each batch statement must contain a single SQL statement')
     }
   }
+  const startedAt = Date.now()
+  const joined = body.statements.map((statement) => statement.sql).join(';\n')
   try {
     const results = await executeBatch(
       c.env,
@@ -384,8 +386,13 @@ developmentDatabaseRoutes.post('/query/batch', async (c) => {
       body.connectionId,
       body.statements,
     )
+    if (body.recordHistory) await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, null)
     return c.json({ ok: true, data: { results } })
   } catch (error) {
+    if (body.recordHistory) {
+      const detail = error instanceof QueryFailure ? (error.detail || error.message) : (error instanceof Error ? error.message : String(error))
+      await recordQueryRun(c, body.connectionId, joined, Date.now() - startedAt, detail)
+    }
     queryFailure(error)
   }
 })

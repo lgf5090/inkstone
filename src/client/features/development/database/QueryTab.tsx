@@ -256,7 +256,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           const chunk = statements.slice(offset, offset + MAX_BATCH_STATEMENTS)
           setProgress({ current: Math.min(offset + chunk.length, statements.length), total: statements.length })
           try {
-            next.push(...await runBatch(connectionId, chunk.map((statement) => ({ sql: statement }))))
+            next.push(...await runBatch(connectionId, chunk.map((statement) => ({ sql: statement })), true))
           } catch (cause) {
             if (cause instanceof ApiError) {
               const index = (cause.details as { statementIndex?: unknown } | undefined)?.statementIndex
@@ -268,7 +268,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       } else {
         for (let index = 0; index < statements.length; index++) {
           setProgress({ current: index + 1, total: statements.length })
-          next.push(await driver.query(statements[index]!))
+          next.push(await driver.query(statements[index]!, undefined, { recordHistory: true }))
         }
       }
       setResults(next)
@@ -426,7 +426,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     setRunning(true)
     setError(null)
     try {
-      const result = await driver.query(`EXPLAIN QUERY PLAN ${statements[0]}`)
+      const result = await driver.query(`EXPLAIN QUERY PLAN ${statements[0]}`, undefined, { recordHistory: true })
       setResults([result])
       setActiveResult(0)
       setDetailRow(null)
