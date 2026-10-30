@@ -153,8 +153,9 @@ function executionWaitUntil(
 }
 
 function platformFromPath(pathname: string): string | null {
+  const candidate = pathname.startsWith('/v2/cr/') ? pathname.slice(3) : pathname
   for (const platform of XGET_PLATFORMS_BY_LONGEST_PREFIX) {
-    if (pathname.startsWith(`/${xgetPathPrefix(platform.key)}/`)) return platform.key
+    if (candidate.startsWith(`/${xgetPathPrefix(platform.key)}/`)) return platform.key
   }
   return null
 }

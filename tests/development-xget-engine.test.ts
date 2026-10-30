@@ -306,6 +306,11 @@ describe('the Xget entry responses', () => {
     }
   })
 
+  it('rejects non-read methods on the root catalog and Docker version probe', async () => {
+    expect((await call('/', { method: 'POST' })).status).toBe(405)
+    expect((await call('/v2/', { method: 'POST' })).status).toBe(405)
+  })
+
   it('answers the Docker version probe and does not add performance metrics to protocol responses', async () => {
     const response = await call('/v2/')
     expect(response.status).toBe(200)

@@ -404,6 +404,21 @@ describe('Xget stats API', () => {
     expect(summary.data.platforms[0]).toMatchObject({ platform: 'gh', pct: 100 })
   })
 
+  it('records legacy /v2/cr Docker requests under the registry platform', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
+    const response = await call(
+      'GET',
+      '/api/development/xget/v2/cr/docker/library/nginx/manifests/latest',
+      { user: null },
+    )
+    expect(response.status).toBe(200)
+    const stat = sqlite
+      .prepare('SELECT platform, ok, count FROM development_xget_stats')
+      .get() as { platform: string; ok: number; count: number }
+    expect(stat.platform).toBe('cr-docker')
+    expect(stat.count).toBe(1)
+  })
+
   it('rejects an invalid range', async () => {
     const negative = await call('GET', '/stats/summary?days=-1')
     expect(negative.status).toBe(400)

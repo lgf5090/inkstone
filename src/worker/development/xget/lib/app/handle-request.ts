@@ -69,14 +69,21 @@ export async function handleXgetRequest(
         }
       }
     } else if (isDocker && (url.pathname === '/v2/' || url.pathname === '/v2')) {
-      const headers = new Headers({
-        'Docker-Distribution-Api-Version': 'registry/2.0',
-        'Content-Type': 'application/json',
-      })
-      addSecurityHeaders(headers)
-      response = new Response('{}', { status: 200, headers })
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        response = createErrorResponse('Method not allowed', 405)
+      } else {
+        const headers = new Headers({
+          'Docker-Distribution-Api-Version': 'registry/2.0',
+          'Content-Type': 'application/json',
+        })
+        addSecurityHeaders(headers)
+        response = new Response('{}', { status: 200, headers })
+      }
     } else if (url.pathname === '/' || url.pathname === '') {
-      response = createPlatformIndexResponse(proxyBaseUrl)
+      response =
+        request.method === 'GET' || request.method === 'HEAD'
+          ? createPlatformIndexResponse(proxyBaseUrl)
+          : createErrorResponse('Method not allowed', 405)
     } else {
       const validation = validateRequest(request, url, config, requestContext)
       if (!validation.valid) {
