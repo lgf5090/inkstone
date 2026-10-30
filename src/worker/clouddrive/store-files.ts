@@ -16,6 +16,8 @@ import {
   type CloudDriveTagView,
 } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
+import type { Env } from '../env'
+import { deleteFileParts } from './distributed'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import {
@@ -763,11 +765,11 @@ async function purgeRows(
   db: D1Database,
   userId: string,
   targets: readonly PurgeTarget[],
-  env: { FILES?: R2Bucket },
+  env: Env,
 ): Promise<{ deleted: number; failed: number }> {
   if (targets.length === 0) return { deleted: 0, failed: 0 }
   const ids = targets.map((target) => target.id)
-  let failed = 0
+  let failed = await deleteFileParts(db, env, userId, ids)
 
   const versionKeys: string[] = []
   for (let offset = 0; offset < ids.length; offset += 90) {
@@ -813,7 +815,7 @@ export async function purgeTrashEntries(
   userId: string,
   mountId: string,
   ids: readonly string[],
-  env: { FILES?: R2Bucket },
+  env: Env,
 ): Promise<{ deleted: number; failed: number }> {
   const rows = await rowsByIds(db, userId, mountId, ids)
   const trashed = rows.filter((row) => row.deleted_at !== null)
@@ -825,7 +827,7 @@ export async function purgeTrashEntries(
 export async function purgeAllTrash(
   db: D1Database,
   userId: string,
-  env: { FILES?: R2Bucket },
+  env: Env,
 ): Promise<{ deleted: number; failed: number }> {
   const { results } = await db.prepare(
     `SELECT * FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NOT NULL`,
@@ -977,6 +979,10 @@ export async function copyEntries(
     }
     if (sources.length > MAX_DESCENDANTS + 1) {
       throw ApiError.tooLarge('The folder is too large to copy synchronously')
+    }
+    if (sources.some((row) => row.storage_kind === 'distributed')) {
+      results.push({ id, ok: false, error: 'not_supported' })
+      continue
     }
 
     const idMap = new Map<string, string>([[source.id, newId()]])

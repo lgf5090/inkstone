@@ -103,7 +103,10 @@ export const clouddriveApi = {
     return request<CloudDriveListing>(`/api/clouddrive/files?${search.toString()}`)
   },
 
-  entry: (id: string) => request<{ entry: CloudDriveEntry; parts?: unknown[] }>(`/api/clouddrive/files/${encodeURIComponent(id)}`),
+  entry: (id: string) => request<{
+    entry: CloudDriveEntry
+    parts?: { partNumber: number; mountId: string; size: number; etag: string | null }[]
+  }>(`/api/clouddrive/files/${encodeURIComponent(id)}`),
   mkdir: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
   patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),

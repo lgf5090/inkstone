@@ -31,6 +31,7 @@ import {
   type CloudDriveFileRow,
   type CloudDriveMountInfo,
 } from './lib'
+import { fileParts } from './distributed'
 import {
   albumEntries,
   copyEntries,
@@ -198,7 +199,20 @@ cloudDriveFilesRoutes.get('/files/:id', async (c) => {
   const row = await getFileById(c.env.DB, userId, id)
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
-  return c.json({ entry: await entryOf(c.env.DB, userId, mount, row) })
+  const entry = await entryOf(c.env.DB, userId, mount, row)
+  if (row.storage_kind === 'distributed') {
+    const parts = await fileParts(c.env.DB, userId, row.id)
+    return c.json({
+      entry,
+      parts: parts.map((part) => ({
+        partNumber: part.part_number,
+        mountId: part.mount_id,
+        size: part.size,
+        etag: part.etag,
+      })),
+    })
+  }
+  return c.json({ entry })
 })
 
 cloudDriveFilesRoutes.post('/folders', async (c) => {

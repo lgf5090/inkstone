@@ -113,6 +113,24 @@ describe('cloud drive mounts', () => {
     expect(mount.body.mount.readOnly).toBe(true)
   })
 
+  it('lets an S3 mount opt into distributed parts while other external mounts stay read-only', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'parts',
+      type: 's3',
+      config: { endpoint: 'https://s3.example.com', bucketName: 'parts', region: 'auto' },
+      credentials: {},
+    })
+    expect(storage.status).toBe(200)
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'parts',
+      storageId: storage.body.storage.id,
+      mountPath: '/parts',
+      readOnly: false,
+    })
+    expect(mount.status).toBe(200)
+    expect(mount.body.mount.readOnly).toBe(false)
+  })
+
   it('accepts a public storage with no credentials', async () => {
     const storage = await call('POST', '/api/clouddrive/storages', {
       name: 'public',

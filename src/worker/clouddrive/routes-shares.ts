@@ -7,6 +7,7 @@ import { ApiError } from '../lib/errors'
 import { hashPassword, verifyPassword } from '../lib/password'
 import { newId, newSlug } from '../lib/id'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { distributedStream, fileParts } from './distributed'
 
 interface ShareRow {
   slug: string
@@ -40,6 +41,7 @@ interface FileRow {
   mime: string
   size: number
   storage_key: string | null
+  storage_kind: string
   modified_at: number
   kind: string
 }
@@ -74,11 +76,11 @@ clouddriveShareRoutes.post('/shares', async (c) => {
   }
   const file = fileId
     ? await c.env.DB.prepare(
-      `SELECT id, name, path, category, mime, size, storage_key, modified_at, kind
+      `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
          FROM CloudDrive_files WHERE user_id = ?1 AND id = ?2 AND mount_id = ?3 AND deleted_at IS NULL`,
     ).bind(userId, fileId, mountId).first<FileRow>()
     : await c.env.DB.prepare(
-      `SELECT id, name, path, category, mime, size, storage_key, modified_at, kind
+      `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
          FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND deleted_at IS NULL`,
     ).bind(userId, mountId, path).first<FileRow>()
   if (!file) throw ApiError.notFound('The share target does not exist')
@@ -186,12 +188,12 @@ clouddrivePublicShareRoutes.get('/shares/:slug/list', async (c) => {
   const requested = safePath(c.req.query('path') ?? share.path)
   assertWithinShare(share, requested)
   const folder = await c.env.DB.prepare(
-    `SELECT id, name, path, category, mime, size, storage_key, modified_at, kind
+    `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND kind = 'folder' AND deleted_at IS NULL`,
   ).bind(share.user_id, share.mount_id, requested).first<FileRow>()
   if (!folder) throw ApiError.notFound('Folder not found')
   const { results } = await c.env.DB.prepare(
-    `SELECT id, name, path, category, mime, size, storage_key, modified_at, kind
+    `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
        ORDER BY kind DESC, name_folded LIMIT 500`,
   ).bind(share.user_id, share.mount_id, folder.id).all<FileRow>()
@@ -219,11 +221,14 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   const requested = safePath(requestedRaw)
   assertWithinShare(share, requested)
   const file = await c.env.DB.prepare(
-    `SELECT id, name, path, category, mime, size, storage_key, modified_at, kind
+    `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND kind = 'file' AND deleted_at IS NULL`,
   ).bind(share.user_id, share.mount_id, requested).first<FileRow>()
-  if (!file?.storage_key) throw ApiError.notFound('File not found')
-  if (!c.env.FILES) throw new ApiError(503, 'storage_unavailable', 'R2 is not configured')
+  if (!file) throw ApiError.notFound('File not found')
+  if (file.storage_kind !== 'distributed' && !file.storage_key) throw ApiError.notFound('File not found')
+  if (file.storage_kind !== 'distributed' && !c.env.FILES) {
+    throw new ApiError(503, 'storage_unavailable', 'R2 is not configured')
+  }
   const rangeHeader = c.req.header('range') ?? null
   const parsed = rangeHeader ? parseByteRange(rangeHeader, file.size) : null
   if (parsed === 'invalid') {
@@ -232,9 +237,31 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   if (forceDownload && (!rangeHeader || rangeHeader.startsWith('bytes=0-'))) {
     await countDownload(c, share, requested)
   }
+  if (file.storage_kind === 'distributed') {
+    const parts = await fileParts(c.env.DB, share.user_id, file.id)
+    const total = parts.reduce((sum, part) => sum + part.size, 0)
+    if (parts.length === 0 || total !== file.size) throw ApiError.notFound('File not found')
+    const start = parsed ? parsed.start : 0
+    const length = parsed ? parsed.end - parsed.start + 1 : file.size
+    const headers = new Headers({
+      'Content-Type': file.mime || 'application/octet-stream',
+      'ETag': `"${file.id}-${file.size}"`,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, no-store',
+    })
+    const disposition = contentDisposition(file.mime, file.name)
+    headers.set('Content-Disposition', forceDownload ? disposition.replace(/^inline/, 'attachment') : disposition)
+    headers.set('Content-Length', String(length))
+    if (parsed) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
+    if (c.req.method === 'HEAD') return new Response(null, { status: parsed ? 206 : 200, headers })
+    const body = await distributedStream(c.env, c.env.DB, share.user_id, parts, start, length)
+    return new Response(body, { status: parsed ? 206 : 200, headers })
+  }
+  const storageKey = file.storage_key
+  if (!storageKey || !c.env.FILES) throw ApiError.notFound('File not found')
   const object = parsed
-    ? await c.env.FILES.get(file.storage_key, { range: { offset: parsed.start, length: parsed.end - parsed.start + 1 } })
-    : await c.env.FILES.get(file.storage_key)
+    ? await c.env.FILES.get(storageKey, { range: { offset: parsed.start, length: parsed.end - parsed.start + 1 } })
+    : await c.env.FILES.get(storageKey)
   if (!object) throw ApiError.notFound('File not found')
   const headers = new Headers()
   object.writeHttpMetadata(headers)

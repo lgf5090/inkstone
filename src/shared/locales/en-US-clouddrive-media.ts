@@ -53,6 +53,7 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.settings.upload_section': 'Uploads',
   'clouddrive.settings.max_file_size': 'Maximum file size',
   'clouddrive.settings.part_size': 'Part size',
+  'clouddrive.settings.distributed_threshold': 'Distributed upload threshold (bytes)',
   'clouddrive.settings.concurrency': 'Concurrent parts',
   'clouddrive.settings.share_section': 'Sharing',
   'clouddrive.settings.member_shares': 'Allow member share links',

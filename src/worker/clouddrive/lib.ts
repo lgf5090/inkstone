@@ -327,7 +327,7 @@ export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = [
     modifiedAt: row.modified_at,
     starredAt: row.starred_at,
     readOnly: false,
-    hasThumbnail: row.kind === 'file' && row.category === 'images',
+    hasThumbnail: row.kind === 'file' && row.category === 'images' && row.storage_kind === 'r2',
     storage: row.storage_kind === 'r2' ? 'primary' : row.storage_kind,
     storageKind: storageKindOf(row.storage_kind),
     color: row.kind === 'folder' && row.color ? row.color : null,

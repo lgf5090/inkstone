@@ -787,6 +787,90 @@ async function readGoogleDrive(
   return response
 }
 
+async function s3ObjectRequest(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  key: string,
+): Promise<{ aws: AwsClient; url: string }> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage || storage.type !== 's3') {
+    throw new ApiError(502, 'clouddrive_mount_unavailable', 'Only S3 mounts accept distributed parts')
+  }
+  const config = configOf(storage)
+  const credentials = await credentialsOf(env, storage)
+  const target = checkTarget(String(config.endpoint ?? ''))
+  if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error ?? 'S3 endpoint is missing')
+  const bucket = String(config.bucketName ?? '')
+  const endpoint = target.url
+  const aws = new AwsClient({
+    accessKeyId: credentials.accessKeyId ?? '',
+    secretAccessKey: credentials.secretAccessKey ?? '',
+    region: String(config.region ?? 'auto'),
+    service: 's3',
+    retries: 1,
+  })
+  const objectKey = joinPath(String(config.rootPath ?? ''), key)
+  const pathStyle = config.pathStyle === true || endpoint.hostname.endsWith('amazonaws.com') === false
+  const url = pathStyle
+    ? `${endpoint.origin}/${bucket}/${encodeKey(objectKey)}`
+    : `${endpoint.protocol}//${bucket}.${endpoint.host}/${encodeKey(objectKey)}`
+  return { aws, url }
+}
+
+export async function writeExternalObject(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<string | null> {
+  const { aws, url } = await s3ObjectRequest(env, db, mount, key)
+  const response = await aws.fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: bytes.slice().buffer,
+  })
+  const etag = response.headers.get('etag')
+  await discard(response)
+  if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 part write failed (${response.status})`)
+  return etag
+}
+
+export async function readExternalObject(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  key: string,
+  range: string | null,
+): Promise<Response | null> {
+  const { aws, url } = await s3ObjectRequest(env, db, mount, key)
+  const headers: Record<string, string> = {}
+  if (range) headers.Range = range
+  const response = await aws.fetch(url, { method: 'GET', headers, redirect: 'manual' })
+  if (response.status === 404) { await discard(response); return null }
+  if (!response.ok && response.status !== 206) {
+    await discard(response)
+    throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 part read failed (${response.status})`)
+  }
+  return response
+}
+
+export async function deleteExternalObject(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  key: string,
+): Promise<void> {
+  const { aws, url } = await s3ObjectRequest(env, db, mount, key)
+  const response = await aws.fetch(url, { method: 'DELETE', redirect: 'manual' })
+  await discard(response)
+  if (!response.ok && response.status !== 404) {
+    throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 part delete failed (${response.status})`)
+  }
+}
+
 function encodeKey(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/')
 }

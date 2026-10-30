@@ -94,7 +94,7 @@ async function referencedKeys(db: D1Database, keys: readonly string[]): Promise<
   for (let offset = 0; offset < keys.length; offset += SQL_CHUNK) {
     const chunk = keys.slice(offset, offset + SQL_CHUNK)
     const placeholders = chunk.map(() => '?').join(', ')
-    const [files, uploads, versions] = await Promise.all([
+    const [files, uploads, versions, parts, uploadParts] = await Promise.all([
       db.prepare(`SELECT DISTINCT storage_key FROM CloudDrive_files WHERE storage_key IN (${placeholders})`)
         .bind(...chunk).all<{ storage_key: string }>(),
       db.prepare(
@@ -103,10 +103,16 @@ async function referencedKeys(db: D1Database, keys: readonly string[]): Promise<
       ).bind(...chunk).all<{ storage_key: string }>(),
       db.prepare(`SELECT DISTINCT storage_key FROM CloudDrive_file_versions WHERE storage_key IN (${placeholders})`)
         .bind(...chunk).all<{ storage_key: string }>(),
+      db.prepare(`SELECT DISTINCT storage_key FROM CloudDrive_file_parts WHERE storage_key IN (${placeholders})`)
+        .bind(...chunk).all<{ storage_key: string }>(),
+      db.prepare(`SELECT DISTINCT storage_key FROM CloudDrive_upload_part_objects WHERE storage_key IN (${placeholders})`)
+        .bind(...chunk).all<{ storage_key: string }>(),
     ])
     for (const row of files.results ?? []) found.add(row.storage_key)
     for (const row of uploads.results ?? []) found.add(row.storage_key)
     for (const row of versions.results ?? []) found.add(row.storage_key)
+    for (const row of parts.results ?? []) found.add(row.storage_key)
+    for (const row of uploadParts.results ?? []) found.add(row.storage_key)
   }
   return found
 }

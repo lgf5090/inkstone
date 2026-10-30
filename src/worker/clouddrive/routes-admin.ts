@@ -351,6 +351,9 @@ clouddriveAdminRoutes.post('/admin/files/delete', async (c) => {
             WHERE user_id = ? AND revoked_at IS NULL AND file_id IN (${placeholders})`,
         ).bind(now, ownerId, ...chunk))
         statements.push(c.env.DB.prepare(
+          `DELETE FROM CloudDrive_file_parts WHERE user_id = ? AND file_id IN (${placeholders})`,
+        ).bind(ownerId, ...chunk))
+        statements.push(c.env.DB.prepare(
           `DELETE FROM CloudDrive_files WHERE user_id = ? AND id IN (${placeholders})`,
         ).bind(ownerId, ...chunk))
       }

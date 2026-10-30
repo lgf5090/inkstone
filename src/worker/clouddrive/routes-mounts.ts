@@ -147,7 +147,12 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   const mountPath = typeof body.mountPath === 'string' ? body.mountPath : ''
   if (!/^\/[^/]+$/.test(mountPath)) throw ApiError.badRequest('A mount path is one segment, such as /photos')
   const storageId = typeof body.storageId === 'string' ? body.storageId : 'primary'
-  if (storageId !== 'primary' && !(await storageById(c, storageId))) throw ApiError.badRequest('Storage not found')
+  const storage = storageId === 'primary' ? null : await storageById(c, storageId)
+  if (storageId !== 'primary' && !storage) throw ApiError.badRequest('Storage not found')
+  const partEligible = storageId === 'primary' || storage?.type === 's3'
+  const readOnly = storageId === 'primary'
+    ? (body.readOnly ? 1 : 0)
+    : partEligible && body.readOnly === false ? 0 : 1
   const now = Date.now()
   const id = newId()
   try {
@@ -155,7 +160,7 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
       `INSERT INTO CloudDrive_mounts
          (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, created_at, updated_at)
        VALUES (?1,?2,?3,?4,?5,?6,?7,0,'native_proxy',1,?8,?9,?10,?10)`,
-    ).bind(userId, id, storageId, name, mountPath, storageId !== 'primary' || body.readOnly ? 1 : 0, clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0), body.enabled === false ? 0 : 1, now).run()
+    ).bind(userId, id, storageId, name, mountPath, readOnly, clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0), body.enabled === false ? 0 : 1, now).run()
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
     throw error
@@ -169,8 +174,16 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   if (!row) throw ApiError.notFound('Mount not found')
   if (row.id === 'primary') {
     const body = await readJson(c)
-    await c.env.DB.prepare(`UPDATE CloudDrive_mounts SET name = ?3, updated_at = ?4 WHERE user_id = ?1 AND id = ?2`)
-      .bind(userId, row.id, cleanName(body.name ?? row.name), Date.now()).run()
+    await c.env.DB.prepare(
+      `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, updated_at = ?5
+        WHERE user_id = ?1 AND id = ?2`,
+    ).bind(
+      userId,
+      row.id,
+      cleanName(body.name ?? row.name),
+      body.readOnly === undefined ? row.read_only : (body.readOnly ? 1 : 0),
+      Date.now(),
+    ).run()
     return c.json({ mount: toMountView((await mountById(c, row.id))!) })
   }
   const body = await readJson(c)
@@ -178,7 +191,13 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   const values: unknown[] = []
   const put = (sql: string, value: unknown) => { sets.push(sql); values.push(value) }
   if (body.name !== undefined) put('name = ?', cleanName(body.name))
-  if (body.readOnly !== undefined) put('read_only = ?', row.storage_id !== 'primary' || body.readOnly ? 1 : 0)
+  if (body.readOnly !== undefined) {
+    const storage = await storageById(c, row.storage_id)
+    const partEligible = row.storage_id === 'primary' || storage?.type === 's3'
+    put('read_only = ?', row.storage_id === 'primary'
+      ? (body.readOnly ? 1 : 0)
+      : partEligible && body.readOnly === false ? 0 : 1)
+  }
   if (body.cacheTtl !== undefined) put('cache_ttl = ?', clampInt(body.cacheTtl, 0, 86400, 300))
   if (body.sortOrder !== undefined) put('sort_order = ?', clampInt(body.sortOrder, -10000, 10000, 0))
   if (body.enabled !== undefined) put('enabled = ?', body.enabled ? 1 : 0)
@@ -193,6 +212,12 @@ clouddriveMountRoutes.delete('/mounts/:id', async (c) => {
   const row = await mountById(c, c.req.param('id'))
   if (!row) throw ApiError.notFound('Mount not found')
   if (row.id === 'primary' || row.mount_path === '/') throw ApiError.badRequest('The primary mount cannot be removed')
+  const used = await c.env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM CloudDrive_file_parts WHERE user_id = ?1 AND mount_id = ?2)
+       + (SELECT COUNT(*) FROM CloudDrive_upload_part_objects WHERE mount_id = ?2) AS count`,
+  ).bind(userId, row.id).first<{ count: number }>()
+  if ((used?.count ?? 0) > 0) throw ApiError.conflict('Distributed files still reference this mount')
   await c.env.DB.prepare(`DELETE FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`).bind(userId, row.id).run()
   return c.json({ ok: true })
 })

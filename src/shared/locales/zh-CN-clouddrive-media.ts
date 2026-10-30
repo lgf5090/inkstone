@@ -53,6 +53,7 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.settings.upload_section': '上传',
   'clouddrive.settings.max_file_size': '单文件大小上限',
   'clouddrive.settings.part_size': '分片大小',
+  'clouddrive.settings.distributed_threshold': '分布式上传阈值（字节）',
   'clouddrive.settings.concurrency': '并发分片数',
   'clouddrive.settings.share_section': '分享',
   'clouddrive.settings.member_shares': '允许成员创建分享链接',

@@ -71,10 +71,22 @@ export async function cloudDriveUsage(db: D1Database, userId: string, env: Env):
         GROUP BY storage_key
      )`,
   ).bind(userId).first<{ bytes: number }>()
+  const [liveParts, trashParts] = await Promise.all([
+    db.prepare(
+      `SELECT COALESCE(SUM(p.size), 0) AS bytes FROM CloudDrive_file_parts p
+        JOIN CloudDrive_files f ON f.user_id = p.user_id AND f.id = p.file_id
+       WHERE p.user_id = ?1 AND p.mount_id = 'primary' AND f.deleted_at IS NULL`,
+    ).bind(userId).first<{ bytes: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(p.size), 0) AS bytes FROM CloudDrive_file_parts p
+        JOIN CloudDrive_files f ON f.user_id = p.user_id AND f.id = p.file_id
+       WHERE p.user_id = ?1 AND p.mount_id = 'primary' AND f.deleted_at IS NOT NULL`,
+    ).bind(userId).first<{ bytes: number }>(),
+  ])
   const settings = await readCloudDriveSettings(db, userId)
   return {
-    usedBytes: live?.bytes ?? 0,
-    trashBytes: trash?.bytes ?? 0,
+    usedBytes: (live?.bytes ?? 0) + (liveParts?.bytes ?? 0),
+    trashBytes: (trash?.bytes ?? 0) + (trashParts?.bytes ?? 0),
     quotaBytes: settings.quotaDefaultBytes,
     primaryAvailable: Boolean(env.FILES),
   }

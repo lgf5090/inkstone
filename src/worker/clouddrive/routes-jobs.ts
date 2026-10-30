@@ -15,6 +15,7 @@ import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { decodeCursor, encodeCursor } from './lib'
 import { cloudDriveUsage, readCloudDriveSettings } from './store'
 import { purgeTrashEntries } from './store-files'
+import { deleteUploadPartObjects } from './distributed'
 
 export const clouddriveJobRoutes = new Hono<AppBindings>()
 
@@ -483,6 +484,8 @@ async function cleanupUploadSessions(env: Env, userId: string, now: number): Pro
         // R2 may already have dropped an upload the platform expired; the D1 row still must close.
         console.warn('[clouddrive] aborting an expired multipart upload failed:', error)
       }
+    } else if (session.strategy === 'distributed') {
+      await deleteUploadPartObjects(env, env.DB, userId, session.id)
     } else if (session.strategy === 'direct' && session.storage_key && env.FILES) {
       try {
         await env.FILES.delete(session.storage_key)
@@ -492,6 +495,8 @@ async function cleanupUploadSessions(env: Env, userId: string, now: number): Pro
       }
     }
     statements.push(env.DB.prepare(`DELETE FROM CloudDrive_upload_parts WHERE session_id = ?`)
+      .bind(session.id))
+    statements.push(env.DB.prepare(`DELETE FROM CloudDrive_upload_part_objects WHERE session_id = ?`)
       .bind(session.id))
     statements.push(env.DB.prepare(
       `UPDATE CloudDrive_upload_sessions SET status = 'expired', updated_at = ?

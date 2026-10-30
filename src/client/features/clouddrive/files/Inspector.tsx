@@ -20,6 +20,37 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   )
 }
 
+function DistributedParts({ entry }: { entry: CloudDriveEntry }) {
+  const [parts, setParts] = useState<{ partNumber: number; mountId: string; size: number }[]>([])
+  useEffect(() => {
+    let active = true
+    void clouddriveApi.entry(entry.id)
+      .then((result) => { if (active) setParts(result.parts ?? []) })
+      .catch((error) => {
+        console.warn('[inkstone] CloudDrive parts could not be read', error)
+      })
+    return () => { active = false }
+  }, [entry.id])
+  if (parts.length === 0) return null
+  const mounts = new Set(parts.map((part) => part.mountId)).size
+  return (
+    <section>
+      <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.parts')}</h3>
+      <p className="text-[length:var(--text-11)] text-[var(--text-secondary)]">
+        {t('clouddrive.inspector.parts_summary', { count: parts.length, mounts })}
+      </p>
+      <ul className="mt-1 flex max-h-36 flex-col gap-0.5 overflow-auto text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+        {parts.slice(0, 30).map((part) => (
+          <li key={part.partNumber} className="flex items-center justify-between gap-2">
+            <span>#{part.partNumber} · {part.mountId}</span>
+            <span className="tabular">{formatBytes(part.size)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function FolderMetaEditor({
   entry,
   readOnly,
@@ -168,6 +199,7 @@ export function Inspector({
                 </span>
               </DetailRow>
             </dl>
+            {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
             {single.kind === 'folder' && (
               <section>
                 <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.color')}</h3>

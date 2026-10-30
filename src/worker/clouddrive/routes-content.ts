@@ -14,6 +14,7 @@ import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { filenameOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, readExternal } from './external'
+import { distributedStream, fileParts } from './distributed'
 import { resolveMount } from './lib'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
@@ -119,12 +120,34 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
     return new Response(c.req.method === 'HEAD' ? null : response.body, { status: response.status, headers })
   }
   const file = await findLiveFile(c, userId, c.req.param('id'))
+  const download = c.req.query('download') === '1'
+  const etag = entityTagOf(file)
+  if (file.storage_kind === 'distributed') {
+    const parts = await fileParts(c.env.DB, userId, file.id)
+    const total = parts.reduce((sum, part) => sum + part.size, 0)
+    if (parts.length === 0 || total !== file.size) {
+      throw new ApiError(503, 'clouddrive_mount_unavailable', 'The distributed parts are incomplete')
+    }
+    const ifNoneMatchDistributed = c.req.header('if-none-match')
+    if (ifNoneMatchDistributed && matchesEntityTag(ifNoneMatchDistributed, etag)) {
+      return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': AUTHENTICATED_CACHE } })
+    }
+    const rangeHeaderDistributed = c.req.header('range')
+    const distributedRange = rangeHeaderDistributed ? parseByteRange(rangeHeaderDistributed, file.size) : null
+    if (distributedRange === 'invalid') return notSatisfiable(file)
+    const headers = baseHeaders(file, download)
+    const start = distributedRange ? distributedRange.start : 0
+    const length = distributedRange ? distributedRange.end - distributedRange.start + 1 : file.size
+    headers.set('Content-Length', String(length))
+    if (distributedRange) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
+    if (c.req.method === 'HEAD') return new Response(null, { status: distributedRange ? 206 : 200, headers })
+    const body = await distributedStream(c.env, c.env.DB, userId, parts, start, length)
+    return new Response(body, { status: distributedRange ? 206 : 200, headers })
+  }
   if (file.storage_kind !== 'r2' || !file.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
   }
   const bucket = await requireBucket(c)
-  const download = c.req.query('download') === '1'
-  const etag = entityTagOf(file)
 
   const ifNoneMatch = c.req.header('if-none-match')
   if (ifNoneMatch && matchesEntityTag(ifNoneMatch, etag)) {

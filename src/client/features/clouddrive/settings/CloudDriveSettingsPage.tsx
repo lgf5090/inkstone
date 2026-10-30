@@ -23,6 +23,7 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
         uploadMaxFileBytes: result.settings.uploadMaxFileBytes,
         uploadPartSizeBytes: result.settings.uploadPartSizeBytes,
         uploadConcurrentParts: result.settings.uploadConcurrentParts,
+        uploadDistributedMinBytes: result.settings.uploadDistributedMinBytes,
         shareAllowMemberShares: result.settings.shareAllowMemberShares,
         shareDefaultExpiryDays: result.settings.shareDefaultExpiryDays,
         shareMaxExpiryDays: result.settings.shareMaxExpiryDays,
@@ -64,6 +65,7 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
           <Field label={ct('clouddrive.settings.max_file_size')}><Input type="number" value={number(draft.uploadMaxFileBytes)} onChange={(event) => setDraft({ ...draft, uploadMaxFileBytes: Number(event.target.value) })} /></Field>
           <Field label={ct('clouddrive.settings.part_size')}><Input type="number" value={number(draft.uploadPartSizeBytes)} onChange={(event) => setDraft({ ...draft, uploadPartSizeBytes: Number(event.target.value) })} /></Field>
           <Field label={ct('clouddrive.settings.concurrency')}><Input type="number" value={number(draft.uploadConcurrentParts)} onChange={(event) => setDraft({ ...draft, uploadConcurrentParts: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.distributed_threshold')}><Input type="number" value={number(draft.uploadDistributedMinBytes)} onChange={(event) => setDraft({ ...draft, uploadDistributedMinBytes: Number(event.target.value) })} /></Field>
         </div>
       </section>
       <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">

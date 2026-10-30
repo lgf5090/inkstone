@@ -3,7 +3,7 @@ import { Database, Link2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
-import { Field, Input, Select } from '../../../components/form'
+import { Checkbox, Field, Input, Select } from '../../../components/form'
 import { confirm, Modal } from '../../../components/overlay'
 import { clouddriveApi } from '../api'
 
@@ -108,7 +108,14 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
   }, t('clouddrive.settings.saved'))
 
   const createMount = () => run(async () => {
-    await clouddriveApi.createMount({ name: form.name, mountPath: form.mountPath, storageId: form.storageId, readOnly: form.readOnly === '1', cacheTtl: Number(form.cacheTtl || 300) })
+    const external = form.storageId !== 'primary'
+    await clouddriveApi.createMount({
+      name: form.name,
+      mountPath: form.mountPath,
+      storageId: form.storageId,
+      readOnly: external ? form.distributedParts !== '1' : false,
+      cacheTtl: Number(form.cacheTtl || 300),
+    })
   }, t('clouddrive.settings.saved'))
 
   const field = (key: string, label: string, options: { type?: string; placeholder?: string } = {}) => (
@@ -251,6 +258,7 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
               <div key={mount.id} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
                 <Link2 size={15} className="text-[var(--text-tertiary)]" />
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{mount.name} <span className="text-[var(--text-tertiary)]">({mount.mountPath})</span></span>
+                {!mount.readOnly && mount.storageId !== 'primary' && <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-primary)]">{t('clouddrive.mounts.distributed_badge')}</span>}
                 <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{mount.storageId}</span>
                 <Button size="sm" variant="ghost" onClick={() => void clouddriveApi.testMount(mount.id).then((result) => toast({ title: result.ok ? 'OK' : t('clouddrive.toast.failed'), description: result.message, tone: result.ok ? 'default' : 'danger' }))}>{t('clouddrive.mounts.test')}</Button>
                 {mount.id !== 'primary' && <IconButton label={t('clouddrive.mounts.delete')} onClick={async () => { if (await confirm({ title: t('clouddrive.mounts.delete'), tone: 'danger' })) await clouddriveApi.deleteMount(mount.id).then(load) }}><Trash2 size={13} /></IconButton>}
@@ -284,6 +292,13 @@ export function MountsPage({ showStorages = false }: { showStorages?: boolean })
               <Field label={t('clouddrive.mounts.path')}><Input value={form.mountPath ?? ''} onChange={(e) => setForm({ ...form, mountPath: e.target.value })} placeholder={t('clouddrive.mounts.path_placeholder')} /></Field>
               <Field label={t('clouddrive.mounts.storage')}><Select value={form.storageId} onChange={(e) => setForm({ ...form, storageId: e.target.value })}><option value="primary">{t('clouddrive.sidebar.primary')}</option>{storages.map((storage) => <option key={storage.id} value={storage.id}>{storage.name}</option>)}</Select></Field>
               <Field label={t('clouddrive.mounts.cache_ttl')}><Input value={form.cacheTtl ?? '300'} onChange={(e) => setForm({ ...form, cacheTtl: e.target.value })} /></Field>
+              {storages.find((storage) => storage.id === form.storageId)?.type === 's3' && (
+                <Checkbox
+                  checked={form.distributedParts === '1'}
+                  label={t('clouddrive.mounts.distributed_parts')}
+                  onChange={(next) => setForm({ ...form, distributedParts: next ? '1' : '0' })}
+                />
+              )}
             </>
           )}
         </div>

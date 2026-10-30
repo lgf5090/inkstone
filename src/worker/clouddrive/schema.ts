@@ -216,6 +216,35 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (session_id, part_number)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_upload_part_objects (
+    session_id TEXT NOT NULL,
+    part_number INTEGER NOT NULL,
+    mount_id TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    etag TEXT,
+    uploaded_at INTEGER,
+    PRIMARY KEY (session_id, part_number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_upload_part_key
+     ON CloudDrive_upload_part_objects(storage_key)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_file_parts (
+    user_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    part_number INTEGER NOT NULL,
+    mount_id TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    etag TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, file_id, part_number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_file_parts_file
+     ON CloudDrive_file_parts(user_id, file_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_file_parts_key
+     ON CloudDrive_file_parts(storage_key)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_tasks (
     id TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
@@ -389,6 +418,8 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_share_visits',
   'CloudDrive_upload_sessions',
   'CloudDrive_upload_parts',
+  'CloudDrive_upload_part_objects',
+  'CloudDrive_file_parts',
   'CloudDrive_tasks',
   'CloudDrive_api_keys',
   'CloudDrive_settings',
@@ -433,6 +464,8 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'updated_at', 'expires_at',
   ],
   CloudDrive_upload_parts: ['session_id', 'part_number', 'etag', 'size', 'uploaded_at'],
+  CloudDrive_upload_part_objects: ['session_id', 'part_number', 'mount_id', 'storage_key', 'size', 'etag', 'uploaded_at'],
+  CloudDrive_file_parts: ['user_id', 'file_id', 'part_number', 'mount_id', 'storage_key', 'size', 'etag', 'created_at'],
   CloudDrive_tasks: [
     'id', 'user_id', 'type', 'status', 'payload', 'progress', 'error', 'locked_until',
     'created_at', 'started_at', 'finished_at', 'updated_at',
@@ -490,6 +523,9 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_share_visits_at',
   'idx_clouddrive_upload_user',
   'idx_clouddrive_upload_expiry',
+  'idx_clouddrive_upload_part_key',
+  'idx_clouddrive_file_parts_file',
+  'idx_clouddrive_file_parts_key',
   'idx_clouddrive_tasks_user',
   'idx_clouddrive_tasks_queue',
   'idx_clouddrive_keys_user',
