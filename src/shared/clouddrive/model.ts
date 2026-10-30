@@ -256,6 +256,8 @@ export interface CloudDriveEntry {
   storageKind: 'r2' | 'distributed' | 'external'
   color: string | null
   tags: CloudDriveTagView[]
+  note?: string | null
+  hiddenPatterns?: string[]
 }
 
 export interface CloudDriveListing {
@@ -266,6 +268,7 @@ export interface CloudDriveListing {
   cursor: string | null
   total: number | null
   foldersTruncated: boolean
+  note?: string | null
 }
 
 export interface CloudDriveUsage {

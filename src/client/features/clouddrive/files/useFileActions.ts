@@ -5,6 +5,7 @@ import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useTransferStore } from '../transfers/useTransferStore'
+import { fetchAndSaveOffline } from '../offline/store'
 
 export type FileListChange =
   | { type: 'remove'; ids: string[] }
@@ -30,6 +31,7 @@ export interface FileActions {
   mkdir: (parentPath: string, name: string) => Promise<boolean>
   rename: (entry: CloudDriveEntry, name: string) => Promise<boolean>
   setColor: (entry: CloudDriveEntry, color: string | null) => Promise<boolean>
+  setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
   move: (ids: string[], toPath: string) => Promise<boolean>
@@ -39,6 +41,7 @@ export interface FileActions {
   purge: (ids?: string[], all?: boolean) => Promise<boolean>
   upload: (files: File[], parentPath: string) => Promise<boolean>
   download: (entries: CloudDriveEntry[]) => void
+  offline: (entry: CloudDriveEntry) => Promise<boolean>
   share: (entries: CloudDriveEntry[], options?: ShareOptions) => Promise<boolean>
 }
 
@@ -95,6 +98,12 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     showSuccess(t('clouddrive.toast.color_saved'))
   }), [execute, onLocalChange])
 
+  const setFolderMeta = useCallback((entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => execute(async () => {
+    const result = await clouddriveApi.patch(entry.id, { note, hidePatterns: hiddenPatterns })
+    onLocalChange?.({ type: 'replace', entry: result.entry })
+    showSuccess(t('clouddrive.toast.meta_saved'))
+  }), [execute, onLocalChange])
+
   const addTag = useCallback((entry: CloudDriveEntry, tag: string, color: string) => execute(async () => {
     const result = await clouddriveApi.addTag(entry.id, { tag, color })
     onLocalChange?.({ type: 'replace', entry: result.entry })
@@ -145,6 +154,23 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     showSuccess(t('clouddrive.upload.queued', { count: files.length }))
     return true
   }, [mountId])
+
+  const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
+    setPending((count) => count + 1)
+    try {
+      await fetchAndSaveOffline(entry)
+      showSuccess(t('clouddrive.offline.saved', { name: entry.name }))
+      return true
+    } catch (error) {
+      const key = error instanceof Error && (error.message === 'offline_too_large' || error.message === 'offline_quota')
+        ? `clouddrive.offline.${error.message}`
+        : 'clouddrive.offline.save_failed'
+      useUi.getState().toast({ title: t(key as MessageKey), tone: 'danger' })
+      return false
+    } finally {
+      setPending((count) => Math.max(0, count - 1))
+    }
+  }, [])
 
   const download = useCallback((entries: CloudDriveEntry[]) => {
     for (const entry of entries) {
@@ -203,6 +229,7 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     mkdir,
     rename,
     setColor,
+    setFolderMeta,
     addTag,
     removeTag,
     move,
@@ -212,6 +239,7 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     purge,
     upload,
     download,
+    offline,
     share,
   }
 }

@@ -312,6 +312,7 @@ function storageKindOf(value: string): CloudDriveEntry['storageKind'] {
 
 /** The core row → entry conversion; mount-specific fields are empty until {@link buildEntry}. */
 export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = []): CloudDriveEntry {
+  const folderMeta = row.kind === 'folder' ? parseFolderMeta(row.metadata) : null
   return {
     id: row.id,
     kind: row.kind,
@@ -331,7 +332,34 @@ export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = [
     storageKind: storageKindOf(row.storage_kind),
     color: row.kind === 'folder' && row.color ? row.color : null,
     tags,
+    note: folderMeta?.note ?? null,
+    hiddenPatterns: folderMeta?.hiddenPatterns ?? [],
   }
+}
+
+export interface FolderMeta {
+  note: string | null
+  hiddenPatterns: string[]
+}
+
+export function parseFolderMeta(metadata: string): FolderMeta {
+  let value: unknown
+  try {
+    value = JSON.parse(metadata)
+  } catch {
+    return { note: null, hiddenPatterns: [] }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { note: null, hiddenPatterns: [] }
+  const record = value as Record<string, unknown>
+  const note = typeof record.note === 'string' && record.note.trim() ? record.note.slice(0, 4000) : null
+  const hidden = Array.isArray(record.hidePatterns)
+    ? record.hidePatterns
+      .filter((pattern): pattern is string => typeof pattern === 'string')
+      .map((pattern) => pattern.trim())
+      .filter((pattern) => pattern.length > 0 && pattern.length <= 100)
+      .slice(0, 20)
+    : []
+  return { note, hiddenPatterns: [...new Set(hidden)] }
 }
 
 /** An entry with the mount context the listing surface needs. */

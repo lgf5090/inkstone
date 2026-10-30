@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { initialsOf } from '../src/worker/clouddrive/lib'
-import { foldedName, type CloudDriveEntry } from '../src/shared/clouddrive/model'
+import { foldedName, type CloudDriveEntry, type CloudDriveListing } from '../src/shared/clouddrive/model'
 import { errorResponse } from '../src/worker/lib/errors'
 import { newId } from '../src/worker/lib/id'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -329,5 +329,32 @@ describe('clouddrive file API', () => {
     expect(capacity.status).toBe(200)
     expect(capacity.body.mounts.length).toBeGreaterThan(0)
     expect(capacity.body.used).toBe(0)
+  })
+
+  it('stores a folder note and hides matching names from the listing only', async () => {
+    const folderId = await insertEntry({ path: '/folder', name: 'folder', kind: 'folder' })
+    const secretId = await insertEntry({ path: '/folder/secret.txt', name: 'secret.txt', parentId: folderId })
+    await insertEntry({ path: '/folder/keep.txt', name: 'keep.txt', parentId: folderId })
+    await insertEntry({ path: '/folder/secret-dir', name: 'secret-dir', kind: 'folder', parentId: folderId })
+
+    const patched = await call<{ entry: CloudDriveEntry }>(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, {
+      note: 'Read me first',
+      hidePatterns: ['secret*'],
+    })
+    expect(patched.status).toBe(200)
+    expect(patched.body.entry.note).toBe('Read me first')
+    expect(patched.body.entry.hiddenPatterns).toEqual(['secret*'])
+
+    const listing = await call<CloudDriveListing>(USER, 'GET', '/api/clouddrive/files?path=/folder')
+    expect(listing.body.note).toBe('Read me first')
+    expect(listing.body.files.map((entry) => entry.name)).toEqual(['keep.txt'])
+    expect(listing.body.folders).toEqual([])
+
+    const direct = await call<{ entry: CloudDriveEntry }>(USER, 'GET', `/api/clouddrive/files/${secretId}`)
+    expect(direct.status).toBe(200)
+    expect(direct.body.entry.name).toBe('secret.txt')
+
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${secretId}`, { note: 'x' })).status).toBe(400)
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, { hidePatterns: ['x'.repeat(101)] })).status).toBe(400)
   })
 })

@@ -20,6 +20,7 @@ import {
   parseDir,
   parseFlag,
   parseLimit,
+  parseFolderMeta,
   parseName,
   parsePath,
   parseSort,
@@ -126,6 +127,15 @@ async function resolveIdList(
   return [...new Set(ids)]
 }
 
+function metadataObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
 function parseConflict(value: unknown): { mode: 'rename' | 'overwrite' | 'skip' } {
   if (value === undefined || value === 'rename') return { mode: 'rename' }
   if (value === 'overwrite' || value === 'skip') return { mode: value }
@@ -149,6 +159,7 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
 
   const sort = parseSort(c.req.query('sort'))
   const dir = parseDir(c.req.query('dir'))
+  const parentMeta = parseFolderMeta(parent.metadata)
   const result = await listFolder(c.env.DB, userId, mount.id, parent.id, {
     sort,
     dir,
@@ -161,6 +172,7 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
     color: c.req.query('color') || undefined,
     from: parseTimestamp(c.req.query('from')),
     to: parseTimestamp(c.req.query('to')),
+    hidden: parentMeta.hiddenPatterns,
   })
   const [folders, files] = await Promise.all([
     entriesOf(c.env.DB, userId, mount, result.folders),
@@ -174,6 +186,7 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
     cursor: result.cursor,
     total: result.total,
     foldersTruncated: result.foldersTruncated,
+    note: parentMeta.note,
   }
   return c.json(body)
 })
@@ -209,7 +222,7 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
   const userId = userIdOf(c)
   const id = c.req.param('id')
   if (!isValidId(id)) throw ApiError.notFound('File not found')
-  const body = await readJson<{ name?: unknown; starred?: unknown; color?: unknown }>(c, BODY_LIMIT)
+  const body = await readJson<{ name?: unknown; starred?: unknown; color?: unknown; note?: unknown; hidePatterns?: unknown }>(c, BODY_LIMIT)
   const row = await getFileById(c.env.DB, userId, id)
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
@@ -234,7 +247,7 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
     current = renamed.entry
   }
 
-  if (body.starred !== undefined || body.color !== undefined) {
+  if (body.starred !== undefined || body.color !== undefined || body.note !== undefined || body.hidePatterns !== undefined) {
     let color: string | null | undefined
     if (body.color !== undefined) {
       if (current.kind !== 'folder') throw ApiError.badRequest('Only folders can have a color')
@@ -245,9 +258,36 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
         color = normalized
       }
     }
+    let metadata: Record<string, unknown> | undefined
+    if (body.note !== undefined || body.hidePatterns !== undefined) {
+      if (current.kind !== 'folder') throw ApiError.badRequest('Only folders can have a note or hidden patterns')
+      metadata = metadataObject(current.metadata)
+      if (body.note !== undefined) {
+        if (typeof body.note !== 'string' || body.note.length > 4000) throw ApiError.badRequest('note must be a string of at most 4000 characters')
+        const note = body.note.trim()
+        if (note) metadata.note = note
+        else delete metadata.note
+      }
+      if (body.hidePatterns !== undefined) {
+        if (!Array.isArray(body.hidePatterns) || body.hidePatterns.length > 20) {
+          throw ApiError.badRequest('hidePatterns holds at most 20 patterns')
+        }
+        const patterns: string[] = []
+        for (const pattern of body.hidePatterns) {
+          if (typeof pattern !== 'string') throw ApiError.badRequest('hidePatterns must contain strings')
+          const trimmed = pattern.trim()
+          if (!trimmed || trimmed.length > 100 || /[\u0000-\u001f]/.test(trimmed)) {
+            throw ApiError.badRequest('A hidden pattern must be 1-100 printable characters')
+          }
+          patterns.push(trimmed)
+        }
+        metadata.hidePatterns = [...new Set(patterns)]
+      }
+    }
     current = await setEntryFlags(c.env.DB, userId, mount.id, current, {
       starred: body.starred as boolean | undefined,
       color,
+      metadata,
     }, now)
   }
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, current) })

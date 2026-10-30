@@ -42,6 +42,7 @@ export interface ListOptions {
   color?: string
   from?: number | null
   to?: number | null
+  hidden?: readonly string[]
 }
 
 export interface ListResult {
@@ -126,7 +127,23 @@ function buildWhere(
     clauses.push('f.uploaded_at <= ?')
     params.push(options.to)
   }
+  if (options.hidden && options.hidden.length > 0) {
+    const patterns = options.hidden.map(hiddenPatternToLike)
+    clauses.push(`(${patterns.map(() => "f.name_folded NOT LIKE ? ESCAPE '\\'").join(' AND ')})`)
+    params.push(...patterns)
+  }
   return { sql: clauses.join(' AND '), params }
+}
+
+function hiddenPatternToLike(pattern: string): string {
+  let out = ''
+  for (const char of foldedName(pattern)) {
+    if (char === '*') out += '%'
+    else if (char === '?') out += '_'
+    else if (char === '\\' || char === '%' || char === '_') out += `\\${char}`
+    else out += char
+  }
+  return out
 }
 
 function orderBy(sort: CloudDriveSortKey, dir: CloudDriveSortDirection): string {
@@ -478,6 +495,7 @@ export async function renameEntry(
 export interface EntryFlags {
   starred?: boolean
   color?: string | null
+  metadata?: Record<string, unknown>
 }
 
 export async function setEntryFlags(
@@ -498,6 +516,10 @@ export async function setEntryFlags(
     sets.push('color = ?')
     // `null` and the empty string both mean "no colour"; the route has already validated the rest.
     params.push(flags.color ? (organizerColorOrNull(flags.color) ?? '') : '')
+  }
+  if (flags.metadata !== undefined) {
+    sets.push('metadata = ?')
+    params.push(JSON.stringify(flags.metadata))
   }
   if (sets.length === 0) return row
   sets.push('updated_at = ?')

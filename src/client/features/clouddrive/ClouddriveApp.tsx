@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
-import { HardDrive, LayoutGrid, List, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
+import { HardDrive, HardDriveDownload, LayoutGrid, List, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
@@ -26,6 +26,7 @@ import { QuickFilesPage } from './quick/QuickFilesPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
 import { SyncPage } from './sync/SyncPage'
+import { OfflinePage } from './offline/OfflinePage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
 import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
@@ -35,6 +36,7 @@ const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: ty
   { page: 'album', labelKey: 'clouddrive.nav.album', icon: LayoutGrid },
   { page: 'recent', labelKey: 'clouddrive.nav.recent', icon: RefreshCw },
   { page: 'starred', labelKey: 'clouddrive.nav.starred', icon: HardDrive },
+  { page: 'offline', labelKey: 'clouddrive.nav.offline', icon: HardDriveDownload },
   { page: 'trash', labelKey: 'clouddrive.nav.trash', icon: Trash2 },
   { page: 'shares', labelKey: 'clouddrive.nav.shares', icon: HardDrive },
 ]
@@ -172,6 +174,8 @@ export function ClouddriveApp() {
               ? <QuickFilesPage mode="recent" />
               : address.page === 'starred'
                 ? <QuickFilesPage mode="starred" />
+                : address.page === 'offline'
+                  ? <OfflinePage />
                 : address.page === 'album'
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
               : address.page === 'dashboard'

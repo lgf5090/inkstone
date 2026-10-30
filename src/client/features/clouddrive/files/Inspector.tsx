@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ExternalLink, Share2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
@@ -5,6 +6,7 @@ import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { clouddriveApi } from '../api'
 import { Button, IconButton } from '../../../components/primitives'
+import { Input, Textarea } from '../../../components/form'
 import { FileIcon } from './FileIcon'
 import { FolderColorMenu, TagEditorMenu } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize, totalEntryBytes } from './format'
@@ -15,6 +17,64 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
       <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</dt>
       <dd className="min-w-0 text-[length:var(--text-12)] text-[var(--text-primary)]">{children}</dd>
     </div>
+  )
+}
+
+function FolderMetaEditor({
+  entry,
+  readOnly,
+  busy,
+  onSave,
+}: {
+  entry: CloudDriveEntry
+  readOnly: boolean
+  busy: boolean
+  onSave: (note: string, patterns: string[]) => void
+}) {
+  const [note, setNote] = useState(entry.note ?? '')
+  const [patterns, setPatterns] = useState((entry.hiddenPatterns ?? []).join(', '))
+  useEffect(() => {
+    setNote(entry.note ?? '')
+    setPatterns((entry.hiddenPatterns ?? []).join(', '))
+  }, [entry.id, entry.note, entry.hiddenPatterns])
+  if (readOnly) {
+    if (!entry.note && (entry.hiddenPatterns ?? []).length === 0) return null
+    return (
+      <section>
+        <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.folder_note')}</h3>
+        {entry.note && <p className="whitespace-pre-wrap text-[length:var(--text-12)] text-[var(--text-secondary)]">{entry.note}</p>}
+        {(entry.hiddenPatterns ?? []).length > 0 && (
+          <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {t('clouddrive.inspector.hidden_count', { count: entry.hiddenPatterns!.length })}
+          </p>
+        )}
+      </section>
+    )
+  }
+  const save = () => {
+    const list = [...new Set(patterns.split(',').map((pattern) => pattern.trim()).filter(Boolean))]
+    onSave(note.trim(), list)
+  }
+  return (
+    <section>
+      <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.folder_note')}</h3>
+      <Textarea
+        value={note}
+        maxLength={4000}
+        rows={3}
+        placeholder={t('clouddrive.inspector.folder_note_hint')}
+        onChange={(event) => setNote(event.target.value)}
+      />
+      <h3 className="mb-1 mt-2 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.hidden_patterns')}</h3>
+      <Input
+        value={patterns}
+        placeholder={t('clouddrive.inspector.hidden_patterns_hint')}
+        onChange={(event) => setPatterns(event.target.value)}
+      />
+      <Button size="sm" variant="secondary" className="mt-2" loading={busy} onClick={save}>
+        {t('clouddrive.inspector.save_meta')}
+      </Button>
+    </section>
   )
 }
 
@@ -30,6 +90,7 @@ export function Inspector({
   onColor,
   onAddTag,
   onRemoveTag,
+  onSaveMeta,
 }: {
   open: boolean
   entries: CloudDriveEntry[]
@@ -43,6 +104,7 @@ export function Inspector({
   onColor: (entry: CloudDriveEntry, color: string | null) => void
   onAddTag: (entry: CloudDriveEntry, tag: string, color: string) => void
   onRemoveTag: (entry: CloudDriveEntry, tag: string) => void
+  onSaveMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => void
 }) {
   if (!open) return null
   const single = entries.length === 1 ? entries[0] : null
@@ -113,6 +175,14 @@ export function Inspector({
                   ? <FolderColorMenu value={single.color} onPick={(color) => onColor(single, color)} className="w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2" />
                   : <FileIcon entry={single} size={20} />}
               </section>
+            )}
+            {single.kind === 'folder' && (
+              <FolderMetaEditor
+                entry={single}
+                readOnly={!metadataWritable}
+                busy={busy}
+                onSave={(note, patterns) => onSaveMeta(single, note, patterns)}
+              />
             )}
             <section>
               <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.tags')}</h3>

@@ -6,6 +6,7 @@ export type CloudDrivePage =
   | 'album'
   | 'recent'
   | 'starred'
+  | 'offline'
   | 'trash'
   | 'shares'
   | 'mounts'
@@ -31,6 +32,7 @@ const PAGES: readonly [string, CloudDrivePage][] = [
   ['/clouddrive/album', 'album'],
   ['/clouddrive/recent', 'recent'],
   ['/clouddrive/starred', 'starred'],
+  ['/clouddrive/offline', 'offline'],
   ['/clouddrive/trash', 'trash'],
   ['/clouddrive/shares', 'shares'],
   ['/clouddrive/mounts', 'mounts'],
@@ -89,6 +91,7 @@ export function cloudDrivePath(page: CloudDrivePage, mountId: string, path = '/'
     album: '/clouddrive/album',
     recent: '/clouddrive/recent',
     starred: '/clouddrive/starred',
+    offline: '/clouddrive/offline',
     trash: '/clouddrive/trash',
     shares: '/clouddrive/shares',
     mounts: '/clouddrive/mounts',

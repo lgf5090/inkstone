@@ -6,6 +6,7 @@ import {
   Eye,
   FolderInput,
   FolderOpen,
+  HardDriveDownload,
   History,
   ListChecks,
   Palette,
@@ -37,6 +38,7 @@ export interface ContextMenuProps {
   onOpen: (entry: CloudDriveEntry) => void
   onPreview: (entry: CloudDriveEntry) => void
   onDownload: (entries: CloudDriveEntry[]) => void
+  onOffline: (entry: CloudDriveEntry) => void
   onShare: (entries: CloudDriveEntry[]) => void
   onVersions: (entry: CloudDriveEntry) => void
   onCopy: (entries: CloudDriveEntry[]) => void
@@ -62,6 +64,7 @@ export function ContextMenu({
   onOpen,
   onPreview,
   onDownload,
+  onOffline,
   onShare,
   onVersions,
   onCopy,
@@ -108,6 +111,13 @@ export function ContextMenu({
         label: isFolder ? t('clouddrive.action.download_zip') : t('clouddrive.action.download'),
         icon: <Download size={14} />,
         onSelect: () => onDownload(targets),
+      },
+      {
+        id: 'offline',
+        label: t('clouddrive.action.offline'),
+        icon: <HardDriveDownload size={14} />,
+        disabled: !single || isFolder,
+        onSelect: () => onOffline(entry),
       },
       {
         id: 'share',
@@ -220,6 +230,7 @@ export function ContextMenu({
     onOpen,
     onPreview,
     onDownload,
+    onOffline,
     onShare,
     onVersions,
     onCopy,

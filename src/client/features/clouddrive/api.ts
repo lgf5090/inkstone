@@ -87,7 +87,7 @@ export const clouddriveApi = {
 
   entry: (id: string) => request<{ entry: CloudDriveEntry; parts?: unknown[] }>(`/api/clouddrive/files/${encodeURIComponent(id)}`),
   mkdir: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
-  patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
   copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/copy', json(body)),
   remove: (ids: string[]) => request<{ deleted: number; taskId?: string }>('/api/clouddrive/files', { method: 'DELETE', body: JSON.stringify({ ids }) }),

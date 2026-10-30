@@ -594,6 +594,11 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           aria-busy={status === 'loading'}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto"
         >
+          {listing?.note && (
+            <div className="mx-2 mt-2 whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
+              {listing.note}
+            </div>
+          )}
           {status === 'loading' && !listing && <LoadingSkeleton />}
           {status === 'error' && !listing && (
             <ErrorState message={error} onRetry={() => void load()} />
@@ -678,6 +683,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           onColor={(entry, color) => void actions.setColor(entry, color)}
           onAddTag={(entry, tag, color) => void actions.addTag(entry, tag, color)}
           onRemoveTag={(entry, tag) => void actions.removeTag(entry, tag)}
+          onSaveMeta={(entry, note, patterns) => void actions.setFolderMeta(entry, note, patterns)}
         />
       </div>
 
@@ -717,6 +723,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onOpen={openEntry}
         onPreview={previewEntry}
         onDownload={actions.download}
+        onOffline={(entry) => void actions.offline(entry)}
         onShare={requestShare}
         onVersions={(entry) => setDialog({ kind: 'versions', entry })}
         onCopy={(targets) => rememberClipboard('copy', targets.map((entry) => entry.id))}
