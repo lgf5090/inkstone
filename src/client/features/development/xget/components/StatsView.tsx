@@ -276,7 +276,7 @@ export function StatsView({ onBrowsePlatforms }: { onBrowsePlatforms?: () => voi
               {categoryTrend.length > 0 ? (
                 <ChartCanvas height="h-44" label={t('development.xget.stats.chart_category_label')} build={categoryBuild} />
               ) : (
-                <Empty compact title={t('development.xget.stats.empty')} />
+                <Empty compact title={t('development.xget.stats.empty')} description={t('development.xget.stats.empty_hint')} />
               )}
             </div>
           </section>

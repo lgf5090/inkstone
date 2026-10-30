@@ -38,7 +38,7 @@ function NavButton({
         'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[length:var(--text-13)]',
         'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         active
-          ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
+          ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
       )}
     >
@@ -123,10 +123,7 @@ export function CategoryBar({
   return (
     <div className="flex shrink-0 flex-col gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-2 md:hidden">
       <div className="flex items-center gap-1.5">
-        <Zap size={16} className="shrink-0 text-[var(--accent)]" />
-        <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-          {t('development.xget.module_name')}
-        </span>
+        <Zap size={16} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />
         <div className="ml-auto flex items-center gap-0.5">
           <Tooltip label={t('development.xget.nav.stats')}>
             <IconButton
@@ -163,7 +160,7 @@ export function CategoryBar({
               className={cn(
                 'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)]',
                 active
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]'
                   : 'border-[var(--border-subtle)] text-[var(--text-secondary)]',
               )}
             >
