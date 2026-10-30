@@ -224,6 +224,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
           </div>
           {testResult && (
             <p
+              role="status"
               className={cn(
                 'truncate font-mono text-[length:var(--text-11)]',
                 testResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]',

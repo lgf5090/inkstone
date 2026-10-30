@@ -32,7 +32,7 @@ function NavButton({
   return (
     <button
       type="button"
-      aria-current={active ? 'page' : undefined}
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
         'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[length:var(--text-13)]',
@@ -59,7 +59,7 @@ export function CategoryRail({
   const dark = useThemeDark()
   return (
     <aside
-      aria-label={t('development.xget.platforms.title')}
+      aria-label={t('development.xget.module_name')}
       className="hidden w-56 shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:flex"
     >
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
@@ -158,7 +158,7 @@ export function CategoryBar({
             <button
               key={category}
               type="button"
-              aria-current={active ? 'page' : undefined}
+              aria-pressed={active}
               onClick={() => onSelectCategory(category)}
               className={cn(
                 'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)]',

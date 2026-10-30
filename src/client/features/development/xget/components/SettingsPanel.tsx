@@ -321,7 +321,7 @@ export function SettingsPanel({
         <div className="flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2">
           <Globe size={15} className="shrink-0 text-[var(--text-tertiary)]" />
           <code className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-12)] text-[var(--text-primary)]" title={t('development.xget.settings.base_url')}>{settings.proxy_base_url}</code>
-          <Button variant="ghost" size="sm" aria-label={t('development.xget.common.copy')} onClick={() => void copy(settings.proxy_base_url, 'base')} className="px-1.5">
+          <Button variant="ghost" size="sm" aria-label={`${t('development.xget.common.copy')}: ${settings.proxy_base_url}`} onClick={() => void copy(settings.proxy_base_url, 'base')} className="px-1.5">
             {copiedKey === 'base' ? <Check size={14} className="text-[var(--success)]" /> : <Copy size={14} />}
           </Button>
         </div>
@@ -445,6 +445,7 @@ export function SettingsPanel({
           </div>
           {testResult && (
             <div
+              role="status"
               className={cn(
                 'mt-2 rounded-[var(--r-md)] border px-3 py-2 font-mono text-[length:var(--text-11)]',
                 testResult.ok
@@ -467,7 +468,7 @@ export function SettingsPanel({
                 <code className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-primary)]" title={command.command}>
                   {command.command}
                 </code>
-                <Button variant="ghost" size="sm" aria-label={t('development.xget.settings.copy_cmd')} onClick={() => void copy(command.command, command.command)} className="px-1.5">
+                <Button variant="ghost" size="sm" aria-label={`${t('development.xget.settings.copy_cmd')}: ${command.command}`} onClick={() => void copy(command.command, command.command)} className="px-1.5">
                   {copiedKey === command.command ? <Check size={13} className="text-[var(--success)]" /> : <Copy size={13} />}
                 </Button>
               </div>

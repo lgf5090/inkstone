@@ -140,6 +140,19 @@ describe('the Xget converter', () => {
     expect(copy?.className).toContain('h-9')
   })
 
+  it('announces the connectivity test result', async () => {
+    apiMocks.testTarget.mockResolvedValue({ platform: 'gh', target_url: 'https://github.com/a/b' })
+    const history: XgetHistoryItem[] = []
+    rendered = renderElement(<Harness initial="" proxyBase={SETTINGS.proxy_base_url} history={history} />)
+    act(() => button(rendered!.container, t('development.xget.converter.paste_example')).click())
+    await act(async () => {
+      button(rendered!.container, t('development.xget.converter.test')).click()
+    })
+    expect(rendered.container.querySelector('[role="status"]')?.textContent).toContain(
+      'https://github.com/a/b',
+    )
+  })
+
   it('reuses a history item with the value it names', () => {
     const history: XgetHistoryItem[] = []
     rendered = renderElement(<Harness initial="https://example.com/nothing" proxyBase={SETTINGS.proxy_base_url} history={history} />)

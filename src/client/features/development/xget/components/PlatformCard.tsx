@@ -38,7 +38,6 @@ export function PlatformCard({
       <button
         type="button"
         onClick={() => onOpen(platform)}
-        aria-label={t('development.xget.platforms.open_detail', { name: platform.name })}
         className="flex min-w-0 flex-1 flex-col gap-2 rounded-t-[var(--r-lg)] p-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       >
         <span className="flex min-w-0 items-center justify-between gap-2">

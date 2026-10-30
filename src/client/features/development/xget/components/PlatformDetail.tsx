@@ -93,7 +93,7 @@ export function PlatformDetail({
             <div className="min-w-0 flex-1 truncate rounded-[var(--r-md)] border border-[var(--accent)] bg-[var(--accent-softer)] px-2.5 py-1.5 font-mono text-[length:var(--text-11)] text-[var(--accent)]" title={acceleratedExample}>
               {acceleratedExample}
             </div>
-            <Button variant="ghost" size="sm" aria-label={t('development.xget.common.copy')} onClick={() => void copy(acceleratedExample, 'example')} className="h-7 shrink-0 px-1.5">
+            <Button variant="ghost" size="sm" aria-label={t('development.xget.platforms.copy_url')} onClick={() => void copy(acceleratedExample, 'example')} className="px-1.5">
               {copiedKey === 'example' ? <Check size={14} className="text-[var(--success)]" /> : <Copy size={14} />}
             </Button>
           </div>
@@ -125,7 +125,9 @@ export function PlatformDetail({
                       <Button
                         variant="ghost"
                         size="sm"
-                        aria-label={t('development.xget.common.copy')}
+                        aria-label={`${t('development.xget.common.copy')}: ${
+                          command.labelKey ? t(command.labelKey) : renderCmd(command.cmd).slice(0, 40)
+                        }`}
                         onClick={() => void copy(renderCmd(command.cmd), key)}
                         className="absolute top-1/2 right-1 -translate-y-1/2 px-1.5 text-[var(--text-tertiary)]"
                       >
