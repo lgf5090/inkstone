@@ -36,6 +36,7 @@ const SETTINGS: XgetSettings = {
     max_retries: 3,
     retry_delay_ms: 1000,
     cache_duration: 300,
+    allow_anonymous: true,
     allowed_methods: ['GET', 'HEAD'],
     allowed_origins: ['*'],
     max_path_length: 2048,
@@ -188,6 +189,17 @@ describe('the Xget settings panel', () => {
     act(() => saves.at(-1)!.click())
     await act(async () => {})
     expect(apiMocks.setToken).toHaveBeenCalledWith('token-12345678')
+  })
+
+  it('saves the anonymous access switch', async () => {
+    rendered = renderElement(
+      <SettingsPanel settings={SETTINGS} loading={false} error={null} onReload={vi.fn(async () => undefined)} />,
+    )
+    const toggle = rendered.container.querySelector<HTMLButtonElement>('[role="switch"]')!
+    act(() => toggle.click())
+    act(() => button(rendered!.container, t('development.xget.settings.save')).click())
+    await act(async () => {})
+    expect(apiMocks.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ allow_anonymous: false }))
   })
 
   it('does not let a member save', () => {

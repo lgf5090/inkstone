@@ -7,7 +7,7 @@ import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { Badge, Button } from '../../../../components/primitives'
-import { Input, Field } from '../../../../components/form'
+import { Input, Field, Switch } from '../../../../components/form'
 import { confirm } from '../../../../components/overlay'
 import { LoadingBlock } from '../../../../components/feedback'
 import { useUiStore } from '../../../../lib/ui-store'
@@ -29,6 +29,7 @@ interface EngineForm {
   retry_delay_ms: string
   cache_duration: string
   max_path_length: string
+  allowAnonymous: boolean
   methodsText: string
   originsText: string
 }
@@ -40,6 +41,7 @@ function formFrom(settings: XgetSettings): EngineForm {
     retry_delay_ms: String(settings.config.retry_delay_ms),
     cache_duration: String(settings.config.cache_duration),
     max_path_length: String(settings.config.max_path_length),
+    allowAnonymous: settings.config.allow_anonymous,
     methodsText: settings.config.allowed_methods.join(', '),
     originsText: settings.config.allowed_origins.join(', '),
   }
@@ -134,6 +136,7 @@ export function SettingsPanel({
         retry_delay_ms: Number(config.retry_delay_ms),
         cache_duration: Number(config.cache_duration),
         max_path_length: Number(config.max_path_length),
+        allow_anonymous: config.allowAnonymous,
         allowed_methods: parseMethods(config.methodsText),
         allowed_origins: parseOrigins(config.originsText),
       })
@@ -154,6 +157,7 @@ export function SettingsPanel({
       retry_delay_ms: String(XGET_CONFIG_DEFAULTS.retry_delay_ms),
       cache_duration: String(XGET_CONFIG_DEFAULTS.cache_duration),
       max_path_length: String(XGET_CONFIG_DEFAULTS.max_path_length),
+      allowAnonymous: XGET_CONFIG_DEFAULTS.allow_anonymous,
       methodsText: XGET_CONFIG_DEFAULTS.allowed_methods.join(', '),
       originsText: XGET_CONFIG_DEFAULTS.allowed_origins.join(', '),
     }
@@ -257,6 +261,18 @@ export function SettingsPanel({
             </Field>
           </div>
         </div>
+        <div className="mt-4 flex items-start justify-between gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('development.xget.settings.allow_anonymous')}</p>
+            <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.xget.settings.allow_anonymous_desc')}</p>
+          </div>
+          <Switch
+            checked={form.allowAnonymous}
+            disabled={disabled}
+            onChange={(next) => setForm({ ...form, allowAnonymous: next })}
+            label={t('development.xget.settings.allow_anonymous')}
+          />
+        </div>
         <div className="mt-5 flex items-center gap-2">
           <Button variant="primary" size="sm" icon={<Save size={14} />} loading={saving} disabled={disabled} onClick={() => void saveConfig(form)}>
             {t('development.xget.settings.save')}
@@ -273,7 +289,8 @@ export function SettingsPanel({
         description={t('development.xget.settings.access_desc')}
         action={<Badge tone={settings.has_proxy_token ? 'success' : 'neutral'}>{settings.has_proxy_token ? t('development.xget.settings.token_on') : t('development.xget.settings.token_off')}</Badge>}
       >
-        {!settings.has_proxy_token && <p className="mb-2 text-[length:var(--text-11)] text-[var(--warning)]">{t('development.xget.settings.open_warning')}</p>}
+        {!settings.has_proxy_token && form.allowAnonymous && <p className="mb-2 text-[length:var(--text-11)] text-[var(--warning)]">{t('development.xget.settings.open_warning')}</p>}
+        {!settings.has_proxy_token && !form.allowAnonymous && <p className="mb-2 text-[length:var(--text-11)] text-[var(--warning)]">{t('development.xget.settings.closed_no_token_warning')}</p>}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <Input

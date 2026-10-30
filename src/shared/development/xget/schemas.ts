@@ -5,6 +5,7 @@ export const XgetSettingsPatchSchema = z.object({
   max_retries: z.number().optional(),
   retry_delay_ms: z.number().optional(),
   cache_duration: z.number().optional(),
+  allow_anonymous: z.boolean().optional(),
   allowed_methods: z.array(z.string()).max(16).optional(),
   allowed_origins: z.array(z.string()).max(64).optional(),
   max_path_length: z.number().optional(),

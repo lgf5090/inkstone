@@ -245,6 +245,25 @@ describe('Xget proxy API', () => {
     expect(actual.status).toBe(401)
   })
 
+  it('can close anonymous access without a token', async () => {
+    const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const open = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
+    expect(open.status).toBe(200)
+
+    const saved = await call('PUT', '/settings', { body: { allow_anonymous: false } })
+    expect(saved.status).toBe(200)
+    const savedBody = await readJson<{ data: { config: { allow_anonymous: boolean } } }>(saved)
+    expect(savedBody.data.config.allow_anonymous).toBe(false)
+
+    const closed = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: null })
+    expect(closed.status).toBe(401)
+
+    const session = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', { user: OWNER })
+    expect(session.status).toBe(200)
+  })
+
   it('does not accept an Authorization bearer as the proxy token', async () => {
     await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
     const response = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', {

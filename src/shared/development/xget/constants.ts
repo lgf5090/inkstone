@@ -7,6 +7,7 @@ export const XGET_CONFIG_DEFAULTS: XgetSettingsConfig = {
   max_retries: 3,
   retry_delay_ms: 1000,
   cache_duration: 300,
+  allow_anonymous: true,
   allowed_methods: ['GET', 'HEAD'],
   allowed_origins: ['*'],
   max_path_length: 2048,

@@ -50,6 +50,7 @@ function overridesFromConfig(config: XgetConfig): XgetConfigOverrides {
     MAX_RETRIES: config.MAX_RETRIES,
     RETRY_DELAY_MS: config.RETRY_DELAY_MS,
     CACHE_DURATION: config.CACHE_DURATION,
+    ALLOW_ANONYMOUS: config.ALLOW_ANONYMOUS,
     SECURITY: {
       ALLOWED_METHODS: config.SECURITY.ALLOWED_METHODS,
       ALLOWED_ORIGINS: config.SECURITY.ALLOWED_ORIGINS,
@@ -64,6 +65,7 @@ function configView(config: XgetConfig): XgetSettingsConfig {
     max_retries: config.MAX_RETRIES,
     retry_delay_ms: config.RETRY_DELAY_MS,
     cache_duration: config.CACHE_DURATION,
+    allow_anonymous: config.ALLOW_ANONYMOUS,
     allowed_methods: config.SECURITY.ALLOWED_METHODS,
     allowed_origins: config.SECURITY.ALLOWED_ORIGINS,
     max_path_length: config.SECURITY.MAX_PATH_LENGTH,
@@ -106,6 +108,7 @@ function patchToOverrides(
     max_retries?: number
     retry_delay_ms?: number
     cache_duration?: number
+    allow_anonymous?: boolean
     allowed_methods?: string[]
     allowed_origins?: string[]
     max_path_length?: number
@@ -120,6 +123,7 @@ function patchToOverrides(
   if (body.max_retries !== undefined) next.MAX_RETRIES = body.max_retries
   if (body.retry_delay_ms !== undefined) next.RETRY_DELAY_MS = body.retry_delay_ms
   if (body.cache_duration !== undefined) next.CACHE_DURATION = body.cache_duration
+  if (body.allow_anonymous !== undefined) next.ALLOW_ANONYMOUS = body.allow_anonymous
   if (body.max_path_length !== undefined) next.SECURITY!.MAX_PATH_LENGTH = body.max_path_length
   if (body.allowed_methods !== undefined) {
     next.SECURITY!.ALLOWED_METHODS = normalizeMethods(body.allowed_methods)
@@ -264,14 +268,22 @@ developmentXgetRoutes.route('/stats', statsRoutes)
 developmentXgetRoutes.use('*', async (c, next) => {
   if (!isXgetProxyPath(c.req.path)) return next()
 
-  const storedHash = (await readXgetSettingsRow(c.env.DB)).tokenHash
+  const settings = await readXgetSettingsRow(c.env.DB)
+  const storedHash = settings.tokenHash
+  const allowAnonymous = createConfig(settings.overrides).ALLOW_ANONYMOUS
   let provided: ProxyToken | null = null
-  if (storedHash && !c.get('userId') && !isCorsPreflight(c)) {
+  if ((storedHash !== '' || !allowAnonymous) && !c.get('userId') && !isCorsPreflight(c)) {
     provided = proxyTokenFrom(c)
     const providedHash = provided ? await hashToken(provided.value) : ''
-    if (!providedHash || !sameHash(providedHash, storedHash)) {
+    if (!storedHash || !providedHash || !sameHash(providedHash, storedHash)) {
       return c.json(
-        { success: false, error: { code: 'UNAUTHORIZED', message: 'invalid proxy token' } },
+        {
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: storedHash ? 'invalid proxy token' : 'anonymous access is disabled',
+          },
+        },
         401,
       )
     }
@@ -281,7 +293,7 @@ developmentXgetRoutes.use('*', async (c, next) => {
   const pathname = url.pathname.slice(XGET_PROXY_PREFIX.length) || '/'
   const search = provided?.source === 'query' ? withoutAccessToken(url.search) : url.search
   const engineUrl = new URL(`${pathname}${search}`, url.origin)
-  const overrides = await readXgetOverrides(c.env.DB)
+  const overrides = settings.overrides
   const request = new Request(engineUrl.toString(), c.req.raw)
   const response = await handleXgetRequest(
     request,
