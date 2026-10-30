@@ -19,7 +19,6 @@ export interface ImgbedPageSettings {
   defaultNameType: ImgbedNameType
   defaultUploadChannel: ImgbedChannelType
   defaultChannelName: string
-  defaultAutoRetry: boolean
   defaultCompress: boolean
   defaultCompressBar: number
   defaultCompressQuality: number
@@ -28,7 +27,6 @@ export interface ImgbedPageSettings {
 }
 
 export interface ImgbedUploadSettings {
-  publicBaseUrl: string
   maxFileSizeMB: number
   chunkThresholdMB: number
   partSizeMB: number
@@ -71,7 +69,6 @@ export interface ImgbedOthersSettings {
     enabled: boolean
     username: string
     passwordHash: string
-    publicPath: string
     uploadChannel: string
     channelName: string
   }
@@ -109,7 +106,6 @@ export const IMGBED_SETTINGS_DEFAULTS: ImgbedSettingsMap = {
     defaultNameType: 'default',
     defaultUploadChannel: 'telegram',
     defaultChannelName: '',
-    defaultAutoRetry: true,
     defaultCompress: true,
     defaultCompressBar: 5,
     defaultCompressQuality: 4,
@@ -117,7 +113,6 @@ export const IMGBED_SETTINGS_DEFAULTS: ImgbedSettingsMap = {
     urlPrefix: '',
   },
   upload: {
-    publicBaseUrl: '',
     maxFileSizeMB: 5000,
     chunkThresholdMB: 20,
     partSizeMB: 16,
@@ -144,7 +139,7 @@ export const IMGBED_SETTINGS_DEFAULTS: ImgbedSettingsMap = {
   others: {
     randomImageAPI: { enabled: false, allowedDir: '' },
     publicBrowse: { enabled: false, allowedDir: '' },
-    webDAV: { enabled: false, username: '', passwordHash: '', publicPath: '/imgbed/dav', uploadChannel: '', channelName: '' },
+    webDAV: { enabled: false, username: '', passwordHash: '', uploadChannel: '', channelName: '' },
   },
   ai: {
     enabled: false,
@@ -239,7 +234,6 @@ export function parsePageSettings(input: unknown, previous?: ImgbedPageSettings)
     defaultNameType: oneOf(value.defaultNameType, IMGBED_NAME_TYPES, prev.defaultNameType),
     defaultUploadChannel: oneOf(value.defaultUploadChannel, IMGBED_CHANNEL_TYPES, prev.defaultUploadChannel),
     defaultChannelName: text(value.defaultChannelName, 128, prev.defaultChannelName),
-    defaultAutoRetry: bool(value.defaultAutoRetry, prev.defaultAutoRetry),
     defaultCompress: bool(value.defaultCompress, prev.defaultCompress),
     defaultCompressBar: rawCompressBar,
     defaultCompressQuality: Math.min(rawQuality, rawCompressBar),
@@ -256,7 +250,6 @@ export function parseUploadSettings(input: unknown, previous?: ImgbedUploadSetti
     IMGBED_CHANNEL_TYPES.map((type) => [type, bool(balance[type], prev.loadBalance[type])]),
   ) as Record<ImgbedChannelType, boolean>
   return {
-    publicBaseUrl: assertAbsoluteHttp(text(value.publicBaseUrl, 1024, prev.publicBaseUrl), 'publicBaseUrl'),
     maxFileSizeMB: int(value.maxFileSizeMB, 1, 5120, prev.maxFileSizeMB),
     chunkThresholdMB: int(value.chunkThresholdMB, 5, 1024, prev.chunkThresholdMB),
     partSizeMB: 16,
@@ -325,7 +318,6 @@ export function parseOthersSettings(input: unknown, previous?: ImgbedOthersSetti
       enabled: bool(webdav.enabled, prev.webDAV.enabled),
       username: text(webdav.username, 64, prev.webDAV.username),
       passwordHash: typeof webdav.passwordHash === 'string' ? webdav.passwordHash : prev.webDAV.passwordHash,
-      publicPath: '/imgbed/dav',
       uploadChannel: text(webdav.uploadChannel, 32, prev.webDAV.uploadChannel),
       channelName: text(webdav.channelName, 128, prev.webDAV.channelName),
     },

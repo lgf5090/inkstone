@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
-import type { ImgbedFile } from '@shared/imgbed/model'
+import type { ImgbedFile, ImgbedPart } from '@shared/imgbed/model'
 import { getFileRow, getSettingsGroup, rowToFile } from './store'
 import { parseSecuritySettings } from '@shared/imgbed/settings'
 import { getResolvedChannel } from './channels'
@@ -34,50 +34,69 @@ async function resolveChannel(env: AppBindings['Bindings'], db: D1Database, file
   return getResolvedChannel(env, db, file.source as ImgbedChannelType, file.channelName)
 }
 
+async function fetchChunkPart(channel: NonNullable<Awaited<ReturnType<typeof resolveChannel>>>, part: ImgbedPart): Promise<Response | null> {
+  if (channel.type === 'telegram' && part.fileId) return getTelegramContent(channel, part.fileId)
+  if (channel.type === 'discord' && part.messageId) return fetch(await getDiscordAttachmentUrl(channel, part.messageId))
+  return null
+}
+
+function parseByteRange(value: string, total: number): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(value)
+  if (!match || (!match[1] && !match[2])) return null
+  if (!match[1]) {
+    const suffix = Number(match[2])
+    if (!Number.isFinite(suffix) || suffix <= 0) return null
+    return { start: Math.max(0, total - suffix), end: total - 1 }
+  }
+  const start = Number(match[1])
+  const end = match[2] ? Number(match[2]) : total - 1
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) return null
+  return { start, end: Math.min(end, total - 1) }
+}
+
 async function chunkedResponse(file: ImgbedFile, channel: NonNullable<Awaited<ReturnType<typeof resolveChannel>>>, range: string | null, headers: Headers): Promise<Response | null> {
-  if (!file.parts?.length) return null
-  const chunks: Uint8Array[] = []
-  for (const part of [...file.parts].sort((a, b) => a.index - b.index)) {
-    let response: Response | null = null
-    if (channel.type === 'telegram' && part.fileId) {
-      response = await getTelegramContent(channel, part.fileId)
-    } else if (channel.type === 'discord' && part.messageId) {
-      response = await fetch(await getDiscordAttachmentUrl(channel, part.messageId))
-    }
-    if (!response?.ok) return null
-    chunks.push(new Uint8Array(await response.arrayBuffer()))
-  }
-  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
-  let start = 0
-  let end = total - 1
-  let status = 200
+  const parts = [...(file.parts ?? [])].sort((a, b) => a.index - b.index)
+  if (!parts.length) return null
+  const total = parts.reduce((sum, part) => sum + Number(part.size ?? 0), 0)
+  headers.set('ETag', `"${file.createdAt}-${total}"`)
   if (range) {
-    const match = /^bytes=(\d+)-(\d*)$/.exec(range)
-    if (!match) return new Response('Range Not Satisfiable', { status: 416 })
-    start = Number(match[1])
-    end = match[2] ? Number(match[2]) : total - 1
-    if (start > end || start >= total) return new Response('Range Not Satisfiable', { status: 416 })
-    status = 206
-    headers.set('Content-Range', `bytes ${start}-${end}/${total}`)
-  }
-  const output = new Uint8Array(end - start + 1)
-  let cursor = 0
-  let write = 0
-  for (const chunk of chunks) {
-    const chunkStart = cursor
-    const chunkEnd = cursor + chunk.byteLength - 1
-    if (chunkEnd >= start && chunkStart <= end) {
-      const from = Math.max(0, start - chunkStart)
-      const to = Math.min(chunk.byteLength, end - chunkStart + 1)
-      output.set(chunk.subarray(from, to), write)
-      write += to - from
+    const parsed = parseByteRange(range, total)
+    if (!parsed) return new Response('Range Not Satisfiable', { status: 416 })
+    const chunks: Uint8Array[] = []
+    let cursor = 0
+    for (const part of parts) {
+      const size = Number(part.size ?? 0)
+      const partStart = cursor
+      const partEnd = cursor + size - 1
+      if (partEnd >= parsed.start && partStart <= parsed.end) {
+        const response = await fetchChunkPart(channel, part)
+        if (!response?.ok) return null
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        const from = Math.max(0, parsed.start - partStart)
+        const to = Math.min(bytes.byteLength, parsed.end - partStart + 1)
+        chunks.push(bytes.subarray(from, to))
+      }
+      cursor += size
     }
-    cursor += chunk.byteLength
+    const output = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0))
+    let offset = 0
+    for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength }
+    headers.set('Content-Range', `bytes ${parsed.start}-${parsed.end}/${total}`)
+    headers.set('Content-Length', String(output.byteLength))
+    return new Response(output, { status: 206, headers })
   }
-  headers.set('Content-Length', String(output.byteLength))
-  const etag = `"${file.createdAt}-${total}"`
-  headers.set('ETag', etag)
-  return new Response(output, { status, headers })
+  headers.set('Content-Length', String(total))
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const part of parts) {
+        const response = await fetchChunkPart(channel, part)
+        if (!response?.ok) { controller.error(new Error('Chunked part unavailable')); return }
+        controller.enqueue(new Uint8Array(await response.arrayBuffer()))
+      }
+      controller.close()
+    },
+  })
+  return new Response(stream, { status: 200, headers })
 }
 
 async function transformResponse(
@@ -151,7 +170,10 @@ async function handleFile(c: Context<AppBindings>): Promise<Response> {
       const transformed = await transformResponse(c.env, reconstructed, file.fileType, transform.policy, reconstructed.headers, c.req.method === 'HEAD')
       if (transformed !== reconstructed) return transformed
     }
-    if (c.req.method === 'HEAD') return new Response(null, { status: reconstructed.status, headers: reconstructed.headers })
+    if (c.req.method === 'HEAD') {
+      await reconstructed.body?.cancel().catch(() => {})
+      return new Response(null, { status: reconstructed.status, headers: reconstructed.headers })
+    }
     return reconstructed
   }
   const response = await getWholeFile(c.env, channel, file, range)

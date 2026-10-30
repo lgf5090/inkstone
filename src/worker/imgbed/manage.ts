@@ -402,23 +402,48 @@ imgbedManageRoutes.post('/manage/tags/apply', async (c) => {
 
 imgbedManageRoutes.get('/manage/backup', async (c) => {
   await requireImgbedActor(c, 'manage')
-  const files = (await listFiles(c.env.DB, { count: -1, recursive: true })).files
-  const settings = {
-    page: await getSettingsGroup(c.env.DB, 'page'),
-    upload: await getSettingsGroup(c.env.DB, 'upload'),
-    security: await getSettingsGroup(c.env.DB, 'security'),
-    others: await getSettingsGroup(c.env.DB, 'others'),
-    ai: await getSettingsGroup(c.env.DB, 'ai'),
-  }
-  const security = settings.security
-  security.moderate.moderateContentApiKey = ''
-  const others = settings.others
-  others.webDAV.passwordHash = ''
-  const payload = { format: 'inkstone-imgbed-backup', version: 1, timestamp: Date.now(), files: files.map(fileForBackup), settings: { ...settings, security, others } }
-  return new Response(JSON.stringify(payload), {
+  const encoder = new TextEncoder()
+  const timestamp = Date.now()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const push = (chunk: string): void => { controller.enqueue(encoder.encode(chunk)) }
+      try {
+        push(`{"format":"inkstone-imgbed-backup","version":1,"timestamp":${timestamp},"files":[`)
+        let start = 0
+        let total = Number.POSITIVE_INFINITY
+        let first = true
+        while (start < total) {
+          const page = await listFiles(c.env.DB, { start, count: 500, recursive: true, skipDirectories: true })
+          if (start === 0) total = page.totalCount
+          for (const file of page.files) {
+            push((first ? '' : ',') + JSON.stringify(fileForBackup(file)))
+            first = false
+          }
+          if (!page.files.length) break
+          start += page.files.length
+        }
+        push('],"settings":')
+        const settings = {
+          page: await getSettingsGroup(c.env.DB, 'page'),
+          upload: await getSettingsGroup(c.env.DB, 'upload'),
+          security: await getSettingsGroup(c.env.DB, 'security'),
+          others: await getSettingsGroup(c.env.DB, 'others'),
+          ai: await getSettingsGroup(c.env.DB, 'ai'),
+        }
+        settings.security.moderate.moderateContentApiKey = ''
+        settings.others.webDAV.passwordHash = ''
+        push(JSON.stringify(settings))
+        push('}')
+        controller.close()
+      } catch (error) {
+        controller.error(error instanceof Error ? error : new Error('backup_failed'))
+      }
+    },
+  })
+  return new Response(stream, {
     headers: {
       'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="imgbed-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+      'Content-Disposition': `attachment; filename="imgbed-backup-${new Date(timestamp).toISOString().slice(0, 10)}.json"`,
       'Cache-Control': 'no-store',
     },
   })

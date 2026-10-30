@@ -106,7 +106,7 @@ imgbedSettingsRoutes.put('/channels/:id', async (c) => {
   if (existing.fixed === 1) throw ApiError.badRequest('Environment channels are configured by deployment variables')
   const body = await c.req.json().catch(() => null) as {
     name?: string; config?: Record<string, unknown>; credentials?: Record<string, string | boolean>;
-    enabled?: boolean; quota?: { enabled?: boolean; limitGB?: number | null; threshold?: number }
+    enabled?: boolean; clearCredentials?: boolean; quota?: { enabled?: boolean; limitGB?: number | null; threshold?: number }
   } | null
   try {
     const type = existing.type as ImgbedChannelType
@@ -114,6 +114,7 @@ imgbedSettingsRoutes.put('/channels/:id', async (c) => {
     const channel = await saveChannel(c.env, c.env.DB, {
       id, type, name: String(body?.name ?? existing.name).trim(), config: record(body?.config),
       credentials: Object.keys(record(body?.credentials)).length ? record(body?.credentials) : undefined,
+      clearCredentials: body?.clearCredentials === true,
       enabled: body?.enabled ?? existing.enabled === 1,
       quota: { enabled: body?.quota?.enabled ?? existing.quota_enabled === 1, limitGB: body?.quota?.limitGB ?? existing.quota_limit_gb, threshold: body?.quota?.threshold ?? existing.quota_threshold },
     })

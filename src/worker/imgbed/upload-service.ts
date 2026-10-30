@@ -173,7 +173,7 @@ export async function uploadSingle(
   const bytes = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array()
   const size = external ? 0 : bytes.byteLength
   if (size > upload.maxFileSizeMB * 1024 * 1024) throw new StorageError(`File exceeds ${upload.maxFileSizeMB} MB`, 413)
-  if (size > 100 * 1024 * 1024) throw new StorageError('This request is too large for a single upload; use the chunked endpoint', 413)
+  if (size > 50 * 1024 * 1024) throw new StorageError('This request is too large for a single upload; use the chunked endpoint', 413)
 
   const folder = sanitizeFolderPath(query.uploadFolder ?? page.defaultFolder)
   const nameType = (query.uploadNameType ?? page.defaultNameType) as 'default' | 'index' | 'origin' | 'short'

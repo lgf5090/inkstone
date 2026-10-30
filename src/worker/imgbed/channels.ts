@@ -221,6 +221,7 @@ export async function saveChannel(
     name: string
     config: Record<string, unknown>
     credentials?: ImgbedSecretRecord
+    clearCredentials?: boolean
     enabled?: boolean
     quota?: { enabled: boolean; limitGB: number | null; threshold: number }
   },
@@ -229,12 +230,16 @@ export async function saveChannel(
   const id = input.id ?? newId()
   const existing = input.id ? await getChannelRow(db, id) : null
   if (existing?.fixed === 1) throw new Error('fixed_channel')
-  const ciphertext = input.credentials && Object.keys(input.credentials).length
-    ? await encryptImgbedSecret(env, id, input.credentials)
-    : existing?.credentials_ciphertext ?? ''
-  const hint = input.credentials && Object.keys(input.credentials).length
-    ? JSON.stringify(Object.fromEntries(Object.keys(input.credentials).map((key) => [key, true])))
-    : existing?.credentials_hint ?? '{}'
+  const ciphertext = input.clearCredentials
+    ? ''
+    : input.credentials && Object.keys(input.credentials).length
+      ? await encryptImgbedSecret(env, id, input.credentials)
+      : existing?.credentials_ciphertext ?? ''
+  const hint = input.clearCredentials
+    ? '{}'
+    : input.credentials && Object.keys(input.credentials).length
+      ? JSON.stringify(Object.fromEntries(Object.keys(input.credentials).map((key) => [key, true])))
+      : existing?.credentials_hint ?? '{}'
   const quota = input.quota ?? {
     enabled: existing?.quota_enabled === 1,
     limitGB: existing?.quota_limit_gb ?? null,

@@ -16,6 +16,7 @@ import { requestClientIp } from '../lib/request'
 import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
 
 export const imgbedDavRoutes = new Hono<AppBindings>()
+const DAV_LIST_LIMIT = 2000
 
 function escapeXml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
@@ -86,7 +87,8 @@ imgbedDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
   const path = davPath(c)
   if (!path || path.endsWith('/')) {
     const dir = path.replace(/\/+$/, '')
-    const result = await listFiles(c.env.DB, { dir, count: -1, recursive: false })
+    const result = await listFiles(c.env.DB, { dir, count: DAV_LIST_LIMIT, recursive: false })
+    if (result.totalCount > DAV_LIST_LIMIT) return new Response('Directory has too many files for the built-in browser', { status: 507 })
     const rows = [
       `<li><strong>${dir ? '<a href="../">../</a>' : ''}</strong></li>`,
       ...result.directories.map((entry) => `<li><a href="${escapeHtml(entry.slice(dir ? dir.length + 1 : 0))}/">${escapeHtml(entry.split('/').filter(Boolean).pop() ?? entry)}/</a></li>`),
@@ -114,7 +116,7 @@ imgbedDavRoutes.put('*', async (c) => {
   const path = davPath(c)
   if (!path || path.endsWith('/')) return new Response('Invalid file name', { status: 400 })
   const bytes = new Uint8Array(await c.req.raw.arrayBuffer())
-  if (bytes.byteLength > 100 * 1024 * 1024) return new Response('File is too large', { status: 413 })
+  if (bytes.byteLength > 50 * 1024 * 1024) return new Response('File is too large', { status: 413 })
   const existing = await getFile(c.env.DB, path)
   if (existing) {
     const channel = await channelFor(c.env, c.env.DB, existing)
@@ -180,7 +182,8 @@ imgbedDavRoutes.on(['PROPFIND'], '*', async (c) => {
     return new Response(xml, { status: 207, headers: { 'Content-Type': 'application/xml; charset=utf-8' } })
   }
   const dir = path.replace(/\/+$/, '')
-  const result = await listFiles(c.env.DB, { dir: dir ? `${dir}/` : '', count: -1, recursive: false })
+  const result = await listFiles(c.env.DB, { dir: dir ? `${dir}/` : '', count: DAV_LIST_LIMIT, recursive: false })
+  if (result.totalCount > DAV_LIST_LIMIT) return new Response('Directory has too many files for PROPFIND', { status: 507 })
   const responses: string[] = []
   const href = `/imgbed/dav/${dir ? `${dir}/` : ''}`
   responses.push(`<D:response><D:href>${escapeXml(href)}</D:href><D:propstat><D:prop><D:displayname>${escapeXml(dir.split('/').pop() || '/')}</D:displayname><D:resourcetype><D:collection/></D:resourcetype></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`)
