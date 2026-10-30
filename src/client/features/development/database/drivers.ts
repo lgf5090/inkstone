@@ -1,11 +1,4 @@
-import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url'
-import type { Database as SqlJsDatabase, SqlValue } from 'sql.js'
-import {
-  MAX_QUERY_BYTES,
-  MAX_QUERY_ROWS,
-  type QueryResult,
-} from '@shared/development/database/types'
-import { utf8ByteLength } from '@shared/text-utils'
+import type { QueryResult } from '@shared/development/database/types'
 import { runQuery, runBatch, MAX_BATCH_STATEMENTS } from './api'
 
 export interface StudioQueryOptions {
@@ -26,7 +19,11 @@ export type DriverSource =
   | { kind: 'local'; label: string; file?: File }
 
 export function createDriver(source: DriverSource): StudioDriver {
-  if (source.kind === 'local') return new SqliteDriver(source.file, source.label)
+  if (source.kind === 'local') {
+    return typeof Worker === 'function'
+      ? new SqliteWorkerDriver(source.file, source.label)
+      : new LazyMemorySqliteDriver(source.file, source.label)
+  }
   return new RemoteDriver(source.connectionId, source.type, source.label)
 }
 
@@ -62,32 +59,25 @@ export function isLocalSqliteFileName(name: string): boolean {
   return LOCAL_SQLITE_FILE_EXTENSIONS.some((extension) => lower.endsWith(extension))
 }
 
-function affectsRows(sql: string): boolean {
-  const head = sql.trimStart().toUpperCase()
-  if (/^(INSERT|UPDATE|DELETE|REPLACE)\b/.test(head)) return true
-  return head.startsWith('WITH') && /\b(INSERT|UPDATE|DELETE|REPLACE)\b/.test(head)
+interface WorkerReply {
+  id: number
+  ok: boolean
+  result?: unknown
+  error?: string
 }
 
-function bindParams(params: unknown[]): SqlValue[] {
-  return params.map((value) => (value === undefined ? null : (value as SqlValue)))
+interface PendingRequest {
+  resolve: (value: unknown) => void
+  reject: (error: Error) => void
 }
 
-function rowBytes(row: unknown[]): number {
-  let total = 0
-  for (const value of row) {
-    if (value instanceof Uint8Array) total += value.byteLength
-    else if (typeof value === 'string') total += utf8ByteLength(value) + 4
-    else if (typeof value === 'number' || typeof value === 'bigint') total += 24
-    else total += 8
-  }
-  return total
-}
-
-export class SqliteDriver implements StudioDriver {
+export class SqliteWorkerDriver implements StudioDriver {
   readonly type = 'sqlite' as const
 
-  private db: SqlJsDatabase | null = null
-  private initPromise: Promise<SqlJsDatabase> | null = null
+  private worker: Worker | null = null
+  private pending = new Map<number, PendingRequest>()
+  private seq = 0
+  private opened: Promise<void> | null = null
   private closed = false
 
   constructor(
@@ -99,88 +89,115 @@ export class SqliteDriver implements StudioDriver {
     }
   }
 
-  private getDb(): Promise<SqlJsDatabase> {
-    if (this.closed) return Promise.reject(new Error('The local database is closed.'))
-    if (this.db) return Promise.resolve(this.db)
-    if (!this.initPromise) {
-      const init = (async () => {
-        const module = await import('sql.js')
-        const initSqlJs = module.default
-        const SQL = await initSqlJs({ locateFile: () => wasmUrl })
-        const db = this.file
-          ? new SQL.Database(new Uint8Array(await this.file.arrayBuffer()))
-          : new SQL.Database()
-        if (this.closed) {
-          db.close()
-          throw new Error('The local database is closed.')
-        }
-        this.db = db
-        return db
-      })()
-      this.initPromise = init.catch((error) => {
-        this.initPromise = null
-        throw error
-      })
+  private ensureWorker(): Worker {
+    if (this.worker) return this.worker
+    const worker = new Worker(new URL('./sqlite-worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+      const reply = event.data
+      const pending = this.pending.get(reply.id)
+      if (!pending) return
+      this.pending.delete(reply.id)
+      if (reply.ok) pending.resolve(reply.result)
+      else pending.reject(new Error(reply.error ?? 'The local database request failed.'))
     }
-    return this.initPromise
+    worker.onerror = (event) => {
+      const error = new Error(event.message || 'The local database worker failed.')
+      for (const pending of this.pending.values()) pending.reject(error)
+      this.pending.clear()
+    }
+    this.worker = worker
+    return worker
+  }
+
+  private request<T>(message: Record<string, unknown>, transfer: Transferable[] = []): Promise<T> {
+    if (this.closed) return Promise.reject(new Error('The local database is closed.'))
+    const id = ++this.seq
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
+      try {
+        this.ensureWorker().postMessage({ ...message, id }, transfer)
+      } catch (error) {
+        this.pending.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
+  private ensureOpen(): Promise<void> {
+    if (!this.opened) {
+      this.opened = (async () => {
+        const buffer = this.file ? await this.file.arrayBuffer() : null
+        await this.request({ type: 'open', bytes: buffer }, buffer ? [buffer] : [])
+      })()
+      this.opened.catch(() => undefined)
+    }
+    return this.opened
   }
 
   async query(sql: string, params: unknown[] = [], _options?: StudioQueryOptions): Promise<QueryResult> {
-    const db = await this.getDb()
-    const started = Date.now()
-    const statement = db.prepare(sql)
-    try {
-      if (params.length > 0) statement.bind(bindParams(params))
-      const columns = statement.getColumnNames()
-      const rows: unknown[][] = []
-      let bytes = 0
-      let truncated = false
-      while (statement.step()) {
-        if (rows.length >= MAX_QUERY_ROWS) {
-          truncated = true
-          break
-        }
-        const row = statement.get()
-        const size = rowBytes(row)
-        if (bytes + size > MAX_QUERY_BYTES) {
-          truncated = true
-          break
-        }
-        bytes += size
-        rows.push(row)
-      }
-      const rowsAffected = affectsRows(sql) ? db.getRowsModified() : 0
-      return {
-        columns,
-        rows,
-        rowsAffected,
-        durationMs: Date.now() - started,
-        ...(truncated ? { truncated: true } : {}),
-      }
-    } finally {
-      statement.free()
-    }
-  }
-
-  async exportFile(): Promise<Uint8Array> {
-    const db = await this.getDb()
-    return db.export()
+    await this.ensureOpen()
+    return this.request<QueryResult>({ type: 'query', sql, params })
   }
 
   async batch(statements: string[]): Promise<void> {
     for (const sql of statements) await this.query(sql)
   }
 
+  async exportFile(): Promise<Uint8Array> {
+    await this.ensureOpen()
+    const bytes = await this.request<Uint8Array>({ type: 'export' })
+    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer)
+  }
+
   close(): void {
     this.closed = true
-    const db = this.db
-    this.db = null
-    this.initPromise = null
-    if (!db) return
-    try {
-      db.close()
-    } catch (error) {
-      console.warn('[inkstone] local SQLite database could not be closed', error)
+    const worker = this.worker
+    this.worker = null
+    if (worker) {
+      try {
+        worker.postMessage({ id: 0, type: 'close' })
+      } catch {
+        // The worker is already gone; terminate still releases it.
+      }
+      worker.terminate()
     }
+    const error = new Error('The local database is closed.')
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+  }
+}
+
+class LazyMemorySqliteDriver implements StudioDriver {
+  readonly type = 'sqlite' as const
+  private impl: Promise<import('./sqlite-memory').MemorySqliteDriver> | null = null
+
+  constructor(
+    private readonly file: File | undefined,
+    readonly label: string,
+  ) {
+    if (file && file.size > MAX_LOCAL_SQLITE_FILE_BYTES) {
+      throw new Error('The SQLite file is larger than the 100 MB limit.')
+    }
+  }
+
+  private load(): Promise<import('./sqlite-memory').MemorySqliteDriver> {
+    this.impl ??= import('./sqlite-memory').then((module) => new module.MemorySqliteDriver(this.file, this.label))
+    return this.impl
+  }
+
+  async query(sql: string, params: unknown[] = [], options?: StudioQueryOptions): Promise<QueryResult> {
+    return (await this.load()).query(sql, params, options)
+  }
+
+  async batch(statements: string[]): Promise<void> {
+    return (await this.load()).batch(statements)
+  }
+
+  async exportFile(): Promise<Uint8Array> {
+    return (await this.load()).exportFile()
+  }
+
+  close(): void {
+    void this.impl?.then((driver) => driver.close()).catch(() => undefined)
   }
 }
