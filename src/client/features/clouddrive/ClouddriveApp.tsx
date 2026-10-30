@@ -229,7 +229,7 @@ export function ClouddriveApp() {
             }}
           />
           {preview.entries.length > 1 && (
-            <div aria-hidden className="pointer-events-none fixed bottom-4 left-1/2 z-[var(--z-top)] -translate-x-1/2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1 text-[length:var(--text-11)] tabular text-[var(--text-secondary)] shadow-[var(--shadow-float)]">
+            <div aria-hidden className="pointer-events-none fixed bottom-4 left-1/2 z-[var(--z-top)] -translate-x-1/2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1 text-[length:var(--text-11)] tabular text-[var(--text-secondary)] shadow-[var(--shadow-pop)]">
               {preview.index + 1} / {preview.entries.length} · ← →
             </div>
           )}

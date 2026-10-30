@@ -226,12 +226,17 @@ async function mountById(c: Context<AppBindings>, id: string): Promise<MountRow 
   return await c.env.DB.prepare(`SELECT * FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`).bind(c.get('userId'), id).first<MountRow>()
 }
 
+const SENSITIVE_CONFIG_KEY = /(token|secret|password|credential|accesskey|private)/i
+
 function toStorageView(row: StorageRow) {
+  const config = Object.fromEntries(
+    Object.entries(safeObject(row.config)).filter(([key]) => !SENSITIVE_CONFIG_KEY.test(key)),
+  )
   return {
     id: row.id,
     name: row.name,
     type: row.type,
-    config: safeObject(row.config),
+    config,
     status: row.status,
     isDefault: row.is_default === 1,
     apiKeyVisible: row.api_key_visible === 1,
