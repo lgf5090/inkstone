@@ -351,6 +351,13 @@ function findControl(element: ts.JsxElement): string | null {
  */
 const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: string }>([
   [
+    'src/client/features/clouddrive/files/FileList.tsx',
+    {
+      sites: 1,
+      reason: 'A file row selects on click and also hosts its checkbox; the checkbox click is ignored by the row handler so the two do not fight, and the row is the table\'s own selection affordance rather than a control container.',
+    },
+  ],
+  [
     'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
     {
       sites: 1,

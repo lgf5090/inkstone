@@ -8,6 +8,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   notes: true,
   inknote: true,
   memos: true,
+  clouddrive: true,
   calendar: true,
   todo: true,
   email: true,
@@ -63,6 +64,12 @@ describe('the app tab registry', () => {
     const ids = APP_TABS.map((tab) => tab.id)
     expect(ids[ids.indexOf('youtube') + 1]).toBe('tools')
     expect(ids[ids.indexOf('cloudflare') + 1]).toBe('youtube')
+  })
+
+  it('places Cloud Drive directly above the calendar', () => {
+    const ids = APP_TABS.map((tab) => tab.id)
+    expect(ids[ids.indexOf('clouddrive') + 1]).toBe('calendar')
+    expect(ids[ids.indexOf('nav') + 1]).toBe('clouddrive')
   })
 
   it('keeps every YouTube sub-address on its own tab', () => {

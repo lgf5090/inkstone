@@ -1,0 +1,294 @@
+/* CloudDrive file browser surfaces. Every colour is a theme token; the only runtime colours
+   are the folder tint and tag dots, which arrive as data from the server. */
+
+[data-clouddrive-files] {
+  --cd-gap: 8px;
+  --cd-icon-size: 72px;
+  --cd-row-height: 50px;
+
+  --cd-folder-color: var(--accent);
+  --cd-category-txt: var(--text-secondary);
+  --cd-category-images: var(--accent);
+  --cd-category-videos: var(--danger);
+  --cd-category-audios: var(--warning);
+  --cd-category-documents: var(--accent);
+  --cd-category-sheets: var(--success);
+  --cd-category-slides: var(--warning);
+  --cd-category-archives: var(--text-tertiary);
+  --cd-category-code: var(--accent);
+  --cd-category-ebooks: var(--success);
+  --cd-category-other: var(--text-tertiary);
+}
+
+[data-clouddrive-files] .cd-folder-icon {
+  color: var(--cd-folder-color);
+}
+
+[data-clouddrive-files] .cd-cat-txt { color: var(--cd-category-txt); }
+[data-clouddrive-files] .cd-cat-images { color: var(--cd-category-images); }
+[data-clouddrive-files] .cd-cat-videos { color: var(--cd-category-videos); }
+[data-clouddrive-files] .cd-cat-audios { color: var(--cd-category-audios); }
+[data-clouddrive-files] .cd-cat-documents { color: var(--cd-category-documents); }
+[data-clouddrive-files] .cd-cat-sheets { color: var(--cd-category-sheets); }
+[data-clouddrive-files] .cd-cat-slides { color: var(--cd-category-slides); }
+[data-clouddrive-files] .cd-cat-archives { color: var(--cd-category-archives); }
+[data-clouddrive-files] .cd-cat-code { color: var(--cd-category-code); }
+[data-clouddrive-files] .cd-cat-ebooks { color: var(--cd-category-ebooks); }
+[data-clouddrive-files] .cd-cat-other { color: var(--cd-category-other); }
+
+[data-clouddrive-files] .cd-icon-fluid {
+  inline-size: var(--cd-icon-size);
+  block-size: var(--cd-icon-size);
+  flex-shrink: 0;
+}
+
+/* The native checkbox is the selection control: it keeps the browser's keyboard and
+   accessibility behaviour, and only its accent is themed. */
+[data-clouddrive-files] .cd-checkbox {
+  inline-size: 16px;
+  block-size: 16px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+[data-clouddrive-files] .cd-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+[data-clouddrive-files] .cd-list {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+[data-clouddrive-files] .cd-list th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: var(--z-sticky);
+  block-size: 32px;
+  padding-inline: 8px;
+  border-block-end: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  color: var(--text-tertiary);
+  font-size: var(--text-11);
+  font-weight: 500;
+  text-align: start;
+  white-space: nowrap;
+}
+
+[data-clouddrive-files] .cd-list td {
+  padding-inline: 8px;
+  border-block-end: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-clouddrive-files] .cd-list tbody tr {
+  block-size: var(--cd-row-height);
+}
+
+[data-clouddrive-files] .cd-list-row {
+  cursor: default;
+  outline: none;
+}
+
+[data-clouddrive-files] .cd-list-row:hover {
+  background: var(--bg-hover);
+}
+
+[data-clouddrive-files] .cd-list-row[aria-selected='true'] {
+  background: var(--accent-soft);
+}
+
+[data-clouddrive-files] .cd-list-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+[data-clouddrive-files] .cd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(96px, calc(var(--cd-icon-size) + 40px)), 1fr));
+  gap: var(--cd-gap);
+  align-content: start;
+}
+
+[data-clouddrive-files] .cd-grid-item {
+  position: relative;
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: calc(var(--cd-gap) / 2 + 4px) 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  outline: none;
+  text-align: center;
+}
+
+[data-clouddrive-files] .cd-grid-item:hover {
+  background: var(--bg-hover);
+}
+
+[data-clouddrive-files] .cd-grid-item[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+[data-clouddrive-files] .cd-grid-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+[data-clouddrive-files] .cd-grid-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--text-12);
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+[data-clouddrive-files] .cd-grid-check {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-start: 4px;
+  z-index: var(--z-sticky);
+}
+
+[data-clouddrive-files] .cd-gallery-stage {
+  display: flex;
+  min-block-size: 180px;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  margin: var(--cd-gap);
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+
+[data-clouddrive-files] .cd-gallery-open {
+  display: flex;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  max-block-size: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--r-md);
+  outline: none;
+}
+
+[data-clouddrive-files] .cd-gallery-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+[data-clouddrive-files] .cd-gallery-image {
+  max-inline-size: 100%;
+  max-block-size: min(52vh, 420px);
+  object-fit: contain;
+  border-radius: var(--r-sm);
+}
+
+[data-clouddrive-files] .cd-gallery-strip {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 var(--cd-gap) var(--cd-gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+[data-clouddrive-files] .cd-gallery-thumb {
+  display: flex;
+  inline-size: calc(var(--cd-icon-size) + 12px);
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  outline: none;
+}
+
+[data-clouddrive-files] .cd-gallery-thumb[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+[data-clouddrive-files] .cd-gallery-thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+[data-clouddrive-files] .cd-gallery-thumb img {
+  inline-size: calc(var(--cd-icon-size) * 0.6);
+  block-size: calc(var(--cd-icon-size) * 0.6);
+  object-fit: cover;
+  border-radius: var(--r-xs);
+}
+
+[data-clouddrive-files] .cd-inspector {
+  inline-size: 280px;
+  flex-shrink: 0;
+  border-inline-start: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+[data-clouddrive-files] .cd-selection-bar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-block-start: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+[data-clouddrive-files] .cd-path {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 767px) {
+  [data-clouddrive-files] .cd-inspector {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: var(--z-drawer);
+    inline-size: min(320px, 88vw);
+    box-shadow: var(--shadow-modal);
+  }
+
+  [data-clouddrive-files] .cd-col-modified,
+  [data-clouddrive-files] .cd-col-kind,
+  [data-clouddrive-files] .cd-col-tags {
+    display: none;
+  }
+
+  [data-clouddrive-files] .cd-gallery-strip {
+    overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-clouddrive-files] .cd-grid-item,
+  [data-clouddrive-files] .cd-list-row,
+  [data-clouddrive-files] .cd-gallery-thumb {
+    transition: none;
+  }
+}

@@ -1,0 +1,47 @@
+/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the four variables
+   below are the only values the reader changes at runtime (density, gap, icon size, row height). */
+.cd-app {
+  --cd-density: 50;
+  --cd-gap: 8px;
+  --cd-icon-size: 72px;
+  --cd-row-height: 50px;
+  --cd-sidebar-width: 220px;
+}
+
+.cd-sidebar {
+  width: var(--cd-sidebar-width, 220px);
+}
+
+.cd-files {
+  gap: var(--cd-gap);
+}
+
+.cd-files.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--cd-icon-size) + 48px), 1fr));
+  align-content: start;
+}
+
+.cd-files.grid .cd-file {
+  min-height: calc(var(--cd-icon-size) + 44px);
+}
+
+.cd-files.flex > .cd-file {
+  height: var(--cd-row-height);
+}
+
+.cd-file:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.cd-share-page {
+  min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cd-files,
+  .cd-file {
+    transition: none;
+  }
+}
