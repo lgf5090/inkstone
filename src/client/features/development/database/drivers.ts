@@ -129,7 +129,9 @@ export class SqliteWorkerDriver implements StudioDriver {
         const buffer = this.file ? await this.file.arrayBuffer() : null
         await this.request({ type: 'open', bytes: buffer }, buffer ? [buffer] : [])
       })()
-      this.opened.catch(() => undefined)
+      this.opened.catch((error) => {
+        console.warn('[inkstone] local SQLite worker could not open', error)
+      })
     }
     return this.opened
   }
@@ -198,6 +200,8 @@ class LazyMemorySqliteDriver implements StudioDriver {
   }
 
   close(): void {
-    void this.impl?.then((driver) => driver.close()).catch(() => undefined)
+    void this.impl?.then((driver) => driver.close()).catch((error) => {
+      console.warn('[inkstone] local SQLite fallback could not be closed', error)
+    })
   }
 }

@@ -192,6 +192,7 @@ export const ResultGrid = memo(function ResultGrid({
   }
 
   const onGridKeyDown = (event: ReactKeyboardEvent<HTMLTableElement>) => {
+    if (isImeComposing(event)) return
     if ((event.target as HTMLElement).closest('input, textarea, button, a')) return
     if (!focusTarget) return
     const { row, vcol } = focusTarget

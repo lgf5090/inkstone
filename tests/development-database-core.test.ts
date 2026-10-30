@@ -284,7 +284,7 @@ describe('development database core', () => {
     const chunks = chunkInsertRows(['a'], Array.from({ length: 120 }, (_, index) => [index]))
     expect(chunks.map((chunk) => chunk.length)).toEqual([50, 50, 20])
     const calls: string[] = []
-    const driver = {
+    const driver: Pick<StudioDriver, 'query'> = {
       query: async (sql: string) => {
         calls.push(sql)
         if (sql.includes(', (')) throw new Error('batch rejected')
@@ -292,7 +292,7 @@ describe('development database core', () => {
         return { columns: [], rows: [], durationMs: 0 }
       },
     }
-    const outcome = await insertRowsInChunks(driver as never, 't', ['a'], [[1], [999], [2]])
+    const outcome = await insertRowsInChunks(driver, 't', ['a'], [[1], [999], [2]])
     expect(outcome.inserted).toBe(2)
     expect(outcome.failed).toBe(1)
     expect(outcome.errors).toEqual(['bad row'])

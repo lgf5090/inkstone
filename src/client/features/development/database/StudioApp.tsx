@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { DatabaseConnectionView, SchemaModel } from '@shared/development/database/types'
 import { useBreakpoint } from '../../../lib/hooks'
+import { isImeComposing } from '../../../lib/ime'
 import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
@@ -819,6 +820,7 @@ export function StudioApp() {
                 aria-selected={active}
                 tabIndex={active ? 0 : -1}
                 onKeyDown={(event) => {
+                  if (isImeComposing(event)) return
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     setActiveTabId(tab.id)
