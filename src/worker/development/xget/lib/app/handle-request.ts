@@ -43,6 +43,7 @@ export async function handleXgetRequest(
   request: Request,
   overrides: XgetConfigOverrides,
   proxyBaseUrl: string,
+  waitUntil?: (task: Promise<unknown>) => void,
 ): Promise<Response> {
   let response: Response | undefined
   const monitor = new PerformanceMonitor()
@@ -169,6 +170,7 @@ export async function handleXgetRequest(
                   responseGeneratedLocally: upstreamResponseGeneratedLocally,
                   targetUrl,
                   proxyBaseUrl,
+                  waitUntil,
                 })
               }
             }

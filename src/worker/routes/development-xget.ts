@@ -171,6 +171,17 @@ function isCorsPreflight(c: Context<AppBindings>): boolean {
   )
 }
 
+function executionWaitUntil(
+  c: Context<AppBindings>,
+): ((task: Promise<unknown>) => void) | undefined {
+  try {
+    const executionCtx = c.executionCtx
+    return (task) => executionCtx.waitUntil(task)
+  } catch {
+    return undefined
+  }
+}
+
 function platformFromPath(pathname: string): string | null {
   for (const platform of XGET_PLATFORMS_BY_LONGEST_PREFIX) {
     if (pathname.startsWith(`/${xgetPathPrefix(platform.key)}/`)) return platform.key
@@ -299,6 +310,7 @@ developmentXgetRoutes.use('*', async (c, next) => {
     request,
     overrides,
     `${url.origin}${XGET_PROXY_PREFIX}`,
+    executionWaitUntil(c),
   )
   await recordProxyStat(c.env.DB, platformFromPath(pathname), response.status)
   return response

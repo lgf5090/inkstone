@@ -73,6 +73,7 @@ async function finalizeSuccessfulResponse({
   response,
   targetUrl = cacheTargetUrl,
   proxyBaseUrl,
+  waitUntil,
 }: {
   cache: Cache | null
   cacheTargetUrl: string
@@ -86,6 +87,7 @@ async function finalizeSuccessfulResponse({
   response: Response
   targetUrl?: string
   proxyBaseUrl: string
+  waitUntil?: (task: Promise<unknown>) => void
 }): Promise<Response> {
   const { isAI, isDocker, isGit, isGitLFS, isHF } = requestContext
 
@@ -168,12 +170,17 @@ async function finalizeSuccessfulResponse({
         })
       : new Request(cacheTargetUrl, { method: 'GET' })
 
-    void cache.put(cacheKey, finalizedResponse.clone()).catch((error) => {
+    const cacheWrite = cache.put(cacheKey, finalizedResponse.clone()).catch((error) => {
       console.warn(
         '[xget] Cache put failed:',
         error instanceof Error ? error.name : 'unknown error',
       )
     })
+    if (waitUntil) {
+      waitUntil(cacheWrite)
+    } else {
+      void cacheWrite
+    }
   }
 
   return finalizedResponse
@@ -193,6 +200,7 @@ export async function finalizeResponse({
   responseGeneratedLocally,
   targetUrl = cacheTargetUrl,
   proxyBaseUrl,
+  waitUntil,
 }: {
   cache: Cache | null
   cacheTargetUrl: string
@@ -207,6 +215,7 @@ export async function finalizeResponse({
   responseGeneratedLocally: boolean
   targetUrl?: string
   proxyBaseUrl: string
+  waitUntil?: (task: Promise<unknown>) => void
 }): Promise<Response> {
   const errorResponse = await finalizeErrorResponse({
     requestContext,
@@ -229,5 +238,6 @@ export async function finalizeResponse({
     response: errorResponse,
     targetUrl,
     proxyBaseUrl,
+    waitUntil,
   })
 }

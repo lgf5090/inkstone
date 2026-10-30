@@ -691,4 +691,31 @@ describe('the site cookie and the shared cache', () => {
     expect(second.status).toBe(200)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('registers the cache write with waitUntil when the caller supplies one', async () => {
+    const cache = {
+      match: vi.fn(async () => undefined),
+      put: vi.fn(async () => undefined),
+    }
+    vi.stubGlobal('caches', { default: cache })
+    stubFetch(async () =>
+      new Response('package', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const tasks: Promise<unknown>[] = []
+    const waitUntil = vi.fn((task: Promise<unknown>) => {
+      tasks.push(task)
+    })
+
+    const response = await handleXgetRequest(
+      new Request('https://proxy.example/npm/react'),
+      {},
+      PROXY_BASE,
+      waitUntil,
+    )
+
+    expect(response.status).toBe(200)
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    await Promise.all(tasks)
+    expect(cache.put).toHaveBeenCalledTimes(1)
+  })
 })
