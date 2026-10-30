@@ -251,6 +251,26 @@ describe('the Xget upstream retries', () => {
     expect(sentBodies).toEqual(['payload', 'payload'])
   })
 
+  it('does not retry a streamed body', async () => {
+    const fetchMock = stubFetch(async (_input, init) => {
+      expect(init?.body).toBeInstanceOf(ReadableStream)
+      return new Response('fail', { status: 500 })
+    })
+
+    const response = await call(
+      '/gh/owner/repo/git-receive-pack',
+      {
+        method: 'POST',
+        headers: { 'Content-Length': String(9 * 1024 * 1024) },
+        body: 'payload',
+      },
+      { MAX_RETRIES: 3, RETRY_DELAY_MS: 0 },
+    )
+
+    expect(response.status).toBe(500)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('returns 408 when an attempt times out', async () => {
     const fetchMock = stubFetch(
       (_input, init) =>

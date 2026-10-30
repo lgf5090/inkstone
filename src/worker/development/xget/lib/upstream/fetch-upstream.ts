@@ -1,5 +1,8 @@
 // Derived from Xget (AGPL-3.0-only) src/upstream/fetch-upstream.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.
-import { XGET_MAX_BUFFERED_BODY_BYTES } from '@shared/development/xget/constants'
+import {
+  XGET_MAX_BUFFERED_BODY_BYTES,
+  XGET_MAX_REQUEST_BODY_BYTES,
+} from '@shared/development/xget/constants'
 import type { XgetConfig } from '../config'
 import { configureAIHeaders } from '../protocols/ai'
 import {
@@ -77,6 +80,195 @@ export async function readRequestBodyWithinLimit(
   }
 
   return { ok: true, body }
+}
+
+export interface BodyLimits {
+  request: number
+  buffered: number
+}
+
+const DEFAULT_BODY_LIMITS: BodyLimits = {
+  request: XGET_MAX_REQUEST_BODY_BYTES,
+  buffered: XGET_MAX_BUFFERED_BODY_BYTES,
+}
+
+export type PreparedRequestBody =
+  | {
+      ok: true
+      body: Uint8Array | ReadableStream<Uint8Array> | null
+      buffered: boolean
+      tooLarge: () => boolean
+    }
+  | { ok: false; response: Response }
+
+function bodyTooLarge(): Response {
+  return createErrorResponse('Request body too large', 413)
+}
+
+async function cancelBodyReader(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel()
+  } catch (error) {
+    console.warn(
+      '[xget] Failed to cancel request body:',
+      error instanceof Error ? error.name : 'unknown error',
+    )
+  }
+}
+
+function guardBodyStream(
+  body: ReadableStream<Uint8Array>,
+  limitBytes: number,
+): { stream: ReadableStream<Uint8Array>; tooLarge: () => boolean } {
+  const reader = body.getReader()
+  let total = 0
+  let tooLarge = false
+
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let next: ReadableStreamReadResult<Uint8Array>
+      try {
+        next = await reader.read()
+      } catch (error) {
+        controller.error(error)
+        return
+      }
+      if (next.done) {
+        controller.close()
+        return
+      }
+      if (!next.value) return
+      total += next.value.byteLength
+      if (total > limitBytes) {
+        tooLarge = true
+        controller.error(new Error('request body too large'))
+        await cancelBodyReader(reader)
+        return
+      }
+      controller.enqueue(next.value)
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
+
+  return { stream, tooLarge: () => tooLarge }
+}
+
+function replayStream(
+  chunks: Uint8Array[],
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  totalBytes: number,
+  limitBytes: number,
+): { stream: ReadableStream<Uint8Array>; tooLarge: () => boolean } {
+  let total = totalBytes
+  let tooLarge = false
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk)
+    },
+    async pull(controller) {
+      let next: ReadableStreamReadResult<Uint8Array>
+      try {
+        next = await reader.read()
+      } catch (error) {
+        controller.error(error)
+        return
+      }
+      if (next.done) {
+        controller.close()
+        return
+      }
+      if (!next.value) return
+      total += next.value.byteLength
+      if (total > limitBytes) {
+        tooLarge = true
+        controller.error(new Error('request body too large'))
+        await cancelBodyReader(reader)
+        return
+      }
+      controller.enqueue(next.value)
+    },
+    cancel(reason) {
+      return reader.cancel(reason)
+    },
+  })
+
+  return { stream, tooLarge: () => tooLarge }
+}
+
+function joinChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
+export async function prepareRequestBody(
+  request: Request,
+  limits: BodyLimits = DEFAULT_BODY_LIMITS,
+): Promise<PreparedRequestBody> {
+  if (request.body === null) {
+    return { ok: true, body: null, buffered: true, tooLarge: () => false }
+  }
+
+  const declaredLength = request.headers.get('Content-Length')
+  const declared = declaredLength === null ? null : Number(declaredLength)
+  if (declared !== null && Number.isFinite(declared)) {
+    if (declared > limits.request) return { ok: false, response: bodyTooLarge() }
+    if (declared > limits.buffered) {
+      const guarded = guardBodyStream(request.body, limits.request)
+      return { ok: true, body: guarded.stream, buffered: false, tooLarge: guarded.tooLarge }
+    }
+    const buffered = await readRequestBodyWithinLimit(request, limits.buffered)
+    if (!buffered.ok) return { ok: false, response: buffered.response }
+    return { ok: true, body: buffered.body, buffered: true, tooLarge: () => false }
+  }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) {
+        return {
+          ok: true,
+          body: joinChunks(chunks, total),
+          buffered: true,
+          tooLarge: () => false,
+        }
+      }
+      if (!value) continue
+      total += value.byteLength
+      if (total > limits.request) {
+        await cancelBodyReader(reader)
+        return { ok: false, response: bodyTooLarge() }
+      }
+      if (total > limits.buffered) {
+        chunks.push(value)
+        const replayed = replayStream(chunks, reader, total, limits.request)
+        return {
+          ok: true,
+          body: replayed.stream,
+          buffered: false,
+          tooLarge: replayed.tooLarge,
+        }
+      }
+      chunks.push(value)
+    }
+  } catch (error) {
+    console.warn(
+      '[xget] Failed to read request body:',
+      error instanceof Error ? error.name : 'unknown error',
+    )
+    await cancelBodyReader(reader)
+    return { ok: false, response: createErrorResponse('Failed to read request body', 400) }
+  }
 }
 
 function createFetchOptions({
@@ -325,12 +517,18 @@ export async function fetchUpstreamResponse({
   let response: Response | undefined
   let responseGeneratedLocally = false
 
-  let bufferedBody: Uint8Array | null = null
-  if (request.body !== null && !canUseCache) {
-    const bodyResult = await readRequestBodyWithinLimit(request)
-    if (!bodyResult.ok) return { response: bodyResult.response, responseGeneratedLocally: true }
-    bufferedBody = bodyResult.body
+  const preparedBody =
+    request.body !== null && !canUseCache
+      ? await prepareRequestBody(request)
+      : { ok: true as const, body: null, buffered: true, tooLarge: () => false }
+  if (!preparedBody.ok) {
+    return { response: preparedBody.response, responseGeneratedLocally: true }
   }
+  const bufferedBody = preparedBody.buffered ? (preparedBody.body as Uint8Array | null) : null
+  const streamingBody = preparedBody.buffered
+    ? undefined
+    : (preparedBody.body as ReadableStream<Uint8Array>)
+  const canRetryBody = preparedBody.buffered
 
   const { fetchOptions, requestHeaders } = createFetchOptions({
     authorization,
@@ -355,7 +553,7 @@ export async function fetchUpstreamResponse({
       const attemptOptions: RequestInit = {
         ...fetchOptions,
         signal: controller.signal,
-        body: bufferedBody ?? fetchOptions.body,
+        body: bufferedBody ?? streamingBody ?? fetchOptions.body,
       }
 
       response = await executeFetch({
@@ -393,12 +591,23 @@ export async function fetchUpstreamResponse({
         break
       }
 
+      if (!canRetryBody) {
+        monitor.mark('streaming_body_no_retry')
+        break
+      }
+
       attempts++
       if (attempts < config.MAX_RETRIES) {
         await new Promise((resolve) => setTimeout(resolve, config.RETRY_DELAY_MS * attempts))
       }
     } catch (error) {
       attempts++
+      if (preparedBody.tooLarge()) {
+        response = bodyTooLarge()
+        responseGeneratedLocally = true
+        break
+      }
+
       if (error instanceof Error && error.name === 'AbortError') {
         response = createErrorResponse('Request timeout', 408)
         responseGeneratedLocally = true
@@ -410,7 +619,7 @@ export async function fetchUpstreamResponse({
         error instanceof Error ? error.name : 'unknown error',
       )
 
-      if (attempts >= config.MAX_RETRIES) {
+      if (!canRetryBody || attempts >= config.MAX_RETRIES) {
         response = createErrorResponse('Upstream request failed', 502)
         responseGeneratedLocally = true
         break

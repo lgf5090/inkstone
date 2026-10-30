@@ -5,7 +5,7 @@ import type { XgetConfigOverrides } from '../src/shared/development/xget/types'
 import { handleXgetRequest, resolveProxyTarget } from '../src/worker/development/xget/lib/app/handle-request'
 import { createConfig } from '../src/worker/development/xget/lib/config'
 import { normalizeEffectivePath, resolveTarget } from '../src/worker/development/xget/lib/routing/resolve-target'
-import { readRequestBodyWithinLimit } from '../src/worker/development/xget/lib/upstream/fetch-upstream'
+import { prepareRequestBody, readRequestBodyWithinLimit } from '../src/worker/development/xget/lib/upstream/fetch-upstream'
 import { validateRequest } from '../src/worker/development/xget/lib/utils/validation'
 
 const PROXY_BASE = 'https://proxy.example/api/development/xget'
@@ -483,6 +483,86 @@ describe('the Xget body limit', () => {
     const result = await readRequestBodyWithinLimit(request, 3)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.response.status).toBe(413)
+  })
+
+  it('streams a body over the retry buffer and replays it intact', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('abcdef'))
+        controller.close()
+      },
+    })
+    const request = new Request('https://proxy.example/upload', {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+    } as RequestInit)
+
+    const prepared = await prepareRequestBody(request, { request: 32, buffered: 3 })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.buffered).toBe(false)
+    const reader = (prepared.body as ReadableStream<Uint8Array>).getReader()
+    const chunks: Uint8Array[] = []
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+    expect(new TextDecoder().decode(chunks[0])).toBe('abcdef')
+  })
+
+  it('stops a streamed body when it crosses the hard limit', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of ['abc', 'def', 'ghi']) {
+          controller.enqueue(new TextEncoder().encode(chunk))
+        }
+        controller.close()
+      },
+    })
+    const request = new Request('https://proxy.example/upload', {
+      method: 'POST',
+      body: stream,
+      duplex: 'half',
+    } as RequestInit)
+
+    const prepared = await prepareRequestBody(request, { request: 5, buffered: 2 })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.buffered).toBe(false)
+    const reader = (prepared.body as ReadableStream<Uint8Array>).getReader()
+    void reader.closed.catch(() => {})
+    const first = await reader.read()
+    expect(new TextDecoder().decode(first.value)).toBe('abc')
+    await expect(reader.read()).rejects.toThrow()
+    expect(prepared.tooLarge()).toBe(true)
+  })
+
+  it('rejects a declared body over the hard limit and streams one over the retry buffer', async () => {
+    const tooLarge = new Request('https://proxy.example/upload', {
+      method: 'POST',
+      headers: { 'Content-Length': '11' },
+      body: 'x',
+      duplex: 'half',
+    } as RequestInit)
+    const rejected = await prepareRequestBody(tooLarge, { request: 10, buffered: 5 })
+    expect(rejected.ok).toBe(false)
+    if (!rejected.ok) expect(rejected.response.status).toBe(413)
+
+    const streamed = new Request('https://proxy.example/upload', {
+      method: 'POST',
+      headers: { 'Content-Length': '6' },
+      body: 'abcdef',
+      duplex: 'half',
+    } as RequestInit)
+    const prepared = await prepareRequestBody(streamed, { request: 32, buffered: 3 })
+    expect(prepared.ok).toBe(true)
+    if (!prepared.ok) return
+    expect(prepared.buffered).toBe(false)
+    const reader = (prepared.body as ReadableStream<Uint8Array>).getReader()
+    const { value } = await reader.read()
+    expect(new TextDecoder().decode(value)).toBe('abcdef')
   })
 })
 
