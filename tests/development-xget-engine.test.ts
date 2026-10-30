@@ -692,6 +692,34 @@ describe('the site cookie and the shared cache', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('serves a range from the full response it just cached', async () => {
+    let putCalled = false
+    const cache = {
+      match: vi.fn(async (request: Request) => {
+        if (!putCalled) return undefined
+        if (request.headers.get('Range')) {
+          return new Response('abc', {
+            status: 206,
+            headers: { 'Content-Range': 'bytes 0-2/6', 'Content-Length': '3' },
+          })
+        }
+        return undefined
+      }),
+      put: vi.fn(async () => {
+        putCalled = true
+      }),
+    }
+    vi.stubGlobal('caches', { default: cache })
+    stubFetch(async () =>
+      new Response('abcdef', { status: 200, headers: { 'Content-Length': '6' } }),
+    )
+
+    const response = await call('/npm/react', { headers: { Range: 'bytes=0-2' } })
+    expect(response.status).toBe(206)
+    expect(await response.text()).toBe('abc')
+    expect(cache.put).toHaveBeenCalledTimes(1)
+  })
+
   it('registers the cache write with waitUntil when the caller supplies one', async () => {
     const cache = {
       match: vi.fn(async () => undefined),

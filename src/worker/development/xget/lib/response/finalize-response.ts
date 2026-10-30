@@ -176,7 +176,20 @@ async function finalizeSuccessfulResponse({
         error instanceof Error ? error.name : 'unknown error',
       )
     })
-    if (waitUntil) {
+    if (rangeHeader) {
+      await cacheWrite
+      try {
+        const rangedResponse = await cache.match(
+          new Request(cacheTargetUrl, { method: 'GET', headers: request.headers }),
+        )
+        if (rangedResponse) finalizedResponse = rangedResponse
+      } catch (error) {
+        console.warn(
+          '[xget] Range cache read failed:',
+          error instanceof Error ? error.name : 'unknown error',
+        )
+      }
+    } else if (waitUntil) {
       waitUntil(cacheWrite)
     } else {
       void cacheWrite
