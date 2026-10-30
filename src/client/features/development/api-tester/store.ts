@@ -44,7 +44,6 @@ export interface ApiTesterStore {
   loading: boolean
   loadError: string | null
   saving: boolean
-  savedAt: number | null
   saveError: string | null
   conflict: boolean
   workspaces: Workspace[]
@@ -92,6 +91,7 @@ export interface ApiTesterStore {
   patchSettings: (patch: Partial<ToolsSettings>) => void
 
   dismissConflict: () => void
+  retrySave: () => void
   flush: () => Promise<void>
   dispose: () => void
 }
@@ -121,10 +121,7 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
         return snapshot.activeWorkspaceId ? { state: snapshot.state, workspaceId: snapshot.activeWorkspaceId } : null
       },
       onSaving: () => set({ saving: true, saveError: null }),
-      onSaved: (rev, savedAt) => {
-        void rev
-        set({ saving: false, savedAt })
-      },
+      onSaved: () => set({ saving: false, saveError: null }),
       onConflict: () => set({ saving: false, conflict: true }),
       onError: (message) => set({ saving: false, saveError: message }),
     })
@@ -146,7 +143,6 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
         loaded: true,
         loading: false,
         conflict: false,
-        savedAt: response.updatedAt,
         activeId: null,
         openTabs: [],
         results: {},
@@ -173,7 +169,6 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     loading: true,
     loadError: null,
     saving: false,
-    savedAt: null,
     saveError: null,
     conflict: false,
     workspaces: [],
@@ -435,6 +430,10 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     dismissConflict: () => {
       set({ conflict: false })
       void get().reloadWorkspace()
+    },
+
+    retrySave: () => {
+      ensureSaver().retryNow()
     },
 
     flush: async () => {

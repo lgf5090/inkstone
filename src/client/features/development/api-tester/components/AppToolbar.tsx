@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import {
+  AlertTriangle,
   ChevronDown,
   Briefcase,
   Columns2,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { MenuItem } from '../../../../components/overlay'
 import { Menu, Tooltip } from '../../../../components/overlay'
-import { IconButton } from '../../../../components/primitives'
+import { Button, IconButton } from '../../../../components/primitives'
 import { Select } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
@@ -42,6 +43,8 @@ export function AppToolbar({
   const patchSettings = useApiTesterStore((s) => s.patchSettings)
   const conflict = useApiTesterStore((s) => s.conflict)
   const saving = useApiTesterStore((s) => s.saving)
+  const saveError = useApiTesterStore((s) => s.saveError)
+  const retrySave = useApiTesterStore((s) => s.retrySave)
 
   const workspaceRef = useRef<HTMLButtonElement>(null)
   const settingsRef = useRef<HTMLButtonElement>(null)
@@ -147,6 +150,23 @@ export function AppToolbar({
       </span>
       {saving && <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">{t('development.apitester.app.saving')}</span>}
       {conflict && <span className="shrink-0 text-[length:var(--text-10-5)] text-[var(--warning)]">{t('development.apitester.app.unsaved')}</span>}
+      {saveError && (
+        <div
+          role="alert"
+          className="flex min-w-0 shrink items-center gap-1 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--danger)]"
+        >
+          <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
+          <span className="min-w-0 max-w-[220px] truncate" title={saveError}>{saveError}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-5 shrink-0 px-1 text-[length:var(--text-10-5)] text-[var(--danger)]"
+            onClick={retrySave}
+          >
+            {t('development.apitester.app.retry')}
+          </Button>
+        </div>
+      )}
       {!compact && (
         <Tooltip label={state.settings.splitDirection === 'vertical' ? t('development.apitester.toolbar.split_horizontal') : t('development.apitester.toolbar.split_vertical')}>
           <IconButton

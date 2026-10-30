@@ -4,20 +4,25 @@ import { stateDataOf } from '@shared/development/api-tester/state'
 import type { ApiTesterState } from '@shared/development/api-tester/types'
 import { CLIENT_HEADER } from '@shared/constants'
 import { ApiError } from '../../../lib/api'
+import { t } from '../../../lib/i18n'
 import { putState } from './api'
 
 export const SAVE_DEBOUNCE_MS = 800
+/** Delays before each automatic retry of a failed save; the budget resets on the next edit or success. */
+export const SAVE_RETRY_DELAYS_MS = [2_000, 8_000, 30_000] as const
 
 export interface StateSaverOptions {
   read: () => { state: ApiTesterState; workspaceId: string } | null
   onSaving: () => void
-  onSaved: (rev: number, savedAt: number) => void
+  onSaved: (rev: number) => void
   onConflict: () => void
   onError: (message: string) => void
 }
 
 export class StateSaver {
   private timer: ReturnType<typeof setTimeout> | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private retryAttempts = 0
   private rev = 0
   private dirty = false
   private blocked = false
@@ -32,6 +37,8 @@ export class StateSaver {
 
   markDirty(): void {
     this.dirty = true
+    this.clearRetry()
+    this.retryAttempts = 0
     if (this.blocked) return
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
@@ -42,10 +49,19 @@ export class StateSaver {
 
   block(): void {
     this.blocked = true
+    this.clearRetry()
     if (this.timer) {
       clearTimeout(this.timer)
       this.timer = null
     }
+  }
+
+  /** The user asked for another attempt: spend the whole retry budget again, immediately. */
+  retryNow(): void {
+    this.clearRetry()
+    this.retryAttempts = 0
+    this.dirty = true
+    if (!this.saving) void this.save()
   }
 
   async flush(): Promise<void> {
@@ -53,6 +69,7 @@ export class StateSaver {
       clearTimeout(this.timer)
       this.timer = null
     }
+    this.clearRetry()
     if (!this.dirty || this.blocked || this.saving) return
     await this.save()
   }
@@ -62,8 +79,31 @@ export class StateSaver {
       clearTimeout(this.timer)
       this.timer = null
     }
+    this.clearRetry()
     this.blocked = true
     this.dirty = false
+  }
+
+  private clearRetry(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
+    }
+  }
+
+  /**
+   * A failed save keeps `dirty`, so the next edit already retries; this covers the case where the
+   * user stops editing after the failure and would otherwise never learn the state is unsaved.
+   */
+  private scheduleRetry(): void {
+    const delay = SAVE_RETRY_DELAYS_MS[this.retryAttempts]
+    if (delay === undefined) return
+    this.retryAttempts += 1
+    this.clearRetry()
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
+      void this.save()
+    }, delay)
   }
 
   private async save(): Promise<void> {
@@ -74,12 +114,12 @@ export class StateSaver {
     const bytes = new TextEncoder().encode(json)
     if (bytes.byteLength > STATE_JSON_MAX_BYTES) {
       this.dirty = false
-      this.options.onError('too_large')
+      this.options.onError(t('development.apitester.app.save_too_large'))
       return
     }
     if (gzipSync(bytes).byteLength > STATE_GZIP_MAX_BYTES) {
       this.dirty = false
-      this.options.onError('too_large')
+      this.options.onError(t('development.apitester.app.save_too_large'))
       return
     }
     this.saving = true
@@ -88,7 +128,9 @@ export class StateSaver {
       const response = await putState(snapshot.workspaceId, this.rev, data)
       this.rev = response.rev
       this.dirty = false
-      this.options.onSaved(response.rev, Date.now())
+      this.clearRetry()
+      this.retryAttempts = 0
+      this.options.onSaved(response.rev)
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         this.dirty = false
@@ -96,6 +138,7 @@ export class StateSaver {
         this.options.onConflict()
       } else {
         this.options.onError(error instanceof Error ? error.message : String(error))
+        this.scheduleRetry()
       }
     } finally {
       this.saving = false
