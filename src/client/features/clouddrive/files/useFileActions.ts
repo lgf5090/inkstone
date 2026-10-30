@@ -17,6 +17,14 @@ export interface FileActionsOptions {
   onLocalChange?: (change: FileListChange) => void
 }
 
+export interface ShareOptions {
+  password?: string
+  expiresDays?: number
+  maxViews?: number
+  maxDownloads?: number
+  allowDownload?: boolean
+}
+
 export interface FileActions {
   busy: boolean
   mkdir: (parentPath: string, name: string) => Promise<boolean>
@@ -31,7 +39,7 @@ export interface FileActions {
   purge: (ids?: string[], all?: boolean) => Promise<boolean>
   upload: (files: File[], parentPath: string) => Promise<boolean>
   download: (entries: CloudDriveEntry[]) => void
-  share: (entries: CloudDriveEntry[]) => Promise<boolean>
+  share: (entries: CloudDriveEntry[], options?: ShareOptions) => Promise<boolean>
 }
 
 function showError(error: unknown): void {
@@ -152,18 +160,25 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     }
   }, [mountId])
 
-  const share = useCallback(async (entries: CloudDriveEntry[]): Promise<boolean> => {
+  const share = useCallback(async (entries: CloudDriveEntry[], options: ShareOptions = {}): Promise<boolean> => {
     if (entries.length === 0) return false
     setPending((count) => count + 1)
     try {
       const urls: string[] = []
+      const expiresAt = options.expiresDays && options.expiresDays > 0
+        ? Date.now() + options.expiresDays * 86_400_000
+        : undefined
       for (const entry of entries) {
         const result = await clouddriveApi.createShare({
           targetKind: entry.kind === 'folder' ? 'folder' : 'file',
           fileId: entry.id,
           mountId,
           path: entry.path,
-          allowDownload: true,
+          password: options.password || undefined,
+          expiresAt,
+          maxViews: options.maxViews && options.maxViews > 0 ? options.maxViews : undefined,
+          maxDownloads: options.maxDownloads && options.maxDownloads > 0 ? options.maxDownloads : undefined,
+          allowDownload: options.allowDownload !== false,
           allowList: entry.kind === 'folder',
         })
         const url = result.share.url.startsWith('http')

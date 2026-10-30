@@ -86,6 +86,7 @@ export const EN_US_CLOUDDRIVE = {
 
   'clouddrive.selection.count': '{count} selected',
   'clouddrive.selection.none': 'No selection',
+  'clouddrive.path.label': 'Location',
   'clouddrive.status.items': '{count} items',
   'clouddrive.status.selected_size': '{size} selected',
 
@@ -219,6 +220,14 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.toast.tags_saved': 'Tags saved',
 
   'clouddrive.share.title': 'Shares',
+  'clouddrive.share.create_title': 'Create share link',
+  'clouddrive.share.create_body': 'Creates one link for each of the {count} selected item(s) and copies them all.',
+  'clouddrive.share.password_hint': 'At least {min} characters, or leave blank',
+  'clouddrive.share.expires_days': 'Expires after (days, 0 = never)',
+  'clouddrive.share.max_views': 'View limit (0 = unlimited)',
+  'clouddrive.share.max_downloads': 'Download limit (0 = unlimited)',
+  'clouddrive.share.allow_download': 'Allow downloads',
+  'clouddrive.share.create': 'Create links',
   'clouddrive.share.qr': 'QR code',
   'clouddrive.share.copy': 'Copy link',
   'clouddrive.share.revoke': 'Revoke',
@@ -251,6 +260,7 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.settings.trash': 'Trash',
   'clouddrive.settings.webdav': 'WebDAV',
 
+  'clouddrive.error.bad_request': 'The request was rejected. Check the values and try again.',
   'clouddrive.error.unauthenticated': 'Please sign in first.',
   'clouddrive.error.forbidden': 'You do not have permission for this action.',
   'clouddrive.error.not_found': 'The file or folder no longer exists.',

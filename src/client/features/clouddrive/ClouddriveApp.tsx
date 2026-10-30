@@ -66,8 +66,27 @@ export function ClouddriveApp() {
   useEffect(() => { void load() }, [load])
 
   const vars = useMemo(() => cloudDriveCssVars(prefs), [prefs])
-  const [preview, setPreview] = useState<CloudDriveEntry | null>(null)
+  const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number } | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
+
+  useEffect(() => {
+    if (!preview) return
+    const current = preview.entries[preview.index]
+    if (!current || !['images', 'txt', 'code'].includes(current.category)) return
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      event.preventDefault()
+      event.stopPropagation()
+      setPreview((state) => {
+        if (!state) return state
+        const next = event.key === 'ArrowLeft' ? state.index - 1 : state.index + 1
+        if (next < 0 || next >= state.entries.length) return state
+        return { ...state, index: next }
+      })
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [preview])
 
   if (IS_DEMO_MODE) {
     return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.demo_unavailable')}</div>
@@ -142,10 +161,11 @@ export function ClouddriveApp() {
             ? (
                 <FilesPage
                   mountId={address.mountId}
+                  mountName={mounts.find((mount) => mount.id === address.mountId)?.name}
                   path={address.path}
                   readOnly={bootstrap.mounts.find((mount) => mount.id === address.mountId)?.readOnly}
-                  onNavigate={navigate}
-                  onPreview={setPreview}
+                  onNavigate={(nextPath) => navigate(cloudDrivePath('files', address.mountId, nextPath))}
+                  onPreview={(entry, context) => setPreview({ entries: context?.entries ?? [entry], index: context?.index ?? 0 })}
                 />
               )
             : address.page === 'recent'
@@ -193,12 +213,25 @@ export function ClouddriveApp() {
           ))}
         </div>
       </Drawer>
-      {preview && (
-        <FilePreviewModal
-          open
-          onClose={() => setPreview(null)}
-          file={{ url: `/api/clouddrive/files/${encodeURIComponent(preview.id)}/content`, filename: preview.name, mime: preview.mime, size: preview.size }}
-        />
+      {preview && preview.entries[preview.index] && (
+        <>
+          <FilePreviewModal
+            key={preview.entries[preview.index]!.id}
+            open
+            onClose={() => setPreview(null)}
+            file={{
+              url: `/api/clouddrive/files/${encodeURIComponent(preview.entries[preview.index]!.id)}/content`,
+              filename: preview.entries[preview.index]!.name,
+              mime: preview.entries[preview.index]!.mime,
+              size: preview.entries[preview.index]!.size,
+            }}
+          />
+          {preview.entries.length > 1 && (
+            <div aria-hidden className="pointer-events-none fixed bottom-4 left-1/2 z-[var(--z-top)] -translate-x-1/2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1 text-[length:var(--text-11)] tabular text-[var(--text-secondary)] shadow-[var(--shadow-float)]">
+              {preview.index + 1} / {preview.entries.length} · ← →
+            </div>
+          )}
+        </>
       )}
     </div>
   )

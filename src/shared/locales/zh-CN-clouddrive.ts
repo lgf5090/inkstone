@@ -86,6 +86,7 @@ export const ZH_CN_CLOUDDRIVE = {
 
   'clouddrive.selection.count': '已选 {count} 项',
   'clouddrive.selection.none': '未选择',
+  'clouddrive.path.label': '位置',
   'clouddrive.status.items': '{count} 项',
   'clouddrive.status.selected_size': '已选 {size}',
 
@@ -219,6 +220,14 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.toast.tags_saved': '标签已保存',
 
   'clouddrive.share.title': '分享',
+  'clouddrive.share.create_title': '创建分享链接',
+  'clouddrive.share.create_body': '为选中的 {count} 项各创建一个链接，并一并复制。',
+  'clouddrive.share.password_hint': '至少 {min} 个字符，留空表示不设密码',
+  'clouddrive.share.expires_days': '有效期（天，0 表示永久）',
+  'clouddrive.share.max_views': '访问次数上限（0 表示不限）',
+  'clouddrive.share.max_downloads': '下载次数上限（0 表示不限）',
+  'clouddrive.share.allow_download': '允许下载',
+  'clouddrive.share.create': '创建链接',
   'clouddrive.share.qr': '二维码',
   'clouddrive.share.copy': '复制链接',
   'clouddrive.share.revoke': '撤销',
@@ -252,6 +261,7 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.settings.webdav': 'WebDAV',
 
 
+  'clouddrive.error.bad_request': '请求被拒绝，请检查填写内容后重试。',
   'clouddrive.error.unauthenticated': '请先登录。',
   'clouddrive.error.forbidden': '没有权限执行此操作。',
   'clouddrive.error.not_found': '文件或文件夹不存在。',

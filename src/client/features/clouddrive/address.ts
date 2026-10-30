@@ -58,10 +58,22 @@ export function parseCloudDriveAddress(pathname: string, search: string): CloudD
     const slash = rest.indexOf('/')
     const mount = slash < 0 ? rest : rest.slice(0, slash)
     const inner = slash < 0 ? '/' : `/${rest.slice(slash + 1)}`
-    return { page: 'files', mountId: mount || 'primary', path: inner || '/' }
+    return { page: 'files', mountId: decodeSegment(mount) || 'primary', path: decodePath(inner) || '/' }
   }
   const innerPath = params.get('path')
   return { page: 'files', mountId, path: innerPath && innerPath.startsWith('/') ? innerPath : '/' }
+}
+
+function decodeSegment(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function decodePath(value: string): string {
+  return value.split('/').map(decodeSegment).join('/')
 }
 
 export function cloudDrivePath(page: CloudDrivePage, mountId: string, path = '/'): string {

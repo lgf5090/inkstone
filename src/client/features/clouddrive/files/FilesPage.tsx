@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -13,6 +14,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowUpDown,
+  ChevronRight,
   FolderOpen,
   FolderPlus,
   GalleryHorizontal,
@@ -24,6 +26,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { formatBytes } from '@shared/byte-format'
 import {
   CLOUDDRIVE_SORT_KEYS,
   parentPathOf,
@@ -49,18 +52,25 @@ import { ContextMenu, type ContextMenuTarget } from './ContextMenu'
 import { ConfirmDeleteDialog, MoveDialog, NewFolderDialog, RenameDialog } from './Dialogs'
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
-import { useFileActions, type FileListChange } from './useFileActions'
+import { ShareDialog } from './ShareDialog'
+import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
 import './files.css'
 
+export interface PreviewContext {
+  entries: CloudDriveEntry[]
+  index: number
+}
+
 export interface FilesPageProps {
   mountId: string
+  mountName?: string
   path: string
   onNavigate(path: string): void
   readOnly?: boolean
   /** Opens the preview/Quick Look surface. The shell owns the renderer. */
-  onPreview?(entry: CloudDriveEntry): void
+  onPreview?(entry: CloudDriveEntry, context?: PreviewContext): void
 }
 
 type ViewMode = 'icon' | 'list' | 'gallery'
@@ -70,9 +80,10 @@ type DialogState =
   | { kind: 'rename'; entry: CloudDriveEntry }
   | { kind: 'move'; ids: string[]; initialPath: string }
   | { kind: 'delete'; ids: string[] }
+  | { kind: 'share'; entries: CloudDriveEntry[] }
   | null
 
-export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPreview }: FilesPageProps) {
+export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, onPreview }: FilesPageProps) {
   const prefs = useCloudDriveStore((state) => state.prefs)
   const setPrefs = useCloudDriveStore((state) => state.setPrefs)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
@@ -198,6 +209,8 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     [entries, selected],
   )
 
+  const pathSegments = useMemo(() => path.split('/').filter(Boolean), [path])
+
   const applyLocalChange = useCallback((change: FileListChange) => {
     setListing((current) => {
       if (!current) return current
@@ -264,16 +277,18 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
   )
 
   const previewEntry = useCallback((entry: CloudDriveEntry) => {
-    if (onPreview) {
-      onPreview(entry)
-      return
-    }
     if (entry.kind === 'folder') {
       onNavigate(entry.path)
       return
     }
+    if (onPreview) {
+      const siblings = entries.filter((candidate) => candidate.kind === 'file')
+      const index = siblings.findIndex((candidate) => candidate.id === entry.id)
+      onPreview(entry, { entries: siblings, index: index >= 0 ? index : 0 })
+      return
+    }
     window.open(clouddriveApi.contentUrl(entry.id), '_blank', 'noopener,noreferrer')
-  }, [onNavigate, onPreview])
+  }, [entries, onNavigate, onPreview])
 
   const openEntry = useCallback((entry: CloudDriveEntry) => {
     if (entry.kind === 'folder') onNavigate(entry.path)
@@ -286,6 +301,16 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
     if (targets.length === 0) return
     setDialog({ kind: 'delete', ids: targets.map((entry) => entry.id) })
   }, [])
+
+  const requestShare = useCallback((targets: CloudDriveEntry[]) => {
+    if (targets.length === 0) return
+    setDialog({ kind: 'share', entries: targets })
+  }, [])
+
+  const shareTargets = useCallback(async (options: ShareOptions): Promise<boolean> => {
+    if (dialog?.kind !== 'share') return false
+    return await actions.share(dialog.entries, options)
+  }, [actions, dialog])
 
   const handleContextMenu = useCallback((entry: CloudDriveEntry, event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
@@ -519,6 +544,37 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         </div>
       </header>
 
+      <nav
+        aria-label={t('clouddrive.path.label')}
+        className="flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] px-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]"
+      >
+        <button
+          type="button"
+          aria-current={path === '/' ? 'page' : undefined}
+          onClick={() => onNavigate('/')}
+          className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+        >
+          {mountName ?? t('clouddrive.sidebar.primary')}
+        </button>
+        {pathSegments.map((segment, index) => {
+          const target = `/${pathSegments.slice(0, index + 1).join('/')}`
+          const last = index === pathSegments.length - 1
+          return (
+            <Fragment key={target}>
+              <ChevronRight size={12} className="shrink-0 opacity-60" aria-hidden />
+              <button
+                type="button"
+                aria-current={last ? 'page' : undefined}
+                onClick={() => onNavigate(target)}
+                className="max-w-[220px] shrink-0 truncate rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] aria-[current=page]:font-medium aria-[current=page]:text-[var(--text-primary)]"
+              >
+                {segment}
+              </button>
+            </Fragment>
+          )
+        })}
+      </nav>
+
       <Menu
         anchor={sortButtonRef}
         open={sortOpen}
@@ -616,7 +672,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
           busy={actions.busy}
           onClose={() => setPrefs({ inspectorVisible: false })}
           onOpen={openEntry}
-          onShare={(targets) => void actions.share(targets)}
+          onShare={requestShare}
           onColor={(entry, color) => void actions.setColor(entry, color)}
           onAddTag={(entry, tag, color) => void actions.addTag(entry, tag, color)}
           onRemoveTag={(entry, tag) => void actions.removeTag(entry, tag)}
@@ -629,7 +685,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         busy={actions.busy}
         writable={writableSelection}
         onDownload={() => actions.download(selectedEntries)}
-        onShare={() => void actions.share(selectedEntries)}
+        onShare={() => requestShare(selectedEntries)}
         onCopy={() => rememberClipboard('copy', selectedEntries.map((entry) => entry.id))}
         onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
         onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path })}
@@ -639,6 +695,14 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
           focusFirstEntry()
         }}
       />
+
+      <div className="flex h-6 shrink-0 items-center gap-3 border-t border-[var(--border-subtle)] px-3 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+        <span>{t('clouddrive.status.items', { count: entries.length })}</span>
+        {selected.size > 0 && (
+          <span className="tabular">{t('clouddrive.selection.count', { count: selected.size })} · {formatBytes(totalEntryBytes(selectedEntries))}</span>
+        )}
+        {status === 'loading' && <span className="ml-auto">{t('clouddrive.loading')}</span>}
+      </div>
 
       <ContextMenu
         target={contextTarget}
@@ -651,7 +715,7 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
         onOpen={openEntry}
         onPreview={previewEntry}
         onDownload={actions.download}
-        onShare={(targets) => void actions.share(targets)}
+        onShare={requestShare}
         onCopy={(targets) => rememberClipboard('copy', targets.map((entry) => entry.id))}
         onCut={(targets) => rememberClipboard('cut', targets.map((entry) => entry.id))}
         onPaste={() => void pasteClipboard()}
@@ -690,6 +754,13 @@ export function FilesPage({ mountId, path, onNavigate, readOnly = false, onPrevi
             return ok
           })
         }}
+      />
+      <ShareDialog
+        open={dialog?.kind === 'share'}
+        entries={dialog?.kind === 'share' ? dialog.entries : []}
+        busy={actions.busy}
+        onClose={() => setDialog(null)}
+        onSubmit={shareTargets}
       />
       <ConfirmDeleteDialog
         open={dialog?.kind === 'delete'}
