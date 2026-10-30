@@ -14,7 +14,7 @@ import {
   type ImgbedListQuery,
 } from '@shared/imgbed/model'
 import { parseSettingsGroup, type ImgbedOthersSettings, type ImgbedSecuritySettings } from '@shared/imgbed/settings'
-import { requireImgbedActor } from './auth'
+import { requireImgbedActor, type ImgbedActor } from './auth'
 import { listResolvedChannels } from './channels'
 import {
   addFileTags,
@@ -38,8 +38,18 @@ import {
   saveSettingsGroup,
   customerRows,
 } from './store'
-import { blockedIps, blockIp, unblockIp } from './tokens'
+import { blockedIps, blockIp, scopeAllows, unblockIp } from './tokens'
 import { deleteWholeFile, moveWholeFile } from './storage'
+
+export function actorCanManage(actor: ImgbedActor | null): boolean {
+  if (!actor) return false
+  return actor.kind === 'session' ? actor.role === 'owner' : scopeAllows(actor.scopes, 'manage')
+}
+
+export function redactImgbedFile(file: ImgbedFile, privileged: boolean): ImgbedFile {
+  if (privileged) return file
+  return { ...file, objectKey: '', uploadIp: null, uploadAddress: null, parts: null }
+}
 
 export const imgbedManageRoutes = new Hono<AppBindings>()
 
@@ -104,8 +114,10 @@ function directoryTree(directories: string[]): { name: string; path: string; chi
 }
 
 imgbedManageRoutes.get('/manage/list', async (c) => {
-  await requireImgbedActor(c, 'list')
-  return c.json(await listFiles(c.env.DB, queryList(c)))
+  const actor = await requireImgbedActor(c, 'list')
+  const result = await listFiles(c.env.DB, queryList(c))
+  const privileged = actorCanManage(actor)
+  return c.json({ ...result, files: result.files.map((file) => redactImgbedFile(file, privileged)) })
 })
 
 imgbedManageRoutes.get('/manage/sidebar', async (c) => {
@@ -148,10 +160,11 @@ imgbedManageRoutes.get('/manage/quota', async (c) => {
 })
 
 imgbedManageRoutes.get('/manage/files/links', async (c) => {
-  await requireImgbedActor(c, 'list')
+  const actor = await requireImgbedActor(c, 'list')
   const id = new URL(c.req.url).searchParams.get('id') ?? ''
   const file = await getFile(c.env.DB, id)
   if (!file) throw ApiError.notFound('File not found')
+  if (!actorCanManage(actor)) return c.json({ links: [{ kind: 'originUrl', value: `/imgbed/file/${file.id}` }] })
   const channels = await listResolvedChannels(c.env, c.env.DB, true)
   const channel = channels.find((item) => item.type === file.source && item.name === file.channelName)
   const base = String(channel?.config.publicUrl ?? channel?.config.cdnDomain ?? '').replace(/\/+$/, '')
@@ -166,15 +179,15 @@ imgbedManageRoutes.get('/manage/files/links', async (c) => {
 })
 
 imgbedManageRoutes.get('/manage/files', async (c) => {
-  await requireImgbedActor(c, 'list')
+  const actor = await requireImgbedActor(c, 'list')
   const id = new URL(c.req.url).searchParams.get('id') ?? ''
   const file = await getFile(c.env.DB, id)
   if (!file) throw ApiError.notFound('File not found')
-  return c.json(file)
+  return c.json(redactImgbedFile(file, actorCanManage(actor)))
 })
 
 imgbedManageRoutes.patch('/manage/files', async (c) => {
-  await requireImgbedActor(c, 'delete')
+  const actor = await requireImgbedActor(c, 'delete')
   const body = await c.req.json().catch(() => null) as { id?: string; fileName?: string; fileType?: string } | null
   if (!body?.id) throw ApiError.badRequest('id is required')
   const file = await getFile(c.env.DB, body.id)
@@ -188,7 +201,8 @@ imgbedManageRoutes.patch('/manage/files', async (c) => {
        updated_at = ?4
      WHERE id = ?1`,
   ).bind(body.id, fileName ?? null, fileType ?? null, Date.now()).run()
-  return c.json(await getFile(c.env.DB, body.id))
+  const updated = await getFile(c.env.DB, body.id)
+  return c.json(updated ? redactImgbedFile(updated, actorCanManage(actor)) : null)
 })
 
 imgbedManageRoutes.post('/manage/files/access', async (c) => {

@@ -7,6 +7,7 @@ import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed
 import { scopeAllows } from '../src/worker/imgbed/tokens'
 import { deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, setFileFlags, setFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
+import { redactImgbedFile } from '../src/worker/imgbed/manage'
 import { boundedPartSizeMB } from '../src/worker/imgbed/upload-routes'
 import { moveWholeFile } from '../src/worker/imgbed/storage'
 import type { ResolvedChannel } from '../src/worker/imgbed/channels'
@@ -75,6 +76,13 @@ describe('imgbed access', () => {
     expect(fileAccessDecision({ file: { listType: 'Block', label: 'None' }, access, referer: null, requestHost: 'x', admin: false }).reason).toBe('blocked')
     expect(fileAccessDecision({ file: { listType: 'None', label: 'adult' }, access, referer: null, requestHost: 'x', admin: false }).reason).toBe('blocked')
     expect(fileAccessDecision({ file: { listType: 'Block', label: 'None' }, access, referer: null, requestHost: 'x', admin: true }).allowed).toBe(true)
+  })
+
+  it('rejects embedded requests that omit the referer when a domain allowlist is set', () => {
+    const allow = { ...access, allowedDomains: 'example.com' }
+    expect(fileAccessDecision({ file: { listType: 'None', label: 'None' }, access: allow, referer: null, requestHost: 'img.example.com', admin: false, fetchDest: 'image' }).reason).toBe('domain')
+    expect(fileAccessDecision({ file: { listType: 'None', label: 'None' }, access: allow, referer: null, requestHost: 'img.example.com', admin: false }).allowed).toBe(true)
+    expect(fileAccessDecision({ file: { listType: 'None', label: 'None' }, access: allow, referer: 'https://example.com/page', requestHost: 'img.example.com', admin: false, fetchDest: 'image' }).allowed).toBe(true)
   })
 
   it('enforces whitelist mode and directory allowlists', () => {
@@ -149,6 +157,25 @@ describe('imgbed WebDAV move', () => {
   })
 })
 
+
+describe('imgbed metadata redaction', () => {
+  it('hides object keys, IPs and parts from list-only actors', () => {
+    const file = {
+      id: 'a.png', objectKey: 'secret/key', fileName: 'a.png', fileType: 'image/png', sizeBytes: 1,
+      width: null, height: null, uploadIp: '203.0.113.1', uploadAddress: 'Somewhere', listType: 'None',
+      label: 'None', directory: '', source: 'cfr2', externalLink: null, channel: 'CloudflareR2',
+      channelName: 'R2', isChunked: false, parts: [{ index: 0, size: 1 }], uploaderId: null,
+      favorite: false, pinned: false, createdAt: 1, updatedAt: 1, tags: [],
+    } as unknown as Parameters<typeof redactImgbedFile>[0]
+    expect(redactImgbedFile(file, true)).toBe(file)
+    const redacted = redactImgbedFile(file, false)
+    expect(redacted.objectKey).toBe('')
+    expect(redacted.uploadIp).toBeNull()
+    expect(redacted.uploadAddress).toBeNull()
+    expect(redacted.parts).toBeNull()
+    expect(redacted.fileName).toBe('a.png')
+  })
+})
 
 describe('imgbed upload bounds', () => {
   it('clamps the configured part size per channel', () => {
