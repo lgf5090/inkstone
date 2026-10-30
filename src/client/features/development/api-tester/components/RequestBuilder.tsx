@@ -180,6 +180,8 @@ export function RequestBuilder({
   }
 
   const handleUrlKeyDown = (event: React.KeyboardEvent) => {
+    // The module-level Cmd/Ctrl+Enter handler owns the modified key, so this answers the bare key only.
+    if (event.metaKey || event.ctrlKey) return
     if (event.key !== 'Enter' || loading || !request.url || isImeComposing(event)) return
     event.preventDefault()
     onSend()

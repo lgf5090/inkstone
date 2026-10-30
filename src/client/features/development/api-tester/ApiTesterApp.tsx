@@ -9,6 +9,7 @@ import { Button } from '../../../components/primitives'
 import { Drawer } from '../../../components/overlay'
 import { useApiTesterStore } from './store'
 import { sendActiveRequest } from './send'
+import { isSendShortcut } from './lib/shortcut'
 import { AppToolbar, type ToolbarDialog } from './components/AppToolbar'
 import { TabBar } from './components/TabBar'
 import { ConflictBanner } from './components/ConflictBanner'
@@ -65,6 +66,21 @@ export function ApiTesterApp() {
     return () => {
       void useApiTesterStore.getState().flush()
     }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isSendShortcut(event)) return
+      const store = useApiTesterStore.getState()
+      const node = store.state.nodes.find((entry) => entry.id === store.activeId)
+      if (!node || node.type !== 'request' || node.kind === 'websocket' || !node.request) return
+      // A modal owns the keyboard while it is open; sending behind it would be a surprise.
+      if (document.querySelector('[role="dialog"]')) return
+      event.preventDefault()
+      void sendActiveRequest()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   const createRest = () => {

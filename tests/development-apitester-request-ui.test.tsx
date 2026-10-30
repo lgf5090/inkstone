@@ -152,9 +152,9 @@ function chooseOption(element: HTMLSelectElement, value: string): void {
   })
 }
 
-function press(element: Element, key: string): void {
+function press(element: Element, key: string, init: KeyboardEventInit = {}): void {
   act(() => {
-    element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }))
   })
 }
 
@@ -264,6 +264,18 @@ describe('API Tester request builder', () => {
     expect(view.container.querySelector('[role="listbox"]')).not.toBeNull()
     outsideClick()
     expect(view.container.querySelector('[role="listbox"]')).toBeNull()
+  })
+
+  it('sends on plain Enter in the URL field and leaves Cmd/Ctrl+Enter to the module shortcut', () => {
+    const { view, send } = renderBuilder(nodeWith({ url: 'https://api.example.com/x' }))
+    const url = byPlaceholder<HTMLInputElement>(view.container, t('development.apitester.url_placeholder'))
+
+    press(url, 'Enter')
+    expect(send).toHaveBeenCalledTimes(1)
+
+    press(url, 'Enter', { ctrlKey: true })
+    press(url, 'Enter', { metaKey: true })
+    expect(send).toHaveBeenCalledTimes(1)
   })
 
   it('shows the GraphQL tabs and edits the variables document', () => {
