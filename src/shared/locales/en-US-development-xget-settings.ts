@@ -13,6 +13,7 @@ export const EN_US_DEVELOPMENT_XGET_SETTINGS = {
   "development.xget.stats.category_trend": "Requests by category",
   "development.xget.stats.empty": "No access data yet",
   "development.xget.stats.empty_hint": "Use an accelerated link once and the numbers appear here",
+  "development.xget.stats.empty_cta": "Browse supported platforms",
   "development.xget.stats.load_failed": "Could not load the access stats",
   "development.xget.stats.chart_trend_label": "Xget requests per day (UTC)",
   "development.xget.stats.chart_category_label": "Xget requests per category and day (UTC)",

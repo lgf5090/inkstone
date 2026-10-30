@@ -240,6 +240,27 @@ describe('the Xget stats view', () => {
     expect(apiMocks.getStats).toHaveBeenLastCalledWith(30)
   })
 
+  it('shows one empty state with a browse-platform CTA', async () => {
+    apiMocks.getStats.mockResolvedValueOnce({
+      ...SUMMARY,
+      total: 0,
+      ok: 0,
+      okRate: 0,
+      today: 0,
+      platformCount: 0,
+      platforms: [],
+      trend: [],
+      trendByCategory: [],
+    })
+    const browse = vi.fn()
+    rendered = renderElement(<StatsView onBrowsePlatforms={browse} />)
+    await act(async () => {})
+    const cta = button(rendered.container, t('development.xget.stats.empty_cta'))
+    act(() => cta.click())
+    expect(browse).toHaveBeenCalledTimes(1)
+    expect(rendered.container.textContent).toContain(t('development.xget.stats.empty_hint'))
+  })
+
   it('uses a readable tooltip background and index interaction', () => {
     const colors = {
       palette: ['#111111'],

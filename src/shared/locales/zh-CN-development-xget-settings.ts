@@ -13,6 +13,7 @@ export const ZH_CN_DEVELOPMENT_XGET_SETTINGS = {
   "development.xget.stats.category_trend": "分类访问趋势",
   "development.xget.stats.empty": "暂无访问数据",
   "development.xget.stats.empty_hint": "使用一次加速链接后即可在此查看统计",
+  "development.xget.stats.empty_cta": "浏览支持平台",
   "development.xget.stats.load_failed": "加载访问统计失败",
   "development.xget.stats.chart_trend_label": "Xget 每日请求数（UTC）",
   "development.xget.stats.chart_category_label": "Xget 各分类每日请求数（UTC）",

@@ -30,7 +30,7 @@ export function XgetApp() {
   const [settings, setSettings] = useState<XgetSettings | null>(null)
   const [settingsLoading, setSettingsLoading] = useState(true)
   const [settingsError, setSettingsError] = useState<string | null>(null)
-  const [view, setView] = useState<XgetView>('stats')
+  const [view, setView] = useState<XgetView>('platforms')
   const [activeCategory, setActiveCategory] = useState<XgetCategory>('code')
   const [search, setSearch] = useState('')
   const [input, setInput] = useState('')
@@ -148,7 +148,7 @@ export function XgetApp() {
           />
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {view === 'stats' && <StatsView />}
+            {view === 'stats' && <StatsView onBrowsePlatforms={() => selectCategory(activeCategory)} />}
 
             {view === 'platforms' && (
               <div>

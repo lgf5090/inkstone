@@ -29,7 +29,7 @@ function formatNumber(value: number): string {
   return value.toLocaleString(getLocale())
 }
 
-export function StatsView() {
+export function StatsView({ onBrowsePlatforms }: { onBrowsePlatforms?: () => void } = {}) {
   const dark = useThemeDark()
   const locale = getLocale()
   const identities = useMemo(() => chartIdentityPalette(dark), [dark])
@@ -73,6 +73,7 @@ export function StatsView() {
   const maxCount = Math.max(1, ...topPlatforms.map((platform) => platform.count))
   const trend = summary?.trend ?? []
   const categoryTrend = summary?.trendByCategory ?? []
+  const isEmpty = !error && !loading && summary !== null && summary.total === 0
 
   const trendBuild = useMemo(
     () => (colors: ChartColors): ChartConfiguration<'line'> => ({
@@ -170,6 +171,20 @@ export function StatsView() {
         </div>
       ) : loading && !summary ? (
         <LoadingBlock />
+      ) : isEmpty ? (
+        <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
+          <Empty
+            title={t('development.xget.stats.empty')}
+            description={t('development.xget.stats.empty_hint')}
+            action={
+              onBrowsePlatforms ? (
+                <Button variant="secondary" size="sm" onClick={onBrowsePlatforms}>
+                  {t('development.xget.stats.empty_cta')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </section>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
