@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Copy, Check, FlaskConical, Globe, KeyRound, RotateCcw, Save, Server, Settings2, ShieldCheck, SquareTerminal } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { XgetSettings } from '@shared/development/xget/types'
-import { XGET_CONFIG_DEFAULTS } from '@shared/development/xget/constants'
+import { XGET_CONFIG_DEFAULTS, XGET_CONFIG_LIMITS, XGET_KNOWN_METHODS } from '@shared/development/xget/constants'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
@@ -55,6 +55,40 @@ function parseOrigins(value: string): string[] {
   return value.split(',').map((entry) => entry.trim()).filter(Boolean)
 }
 
+type NumericField = 'timeout_seconds' | 'max_retries' | 'retry_delay_ms' | 'cache_duration' | 'max_path_length'
+
+const NUMERIC_FIELDS: readonly { key: NumericField; range: { readonly min: number; readonly max: number } }[] = [
+  { key: 'timeout_seconds', range: XGET_CONFIG_LIMITS.timeoutSeconds },
+  { key: 'max_retries', range: XGET_CONFIG_LIMITS.maxRetries },
+  { key: 'retry_delay_ms', range: XGET_CONFIG_LIMITS.retryDelayMs },
+  { key: 'cache_duration', range: XGET_CONFIG_LIMITS.cacheDuration },
+  { key: 'max_path_length', range: XGET_CONFIG_LIMITS.maxPathLength },
+]
+
+function parseInteger(value: string, range: { readonly min: number; readonly max: number }): number | null {
+  const trimmed = value.trim()
+  if (!/^-?\d+$/.test(trimmed)) return null
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) && parsed >= range.min && parsed <= range.max ? parsed : null
+}
+
+function isValidOrigin(value: string): boolean {
+  if (value === '*') return true
+  try {
+    const parsed = new URL(value)
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === '/' &&
+      !parsed.search &&
+      !parsed.hash
+    )
+  } catch {
+    return false
+  }
+}
+
 function Panel({
   icon,
   title,
@@ -95,6 +129,7 @@ export function SettingsPanel({
   onReload: () => Promise<void>
 }) {
   const [form, setForm] = useState<EngineForm | null>(settings ? formFrom(settings) : null)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
   const [tokenSaving, setTokenSaving] = useState(false)
@@ -105,6 +140,7 @@ export function SettingsPanel({
 
   useEffect(() => {
     setForm(settings ? formFrom(settings) : null)
+    setErrors({})
   }, [settings])
 
   const ecosystem = useMemo(
@@ -123,23 +159,72 @@ export function SettingsPanel({
     window.setTimeout(() => setCopiedKey(''), 1500)
   }
 
+  function clearError(key: string): void {
+    setErrors((current) => {
+      if (!current[key]) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+
   function setNumber(key: keyof EngineForm, value: string): void {
     setForm((current) => (current ? { ...current, [key]: value } : current))
+    clearError(key)
   }
 
   async function saveConfig(config: EngineForm): Promise<void> {
+    const nextErrors: Record<string, string> = {}
+    const numbers = {} as Record<NumericField, number>
+    for (const { key, range } of NUMERIC_FIELDS) {
+      const parsed = parseInteger(config[key], range)
+      if (parsed === null) {
+        nextErrors[key] = t('development.xget.settings.invalid_range', {
+          min: range.min,
+          max: range.max,
+        })
+      } else {
+        numbers[key] = parsed
+      }
+    }
+
+    const methods = parseMethods(config.methodsText)
+    if (!methods.length) {
+      nextErrors.methodsText = t('development.xget.settings.invalid_methods')
+    } else {
+      const known = new Set<string>(XGET_KNOWN_METHODS)
+      const unsupported = methods.find((method) => !known.has(method))
+      if (unsupported) {
+        nextErrors.methodsText = t('development.xget.settings.unsupported_method', {
+          method: unsupported,
+        })
+      }
+    }
+
+    const origins = parseOrigins(config.originsText)
+    if (!origins.includes('*')) {
+      const invalid = origins.find((origin) => !isValidOrigin(origin))
+      if (invalid) {
+        nextErrors.originsText = t('development.xget.settings.invalid_origin', { origin: invalid })
+      }
+    }
+
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
+
     setSaving(true)
     try {
       await xgetApi.saveSettings({
-        timeout_seconds: Number(config.timeout_seconds),
-        max_retries: Number(config.max_retries),
-        retry_delay_ms: Number(config.retry_delay_ms),
-        cache_duration: Number(config.cache_duration),
-        max_path_length: Number(config.max_path_length),
+        timeout_seconds: numbers.timeout_seconds,
+        max_retries: numbers.max_retries,
+        retry_delay_ms: numbers.retry_delay_ms,
+        cache_duration: numbers.cache_duration,
+        max_path_length: numbers.max_path_length,
         allow_anonymous: config.allowAnonymous,
-        allowed_methods: parseMethods(config.methodsText),
-        allowed_origins: parseOrigins(config.originsText),
+        allowed_methods: methods,
+        allowed_origins: origins,
       })
+      setErrors({})
       useUiStore.getState().toast(t('development.xget.settings.saved'), 'success')
       await onReload()
     } catch (cause) {
@@ -210,6 +295,12 @@ export function SettingsPanel({
 
   const canManage = settings.can_manage
   const disabled = !canManage || saving
+  const errorHint = (key: string) =>
+    errors[key] ? (
+      <span role="alert" className="text-[var(--danger)]">
+        {errors[key]}
+      </span>
+    ) : undefined
 
   return (
     <div className="flex flex-col gap-4">
@@ -237,27 +328,45 @@ export function SettingsPanel({
 
       <Panel icon={<Settings2 size={16} />} title={t('development.xget.settings.engine')} description={t('development.xget.settings.engine_desc')}>
         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-          <Field label={t('development.xget.settings.timeout_seconds')} hint={t('development.xget.settings.timeout_seconds_desc')}>
-            <Input type="number" min={1} max={120} value={form.timeout_seconds} disabled={disabled} onChange={(event) => setNumber('timeout_seconds', event.target.value)} />
+          <Field label={t('development.xget.settings.timeout_seconds')} hint={errorHint('timeout_seconds') ?? t('development.xget.settings.timeout_seconds_desc')}>
+            <Input type="number" min={1} max={120} value={form.timeout_seconds} disabled={disabled} invalid={Boolean(errors.timeout_seconds)} onChange={(event) => setNumber('timeout_seconds', event.target.value)} />
           </Field>
-          <Field label={t('development.xget.settings.max_retries')} hint={t('development.xget.settings.max_retries_desc')}>
-            <Input type="number" min={1} max={10} value={form.max_retries} disabled={disabled} onChange={(event) => setNumber('max_retries', event.target.value)} />
+          <Field label={t('development.xget.settings.max_retries')} hint={errorHint('max_retries') ?? t('development.xget.settings.max_retries_desc')}>
+            <Input type="number" min={1} max={10} value={form.max_retries} disabled={disabled} invalid={Boolean(errors.max_retries)} onChange={(event) => setNumber('max_retries', event.target.value)} />
           </Field>
-          <Field label={t('development.xget.settings.retry_delay_ms')}>
-            <Input type="number" min={0} max={30000} value={form.retry_delay_ms} disabled={disabled} onChange={(event) => setNumber('retry_delay_ms', event.target.value)} />
+          <Field label={t('development.xget.settings.retry_delay_ms')} hint={errorHint('retry_delay_ms')}>
+            <Input type="number" min={0} max={30000} value={form.retry_delay_ms} disabled={disabled} invalid={Boolean(errors.retry_delay_ms)} onChange={(event) => setNumber('retry_delay_ms', event.target.value)} />
           </Field>
-          <Field label={t('development.xget.settings.cache_duration')} hint={t('development.xget.settings.cache_duration_desc')}>
-            <Input type="number" min={1} max={86400} value={form.cache_duration} disabled={disabled} onChange={(event) => setNumber('cache_duration', event.target.value)} />
+          <Field label={t('development.xget.settings.cache_duration')} hint={errorHint('cache_duration') ?? t('development.xget.settings.cache_duration_desc')}>
+            <Input type="number" min={1} max={86400} value={form.cache_duration} disabled={disabled} invalid={Boolean(errors.cache_duration)} onChange={(event) => setNumber('cache_duration', event.target.value)} />
           </Field>
-          <Field label={t('development.xget.settings.allowed_methods')} hint={t('development.xget.settings.allowed_methods_desc')}>
-            <Input value={form.methodsText} disabled={disabled} className="font-mono" onChange={(event) => setForm({ ...form, methodsText: event.target.value })} />
+          <Field label={t('development.xget.settings.allowed_methods')} hint={errorHint('methodsText') ?? t('development.xget.settings.allowed_methods_desc')}>
+            <Input
+              value={form.methodsText}
+              disabled={disabled}
+              invalid={Boolean(errors.methodsText)}
+              className="font-mono"
+              onChange={(event) => {
+                setForm({ ...form, methodsText: event.target.value })
+                clearError('methodsText')
+              }}
+            />
           </Field>
-          <Field label={t('development.xget.settings.allowed_origins')} hint={t('development.xget.settings.allowed_origins_desc')}>
-            <Input value={form.originsText} disabled={disabled} className="font-mono" onChange={(event) => setForm({ ...form, originsText: event.target.value })} />
+          <Field label={t('development.xget.settings.allowed_origins')} hint={errorHint('originsText') ?? t('development.xget.settings.allowed_origins_desc')}>
+            <Input
+              value={form.originsText}
+              disabled={disabled}
+              invalid={Boolean(errors.originsText)}
+              className="font-mono"
+              onChange={(event) => {
+                setForm({ ...form, originsText: event.target.value })
+                clearError('originsText')
+              }}
+            />
           </Field>
           <div className="sm:col-span-2">
-            <Field label={t('development.xget.settings.max_path_length')} hint={t('development.xget.settings.max_path_length_desc')}>
-              <Input type="number" min={1} max={8192} value={form.max_path_length} disabled={disabled} className="sm:max-w-56" onChange={(event) => setNumber('max_path_length', event.target.value)} />
+            <Field label={t('development.xget.settings.max_path_length')} hint={errorHint('max_path_length') ?? t('development.xget.settings.max_path_length_desc')}>
+              <Input type="number" min={1} max={8192} value={form.max_path_length} disabled={disabled} invalid={Boolean(errors.max_path_length)} className="sm:max-w-56" onChange={(event) => setNumber('max_path_length', event.target.value)} />
             </Field>
           </div>
         </div>

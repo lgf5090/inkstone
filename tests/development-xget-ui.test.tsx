@@ -192,6 +192,20 @@ describe('the Xget settings panel', () => {
     expect(apiMocks.setToken).toHaveBeenCalledWith('token-12345678')
   })
 
+  it('does not save an empty or out-of-range number', async () => {
+    rendered = renderElement(
+      <SettingsPanel settings={SETTINGS} loading={false} error={null} onReload={vi.fn(async () => undefined)} />,
+    )
+    const timeout = rendered.container.querySelector<HTMLInputElement>('input[type="number"]')!
+    setInput(timeout, '')
+    act(() => button(rendered!.container, t('development.xget.settings.save')).click())
+    await act(async () => {})
+    expect(apiMocks.saveSettings).not.toHaveBeenCalled()
+    expect(rendered.container.textContent).toContain(
+      t('development.xget.settings.invalid_range', { min: 1, max: 120 }),
+    )
+  })
+
   it('saves the anonymous access switch', async () => {
     rendered = renderElement(
       <SettingsPanel settings={SETTINGS} loading={false} error={null} onReload={vi.fn(async () => undefined)} />,

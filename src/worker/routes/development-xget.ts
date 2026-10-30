@@ -75,7 +75,10 @@ function configView(config: XgetConfig): XgetSettingsConfig {
 function normalizeMethods(value: string[]): string[] {
   const known = new Set<string>(XGET_KNOWN_METHODS)
   const methods = [...new Set(value.map((entry) => entry.trim().toUpperCase()).filter(Boolean))]
-  return methods.filter((method) => known.has(method))
+  if (!methods.length) throw ApiError.badRequest('At least one method is required')
+  const unsupported = methods.find((method) => !known.has(method))
+  if (unsupported) throw ApiError.badRequest(`Unsupported method: ${unsupported}`)
+  return methods
 }
 
 function normalizeOrigins(value: string[]): string[] {

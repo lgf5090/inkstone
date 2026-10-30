@@ -102,7 +102,7 @@ describe('Xget settings API', () => {
         max_retries: 2,
         retry_delay_ms: 250,
         cache_duration: 120,
-        allowed_methods: ['get', 'post', 'get', 'TRACE'],
+        allowed_methods: ['get', 'post', 'get'],
         allowed_origins: ['https://Example.com', 'javascript:alert(1)', '*'],
         max_path_length: 4096,
       },
@@ -121,7 +121,12 @@ describe('Xget settings API', () => {
   it('rejects a member write and malformed bodies', async () => {
     expect((await call('PUT', '/settings', { user: MEMBER, body: { timeout_seconds: 5 } })).status).toBe(403)
     expect((await call('PUT', '/settings', { body: { timeout_seconds: 'five' } })).status).toBe(400)
+    expect((await call('PUT', '/settings', { body: { timeout_seconds: 0 } })).status).toBe(400)
+    expect((await call('PUT', '/settings', { body: { timeout_seconds: 121 } })).status).toBe(400)
+    expect((await call('PUT', '/settings', { body: { timeout_seconds: 1.5 } })).status).toBe(400)
     expect((await call('PUT', '/settings', { body: { allowed_methods: 'GET' } })).status).toBe(400)
+    expect((await call('PUT', '/settings', { body: { allowed_methods: ['TRACE'] } })).status).toBe(400)
+    expect((await call('PUT', '/settings', { body: { allowed_methods: [] } })).status).toBe(400)
   })
 
   it('rejects an invalid origin instead of widening the allow list', async () => {
