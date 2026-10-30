@@ -8,6 +8,7 @@ import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
 import { blogAdminRoutes } from './blog/admin-routes'
 import { blogPublicRoutes } from './blog/public-routes'
+import { blogRuntimeRoutes } from './blog/runtime-routes'
 import { inknoteRoutes } from './routes/inknote'
 import { inknoteAssetsRoutes } from './routes/inknote-assets'
 import { inknoteSettingsRoutes } from './routes/inknote-settings'
@@ -330,6 +331,8 @@ export function createApp() {
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
+
+  app.route('/blog-runtime', blogRuntimeRoutes)
 
   app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw))
 

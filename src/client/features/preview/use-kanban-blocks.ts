@@ -20,6 +20,8 @@ export interface KanbanFullscreenState {
 interface UseKanbanBlocksOptions {
   scope: string
   noteId: string | null
+  /** False on a public reading surface: the board opens and pans but no card can be changed. */
+  editable?: boolean
   hostRef: RefObject<HTMLDivElement | null>
   committedHtml: string
   /**
@@ -46,7 +48,7 @@ function renderKanbanDescription(source: string): string {
 }
 
 export function useKanbanBlocks(options: UseKanbanBlocksOptions) {
-  const { scope, noteId, hostRef, committedHtml, fences } = options
+  const { scope, noteId, hostRef, committedHtml, fences, editable = true } = options
   const writer = useMemo(() => createKanbanWriter(noteId), [noteId])
   const [fullscreen, setFullscreen] = useState<KanbanFullscreenState | null>(null)
   const fullscreenRef = useRef(fullscreen)
@@ -71,7 +73,7 @@ export function useKanbanBlocks(options: UseKanbanBlocksOptions) {
     void mountKanbans(host, {
       scope,
       noteId,
-      editable: true,
+      editable,
       writeBack: writer,
       onOpenFullscreen: openFullscreen,
       onCloseFullscreen: closeFullscreen,
@@ -79,7 +81,7 @@ export function useKanbanBlocks(options: UseKanbanBlocksOptions) {
     }).catch((err: unknown) => {
       console.warn('[inkstone] kanban mount failed', err)
     })
-  }, [committedHtml, fences, noteId, scope, writer, hostRef, openFullscreen, closeFullscreen])
+  }, [committedHtml, fences, noteId, scope, editable, writer, hostRef, openFullscreen, closeFullscreen])
 
   useKanbanTeardown(scope, setFullscreen, fullscreenRef)
 

@@ -13,6 +13,8 @@ run_worker_first = [
   "/index.html",
   "/api",
   "/api/*",
+  "/blog-runtime",
+  "/blog-runtime/*",
   "/s",
   "/s/*",
   "/c",

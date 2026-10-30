@@ -16,6 +16,12 @@ interface ResolveOptions {
   currentContent: string
   currentTitle: string
   isCurrent?: () => boolean
+  /**
+   * Which targets a surface may expand. A public page names the notes it is allowed to show — the
+   * published ones — so an embed of a private note becomes the ordinary "not found" notice instead of
+   * being painted into markup that leaves the owner's workspace.
+   */
+  allowTarget?: (target: ReturnType<typeof parseWikiTarget>) => boolean
 }
 
 interface ResolveContext extends ResolveOptions {
@@ -161,6 +167,10 @@ async function resolveWithin(
       : scope
 
     try {
+      if (context.allowTarget && !context.allowTarget(target)) {
+        showError(embed, t("markdown.embedded_note_not_found"))
+        continue
+      }
       const resolved = await resolveTarget(target, context, targetScope)
       if (!resolved) {
         showError(embed, t("markdown.embedded_note_not_found"))

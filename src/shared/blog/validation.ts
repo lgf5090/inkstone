@@ -32,7 +32,28 @@ export const BlogSnapshotSchema = z.object({
   wikiLinks: z
     .array(z.object({ target: z.string().min(1).max(500), slug: z.string().max(500).nullable() }))
     .max(2000),
-  settings: z.object({ locale: z.string().min(1).max(32), emojiShortcodes: z.boolean() }),
+  settings: z.object({
+    locale: z.string().min(1).max(32),
+    emojiShortcodes: z.boolean(),
+    math: z.boolean().optional(),
+    mermaid: z.boolean().optional(),
+    chart: z.boolean().optional(),
+    codeBlockCollapse: z.boolean().optional(),
+    codeBlockCollapseLines: z.number().int().min(0).max(100000).optional(),
+    jsonView: z.enum(['source', 'tree', 'map']).optional(),
+    jsonFold: z.number().int().min(0).max(1000).optional(),
+    jsonTolerant: z.boolean().optional(),
+  }),
+  embeds: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(200),
+        title: z.string().min(1).max(500),
+        content: z.string().max(2 * 1024 * 1024),
+      }),
+    )
+    .max(50)
+    .optional(),
   generatedAt: z.number().int().nonnegative(),
   warnings: z.array(z.string().max(500)).max(100),
 })

@@ -10,7 +10,12 @@ import { describe, expect, it } from 'vitest'
  * than in a component's own test because this is the project that may touch the filesystem.
  */
 describe('the modal entrance animations', () => {
-  const css = readFileSync('src/client/styles/app.css', 'utf8')
+  // The animation classes and their keyframes moved to the shared primitive sheet, which every
+  // application surface imports for popovers, viewport overlays and the common entrance animations.
+  const css = [
+    readFileSync('src/client/styles/app.css', 'utf8'),
+    readFileSync('src/client/styles/ui-primitives.css', 'utf8'),
+  ].join('\n')
 
   const keyframeOf = (className: string): string => {
     const body = new RegExp(`\\.${className}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''

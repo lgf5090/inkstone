@@ -26,6 +26,32 @@ const ALLOWED_STYLES: sanitizeHtml.IOptions['allowedStyles'] = {
     'object-fit': [/^(contain|cover|fill|none|scale-down)$/],
     'aspect-ratio': [SAFE_STYLE],
     opacity: [/^(0|1|0?\.\d+)$/],
+    position: [/^(relative|absolute|static)$/],
+    top: [SAFE_STYLE],
+    bottom: [SAFE_STYLE],
+    left: [SAFE_STYLE],
+    right: [SAFE_STYLE],
+    'font-size': [SAFE_STYLE],
+    'font-family': [SAFE_STYLE],
+    'line-height': [SAFE_STYLE],
+    'letter-spacing': [SAFE_STYLE],
+    'margin-left': [SAFE_STYLE],
+    'margin-right': [SAFE_STYLE],
+    'margin-top': [SAFE_STYLE],
+    'margin-bottom': [SAFE_STYLE],
+    'padding-left': [SAFE_STYLE],
+    'padding-right': [SAFE_STYLE],
+    'padding-top': [SAFE_STYLE],
+    'padding-bottom': [SAFE_STYLE],
+    'border-bottom': [SAFE_STYLE],
+    'min-height': [SAFE_STYLE],
+    'max-height': [SAFE_STYLE],
+    'overflow-x': [/^(auto|hidden|scroll|visible)$/],
+    'overflow-y': [/^(auto|hidden|scroll|visible)$/],
+    overflow: [/^(auto|hidden|scroll|visible)$/],
+    transform: [SAFE_STYLE],
+    clip: [SAFE_STYLE],
+    'text-indent': [SAFE_STYLE],
   },
 }
 
@@ -34,7 +60,8 @@ const ALLOWED_TAGS = sanitizeHtml.defaults.allowedTags.concat([
   'del', 'mark', 'sup', 'sub', 'kbd', 'dl', 'dt', 'dd', 'abbr', 'cite', 'q', 's', 'time',
   'video', 'audio', 'source',
   'math', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mtext', 'semantics',
-  'annotation', 'mspace', 'mmultiscripts', 'mover', 'munder', 'mtable', 'mtr', 'mtd',
+  'annotation', 'mspace', 'mmultiscripts', 'mover', 'munder', 'munderover', 'mtable', 'mtr', 'mtd',
+  'mstyle', 'mpadded', 'mphantom', 'mroot', 'menclose', 'mglyph', 'mlabeledtr',
 ])
 
 /**
@@ -53,7 +80,17 @@ export function sanitizeBlogHtml(html: string): string {
       video: ['src', 'controls', 'poster', 'width', 'height', 'preload', 'muted', 'loop'],
       audio: ['src', 'controls', 'preload', 'loop'],
       source: ['src', 'type'],
-      math: ['xmlns', 'display'],
+      math: ['xmlns', 'display', 'displaystyle', 'scriptlevel'],
+      mspace: ['width', 'height', 'depth'],
+      mfrac: ['linethickness', 'bevelled'],
+      mover: ['accent'],
+      munder: ['accentunder'],
+      munderover: ['accent', 'accentunder'],
+      mtable: ['columnalign', 'rowspacing', 'columnspacing', 'displaystyle'],
+      mtd: ['columnalign', 'rowspan', 'columnspan'],
+      mstyle: ['displaystyle', 'scriptlevel', 'mathcolor', 'mathbackground'],
+      mpadded: ['width', 'height', 'depth', 'lspace', 'voffset'],
+      annotation: ['encoding'],
       mi: ['mathvariant'],
       mo: ['stretchy', 'fence', 'separator'],
       mtext: ['mathvariant'],
@@ -66,6 +103,12 @@ export function sanitizeBlogHtml(html: string): string {
         if (next.target === '_blank') next.rel = 'noopener noreferrer'
         return { tagName, attribs: next }
       },
+      // A task box on a published page has no note to write a tick back to. Leaving it enabled would
+      // make the still show a state the article does not have the moment a reader clicks it.
+      input: (tagName, attribs) => ({
+        tagName,
+        attribs: attribs.type === 'checkbox' ? { ...attribs, disabled: 'disabled' } : attribs,
+      }),
     },
   })
 }

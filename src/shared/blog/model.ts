@@ -24,6 +24,32 @@ export interface BlogWikiLink {
   slug: string | null
 }
 
+/**
+ * A published note an article embeds.
+ *
+ * Only published targets are captured: the runtime resolves `![[…]]` from this map exactly as the
+ * note app resolves it from its store, so an article can never pull a private note into a public page
+ * by embedding it. The body is the raw markdown the shared renderer turns into the same HTML.
+ */
+export interface BlogEmbeddedNote {
+  id: string
+  title: string
+  content: string
+}
+
+export interface BlogReadingSettings {
+  locale: string
+  emojiShortcodes: boolean
+  math?: boolean
+  mermaid?: boolean
+  chart?: boolean
+  codeBlockCollapse?: boolean
+  codeBlockCollapseLines?: number
+  jsonView?: 'source' | 'tree' | 'map'
+  jsonFold?: number
+  jsonTolerant?: boolean
+}
+
 export interface BlogRenderSnapshot {
   version: 1
   rendererVersion: string
@@ -35,7 +61,8 @@ export interface BlogRenderSnapshot {
   features: string[]
   assets: BlogAssetRef[]
   wikiLinks: BlogWikiLink[]
-  settings: { locale: string; emojiShortcodes: boolean }
+  settings: BlogReadingSettings
+  embeds?: BlogEmbeddedNote[]
   generatedAt: number
   warnings: string[]
 }

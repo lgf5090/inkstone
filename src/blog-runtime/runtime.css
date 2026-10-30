@@ -1,0 +1,39 @@
+/*
+ * Styles for the reading runtime only.
+ *
+ * The app's own `app.css` scans every feature and ships the styles of screens this runtime never
+ * mounts (editor, mail, music, ink tools, …), which on a public article is a megabyte of CSS paid for
+ * nothing. This entry keeps the shared tokens and the block styles, and limits Tailwind's source scan
+ * to the components the reading surface can actually put on the page.
+ */
+@import 'tailwindcss' source(none);
+
+@source '../client/features/preview';
+@source '../client/features/tags';
+@source '../client/features/workspace/context-menu';
+@source '../client/features/links';
+@source '../client/components';
+@source '../client/lib/markdown/kanban';
+@source '../client/lib/markdown/mindmap';
+@source '../client/lib/markdown/excalidraw';
+@source '../client/lib/dataview';
+@source '../client/features/mindmap';
+
+@import '../client/styles/ui-theme.css';
+/* The host page supplies the token sheet (both apps ship the same `tokens.css`); importing it here
+   would re-declare `:root` fonts and widths over the blog's own shell. */
+@import '../client/styles/ui-primitives.css';
+@import '../client/styles/pele.css';
+@import '../client/styles/prose.css';
+@import '../client/styles/kanban.css';
+@import '../client/styles/dataview.css';
+@import '../client/styles/tasks.css';
+
+/*
+ * A public board keeps its reading controls — view switching, search, filters, export — and drops the
+ * affordances that would write to a note. The labelled buttons are removed by the runtime after the
+ * board mounts (their labels come from the locale catalog); these two carry stable attributes.
+ */
+.is-readonly :is([data-kanban-rename-card], [data-kanban-new-item]) {
+  display: none;
+}

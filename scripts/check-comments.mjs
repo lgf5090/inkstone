@@ -169,6 +169,25 @@ const allowed = new Map([
     "// every one the stylesheet offers, not just the default.",
     "// Two attribute selectors beat the plain `:root` default that follows them.",
   ]],
+  ["src/blog-runtime/katex-stub.css", [
+    "/* The blog entry already ships KaTeX's stylesheet; the runtime must not inline its fonts a second time. */",
+  ]],
+  ["src/blog-runtime/main.tsx", [
+    "/**\n * The blog's reading runtime.\n *\n * This is not a second renderer. It mounts the note app's own `Preview` — the same markdown parser,\n * the same enhancement pass, the same live block mounts, the same reading interactions — so a format\n * added to the note app reaches published articles without blog-side changes. The blog keeps the\n * stored snapshot as its no-JS and first-paint surface and replaces it with this runtime when it is\n * available; a failed load leaves the still standing.\n */",
+    "/** Blog locale; the note app ships zh-CN and en-US reading labels. */",
+    "/** Prefix for `/vendor/…` files, because this runtime is served through the blog's proxy. */",
+    "/** Where a tag press goes. Without a resolver the tag stays inert. */",
+    "/**\n * Put the published notes where the shared embed resolver looks for them.\n *\n * Only the article itself and the published notes it embeds are present. Anything else is absent by\n * construction, so a wiki link or embed that points at a private note resolves to nothing rather than\n * reaching the owner's API.\n */",
+    "// Surfaces a public page cannot offer: writes, drag handles and editor menus.",
+    "/**\n * Write actions a read-only board can still draw.\n *\n * The board's data layer already refuses every write when `editable` is false, and the marked\n * controls are removed by CSS; the add/rename affordances the board builds inside its views carry\n * only their label, so they are recognised by it here. New labels mean a new entry, not a write:\n * the writer above is what makes the page safe.\n */",
+    "// Views are mounted asynchronously after the first paint, so a one-shot sweep would run before",
+    "// the board has buttons to sweep.",
+  ]],
+  ["src/blog-runtime/runtime.css", [
+    "/*\n * Styles for the reading runtime only.\n *\n * The app's own `app.css` scans every feature and ships the styles of screens this runtime never\n * mounts (editor, mail, music, ink tools, …), which on a public article is a megabyte of CSS paid for\n * nothing. This entry keeps the shared tokens and the block styles, and limits Tailwind's source scan\n * to the components the reading surface can actually put on the page.\n */",
+    "/* The host page supplies the token sheet (both apps ship the same `tokens.css`); importing it here\n   would re-declare `:root` fonts and widths over the blog's own shell. */",
+    "/*\n * A public board keeps its reading controls — view switching, search, filters, export — and drops the\n * affordances that would write to a note. The labelled buttons are removed by the runtime after the\n * board mounts (their labels come from the locale catalog); these two carry stable attributes.\n */",
+  ]],
   ["src/client/App.test.ts", [
     "/**\n * The update card where a reader actually looks at it.\n *\n * `pwa.test.ts` proves the store raises `updateAvailable` when a build finishes installing. A flag is not\n * an entry: the failure this file guards is exactly the one the intercepted install banner would have\n * been — a state that exists with nothing on screen to spend it. So the card is rendered from `App`, the\n * real host, and pressed through the real button, because the two halves that have to stay true are the\n * mount and the wiring, not the styling.\n */",
     "// `status: 'loading'` is the one state that renders the shell's layers without rendering a notebook:",
@@ -1262,7 +1281,10 @@ const allowed = new Map([
     "/**\n * Set the note's isPublished property, save it, then publish the rendered snapshot (or withdraw the\n * projection). The note remains the source of truth; a snapshot failure leaves the property set and\n * the post pending rather than pretending the publish succeeded.\n */",
   ]],
   ["src/client/features/blog/snapshot.ts", [
-    "/**\n * Build the public reading snapshot from the same markdown pipeline Preview uses. The snapshot is\n * plain renderer output; rich blocks that need the live enhancement pass stay visible to the runtime\n * through `features`, while the static HTML remains readable without it.\n */",
+    "/**\n * Whether a note's body may leave the owner's workspace as part of a public article: published, not\n * password-protected, and not scheduled for later. A protected post is public only through its own\n * unlock page, so embedding it elsewhere would hand its body to anyone reading the host article.\n */",
+    "/** The body a public page may show for an embedded note, or null when it is not published. */",
+    "/**\n * The published notes an article may expand, starting from the embed syntax in its source.\n *\n * The note app resolves embeds against the whole vault; a public page must not, because the target of\n * an embed can be a private note. This walks only what the article actually embeds, keeps the ones\n * whose `isPublished` property is set, and hands the runtime the same bodies so its re-render and the\n * stored still agree. A private target is left out entirely, so the renderer paints the ordinary\n * missing-note notice instead of leaking its body into a snapshot.\n */",
+    "/**\n * Wiki links that point at another published article.\n *\n * The note app follows a wiki link through its vault. A public page has no vault, so the only target\n * it may offer is a *published* note, and the address it can offer is that note's article slug. The\n * lookup is per unique target and capped: a page with two hundred links should not turn a publish\n * into two hundred admin calls.\n */",
   ]],
   ["src/client/features/calendar/CalendarApp.tsx", [
     "/**\n * `/calendar`: the container that owns loading, failure, empty and ready.\n *\n * The surface is mounted only after metadata and the first range have arrived, so DayFlow never sees\n * a half-built registry. A reload keeps the same range around today; navigation beyond it is the\n * surface's own incremental fetch.\n */",
@@ -10484,6 +10506,17 @@ const allowed = new Map([
     "// stays source there. Gated on the markup having moved, because the answers already in the DOM are the",
     "// cache — and on the source mentioning the syntax, so an ordinary note never loads the module at all.",
     "// The body the reader is looking at, not the one on the server: a run reads the note as rendered.",
+    "/**\n   * A public reading surface. The body is the same renderer and the same live blocks, but nothing\n   * here may write to a note or open a vault-only panel: properties are hidden, task boxes stay\n   * read-only, and links are handed to the host's resolver instead of the note store.\n   */",
+    "/** Where a wiki link goes on a public surface. Returning false leaves the link inert. */",
+    "/** Where a tag goes on a public surface. Returning false leaves the tag inert. */",
+    "// Charts draw their colours from the accent, which is not a markup input: a theme pass redraws them",
+    "// through its own effect, and the accent needs the same trigger or a switched palette stays on screen.",
+    "// A public surface has no vault index to answer from, so it shows the query itself.",
+    "// A public page has no note to write a tick to. Disabling the boxes says so before the reader",
+    "// clicks; the click guard above is the second half.",
+    "// A published article has no note to write a tick back to, so the box keeps its state.",
+    "// A public page resolves note links through its host; a heading or block target points",
+    "// inside this very article, so it scrolls exactly as it does in the note app.",
   ]],
   ["src/client/features/preview/PropertyDecorations.tsx", [
     "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
@@ -11416,6 +11449,9 @@ const allowed = new Map([
     "// The DOM is re-rendered from source shortly; close on the live node now too so the popover never",
     "// lingers over the block while the edit commits.",
   ]],
+  ["src/client/features/preview/use-excalidraw-blocks.ts", [
+    "/** False on a public reading surface: the canvas draws and pans but never saves. */",
+  ]],
   ["src/client/features/preview/use-json-blocks.ts", [
     "/** Bumped once the preview has committed its markup, which is when a fresh host exists to fill. */",
     "/** Read at mount time rather than captured, so a write always sees the committed text. */",
@@ -11435,6 +11471,7 @@ const allowed = new Map([
     "// this only takes the modal out of the tree.",
     "// The host carries the markup it was just given, so the bodies go on the same element.",
     "/**\n * The pane's two jobs around a board that went away.\n *\n * The registry disposes a block's React root when the document stops holding it — the fence deleted in\n * the editor, or the preview re-rendered without it — and announces that on the prune path. The overlay\n * used to survive it as an empty stage: a blank dialog the reader could only escape, with nothing saying\n * the board was gone (review K-04). So a notification closes the overlay and says why, reading the open\n * session off a ref so the listener needs no dependency on it and keeps one identity for the pane's life.\n *\n * A pane being torn down disposes its boards too, and that is not a removal the reader needs to hear\n * about — hence the order below: unsubscribe first, then flush and destroy.\n */",
+    "/** False on a public reading surface: the board opens and pans but no card can be changed. */",
   ]],
   ["src/client/features/preview/use-mindmap-blocks.ts", [
     "/**\n     * Bumped once the preview has committed its markup, which is the only moment a fresh placeholder\n     * exists to take the map. A body-only edit changes that markup too, because the body rides on the\n     * block as an attribute.\n     */",
@@ -11448,6 +11485,7 @@ const allowed = new Map([
     "/**\n * Clicking a node hands the map the DOM focus its shortcuts need — in a split\n * view the editor would otherwise swallow Tab, Delete and undo. The full screen\n * overlay is portaled outside this host, so it installs its own listener on the\n * modal body; both resolve the same entry and focus twice is harmless.\n */",
     "// Read, not subscribed: a setting change should not re-run a mount pass, and the",
     "// ceiling only matters to the instances a pass goes on to build.",
+    "/** False on a public reading surface: the map draws and folds but never writes back. */",
   ]],
   ["src/client/features/preview/wiki-link-hover-card/index.tsx", [
     "// Pinning keeps a note window, so a link card has nothing to pin into.",
@@ -18548,6 +18586,9 @@ const allowed = new Map([
     "/**\n * Change the address without giving the reader another back button.\n *\n * For state that moves as fast as they type: a search box that pushed would turn three keystrokes into\n * three presses of back, and a reader who returns to the app lands on a screen they never chose.\n */",
     "/** Listen for the address changing by anything other than the reader leaving the page. */",
   ]],
+  ["src/client/lib/asset-base.ts", [
+    "/**\n * Where the app's own vendor files live.\n *\n * The app serves `/vendor/…` from its own origin. A reading runtime hosted on another site (the blog)\n * receives the files through a proxy, so the loader has to be told the prefix instead of assuming the\n * page origin. An empty base keeps every existing surface on its current absolute path.\n */",
+  ]],
   ["src/client/lib/async.ts", [
     "/**\n * Resolves when the work does or when it has had long enough, so a slow artifact delays what\n * comes next instead of hanging it. The timeout is the contract: the caller cannot wait\n * forever, and it must not learn about a failure it can do nothing about.\n */",
   ]],
@@ -19473,6 +19514,7 @@ const allowed = new Map([
     "// Only a browser has a document to paint, and a caller without one is a test seeding through a",
     "// client store under the node environment: the locale it reads is the one already in memory, so",
     "// there is nothing here for such a caller to want.",
+    "/**\n * Locale boot for a surface that renders one language and no switcher.\n *\n * The app's own `initI18n` also preloads the other shipped locale for an instant switch; a public\n * reading surface has no switch, so that background chunk is traffic nobody asked for.\n */",
   ]],
   ["src/client/lib/ime.ts", [
     "/**\n * The keyCode an IME keystroke carries: 229 means \"Process\", i.e. the input method owns this key.\n *\n * `isComposing` is false on the keystroke that *accepts* a candidate in some browsers, which is exactly\n * the one that used to run the action underneath - the classic \"Enter picks the word and submits the\n * form\" bug. Checking the keyCode catches that frame even when the flag has already been cleared.\n */",
@@ -21210,6 +21252,7 @@ const allowed = new Map([
     "// block in here finds this set before the one the host carrying the embed registered.",
     "/**\n * A `.elixir` note holds a mind map body, not Markdown: embedded as it is, the reader\n * gets a wall of JSON. Wrapped in a ```mindmap fence it goes through the same drawer a\n * block does — and, like every other embed, comes out a still picture rather than a\n * writable map, because writing back would point at lines of a note that is not there.\n */",
     "// A conversation is not a note: it has no body to embed, and the box is filled from the API.",
+    "/**\n   * Which targets a surface may expand. A public page names the notes it is allowed to show — the\n   * published ones — so an embed of a private note becomes the ordinary \"not found\" notice instead of\n   * being painted into markup that leaves the owner's workspace.\n   */",
   ]],
   ["src/client/lib/markdown/emoji-shortcodes.test.ts", [
     "// A `:::` run that opens nothing is still a `:::` run, and its colons are not a code's colons.",
@@ -24523,6 +24566,9 @@ const allowed = new Map([
     "// reading preview lets you tick had nothing to tick in the editor.",
     "// `sub:` is syntax, not part of the reader's name for the plan, so it is dropped from the label the",
     "// same way a bare note id is — the target attribute keeps the prefix, the click needs it.",
+    "// `md.renderInline` runs the core chain too (a callout title, a tab label). That pass has no",
+    "// block tokens, and with a footnote anywhere in the environment `footnote_tail` gives it some —",
+    "// so without this guard it would reset the headings the document pass had just collected.",
   ]],
   ["src/client/lib/markdown/table-editor.ts", [
     "/**\n * The pipe table as an editable object: where the block the cursor sits in begins, which row and\n * column that cursor is on, and the row/column/alignment edits a menu asks for.\n *\n * Geometry stays on the table the caller passed in. Every edit below returns a table whose\n * `startLine`/`endLine` still describe the block *in the note*, because the caller replaces exactly\n * those lines with `formatMarkdownTable`'s output — an edit that moved its own bounds would make the\n * next edit in the same menu cut a different block out of the note.\n */",
@@ -28399,11 +28445,8 @@ const allowed = new Map([
   ["src/client/styles/app.css", [
     "/* Four 44px touch targets already cost 176px, which left the search box two\n   characters wide on a small phone; below the tablet breakpoint it takes its own row. */",
     "/* The phone has no icon rail, so the launcher takes the same 44px slot as its siblings. */",
-    "/* No `--color-base`: Tailwind resolves `text-base` as a colour when a theme colour is named `base`,\n     which would replace the built-in 1rem font size with the page background as the text colour. */",
-    "/* ── One skin for every floating surface ─────────────────────────────────────\n   Popovers, menus, tooltips, toasts and modal-style panels all raise the same\n   four tokens. Declared as a Tailwind utility so it is usable three ways: as a\n   class on markup, and as `@apply popover-surface` from a module stylesheet that\n   already owns the selector. `--shadow-pop` carries its own 1px ring, so a border\n   is still needed for the light theme's flat surfaces. */",
     "/* A tab panel is one scrolling column, so a panel's own toolbar and filter box would\n   drift up and out of sight behind the list they control. Pinning them keeps the\n   controls that choose what the list shows reachable while the reader is in it. One\n   rule rather than per-panel utilities so every tab pins the same way; the background\n   is left to each site, because the sidebar's surface and the right-hand panel's are\n   different colours and a pinned row has to be opaque over what scrolls under it.\n   That same rule is why the scrolling column keeps no top padding of its own: a pin\n   cannot reach into a padding, so the rows travelling under it paint in that slot and\n   the toolbar reads as transparent over them. The gap below the tab strip is a margin\n   on the column instead, outside the box the pin and the scroll share. */",
     "/* UI2-02. The chat bar carries seven surfaces, so it cannot inherit the notebook's 56px per-tab minimum:\n   7 × 56 plus the bar's own 24px of padding asks a 360px phone for 416px, and the outermost tabs are\n   clipped or overlap. These rules belong to that bar alone — `.mobile-tab-content` keeps the sizing the\n   notebook depends on. Here the minimum is the touch target rather than the label, and under the width\n   where seven labels no longer fit the tab shows only its icon: the name still reaches assistive tech\n   through the button's `aria-label`, and the header above keeps naming the surface that is open. The\n   radius is the notebook pill's own 10px, repeated rather than retokenised so the two bars match. */",
-    "/*\n * The 24px touch floor for a control that has to stay small on screen.\n *\n * A remove cross, a detach chip, a pager arrow and the desktop switch are drawn at 16 to 20 pixels,\n * which is under what WCAG 2.5.8 asks a pointer target for. Their painted boxes stay as dense as the row\n * needs — the look is not what was wrong — and this lays the missing area over them as an invisible\n * child, so it takes the control's own clicks, hover and activation. The control keeps its own box, so\n * its focus ring still lands where it did before.\n *\n * The element has to establish its own containing block: either it is already positioned (the attachment\n * chips sit at `absolute` corners) or it carries `relative`. Setting `position` here would win against\n * the utilities that place those corner buttons, which is why it is spelled out per site.\n */",
   ]],
   ["src/client/styles/chat.css", [
     "/* A chat column is narrow, so a wide table scrolls inside its bubble rather than pushing the thread\n   sideways. prose.css gives `.table-wrap` its own page-level overflow, which does not exist here. */",
@@ -28634,6 +28677,13 @@ const allowed = new Map([
     "/* Carried as small text — counts, warnings, the over-budget figure — on the darkest light surface\n     (#f1efe9), where these three measured 2.19 / 1.90 / 3.21. Each is now the lightest value in its own\n     hue and chroma that clears 5:1, which leaves a point of margin over the AA floor of 4.5:1. The dark\n     theme already passed and is untouched. See tests/contrast-light-semantic-colors.test.ts. */",
     "/* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent\n     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to\n     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone\n     to say what it means. */",
     "/* Chart series. The Cloudflare app's graphs are the first screens here that draw more than one\n     series, so the palette is a token rather than a component's own list: `--chart-1` follows the\n     reader's accent, and the other four are hue-separated at the same lightness so no series is\n     told apart by brightness alone. */",
+  ]],
+  ["src/client/styles/ui-primitives.css", [
+    "/*\n * Shared floating-surface primitives.\n *\n * Kept out of app.css so the blog reading runtime can carry the same viewport, popover, utility and\n * animation rules without importing the whole application stylesheet. Both entries import this file;\n * the note app and a published article therefore draw a toast, a lightbox or a menu with one skin.\n */",
+  ]],
+  ["src/client/styles/ui-theme.css", [
+    "/* Theme tokens shared by the application shell and the blog reading runtime. */",
+    "/* No `--color-base`: Tailwind resolves `text-base` as a colour when a theme colour is named `base`,\n     which would replace the built-in 1rem font size with the page background as the text colour. */",
   ]],
   ["src/client/types/hover-card.ts", [
     "/** The destination exactly as the note wrote it, truncated for display. */",
@@ -29203,6 +29253,10 @@ const allowed = new Map([
   ]],
   ["src/shared/blog/model.ts", [
     "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
+    "/**\n * A published note an article embeds.\n *\n * Only published targets are captured: the runtime resolves `![[…]]` from this map exactly as the\n * note app resolves it from its store, so an article can never pull a private note into a public page\n * by embedding it. The body is the raw markdown the shared renderer turns into the same HTML.\n */",
+  ]],
+  ["src/shared/blog/renderer.ts", [
+    "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
   ]],
   ["src/shared/byte-format.ts", [
     "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
@@ -34150,8 +34204,13 @@ const allowed = new Map([
   ["src/worker/blog/media.ts", [
     "// older rows have no variants; an empty list is the honest answer",
   ]],
+  ["src/worker/blog/runtime-routes.ts", [
+    "/**\n * Serves the versioned reading runtime the blog loads for published articles.\n *\n * The files are ordinary build assets, but the path is claimed by the Worker for two reasons: a\n * version that no longer exists must answer 404 rather than the SPA's `index.html` (a module script\n * cannot recover from HTML), and the blog reads them through a proxy, so the response states the\n * immutable caching the content-hashed names already justify.\n */",
+  ]],
   ["src/worker/blog/sanitize.ts", [
     "/**\n * The snapshot arrives from an authenticated browser, but the worker is still the trust boundary:\n * the owner API accepts a payload from any client that holds the session, so scripts, event handlers,\n * javascript: URLs and CSS that can fetch must not survive the write.\n */",
+    "// A task box on a published page has no note to write a tick back to. Leaving it enabled would",
+    "// make the still show a state the article does not have the moment a reader clicks it.",
   ]],
   ["src/worker/blog/schema.ts", [
     "/** Blog tables, indexes and the required-shape lists the schema convergence repair reads. */",
@@ -40877,6 +40936,9 @@ const allowed = new Map([
   ["tests/blog-admin-contract.test.ts", [
     "/// <reference types=\"node\" />",
   ]],
+  ["tests/blog-runtime.test.ts", [
+    "/// <reference types=\"node\" />",
+  ]],
   ["tests/boot-scripts.test.ts", [
     "// Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.",
     "// The shape Cloudflare's analytics beacon takes: appended at the edge, then killed by CSP, by a",
@@ -41520,6 +41582,8 @@ const allowed = new Map([
   ]],
   ["tests/excalidraw-modal-entrance.test.ts", [
     "/**\n * The two classes the text-to-diagram modal and the official-library modal enter with.\n *\n * They used to enter with `animate-in fade-in zoom-in-95`, which nothing in this project defines: that\n * vocabulary belongs to an animation plugin that is not a dependency, so the classes were decoration for\n * an animation that never ran, and no test of the components could tell the difference. Read here rather\n * than in a component's own test because this is the project that may touch the filesystem.\n */",
+    "// The animation classes and their keyframes moved to the shared primitive sheet, which every",
+    "// application surface imports for popovers, viewport overlays and the common entrance animations.",
   ]],
   ["tests/excalidraw-official-catalog-route.test.ts", [
     "/** The route caches the catalog in module scope, so every test needs a freshly imported module. */",
@@ -44439,6 +44503,7 @@ const allowed = new Map([
     "// reach the bundle) and keeps one chunk per renderer. The renderer list is explicit rather than a",
     "// preset so the build cannot pull in a package this app does not ship, and `missingRenderer` turns",
     "// a typo here into a failed build instead of a viewer that silently cannot render a type.",
+    "/**\n * Serves the built reading runtime during dev.\n *\n * The blog loads the versioned bundle exactly as it does in production; without this the dev app's SPA\n * fallback answers `/blog-runtime/*` with `index.html`, which a module script cannot execute. Rebuild\n * with `npm run build:runtime` after changing the surface.\n */",
   ]],
   ["vitest.config.ts", [
     "// The suite's own tail decides this number. Measured over a full parallel run of every file:",

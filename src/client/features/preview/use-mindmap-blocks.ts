@@ -20,6 +20,8 @@ export interface MindmapFullscreenState {
 interface UseMindmapBlocksOptions {
     scope: string
     noteId: string | null
+    /** False on a public reading surface: the map draws and folds but never writes back. */
+    editable?: boolean
     hostRef: RefObject<HTMLDivElement | null>
     /**
      * Bumped once the preview has committed its markup, which is the only moment a fresh placeholder
@@ -36,7 +38,7 @@ interface UseMindmapBlocksOptions {
  * paint, so typing in the editor never restarts a map.
  */
 export function useMindmapBlocks(options: UseMindmapBlocksOptions) {
-    const { scope, noteId, hostRef, epoch, dark } = options;
+    const { scope, noteId, hostRef, epoch, dark, editable = true } = options;
     const locale = useLocale();
     const writer = useMemo(() => createMindmapWriter(noteId), [noteId]);
     const fenceWriter = useMemo(() => createMindmapFenceWriter(noteId), [noteId]);
@@ -49,12 +51,12 @@ export function useMindmapBlocks(options: UseMindmapBlocksOptions) {
             return;
         // Read, not subscribed: a setting change should not re-run a mount pass, and the
         // ceiling only matters to the instances a pass goes on to build.
-        void mountMindmaps(host, { scope, noteId, dark, locale, editable: true, undoStepLimit: useMindmapSettingsStore.getState().undoHistoryLimit, writeBack: writer, writeFence: fenceWriter }).catch((err: unknown) => {
+        void mountMindmaps(host, { scope, noteId, dark, locale, editable, undoStepLimit: useMindmapSettingsStore.getState().undoHistoryLimit, writeBack: writer, writeFence: fenceWriter }).catch((err: unknown) => {
             // Per-block failures render their own error banner; this only catches a
             // wholesale failure such as a detached host.
             console.warn('[inkstone] mind map mount failed', err);
         });
-    }, [epoch, dark, locale, noteId, scope, writer, fenceWriter, hostRef]);
+    }, [epoch, dark, locale, noteId, scope, editable, writer, fenceWriter, hostRef]);
 
     useMindmapTeardown(scope, setFullscreen, setThemeMenu);
     useMindmapPointerFocus(hostRef, epoch);

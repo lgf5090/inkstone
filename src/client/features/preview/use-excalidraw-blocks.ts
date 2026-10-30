@@ -11,13 +11,15 @@ import { lockBodyScroll } from '../excalidraw/fullscreen';
 interface UseExcalidrawBlocksOptions {
     scope: string;
     noteId: string | null;
+    /** False on a public reading surface: the canvas draws and pans but never saves. */
+    editable?: boolean;
     hostRef: RefObject<HTMLDivElement | null>;
     epoch: number;
     dark: boolean;
 }
 
 export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
-    const { scope, noteId, hostRef, epoch, dark } = options;
+    const { scope, noteId, hostRef, epoch, dark, editable = true } = options;
     const locale = useLocale();
     const writer = useMemo(() => createExcalidrawWriter(noteId), [noteId]);
 
@@ -30,12 +32,12 @@ export function useExcalidrawBlocks(options: UseExcalidrawBlocksOptions) {
             noteId,
             dark,
             locale,
-            editable: true,
+            editable,
             writeBack: writer,
         }).catch((err: unknown) => {
             console.warn('[inkstone] excalidraw mount failed', err);
         });
-    }, [epoch, dark, locale, noteId, scope, writer, hostRef]);
+    }, [epoch, dark, locale, noteId, scope, editable, writer, hostRef]);
 
     useEffect(() => {
         return () => {
