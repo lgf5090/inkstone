@@ -71,10 +71,11 @@ class R2ObjectStub implements R2ObjectBody {
   readonly ssecKeyMd5?: string
   private used = false
 
-  constructor(key: string, private readonly object: StoredObject, uploaded: Date, range?: R2Range) {
+  constructor(key: string, private readonly object: StoredObject, uploaded: Date, range?: R2Range, totalBytes?: Uint8Array) {
     this.key = key
-    this.size = object.bytes.byteLength
-    this.etag = fingerprint(object.bytes)
+    const whole = totalBytes ?? object.bytes
+    this.size = whole.byteLength
+    this.etag = fingerprint(whole)
     this.httpEtag = `"${this.etag}"`
     this.checksums = { toJSON: () => ({}) }
     this.uploaded = uploaded
@@ -183,6 +184,7 @@ class InMemoryR2Bucket implements TestR2Bucket {
         { ...stored, bytes: slice },
         this.uploaded.get(key) ?? new Date(0),
         'suffix' in range ? { suffix: range.suffix } : { offset, length },
+        bytes,
       )
     }
     return new R2ObjectStub(key, this.stored(key, bytes), this.uploaded.get(key) ?? new Date(0))
