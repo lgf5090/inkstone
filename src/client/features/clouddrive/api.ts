@@ -145,9 +145,9 @@ export const clouddriveApi = {
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
   copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/copy', json(body)),
   remove: (ids: string[]) => request<{ deleted: number; taskId?: string }>('/api/clouddrive/files', { method: 'DELETE', body: JSON.stringify({ ids }) }),
-  trash: (cursor?: string | null) => request<CloudDriveListing>(`/api/clouddrive/trash?${new URLSearchParams(cursor ? { cursor } : {}).toString()}`),
-  restore: (ids: string[]) => request<{ results: unknown[] }>('/api/clouddrive/files/restore', json({ ids })),
-  purge: (body: { ids?: string[]; all?: boolean }) => request<{ deleted: number; failed: number; taskId?: string }>('/api/clouddrive/files/purge', { method: 'DELETE', body: JSON.stringify(body) }),
+  trash: (mountId: string, cursor?: string | null) => request<CloudDriveListing>(`/api/clouddrive/trash?${new URLSearchParams({ mount: mountId, ...(cursor ? { cursor } : {}) }).toString()}`),
+  restore: (ids: string[], mountId: string) => request<{ results: unknown[] }>('/api/clouddrive/files/restore', json({ ids, mountId })),
+  purge: (body: { ids?: string[]; all?: boolean; mountId?: string }) => request<{ deleted: number; failed: number; taskId?: string }>('/api/clouddrive/files/purge', { method: 'DELETE', body: JSON.stringify(body) }),
   search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null }) => {
     const search = new URLSearchParams({ q: params.q })
     if (params.mountId) search.set('mount', params.mountId)

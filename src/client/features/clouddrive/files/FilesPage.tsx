@@ -577,6 +577,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         })}
       </nav>
 
+      {readOnly && (
+        <div role="note" className="mx-2 mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('clouddrive.readonly.banner')}
+        </div>
+      )}
+
       <Menu
         anchor={sortButtonRef}
         open={sortOpen}

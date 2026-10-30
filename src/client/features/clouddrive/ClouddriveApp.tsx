@@ -29,6 +29,7 @@ import { TransfersPage } from './transfers/TransfersPage'
 import { SyncPage } from './sync/SyncPage'
 import { OfflinePage } from './offline/OfflinePage'
 import { RequestsPage } from './requests/RequestsPage'
+import { TrashPage } from './trash/TrashPage'
 import { SharedPage } from './shared/SharedPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
 import { ApiKeysPage } from './keys/ApiKeysPage'
@@ -180,7 +181,9 @@ export function ClouddriveApp() {
               ? <QuickFilesPage mode="recent" />
               : address.page === 'starred'
                 ? <QuickFilesPage mode="starred" />
-                : address.page === 'offline'
+                : address.page === 'trash'
+                  ? <TrashPage mountId={address.mountId} />
+                  : address.page === 'offline'
                   ? <OfflinePage />
                 : address.page === 'album'
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />

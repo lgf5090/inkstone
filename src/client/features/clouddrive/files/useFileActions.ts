@@ -138,15 +138,15 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
   }), [execute, onLocalChange])
 
   const restore = useCallback((ids: string[]) => execute(async () => {
-    await clouddriveApi.restore(ids)
+    await clouddriveApi.restore(ids, mountId)
     showSuccess(t('clouddrive.toast.restored', { count: ids.length }))
-  }), [execute])
+  }), [execute, mountId])
 
   const purge = useCallback((ids?: string[], all = false) => execute(async () => {
-    const result = await clouddriveApi.purge({ ids, all })
+    const result = await clouddriveApi.purge({ ids, all, mountId })
     if (ids?.length) onLocalChange?.({ type: 'remove', ids })
     showSuccess(t('clouddrive.toast.purged', { count: result.deleted || ids?.length || 0 }))
-  }), [execute, onLocalChange])
+  }), [execute, onLocalChange, mountId])
 
   const upload = useCallback(async (files: File[], parentPath: string): Promise<boolean> => {
     if (files.length === 0) return true
