@@ -416,6 +416,8 @@ describe('the Xget header hygiene', () => {
           'CF-Connecting-IP': '203.0.113.9',
           'CF-Ray': 'abc123',
           'X-Forwarded-For': '203.0.113.9',
+          Forwarded: 'for=203.0.113.9;proto=https',
+          'X-Client-IP': '203.0.113.9',
           'X-Real-IP': '203.0.113.9',
           Connection: 'keep-alive',
           'Proxy-Authorization': 'Basic cHJveHk=',
@@ -437,6 +439,8 @@ describe('the Xget header hygiene', () => {
       'cf-connecting-ip',
       'cf-ray',
       'x-forwarded-for',
+      'forwarded',
+      'x-client-ip',
       'x-real-ip',
       'connection',
       'proxy-authorization',
@@ -451,6 +455,9 @@ describe('the Xget header hygiene', () => {
     expect(response.headers.get('set-cookie')).toBeNull()
     expect(response.headers.get('clear-site-data')).toBeNull()
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    expect(response.headers.get('strict-transport-security')).toContain('max-age=31536000')
+    expect(response.headers.get('x-frame-options')).toBe('DENY')
+    expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
   })
 })
 

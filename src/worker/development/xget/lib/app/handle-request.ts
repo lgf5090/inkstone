@@ -192,6 +192,9 @@ export async function handleXgetRequest(
   const finalizedHeaders = preservePreflightHeaders
     ? new Headers(response.headers)
     : addCorsHeaders(stripUpstreamResponseHeaders(new Headers(response.headers)), request, config)
+  if (!preservePreflightHeaders && isProtocolRequest(requestContext)) {
+    addSecurityHeaders(finalizedHeaders)
+  }
 
   const responseWithCors = new Response(response.body, {
     status: response.status,

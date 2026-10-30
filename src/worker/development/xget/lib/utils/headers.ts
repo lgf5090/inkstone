@@ -15,6 +15,8 @@ const HOP_BY_HOP_HEADERS = new Set([
 
 const SITE_PRIVATE_HEADERS = new Set([
   'cookie',
+  'forwarded',
+  'x-client-ip',
   'x-inkstone-client',
   'x-inkstone-origin',
   'x-real-ip',
