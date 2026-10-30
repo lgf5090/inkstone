@@ -71,14 +71,17 @@ async function request(h: Harness, method: string, path: string, body?: BodyInit
 
 let h: Harness
 let fetchMock: ReturnType<typeof vi.fn>
+let failS3 = false
 
 beforeEach(async () => {
   h = await harness()
+  failS3 = false
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init)
     const url = new URL(request.url)
     const key = decodeURIComponent(url.pathname)
     if (request.method === 'PUT') {
+      if (failS3 && url.hostname === 's3.test') return new Response('nope', { status: 500 })
       const bytes = new Uint8Array(await request.arrayBuffer())
       h.s3Objects.set(key, bytes)
       return new Response(null, { status: 200, headers: { etag: '"s3-etag"' } })
@@ -123,6 +126,24 @@ describe('distributed part assignment', () => {
 })
 
 describe('distributed upload and read', () => {
+  it('falls back to the primary mount when an S3 part write fails', async () => {
+    failS3 = true
+    const size = 9 * MIB
+    const init = await request(h, 'POST', '/api/clouddrive/uploads', JSON.stringify({
+      parentPath: '/', name: 'fallback.bin', size, mime: 'application/octet-stream',
+    }), { 'Content-Type': 'application/json' })
+    const session = await init.json() as { session: { id: string; strategy: string; totalParts: number } }
+    expect(session.session).toMatchObject({ strategy: 'distributed', totalParts: 1 })
+    const upload = await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/parts/1`, new Uint8Array(size).fill(7) as unknown as BodyInit)
+    expect(upload.status).toBe(200)
+    const complete = await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, '{}', { 'Content-Type': 'application/json' })
+    expect(complete.status).toBe(200)
+    const entry = (await complete.json() as { entry: { id: string } }).entry
+    const parts = h.sqlite.prepare('SELECT mount_id FROM CloudDrive_file_parts WHERE user_id = ? AND file_id = ?').all(USER, entry.id) as { mount_id: string }[]
+    expect(parts).toEqual([{ mount_id: 'primary' }])
+    expect(h.bucket.objects.size).toBe(1)
+  }, 60_000)
+
   it('uploads parts across R2 and S3, reads ranges across the boundary, and purges both sides', async () => {
     const first = new Uint8Array(PART).fill(1)
     const last = new Uint8Array(MIB).fill(2)

@@ -31,7 +31,7 @@ import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { storageKeyReferenced } from './store-files'
-import { assignParts, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
+import { assignParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
 
 export const clouddriveUploadRoutes = new Hono<AppBindings>()
 
@@ -557,16 +557,28 @@ clouddriveUploadRoutes.put('/uploads/:id/parts/:n', async (c) => {
         WHERE session_id = ? AND part_number = ?`,
     ).bind(session.id, partNumber).first<{ mount_id: string; storage_key: string }>()
     if (!plan) throw ApiError.badRequest('The part has no storage assignment')
-    const etag = await writePartObject(
-      c.env, c.env.DB, userId, plan.mount_id, plan.storage_key, bytes, session.mime,
-    )
+    let mountId = plan.mount_id
+    let etag: string | null
+    try {
+      etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime)
+    } catch (error) {
+      if (mountId === 'primary') throw error
+      console.warn('[inkstone] CloudDrive distributed part write failed; retrying on the primary mount:', error)
+      try {
+        await deletePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key)
+      } catch (cleanupError) {
+        console.warn('[inkstone] removing a failed distributed part failed:', cleanupError)
+      }
+      mountId = 'primary'
+      etag = await writePartObject(c.env, c.env.DB, userId, mountId, plan.storage_key, bytes, session.mime)
+    }
     const now = Date.now()
     await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE CloudDrive_upload_part_objects
-            SET size = ?3, etag = ?4, uploaded_at = ?5
+            SET mount_id = ?6, size = ?3, etag = ?4, uploaded_at = ?5
           WHERE session_id = ?1 AND part_number = ?2`,
-      ).bind(session.id, partNumber, bytes.byteLength, etag, now),
+      ).bind(session.id, partNumber, bytes.byteLength, etag, now, mountId),
       c.env.DB.prepare(
         `UPDATE CloudDrive_upload_sessions
             SET parts_uploaded = (SELECT COUNT(*) FROM CloudDrive_upload_part_objects
