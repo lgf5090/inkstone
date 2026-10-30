@@ -5,7 +5,6 @@ import { DEVELOPMENT_XGET_SCHEMA_STATEMENTS } from '../src/worker/development/xg
 import {
   readXgetOverrides,
   readXgetSettingsRow,
-  readXgetTokenHash,
   writeXgetOverrides,
   writeXgetTokenHash,
 } from '../src/worker/development/xget/settings'
@@ -67,7 +66,6 @@ describe('the xget settings store', () => {
     const db = makeStore()
     expect(await readXgetSettingsRow(db)).toEqual({ overrides: {}, tokenHash: '' })
     expect(await readXgetOverrides(db)).toEqual({})
-    expect(await readXgetTokenHash(db)).toBe('')
   })
 
   it('round-trips overrides in a single row and records the write time', async () => {
@@ -146,9 +144,9 @@ describe('the xget settings store', () => {
     expect(await readXgetSettingsRow(db)).toEqual({ overrides: {}, tokenHash: '' })
     const valid = '0123456789abcdef'.repeat(4)
     await writeXgetTokenHash(db, valid, 2)
-    expect(await readXgetTokenHash(db)).toBe(valid)
+    expect((await readXgetSettingsRow(db)).tokenHash).toBe(valid)
     await writeXgetTokenHash(db, '', 3)
-    expect(await readXgetTokenHash(db)).toBe('')
+    expect((await readXgetSettingsRow(db)).tokenHash).toBe('')
   })
 })
 

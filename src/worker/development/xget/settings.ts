@@ -29,10 +29,6 @@ export async function readXgetOverrides(db: D1Database): Promise<XgetConfigOverr
   return (await readXgetSettingsRow(db)).overrides
 }
 
-export async function readXgetTokenHash(db: D1Database): Promise<string> {
-  return (await readXgetSettingsRow(db)).tokenHash
-}
-
 export async function writeXgetOverrides(
   db: D1Database,
   overrides: XgetConfigOverrides,

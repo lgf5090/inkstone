@@ -1,6 +1,5 @@
 import { Hono, type Context } from 'hono'
 import {
-  XGET_KNOWN_METHODS,
   XGET_PROXY_PREFIX,
   XGET_STATS_MAX_DAYS,
   XGET_TOKEN_MAX_LENGTH,
@@ -33,6 +32,7 @@ import {
 } from '../development/xget/settings'
 import { readStatsSummary, recordProxyStat } from '../development/xget/stats'
 import { isXgetProxyPath } from '../development/xget/paths'
+import { normalizeMethods, normalizeOrigins } from '../development/xget/settings-validation'
 
 function requireOwner(c: Context<AppBindings>): void {
   if (c.get('user')?.role !== 'owner') {
@@ -70,43 +70,6 @@ function configView(config: XgetConfig): XgetSettingsConfig {
     allowed_origins: config.SECURITY.ALLOWED_ORIGINS,
     max_path_length: config.SECURITY.MAX_PATH_LENGTH,
   }
-}
-
-function normalizeMethods(value: string[]): string[] {
-  const known = new Set<string>(XGET_KNOWN_METHODS)
-  const methods = [...new Set(value.map((entry) => entry.trim().toUpperCase()).filter(Boolean))]
-  if (!methods.length) throw new ApiError(400, 'xget_methods_required', 'At least one method is required')
-  const unsupported = methods.find((method) => !known.has(method))
-  if (unsupported) {
-    throw new ApiError(400, 'xget_unsupported_method', `Unsupported method: ${unsupported}`, {
-      method: unsupported,
-    })
-  }
-  return methods
-}
-
-function normalizeOrigins(value: string[]): string[] {
-  const entries = value.map((entry) => entry.trim()).filter(Boolean)
-  if (entries.includes('*')) return ['*']
-
-  const origins: string[] = []
-  for (const entry of entries) {
-    let parsed: URL
-    try {
-      parsed = new URL(entry)
-    } catch {
-      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
-    }
-    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
-      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
-    }
-    const origin = parsed.origin
-    if (!origins.includes(origin)) origins.push(origin)
-  }
-  return origins
 }
 
 function patchToOverrides(
