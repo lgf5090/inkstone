@@ -6,6 +6,7 @@ import { Checkbox, Input, Select } from '../../../components/form'
 import { Empty } from '../../../components/feedback'
 import { copyText } from '../../../lib/clipboard'
 import { cn } from '../../../lib/cn'
+import { isImeComposing } from '../../../lib/ime'
 import { renderMarkdown } from '../../../lib/markdown/renderer'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
@@ -293,6 +294,7 @@ export function UploadPage({ owner }: { owner: boolean }): ReactElement {
               onBlur={() => window.setTimeout(() => setFolderOpen(false), 120)}
               onChange={(event) => { touchedFolder.current = true; setFolder(event.target.value); setFolderOpen(true); setFolderActive(0) }}
               onKeyDown={(event) => {
+                if (isImeComposing(event)) return
                 if (event.key === 'Escape') { setFolderOpen(false); return }
                 if (!folderSuggestions.length) return
                 if (event.key === 'ArrowDown') { event.preventDefault(); setFolderOpen(true); setFolderActive((current) => (current + 1) % folderSuggestions.length) }
