@@ -603,6 +603,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.agent.input_placeholder": "询问表结构、数据或查询…",
   "development.database.agent.intro": "用自然语言查看表、查询数据与分析执行计划。",
   "development.database.agent.allow_writes": "允许本次对话写入",
+  "development.database.agent.write_blocked": "当前连接处于只读或生产保护，Agent 写入已禁用；切换连接或解锁后可用。",
   "development.database.agent.allow_writes_hint": "关闭时 Agent 的 INSERT/UPDATE/DELETE/DDL 会被服务端拒绝，仍可读取结构与数据。",
   "development.database.agent.send": "发送",
   "development.database.agent.stop": "停止",

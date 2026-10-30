@@ -156,8 +156,8 @@ export class SqliteWorkerDriver implements StudioDriver {
     if (worker) {
       try {
         worker.postMessage({ id: 0, type: 'close' })
-      } catch {
-        // The worker is already gone; terminate still releases it.
+      } catch (error) {
+        console.warn('[inkstone] local SQLite worker could not be told to close', error)
       }
       worker.terminate()
     }

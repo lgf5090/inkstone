@@ -14,6 +14,7 @@ import type { AgentMessagePart } from './types'
 export interface AgentPanelProps {
   onToolComplete?: () => void
   className?: string
+  writesBlocked?: boolean
 }
 
 function toolLabel(name: string): string {
@@ -45,9 +46,13 @@ function ToolBadge({ part }: { part: Extract<AgentMessagePart, { type: 'tool-cal
   )
 }
 
-export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
+export function AgentPanel({ onToolComplete, className, writesBlocked = false }: AgentPanelProps) {
   const [allowWrites, setAllowWrites] = useState(false)
-  const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}), allowWrites })
+  const effectiveAllowWrites = allowWrites && !writesBlocked
+  const { messages, status, sendMessage, stop, clear } = useAgentChat({ ...(onToolComplete ? { onToolComplete } : {}), allowWrites: effectiveAllowWrites })
+  useEffect(() => {
+    if (writesBlocked) setAllowWrites(false)
+  }, [writesBlocked])
   const [tab, setTab] = useState<'agent' | 'mcp'>('agent')
   const [input, setInput] = useState('')
   const { configured, failed, reload } = useAiStatus()
@@ -156,12 +161,13 @@ export function AgentPanel({ onToolComplete, className }: AgentPanelProps) {
           </div>
           <div className="shrink-0 space-y-1.5 border-t border-[var(--border-subtle)] p-2.5">
             <Checkbox
-              checked={allowWrites}
+              checked={effectiveAllowWrites}
               onChange={setAllowWrites}
+              disabled={writesBlocked}
               label={t('development.database.agent.allow_writes')}
             />
             <p className="text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">
-              {t('development.database.agent.allow_writes_hint')}
+              {writesBlocked ? t('development.database.agent.write_blocked') : t('development.database.agent.allow_writes_hint')}
             </p>
             <div className="flex items-center gap-1.5">
               <Input

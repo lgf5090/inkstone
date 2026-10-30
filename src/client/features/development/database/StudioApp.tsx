@@ -648,6 +648,7 @@ export function StudioApp() {
           schemaModel={schema ?? EMPTY_SCHEMA}
           {...(tab.initialSql ? { initialSql: tab.initialSql } : {})}
           active={active}
+          writesBlocked={Boolean((guard.readOnly && !unlocked) || guard.production)}
           onDraftChange={persistDraft}
           onSchemaChanged={() => void reloadSchema(driver)}
           ensureWritable={ensureWritable}

@@ -113,6 +113,7 @@ export interface QueryTabProps {
   schemaModel: SchemaModel
   initialSql?: string
   active?: boolean
+  writesBlocked?: boolean
   onDraftChange?: (sql: string) => void
   onSchemaChanged?: () => void
   ensureWritable?: () => Promise<boolean>
@@ -121,7 +122,7 @@ export interface QueryTabProps {
   onError: (message: string) => void
 }
 
-export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, active: tabActive = true, onDraftChange, onSchemaChanged, ensureWritable, onOpenSql, onSqlChange, onError }: QueryTabProps) {
+export function QueryTab({ driver, connectionId, connectionType, schemaModel, initialSql, active: tabActive = true, writesBlocked = false, onDraftChange, onSchemaChanged, ensureWritable, onOpenSql, onSqlChange, onError }: QueryTabProps) {
   const isLocal = connectionType === 'sqlite'
   const [sql, setSql] = useState(initialSql ?? '')
   const [results, setResults] = useState<QueryResult[]>([])
@@ -890,7 +891,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             )}
             {panelVisited.agent && (
               <div className={sidePanel === 'agent' ? 'h-full' : 'hidden'}>
-                <AgentPanel className="h-full" onToolComplete={onSchemaChanged} />
+                <AgentPanel className="h-full" onToolComplete={onSchemaChanged} writesBlocked={writesBlocked} />
               </div>
             )}
           </div>
