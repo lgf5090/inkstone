@@ -11,6 +11,7 @@ import { pickChannel } from './upload-service'
 import { abortMultipart, completeMultipart, createMultipart, putDiscordPart, putTelegramPart, uploadMultipartPart, type MultipartSession } from './storage'
 import { newId } from '../lib/id'
 import { ImgbedSettingsError } from '@shared/imgbed/settings'
+import { UrlGuardError, assertPublicHttpUrl } from './url-guard'
 
 export const imgbedUploadRoutes = new Hono<AppBindings>()
 
@@ -217,12 +218,30 @@ imgbedUploadRoutes.delete('/uploads/:id', async (c) => {
   } catch (error) { return uploadFailure(c, error) }
 })
 
-function privateHost(hostname: string): boolean {
-  const host = hostname.toLowerCase()
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true
-  if (host === 'metadata.google.internal' || host === 'metadata') return true
-  if (/^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return true
-  return host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')
+async function readCapped(response: Response, cap: number): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') ?? 0)
+  if (declared > cap) {
+    await response.body?.cancel().catch(() => {})
+    throw new ApiError(413, 'payload_too_large', 'The remote file exceeds 10 MB')
+  }
+  const chunks: Uint8Array[] = []
+  let total = 0
+  const reader = response.body?.getReader()
+  if (!reader) return new Uint8Array()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > cap) {
+      await reader.cancel().catch(() => {})
+      throw new ApiError(413, 'payload_too_large', 'The remote file exceeds 10 MB')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+  return bytes
 }
 
 imgbedUploadRoutes.post('/fetch-url', async (c) => {
@@ -231,10 +250,9 @@ imgbedUploadRoutes.post('/fetch-url', async (c) => {
     const body = await c.req.json().catch(() => null) as { url?: unknown } | null
     const raw = typeof body?.url === 'string' ? body.url.trim() : ''
     if (!raw || raw.length > 2048) throw new ApiError(400, 'bad_request', 'A URL is required')
-    let current = new URL(raw)
-    if (!['http:', 'https:'].includes(current.protocol) || current.username || current.password || privateHost(current.hostname)) {
-      throw new ApiError(400, 'bad_request', 'Only public http(s) URLs are allowed')
-    }
+    let current: URL
+    try { current = await assertPublicHttpUrl(raw) }
+    catch (error) { if (error instanceof UrlGuardError) throw new ApiError(400, 'bad_request', error.message); throw error }
     let response: Response | null = null
     for (let hop = 0; hop < 5; hop++) {
       response = await fetch(current, { redirect: 'manual', signal: AbortSignal.timeout(10_000) })
@@ -242,23 +260,15 @@ imgbedUploadRoutes.post('/fetch-url', async (c) => {
         const location = response.headers.get('location')
         if (!location) break
         const next = new URL(location, current)
-        if (!['http:', 'https:'].includes(next.protocol) || next.username || next.password || privateHost(next.hostname)) {
-          throw new ApiError(400, 'bad_request', 'Redirect to a disallowed target')
-        }
-        current = next
+        try { current = await assertPublicHttpUrl(next) }
+        catch (error) { if (error instanceof UrlGuardError) throw new ApiError(400, 'bad_request', 'Redirect to a disallowed target'); throw error }
         await response.body?.cancel().catch(() => {})
         continue
       }
       break
     }
     if (!response || !response.ok) throw new ApiError(502, 'internal', 'The URL could not be fetched')
-    const length = Number(response.headers.get('content-length') ?? 0)
-    if (length > 10 * 1024 * 1024) {
-      await response.body?.cancel().catch(() => {})
-      throw new ApiError(413, 'payload_too_large', 'The remote file exceeds 10 MB')
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    if (bytes.byteLength > 10 * 1024 * 1024) throw new ApiError(413, 'payload_too_large', 'The remote file exceeds 10 MB')
+    const bytes = await readCapped(response, 10 * 1024 * 1024)
     const headers = new Headers()
     headers.set('Content-Type', response.headers.get('content-type') ?? 'application/octet-stream')
     const disposition = response.headers.get('content-disposition')

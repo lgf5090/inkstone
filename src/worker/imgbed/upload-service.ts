@@ -17,6 +17,7 @@ import { requestClientIp } from '../lib/request'
 import type { ImgbedActor } from './auth'
 import { getSettingsGroup, insertFile, fileExists } from './store'
 import { isIpBlocked } from './tokens'
+import { UrlGuardError, assertExternalHttpUrl, assertPublicHttpUrl } from './url-guard'
 import {
   StorageError,
   deleteWholeFile,
@@ -83,11 +84,8 @@ async function lookupAddress(security: ImgbedSecuritySettings, ip: string | null
     for (const param of security.ipQuery.customApi.params) {
       if (param.key) url.searchParams.append(replace(param.key), replace(param.value))
     }
-    if (!/^https?:$/.test(url.protocol)) return null
-    const host = url.hostname.toLowerCase()
-    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')
-      || /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return null
-    const response = await fetch(url, { signal: AbortSignal.timeout(2000) })
+    const safe = await assertPublicHttpUrl(url)
+    const response = await fetch(safe, { signal: AbortSignal.timeout(2000) })
     if (!response.ok) return null
     const data = await response.json().catch(() => null) as Record<string, unknown> | null
     if (!data) return null
@@ -185,15 +183,21 @@ export async function uploadSingle(
   const now = Date.now()
 
   if (external) {
-    if (typeof externalUrl !== 'string' || !/^https?:\/\//i.test(externalUrl)) throw new StorageError('A valid external URL is required', 400)
+    if (typeof externalUrl !== 'string') throw new StorageError('A valid external URL is required', 400)
+    let safe: URL
+    try { safe = await assertExternalHttpUrl(externalUrl.trim()) }
+    catch (error) {
+      if (error instanceof UrlGuardError) throw new StorageError('A public http(s) external URL is required', 400)
+      throw error
+    }
     await insertFile(db, {
       id, objectKey: '', fileName, fileType, sizeBytes: 0, width: null, height: null,
-      uploadIp: ip, uploadAddress: address, source: 'external', externalLink: externalUrl,
+      uploadIp: ip, uploadAddress: address, source: 'external', externalLink: safe.href,
       channel: 'External', channelName: 'External', uploaderId: actor.userId, createdAt: now,
     })
     return {
       src: `/imgbed/file/${id}`, url: `/imgbed/file/${id}`,
-      publicUrl: externalUrl, id, fileName, fileType, size: 0, width: null, height: null,
+      publicUrl: safe.href, id, fileName, fileType, size: 0, width: null, height: null,
       channel: 'External', channelName: 'External',
     }
   }
