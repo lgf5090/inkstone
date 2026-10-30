@@ -31,6 +31,7 @@ import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Field } from '../../../components/form'
 import { Modal, confirm } from '../../../components/overlay'
+import { ApiError } from '../../../lib/api'
 import { ToolbarPanel } from './ToolbarPanel'
 import { SqlEditor } from './SqlEditor'
 import { ResultGrid } from './ResultGrid'
@@ -59,6 +60,7 @@ import {
   updateSavedQuery,
   getSettings,
   updateSettings,
+  MAX_BATCH_STATEMENTS,
 } from './api'
 
 const LOCAL_HISTORY_PREFIX = 'inkstone.development.database.history.'
@@ -244,11 +246,23 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     setRunning(true)
     setError(null)
     const startedAt = Date.now()
+    let failedAt: number | null = null
     try {
       const next: QueryResult[] = []
       if (!isLocal && statements.length > 1) {
-        setProgress({ current: 1, total: statements.length })
-        next.push(...await runBatch(connectionId, statements.map((statement) => ({ sql: statement }))))
+        for (let offset = 0; offset < statements.length; offset += MAX_BATCH_STATEMENTS) {
+          const chunk = statements.slice(offset, offset + MAX_BATCH_STATEMENTS)
+          setProgress({ current: Math.min(offset + chunk.length, statements.length), total: statements.length })
+          try {
+            next.push(...await runBatch(connectionId, chunk.map((statement) => ({ sql: statement }))))
+          } catch (cause) {
+            if (cause instanceof ApiError) {
+              const index = (cause.details as { statementIndex?: unknown } | undefined)?.statementIndex
+              if (typeof index === 'number' && Number.isInteger(index) && index >= 0) failedAt = offset + index + 1
+            }
+            throw cause
+          }
+        }
       } else {
         for (let index = 0; index < statements.length; index++) {
           setProgress({ current: index + 1, total: statements.length })
@@ -267,8 +281,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       }
     } catch (cause) {
       const message = describeError(cause)
-      setError(message)
-      pushHistory(target, Date.now() - startedAt, message)
+      const detail = failedAt !== null
+        ? `${message} — ${t('development.database.query.batch_partial', { n: failedAt })}`
+        : message
+      setError(detail)
+      pushHistory(target, Date.now() - startedAt, detail)
     } finally {
       setProgress(null)
       setRunning(false)

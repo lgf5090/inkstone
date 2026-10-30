@@ -6,12 +6,13 @@ import {
   type QueryResult,
 } from '@shared/development/database/types'
 import { utf8ByteLength } from '@shared/text-utils'
-import { runQuery } from './api'
+import { runQuery, runBatch, MAX_BATCH_STATEMENTS } from './api'
 
 export interface StudioDriver {
   readonly type: 'd1' | 'turso' | 'sqlite'
   readonly label: string
   query(sql: string, params?: unknown[]): Promise<QueryResult>
+  batch?(statements: string[]): Promise<void>
   exportFile?(): Promise<Uint8Array>
   close(): void
 }
@@ -34,6 +35,15 @@ export class RemoteDriver implements StudioDriver {
 
   query(sql: string, params: unknown[] = []): Promise<QueryResult> {
     return runQuery(this.connectionId, sql, params)
+  }
+
+  async batch(statements: string[]): Promise<void> {
+    for (let index = 0; index < statements.length; index += MAX_BATCH_STATEMENTS) {
+      await runBatch(
+        this.connectionId,
+        statements.slice(index, index + MAX_BATCH_STATEMENTS).map((sql) => ({ sql })),
+      )
+    }
   }
 
   close(): void {}
@@ -151,6 +161,10 @@ export class SqliteDriver implements StudioDriver {
   async exportFile(): Promise<Uint8Array> {
     const db = await this.getDb()
     return db.export()
+  }
+
+  async batch(statements: string[]): Promise<void> {
+    for (const sql of statements) await this.query(sql)
   }
 
   close(): void {

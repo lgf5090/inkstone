@@ -24,6 +24,8 @@ import type {
 
 const BASE = '/api/development/database'
 
+export const MAX_BATCH_STATEMENTS = 20
+
 export class DatabaseStreamError extends Error {
   constructor(
     readonly code: string,

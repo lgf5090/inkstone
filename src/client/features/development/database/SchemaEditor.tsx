@@ -153,7 +153,8 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
       if (needsRebuild) {
         setPreview({ sql: rebuild.sql, warnings: rebuild.warnings })
       } else if (simple.length > 0) {
-        for (const statement of simple) await driver.query(statement)
+        if (driver.batch) await driver.batch(simple)
+        else for (const statement of simple) await driver.query(statement)
         onSchemaChanged?.()
         onOpenSql?.(simple.join('\n'))
       }
@@ -167,20 +168,28 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
   const executePreview = async () => {
     if (!preview) return
     if (ensureWritable && !(await ensureWritable())) return
+    const statements = splitSqlStatements(preview.sql)
+    const remote = driver.type !== 'sqlite'
+    const runnable = remote
+      ? statements.filter((statement) => !/^(?:begin|commit|rollback|pragma\s+foreign_keys)\b/i.test(statement.trim()))
+      : statements
     try {
-      for (const statement of splitSqlStatements(preview.sql)) await driver.query(statement)
+      if (remote && driver.batch) await driver.batch(runnable)
+      else for (const statement of runnable) await driver.query(statement)
       setPreview(null)
       onSchemaChanged?.()
     } catch (cause) {
-      try {
-        await driver.query('ROLLBACK')
-      } catch (error) {
-        console.warn('[inkstone] development database rebuild rollback failed:', error)
-      }
-      try {
-        await driver.query('PRAGMA foreign_keys = ON')
-      } catch (error) {
-        console.warn('[inkstone] development database foreign_keys restore failed:', error)
+      if (!remote) {
+        try {
+          await driver.query('ROLLBACK')
+        } catch (error) {
+          console.warn('[inkstone] development database rebuild rollback failed:', error)
+        }
+        try {
+          await driver.query('PRAGMA foreign_keys = ON')
+        } catch (error) {
+          console.warn('[inkstone] development database foreign_keys restore failed:', error)
+        }
       }
       onError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -295,6 +304,11 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
           <ul className="mb-2 space-y-1 rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] text-[var(--warning)]">
             {preview.warnings.map((warning, index) => <li key={index}>{warningText(warning)}</li>)}
           </ul>
+        )}
+        {driver.type !== 'sqlite' && (
+          <p role="status" className="mb-2 rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
+            {t('development.database.schema.remote_rebuild_warning')}
+          </p>
         )}
         <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 font-mono text-[length:var(--text-11)] leading-relaxed">
           {preview?.sql || t('development.database.schema.no_changes')}
