@@ -282,6 +282,7 @@ export function SettingsPanel({
   }
 
   if (loading && !settings) return <LoadingBlock />
+  if (settings && !form) return <LoadingBlock />
   if (!settings || !form) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-4 py-10 text-center">
