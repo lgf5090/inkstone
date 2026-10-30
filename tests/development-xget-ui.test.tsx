@@ -134,6 +134,10 @@ describe('the Xget converter', () => {
     act(() => button(rendered!.container, t('development.xget.converter.paste_example')).click())
     expect(rendered.container.textContent).toContain('https://inkstone.test/api/development/xget/gh/microsoft/vscode/archive/refs/heads/main.zip')
     expect(history.at(-1)?.result).toContain('/gh/microsoft/vscode/archive/refs/heads/main.zip')
+    const copy = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('development.xget.common.copy')}"]`,
+    )
+    expect(copy?.className).toContain('h-9')
   })
 
   it('reuses a history item with the value it names', () => {

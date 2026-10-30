@@ -35,7 +35,7 @@ function NavButton({
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-left text-[length:var(--text-13)]',
+        'flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-2 text-left text-[length:var(--text-13)]',
         'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
         active
           ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
@@ -129,7 +129,7 @@ export function CategoryBar({
           <Tooltip label={t('development.xget.nav.stats')}>
             <IconButton
               label={t('development.xget.nav.stats')}
-              size="sm"
+              size="md"
               active={view === 'stats'}
               onClick={onShowStats}
             >
@@ -139,7 +139,7 @@ export function CategoryBar({
           <Tooltip label={t('development.xget.nav.settings')}>
             <IconButton
               label={t('development.xget.nav.settings')}
-              size="sm"
+              size="md"
               active={view === 'settings'}
               onClick={onShowSettings}
             >
@@ -159,7 +159,7 @@ export function CategoryBar({
               aria-current={active ? 'page' : undefined}
               onClick={() => onSelectCategory(category)}
               className={cn(
-                'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)]',
+                'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[length:var(--text-12)]',
                 active
                   ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
                   : 'border-[var(--border-subtle)] text-[var(--text-secondary)]',

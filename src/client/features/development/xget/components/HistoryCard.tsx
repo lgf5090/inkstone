@@ -31,7 +31,7 @@ export function HistoryCard({
           <History size={15} className="text-[var(--accent)]" />
           {t('development.xget.converter.history')}
         </h2>
-        <Button variant="ghost" size="sm" icon={<Trash2 size={13} />} onClick={() => void clear()} className="h-7 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+        <Button variant="ghost" size="sm" icon={<Trash2 size={13} />} onClick={() => void clear()} className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
           {t('development.xget.converter.clear_history')}
         </Button>
       </header>
@@ -43,7 +43,7 @@ export function HistoryCard({
               key={`${item.time}-${item.result}`}
               type="button"
               onClick={() => onReuse(item)}
-              className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
+              className="flex min-h-10 w-full items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-left transition-colors hover:bg-[var(--bg-hover)] md:min-h-0"
             >
               <PlatformIcon
                 platformKey={item.key}

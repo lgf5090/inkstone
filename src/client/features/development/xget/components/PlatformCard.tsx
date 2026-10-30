@@ -67,7 +67,7 @@ export function PlatformCard({
           icon={copied ? <Check size={13} className="text-[var(--success)]" /> : <Copy size={13} />}
           onClick={() => void copy()}
           title={t('development.xget.platforms.copy_hint')}
-          className="h-7 shrink-0 px-2 text-[length:var(--text-12)]"
+          className="shrink-0 px-2 text-[length:var(--text-12)]"
         >
           {copied ? t('development.xget.platforms.copied') : t('development.xget.platforms.copy_url')}
         </Button>

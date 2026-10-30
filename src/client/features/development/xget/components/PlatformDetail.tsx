@@ -59,7 +59,7 @@ export function PlatformDetail({
           <PlatformBadge platformKey={platform.key} category={platform.category} size="sm" />
           <IconButton
             label={t('development.xget.platforms.close')}
-            size="sm"
+            size="md"
             onClick={() => onOpenChange(false)}
             className="absolute top-3 right-3"
           >
@@ -119,7 +119,7 @@ export function PlatformDetail({
                           {t(command.labelKey)}
                         </div>
                       )}
-                      <pre className="overflow-x-auto px-2.5 py-2 pr-9 font-mono text-[length:var(--text-11)] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+                      <pre className="overflow-x-auto px-2.5 py-2 pr-12 font-mono text-[length:var(--text-11)] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
                         {renderCmd(command.cmd)}
                       </pre>
                       <Button
@@ -127,7 +127,7 @@ export function PlatformDetail({
                         size="sm"
                         aria-label={t('development.xget.common.copy')}
                         onClick={() => void copy(renderCmd(command.cmd), key)}
-                        className="absolute top-1/2 right-1 h-6 -translate-y-1/2 px-1.5 text-[var(--text-tertiary)]"
+                        className="absolute top-1/2 right-1 -translate-y-1/2 px-1.5 text-[var(--text-tertiary)]"
                       >
                         {copiedKey === key ? <Check size={13} className="text-[var(--success)]" /> : <Copy size={13} />}
                       </Button>
@@ -143,10 +143,10 @@ export function PlatformDetail({
 
       <Divider />
       <footer className="sticky bottom-0 flex items-center gap-2 bg-[var(--bg-surface)] px-4 py-3">
-        <Button variant="secondary" size="sm" icon={<Copy size={13} />} onClick={() => void copy(renderCmd(guide.format), 'format')} className="h-8 flex-1 text-[length:var(--text-12)]">
+        <Button variant="secondary" size="sm" icon={<Copy size={13} />} onClick={() => void copy(renderCmd(guide.format), 'format')} className="flex-1 text-[length:var(--text-12)]">
           {t('development.xget.platforms.copy_format')}
         </Button>
-        <Button variant="primary" size="sm" onClick={() => onOpenChange(false)} className="h-8 flex-1 text-[length:var(--text-12)]">
+        <Button variant="primary" size="sm" onClick={() => onOpenChange(false)} className="flex-1 text-[length:var(--text-12)]">
           {t('development.xget.platforms.close')}
         </Button>
       </footer>

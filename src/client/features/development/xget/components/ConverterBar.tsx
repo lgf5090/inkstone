@@ -186,16 +186,16 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
               size="sm"
               aria-label={t('development.xget.common.copy')}
               onClick={() => void copy(converted, 'result')}
-              className="h-6 shrink-0 px-1.5"
+              className="shrink-0"
             >
               {copied ? <Check size={14} className="text-[var(--success)]" /> : <Copy size={14} />}
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Button variant="secondary" size="sm" icon={<ExternalLink size={13} />} onClick={openResult} className="h-7 text-[length:var(--text-12)]">
+            <Button variant="secondary" size="sm" icon={<ExternalLink size={13} />} onClick={openResult} className="text-[length:var(--text-12)]">
               {t('development.xget.converter.open')}
             </Button>
-            <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={openResult} className="h-7 text-[length:var(--text-12)]">
+            <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={openResult} className="text-[length:var(--text-12)]">
               {t('development.xget.converter.download')}
             </Button>
             <Button
@@ -204,7 +204,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
               icon={<RotateCcw size={13} className={cn(testing && 'animate-spin')} />}
               disabled={testing}
               onClick={() => void testLink()}
-              className="h-7 text-[length:var(--text-12)]"
+              className="text-[length:var(--text-12)]"
             >
               {testing ? t('development.xget.converter.testing') : t('development.xget.converter.test')}
             </Button>
@@ -216,7 +216,7 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
                 icon={<SquareTerminal size={13} />}
                 title={command.command}
                 onClick={() => void copy(command.command, command.name)}
-                className="h-7 border border-dashed border-[var(--border-subtle)] text-[length:var(--text-12)] text-[var(--text-tertiary)]"
+                className="border border-dashed border-[var(--border-subtle)] text-[length:var(--text-12)] text-[var(--text-tertiary)]"
               >
                 {copiedCommand === command.name ? <Check size={13} className="text-[var(--success)]" /> : command.name}
               </Button>
