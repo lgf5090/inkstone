@@ -163,7 +163,7 @@ export function publicBlogSite(
   const sidebar = settings.sidebar as Partial<BlogSitePublic['sidebar']>
   const comment = settings.comment as { provider?: string }
   const music = settings.music as { provider?: string }
-  const umami = settings.umami as { enable?: boolean }
+  const umami = settings.umami as { enable?: boolean; websiteId?: unknown }
   const discussion = settings.discussion as {
     enabled?: boolean
     requireNameEmail?: boolean
@@ -211,7 +211,10 @@ export function publicBlogSite(
     integrations: {
       comments: typeof comment.provider === 'string' ? comment.provider : 'none',
       music: typeof music.provider === 'string' ? music.provider : 'none',
-      umami: umami.enable ? 'enabled' : 'none',
+      umami: {
+        enabled: umami.enable === true,
+        websiteId: typeof umami.websiteId === 'string' ? umami.websiteId.slice(0, 80) : '',
+      },
     },
     counts,
   }

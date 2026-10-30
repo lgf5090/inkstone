@@ -381,7 +381,7 @@ export interface BlogSitePublic {
     autoCloseDays: number
   }
   display: Record<string, unknown>
-  integrations: { comments: string; music: string; umami: string }
+  integrations: { comments: string; music: string; umami: { enabled: boolean; websiteId: string } }
   counts: { posts: number; categories: number; tags: number; series: number }
 }
 

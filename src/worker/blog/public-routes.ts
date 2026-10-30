@@ -20,7 +20,7 @@ import {
   discussionSettings,
   listApprovedComments,
 } from './comments'
-import { getPublishedPage } from './pages'
+import { getPublishedPage, listPublishedPages } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
 import { listPublicCollection } from './collections'
 import {
@@ -175,6 +175,13 @@ blogPublicRoutes.get('/posts/:slug/render', async (c) => {
   if (c.req.header('if-none-match') === etag) return c.body(null, 304, { ETag: etag })
   return c.json(render, 200, {
     ETag: etag,
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/pages', async (c) => {
+  const userId = await ownerId(c)
+  return c.json({ items: await listPublishedPages(c.env.DB, userId) }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })

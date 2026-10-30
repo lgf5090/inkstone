@@ -54,6 +54,15 @@ export async function getPageByNote(db: D1Database, userId: string, noteId: stri
   return row ? rowToPage(row) : null
 }
 
+export async function listPublishedPages(db: D1Database, userId: string, now = Date.now()): Promise<BlogPageItem[]> {
+  const { results } = await db.prepare(
+    `SELECT ${PAGE_COLUMNS} FROM blog_pages
+     WHERE user_id = ?1 AND published_at IS NOT NULL AND published_at <= ?2
+     ORDER BY published_at DESC, id DESC`,
+  ).bind(userId, now).all<PageRow>()
+  return results.map(rowToPage)
+}
+
 export async function getPublishedPage(db: D1Database, userId: string, slug: string): Promise<BlogPageItem | null> {
   const row = await db.prepare(
     `SELECT ${PAGE_COLUMNS} FROM blog_pages
