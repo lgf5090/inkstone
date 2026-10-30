@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { PenLine } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
@@ -23,6 +23,7 @@ import { useUi } from '../../store/ui';
 import { startChatAboutNote } from '../chat/start-chat';
 import { useQuickAdd } from '../../store/quickadd';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
+import { useSession } from '../../store/session';
 import { folderPathLabel } from '../../lib/folders';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
@@ -475,6 +476,11 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const purgeNote = useNotes((s) => s.purgeNote);
     const duplicateNote = useNotes((s) => s.duplicateNote);
     const folders = useNotes((s) => s.folders);
+    const role = useSession((s) => s.user?.role);
+    const publishBlog = async (publish: boolean) => {
+        const { publishNoteToBlog } = await import('../blog/publish');
+        await publishNoteToBlog(note.id, publish);
+    };
     const menu = useContextMenu();
     const lintItems = useLintNoteMenuItems(note.id);
     const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -585,6 +591,21 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
                 combo: active ? APP_SHORTCUTS.star : undefined,
                 onSelect: () => void patchNote(note.id, { isStarred: !note.isStarred }),
             },
+            ...(role === 'owner' ? [
+                {
+                    id: 'blog-publish',
+                    label: t("notes.publish_to_blog"),
+                    icon: <Newspaper size={13}/>,
+                    separatorBefore: true,
+                    onSelect: () => void publishBlog(true),
+                },
+                {
+                    id: 'blog-unpublish',
+                    label: t("notes.unpublish_from_blog"),
+                    icon: <Undo2 size={13}/>,
+                    onSelect: () => void publishBlog(false),
+                },
+            ] : []),
             {
                 id: 'ask-about',
                 label: t("assistant.scope.about_note"),

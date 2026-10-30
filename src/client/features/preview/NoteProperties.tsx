@@ -80,6 +80,7 @@ export function NoteProperties({ noteId, onLightbox }: {
 }) {
     const [collapsed, setCollapsed] = useState(false);
     const [adding, setAdding] = useState(false);
+    const [publishing, setPublishing] = useState(false);
     const [menu, setMenu] = useState<AnchoredMenu | null>(null);
     const decorateRef = useRef<HTMLButtonElement>(null);
     const [decorateOpen, setDecorateOpen] = useState(false);
@@ -91,8 +92,23 @@ export function NoteProperties({ noteId, onLightbox }: {
     const settings = usePropertySettings();
     const patchSettings = useSession(state => state.updateSettings);
     const openSearchList = useUi(state => state.openSearchList);
+    const role = useSession(state => state.user?.role);
     const view = usePropertyView(content);
     const readOnly = view.errors.length > 0 || noteId === null;
+    const showPublishRow = role === 'owner' && noteId !== null;
+    const published = view.data.isPublished === true || view.data.isPublished === 'true';
+    const togglePublished = async () => {
+        if (!noteId || publishing || readOnly)
+            return;
+        setPublishing(true);
+        try {
+            const { publishNoteToBlog } = await import('../blog/publish');
+            await publishNoteToBlog(noteId, !published);
+        }
+        finally {
+            setPublishing(false);
+        }
+    };
     // One interaction can write several properties (removing a cover drops its shape and position
     // too), and each write has to build on the last instead of on the content this render read —
     // the store only settles between the two, so a second write off `content` would undo the first.
@@ -139,7 +155,7 @@ export function NoteProperties({ noteId, onLightbox }: {
         onRename: () => {},
         onDelete: () => {},
     };
-    const rows = view.rows;
+    const rows = view.rows.filter(row => row.key !== 'isPublished');
     const decorateItems: MenuItem[] = [
         { id: 'decorate-cover', label: t('properties.set_cover'), icon: <ImagePlus size={14}/>, onSelect: () => { if (noteId && nameForKind('cover')) requestPropertyDecoration('cover', noteId); } },
         { id: 'decorate-banner', label: t('properties.set_banner'), icon: <ImagePlus size={14}/>, onSelect: () => { if (noteId && nameForKind('banner')) requestPropertyDecoration('banner', noteId); } },
@@ -147,7 +163,7 @@ export function NoteProperties({ noteId, onLightbox }: {
     ];
     const hiddenCount = rows.filter(row => row.hidden).length;
     const shown = settings.revealHidden ? rows : rows.filter(row => !row.hidden);
-    const hideWholeBlock = settings.hideWholeBlockWhenEmpty && shown.length === 0 && !readOnly && !adding;
+    const hideWholeBlock = settings.hideWholeBlockWhenEmpty && shown.length === 0 && !showPublishRow && !readOnly && !adding;
     const headerless = settings.hideHeader;
     const open = !collapsed || headerless;
     return (<section data-note-properties className={cn(PP_SHELL, hideWholeBlock && PP_SHELL_QUIET)}>
@@ -161,7 +177,7 @@ export function NoteProperties({ noteId, onLightbox }: {
                 {view.decorations.icon && settings.iconInline && (<NoteIcon icon={view.decorations.icon} settings={settings} actions={actions} inline={true}/>)}
                 <ChevronDown size={13} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', collapsed && '-rotate-90')}/>
                 <span className={PP_TITLE}>{t('markdown.properties')}</span>
-                <span className={PP_COUNT}>{propertyRowCount(shown)}</span>
+                <span className={PP_COUNT}>{propertyRowCount(shown) + (showPublishRow ? 1 : 0)}</span>
               </button>
               {hiddenCount > 0 && (<button type="button" onClick={() => handlers.patch({ revealHidden: !settings.revealHidden })} aria-pressed={settings.revealHidden} className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]">
                   {settings.revealHidden ? <Eye size={12}/> : <EyeOff size={12}/>}
@@ -178,8 +194,18 @@ export function NoteProperties({ noteId, onLightbox }: {
             </header>)}
             {open && (<div className={PP_ROWS}>
                 {view.errors.length > 0 && <p className={PP_NOTE_DANGER}>{t('properties.invalid')}</p>}
-                {!rows.length && !view.errors.length && <p className={PP_NOTE}>{t('properties.empty')}</p>}
-                {rows.length > 0 && !shown.length && !view.errors.length && <p className={PP_NOTE}>{t('properties.all_hidden')}</p>}
+                {!rows.length && !showPublishRow && !view.errors.length && <p className={PP_NOTE}>{t('properties.empty')}</p>}
+                {rows.length > 0 && !shown.length && !showPublishRow && !view.errors.length && <p className={PP_NOTE}>{t('properties.all_hidden')}</p>}
+                {showPublishRow && (<div className={PP_ROW} data-blog-publish-row>
+                    <span className={PP_KEY_CELL}>
+                      <span className={PP_KEY}>{t('notes.is_published_property')}</span>
+                    </span>
+                    <div className={PP_VALUE}>
+                      <button type="button" role="switch" aria-label={t('notes.is_published')} aria-checked={published} disabled={readOnly || publishing} onClick={() => void togglePublished()} className={cn(PP_SWITCH, published ? PP_SWITCH_ON : PP_SWITCH_OFF, publishing && 'opacity-60')}>
+                        <span className={cn(PP_SWITCH_KNOB, published ? PP_SWITCH_KNOB_ON : PP_SWITCH_KNOB_OFF)}/>
+                      </button>
+                    </div>
+                  </div>)}
                 {shown.map(row => (<PropertyRow key={row.key} row={row} readOnly={readOnly} settings={settings} handlers={handlers} onOpenMenu={(items, label, event) => setMenu({
                         items,
                         label,

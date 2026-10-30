@@ -33,11 +33,15 @@ import type {
 } from '@shared/subscriptions/model'
 import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
 import type { ProviderBalanceAnswer } from '@shared/provider-balance'
+import type { PublicSharePresence, SharePresencePosition, SharePresenceSession } from '@shared/share-presence'
 import type {
-  PublicSharePresence,
-  SharePresencePosition,
-  SharePresenceSession,
-} from '@shared/share-presence'
+  BlogAdminOverview,
+  BlogPostAdminItem,
+  BlogPostRow,
+  BlogRenderSnapshot,
+  BlogSitePublic,
+} from '@shared/blog/model'
+import type { BlogSettingKey, BlogSettings } from '@shared/blog/settings'
 import type {
   AppLocale,
   Attachment,
@@ -875,6 +879,33 @@ export const api = {
         publishBroadcast({ type: 'site-changed', clientId: CLIENT_ID })
         return result
       }),
+  },
+
+  blog: {
+    site: () => request<BlogSitePublic>('/api/blog/site'),
+    overview: () => request<BlogAdminOverview>('/api/blog/admin/overview'),
+    posts: (params: { page?: number; limit?: number } = {}) =>
+      request<{ items: BlogPostAdminItem[]; page: number; limit: number; total: number }>(
+        `/api/blog/admin/posts${toQuery(params)}`,
+      ),
+    postByNote: (noteId: string) =>
+      request<BlogPostAdminItem>(`/api/blog/admin/posts/by-note/${encodeURIComponent(noteId)}`),
+    publish: (noteId: string, snapshot: BlogRenderSnapshot) =>
+      request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/publish`, {
+        method: 'POST',
+        body: { snapshot },
+        timeoutMs: 60_000,
+      }),
+    unpublish: (postId: string) =>
+      request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(postId)}/unpublish`, {
+        method: 'POST',
+        body: {},
+      }),
+    settings: {
+      get: () => request<BlogSettings>('/api/blog/admin/settings'),
+      patch: (key: BlogSettingKey, value: unknown) =>
+        request<BlogSettings>('/api/blog/admin/settings', { method: 'PATCH', body: { key, value } }),
+    },
   },
 
   notes: {

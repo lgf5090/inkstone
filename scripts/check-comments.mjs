@@ -1258,6 +1258,12 @@ const allowed = new Map([
     "// can never send the browser somewhere else with an authenticated session.",
     "/**\n * The zone a brand-new account starts its day in.\n *\n * Every date the to-do app reasons about — a due label, a plan group, the close-out page — is cut in the\n * account's own scheduling zone, and an account with no zone written is read as UTC, so a reader east of\n * Greenwich spends the first eight hours of each day being shown yesterday. The server validates this\n * against its own zone table and refuses one nothing can resolve, so an unreadable value costs the\n * registration a 400 rather than silently landing an account on the wrong day.\n */",
   ]],
+  ["src/client/features/blog/publish.ts", [
+    "/**\n * Set the note's isPublished property, save it, then publish the rendered snapshot (or withdraw the\n * projection). The note remains the source of truth; a snapshot failure leaves the property set and\n * the post pending rather than pretending the publish succeeded.\n */",
+  ]],
+  ["src/client/features/blog/snapshot.ts", [
+    "/**\n * Build the public reading snapshot from the same markdown pipeline Preview uses. The snapshot is\n * plain renderer output; rich blocks that need the live enhancement pass stay visible to the runtime\n * through `features`, while the static HTML remains readable without it.\n */",
+  ]],
   ["src/client/features/calendar/CalendarApp.tsx", [
     "/**\n * `/calendar`: the container that owns loading, failure, empty and ready.\n *\n * The surface is mounted only after metadata and the first range have arrived, so DayFlow never sees\n * a half-built registry. A reload keeps the same range around today; navigation beyond it is the\n * surface's own incremental fetch.\n */",
     "/**\n * The last visit's calendars and range, in the shape the ready state wants.\n *\n * Returned only when both halves exist: metadata without events is a skeleton with extra steps, and\n * events without metadata cannot be drawn at all.\n */",
@@ -29195,6 +29201,9 @@ const allowed = new Map([
     "/** One JSON document for the hand-written notebook, asset bytes included as base64. */",
     "/** The hand-written notebook, absent from a backup taken before it existed. */",
   ]],
+  ["src/shared/blog/model.ts", [
+    "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
+  ]],
   ["src/shared/byte-format.ts", [
     "/**\n * The one place a byte count is turned into the text a reader reads.\n *\n * Four copies of this lived on the worker side alone, each rounding differently: one kept bytes,\n * one printed `Math.ceil` of KB and MB, two printed `toFixed(1)` of MB only, and the interface had\n * two more. A quota warning and the row beside it could therefore disagree about the same number.\n * This is the version the interface already used for attachments, versions and storage stats, so a\n * server-side limit and the client-side bar under it say the same thing.\n */",
     "/** Units stepped by 1024, the way the sizes a reader compares against a limit are counted. */",
@@ -34135,6 +34144,15 @@ const allowed = new Map([
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
   ]],
+  ["src/worker/blog/guard.ts", [
+    "/**\n * Public blog reads are served to the blog Worker, not to browsers. A deployment must set\n * BLOG_PROXY_KEY; local development may omit it so the two dev servers can talk without secrets.\n */",
+  ]],
+  ["src/worker/blog/sanitize.ts", [
+    "/**\n * The snapshot arrives from an authenticated browser, but the worker is still the trust boundary:\n * the owner API accepts a payload from any client that holds the session, so scripts, event handlers,\n * javascript: URLs and CSS that can fetch must not survive the write.\n */",
+  ]],
+  ["src/worker/blog/schema.ts", [
+    "/** Blog tables, indexes and the required-shape lists the schema convergence repair reads. */",
+  ]],
   ["src/worker/calendar/attachments.ts", [
     "/**\n * Files hung on an event.\n *\n * The bytes and their row live in the shared attachment pipeline (`scope = 'calendar'`), so one quota,\n * one MIME policy, one cleanup queue and one file door (`/api/files/:id`) already cover them; this\n * module only owns the link between an event and a file, plus the cascade that removes both when the\n * event is deleted. Objects are filed under a category folder — `calendar/images/<id>.png`,\n * `calendar/docx/<id>.pdf` — because that is the layout this deployment is read with.\n *\n * Deleting a whole calendar deletes the link rows of the events it really removes, but not their files:\n * that is the same rule task attachments follow, and it keeps a file that a surviving event in another\n * calendar still links. The files stay counted against the account quota; reclaiming them is the job of\n * a sweep this app does not have yet.\n */",
     "/** The wire shape; the download url is the account's own file door, never a bucket address. */",
@@ -35518,6 +35536,10 @@ const allowed = new Map([
     "/** The deployment's own daily unit budget, which may be below Google's own 10,000. */",
     "/** A proxy base for video thumbnails; https, or loopback http for a local adapter. */",
     "/** Optional default password for navigation categories that choose \"use default\". Set as a secret. */",
+    "/** Shared secret the blog Worker sends on public blog reads; required outside local dev. */",
+    "/** Public blog origin used for links and cache purge. */",
+    "/** HMAC secret for the blog Worker's cache purge endpoint. */",
+    "/** Optional public base for the versioned reading runtime. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -37378,6 +37400,7 @@ const allowed = new Map([
     "// account's, and with a conflict when it is somebody else's.",
     "// The readback rides in the same batch as the insert, so a missing row is a broken invariant",
     "// rather than a state a client can reach.",
+    "/**\n * Keep the blog projection in step with the note that owns it. A failure here must not fail the\n * note write: the note is the source of truth, and the admin can retry the projection. It is still\n * recorded as an audit row so the failure is visible rather than silently swallowed.\n */",
   ]],
   ["src/worker/routes/quickadd.ts", [
     "/** Envelope stored in `users.quickadd`: when the account last saved, plus the library. */",

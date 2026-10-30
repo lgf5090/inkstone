@@ -56,6 +56,18 @@ export interface Env {
 
   PUBLIC_URL?: string
 
+  /** Shared secret the blog Worker sends on public blog reads; required outside local dev. */
+  BLOG_PROXY_KEY?: string
+
+  /** Public blog origin used for links and cache purge. */
+  BLOG_PUBLIC_ORIGIN?: string
+
+  /** HMAC secret for the blog Worker's cache purge endpoint. */
+  BLOG_PURGE_SECRET?: string
+
+  /** Optional public base for the versioned reading runtime. */
+  BLOG_RUNTIME_PUBLIC_URL?: string
+
   SETUP_TOKEN?: string
 
   DO_AUTH_KEY?: string
