@@ -138,13 +138,24 @@ function sameHash(left: string, right: string): boolean {
   return difference === 0
 }
 
-function proxyTokenFrom(c: { req: { header(name: string): string | undefined; query(name: string): string | undefined } }): string {
-  const custom = c.req.header('x-xget-token') ?? ''
-  if (custom) return custom
-  const authorization = c.req.header('authorization') ?? ''
-  const bearer = /^Bearer\s+(.+)$/i.exec(authorization)
-  if (bearer?.[1]) return bearer[1]
-  return c.req.query('access_token') ?? ''
+interface ProxyToken {
+  value: string
+  source: 'header' | 'query'
+}
+
+function proxyTokenFrom(c: { req: { header(name: string): string | undefined; query(name: string): string | undefined } }): ProxyToken | null {
+  const header = c.req.header('x-xget-token') ?? ''
+  if (header) return { value: header, source: 'header' }
+  const query = c.req.query('access_token') ?? ''
+  return query ? { value: query, source: 'query' } : null
+}
+
+function withoutAccessToken(search: string): string {
+  const params = new URLSearchParams(search)
+  if (!params.has('access_token')) return search
+  params.delete('access_token')
+  const next = params.toString()
+  return next ? `?${next}` : ''
 }
 
 function platformFromPath(pathname: string): string | null {
@@ -245,9 +256,10 @@ developmentXgetRoutes.use('*', async (c, next) => {
   if (!isXgetProxyPath(c.req.path)) return next()
 
   const storedHash = (await readXgetSettingsRow(c.env.DB)).tokenHash
+  let provided: ProxyToken | null = null
   if (storedHash && !c.get('userId')) {
-    const provided = proxyTokenFrom(c)
-    const providedHash = provided ? await hashToken(provided) : ''
+    provided = proxyTokenFrom(c)
+    const providedHash = provided ? await hashToken(provided.value) : ''
     if (!providedHash || !sameHash(providedHash, storedHash)) {
       return c.json(
         { success: false, error: { code: 'UNAUTHORIZED', message: 'invalid proxy token' } },
@@ -258,7 +270,8 @@ developmentXgetRoutes.use('*', async (c, next) => {
 
   const url = new URL(c.req.url)
   const pathname = url.pathname.slice(XGET_PROXY_PREFIX.length) || '/'
-  const engineUrl = new URL(`${pathname}${url.search}`, url.origin)
+  const search = provided?.source === 'query' ? withoutAccessToken(url.search) : url.search
+  const engineUrl = new URL(`${pathname}${search}`, url.origin)
   const overrides = await readXgetOverrides(c.env.DB)
   const request = new Request(engineUrl.toString(), c.req.raw)
   const response = await handleXgetRequest(

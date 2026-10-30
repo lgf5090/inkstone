@@ -210,6 +210,44 @@ describe('Xget proxy API', () => {
     expect(withSession.status).toBe(200)
   })
 
+  it('never forwards the proxy token to the upstream', async () => {
+    await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
+
+    let outgoingUrl = ''
+    let outgoingHeaders = new Headers()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      outgoingUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      outgoingHeaders = new Headers(init?.headers as HeadersInit)
+      return new Response('ok', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const viaQuery = await call(
+      'GET',
+      '/api/development/xget/ip/openai/v1/models?access_token=token-12345678&keep=1',
+      { user: null },
+    )
+    expect(viaQuery.status).toBe(200)
+    expect(outgoingUrl).toContain('keep=1')
+    expect(outgoingUrl).not.toContain('access_token')
+
+    const viaHeader = await call('GET', '/api/development/xget/ip/openai/v1/models', {
+      user: null,
+      headers: { 'x-xget-token': 'token-12345678' },
+    })
+    expect(viaHeader.status).toBe(200)
+    expect(outgoingHeaders.get('x-xget-token')).toBeNull()
+
+    // A signed-in session bypasses the proxy token, so an upstream access_token stays a query argument.
+    const sessionUpstream = await call(
+      'GET',
+      '/api/development/xget/ip/openai/v1/models?access_token=upstream-key&keep=1',
+      { user: OWNER },
+    )
+    expect(sessionUpstream.status).toBe(200)
+    expect(outgoingUrl).toContain('access_token=upstream-key')
+  })
+
   it('does not require the Inkstone client header for proxy POSTs but still requires it for management', async () => {
     const instance = new Hono<AppBindings>()
     instance.onError((error, c) => errorResponse(c, error))

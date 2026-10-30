@@ -18,6 +18,7 @@ const SITE_PRIVATE_HEADERS = new Set([
   'x-inkstone-client',
   'x-inkstone-origin',
   'x-real-ip',
+  'x-xget-token',
 ])
 
 const STRIPPED_RESPONSE_HEADERS = new Set(['set-cookie', 'set-cookie2', 'clear-site-data'])
