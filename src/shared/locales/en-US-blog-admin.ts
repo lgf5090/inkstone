@@ -198,6 +198,7 @@ export const EN_US_BLOG_ADMIN = {
   "blog.admin.pin": "Pin",
   "blog.admin.pinned": "Pinned",
   "blog.admin.post_list_grid": "Grid",
+  "blog.admin.post_list_masonry": "Masonry",
   "blog.admin.post_list_list": "List",
   "blog.admin.post_list_mode": "Post list layout",
   "blog.admin.post_list_page_size": "Posts per page",

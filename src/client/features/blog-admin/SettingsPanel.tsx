@@ -150,6 +150,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                   <Select value={text(display.postListMode) || 'list'} onChange={(event) => setDisplay({ ...display, postListMode: event.target.value })}>
                     <option value="list">{t('blog.admin.post_list_list')}</option>
                     <option value="grid">{t('blog.admin.post_list_grid')}</option>
+                    <option value="masonry">{t('blog.admin.post_list_masonry')}</option>
                   </Select>
                 </Field>
                 <Field label={t('blog.admin.post_list_page_size')}><Input type="number" min={1} max={100} value={num(display.postListPageSize, 10)} onChange={(event) => setDisplay({ ...display, postListPageSize: Number(event.target.value) })} /></Field>

@@ -198,6 +198,7 @@ export const ZH_CN_BLOG_ADMIN = {
   "blog.admin.pin": "置顶",
   "blog.admin.pinned": "已置顶",
   "blog.admin.post_list_grid": "网格",
+  "blog.admin.post_list_masonry": "瀑布流",
   "blog.admin.post_list_list": "列表",
   "blog.admin.post_list_mode": "文章列表布局",
   "blog.admin.post_list_page_size": "每页文章数",
