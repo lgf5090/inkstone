@@ -5,7 +5,7 @@ import { IMGBED_SCHEMA_STATEMENTS } from '../src/worker/imgbed/schema'
 import { buildFileId, categoryFor, normalizeTags, parseSearchQuery, sanitizeFolderPath, sanitizeFileName } from '../src/shared/imgbed/model'
 import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed/access'
 import { scopeAllows } from '../src/worker/imgbed/tokens'
-import { deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, setFileFlags, setFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
+import { deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, randomFile, setFileFlags, setFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
 import { redactImgbedFile } from '../src/worker/imgbed/manage'
 import { boundedPartSizeMB } from '../src/worker/imgbed/upload-routes'
@@ -157,6 +157,22 @@ describe('imgbed WebDAV move', () => {
   })
 })
 
+
+describe('imgbed random selection', () => {
+  it('filters by orientation and file type in SQL-like query semantics', async () => {
+    const { db } = database()
+    const base = {
+      fileType: 'image/png', uploadIp: null, uploadAddress: null, source: 'cfr2',
+      channel: 'CloudflareR2', channelName: 'R2', uploaderId: null, createdAt: 1,
+    }
+    await insertFile(db, { ...base, id: 'landscape.png', objectKey: 'k1', fileName: 'landscape.png', sizeBytes: 1, width: 200, height: 100 })
+    await insertFile(db, { ...base, id: 'portrait.png', objectKey: 'k2', fileName: 'portrait.png', sizeBytes: 1, width: 100, height: 200 })
+    await insertFile(db, { ...base, id: 'square.png', objectKey: 'k3', fileName: 'square.png', sizeBytes: 1, width: 100, height: 100 })
+    expect((await randomFile(db, { dir: '', fileType: ['image'], accessStatus: ['normal'], orientation: 'landscape' }))?.id).toBe('landscape.png')
+    expect((await randomFile(db, { dir: '', fileType: ['image'], accessStatus: ['normal'], orientation: 'portrait' }))?.id).toBe('portrait.png')
+    expect((await randomFile(db, { dir: '', fileType: ['image'], accessStatus: ['normal'], orientation: 'square' }))?.id).toBe('square.png')
+  })
+})
 
 describe('imgbed metadata redaction', () => {
   it('hides object keys, IPs and parts from list-only actors', () => {
