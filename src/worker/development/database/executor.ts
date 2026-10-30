@@ -2,7 +2,7 @@ import type { Env } from '../../env'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { INKSTONE_BLOB_KEY, MAX_TOOL_CELL_CHARS, MAX_TOOL_ROWS, type QueryResult } from '@shared/development/database/types'
 import { databaseToolDef } from '@shared/development/database/tools'
-import { isWriteSql } from '@shared/development/database/sql-utils'
+import { isDestructiveSql, isWriteSql } from '@shared/development/database/sql-utils'
 import { ApiError } from '../../lib/errors'
 import { listConnections } from './store'
 import { executeQuery, failureToApiError, QueryFailure } from './query'
@@ -128,6 +128,9 @@ export async function executeDatabaseTool(
     }
     case 'run_query': {
       const sql = String(input.sql ?? '').trim()
+      if (isDestructiveSql(sql)) {
+        throw ApiError.badRequest('The agent refuses destructive statements. Run this one from the query editor, which asks for confirmation.')
+      }
       if (isWriteSql(sql) && input.confirm !== true) {
         throw ApiError.badRequest('Writing requires confirm: true after the user agrees')
       }

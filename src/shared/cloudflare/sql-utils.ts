@@ -346,6 +346,28 @@ export function isWriteSql(sql: string): boolean {
   return splitSqlStatements(sql).some(statementIsWrite)
 }
 
+function statementIsDestructive(statement: string): boolean {
+  const top = topLevelWords(statement)
+    .filter((word) => word.depth === 0)
+    .map((word) => word.value)
+  if (top.some((word) => word === 'DROP' || word === 'TRUNCATE')) return true
+  const dml = top.find((word) => word === 'DELETE' || word === 'UPDATE')
+  return dml !== undefined && !top.includes('WHERE')
+}
+
+/** Whether the text contains a statement that can lose rows or an object outright. */
+export function isDestructiveSql(sql: string): boolean {
+  return splitSqlStatements(sql).some(statementIsDestructive)
+}
+
+/** Whether the text contains a statement that changes the schema (which a browser has to reload). */
+export function isSchemaChangeSql(sql: string): boolean {
+  return splitSqlStatements(sql).some((statement) => {
+    const first = topLevelWords(statement).find((word) => word.depth === 0)?.value
+    return first === 'CREATE' || first === 'ALTER' || first === 'DROP'
+  })
+}
+
 /** The CREATE TABLE text the table builder previews and executes. */
 export function buildCreateTableSql(
   tableName: string,

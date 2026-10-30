@@ -22,7 +22,7 @@ import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/fea
 import { buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
 import { findPlaceholders, replacePlaceholders } from '../src/client/features/development/database/placeholders'
-import { isDestructiveSql, isSchemaChangeSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
+import { isDestructiveSql, isSchemaChangeSql, isWriteSql, splitSqlStatements } from '../src/shared/development/database/sql-utils'
 
 describe('development database core', () => {
   it('parses composite keys, constraints and index columns', () => {
@@ -53,6 +53,32 @@ describe('development database core', () => {
     SELECT 1;`)
     expect(statements).toHaveLength(2)
     expect(statements[0]).toContain('INSERT INTO log VALUES (2);')
+  })
+
+  it('keeps temp triggers and CASE ... END bodies whole', () => {
+    const temp = splitSqlStatements(`CREATE TEMP TRIGGER tr AFTER INSERT ON t BEGIN
+      INSERT INTO log VALUES (1);
+      INSERT INTO log VALUES (2);
+    END;
+    SELECT 1;`)
+    expect(temp).toHaveLength(2)
+    expect(temp[0]).toContain('INSERT INTO log VALUES (2);')
+    const withCase = splitSqlStatements(`CREATE TRIGGER tr AFTER INSERT ON t BEGIN
+      UPDATE t SET v = CASE WHEN NEW.x IS NULL THEN 'a' ELSE 'b' END;
+      INSERT INTO log(msg) VALUES ('done');
+    END;`)
+    expect(withCase).toHaveLength(1)
+    expect(withCase[0]).toContain("INSERT INTO log(msg) VALUES ('done');")
+  })
+
+  it('treats WITH-prefixed DML and ATTACH as writes, and read PRAGMAs as reads', () => {
+    expect(isWriteSql('WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)')).toBe(true)
+    expect(isWriteSql("WITH x AS (SELECT 1) UPDATE t SET v = 'x'")).toBe(true)
+    expect(isWriteSql("ATTACH DATABASE 'extra.db' AS extra")).toBe(true)
+    expect(isWriteSql('PRAGMA table_info(t)')).toBe(false)
+    expect(isWriteSql('PRAGMA journal_mode = WAL')).toBe(true)
+    expect(isDestructiveSql('WITH doomed AS (SELECT id FROM t) DELETE FROM t')).toBe(true)
+    expect(isDestructiveSql('WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)')).toBe(false)
   })
 
   it('finds placeholders outside strings and comments and types values', () => {

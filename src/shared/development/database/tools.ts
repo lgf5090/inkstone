@@ -62,7 +62,7 @@ export const DATABASE_TOOL_DEFS: readonly DatabaseToolDef[] = [
   {
     name: 'run_query',
     description:
-      'Run one SQL statement. Reading does not need confirmation. INSERT, UPDATE, DELETE, DDL and PRAGMA require confirm: true after the user explicitly agrees. Results are capped at 200 rows.',
+      'Run one SQL statement. Reading does not need confirmation. INSERT, UPDATE, DELETE, DDL and PRAGMA require confirm: true after the user explicitly agrees. Destructive statements (DROP, TRUNCATE, or DELETE/UPDATE without WHERE) are refused; ask the reader to run those from the query editor. Results are capped at 200 rows.',
     schema: z.object({
       connectionId,
       sql: z.string().min(1).max(MAX_SQL_LENGTH),

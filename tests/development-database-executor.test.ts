@@ -53,19 +53,36 @@ describe('database tool executor', () => {
     expect(state.queries[0]?.sql).toContain('sqlite_master')
   })
 
-  it('requires confirm for writes and accepts reads', async () => {
+  it('requires confirm for writes, refuses destructive statements, and accepts reads', async () => {
     await expect(executeDatabaseTool(env, 'u1', 'run_query', {
       connectionId: '0123456789abcdefghjkmnpqrs',
-      sql: 'delete from t',
+      sql: 'delete from t where id = 1',
     })).rejects.toThrow('confirm')
     expect(state.queries).toHaveLength(0)
 
     await executeDatabaseTool(env, 'u1', 'run_query', {
       connectionId: '0123456789abcdefghjkmnpqrs',
-      sql: 'delete from t',
+      sql: 'delete from t where id = 1',
       confirm: true,
     })
     expect(state.queries).toHaveLength(1)
+
+    await expect(executeDatabaseTool(env, 'u1', 'run_query', {
+      connectionId: '0123456789abcdefghjkmnpqrs',
+      sql: 'delete from t',
+      confirm: true,
+    })).rejects.toThrow('destructive')
+
+    await expect(executeDatabaseTool(env, 'u1', 'run_query', {
+      connectionId: '0123456789abcdefghjkmnpqrs',
+      sql: 'WITH doomed AS (SELECT id FROM t) DELETE FROM t',
+      confirm: true,
+    })).rejects.toThrow('destructive')
+
+    await expect(executeDatabaseTool(env, 'u1', 'run_query', {
+      connectionId: '0123456789abcdefghjkmnpqrs',
+      sql: 'WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)',
+    })).rejects.toThrow('confirm')
 
     await executeDatabaseTool(env, 'u1', 'run_query', {
       connectionId: '0123456789abcdefghjkmnpqrs',
