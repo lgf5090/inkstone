@@ -136,6 +136,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.compare.run": "开始对比",
   "development.database.compare.schema_summary": "目标缺 {missing} 张表，需补 {added} 列，{changed} 张表存在类型/多余列差异",
   "development.database.compare.data_summary": "新增 {inserts}，更新 {updates}，删除 {deletes}",
+  "development.database.compare.manual_rebuild_note": "类型、约束或删除列的变更需要手动重建表，下面的 SQL 不包含这些变更。",
   "development.database.compare.truncated_note": "只比较了前 {rows} 行，未生成删除语句；请缩小范围后再对比。",
   "development.database.compare.no_changes": "没有差异",
   "development.database.compare.download": "下载 SQL",

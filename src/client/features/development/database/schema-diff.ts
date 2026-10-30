@@ -26,6 +26,7 @@ export interface TableDiff {
   addedColumns: ShapeColumn[]
   removedColumns: string[]
   typeChanges: ColumnChange[]
+  constraintChanges: ColumnChange[]
 }
 
 export function diffSchemas(source: TableShape[], target: TableShape[]): TableDiff[] {
@@ -35,7 +36,7 @@ export function diffSchemas(source: TableShape[], target: TableShape[]): TableDi
   for (const table of source) {
     const other = targetByName.get(table.name)
     if (!other) {
-      diffs.push({ table: table.name, missingInTarget: true, missingInSource: false, addedColumns: [], removedColumns: [], typeChanges: [] })
+      diffs.push({ table: table.name, missingInTarget: true, missingInSource: false, addedColumns: [], removedColumns: [], typeChanges: [], constraintChanges: [] })
       continue
     }
     const targetColumns = new Map(other.columns.map((column) => [column.name, column]))
@@ -43,19 +44,35 @@ export function diffSchemas(source: TableShape[], target: TableShape[]): TableDi
     const addedColumns = table.columns.filter((column) => !targetColumns.has(column.name))
     const removedColumns = other.columns.filter((column) => !sourceColumns.has(column.name)).map((column) => column.name)
     const typeChanges: ColumnChange[] = []
+    const constraintChanges: ColumnChange[] = []
     for (const column of table.columns) {
       const counterpart = targetColumns.get(column.name)
-      if (counterpart && counterpart.type.trim().toUpperCase() !== column.type.trim().toUpperCase() && column.type) {
+      if (!counterpart) continue
+      if (counterpart.type.trim().toUpperCase() !== column.type.trim().toUpperCase() && column.type) {
         typeChanges.push({ column: column.name, from: counterpart.type, to: column.type })
       }
+      if (counterpart.notNull !== column.notNull) {
+        constraintChanges.push({
+          column: column.name,
+          from: counterpart.notNull ? 'NOT NULL' : 'NULL',
+          to: column.notNull ? 'NOT NULL' : 'NULL',
+        })
+      }
+      if (counterpart.pk !== column.pk) {
+        constraintChanges.push({
+          column: column.name,
+          from: counterpart.pk ? 'PK' : 'not PK',
+          to: column.pk ? 'PK' : 'not PK',
+        })
+      }
     }
-    if (addedColumns.length > 0 || removedColumns.length > 0 || typeChanges.length > 0) {
-      diffs.push({ table: table.name, missingInTarget: false, missingInSource: false, addedColumns, removedColumns, typeChanges })
+    if (addedColumns.length > 0 || removedColumns.length > 0 || typeChanges.length > 0 || constraintChanges.length > 0) {
+      diffs.push({ table: table.name, missingInTarget: false, missingInSource: false, addedColumns, removedColumns, typeChanges, constraintChanges })
     }
   }
   for (const table of target) {
     if (!sourceNames.has(table.name)) {
-      diffs.push({ table: table.name, missingInTarget: false, missingInSource: true, addedColumns: [], removedColumns: [], typeChanges: [] })
+      diffs.push({ table: table.name, missingInTarget: false, missingInSource: true, addedColumns: [], removedColumns: [], typeChanges: [], constraintChanges: [] })
     }
   }
   return diffs
@@ -75,4 +92,45 @@ export function schemaStatements(diffs: TableDiff[], source: TableShape[]): stri
     }
   }
   return statements
+}
+
+export interface SchemaObjectShape {
+  name: string
+  sql: string | null
+}
+
+export interface SchemaObjectShapes {
+  views: SchemaObjectShape[]
+  triggers: SchemaObjectShape[]
+  indexes: SchemaObjectShape[]
+}
+
+function changedObjectStatements(
+  kind: 'INDEX' | 'VIEW' | 'TRIGGER',
+  source: SchemaObjectShape[],
+  target: SchemaObjectShape[],
+): string[] {
+  const statements: string[] = []
+  for (const object of source) {
+    if (!object.sql) continue
+    const sql = `${object.sql.trim().replace(/;+$/, '')};`
+    const existing = target.find((entry) => entry.name === object.name)
+    if (!existing) {
+      statements.push(sql)
+      continue
+    }
+    const existingSql = existing.sql ? `${existing.sql.trim().replace(/;+$/, '')};` : ''
+    if (existingSql !== sql) {
+      statements.push(`DROP ${kind} IF EXISTS ${quoteIdent(object.name)};`, sql)
+    }
+  }
+  return statements
+}
+
+export function objectDiffStatements(source: SchemaObjectShapes, target: SchemaObjectShapes): string[] {
+  return [
+    ...changedObjectStatements('INDEX', source.indexes, target.indexes),
+    ...changedObjectStatements('VIEW', source.views, target.views),
+    ...changedObjectStatements('TRIGGER', source.triggers, target.triggers),
+  ]
 }

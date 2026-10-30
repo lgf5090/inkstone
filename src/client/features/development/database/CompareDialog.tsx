@@ -11,7 +11,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
 import { createDriver, type StudioDriver } from './drivers'
 import { loadSchema } from './schema-utils'
-import { diffSchemas, schemaStatements, type TableShape } from './schema-diff'
+import { diffSchemas, objectDiffStatements, schemaStatements, type TableShape } from './schema-diff'
 import { diffRows } from './data-diff'
 import { quoteIdent } from '@shared/development/database/sql-utils'
 import { downloadTextFile } from './export-utils'
@@ -42,6 +42,7 @@ interface CompareResult {
   statements: string[]
   summary: string
   truncated?: boolean
+  manual?: boolean
 }
 
 export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectionId, sourceSchema, connections, onClose, onError }: CompareDialogProps) {
@@ -97,18 +98,16 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
         const targetSchema = await loadSchema(targetDriver)
         const diffs = diffSchemas(shapesOf(sourceSchema), shapesOf(targetSchema))
         const statements = schemaStatements(diffs, shapesOf(sourceSchema))
-        const missingObjects = [
-          ...sourceSchema.indexes
-            .filter((index) => index.sql && !targetSchema.indexes.some((entry) => entry.name === index.name))
-            .map((index) => index.sql as string),
-          ...sourceSchema.views.filter((view) => !targetSchema.views.some((entry) => entry.name === view.name)).map((view) => view.sql),
-          ...sourceSchema.triggers.filter((trigger) => !targetSchema.triggers.some((entry) => entry.name === trigger.name)).map((trigger) => trigger.sql),
-        ]
-        statements.push(...missingObjects.map((sql) => `${sql.trim().replace(/;+$/, '')};`))
+        statements.push(...objectDiffStatements(sourceSchema, targetSchema))
         const missing = diffs.filter((diff) => diff.missingInTarget).length
         const added = diffs.reduce((total, diff) => total + diff.addedColumns.length, 0)
-        const changed = diffs.filter((diff) => diff.typeChanges.length > 0 || diff.removedColumns.length > 0).length
-        setResult({ statements, summary: t('development.database.compare.schema_summary', { missing, added, changed }) })
+        const changed = diffs.filter((diff) => diff.typeChanges.length > 0 || diff.removedColumns.length > 0 || diff.constraintChanges.length > 0).length
+        const manual = changed > 0
+        setResult({
+          statements,
+          summary: t('development.database.compare.schema_summary', { missing, added, changed }),
+          ...(manual ? { manual: true } : {}),
+        })
       } else {
         if (!table) return
         const keysToUse = keys.length > 0 ? keys : table.columns.filter((column) => column.pk).map((column) => column.name)
@@ -310,6 +309,11 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
             {result.truncated && (
               <p role="status" className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
                 {t('development.database.compare.truncated_note', { rows: MAX_QUERY_ROWS })}
+              </p>
+            )}
+            {result.manual && (
+              <p role="status" className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
+                {t('development.database.compare.manual_rebuild_note')}
               </p>
             )}
             <pre className="max-h-64 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-10)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{result.statements.join('\n') || t('development.database.compare.no_changes')}</pre>

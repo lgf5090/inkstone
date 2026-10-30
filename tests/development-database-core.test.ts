@@ -10,7 +10,7 @@ import { buildInsertManySql, buildRowInsert, chunkInsertRows, insertRowsInChunks
 import { generateRows } from '../src/client/features/development/database/data-generate'
 import { diagnoseSql } from '../src/client/features/development/database/sql-diagnostics'
 import { computeColumnWidths } from '../src/client/features/development/database/snapshot'
-import { diffSchemas, schemaStatements } from '../src/client/features/development/database/schema-diff'
+import { diffSchemas, objectDiffStatements, schemaStatements } from '../src/client/features/development/database/schema-diff'
 import { diffRows } from '../src/client/features/development/database/data-diff'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
 import { projectColumns, sqlLiteral, toCsv, toInsertSql, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
@@ -339,7 +339,7 @@ describe('development database core', () => {
     const target = [
       { name: 'users', sql: 'CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, legacy TEXT)', columns: [
         { name: 'id', type: 'INTEGER', notNull: false, pk: true },
-        { name: 'email', type: 'BLOB', notNull: false, pk: false },
+        { name: 'email', type: 'BLOB', notNull: true, pk: false },
         { name: 'legacy', type: 'TEXT', notNull: false, pk: false },
       ] },
       { name: 'stale', sql: 'CREATE TABLE stale (id INTEGER)', columns: [] },
@@ -349,12 +349,34 @@ describe('development database core', () => {
     expect(users.addedColumns.map((column) => column.name)).toEqual(['age'])
     expect(users.removedColumns).toEqual(['legacy'])
     expect(users.typeChanges).toEqual([{ column: 'email', from: 'BLOB', to: 'TEXT' }])
+    expect(users.constraintChanges).toEqual([{ column: 'email', from: 'NOT NULL', to: 'NULL' }])
     expect(diffs.find((diff) => diff.table === 'fresh')?.missingInTarget).toBe(true)
     expect(diffs.find((diff) => diff.table === 'stale')?.missingInSource).toBe(true)
     const statements = schemaStatements(diffs, source)
     expect(statements).toContain('CREATE TABLE fresh (id INTEGER);')
     expect(statements).toContain('ALTER TABLE "users" ADD COLUMN "age" INTEGER;')
     expect(statements.some((statement) => statement.startsWith('DROP'))).toBe(false)
+  })
+
+  it('emits create/drop statements for missing and changed schema objects', () => {
+    const statements = objectDiffStatements(
+      {
+        indexes: [{ name: 'i', sql: 'CREATE INDEX i ON t (a)' }],
+        views: [{ name: 'v', sql: 'CREATE VIEW v AS SELECT 1' }],
+        triggers: [{ name: 'tr', sql: 'CREATE TRIGGER tr AFTER INSERT ON t BEGIN SELECT 1; END' }],
+      },
+      {
+        indexes: [{ name: 'i', sql: 'CREATE INDEX i ON t (a, b)' }],
+        views: [],
+        triggers: [],
+      },
+    )
+    expect(statements).toEqual([
+      'DROP INDEX IF EXISTS "i";',
+      'CREATE INDEX i ON t (a);',
+      'CREATE VIEW v AS SELECT 1;',
+      'CREATE TRIGGER tr AFTER INSERT ON t BEGIN SELECT 1; END;',
+    ])
   })
 
   it('orders paginated reads by primary key or rowid', () => {
