@@ -271,6 +271,26 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (user_id)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_sync_targets (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    local_label TEXT NOT NULL DEFAULT '',
+    mount_id TEXT NOT NULL DEFAULT 'primary',
+    remote_path TEXT NOT NULL DEFAULT '/',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_sync_at INTEGER,
+    last_status TEXT,
+    last_error TEXT,
+    last_file_count INTEGER NOT NULL DEFAULT 0,
+    last_bytes INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_sync_user
+     ON CloudDrive_sync_targets(user_id, created_at)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_index_state (
     user_id TEXT NOT NULL,
     mount_id TEXT NOT NULL,
@@ -334,6 +354,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_api_keys',
   'CloudDrive_settings',
   'CloudDrive_clipboard',
+  'CloudDrive_sync_targets',
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
@@ -381,6 +402,10 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   ],
   CloudDrive_settings: ['user_id', 'key', 'value', 'updated_at'],
   CloudDrive_clipboard: ['user_id', 'mode', 'mount_id', 'source_path', 'ids', 'updated_at'],
+  CloudDrive_sync_targets: [
+    'user_id', 'id', 'name', 'local_label', 'mount_id', 'remote_path', 'enabled', 'last_sync_at',
+    'last_status', 'last_error', 'last_file_count', 'last_bytes', 'created_at', 'updated_at',
+  ],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
@@ -419,6 +444,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_tasks_user',
   'idx_clouddrive_tasks_queue',
   'idx_clouddrive_keys_user',
+  'idx_clouddrive_sync_user',
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',

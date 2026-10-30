@@ -36,6 +36,22 @@ function json(body: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(body) }
 }
 
+export interface CloudDriveSyncTarget {
+  id: string
+  name: string
+  localLabel: string
+  mountId: string
+  remotePath: string
+  enabled: boolean
+  lastSyncAt: number | null
+  lastStatus: string | null
+  lastError: string | null
+  lastFileCount: number
+  lastBytes: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface CloudDriveListParams {
   mountId?: string
   path?: string
@@ -108,6 +124,13 @@ export const clouddriveApi = {
   clipboard: () => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } | null }>('/api/clouddrive/clipboard'),
   setClipboard: (body: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[] }) => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } }>('/api/clouddrive/clipboard', { method: 'PUT', body: JSON.stringify(body) }),
   clearClipboard: () => request<{ ok: true }>('/api/clouddrive/clipboard', { method: 'DELETE' }),
+
+  syncTargets: () => request<{ targets: CloudDriveSyncTarget[] }>('/api/clouddrive/sync/targets'),
+  createSyncTarget: (body: { name: string; localLabel?: string; mountId?: string; remotePath: string }) => request<{ target: CloudDriveSyncTarget }>('/api/clouddrive/sync/targets', json(body)),
+  patchSyncTarget: (id: string, body: { name?: string; localLabel?: string; remotePath?: string; enabled?: boolean }) => request<{ target: CloudDriveSyncTarget }>(`/api/clouddrive/sync/targets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteSyncTarget: (id: string) => request<{ ok: true }>(`/api/clouddrive/sync/targets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  reportSync: (id: string, body: { status: 'success' | 'error'; files: number; bytes: number; error?: string }) => request<{ target: CloudDriveSyncTarget }>(`/api/clouddrive/sync/targets/${encodeURIComponent(id)}/report`, json(body)),
+  listRemote: (params: { mountId: string; path: string }) => request<{ base: string; truncated: boolean; entries: { path: string; kind: 'file' | 'folder'; size: number; modifiedAt: number }[] }>(`/api/clouddrive/sync/remote?${new URLSearchParams(params).toString()}`),
 
   tags: () => request<{ tags: { name: string; color: string; count: number }[] }>('/api/clouddrive/tags'),
   addTag: (id: string, body: { tag: string; color: string }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags`, json(body)),

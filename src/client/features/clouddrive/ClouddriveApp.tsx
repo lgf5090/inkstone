@@ -25,6 +25,7 @@ import { MaintenancePage } from './admin/MaintenancePage'
 import { QuickFilesPage } from './quick/QuickFilesPage'
 import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
+import { SyncPage } from './sync/SyncPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
 import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
@@ -47,6 +48,7 @@ const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; ownerOnly?:
   { page: 'preview-settings', labelKey: 'clouddrive.nav.preview', ownerOnly: true },
   { page: 'jobs', labelKey: 'clouddrive.nav.jobs', ownerOnly: true },
   { page: 'tasks', labelKey: 'clouddrive.nav.tasks' },
+  { page: 'sync', labelKey: 'clouddrive.nav.sync' },
   { page: 'keys', labelKey: 'clouddrive.nav.keys' },
   { page: 'maintenance', labelKey: 'clouddrive.nav.maintenance', ownerOnly: true },
   { page: 'settings', labelKey: 'clouddrive.nav.settings' },
@@ -126,13 +128,11 @@ export function ClouddriveApp() {
               <SidebarLink key={mount.id} page="files" active={address.page === 'files' && address.mountId === mount.id} label={mount.name} icon={HardDrive} mountId={mount.id} onNavigate={navigate} />
             ))}
           </SidebarSection>
-          {owner && (
-            <SidebarSection label={t('clouddrive.sidebar.manage')}>
-              {MANAGE.filter((item) => !item.ownerOnly || owner).map((item) => (
-                <SidebarLink key={item.page} page={item.page} active={address.page === item.page} label={t(item.labelKey)} icon={HardDrive} mountId={address.mountId} onNavigate={navigate} />
-              ))}
-            </SidebarSection>
-          )}
+          <SidebarSection label={t('clouddrive.sidebar.manage')}>
+            {MANAGE.filter((item) => !item.ownerOnly || owner).map((item) => (
+              <SidebarLink key={item.page} page={item.page} active={address.page === item.page} label={t(item.labelKey)} icon={HardDrive} mountId={address.mountId} onNavigate={navigate} />
+            ))}
+          </SidebarSection>
           <div className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2">
             <div className="text-[length:var(--text-10)] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">{t('clouddrive.capacity.title')}</div>
             <div className="mt-1 text-[length:var(--text-11)] text-[var(--text-secondary)]">
@@ -188,6 +188,8 @@ export function ClouddriveApp() {
                           ? <MaintenancePage />
                 : address.page === 'tasks'
                   ? <TransfersPage />
+                  : address.page === 'sync'
+                    ? <SyncPage />
                   : address.page === 'settings'
                     ? <CloudDriveSettingsPage owner={owner} />
                     : address.page === 'keys'
