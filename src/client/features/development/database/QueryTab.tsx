@@ -5,6 +5,7 @@ import {
   FolderPen,
   History,
   Loader2,
+  MoreHorizontal,
   Play,
   Save,
   Search,
@@ -29,8 +30,8 @@ import { useUi } from '../../../store/ui'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
-import { Input, Field } from '../../../components/form'
-import { Modal, confirm } from '../../../components/overlay'
+import { Input, Field, Segmented } from '../../../components/form'
+import { Menu, Modal, confirm } from '../../../components/overlay'
 import { ApiError } from '../../../lib/api'
 import { ToolbarPanel } from './ToolbarPanel'
 import { SqlEditor } from './SqlEditor'
@@ -152,6 +153,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [historySearch, setHistorySearch] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [savedOpen, setSavedOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [historyLimited, setHistoryLimited] = useState(30)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
@@ -168,8 +170,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     setPanelVisited((current) => current[sidePanel] ? current : { ...current, [sidePanel]: true })
   }, [sidePanel])
   const anyPanelMounted = panelVisited.ai || panelVisited.agent
-  const historyAnchor = useRef<HTMLButtonElement>(null)
-  const savedAnchor = useRef<HTMLButtonElement>(null)
+  const moreAnchor = useRef<HTMLButtonElement>(null)
   const settingsSaving = useRef(false)
 
   const namespace = useMemo(() => {
@@ -636,45 +637,18 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             <Button variant="secondary" size="sm" onClick={() => void explain()} disabled={running || !sql.trim()}>
               {t('development.database.query.explain')}
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setSidePanel((current) => current === 'ai' ? null : 'ai')}>
+            <Button variant="secondary" size="sm" onClick={() => setSidePanel((current) => current ? null : 'ai')} aria-pressed={sidePanel !== null}>
               <Sparkles size={14} />
               {t('development.database.query.ai')}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => setSidePanel((current) => current === 'agent' ? null : 'agent')}>
-              {t('development.database.query.agent')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => fileInput.current?.click()} title={t('development.database.query.run_file')} disabled={fileRunning}>
               <FileUp size={14} />
               {t('development.database.query.run_file')}
             </Button>
             <input ref={fileInput} type="file" accept=".sql,.txt" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void runSqlFile(file) }} />
-            <Button variant="ghost" size="sm" onClick={() => void snapshotCode()} disabled={!sql.trim()}>
-              <Camera size={14} />
-              {t('development.database.snapshot.code')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setChartOpen((value) => !value)} aria-pressed={chartOpen} disabled={results.length === 0}>
-              <BarChart3 size={14} />
-              {t('development.database.chart.title')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setPeekOpen(true)} title={t('development.database.query.peek_hint')}>
-              <Table2 size={14} />
-              {t('development.database.query.peek')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => void format()} title={t('development.database.query.format_hint')}>
-              <Wand2 size={14} />
-              {t('development.database.query.format')}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setResults([]); setError(null) }} disabled={results.length === 0}>
-              <Eraser size={14} />
-              {t('development.database.query.clear_results')}
-            </Button>
-            <Button ref={historyAnchor} variant="ghost" size="sm" onClick={() => setHistoryOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={historyOpen}>
-              <History size={14} />
-              {t('development.database.query.history')}
-            </Button>
-            <Button ref={savedAnchor} variant="ghost" size="sm" onClick={() => setSavedOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={savedOpen}>
-              <Bookmark size={14} />
-              {t('development.database.query.saved_queries')}
+            <Button ref={moreAnchor} variant="secondary" size="sm" onClick={() => setMoreOpen((value) => !value)} aria-haspopup="menu" aria-expanded={moreOpen}>
+              <MoreHorizontal size={14} />
+              {t('development.database.query.more')}
             </Button>
             <div className="flex-1" />
             {!isWriteSql(sql) && sql.trim() && (
@@ -685,6 +659,21 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               {t('development.database.query.save')}
             </Button>
           </div>
+          <Menu
+            anchor={moreAnchor}
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            label={t('development.database.query.more')}
+            items={[
+              { id: 'snapshot', label: t('development.database.snapshot.code'), icon: <Camera size={13} />, disabled: !sql.trim(), onSelect: () => { setMoreOpen(false); void snapshotCode() } },
+              { id: 'chart', label: t('development.database.chart.title'), icon: <BarChart3 size={13} />, disabled: results.length === 0, onSelect: () => { setMoreOpen(false); setChartOpen((value) => !value) } },
+              { id: 'peek', label: t('development.database.query.peek_title'), icon: <Table2 size={13} />, onSelect: () => { setMoreOpen(false); setPeekOpen(true) } },
+              { id: 'format', label: t('development.database.query.format'), icon: <Wand2 size={13} />, onSelect: () => { setMoreOpen(false); void format() } },
+              { id: 'clear', label: t('development.database.query.clear_results'), icon: <Eraser size={13} />, disabled: results.length === 0, onSelect: () => { setMoreOpen(false); setResults([]); setError(null) } },
+              { id: 'history', label: t('development.database.query.history'), icon: <History size={13} />, separatorBefore: true, onSelect: () => { setMoreOpen(false); setHistoryOpen(true) } },
+              { id: 'saved', label: t('development.database.query.saved_queries'), icon: <Bookmark size={13} />, onSelect: () => { setMoreOpen(false); setSavedOpen(true) } },
+            ]}
+          />
           <div className="min-h-28 flex-1">
             <SqlEditor
               value={sql}
@@ -868,13 +857,20 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
       </div>
 
       {anyPanelMounted && (
-        <aside className={cn('relative z-20 w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)] max-sm:absolute max-sm:inset-y-0 max-sm:right-0 max-sm:w-full', sidePanel ? 'flex' : 'hidden')}>
+        <aside aria-label={t('development.database.query.ai_panel')} className={cn('relative z-20 w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)] max-sm:absolute max-sm:inset-y-0 max-sm:right-0 max-sm:w-full', sidePanel ? 'flex' : 'hidden')}>
           {sidePanel && (
             <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
-                {sidePanel === 'ai' ? <Sparkles size={14} className="text-[var(--accent)]" /> : null}
-                {sidePanel === 'ai' ? t('development.database.query.ai_assistant') : t('development.database.query.db_agent')}
-              </span>
+              <Segmented
+                value={sidePanel}
+                onChange={(value: 'ai' | 'agent') => setSidePanel(value)}
+                label={t('development.database.query.ai_mode')}
+                options={[
+                  { value: 'ai', label: t('development.database.query.ai') },
+                  { value: 'agent', label: t('development.database.query.agent') },
+                ]}
+                size="sm"
+                className="min-w-0 flex-1"
+              />
               <IconButton label={t('development.database.query.close_sidebar')} size="sm" onClick={() => setSidePanel(null)}>
                 <X size={14} />
               </IconButton>
@@ -901,7 +897,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         </aside>
       )}
 
-      <ToolbarPanel open={historyOpen} onClose={() => setHistoryOpen(false)} anchor={historyAnchor} label={t('development.database.query.history')} width={340} suspended={settingsOpen}>
+      <ToolbarPanel open={historyOpen} onClose={() => setHistoryOpen(false)} anchor={moreAnchor} label={t('development.database.query.history')} width={340} suspended={settingsOpen}>
         <div className="mb-2 flex items-center gap-1.5">
           <Input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder={t('development.database.query.search_history')} className="h-8 text-[length:var(--text-11)]" />
           <IconButton label={t('development.database.query.history_settings')} size="sm" onClick={() => { setHistoryOpen(false); setSettingsOpen(true) }}>
@@ -944,7 +940,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         )}
       </ToolbarPanel>
 
-      <ToolbarPanel open={savedOpen} onClose={() => setSavedOpen(false)} anchor={savedAnchor} label={t('development.database.query.saved_queries')} width={360} suspended={saveOpen || renameNamespace !== null || groupConfirm}>
+      <ToolbarPanel open={savedOpen} onClose={() => setSavedOpen(false)} anchor={moreAnchor} label={t('development.database.query.saved_queries')} width={360} suspended={saveOpen || renameNamespace !== null || groupConfirm}>
         {groups.length === 0 ? (
           <div className="px-1 py-3 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.query.no_saved')}</div>
         ) : groups.map(([group, items]) => (
