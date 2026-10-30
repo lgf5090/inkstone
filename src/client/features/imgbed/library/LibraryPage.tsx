@@ -90,6 +90,7 @@ export function LibraryPage(): ReactElement {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [menuFile, setMenuFile] = useState<ImgbedFile | null>(null)
   const filtersTriggerRef = useRef<HTMLElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
   const gridRef = useRef<HTMLDivElement>(null)
   const loadSeq = useRef(0)
@@ -108,11 +109,37 @@ export function LibraryPage(): ReactElement {
     if (patch.channel !== undefined) setChannelFilter(patch.channel)
     if (patch.tag !== undefined) setTagFilter(patch.tag)
   }
+  const updateFiltersAndClose = (patch: Partial<ImgbedFilters>): void => {
+    updateFilters(patch)
+    closeFilters()
+  }
   const closeFilters = (): void => {
     setFiltersOpen(false)
     window.setTimeout(() => filtersTriggerRef.current?.focus(), 0)
   }
   useEscape(filtersOpen, closeFilters)
+  useEffect(() => {
+    if (!filtersOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab') return
+      const drawer = drawerRef.current
+      if (!drawer) return
+      const focusable = [...drawer.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+        .filter((element) => element.offsetParent !== null)
+      if (!focusable.length) return
+      const first = focusable[0]!
+      const last = focusable[focusable.length - 1]!
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [filtersOpen])
 
   const onGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.pointerType !== 'mouse' || event.button !== 0) return
@@ -475,14 +502,14 @@ export function LibraryPage(): ReactElement {
                 onContextMenu={(event) => { setMenuFile(file); menu.onContextMenu(event) }}
               >
                 <div className="absolute left-1.5 top-1.5 z-20 rounded bg-[var(--bg-overlay)]/80 p-0.5">
-                  <Checkbox checked={selected.has(file.id)} onChange={() => toggle(file.id)} ariaLabel={file.id} />
+                  <Checkbox checked={selected.has(file.id)} onChange={() => toggle(file.id)} ariaLabel={t('imgbed.library.select_file' as never, { name: file.fileName })} />
                 </div>
                 <div className="absolute right-1.5 top-1.5 z-20 flex items-center gap-0.5 rounded-[var(--r-sm)] bg-[var(--bg-overlay)]/90 p-0.5 opacity-100 shadow-[var(--shadow-pop)] transition-opacity duration-[var(--dur-fast)] md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                  <IconButton size="xs" data-card-action="favorite" label={t((file.favorite ? 'imgbed.library.unfavorite' : 'imgbed.library.favorite') as never)} active={file.favorite} onClick={() => void toggleFlag(file, 'favorite')}><Star size={12} /></IconButton>
-                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="pinned" label={t((file.pinned ? 'imgbed.library.unpin' : 'imgbed.library.pinned') as never)} active={file.pinned} onClick={() => void toggleFlag(file, 'pinned')}><Pin size={12} /></IconButton>
-                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="copy" label={t('imgbed.upload.copy')} onClick={() => void copyFileLink(file)}><Copy size={12} /></IconButton>
-                  <IconButton size="xs" className="hidden sm:inline-flex" data-card-action="tags" label={t('imgbed.library.tags')} onClick={() => void tagFile(file)}><Tag size={12} /></IconButton>
-                  <IconButton size="xs" data-card-action="more" label={t('imgbed.library.more_actions' as never)} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); openCardMenu(file, { x: rect.left, y: rect.bottom + 4 }) }}><MoreHorizontal size={12} /></IconButton>
+                  <IconButton size="xs" className="size-10 sm:size-6" tabIndex={-1} data-card-action="favorite" label={t((file.favorite ? 'imgbed.library.unfavorite' : 'imgbed.library.favorite') as never)} active={file.favorite} onClick={() => void toggleFlag(file, 'favorite')}><Star size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden size-10 sm:inline-flex sm:size-6" tabIndex={-1} data-card-action="pinned" label={t((file.pinned ? 'imgbed.library.unpin' : 'imgbed.library.pinned') as never)} active={file.pinned} onClick={() => void toggleFlag(file, 'pinned')}><Pin size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden size-10 sm:inline-flex sm:size-6" tabIndex={-1} data-card-action="copy" label={t('imgbed.upload.copy')} onClick={() => void copyFileLink(file)}><Copy size={12} /></IconButton>
+                  <IconButton size="xs" className="hidden size-10 sm:inline-flex sm:size-6" tabIndex={-1} data-card-action="tags" label={t('imgbed.library.tags')} onClick={() => void tagFile(file)}><Tag size={12} /></IconButton>
+                  <IconButton size="xs" className="size-10 sm:size-6" data-card-action="more" label={t('imgbed.library.more_actions' as never)} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); openCardMenu(file, { x: rect.left, y: rect.bottom + 4 }) }}><MoreHorizontal size={12} /></IconButton>
                 </div>
                 <button
                   type="button"
@@ -497,16 +524,17 @@ export function LibraryPage(): ReactElement {
                 >
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-inset)]">
                     {image
-                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}&width=480&height=360&fit=cover&fallback=original`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
+                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}&width=480&height=360&fit=cover&fallback=original`} alt="" loading="lazy" decoding="async" className="size-full object-cover" />
                       : <FileText size={26} className="text-[var(--text-quaternary)]" />}
                   </div>
                   <div className="px-2 py-1.5">
-                    <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-primary)]">{file.fileName}</div>
+                    <div className="truncate text-[length:var(--text-11-5)] text-[var(--text-primary)]" title={file.fileName}>{file.fileName}</div>
                     <div className="flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                      <span className="min-w-0 flex-1 truncate">{formatBytes(file.sizeBytes)} · {imgbedChannelDisplayName(file.channelName)}</span>
+                      <span className="min-w-0 flex-1 truncate">{formatBytes(file.sizeBytes)} · {imgbedChannelDisplayName(file.channelName)} · {new Date(file.createdAt).toLocaleDateString()}</span>
                       {file.pinned ? <Pin size={10} aria-hidden="true" className="shrink-0 text-[var(--warning)]" /> : null}
                       {file.favorite ? <Star size={10} aria-hidden="true" className="shrink-0 text-[var(--warning)]" /> : null}
                     </div>
+                    {file.tags.length ? <div className="mt-1 flex flex-wrap gap-1">{file.tags.slice(0, 3).map((tag) => <span key={tag} className="max-w-[92px] truncate rounded-[var(--r-2)] bg-[var(--bg-inset)] px-1 text-[length:var(--text-9)] text-[var(--text-tertiary)]">#{tag}</span>)}</div> : null}
                   </div>
                 </button>
               </div>
@@ -527,12 +555,12 @@ export function LibraryPage(): ReactElement {
       {filtersOpen ? (
         <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
           <button type="button" tabIndex={-1} aria-label={t('imgbed.common.close')} className="absolute inset-0 bg-[var(--scrim)]" onClick={closeFilters} />
-          <div role="dialog" aria-modal="true" aria-label={t('imgbed.library.filters' as never)} className="absolute inset-y-0 left-0 flex w-[286px] max-w-[86vw] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-[var(--shadow-modal)]">
+          <div ref={drawerRef} role="dialog" aria-modal="true" aria-label={t('imgbed.library.filters' as never)} className="absolute inset-y-0 left-0 flex w-[286px] max-w-[86vw] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-[var(--shadow-modal)]">
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
               <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('imgbed.library.filters' as never)}</span>
               <IconButton autoFocus label={t('imgbed.common.close')} onClick={closeFilters}><X size={15} /></IconButton>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden"><ImgbedSidebar data={sidebar} loading={sidebarLoading} filters={filters} onChange={updateFilters} /></div>
+            <div className="min-h-0 flex-1 overflow-hidden"><ImgbedSidebar data={sidebar} loading={sidebarLoading} filters={filters} onChange={updateFiltersAndClose} /></div>
           </div>
         </div>
       ) : null}
@@ -678,7 +706,7 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }):
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-10-5)] text-[var(--accent-on-soft)]">
       {label}
-      <button type="button" aria-label={t('imgbed.library.clear_filter' as never)} onClick={onClear} className="rounded-full p-0.5 hover:bg-[var(--bg-hover)]"><X size={10} /></button>
+      <button type="button" aria-label={t('imgbed.library.clear_named' as never, { name: label })} onClick={onClear} className="rounded-full p-0.5 hover:bg-[var(--bg-hover)]"><X size={10} /></button>
     </span>
   )
 }

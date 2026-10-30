@@ -100,6 +100,11 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
                 </div>
               ))}
             </div>
+            <ul className="sr-only">
+              {(data?.activity ?? []).filter((entry) => entry.count > 0).map((entry) => (
+                <li key={entry.date}>{t('imgbed.library.day_uploads' as never, { date: entry.date, count: entry.count })}</li>
+              ))}
+            </ul>
             <div className="mt-1.5 flex items-center justify-end gap-1 text-[length:var(--text-9)] text-[var(--text-quaternary)]">
               <span>{t('imgbed.library.heat_less' as never)}</span>
               {[0, 1, 2, 3, 4].map((level) => <span key={level} className="size-2 rounded-[var(--r-2)] bg-[var(--bg-inset)]" style={level ? heatCell(level) : undefined} />)}
@@ -111,6 +116,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
 
       <section aria-label={t('imgbed.library.filter_quick' as never)}>
         <SectionLabel>{t('imgbed.library.filter_quick' as never)}</SectionLabel>
+        <p className="px-2 pb-1 text-[length:var(--text-9)] text-[var(--text-quaternary)]">{t('imgbed.library.counts_scope' as never)}</p>
         <div className="space-y-0.5">
           <SidebarRow icon={null} label={t('imgbed.public.all')} count={counts?.all} active={filters.quick === 'all' && !filters.type && !filters.channel && !filters.tag} onClick={() => onChange({ quick: 'all', type: '', channel: '', tag: '' })} />
           <SidebarRow icon={<Star size={13} className="text-[var(--warning)]" />} label={t('imgbed.library.favorite' as never)} count={counts?.favorite} active={filters.quick === 'favorite'} onClick={() => onChange({ quick: filters.quick === 'favorite' ? 'all' : 'favorite' })} />
@@ -154,7 +160,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
         </div>
       </section>
       {filters.quick !== 'all' || filters.type || filters.channel || filters.tag ? (
-        <button type="button" onClick={() => onChange(DEFAULT_FILTERS)} className="flex min-h-9 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">{t('imgbed.library.clear_filter' as never)}</button>
+        <button type="button" onClick={() => onChange(DEFAULT_FILTERS)} className="flex min-h-10 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">{t('imgbed.library.clear_filter' as never)}</button>
       ) : null}
     </div>
   )
@@ -162,7 +168,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
 
 function SidebarRow({ icon, label, count, active, onClick }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void }): ReactElement {
   return (
-    <button type="button" onClick={onClick} aria-current={active ? 'true' : undefined} className={cn('flex min-h-9 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)] transition-colors md:min-h-0 md:h-7', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+    <button type="button" onClick={onClick} aria-pressed={active} className={cn('flex min-h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)] transition-colors md:min-h-0 md:h-7', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
       <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {count !== undefined && <span className="shrink-0 text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">{count}</span>}
@@ -185,7 +191,7 @@ function TagRow({ node, collapsed, active, setSize, posInSet, onToggle, onSelect
   const selected = node.fullPath === active
   return (
     <li {...treeItemProps({ level: node.depth + 1, expanded: hasChildren ? open : undefined, selected, setSize, posInSet })}>
-      <div className={cn('flex min-h-9 items-center gap-0.5 rounded-[var(--r-md)] pr-1 md:min-h-0 md:h-7', selected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
+      <div className={cn('flex min-h-10 items-center gap-0.5 rounded-[var(--r-md)] pr-1 md:min-h-0 md:h-7', selected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
         {hasChildren ? (
           <button type="button" data-tree-toggle aria-expanded={open} aria-label={t((open ? 'imgbed.library.collapse_tag' : 'imgbed.library.expand_tag') as never, { tag: node.fullPath })} onClick={() => onToggle(node.fullPath)} className="flex size-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-active)] md:size-5">
             <ChevronRight size={11} className={cn('transition-transform duration-[var(--dur-fast)]', open && 'rotate-90')} />

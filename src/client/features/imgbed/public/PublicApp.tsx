@@ -80,7 +80,7 @@ function ImagePreview({ url, alt, onPrev, onNext }: { url: string; alt: string; 
   return (
     <div className="flex flex-col gap-2">
       <div
-        className="flex max-h-[64vh] min-h-[240px] cursor-grab touch-pan-y items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)] active:cursor-grabbing"
+        className="flex max-h-[64vh] min-h-[240px] cursor-grab touch-pan-y items-center justify-center overflow-hidden overscroll-contain rounded-[var(--r-md)] bg-[var(--bg-inset)] active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
@@ -218,13 +218,13 @@ export function PublicApp(): ReactElement {
                     : fileType.startsWith('video/')
                       ? <video src={url} className="w-full" muted playsInline preload="metadata" />
                       : <div className="flex min-h-[100px] items-center justify-center"><FileText size={24} className="text-[var(--text-quaternary)]" /></div>}
-                  <div className="p-2 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]"><span className="block truncate">{file.name.split('/').pop()}</span>{formatSize(file.metadata.FileSize)}</div>
+                  <div className="p-2 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]"><span className="block truncate">{file.name.split('/').pop()}</span>{formatSize(file.metadata.FileSize)}{file.metadata.TimeStamp ? ` · ${new Date(file.metadata.TimeStamp).toLocaleDateString()}` : ''}</div>
                 </button>
               )
             })}
           </div>
           {!data?.files.length && !data?.directories.length && <Empty art="search" title={t('imgbed.public.empty')} />}
-          {data && data.files.length > 0 && start < data.totalCount && <div className="flex justify-center p-3"><Button loading={loading} onClick={() => void load(false)}>{t('imgbed.common.loading')}</Button></div>}
+          {data && data.files.length > 0 && start < data.totalCount && <div className="flex flex-wrap items-center justify-center gap-2 p-3"><span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('imgbed.library.loaded_count' as never, { loaded: data.files.length, total: data.totalCount })}</span><Button loading={loading} onClick={() => void load(false)}>{t('imgbed.library.load_more' as never)}</Button></div>}
         </>
       )}
       <Modal open={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.name.split('/').pop() ?? ''} width={900} footer={preview ? <div className="flex justify-end gap-2"><Button icon={<Copy size={13} />} onClick={() => void copyText(`${location.origin}/imgbed/file/${filePath(preview.name)}?v=${preview.metadata.UpdatedAt ?? preview.metadata.TimeStamp ?? 0}`)}>{t('imgbed.upload.copy')}</Button><a href={`/imgbed/file/${filePath(preview.name)}?v=${preview.metadata.UpdatedAt ?? preview.metadata.TimeStamp ?? 0}&download=1`} className="inline-flex items-center gap-1 text-[length:var(--text-12)] text-[var(--accent)]"><Download size={13} />{t('imgbed.library.download')}</a></div> : null}>

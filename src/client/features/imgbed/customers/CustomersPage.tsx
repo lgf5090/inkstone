@@ -5,6 +5,7 @@ import { Switch } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Modal } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { imgbedApi, imgbedQuery } from '../api'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import { imgbedChannelDisplayName } from '@shared/imgbed/model'
@@ -21,6 +22,8 @@ export function CustomersPage(): ReactElement {
   const [rows, setRows] = useState<Customer[] | null>(null)
   const [error, setError] = useState('')
   const [files, setFiles] = useState<{ ip: string; files: ImgbedFile[] } | null>(null)
+  const [busyIp, setBusyIp] = useState<string | null>(null)
+  const toast = useUi((state) => state.toast)
   const load = (): void => {
     setError('')
     imgbedApi<{ customers: Customer[] }>('/api/imgbed/manage/customers?count=200')
@@ -29,15 +32,23 @@ export function CustomersPage(): ReactElement {
   }
   useEffect(load, [])
   const toggle = async (row: Customer, blocked: boolean): Promise<void> => {
+    setBusyIp(row.ip)
     try {
       if (blocked) await imgbedApi('/api/imgbed/manage/customers/blocked-ips', { method: 'POST', body: { ip: row.ip } })
       else await imgbedApi(`/api/imgbed/manage/customers/blocked-ips${imgbedQuery({ ip: row.ip })}`, { method: 'DELETE' })
       load()
-    } catch { load() }
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' })
+      load()
+    } finally { setBusyIp(null) }
   }
   const openFiles = async (ip: string): Promise<void> => {
-    const result = await imgbedApi<{ files: ImgbedFile[] }>(`/api/imgbed/manage/customers/files${imgbedQuery({ ip, count: 200 })}`)
-    setFiles({ ip, files: result.files })
+    try {
+      const result = await imgbedApi<{ files: ImgbedFile[] }>(`/api/imgbed/manage/customers/files${imgbedQuery({ ip, count: 200 })}`)
+      setFiles({ ip, files: result.files })
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' })
+    }
   }
   if (error) return <Empty art="search" title={error} action={<Button onClick={load}>{t('imgbed.common.retry')}</Button>} />
   if (!rows) return <LoadingBlock label={t('imgbed.common.loading')} />
@@ -57,7 +68,7 @@ export function CustomersPage(): ReactElement {
                   <td className="p-2 text-[var(--text-secondary)]">{row.address || '—'}</td>
                   <td className="p-2 text-[var(--text-secondary)]">{row.count}</td>
                   <td className="p-2 text-[var(--text-quaternary)]">{new Date(row.lastUploadAt).toLocaleString()}</td>
-                  <td className="p-2"><Switch checked={row.blocked} onChange={(next) => void toggle(row, next)} label={row.blocked ? t('imgbed.customers.blocked') : t('imgbed.customers.allowed')} /></td>
+                  <td className="p-2"><Switch checked={row.blocked} disabled={busyIp === row.ip} onChange={(next) => void toggle(row, next)} label={row.blocked ? t('imgbed.customers.blocked') : t('imgbed.customers.allowed')} /></td>
                   <td className="p-2 text-right"><IconButton label={t('imgbed.library.files')} onClick={() => void openFiles(row.ip)}><Eye size={13} /></IconButton></td>
                 </tr>
               ))}

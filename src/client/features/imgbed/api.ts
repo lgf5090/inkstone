@@ -7,6 +7,7 @@ import type {
 import type { ImgbedPageSettings, ImgbedUploadSettings } from '@shared/imgbed/settings'
 import { CLIENT_HEADER } from '@shared/constants'
 import { request } from '../../lib/api'
+import { t } from '../../lib/i18n'
 
 export interface ImgbedConfigResponse {
   page: ImgbedPageSettings
@@ -78,10 +79,23 @@ export function imgbedQuery(params: Record<string, string | number | boolean | s
 }
 
 export function imgbedApi<T>(path: string, options: Parameters<typeof request>[1] = {}): Promise<T> {
-  return request<T>(path, options)
+  return request<T>(path, options).catch((error: unknown) => {
+    if (!(error instanceof Error)) throw error
+    const message = error.message
+    const mapped = /File exceeds .* MB/.test(message) ? t('imgbed.error.file_too_large' as never)
+      : /The remote file exceeds 10 MB/.test(message) ? t('imgbed.error.remote_too_large' as never)
+        : /(valid|public).*external URL/i.test(message) ? t('imgbed.error.external_url' as never)
+          : /No (enabled|upload) .*channel/i.test(message) ? t('imgbed.error.no_channel' as never)
+            : /Content moderation is unavailable/.test(message) ? t('imgbed.error.moderation' as never)
+              : /WebDAV password must be/.test(message) ? t('imgbed.error.password_length' as never)
+                : /is required$/.test(message) ? t('imgbed.error.required' as never)
+                  : null
+    if (mapped) throw new Error(mapped)
+    throw error
+  })
 }
 
-function uploadRequest(file: File, folder: string, nameType: string, channel: string, channelName: string, onProgress: (percent: number) => void, signal?: AbortSignal): Promise<{ src: string; url?: string; publicUrl?: string; id?: string }[]> {
+function uploadRequest(file: File, folder: string, nameType: string, channel: string, channelName: string, onProgress: (percent: number) => void, signal?: AbortSignal): Promise<{ src: string; url?: string; publicUrl?: string; id?: string; channel?: string; channelName?: string }[]> {
   const form = new FormData()
   form.append('file', file)
   const query = imgbedQuery({ uploadFolder: folder, uploadNameType: nameType, uploadChannel: channel, channelName })
@@ -108,7 +122,7 @@ export function imgbedUpload(
   onProgress: (percent: number) => void,
   signal?: AbortSignal,
   chunkThresholdMB = 20,
-): Promise<{ src: string; url?: string; publicUrl?: string; id?: string }[]> {
+): Promise<{ src: string; url?: string; publicUrl?: string; id?: string; channel?: string; channelName?: string }[]> {
   if (file.size > chunkThresholdMB * 1024 * 1024) return imgbedChunkedUpload(file, folder, nameType, channel, channelName, onProgress, signal)
   return uploadRequest(file, folder, nameType, channel, channelName, onProgress, signal)
 }
@@ -163,7 +177,7 @@ async function imgbedChunkedUpload(
     })
     await Promise.all(workers)
     complete = true
-    const result = await imgbedApi<{ src: string; url?: string; id?: string }>(`/api/imgbed/uploads/${init.uploadId}/complete`, { method: 'POST' })
+    const result = await imgbedApi<{ src: string; url?: string; id?: string; channel?: string; channelName?: string }>(`/api/imgbed/uploads/${init.uploadId}/complete`, { method: 'POST' })
     onProgress(100)
     return [result]
   } catch (error) {

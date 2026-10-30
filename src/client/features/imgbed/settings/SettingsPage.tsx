@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { Check, KeyRound, Plus, RefreshCw, Trash2, Zap } from 'lucide-react'
+import { Check, Copy, KeyRound, Plus, RefreshCw, Trash2, Zap } from 'lucide-react'
 import { useRef } from 'react'
 import { Button, Badge, IconButton } from '../../../components/primitives'
 import { Checkbox, Field, Input, Select, Switch, Textarea } from '../../../components/form'
@@ -7,6 +7,7 @@ import { DatePicker } from '../../../components/date-picker'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { confirm as confirmDialog } from '../../../components/overlay'
 import { Modal, confirm } from '../../../components/overlay'
+import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { imgbedApi, type ImgbedChannelResponse, type ImgbedStatsResponse, type ImgbedToken } from '../api'
@@ -90,12 +91,12 @@ function StatusTab(): ReactElement {
       <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('imgbed.settings.status')}</span>
-          <IconButton label={t('imgbed.common.retry')} onClick={load}><RefreshCw size={14} /></IconButton>
+          <IconButton label={t('imgbed.common.refresh' as never)} onClick={load}><RefreshCw size={14} /></IconButton>
         </div>
         <div className="mb-3 flex flex-wrap items-end gap-2">
           <Field label={t('imgbed.settings.trend_start' as never)}><DatePicker label={t('imgbed.settings.trend_start' as never)} value={startDate} onChange={setStartDate} /></Field>
           <Field label={t('imgbed.settings.trend_end' as never)}><DatePicker label={t('imgbed.settings.trend_end' as never)} value={endDate} onChange={setEndDate} /></Field>
-          <Button size="sm" variant="secondary" onClick={load}>{t('imgbed.common.retry')}</Button>
+          <Button size="sm" variant="secondary" onClick={load}>{t('imgbed.common.refresh' as never)}</Button>
         </div>
         <CategoryDonut stats={stats.categoryStats} />
         {!stats.uploadTrend.labels.length ? <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('imgbed.settings.no_data')}</p> : (
@@ -243,6 +244,7 @@ function ChannelDialog({ channel, onClose, onSaved }: { channel: ImgbedChannelRe
   const [quotaEnabled, setQuotaEnabled] = useState(channel.quota.enabled)
   const [quotaLimit, setQuotaLimit] = useState(channel.quota.limitGB ?? 0)
   const [error, setError] = useState('')
+  const [clearSecrets, setClearSecrets] = useState(false)
   const field = (key: string, label: string, options?: { password?: boolean; secret?: boolean; savedHint?: boolean }): ReactElement => (
     <Field label={label}>
       <Input
@@ -296,12 +298,13 @@ function ChannelDialog({ channel, onClose, onSaved }: { channel: ImgbedChannelRe
       if (required.some((value) => !value.trim()) || (!channel.id && names.length && !anySecret)) {
         throw new Error(t('imgbed.channel.required_fields' as never))
       }
-      const credentials = anySecret
+      const credentials = anySecret && !clearSecrets
         ? Object.fromEntries(names.map((key, index) => [key, entered[index]!]))
         : null
       const body = {
         type, name: name.trim(), config,
         ...(credentials ? { credentials } : {}),
+        ...(channel.id && clearSecrets ? { clearCredentials: true } : {}),
         enabled,
         quota: { enabled: quotaEnabled, limitGB: quotaLimit || null, threshold: channel.quota.threshold },
       }
@@ -351,6 +354,7 @@ function ChannelDialog({ channel, onClose, onSaved }: { channel: ImgbedChannelRe
           <Field label={t('imgbed.settings.enabled')}><Switch checked={enabled} onChange={setEnabled} /></Field>
           <Checkbox checked={quotaEnabled} onChange={setQuotaEnabled} label={t('imgbed.settings.quota')} />
         </div>
+        {channel.hasCredentials && <Checkbox checked={clearSecrets} onChange={setClearSecrets} label={t('imgbed.channel.clear_credentials' as never)} />}
         {quotaEnabled && <Field label={t('imgbed.channel.quota_limit')}><Input type="number" value={quotaLimit} onChange={(event) => setQuotaLimit(Number(event.target.value))} /></Field>}
       </div>
     </Modal>
@@ -362,6 +366,7 @@ function TokensPanel(): ReactElement {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [scopes, setScopes] = useState<string[]>(['upload'])
+  const [expiresDays, setExpiresDays] = useState('')
   const [created, setCreated] = useState('')
   const toast = useUi((state) => state.toast)
   const load = (): void => {
@@ -370,15 +375,18 @@ function TokensPanel(): ReactElement {
   useEffect(load, [])
   const create = async (): Promise<void> => {
     try {
-      const result = await imgbedApi<{ token: string }>('/api/imgbed/tokens', { method: 'POST', body: { name, scopes } })
+      const days = Number(expiresDays)
+      const expiresAt = Number.isFinite(days) && days > 0 ? Date.now() + days * 86_400_000 : null
+      const result = await imgbedApi<{ token: string }>('/api/imgbed/tokens', { method: 'POST', body: { name, scopes, expiresAt } })
       setCreated(result.token)
       setCreating(false)
       setName('')
+      setExpiresDays('')
       load()
     } catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
   }
   const remove = async (id: string): Promise<void> => {
-    if (!(await confirm({ title: t('imgbed.settings.delete_channel'), tone: 'danger', confirmLabel: t('imgbed.library.delete') }))) return
+    if (!(await confirm({ title: t('imgbed.settings.delete_token' as never), tone: 'danger', confirmLabel: t('imgbed.library.delete') }))) return
     await imgbedApi(`/api/imgbed/tokens/${id}`, { method: 'DELETE' }).then(load).catch(() => toast({ title: t('imgbed.common.error'), tone: 'danger' }))
   }
   return (
@@ -387,7 +395,7 @@ function TokensPanel(): ReactElement {
         <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('imgbed.settings.tokens')}</span>
         <Button size="sm" icon={<Plus size={13} />} onClick={() => setCreating(true)}>{t('imgbed.settings.create_token')}</Button>
       </div>
-      {created && <div className="mb-2 break-all rounded bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11)] text-[var(--text-primary)]">{t('imgbed.settings.token_created')}<br />{created}</div>}
+      {created && <div className="mb-2 flex items-start gap-2 rounded bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11)] text-[var(--text-primary)]"><span className="min-w-0 flex-1 break-all">{t('imgbed.settings.token_created')}<br />{created}</span><IconButton label={t('imgbed.upload.copy')} onClick={() => void copyText(created).then((ok) => toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' }))}><Copy size={13} /></IconButton></div>}
       {!tokens ? <LoadingBlock label={t('imgbed.common.loading')} /> : tokens.length === 0 ? <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('imgbed.settings.no_data')}</p> : (
         <ul className="divide-y divide-[var(--border-subtle)]">
           {tokens.map((token) => (
@@ -396,6 +404,7 @@ function TokensPanel(): ReactElement {
               <span className="font-mono text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{token.prefix}…</span>
               <Badge tone="neutral">{token.scopes.map((scope) => t(`imgbed.token.scope_${scope}` as never)).join(' ')}</Badge>
               <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{token.owner}</span>
+              <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]" title={token.lastUsedAt ? new Date(token.lastUsedAt).toLocaleString() : ''}>{token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : t('imgbed.settings.token_never_expires' as never)}</span>
               <IconButton label={t('imgbed.library.delete')} onClick={() => void remove(token.id)}><Trash2 size={13} /></IconButton>
             </li>
           ))}
@@ -404,6 +413,7 @@ function TokensPanel(): ReactElement {
       <Modal open={creating} onClose={() => setCreating(false)} title={t('imgbed.settings.create_token')} width={420} footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setCreating(false)}>{t('imgbed.common.cancel')}</Button><Button onClick={() => void create()}>{t('imgbed.settings.create_token')}</Button></div>}>
         <div className="flex flex-col gap-2">
           <Field label={t('imgbed.settings.token_name')}><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
+          <Field label={t('imgbed.settings.token_expires_days' as never)}><Input type="number" min={1} value={expiresDays} onChange={(event) => setExpiresDays(event.target.value)} /></Field>
           <Field label={t('imgbed.settings.token_scopes')}>
             <div className="flex flex-wrap gap-2">{['list', 'upload', 'delete', 'manage'].map((scope) => <Checkbox key={scope} checked={scopes.includes(scope)} onChange={(next) => setScopes((current) => next ? [...current, scope] : current.filter((item) => item !== scope))} label={t(`imgbed.token.scope_${scope}` as never)} />)}</div>
           </Field>

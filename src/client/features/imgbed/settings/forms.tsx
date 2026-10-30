@@ -92,7 +92,7 @@ export function UploadSettingsForm(): ReactElement {
   return (
     <Panel>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label={t('imgbed.settings.max_file_size' as never)}><Input type="number" value={value.maxFileSizeMB} onChange={(event) => setValue({ ...value, maxFileSizeMB: Number(event.target.value) })} /></Field>
+        <Field label={t('imgbed.settings.max_file_size' as never)} hint={t('imgbed.settings.max_file_hint' as never)}><Input type="number" value={value.maxFileSizeMB} onChange={(event) => setValue({ ...value, maxFileSizeMB: Number(event.target.value) })} /></Field>
         <Field label={t('imgbed.settings.chunk_threshold' as never)}><Input type="number" value={value.chunkThresholdMB} onChange={(event) => setValue({ ...value, chunkThresholdMB: Number(event.target.value) })} /></Field>
         <Field label={t('imgbed.settings.load_balance' as never)} className="md:col-span-2">
           <div className="flex flex-wrap gap-3">
