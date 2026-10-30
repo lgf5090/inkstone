@@ -10,6 +10,7 @@ import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
 import type { StudioDriver } from './drivers'
 import { inferColumnType, parseCsv, type ParsedCsv } from './csv-parse'
+import { insertRowsInChunks } from './transfer-ops'
 
 const MAX_IMPORT_ROWS = 5000
 
@@ -93,7 +94,6 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
     if (ensureWritable && !(await ensureWritable())) return
     setRunning(true)
     const targetTable = mode === 'new' ? newName.trim() : table.name
-    let failed = 0
     try {
       if (mode === 'new') {
         const columns = parsed.headers.map((header, index) => {
@@ -103,22 +103,15 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
         await driver.query(`CREATE TABLE ${quoteIdent(targetTable)} (${columns.join(', ')})`)
       }
       const indexes = effectiveMapping.map((target, index) => target ? index : -1).filter((index) => index >= 0)
-      const sql = `INSERT INTO ${quoteIdent(targetTable)} (${targets.map(quoteIdent).join(', ')}) VALUES (${targets.map(() => '?').join(', ')})`
-      let done = 0
-      for (let index = 0; index < parsed.rows.length; index++) {
-        const row = parsed.rows[index]!
-        const params = indexes.map((sourceIndex) => {
-          const value = row[sourceIndex] ?? ''
-          return nullText !== '' && value === nullText ? null : value
-        })
-        try {
-          await driver.query(sql, params)
-          done += 1
-        } catch {
-          failed += 1
-        }
-        if ((index + 1) % 25 === 0 || index === parsed.rows.length - 1) setProgress({ done: index + 1, total: parsed.rows.length })
-      }
+      const rows = parsed.rows.map((row) => indexes.map((sourceIndex) => {
+        const value = row[sourceIndex] ?? ''
+        return nullText !== '' && value === nullText ? null : value
+      }))
+      const outcome = await insertRowsInChunks(driver, targetTable, targets, rows, (done) => {
+        setProgress({ done, total: rows.length })
+      })
+      const done = outcome.inserted
+      const failed = outcome.failed
       useUi.getState().toast({
         title: t('development.database.import.done', { count: done }),
         ...(failed > 0 ? { description: t('development.database.import.failed', { count: failed }), tone: 'warning' as const } : { tone: 'success' as const }),

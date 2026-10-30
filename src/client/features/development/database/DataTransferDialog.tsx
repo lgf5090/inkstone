@@ -9,7 +9,7 @@ import { Modal, confirm } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
 import { createDriver, type StudioDriver } from './drivers'
-import { buildRowInsert } from './transfer-ops'
+import { insertRowsInChunks } from './transfer-ops'
 import { loadGuards } from './guards'
 import { stableOrderBy } from './schema-utils'
 
@@ -107,10 +107,12 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
               if (cancelRef.current) break
               const page = await sourceDriver.query(`SELECT * FROM ${quoteIdent(tableName)}${orderBy ? ` ${orderBy}` : ''} LIMIT ${PAGE} OFFSET ${offset}`)
               if (page.rows.length === 0) break
-              for (const row of page.rows) {
-                if (rows >= ROW_CAP) break
-                await targetDriver.query(buildRowInsert(tableName, page.columns, row))
-                rows += 1
+              const remaining = ROW_CAP - rows
+              if (remaining <= 0) break
+              const outcome = await insertRowsInChunks(targetDriver, tableName, page.columns, page.rows.slice(0, remaining))
+              rows += outcome.inserted
+              if (outcome.failed > 0) {
+                throw new Error(t('development.database.transfer.row_failed', { count: outcome.failed, message: outcome.errors[0] ?? '' }))
               }
               if (rows >= ROW_CAP || page.rows.length < PAGE) break
               offset += PAGE
@@ -120,7 +122,7 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
           setStatus((current) => ({ ...current, [tableName]: { state: 'done', rows } }))
         } catch (error) {
           failed += 1
-          setStatus((current) => ({ ...current, [tableName]: { state: 'failed', message: error instanceof Error ? error.message : String(error) } }))
+          setStatus((current) => ({ ...current, [tableName]: { state: 'failed', rows, message: error instanceof Error ? error.message : String(error) } }))
         }
       }
       if (mode !== 'data' && !cancelRef.current) {

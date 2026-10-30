@@ -167,6 +167,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.transfer.object_failed": "Object creation failed: {message}",
   "development.database.transfer.row_cap": "Up to {rows} rows per table",
   "development.database.transfer.readonly_target": "Target connection {name} is read-only",
+  "development.database.transfer.row_failed": "Failed to transfer {count} rows: {message}",
   "development.database.transfer.no_definition": "No CREATE statement; structure cannot be transferred",
   "development.database.dump.title": "Export database",
   "development.database.dump.hint": "Structure and data of {tables} tables plus views/triggers.",

@@ -7,9 +7,9 @@ import { Input } from '../../../components/form'
 import { Modal } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
-import { buildInsert } from './row-ops'
 import type { StudioDriver } from './drivers'
 import { generateRows, type GenConfig, type GenKind } from './data-generate'
+import { insertRowsInChunks } from './transfer-ops'
 
 const KINDS: GenKind[] = ['skip', 'sequence', 'integer', 'real', 'text', 'uuid', 'email', 'ip', 'date', 'bool', 'enum']
 
@@ -55,23 +55,27 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
     if (active.length === 0 || running) return
     if (ensureWritable && !(await ensureWritable())) return
     setRunning(true)
+    const columns = active.map((column) => column.name)
     const rows = generateRows(active.map((column) => ({ name: column.name, config: configs[column.name]! })), total)
-    let done = 0
     try {
-      for (; done < rows.length; done++) {
-        const entries = active.map((column, position) => [column.name, rows[done]![position]!] as const)
-        const statement = buildInsert(table.name, entries)
-        if (!statement) continue
-        await driver.query(statement.sql, statement.params)
-        if ((done + 1) % 10 === 0 || done === rows.length - 1) setProgress({ done: done + 1, total })
+      const outcome = await insertRowsInChunks(driver, table.name, columns, rows, (done) => {
+        setProgress({ done, total })
+      })
+      if (outcome.failed > 0) {
+        onGenerated()
+        onError(t('development.database.generate.partial', {
+          done: outcome.inserted,
+          total,
+          message: outcome.errors[0] ?? '',
+        }))
+        return
       }
       useUi.getState().toast({ title: t('development.database.generate.done', { count: total }), tone: 'success' })
       onGenerated()
       onClose()
     } catch (error) {
-      if (done > 0) onGenerated()
       onError(t('development.database.generate.partial', {
-        done,
+        done: 0,
         total,
         message: error instanceof Error ? error.message : String(error),
       }))

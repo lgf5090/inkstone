@@ -43,7 +43,8 @@ import { ToolbarPanel } from './ToolbarPanel'
 import type { StudioDriver } from './drivers'
 import { buildCountSql, buildTableDataSql, primaryKeyColumns } from './schema-utils'
 import { buildWhere } from './filter-ops'
-import { buildDelete, buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from './row-ops'
+import { buildDelete, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from './row-ops'
+import { insertRowsInChunks } from './transfer-ops'
 import { downloadBlob, projectColumns, sqlLiteral } from './export-utils'
 import type { FilterCondition, FilterOperator } from './types'
 
@@ -436,27 +437,31 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         column.name,
         insertNulls.has(column.name) || insertValues[column.name] === '' ? null : insertValues[column.name],
       ] as const)
-    const statement = buildInsert(table.name, entries)
-    if (!statement) return
+    if (entries.length === 0) return
+    const columns = entries.map(([column]) => column)
+    const row = entries.map(([, value]) => value)
     const count = Math.max(1, Math.min(100, Math.trunc(Number(insertCount)) || 1))
-    let done = 0
+    const rows = Array.from({ length: count }, () => row)
     try {
-      for (; done < count; done++) {
-        await driver.query(statement.sql, statement.params)
+      const outcome = await insertRowsInChunks(driver, table.name, columns, rows)
+      if (outcome.failed > 0) {
+        if (outcome.inserted > 0) {
+          setInsertOpen(false)
+          setInsertCount('1')
+          void load(page, pageSize, sort, where)
+        }
+        onError(t('development.database.table.insert_partial', {
+          done: outcome.inserted,
+          total: count,
+          message: outcome.errors[0] ?? '',
+        }))
+        return
       }
       setInsertOpen(false)
       setInsertCount('1')
       void load(page, pageSize, sort, where)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
-      if (done > 0) {
-        setInsertOpen(false)
-        setInsertCount('1')
-        void load(page, pageSize, sort, where)
-        onError(t('development.database.table.insert_partial', { done, total: count, message }))
-      } else {
-        onError(message)
-      }
+      onError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 

@@ -167,6 +167,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.transfer.object_failed": "对象创建失败：{message}",
   "development.database.transfer.row_cap": "每表最多传输 {rows} 行",
   "development.database.transfer.readonly_target": "目标连接「{name}」处于只读模式",
+  "development.database.transfer.row_failed": "传输 {count} 行失败：{message}",
   "development.database.transfer.no_definition": "缺少建表语句，无法传输结构",
   "development.database.dump.title": "导出整库",
   "development.database.dump.hint": "导出 {tables} 张表的结构与数据，以及视图/触发器。",

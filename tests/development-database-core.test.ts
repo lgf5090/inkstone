@@ -6,7 +6,7 @@ import { buildRebuildSql } from '../src/client/features/development/database/ddl
 import { buildTableDataSql, loadSchema, stableOrderBy } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
-import { buildRowInsert } from '../src/client/features/development/database/transfer-ops'
+import { buildInsertManySql, buildRowInsert, chunkInsertRows, insertRowsInChunks } from '../src/client/features/development/database/transfer-ops'
 import { generateRows } from '../src/client/features/development/database/data-generate'
 import { diagnoseSql } from '../src/client/features/development/database/sql-diagnostics'
 import { computeColumnWidths } from '../src/client/features/development/database/snapshot'
@@ -276,6 +276,26 @@ describe('development database core', () => {
 
   it('quotes INSERT literals for transfer rows', () => {
     expect(buildRowInsert('t', ['a', 'b'], ["x'y", null])).toBe(`INSERT INTO "t" ("a", "b") VALUES ('x''y', NULL)`)
+  })
+
+  it('builds multi-row inserts, chunks them, and falls back per row', async () => {
+    expect(buildInsertManySql('t', ['a', 'b'], [[1, "x'y"], [null, 2]])).toBe(`INSERT INTO "t" ("a", "b") VALUES (1, 'x''y'), (NULL, 2)`)
+    const chunks = chunkInsertRows(['a'], Array.from({ length: 120 }, (_, index) => [index]))
+    expect(chunks.map((chunk) => chunk.length)).toEqual([50, 50, 20])
+    const calls: string[] = []
+    const driver = {
+      query: async (sql: string) => {
+        calls.push(sql)
+        if (sql.includes(', (')) throw new Error('batch rejected')
+        if (sql.includes('999')) throw new Error('bad row')
+        return { columns: [], rows: [], durationMs: 0 }
+      },
+    }
+    const outcome = await insertRowsInChunks(driver as never, 't', ['a'], [[1], [999], [2]])
+    expect(outcome.inserted).toBe(2)
+    expect(outcome.failed).toBe(1)
+    expect(outcome.errors).toEqual(['bad row'])
+    expect(calls[0]).toContain('), (')
   })
 
   it('generates deterministic rows for each generator kind', () => {
