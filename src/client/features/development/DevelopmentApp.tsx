@@ -9,9 +9,11 @@ import { LoadingBlock } from '../../components/feedback'
 import { Resizer } from '../shell/Resizer'
 import { DevelopmentSidebar } from './DevelopmentSidebar'
 import { DatabaseApp } from './database/DatabaseApp'
-import { XgetApp } from './xget/XgetApp'
 import { DEVELOPMENT_NAV_WIDTH, developmentModuleForPath, useDevelopmentStore } from './store'
 
+const XgetApp = lazy(() =>
+  import('./xget/XgetApp').then((module) => ({ default: module.XgetApp })),
+)
 const ApiTesterApp = lazy(() =>
   import('./api-tester/ApiTesterApp').then((module) => ({ default: module.ApiTesterApp })),
 )
@@ -88,7 +90,9 @@ export function DevelopmentApp() {
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
           {moduleId === 'xget' ? (
-            <XgetApp />
+            <Suspense fallback={<LoadingBlock />}>
+              <XgetApp />
+            </Suspense>
           ) : moduleId === 'api-tester' ? (
             <Suspense fallback={<LoadingBlock />}>
               <ApiTesterApp />
