@@ -168,7 +168,18 @@ async function putTelegram(channel: ResolvedChannel, file: StorageFile): Promise
 
 export async function putTelegramPart(channel: ResolvedChannel, file: StorageFile, index: number): Promise<ImgbedPart> {
   const sent = await telegramSend(channel, file, 'sendDocument', `${file.fileName}.part${String(index).padStart(3, '0')}`)
-  return { index, fileId: sent.fileId, size: sent.size }
+  return { index, fileId: sent.fileId, size: sent.size, ...(sent.messageId ? { messageId: String(sent.messageId) } : {}) }
+}
+
+export async function deleteTelegramMessage(channel: ResolvedChannel, messageId: string): Promise<void> {
+  const chatId = channelConfig(channel, 'chatId', '')
+  if (!chatId) return
+  const response = await fetch(`${telegramBase(channel)}/deleteMessage`, {
+    method: 'POST',
+    body: new URLSearchParams({ chat_id: chatId, message_id: messageId }),
+  })
+  await response.body?.cancel().catch(() => {})
+  if (!response.ok) throw new StorageError(`Telegram delete failed (${response.status})`, 502)
 }
 
 export async function getTelegramContent(channel: ResolvedChannel, fileId: string): Promise<Response> {

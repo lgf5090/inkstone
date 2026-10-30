@@ -5,7 +5,10 @@ import { requireImgbedActor } from './auth'
 import { StorageError } from './storage'
 import { uploadSingle, type UploadQuery } from './upload-service'
 import { buildFileId, sanitizeFileName, sanitizeFolderPath, type ImgbedPart, type ImgbedChannelType } from '@shared/imgbed/model'
-import { getSettingsGroup, fileExists, insertFile } from './store'
+import { deleteUploadParts, fileExists, getSettingsGroup, insertFile, listUploadParts, upsertUploadPart } from './store'
+import { parseSecuritySettings } from '@shared/imgbed/settings'
+import { requestClientIp } from '../lib/request'
+import { lookupAddress } from './upload-service'
 import { availableChannelsForUpload, listResolvedChannels } from './channels'
 import { pickChannel } from './upload-service'
 import { abortMultipart, completeMultipart, createMultipart, putDiscordPart, putTelegramPart, uploadMultipartPart, type MultipartSession } from './storage'
@@ -81,6 +84,11 @@ async function session(c: { env: AppBindings['Bindings'] }, id: string): Promise
   return row
 }
 
+export function boundedPartSizeMB(configured: number, type: string): number {
+  const channelMax = type === 'discord' ? 9 : type === 'telegram' ? 16 : 64
+  return Math.max(5, Math.min(channelMax, Number.isFinite(configured) ? configured : 16))
+}
+
 function canonical(type: string): string {
   return type === 'cfr2' ? 'CloudflareR2' : type === 'telegram' ? 'TelegramNew' : type === 's3' ? 'S3'
     : type === 'discord' ? 'Discord' : type === 'huggingface' ? 'HuggingFace' : 'WebDAV'
@@ -100,6 +108,8 @@ imgbedUploadRoutes.post('/uploads/init', async (c) => {
     if (size > 5 * 1024 * 1024 * 1024) throw new StorageError('File exceeds the 5 GB limit', 413)
     const page = await getSettingsGroup(c.env.DB, 'page')
     const upload = await getSettingsGroup(c.env.DB, 'upload')
+    const configuredMax = Math.max(1, Number(upload.maxFileSizeMB) || 5000) * 1024 * 1024
+    if (size > configuredMax) throw new StorageError(`File exceeds ${upload.maxFileSizeMB} MB`, 413)
     const requested = (body?.channel ?? page.defaultUploadChannel) as ImgbedChannelType
     const channels = await availableChannelsForUpload(c.env, c.env.DB)
     const channel = pickChannel(channels, requested, body?.channelName, upload.loadBalance[requested] === true) ?? channels[0] ?? null
@@ -111,10 +121,11 @@ imgbedUploadRoutes.post('/uploads/init', async (c) => {
     const id = newId()
     const expiresAt = Date.now() + 24 * 3600 * 1000
     if (channel.type === 'huggingface' || channel.type === 'webdav') {
-      if (size > 100 * 1024 * 1024) throw new StorageError('This channel does not support files above 100 MB', 413)
+      if (size > Math.min(configuredMax, 100 * 1024 * 1024)) throw new StorageError('This channel does not support files above 100 MB', 413)
       return c.json({ mode: 'single', uploadId: '', partSize: 0, totalParts: 0, channel: channel.type, channelName: channel.name })
     }
-    const partSize = channel.type === 'discord' ? 9 * 1024 * 1024 : 16 * 1024 * 1024
+    const partSizeMB = boundedPartSizeMB(Number(upload.partSizeMB), channel.type)
+    const partSize = partSizeMB * 1024 * 1024
     const totalParts = Math.ceil(size / partSize)
     if (totalParts > 10_000) throw new StorageError('Too many parts', 413)
     let multipart: MultipartSession | null = null
@@ -144,7 +155,6 @@ imgbedUploadRoutes.put('/uploads/:id/parts/:index', async (c) => {
     const channels = await listResolvedChannels(c.env, c.env.DB, true)
     const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
     if (!channel) throw new StorageError('The upload channel is no longer configured', 503)
-    const existing = JSON.parse(row.parts || '[]') as Record<string, unknown>[]
     let part: Record<string, unknown>
     if (channel.type === 'telegram') {
       const result = await putTelegramPart(channel, { id: row.file_id ?? row.object_key, fileName: row.file_name, fileType: row.file_type, bytes }, index)
@@ -156,9 +166,14 @@ imgbedUploadRoutes.put('/uploads/:id/parts/:index', async (c) => {
       const result = await uploadMultipartPart(c.env, channel, { uploadId: row.remote_upload_id, objectKey: row.object_key }, index, bytes)
       part = { ...result, index, size: bytes.byteLength }
     }
-    const next = existing.filter((item) => Number(item.index) !== index)
-    next.push(part)
-    await c.env.DB.prepare('UPDATE imgbed_upload_sessions SET parts = ?2 WHERE id = ?1').bind(row.id, JSON.stringify(next)).run()
+    await upsertUploadPart(c.env.DB, row.id, {
+      index,
+      partNumber: part.partNumber === undefined ? null : Number(part.partNumber),
+      etag: part.etag === undefined ? null : String(part.etag),
+      fileId: part.fileId === undefined ? null : String(part.fileId),
+      messageId: part.messageId === undefined ? null : String(part.messageId),
+      size: Number(part.size ?? bytes.byteLength),
+    })
     return c.json({ ok: true, part })
   } catch (error) { return uploadFailure(c, error) }
 })
@@ -171,7 +186,16 @@ imgbedUploadRoutes.post('/uploads/:id/complete', async (c) => {
     if (row.status === 'completed' && row.file_id) {
       return c.json({ src: `/imgbed/file/${row.file_id}`, url: `/imgbed/file/${row.file_id}`, id: row.file_id })
     }
-    const parts = JSON.parse(row.parts || '[]') as Record<string, unknown>[]
+    let parts = await listUploadParts(c.env.DB, row.id)
+    if (!parts.length && row.parts) {
+      parts = (JSON.parse(row.parts) as Record<string, unknown>[]).map((part) => ({
+        index: Number(part.index), partNumber: part.partNumber === undefined ? null : Number(part.partNumber),
+        etag: part.etag === undefined ? null : String(part.etag),
+        fileId: part.fileId === undefined ? null : String(part.fileId),
+        messageId: part.messageId === undefined ? null : String(part.messageId),
+        size: Number(part.size ?? 0),
+      }))
+    }
     if (parts.length !== row.total_parts) throw ApiError.badRequest(`Expected ${row.total_parts} parts, received ${parts.length}`)
     const channels = await listResolvedChannels(c.env, c.env.DB, true)
     const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
@@ -179,26 +203,31 @@ imgbedUploadRoutes.post('/uploads/:id/complete', async (c) => {
     let objectKey = row.object_key
     let storedParts: ImgbedPart[] | null = null
     if (channel.type === 'cfr2' || channel.type === 's3') {
-      const multipartParts = [...parts].sort((a, b) => Number(a.partNumber) - Number(b.partNumber)).map((part) => ({ partNumber: Number(part.partNumber), etag: String(part.etag) }))
+      const multipartParts = parts.map((part) => ({ partNumber: part.partNumber ?? part.index + 1, etag: part.etag ?? '' }))
+      if (multipartParts.some((part) => !part.etag)) throw new StorageError('A multipart part is incomplete', 400)
       const metadata = await completeMultipart(c.env, channel, { uploadId: row.remote_upload_id, objectKey: row.object_key }, multipartParts)
       objectKey = row.object_key
       if (metadata.S3FileKey) objectKey = metadata.S3FileKey
     } else {
-      storedParts = [...parts].sort((a, b) => Number(a.index) - Number(b.index)).map((part) => ({
-        index: Number(part.index), size: Number(part.size),
-        ...(part.fileId ? { fileId: String(part.fileId) } : {}),
-        ...(part.messageId ? { messageId: String(part.messageId) } : {}),
+      storedParts = parts.map((part) => ({
+        index: part.index, size: part.size,
+        ...(part.fileId ? { fileId: part.fileId } : {}),
+        ...(part.messageId ? { messageId: part.messageId } : {}),
       }))
     }
-    const size = parts.reduce((sum, part) => sum + Number(part.size ?? 0), 0)
+    const size = parts.reduce((sum, part) => sum + part.size, 0)
+    const security = parseSecuritySettings(await getSettingsGroup(c.env.DB, 'security'))
+    const ip = requestClientIp(c.req.raw)
+    const address = await lookupAddress(security, ip)
     await insertFile(c.env.DB, {
       id: row.file_id!, objectKey, fileName: row.file_name, fileType: row.file_type, sizeBytes: size,
-      width: null, height: null, uploadIp: null, uploadAddress: null, source: channel.type,
+      width: null, height: null, uploadIp: ip, uploadAddress: address, source: channel.type,
       channel: canonical(channel.type), channelName: channel.name, isChunked: Boolean(storedParts),
       parts: storedParts, uploaderId: actor!.userId, createdAt: Date.now(),
     })
     await c.env.DB.prepare("UPDATE imgbed_upload_sessions SET status = 'completed', file_id = ?2, expires_at = ?3 WHERE id = ?1")
       .bind(row.id, row.file_id, Date.now() + 3600 * 1000).run()
+    await deleteUploadParts(c.env.DB, row.id)
     return c.json({ src: `/imgbed/file/${row.file_id}`, url: `/imgbed/file/${row.file_id}`, id: row.file_id, size, channel: canonical(channel.type), channelName: channel.name })
   } catch (error) { return uploadFailure(c, error) }
 })
@@ -213,6 +242,7 @@ imgbedUploadRoutes.delete('/uploads/:id', async (c) => {
       const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
       if (channel) await abortMultipart(c.env, channel, { uploadId: row.remote_upload_id, objectKey: row.object_key })
     }
+    await deleteUploadParts(c.env.DB, row.id)
     await c.env.DB.prepare('DELETE FROM imgbed_upload_sessions WHERE id = ?1').bind(row.id).run()
     return c.json({ ok: true })
   } catch (error) { return uploadFailure(c, error) }

@@ -570,6 +570,41 @@ export interface ChannelUsageRow {
   usedMB: number
 }
 
+export interface ImgbedUploadPartRow {
+  index: number
+  partNumber: number | null
+  etag: string | null
+  fileId: string | null
+  messageId: string | null
+  size: number
+}
+
+export async function upsertUploadPart(db: D1Database, sessionId: string, part: ImgbedUploadPartRow): Promise<void> {
+  await db.prepare(
+    `INSERT INTO imgbed_upload_parts (session_id, part_index, part_number, etag, file_id, message_id, size, created_at)
+     VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+     ON CONFLICT(session_id, part_index) DO UPDATE SET
+       part_number=excluded.part_number, etag=excluded.etag, file_id=excluded.file_id,
+       message_id=excluded.message_id, size=excluded.size, created_at=excluded.created_at`,
+  ).bind(sessionId, part.index, part.partNumber, part.etag, part.fileId, part.messageId, part.size, Date.now()).run()
+}
+
+export async function listUploadParts(db: D1Database, sessionId: string): Promise<ImgbedUploadPartRow[]> {
+  const { results } = await db.prepare(
+    `SELECT part_index AS idx, part_number AS partNumber, etag, file_id AS fileId,
+            message_id AS messageId, size
+       FROM imgbed_upload_parts WHERE session_id = ?1 ORDER BY part_index`,
+  ).bind(sessionId).all<{ idx: number; partNumber: number | null; etag: string | null; fileId: string | null; messageId: string | null; size: number }>()
+  return (results ?? []).map((row) => ({
+    index: Number(row.idx), partNumber: row.partNumber === null ? null : Number(row.partNumber),
+    etag: row.etag, fileId: row.fileId, messageId: row.messageId, size: Number(row.size),
+  }))
+}
+
+export async function deleteUploadParts(db: D1Database, sessionId: string): Promise<void> {
+  await db.prepare('DELETE FROM imgbed_upload_parts WHERE session_id = ?1').bind(sessionId).run()
+}
+
 export async function setFileFlags(
   db: D1Database,
   ids: readonly string[],

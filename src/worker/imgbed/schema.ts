@@ -70,6 +70,20 @@ export const IMGBED_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_imgbed_file_tags_tag
      ON imgbed_file_tags(tag, file_id)`,
 
+  `CREATE TABLE IF NOT EXISTS imgbed_upload_parts (
+    session_id TEXT NOT NULL,
+    part_index INTEGER NOT NULL,
+    part_number INTEGER,
+    etag TEXT,
+    file_id TEXT,
+    message_id TEXT,
+    size INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, part_index)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_imgbed_upload_parts_session
+     ON imgbed_upload_parts(session_id)`,
+
   `CREATE TABLE IF NOT EXISTS imgbed_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -129,6 +143,7 @@ export const IMGBED_REQUIRED_TABLES = [
   'imgbed_api_tokens',
   'imgbed_blocked_ips',
   'imgbed_upload_sessions',
+  'imgbed_upload_parts',
 ] as const
 
 const FILES_COLUMNS = [
@@ -156,6 +171,7 @@ export const IMGBED_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>
     'total_parts', 'part_size', 'remote_upload_id', 'object_key', 'parts', 'status', 'file_id',
     'created_at', 'expires_at',
   ],
+  imgbed_upload_parts: ['session_id', 'part_index', 'part_number', 'etag', 'file_id', 'message_id', 'size', 'created_at'],
 }
 
 export const IMGBED_REQUIRED_INDEXES = [
@@ -171,4 +187,5 @@ export const IMGBED_REQUIRED_INDEXES = [
   'idx_imgbed_file_tags_tag',
   'idx_imgbed_tokens_creator',
   'idx_imgbed_sessions_expiry',
+  'idx_imgbed_upload_parts_session',
 ] as const

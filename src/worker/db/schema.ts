@@ -2960,6 +2960,23 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'youtube_playlists', column: 'sort_order' },
     statements: [`ALTER TABLE youtube_playlists ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`],
   },
+  {
+    version: 196,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS imgbed_upload_parts (
+        session_id TEXT NOT NULL,
+        part_index INTEGER NOT NULL,
+        part_number INTEGER,
+        etag TEXT,
+        file_id TEXT,
+        message_id TEXT,
+        size INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, part_index)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_imgbed_upload_parts_session ON imgbed_upload_parts(session_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

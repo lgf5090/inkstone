@@ -5,8 +5,9 @@ import { IMGBED_SCHEMA_STATEMENTS } from '../src/worker/imgbed/schema'
 import { buildFileId, categoryFor, normalizeTags, parseSearchQuery, sanitizeFolderPath, sanitizeFileName } from '../src/shared/imgbed/model'
 import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed/access'
 import { scopeAllows } from '../src/worker/imgbed/tokens'
-import { getSidebarData, insertFile, listFiles, getFileTags, setFileFlags, setFileTags } from '../src/worker/imgbed/store'
+import { deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, setFileFlags, setFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
+import { boundedPartSizeMB } from '../src/worker/imgbed/upload-routes'
 import { moveWholeFile } from '../src/worker/imgbed/storage'
 import type { ResolvedChannel } from '../src/worker/imgbed/channels'
 import type { ImgbedFile } from '../src/shared/imgbed/model'
@@ -29,9 +30,9 @@ describe('imgbed schema', () => {
     const indexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index'").all() as { name: string }[]
     expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
       'imgbed_files', 'imgbed_channels', 'imgbed_file_tags', 'imgbed_settings',
-      'imgbed_api_tokens', 'imgbed_blocked_ips', 'imgbed_upload_sessions',
+      'imgbed_api_tokens', 'imgbed_blocked_ips', 'imgbed_upload_sessions', 'imgbed_upload_parts',
     ]))
-    expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining(['idx_imgbed_files_dir', 'idx_imgbed_file_tags_tag']))
+    expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining(['idx_imgbed_files_dir', 'idx_imgbed_file_tags_tag', 'idx_imgbed_upload_parts_session']))
     const columns = (sqlite.prepare("PRAGMA table_info(imgbed_files)").all() as { name: string }[]).map((row) => row.name)
     expect(columns).toEqual(expect.arrayContaining(['favorite', 'pinned']))
   })
@@ -148,6 +149,35 @@ describe('imgbed WebDAV move', () => {
   })
 })
 
+
+describe('imgbed upload bounds', () => {
+  it('clamps the configured part size per channel', () => {
+    expect(boundedPartSizeMB(16, 'cfr2')).toBe(16)
+    expect(boundedPartSizeMB(1, 'cfr2')).toBe(5)
+    expect(boundedPartSizeMB(200, 'cfr2')).toBe(64)
+    expect(boundedPartSizeMB(64, 'discord')).toBe(9)
+    expect(boundedPartSizeMB(64, 'telegram')).toBe(16)
+    expect(boundedPartSizeMB(Number.NaN, 's3')).toBe(16)
+  })
+})
+
+describe('imgbed upload parts', () => {
+  it('keeps sibling part rows when two writes interleave', async () => {
+    const { db } = database()
+    await Promise.all([
+      upsertUploadPart(db, 'session-a', { index: 0, partNumber: 1, etag: 'e1', fileId: null, messageId: null, size: 10 }),
+      upsertUploadPart(db, 'session-a', { index: 1, partNumber: 2, etag: 'e2', fileId: null, messageId: null, size: 20 }),
+    ])
+    expect(await listUploadParts(db, 'session-a')).toEqual([
+      { index: 0, partNumber: 1, etag: 'e1', fileId: null, messageId: null, size: 10 },
+      { index: 1, partNumber: 2, etag: 'e2', fileId: null, messageId: null, size: 20 },
+    ])
+    await upsertUploadPart(db, 'session-a', { index: 1, partNumber: 2, etag: 'e2b', fileId: null, messageId: null, size: 21 })
+    expect((await listUploadParts(db, 'session-a'))[1]!.etag).toBe('e2b')
+    await deleteUploadParts(db, 'session-a')
+    expect(await listUploadParts(db, 'session-a')).toEqual([])
+  })
+})
 
 describe('imgbed flags, tag scope and sidebar', () => {
   it('filters by favorite, pinned, tag prefix and tag search', async () => {

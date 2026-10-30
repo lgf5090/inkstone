@@ -76,7 +76,7 @@ export function pickChannel(
   return candidates[0]!
 }
 
-async function lookupAddress(security: ImgbedSecuritySettings, ip: string | null): Promise<string | null> {
+export async function lookupAddress(security: ImgbedSecuritySettings, ip: string | null): Promise<string | null> {
   if (!ip || !security.ipQuery.enabled || !security.ipQuery.customApi.url) return null
   try {
     const replace = (value: string) => value.replace(/\{ip\}/g, ip)
