@@ -186,8 +186,8 @@ export function createDemoBackend(): DemoBackend {
       },
     }),
   )
-  app.all('/api/development/xget', () => apiError(403, 'forbidden', 'Xget is display-only in the demo'))
-  app.all('/api/development/xget/*', () => apiError(403, 'forbidden', 'Xget is display-only in the demo'))
+  app.all('/api/development/xget', () => apiError(403, 'xget_demo_readonly', 'Xget is display-only in the demo'))
+  app.all('/api/development/xget/*', () => apiError(403, 'xget_demo_readonly', 'Xget is display-only in the demo'))
 
   app.get('/api/notes', (c) => {
     const query = c.req.query()

@@ -36,7 +36,7 @@ import { isXgetProxyPath } from '../development/xget/paths'
 
 function requireOwner(c: Context<AppBindings>): void {
   if (c.get('user')?.role !== 'owner') {
-    throw ApiError.forbidden('Only the instance owner can change the Xget settings')
+    throw new ApiError(403, 'xget_owner_only', 'Only the instance owner can change the Xget settings')
   }
 }
 
@@ -75,9 +75,13 @@ function configView(config: XgetConfig): XgetSettingsConfig {
 function normalizeMethods(value: string[]): string[] {
   const known = new Set<string>(XGET_KNOWN_METHODS)
   const methods = [...new Set(value.map((entry) => entry.trim().toUpperCase()).filter(Boolean))]
-  if (!methods.length) throw ApiError.badRequest('At least one method is required')
+  if (!methods.length) throw new ApiError(400, 'xget_methods_required', 'At least one method is required')
   const unsupported = methods.find((method) => !known.has(method))
-  if (unsupported) throw ApiError.badRequest(`Unsupported method: ${unsupported}`)
+  if (unsupported) {
+    throw new ApiError(400, 'xget_unsupported_method', `Unsupported method: ${unsupported}`, {
+      method: unsupported,
+    })
+  }
   return methods
 }
 
@@ -91,13 +95,13 @@ function normalizeOrigins(value: string[]): string[] {
     try {
       parsed = new URL(entry)
     } catch {
-      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
+      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
+      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
     }
     if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
-      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
+      throw new ApiError(400, 'xget_invalid_origin', `Invalid CORS origin: ${entry}`, { origin: entry })
     }
     const origin = parsed.origin
     if (!origins.includes(origin)) origins.push(origin)
@@ -192,13 +196,13 @@ function platformFromPath(pathname: string): string | null {
   return null
 }
 
-async function parseBody<T>(c: Context<AppBindings>, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: { path: (string | number | symbol)[]; message: string }[] } } }, limit: number): Promise<T> {
+async function parseBody<T>(c: Context<AppBindings>, schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: { path: (string | number | symbol)[]; message: string }[] } } }, limit: number, code: 'bad_request' | 'xget_invalid_settings' = 'bad_request'): Promise<T> {
   const raw = await readJson<unknown>(c, limit)
   const result = schema.safeParse(raw)
   if (!result.success) {
     const issue = result.error.issues[0]
     const path = issue?.path.join('.') || 'body'
-    throw ApiError.badRequest(`${path}: ${issue?.message ?? 'Invalid value'}`)
+    throw new ApiError(400, code, `${path}: ${issue?.message ?? 'Invalid value'}`)
   }
   return result.data
 }
@@ -225,7 +229,7 @@ settingsRoutes.get('/', async (c) => {
 
 settingsRoutes.put('/', async (c) => {
   requireOwner(c)
-  const body = await parseBody(c, XgetSettingsPatchSchema, JSON_BODY_LIMITS.settings)
+  const body = await parseBody(c, XgetSettingsPatchSchema, JSON_BODY_LIMITS.settings, 'xget_invalid_settings')
   const existing = await readXgetOverrides(c.env.DB)
   const next = patchToOverrides(body, existing)
   const config = configFromOverrides(next)
@@ -235,13 +239,22 @@ settingsRoutes.put('/', async (c) => {
 
 settingsRoutes.put('/token', async (c) => {
   requireOwner(c)
-  const body = await parseBody(c, XgetTokenSchema, JSON_BODY_LIMITS.settings)
+  const body = await parseBody(c, XgetTokenSchema, JSON_BODY_LIMITS.settings, 'xget_invalid_settings')
   const token = body.token.trim()
   if (token && (token.length < XGET_TOKEN_MIN_LENGTH || token.length > XGET_TOKEN_MAX_LENGTH)) {
-    throw ApiError.badRequest(`The token must be ${XGET_TOKEN_MIN_LENGTH}-${XGET_TOKEN_MAX_LENGTH} characters`)
+    throw new ApiError(
+      400,
+      'xget_token_length',
+      `The token must be ${XGET_TOKEN_MIN_LENGTH}-${XGET_TOKEN_MAX_LENGTH} characters`,
+      { min: XGET_TOKEN_MIN_LENGTH, max: XGET_TOKEN_MAX_LENGTH },
+    )
   }
   if (token && !XGET_TOKEN_PATTERN.test(token)) {
-    throw ApiError.badRequest('The token may only contain letters, digits, dot, underscore and hyphen')
+    throw new ApiError(
+      400,
+      'xget_token_charset',
+      'The token may only contain letters, digits, dot, underscore and hyphen',
+    )
   }
   const tokenHash = token ? await hashToken(token) : ''
   await writeXgetTokenHash(c.env.DB, tokenHash, Date.now())
@@ -249,13 +262,17 @@ settingsRoutes.put('/token', async (c) => {
 })
 
 settingsRoutes.post('/test', async (c) => {
-  const body = await parseBody(c, XgetTestPathSchema, JSON_BODY_LIMITS.settings)
+  const body = await parseBody(c, XgetTestPathSchema, JSON_BODY_LIMITS.settings, 'xget_invalid_settings')
   const pathname = body.path.trim()
   if (!pathname.startsWith('/')) {
-    throw ApiError.badRequest('path must start with /, for example /gh/microsoft/vscode')
+    throw new ApiError(
+      400,
+      'xget_path_prefix',
+      'path must start with /, for example /gh/microsoft/vscode',
+    )
   }
   const result = resolveProxyTarget(pathname, await readXgetOverrides(c.env.DB))
-  if (!result.ok) throw ApiError.badRequest(result.error)
+  if (!result.ok) throw new ApiError(400, 'xget_invalid_settings', result.error)
   return c.json({ ok: true, data: { platform: result.platform, target_url: result.targetUrl } })
 })
 
@@ -268,7 +285,12 @@ statsRoutes.get('/summary', async (c) => {
   if (raw !== undefined && raw !== '' && raw !== 'all') {
     const parsed = Number(raw)
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > XGET_STATS_MAX_DAYS) {
-      throw ApiError.badRequest(`days must be an integer between 1 and ${XGET_STATS_MAX_DAYS}, or all`)
+      throw new ApiError(
+        400,
+        'xget_invalid_days',
+        `days must be an integer between 1 and ${XGET_STATS_MAX_DAYS}, or all`,
+        { max: XGET_STATS_MAX_DAYS },
+      )
     }
     days = parsed
   }

@@ -119,19 +119,38 @@ describe('Xget settings API', () => {
   })
 
   it('rejects a member write and malformed bodies', async () => {
-    expect((await call('PUT', '/settings', { user: MEMBER, body: { timeout_seconds: 5 } })).status).toBe(403)
-    expect((await call('PUT', '/settings', { body: { timeout_seconds: 'five' } })).status).toBe(400)
+    const member = await call('PUT', '/settings', { user: MEMBER, body: { timeout_seconds: 5 } })
+    expect(member.status).toBe(403)
+    expect((await readJson<{ error: { code: string } }>(member)).error.code).toBe('xget_owner_only')
+
+    const wrongType = await call('PUT', '/settings', { body: { timeout_seconds: 'five' } })
+    expect(wrongType.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(wrongType)).error.code).toBe('xget_invalid_settings')
+
     expect((await call('PUT', '/settings', { body: { timeout_seconds: 0 } })).status).toBe(400)
     expect((await call('PUT', '/settings', { body: { timeout_seconds: 121 } })).status).toBe(400)
     expect((await call('PUT', '/settings', { body: { timeout_seconds: 1.5 } })).status).toBe(400)
-    expect((await call('PUT', '/settings', { body: { allowed_methods: 'GET' } })).status).toBe(400)
-    expect((await call('PUT', '/settings', { body: { allowed_methods: ['TRACE'] } })).status).toBe(400)
-    expect((await call('PUT', '/settings', { body: { allowed_methods: [] } })).status).toBe(400)
+
+    const malformedMethods = await call('PUT', '/settings', { body: { allowed_methods: 'GET' } })
+    expect(malformedMethods.status).toBe(400)
+    const unsupported = await call('PUT', '/settings', { body: { allowed_methods: ['TRACE'] } })
+    expect(unsupported.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(unsupported)).error.code).toBe(
+      'xget_unsupported_method',
+    )
+    const emptyMethods = await call('PUT', '/settings', { body: { allowed_methods: [] } })
+    expect(emptyMethods.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(emptyMethods)).error.code).toBe(
+      'xget_methods_required',
+    )
   })
 
   it('rejects an invalid origin instead of widening the allow list', async () => {
     const rejected = await call('PUT', '/settings', { body: { allowed_origins: ['not-a-url'] } })
     expect(rejected.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(rejected)).error.code).toBe(
+      'xget_invalid_origin',
+    )
     const unchanged = await readJson<{ data: { config: { allowed_origins: string[] } } }>(
       await call('GET', '/settings'),
     )
@@ -162,8 +181,12 @@ describe('Xget settings API', () => {
   })
 
   it('validates token length and character set', async () => {
-    expect((await call('PUT', '/settings/token', { body: { token: 'short' } })).status).toBe(400)
-    expect((await call('PUT', '/settings/token', { body: { token: 'has space 123' } })).status).toBe(400)
+    const short = await call('PUT', '/settings/token', { body: { token: 'short' } })
+    expect(short.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(short)).error.code).toBe('xget_token_length')
+    const charset = await call('PUT', '/settings/token', { body: { token: 'has space 123' } })
+    expect(charset.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(charset)).error.code).toBe('xget_token_charset')
   })
 
   it('resolves a proxy path for the self-test and rejects a path without a slash', async () => {
@@ -175,6 +198,7 @@ describe('Xget settings API', () => {
 
     const bad = await call('POST', '/settings/test', { body: { path: 'gh/microsoft' } })
     expect(bad.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(bad)).error.code).toBe('xget_path_prefix')
   })
 
   it('requires a session for management endpoints', async () => {
@@ -381,7 +405,11 @@ describe('Xget stats API', () => {
   })
 
   it('rejects an invalid range', async () => {
-    expect((await call('GET', '/stats/summary?days=-1')).status).toBe(400)
+    const negative = await call('GET', '/stats/summary?days=-1')
+    expect(negative.status).toBe(400)
+    expect((await readJson<{ error: { code: string } }>(negative)).error.code).toBe(
+      'xget_invalid_days',
+    )
     expect((await call('GET', '/stats/summary?days=abc')).status).toBe(400)
   })
 })
