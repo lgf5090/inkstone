@@ -14,6 +14,7 @@ import { clouddriveClipboardRoutes } from './routes-clipboard'
 import { clouddriveTaskRoutes } from './routes-tasks'
 import { clouddriveSyncRoutes } from './routes-sync'
 import { clouddriveVersionRoutes } from './routes-versions'
+import { clouddriveRequestRoutes, clouddrivePublicRequestRoutes } from './routes-requests'
 import { clouddriveMaintenanceRoutes } from './routes-maintenance'
 import { clouddriveAdminRoutes } from './routes-admin'
 import { clouddriveJobRoutes } from './routes-jobs'
@@ -65,6 +66,7 @@ clouddriveRoutes.route('/', clouddriveClipboardRoutes)
 clouddriveRoutes.route('/', clouddriveTaskRoutes)
 clouddriveRoutes.route('/', clouddriveSyncRoutes)
 clouddriveRoutes.route('/', clouddriveVersionRoutes)
+clouddriveRoutes.route('/', clouddriveRequestRoutes)
 clouddriveRoutes.route('/', clouddriveMaintenanceRoutes)
 clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)
@@ -74,9 +76,16 @@ clouddriveRoutes.all('*', () => {
 })
 
 export const clouddrivePublicRoutes = clouddrivePublicShareRoutes
+export { clouddrivePublicRequestRoutes }
 
 export const clouddriveSharePageRoutes = new Hono<AppBindings>()
 clouddriveSharePageRoutes.get('/:slug', async (c) => {
+  const url = new URL(c.req.url)
+  return c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
+})
+
+export const clouddriveRequestPageRoutes = new Hono<AppBindings>()
+clouddriveRequestPageRoutes.get('/:slug', async (c) => {
   const url = new URL(c.req.url)
   return c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
 })

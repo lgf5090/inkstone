@@ -81,6 +81,8 @@ import {
   clouddrivePublicRoutes,
   clouddriveRoutes,
   clouddriveSharePageRoutes,
+  clouddrivePublicRequestRoutes,
+  clouddriveRequestPageRoutes,
 } from './clouddrive/routes'
 import { clouddriveRawRoutes } from './clouddrive/routes-shares'
 import { clouddriveDavRoutes as clouddriveDavServerRoutes } from './clouddrive/routes-dav'
@@ -277,6 +279,7 @@ export function createApp() {
   app.route('/api/youtube', youtubeRoutes)
   app.route('/api/clouddrive', clouddriveRoutes)
   app.route('/api/public/clouddrive', clouddrivePublicRoutes)
+  app.route('/api/public/clouddrive', clouddrivePublicRequestRoutes)
   app.route('/api/imgbed', imgbedManageRoutes)
   app.route('/api/imgbed', imgbedSettingsRoutes)
   app.route('/api/imgbed', imgbedPublicRoutes)
@@ -318,6 +321,7 @@ export function createApp() {
   app.route('/memos', memosPublicPageRoutes)
   app.route('/d', clouddriveRawRoutes)
   app.route('/d', clouddriveSharePageRoutes)
+  app.route('/r', clouddriveRequestPageRoutes)
   app.route('/clouddrive/dav', clouddriveDavServerRoutes)
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)

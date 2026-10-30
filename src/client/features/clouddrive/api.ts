@@ -36,6 +36,24 @@ function json(body: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(body) }
 }
 
+export interface CloudDriveFileRequest {
+  slug: string
+  url: string
+  name: string
+  targetPath: string
+  hasPassword: boolean
+  expiresAt: number | null
+  maxFiles: number
+  maxBytes: number
+  maxFileBytes: number
+  receivedFiles: number
+  receivedBytes: number
+  isEnabled: boolean
+  createdAt: number
+  lastUploadAt: number | null
+  revokedAt: number | null
+}
+
 export interface CloudDriveSyncTarget {
   id: string
   name: string
@@ -124,6 +142,11 @@ export const clouddriveApi = {
   clipboard: () => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } | null }>('/api/clouddrive/clipboard'),
   setClipboard: (body: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[] }) => request<{ clipboard: { mode: 'copy' | 'cut'; mountId: string; sourcePath: string; ids: string[]; updatedAt: number } }>('/api/clouddrive/clipboard', { method: 'PUT', body: JSON.stringify(body) }),
   clearClipboard: () => request<{ ok: true }>('/api/clouddrive/clipboard', { method: 'DELETE' }),
+
+  requests: () => request<{ requests: CloudDriveFileRequest[] }>('/api/clouddrive/requests'),
+  createRequest: (body: { name: string; targetPath: string; password?: string; expiresAt?: number | null; maxFiles?: number; maxBytes?: number; maxFileBytes?: number }) => request<{ request: CloudDriveFileRequest }>('/api/clouddrive/requests', json(body)),
+  patchRequest: (slug: string, body: { password?: string; expiresAt?: number | null; isEnabled?: boolean }) => request<{ request: CloudDriveFileRequest }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  revokeRequest: (slug: string) => request<{ ok: true }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
 
   syncTargets: () => request<{ targets: CloudDriveSyncTarget[] }>('/api/clouddrive/sync/targets'),
   createSyncTarget: (body: { name: string; localLabel?: string; mountId?: string; remotePath: string }) => request<{ target: CloudDriveSyncTarget }>('/api/clouddrive/sync/targets', json(body)),

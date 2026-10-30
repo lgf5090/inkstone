@@ -291,6 +291,28 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_sync_user
      ON CloudDrive_sync_targets(user_id, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_file_requests (
+    slug TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    target_mount TEXT NOT NULL DEFAULT 'primary',
+    target_path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    password_hash TEXT,
+    expires_at INTEGER,
+    max_files INTEGER NOT NULL DEFAULT 20,
+    max_bytes INTEGER NOT NULL DEFAULT 104857600,
+    max_file_bytes INTEGER NOT NULL DEFAULT 52428800,
+    received_files INTEGER NOT NULL DEFAULT 0,
+    received_bytes INTEGER NOT NULL DEFAULT 0,
+    is_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    last_upload_at INTEGER,
+    revoked_at INTEGER,
+    PRIMARY KEY (user_id, slug)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_requests_user
+     ON CloudDrive_file_requests(user_id, created_at DESC)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_file_versions (
     user_id TEXT NOT NULL,
     file_id TEXT NOT NULL,
@@ -373,6 +395,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_clipboard',
   'CloudDrive_sync_targets',
   'CloudDrive_file_versions',
+  'CloudDrive_file_requests',
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
@@ -427,6 +450,11 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   CloudDrive_file_versions: [
     'user_id', 'file_id', 'version', 'storage_key', 'size', 'mime', 'etag', 'checksum', 'created_at',
   ],
+  CloudDrive_file_requests: [
+    'slug', 'user_id', 'target_mount', 'target_path', 'name', 'password_hash', 'expires_at',
+    'max_files', 'max_bytes', 'max_file_bytes', 'received_files', 'received_bytes', 'is_enabled',
+    'created_at', 'last_upload_at', 'revoked_at',
+  ],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
@@ -468,6 +496,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_sync_user',
   'idx_clouddrive_versions_file',
   'idx_clouddrive_versions_key',
+  'idx_clouddrive_requests_user',
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',

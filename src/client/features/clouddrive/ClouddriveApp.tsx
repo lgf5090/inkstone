@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
-import { HardDrive, HardDriveDownload, LayoutGrid, List, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
+import { HardDrive, HardDriveDownload, LayoutGrid, Link2, List, PanelLeft, RefreshCw, Trash2 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
@@ -27,6 +27,7 @@ import { AlbumPage } from './album/AlbumPage'
 import { TransfersPage } from './transfers/TransfersPage'
 import { SyncPage } from './sync/SyncPage'
 import { OfflinePage } from './offline/OfflinePage'
+import { RequestsPage } from './requests/RequestsPage'
 import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
 import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
@@ -39,6 +40,7 @@ const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: ty
   { page: 'offline', labelKey: 'clouddrive.nav.offline', icon: HardDriveDownload },
   { page: 'trash', labelKey: 'clouddrive.nav.trash', icon: Trash2 },
   { page: 'shares', labelKey: 'clouddrive.nav.shares', icon: HardDrive },
+  { page: 'requests', labelKey: 'clouddrive.nav.requests', icon: Link2 },
 ]
 
 const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; ownerOnly?: boolean }[] = [
@@ -200,6 +202,8 @@ export function ClouddriveApp() {
                       ? <ApiKeysPage />
                       : address.page === 'shares'
                       ? <SharesPage />
+                      : address.page === 'requests'
+                        ? <RequestsPage />
                       : address.page === 'mounts' || address.page === 'storage'
                         ? <MountsPage showStorages={address.page === 'storage'} />
                         : <PagePlaceholder page={address.page} />}
