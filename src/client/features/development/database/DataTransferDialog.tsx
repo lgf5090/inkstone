@@ -5,7 +5,7 @@ import { quoteIdent } from '@shared/development/database/sql-utils'
 import { t } from '../../../lib/i18n'
 import { Button } from '../../../components/primitives'
 import { Checkbox, Segmented } from '../../../components/form'
-import { Modal } from '../../../components/overlay'
+import { Modal, confirm } from '../../../components/overlay'
 import { SelectMenu } from '../../../components/select-menu'
 import { useUi } from '../../../store/ui'
 import { createDriver, type StudioDriver } from './drivers'
@@ -60,6 +60,15 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
     if (guard?.readOnly) {
       onError(t('development.database.transfer.readonly_target', { name: target.name }))
       return
+    }
+    if (guard?.production) {
+      const ok = await confirm({
+        title: t('development.database.guard.prod_title', { name: target.name }),
+        description: t('development.database.guard.prod_description'),
+        confirmLabel: t('development.database.guard.prod_confirm'),
+        tone: 'danger',
+      })
+      if (!ok) return
     }
     cancelRef.current = false
     setRunning(true)

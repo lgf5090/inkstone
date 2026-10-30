@@ -221,6 +221,19 @@ export function StudioApp() {
   const unlocked = Boolean(unlockedUntil && unlockedUntil > Date.now())
 
   useEffect(() => {
+    if (!guardKey || !unlockedUntil || unlockedUntil <= Date.now()) return
+    const timeout = setTimeout(() => {
+      setUnlocks((current) => {
+        if (!(guardKey in current)) return current
+        const next = { ...current }
+        delete next[guardKey]
+        return next
+      })
+    }, unlockedUntil - Date.now())
+    return () => clearTimeout(timeout)
+  }, [guardKey, unlockedUntil])
+
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       if (event.key !== 'k' && event.key !== 'K') return
@@ -406,8 +419,9 @@ export function StudioApp() {
     if (!sqlViewOpen || !driver) return
     const definition = sqlViewOpen
     const text = sqlDraft.trim()
-    if (!/^create\s/i.test(text)) {
-      notify(t('development.database.app.definition_invalid'), undefined, 'danger')
+    const kindWord = definition.kind === 'view' ? 'view' : 'trigger'
+    if (!new RegExp(`^\\s*create\\s+(?:temp(?:orary)?\\s+)?${kindWord}\\b`, 'i').test(text)) {
+      notify(t('development.database.app.definition_kind'), undefined, 'danger')
       return
     }
     if (!(await ensureWritable())) return
@@ -426,7 +440,21 @@ export function StudioApp() {
       await reloadSchema(driver)
       notify(t('development.database.app.definition_done', { name: definition.name }), undefined, 'success')
     } catch (error) {
-      notifyError(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      const previous = definition.sql.trim()
+      if (!previous) {
+        notifyError(message)
+      } else {
+        try {
+          await driver.query(`DROP ${definition.kind === 'view' ? 'VIEW' : 'TRIGGER'} IF EXISTS ${quoteIdent(definition.name)}`)
+          await driver.query(previous)
+          notify(t('development.database.app.definition_restored'), message, 'warning')
+        } catch (restoreError) {
+          notifyError(t('development.database.app.definition_restore_failed', {
+            message: `${message} — ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+          }))
+        }
+      }
     } finally {
       setDefinitionSaving(false)
     }

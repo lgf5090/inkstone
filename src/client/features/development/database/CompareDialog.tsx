@@ -138,6 +138,15 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
         onError(t('development.database.transfer.readonly_target', { name: target.name }))
         return
       }
+      if (guard?.production) {
+        const proceed = await confirm({
+          title: t('development.database.guard.prod_title', { name: target.name }),
+          description: t('development.database.guard.prod_description'),
+          confirmLabel: t('development.database.guard.prod_confirm'),
+          tone: 'danger',
+        })
+        if (!proceed) return
+      }
     }
     const ok = await confirm({
       title: t('development.database.compare.apply_title', { count: result.statements.length }),

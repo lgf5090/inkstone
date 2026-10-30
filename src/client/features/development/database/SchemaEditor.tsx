@@ -187,6 +187,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
   }
 
   const dropTable = async () => {
+    if (ensureWritable && !(await ensureWritable())) return
     const ok = await confirm({
       title: t('development.database.schema.drop_title', { table: table.name }),
       description: t('development.database.schema.drop_description'),
@@ -301,6 +302,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
       </Modal>
 
       <CreateTableDialog open={createOpen} onClose={() => setCreateOpen(false)} onConfirm={async (name, columns) => {
+        if (ensureWritable && !(await ensureWritable())) return
         const built = buildCreateTableSql(name, columns)
         try {
           await driver.query(built.sql)
