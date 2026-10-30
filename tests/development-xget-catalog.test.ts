@@ -56,17 +56,33 @@ describe('the Xget platform catalogue', () => {
 
 describe('the Xget platform guides', () => {
   const specificKeys = [
-    'gh', 'gist', 'gl', 'hf', 'npm', 'pypi', 'conda', 'maven', 'gradle', 'homebrew',
+    'gh', 'gist', 'gl', 'gitea', 'codeberg', 'hf', 'npm', 'pypi', 'conda', 'maven', 'gradle', 'homebrew',
     'rubygems', 'cran', 'cpan', 'ctan', 'golang', 'nuget', 'crates', 'packagist',
     'flathub', 'debian', 'ubuntu', 'fedora', 'rocky', 'opensuse', 'arch', 'arxiv',
     'fdroid', 'jenkins', 'apache', 'sf', 'aosp', 'civitai',
+    'ip-openai', 'ip-anthropic', 'ip-gemini',
   ]
 
-  it('uses a specific guide for the 32 authored platforms', () => {
-    expect(specificKeys).toHaveLength(32)
+  it('uses a specific guide for the 37 authored platforms', () => {
+    expect(specificKeys).toHaveLength(37)
     for (const key of specificKeys) {
-      expect(getPlatformGuide(key, key).summaryKey).toBe(`development.xget.guide.${key}.summary`)
+      expect(getPlatformGuide(key, key).summaryKey).toBe(
+        `development.xget.guide.${key.replace(/-/g, '_')}.summary`,
+      )
     }
+  })
+
+  it('reuses an authored guide for alias prefixes', () => {
+    expect(getPlatformGuide('homebrew-api', 'Homebrew API').format).toBe(
+      '{proxy}/homebrew/api/<path>',
+    )
+    expect(getPlatformGuide('homebrew-bottles', 'Homebrew Bottles').format).toBe(
+      '{proxy}/homebrew/bottles/<path>',
+    )
+    expect(getPlatformGuide('pypi-files', 'PyPI Files').format).toBe('{proxy}/pypi/files/<path>')
+    expect(getPlatformGuide('conda-community', 'conda Community').format).toBe(
+      '{proxy}/conda/community/<path>',
+    )
   })
 
   it('falls back to the registry, AI and generic templates', () => {
@@ -76,9 +92,31 @@ describe('the Xget platform guides', () => {
     expect(getPlatformGuide('ip-groq', 'Groq').summaryKey).toBe(
       'development.xget.guide.category.ai.summary',
     )
-    expect(getPlatformGuide('gitea', 'Gitea').summaryKey).toBe(
+    expect(getPlatformGuide('unknown-platform', 'Unknown').summaryKey).toBe(
       'development.xget.guide.category.generic.summary',
     )
+  })
+
+  it('covers the package-manager and AI setup recipes', () => {
+    const commands = (key: string) =>
+      getPlatformGuide(key, key)
+        .sections.flatMap((section) => section.commands.map((command) => command.cmd))
+        .join('\n')
+    expect(commands('debian')).toContain('sudo apt update')
+    expect(commands('ubuntu')).toContain('sudo apt update')
+    expect(commands('fedora')).toContain('sudo dnf makecache')
+    expect(commands('rocky')).toContain('sudo dnf makecache')
+    expect(commands('opensuse')).toContain('sudo zypper refresh')
+    expect(commands('arch')).toContain('sudo pacman -Sy')
+    expect(commands('conda')).toContain('msys2')
+    expect(commands('conda')).toContain('bioconda')
+    expect(commands('conda')).toContain('channel_priority strict')
+    expect(commands('packagist')).toContain('composer config')
+    expect(commands('ctan')).toContain('tlmgr option repository')
+    expect(commands('gitea')).toContain('git clone')
+    expect(commands('codeberg')).toContain('git clone')
+    expect(commands('ip-anthropic')).toContain('/v1/messages')
+    expect(commands('ip-gemini')).toContain('generateContent')
   })
 
   it('gives every platform a non-empty guide in both languages', () => {

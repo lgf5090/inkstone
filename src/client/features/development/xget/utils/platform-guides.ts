@@ -1,4 +1,5 @@
 import type { MessageKey } from '@shared/locales/en-US'
+import { xgetPathPrefix } from '@shared/development/xget/catalog'
 
 export interface GuideCommand {
   labelKey?: MessageKey
@@ -180,6 +181,7 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         commands: [
           { cmd: "conda config --add default_channels {proxy}/conda/pkgs/main" },
           { cmd: "conda config --add default_channels {proxy}/conda/pkgs/r" },
+          { cmd: "conda config --add default_channels {proxy}/conda/pkgs/msys2" },
         ],
       },
       {
@@ -192,6 +194,13 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         titleKey: 'development.xget.guide.conda.s2.title',
         commands: [
           { cmd: "conda config --add channels {proxy}/conda/community/conda-forge" },
+          { cmd: "conda config --add channels {proxy}/conda/community/bioconda" },
+        ],
+      },
+      {
+        titleKey: 'development.xget.guide.conda.s3.title',
+        commands: [
+          { cmd: "conda config --set channel_priority strict" },
         ],
       },
     ],
@@ -337,6 +346,13 @@ const SPECIFIC: Record<string, PlatformGuide> = {
           { cmd: "wget -c \"{proxy}/ctan/tex-archive/macros/latex/contrib/beamer.zip\"" },
         ],
       },
+      {
+        titleKey: 'development.xget.guide.ctan.s1.title',
+        commands: [
+          { cmd: "tlmgr option repository {proxy}/ctan/systems/texlive/tlnet" },
+          { cmd: "tlmgr update --self --all" },
+        ],
+      },
     ],
   },
   golang: {
@@ -403,6 +419,14 @@ const SPECIFIC: Record<string, PlatformGuide> = {
           { cmd: "wget -c \"{proxy}/packagist/p2/symfony/console.json\"" },
         ],
       },
+      {
+        titleKey: 'development.xget.guide.packagist.s1.title',
+        commands: [
+          { cmd: "composer config -g repo.packagist composer {proxy}/packagist/" },
+          { cmd: "composer config repo.packagist composer {proxy}/packagist/" },
+          { cmd: "composer config -l" },
+        ],
+      },
     ],
   },
   flathub: {
@@ -433,6 +457,15 @@ const SPECIFIC: Record<string, PlatformGuide> = {
           { cmd: "wget -c \"{proxy}/debian/debian/pool/main/c/curl/curl_7.88.1-10+deb12u4_amd64.deb\"" },
         ],
       },
+      {
+        titleKey: 'development.xget.guide.linux.apt.title',
+        commands: [
+          { cmd: 'sudo cp /etc/apt/sources.list /etc/apt/sources.list.backup' },
+          { cmd: 'echo "deb {proxy}/debian/debian bookworm main" | sudo tee /etc/apt/sources.list' },
+          { cmd: 'echo "deb {proxy}/debian/debian-security bookworm-security main" | sudo tee -a /etc/apt/sources.list' },
+          { cmd: 'sudo apt update' },
+        ],
+      },
     ],
   },
   ubuntu: {
@@ -443,6 +476,15 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         titleKey: 'development.xget.guide.ubuntu.s0.title',
         commands: [
           { cmd: "wget -c \"{proxy}/ubuntu/ubuntu/pool/main/g/git/git_2.34.1-1ubuntu1.9_amd64.deb\"" },
+        ],
+      },
+      {
+        titleKey: 'development.xget.guide.linux.apt.title',
+        commands: [
+          { cmd: 'sudo cp /etc/apt/sources.list /etc/apt/sources.list.backup' },
+          { cmd: 'echo "deb {proxy}/ubuntu/ubuntu jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list' },
+          { cmd: 'echo "deb {proxy}/ubuntu/ubuntu jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list' },
+          { cmd: 'sudo apt update' },
         ],
       },
     ],
@@ -457,6 +499,14 @@ const SPECIFIC: Record<string, PlatformGuide> = {
           { cmd: "wget -c \"{proxy}/fedora/releases/39/Everything/x86_64/os/Packages/n/nginx-1.24.0-1.fc39.x86_64.rpm\"" },
         ],
       },
+      {
+        titleKey: 'development.xget.guide.linux.dnf.title',
+        commands: [
+          { cmd: "sudo sed -i 's|^metalink=|#metalink=|g' /etc/yum.repos.d/fedora*.repo" },
+          { cmd: "sudo sed -i 's|^#baseurl=http://download.example/pub/fedora/linux|baseurl={proxy}/fedora/pub/fedora/linux|g' /etc/yum.repos.d/fedora*.repo" },
+          { cmd: 'sudo dnf makecache' },
+        ],
+      },
     ],
   },
   rocky: {
@@ -467,6 +517,14 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         titleKey: 'development.xget.guide.rocky.s0.title',
         commands: [
           { cmd: "wget -c \"{proxy}/rocky/pub/rocky/9/BaseOS/x86_64/os/Packages/b/bash-5.1.8-6.el9.x86_64.rpm\"" },
+        ],
+      },
+      {
+        titleKey: 'development.xget.guide.linux.dnf.title',
+        commands: [
+          { cmd: "sudo sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/rocky*.repo" },
+          { cmd: "sudo sed -i 's|^#baseurl=http://dl.rockylinux.org|baseurl={proxy}/rocky|g' /etc/yum.repos.d/rocky*.repo" },
+          { cmd: 'sudo dnf makecache' },
         ],
       },
     ],
@@ -481,6 +539,14 @@ const SPECIFIC: Record<string, PlatformGuide> = {
           { cmd: "wget -c \"{proxy}/opensuse/distribution/leap/15.5/repo/oss/x86_64/vim-9.0.1572-150500.20.8.1.x86_64.rpm\"" },
         ],
       },
+      {
+        titleKey: 'development.xget.guide.linux.zypper.title',
+        commands: [
+          { cmd: 'sudo zypper mr -d repo-oss' },
+          { cmd: 'sudo zypper ar -f {proxy}/opensuse/distribution/leap/15.5/repo/oss/ repo-oss-xget' },
+          { cmd: 'sudo zypper refresh' },
+        ],
+      },
     ],
   },
   arch: {
@@ -491,6 +557,14 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         titleKey: 'development.xget.guide.arch.s0.title',
         commands: [
           { cmd: "wget -c \"{proxy}/arch/core/os/x86_64/linux-6.6.10.arch1-1-x86_64.pkg.tar.zst\"" },
+        ],
+      },
+      {
+        titleKey: 'development.xget.guide.linux.pacman.title',
+        commands: [
+          { cmd: 'sudo cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup' },
+          { cmd: "echo 'Server = {proxy}/arch/$repo/os/$arch' | sudo tee /etc/pacman.d/mirrorlist" },
+          { cmd: 'sudo pacman -Sy' },
         ],
       },
     ],
@@ -616,6 +690,93 @@ const SPECIFIC: Record<string, PlatformGuide> = {
       },
     ],
   },
+  gitea: {
+    summaryKey: 'development.xget.guide.gitea.summary',
+    format: "{proxy}/gitea/<owner>/<repo>/<path>",
+    sections: [
+      {
+        titleKey: 'development.xget.guide.git.s0.title',
+        commands: [{ cmd: "git clone {proxy}/gitea/owner/repo.git" }],
+      },
+      {
+        titleKey: 'development.xget.guide.git.s1.title',
+        commands: [{ cmd: "git config --global url.\"{proxy}/gitea/\".insteadOf \"https://gitea.com/\"" }],
+      },
+      {
+        titleKey: 'development.xget.guide.git.s2.title',
+        commands: [{ cmd: "wget -c \"{proxy}/gitea/owner/repo/archive/master.zip\"" }],
+      },
+    ],
+  },
+  codeberg: {
+    summaryKey: 'development.xget.guide.codeberg.summary',
+    format: "{proxy}/codeberg/<owner>/<repo>/<path>",
+    sections: [
+      {
+        titleKey: 'development.xget.guide.git.s0.title',
+        commands: [{ cmd: "git clone {proxy}/codeberg/owner/repo.git" }],
+      },
+      {
+        titleKey: 'development.xget.guide.git.s1.title',
+        commands: [{ cmd: "git config --global url.\"{proxy}/codeberg/\".insteadOf \"https://codeberg.org/\"" }],
+      },
+      {
+        titleKey: 'development.xget.guide.git.s2.title',
+        commands: [{ cmd: "wget -c \"{proxy}/codeberg/owner/repo/archive/master.zip\"" }],
+      },
+    ],
+  },
+  'ip-openai': {
+    summaryKey: 'development.xget.guide.ip_openai.summary',
+    format: "{proxy}/ip/openai/v1",
+    sections: [
+      {
+        titleKey: 'development.xget.guide.category.ai.s0.title',
+        commands: [{ cmd: "base_url = \"{proxy}/ip/openai/v1\"" }],
+      },
+      {
+        titleKey: 'development.xget.guide.category.ai.s1.title',
+        commands: [
+          { cmd: "curl -s \"{proxy}/ip/openai/v1/responses\" -H \"Authorization: Bearer $OPENAI_API_KEY\" -H \"Content-Type: application/json\" -d '{\"model\":\"gpt-5.1\",\"input\":\"Hello\"}'" },
+        ],
+        noteKey: 'development.xget.guide.category.ai.s1.note',
+      },
+    ],
+  },
+  'ip-anthropic': {
+    summaryKey: 'development.xget.guide.ip_anthropic.summary',
+    format: "{proxy}/ip/anthropic/",
+    sections: [
+      {
+        titleKey: 'development.xget.guide.category.ai.s0.title',
+        commands: [{ cmd: "client = Anthropic(api_key=\"$ANTHROPIC_API_KEY\", base_url=\"{proxy}/ip/anthropic\")" }],
+      },
+      {
+        titleKey: 'development.xget.guide.category.ai.s1.title',
+        commands: [
+          { cmd: "curl -s \"{proxy}/ip/anthropic/v1/messages\" -H \"x-api-key: $ANTHROPIC_API_KEY\" -H \"anthropic-version: 2023-06-01\" -H \"Content-Type: application/json\" -d '{\"model\":\"claude-sonnet-4-5\",\"max_tokens\":256,\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}'" },
+        ],
+        noteKey: 'development.xget.guide.category.ai.s1.note',
+      },
+    ],
+  },
+  'ip-gemini': {
+    summaryKey: 'development.xget.guide.ip_gemini.summary',
+    format: "{proxy}/ip/gemini/",
+    sections: [
+      {
+        titleKey: 'development.xget.guide.category.ai.s0.title',
+        commands: [{ cmd: "client = genai.Client(http_options=types.HttpOptions(base_url=\"{proxy}/ip/gemini\"))" }],
+      },
+      {
+        titleKey: 'development.xget.guide.category.ai.s1.title',
+        commands: [
+          { cmd: "curl -s \"{proxy}/ip/gemini/v1beta/models/gemini-3-pro-preview:generateContent\" -H \"x-goog-api-key: $GEMINI_API_KEY\" -H \"Content-Type: application/json\" -d '{\"contents\":[{\"parts\":[{\"text\":\"Hello\"}]}]}'" },
+        ],
+        noteKey: 'development.xget.guide.category.ai.s1.note',
+      },
+    ],
+  },
 }
 
 function categoryGuide(key: string): PlatformGuide {
@@ -656,10 +817,10 @@ function categoryGuide(key: string): PlatformGuide {
           commands: [
             {
               cmd:
-                `curl -s "{proxy}/ip/${endpoint}/v1/chat/completions" \\\n` +
+                `curl -s "{proxy}/ip/${endpoint}/<api-path>" \\\n` +
                 `  -H "Authorization: Bearer $API_KEY" \\\n` +
                 `  -H "Content-Type: application/json" \\\n` +
-                `  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'`,
+                `  -d '{"model":"<model>","messages":[{"role":"user","content":"hi"}]}'`,
             },
           ],
           noteKey: 'development.xget.guide.category.ai.s1.note',
@@ -688,8 +849,20 @@ function categoryGuide(key: string): PlatformGuide {
   }
 }
 
+const GUIDE_ALIASES: Record<string, string> = {
+  'homebrew-api': 'homebrew',
+  'homebrew-bottles': 'homebrew',
+  'pypi-files': 'pypi',
+  'conda-community': 'conda',
+}
+
 export function getPlatformGuide(key: string, _name: string): PlatformGuide {
-  return SPECIFIC[key] ?? categoryGuide(key)
+  const specific = SPECIFIC[key]
+  if (specific) return specific
+  const alias = GUIDE_ALIASES[key]
+  const aliased = alias ? SPECIFIC[alias] : undefined
+  if (aliased) return { ...aliased, format: `{proxy}/${xgetPathPrefix(key)}/<path>` }
+  return categoryGuide(key)
 }
 
 function proxyHostname(proxyBase: string): string {
