@@ -160,13 +160,13 @@ const SPECIFIC: Record<string, PlatformGuide> = {
         titleKey: 'development.xget.guide.pypi.s1.title',
         commands: [
           { cmd: "pip config set global.index-url {proxy}/pypi/simple/" },
-          { labelKey: 'development.xget.guide.pypi.s1.c1.label', cmd: "pip config set global.trusted-host {proxyHost}" },
+          { labelKey: 'development.xget.guide.pypi.s1.c1.label', cmd: "pip config set global.trusted-host {proxyHostname}" },
         ],
       },
       {
         titleKey: 'development.xget.guide.pypi.s2.title',
         commands: [
-          { cmd: "--index-url {proxy}/pypi/simple/\n--trusted-host {proxyHost}\n\nrequests>=2.25.0" },
+          { cmd: "--index-url {proxy}/pypi/simple/\n--trusted-host {proxyHostname}\n\nrequests>=2.25.0" },
         ],
       },
     ],
@@ -627,13 +627,16 @@ function categoryGuide(key: string): PlatformGuide {
       sections: [
         {
           titleKey: 'development.xget.guide.category.registry.s0.title',
-          commands: [{ cmd: `docker pull {proxyHost}/cr/${registry}/v2/library/nginx:latest` }],
+          commands: [
+            { cmd: `# /etc/docker/daemon.json\n{ "registry-mirrors": ["{proxy}/cr/${registry}"] }` },
+            { cmd: 'sudo systemctl restart docker' },
+          ],
+          noteKey: 'development.xget.guide.category.registry.s0.note',
         },
         {
           titleKey: 'development.xget.guide.category.registry.s1.title',
-          commands: [
-            { cmd: `# /etc/docker/daemon.json\n{ "registry-mirrors": ["{proxy}/cr/${registry}"] }` },
-          ],
+          commands: [{ cmd: 'docker pull <image>:<tag>' }],
+          noteKey: 'development.xget.guide.category.registry.s1.note',
         },
       ],
     }
@@ -671,7 +674,7 @@ function categoryGuide(key: string): PlatformGuide {
     sections: [
       {
         titleKey: 'development.xget.guide.category.generic.s0.title',
-        commands: [{ cmd: `Original: https://<host>/<path>\nAccelerated: {proxy}/${prefix}/<path>` }],
+        commands: [{ cmd: `https://<host>/<path>\n-> {proxy}/${prefix}/<path>` }],
       },
       {
         titleKey: 'development.xget.guide.category.generic.s1.title',
@@ -689,14 +692,12 @@ export function getPlatformGuide(key: string, _name: string): PlatformGuide {
   return SPECIFIC[key] ?? categoryGuide(key)
 }
 
-function proxyHostPath(proxyBase: string): string {
-  const url = new URL(proxyBase)
-  const pathname = url.pathname.replace(/\/+$/, '')
-  return `${url.host}${pathname}`
+function proxyHostname(proxyBase: string): string {
+  return new URL(proxyBase).host
 }
 
 export function renderGuideCommand(command: string, proxyBase: string): string {
   const base = proxyBase.replace(/\/+$/, '')
-  const hostPath = proxyHostPath(base)
-  return command.split('{proxyHost}').join(hostPath).split('{proxy}').join(base)
+  const hostname = proxyHostname(base)
+  return command.split('{proxyHostname}').join(hostname).split('{proxy}').join(base)
 }

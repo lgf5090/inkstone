@@ -108,24 +108,29 @@ describe('the Xget platform guides', () => {
     }
   })
 
-  it('renders docker pull from the parsed proxy base for http and https', () => {
-    const command = getPlatformGuide('cr-docker', 'Docker Hub').sections[0].commands[0].cmd
-    for (const base of ['https://proxy.example/api/xget', 'http://localhost:8787/api/xget']) {
-      const url = new URL(base)
-      const rendered = renderGuideCommand(command, base)
-      expect(rendered).toBe(
-        `docker pull ${url.host}${url.pathname}/cr/docker/v2/library/nginx:latest`,
-      )
-      expect(rendered.slice('docker pull '.length)).not.toContain('://')
-    }
-    expect(renderGuideCommand(command, 'http://localhost:8787/api/xget')).not.toContain('http://')
+  it('renders a registry mirror instead of a path-prefixed docker pull', () => {
+    const guide = getPlatformGuide('cr-docker', 'Docker Hub')
+    const rendered = guide.sections
+      .flatMap((section) => section.commands.map((command) => renderGuideCommand(command.cmd, 'https://proxy.example/api/xget')))
+      .join('\n')
+    expect(rendered).toContain('registry-mirrors')
+    expect(rendered).toContain('https://proxy.example/api/xget/cr/docker')
+    expect(rendered).not.toContain('docker pull https://proxy.example')
   })
 
-  it('renders trusted hosts without a scheme', () => {
+  it('renders trusted hosts as a host name, not a proxy path', () => {
     const command = getPlatformGuide('pypi', 'PyPI').sections[1].commands[1].cmd
     expect(renderGuideCommand(command, 'http://localhost:8787/api/xget')).toBe(
-      'pip config set global.trusted-host localhost:8787/api/xget',
+      'pip config set global.trusted-host localhost:8787',
     )
+  })
+
+  it('uses a language-neutral generic URL example', () => {
+    const commands = getPlatformGuide('homebrew-api', 'Homebrew API').sections.flatMap((section) =>
+      section.commands.map((command) => command.cmd),
+    )
+    expect(commands.join('\n')).not.toContain('Original:')
+    expect(commands.join('\n')).not.toContain('Accelerated:')
   })
 })
 
