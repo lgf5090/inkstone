@@ -25,11 +25,12 @@ import {
   type CloudDriveCategory,
   type CloudDriveEntry,
 } from '@shared/clouddrive/model'
-import type { AppBindings } from '../env'
+import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
+import { storageKeyReferenced } from './store-files'
 
 export const clouddriveUploadRoutes = new Hono<AppBindings>()
 
@@ -97,6 +98,7 @@ interface FileRow {
   mime: string
   size: number
   etag: string | null
+  checksum: string | null
   storage_key: string | null
   color: string
   starred_at: number | null
@@ -185,7 +187,7 @@ async function findLiveSibling(
   folded: string,
 ): Promise<FileRow | null> {
   return await db.prepare(
-    `SELECT id, name, path, kind, category, mime, size, etag, storage_key, color, starred_at,
+    `SELECT id, name, path, kind, category, mime, size, etag, checksum, storage_key, color, starred_at,
             uploaded_at, modified_at
        FROM CloudDrive_files
       WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND name_folded = ?4
@@ -634,6 +636,27 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
   const now = Date.now()
   const statements: D1PreparedStatement[] = []
   if (existing && conflict === 'overwrite') {
+    if (existing.storage_key) {
+      const latest = await c.env.DB.prepare(
+        `SELECT COALESCE(MAX(version), 0) AS version FROM CloudDrive_file_versions
+          WHERE user_id = ? AND file_id = ?`,
+      ).bind(userId, existing.id).first<{ version: number }>()
+      statements.push(
+        c.env.DB.prepare(
+          `UPDATE CloudDrive_file_versions SET file_id = ?3 WHERE user_id = ?1 AND file_id = ?2`,
+        ).bind(userId, existing.id, fileId),
+      )
+      statements.push(
+        c.env.DB.prepare(
+          `INSERT INTO CloudDrive_file_versions
+             (user_id, file_id, version, storage_key, size, mime, etag, checksum, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ).bind(
+          userId, fileId, (latest?.version ?? 0) + 1, existing.storage_key,
+          existing.size, existing.mime, existing.etag, existing.checksum, now,
+        ),
+      )
+    }
     statements.push(
       c.env.DB.prepare(
         `UPDATE CloudDrive_files SET deleted_at = ?3, trash_batch = ?4, updated_at = ?3
@@ -669,6 +692,9 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
       .bind(userId, session.id),
   )
   await c.env.DB.batch(statements)
+  if (existing && conflict === 'overwrite') {
+    await pruneVersions(c.env.DB, c.env.FILES, userId, fileId)
+  }
 
   const mountName = await mountNameFor(c.env.DB, userId, session.mount_id)
   const hasThumbnail = Boolean(c.env.IMAGES) && session.mime.startsWith('image/')
@@ -695,6 +721,34 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
     } satisfies CloudDriveEntry,
   })
 })
+
+const VERSION_KEEP = 10
+
+async function pruneVersions(
+  db: D1Database,
+  bucket: Env['FILES'],
+  userId: string,
+  fileId: string,
+): Promise<void> {
+  const { results } = await db.prepare(
+    `SELECT version, storage_key FROM CloudDrive_file_versions
+      WHERE user_id = ? AND file_id = ? ORDER BY version DESC`,
+  ).bind(userId, fileId).all<{ version: number; storage_key: string }>()
+  const extra = (results ?? []).slice(VERSION_KEEP)
+  if (extra.length === 0) return
+  await db.batch(extra.map((row) => db.prepare(
+    `DELETE FROM CloudDrive_file_versions WHERE user_id = ? AND file_id = ? AND version = ?`,
+  ).bind(userId, fileId, row.version)))
+  if (!bucket) return
+  for (const key of new Set(extra.map((row) => row.storage_key))) {
+    if (await storageKeyReferenced(db, userId, key)) continue
+    try {
+      await bucket.delete(key)
+    } catch (error) {
+      console.warn('[clouddrive] pruning an old file version left an orphan object:', key, error)
+    }
+  }
+}
 
 clouddriveUploadRoutes.post('/uploads/:id/abort', async (c) => {
   const userId = requireUserId(c)

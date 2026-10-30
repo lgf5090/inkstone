@@ -291,6 +291,23 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_sync_user
      ON CloudDrive_sync_targets(user_id, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_file_versions (
+    user_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    storage_key TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+    etag TEXT,
+    checksum TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, file_id, version)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_versions_file
+     ON CloudDrive_file_versions(user_id, file_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_versions_key
+     ON CloudDrive_file_versions(storage_key)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_index_state (
     user_id TEXT NOT NULL,
     mount_id TEXT NOT NULL,
@@ -355,6 +372,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_settings',
   'CloudDrive_clipboard',
   'CloudDrive_sync_targets',
+  'CloudDrive_file_versions',
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
@@ -406,6 +424,9 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'user_id', 'id', 'name', 'local_label', 'mount_id', 'remote_path', 'enabled', 'last_sync_at',
     'last_status', 'last_error', 'last_file_count', 'last_bytes', 'created_at', 'updated_at',
   ],
+  CloudDrive_file_versions: [
+    'user_id', 'file_id', 'version', 'storage_key', 'size', 'mime', 'etag', 'checksum', 'created_at',
+  ],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
@@ -445,6 +466,8 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_tasks_queue',
   'idx_clouddrive_keys_user',
   'idx_clouddrive_sync_user',
+  'idx_clouddrive_versions_file',
+  'idx_clouddrive_versions_key',
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',

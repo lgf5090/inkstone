@@ -53,6 +53,7 @@ import { ConfirmDeleteDialog, MoveDialog, NewFolderDialog, RenameDialog } from '
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
 import { ShareDialog } from './ShareDialog'
+import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
@@ -81,6 +82,7 @@ type DialogState =
   | { kind: 'move'; ids: string[]; initialPath: string }
   | { kind: 'delete'; ids: string[] }
   | { kind: 'share'; entries: CloudDriveEntry[] }
+  | { kind: 'versions'; entry: CloudDriveEntry }
   | null
 
 export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, onPreview }: FilesPageProps) {
@@ -716,6 +718,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onPreview={previewEntry}
         onDownload={actions.download}
         onShare={requestShare}
+        onVersions={(entry) => setDialog({ kind: 'versions', entry })}
         onCopy={(targets) => rememberClipboard('copy', targets.map((entry) => entry.id))}
         onCut={(targets) => rememberClipboard('cut', targets.map((entry) => entry.id))}
         onPaste={() => void pasteClipboard()}
@@ -754,6 +757,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             return ok
           })
         }}
+      />
+      <VersionsDialog
+        open={dialog?.kind === 'versions'}
+        entry={dialog?.kind === 'versions' ? dialog.entry : null}
+        onClose={() => setDialog(null)}
+        onRestored={(entry) => applyLocalChange({ type: 'replace', entry })}
       />
       <ShareDialog
         open={dialog?.kind === 'share'}

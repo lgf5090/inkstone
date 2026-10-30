@@ -448,3 +448,74 @@ describe('clouddrive upload validation', () => {
     expect((await response.json() as { error: { code: string } }).error.code).toBe('clouddrive_quota_exceeded')
   })
 })
+
+describe('clouddrive file versions', () => {
+  async function overwrite(h: Harness, name: string, content: string): Promise<{ entry: CompleteResponse['entry']; key: string }> {
+    const init = await initUpload(h, {
+      parentPath: '/', name, size: content.length, mime: 'text/plain', conflict: 'overwrite',
+    })
+    expect(init.status).toBe(200)
+    const session = await init.json() as UploadSessionResponse
+    const put = await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: content })
+    expect(put.status).toBe(200)
+    const complete = await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(complete.status).toBe(200)
+    const body = await complete.json() as CompleteResponse
+    const row = h.sqlite.prepare('SELECT storage_key FROM CloudDrive_files WHERE user_id = ? AND id = ?')
+      .get(USER_A, body.entry.id) as { storage_key: string } | undefined
+    return { entry: body.entry, key: row!.storage_key }
+  }
+
+  it('keeps the overwritten bytes, restores them and frees the superseded object', async () => {
+    const first = await uploadSmall(h, 'versions.txt', 'v1')
+    const second = await overwrite(h, 'versions.txt', 'version two')
+
+    const listed = await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/versions`)
+    expect(listed.status).toBe(200)
+    const versions = await listed.json() as { versions: { version: number; size: number }[] }
+    expect(versions.versions).toEqual([{ version: 1, size: 2, mime: 'text/plain', createdAt: expect.any(Number) }])
+    expect(h.bucket.objects.has(first.key)).toBe(true)
+
+    const live = await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/content`)
+    expect(await live.text()).toBe('version two')
+
+    const restored = await request(h, 'POST', `/api/clouddrive/files/${second.entry.id}/versions/1/restore`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(restored.status).toBe(200)
+    const restoredBody = await restored.json() as { entry: { size: number } }
+    expect(restoredBody.entry.size).toBe(2)
+    expect(await (await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/content`)).text()).toBe('v1')
+
+    const afterRestore = await request(h, 'GET', `/api/clouddrive/files/${second.entry.id}/versions`)
+    const remaining = await afterRestore.json() as { versions: { version: number; size: number }[] }
+    expect(remaining.versions).toEqual([{ version: 2, size: 11, mime: 'text/plain', createdAt: expect.any(Number) }])
+
+    const deleted = await request(h, 'DELETE', `/api/clouddrive/files/${second.entry.id}/versions/2`)
+    expect(deleted.status).toBe(200)
+    expect(h.bucket.objects.has(second.key)).toBe(false)
+    expect(h.bucket.objects.has(first.key)).toBe(true)
+  })
+
+  it('keeps only the newest ten versions', async () => {
+    await uploadSmall(h, 'rolling.txt', 'v0')
+    for (let index = 1; index <= 11; index += 1) {
+      await overwrite(h, 'rolling.txt', `value-${index}`)
+    }
+    const listed = await request(h, 'GET', `/api/clouddrive/files/${(await newestFile(h, 'rolling.txt')).id}/versions`)
+    const versions = await listed.json() as { versions: { version: number }[] }
+    expect(versions.versions).toHaveLength(10)
+    expect(versions.versions[0]!.version).toBe(11)
+    expect(versions.versions[9]!.version).toBe(2)
+  })
+
+  async function newestFile(h: Harness, name: string): Promise<{ id: string }> {
+    return h.sqlite.prepare(
+      `SELECT id FROM CloudDrive_files WHERE user_id = ? AND name = ? AND deleted_at IS NULL`,
+    ).get(USER_A, name) as { id: string }
+  }
+})

@@ -6,6 +6,7 @@ import {
   Eye,
   FolderInput,
   FolderOpen,
+  History,
   ListChecks,
   Palette,
   Pencil,
@@ -37,6 +38,7 @@ export interface ContextMenuProps {
   onPreview: (entry: CloudDriveEntry) => void
   onDownload: (entries: CloudDriveEntry[]) => void
   onShare: (entries: CloudDriveEntry[]) => void
+  onVersions: (entry: CloudDriveEntry) => void
   onCopy: (entries: CloudDriveEntry[]) => void
   onCut: (entries: CloudDriveEntry[]) => void
   onPaste: () => void
@@ -61,6 +63,7 @@ export function ContextMenu({
   onPreview,
   onDownload,
   onShare,
+  onVersions,
   onCopy,
   onCut,
   onPaste,
@@ -111,6 +114,13 @@ export function ContextMenu({
         label: t('clouddrive.action.share'),
         icon: <Share2 size={14} />,
         onSelect: () => onShare(targets),
+      },
+      {
+        id: 'versions',
+        label: t('clouddrive.action.versions'),
+        icon: <History size={14} />,
+        disabled: !single || isFolder || entry.storageKind === 'external',
+        onSelect: () => onVersions(entry),
       },
       {
         id: 'copy',
@@ -211,6 +221,7 @@ export function ContextMenu({
     onPreview,
     onDownload,
     onShare,
+    onVersions,
     onCopy,
     onCut,
     onPaste,

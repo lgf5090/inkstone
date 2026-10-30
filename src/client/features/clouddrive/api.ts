@@ -132,6 +132,10 @@ export const clouddriveApi = {
   reportSync: (id: string, body: { status: 'success' | 'error'; files: number; bytes: number; error?: string }) => request<{ target: CloudDriveSyncTarget }>(`/api/clouddrive/sync/targets/${encodeURIComponent(id)}/report`, json(body)),
   listRemote: (params: { mountId: string; path: string }) => request<{ base: string; truncated: boolean; entries: { path: string; kind: 'file' | 'folder'; size: number; modifiedAt: number }[] }>(`/api/clouddrive/sync/remote?${new URLSearchParams(params).toString()}`),
 
+  versions: (id: string) => request<{ versions: { version: number; size: number; mime: string; createdAt: number }[] }>(`/api/clouddrive/files/${encodeURIComponent(id)}/versions`),
+  restoreVersion: (id: string, version: number) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}/restore`, { method: 'POST', body: '{}' }),
+  deleteVersion: (id: string, version: number) => request<{ ok: true }>(`/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}`, { method: 'DELETE' }),
+
   tags: () => request<{ tags: { name: string; color: string; count: number }[] }>('/api/clouddrive/tags'),
   addTag: (id: string, body: { tag: string; color: string }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags`, json(body)),
   removeTag: (id: string, tag: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }),

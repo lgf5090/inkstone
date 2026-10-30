@@ -123,6 +123,18 @@ describe('CloudDrive maintenance', () => {
     expect(await r2.head(scan.body.orphans[0]!.key)).toBeNull()
   })
 
+  it('keeps an object that only a file version references', async () => {
+    const key = `CloudDrive/txt/${newId()}`
+    await r2.put(key, 'old version')
+    await db.prepare(
+      `INSERT INTO CloudDrive_file_versions
+         (user_id, file_id, version, storage_key, size, mime, etag, checksum, created_at)
+       VALUES (?, ?, 1, ?, 11, 'text/plain', NULL, NULL, ?)`,
+    ).bind(USER, newId(), key, Date.now()).run()
+    const scan = await call<{ orphans: unknown[] }>(USER, 'GET', '/api/clouddrive/admin/maintenance/orphans')
+    expect(scan.body.orphans).toEqual([])
+  })
+
   it('refuses object keys outside the CloudDrive prefix', async () => {
     const response = await call(USER, 'POST', '/api/clouddrive/admin/maintenance/orphans/delete', {
       keys: ['notes/someone-else'],

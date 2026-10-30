@@ -13,6 +13,7 @@ import { clouddriveKeyRoutes } from './routes-keys'
 import { clouddriveClipboardRoutes } from './routes-clipboard'
 import { clouddriveTaskRoutes } from './routes-tasks'
 import { clouddriveSyncRoutes } from './routes-sync'
+import { clouddriveVersionRoutes } from './routes-versions'
 import { clouddriveMaintenanceRoutes } from './routes-maintenance'
 import { clouddriveAdminRoutes } from './routes-admin'
 import { clouddriveJobRoutes } from './routes-jobs'
@@ -63,6 +64,7 @@ clouddriveRoutes.route('/', clouddriveKeyRoutes)
 clouddriveRoutes.route('/', clouddriveClipboardRoutes)
 clouddriveRoutes.route('/', clouddriveTaskRoutes)
 clouddriveRoutes.route('/', clouddriveSyncRoutes)
+clouddriveRoutes.route('/', clouddriveVersionRoutes)
 clouddriveRoutes.route('/', clouddriveMaintenanceRoutes)
 clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)

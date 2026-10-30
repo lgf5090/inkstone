@@ -729,6 +729,14 @@ async function purgeTargets(
   return [...targets.values()]
 }
 
+export async function storageKeyReferenced(db: D1Database, userId: string, key: string): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND storage_key = ?2)
+          + (SELECT COUNT(*) FROM CloudDrive_file_versions WHERE user_id = ?1 AND storage_key = ?2) AS count`,
+  ).bind(userId, key).first<{ count: number }>()
+  return (row?.count ?? 0) > 0
+}
+
 async function purgeRows(
   db: D1Database,
   userId: string,
@@ -739,20 +747,32 @@ async function purgeRows(
   const ids = targets.map((target) => target.id)
   let failed = 0
 
+  const versionKeys: string[] = []
+  for (let offset = 0; offset < ids.length; offset += 90) {
+    const chunk = ids.slice(offset, offset + 90)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const versions = await db.prepare(
+      `SELECT storage_key FROM CloudDrive_file_versions WHERE user_id = ? AND file_id IN (${placeholders})`,
+    ).bind(userId, ...chunk).all<{ storage_key: string }>()
+    for (const version of versions.results ?? []) versionKeys.push(version.storage_key)
+  }
   const tagStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
     `DELETE FROM CloudDrive_file_tags WHERE user_id = ? AND file_id IN (${placeholders})`,
+  ).bind(userId, ...chunk))
+  const versionStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
+    `DELETE FROM CloudDrive_file_versions WHERE user_id = ? AND file_id IN (${placeholders})`,
   ).bind(userId, ...chunk))
   const rowStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
     `DELETE FROM CloudDrive_files WHERE user_id = ? AND id IN (${placeholders})`,
   ).bind(userId, ...chunk))
-  await db.batch([...tagStatements, ...rowStatements])
+  await db.batch([...tagStatements, ...versionStatements, ...rowStatements])
 
-  const keys = [...new Set(targets.map((target) => target.storage_key).filter((key): key is string => !!key))]
+  const keys = [...new Set([
+    ...targets.map((target) => target.storage_key),
+    ...versionKeys,
+  ].filter((key): key is string => !!key))]
   for (const key of keys) {
-    const remaining = await db.prepare(
-      `SELECT COUNT(*) AS count FROM CloudDrive_files WHERE user_id = ? AND storage_key = ?`,
-    ).bind(userId, key).first<{ count: number }>()
-    if ((remaining?.count ?? 0) > 0) continue
+    if (await storageKeyReferenced(db, userId, key)) continue
     if (!env.FILES) continue
     try {
       await env.FILES.delete(key)
