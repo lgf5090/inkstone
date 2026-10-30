@@ -281,6 +281,41 @@ export function SvgFlow({
   const selected = selectedId !== undefined ? selectedId : internalSelected
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes])
   const nodeSignature = nodes.map((node) => node.id).join('|')
+  const shouldCull = nodes.length > 120
+
+  const visibleRect = useMemo(() => {
+    if (!shouldCull || size.width === 0 || size.height === 0) return null
+    const margin = 240
+    return {
+      minX: -viewport.x / viewport.zoom - margin,
+      minY: -viewport.y / viewport.zoom - margin,
+      maxX: (size.width - viewport.x) / viewport.zoom + margin,
+      maxY: (size.height - viewport.y) / viewport.zoom + margin,
+    }
+  }, [size.height, size.width, viewport])
+
+  const visibleNodes = useMemo(() => {
+    if (!visibleRect) return nodes
+    return nodes.filter((node) => node.id === selected
+      || (node.x + node.width >= visibleRect.minX
+        && node.x <= visibleRect.maxX
+        && node.y + node.height >= visibleRect.minY
+        && node.y <= visibleRect.maxY))
+  }, [nodes, selected, visibleRect])
+
+  const visibleEdges = useMemo(() => {
+    if (!visibleRect) return edges
+    return edges.filter((edge) => {
+      const source = nodeById.get(edge.source)
+      const target = nodeById.get(edge.target)
+      if (!source || !target) return false
+      const padding = 160
+      return Math.max(source.x + source.width, target.x + target.width) + padding >= visibleRect.minX
+        && Math.min(source.x, target.x) - padding <= visibleRect.maxX
+        && Math.max(source.y + source.height, target.y + target.height) + padding >= visibleRect.minY
+        && Math.min(source.y, target.y) - padding <= visibleRect.maxY
+    })
+  }, [edges, nodeById, visibleRect])
 
   const select = useCallback(
     (id: string | null) => {
@@ -559,7 +594,7 @@ export function SvgFlow({
           </marker>
         </defs>
         <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
-          {edges.map((edge) => {
+          {visibleEdges.map((edge) => {
             const source = nodeById.get(edge.source)
             const target = nodeById.get(edge.target)
             if (!source || !target) return null
@@ -600,7 +635,7 @@ export function SvgFlow({
           transformOrigin: '0 0',
         }}
       >
-        {nodes.map((node) => {
+        {visibleNodes.map((node) => {
           const isSelected = selected === node.id
           return (
             <div

@@ -49,6 +49,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.app.schema_truncated": "结构超过 2000 个对象，列表已截断；请用 SQL 查看完整结构。",
   "development.database.app.column_count_short": "{count} 列",
   "development.database.app.column_match": "列匹配",
+  "development.database.app.tables_truncated": "共 {total} 张表，仅显示前 {shown} 张；请用搜索定位其余表。",
   "development.database.app.table_count_filtered": "{shown}/{total} 张表",
   "development.database.app.views": "视图 {count}",
   "development.database.app.triggers": "触发器 {count}",

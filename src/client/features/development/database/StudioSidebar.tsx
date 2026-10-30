@@ -324,6 +324,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
         || table.columns.some((column) => column.name.toLowerCase().includes(tableQuery))
       : true,
   )
+  const renderedTables = filteredTables.length > 60 && !tableQuery ? filteredTables.slice(0, 60) : filteredTables
 
   if (collapsed) {
     return (
@@ -632,7 +633,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   {t('development.database.app.schema_truncated')}
                 </p>
               )}
-              {filteredTables.map((table) => {
+              {renderedTables.map((table) => {
                 const expanded = expandedTables.has(table.name)
                 return (
                   <div key={table.name} className="group">
@@ -693,6 +694,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
                   </div>
                 )
               })}
+              {renderedTables.length < filteredTables.length && (
+                <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {t('development.database.app.tables_truncated', { shown: renderedTables.length, total: filteredTables.length })}
+                </div>
+              )}
               {filteredTables.length === 0 && tableQuery && (
                 <div className="px-1.5 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {t('development.database.app.no_matching_tables')}

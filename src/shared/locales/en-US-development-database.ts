@@ -49,6 +49,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.app.schema_truncated": "The schema has more than 2000 objects; the list is truncated. Use SQL to inspect the rest.",
   "development.database.app.column_count_short": "{count} cols",
   "development.database.app.column_match": "Column match",
+  "development.database.app.tables_truncated": "Showing the first {shown} of {total} tables; use search to find the rest.",
   "development.database.app.table_count_filtered": "{shown}/{total} tables",
   "development.database.app.views": "Views {count}",
   "development.database.app.triggers": "Triggers {count}",
