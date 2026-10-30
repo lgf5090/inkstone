@@ -200,6 +200,26 @@ describe('blog admin projection', () => {
     expect(list.rows.map((item) => item.slug)).toEqual([row!.slug])
   })
 
+  it('records the media library assets a published article uses and clears stale links', async () => {
+    const content = '---\nblogType: post\nisPublished: true\n---\n\nBody'
+    const rendered = snapshot(content, '<p>Body</p><img src="/_blog/media/asset-1">')
+    rendered.contentHash = await sha256Hex(content)
+    rendered.assets = [{ attachmentId: 'att-1', blogAssetId: 'asset-1', url: '/_blog/media/asset-1', filename: 'a.png' }]
+    await syncBlogPostFromNote(db, USER, note(content), Date.now() - 1000)
+    sqlite.prepare('UPDATE notes SET content = ? WHERE id = ?').run(content, NOTE)
+    sqlite.prepare(
+      `INSERT INTO blog_assets (id,user_id,kind,object_key,variants,filename,mime,size,width,height,hash,created_at)
+       VALUES ('asset-1', ?, 'image', 'blog/images/2026/asset-1.png', '[]', 'a.png', 'image/png', 10, NULL, NULL, 'hash-1', ?)`,
+    ).run(USER, Date.now())
+    await publishPostSnapshot(db, memoryBucket(), USER, NOTE, rendered, Date.now())
+    const linked = sqlite.prepare('SELECT asset_id, source_ref FROM blog_post_assets').all() as Array<{ asset_id: string; source_ref: string }>
+    expect(linked).toEqual([{ asset_id: 'asset-1', source_ref: 'att-1' }])
+
+    await publishPostSnapshot(db, memoryBucket(), USER, NOTE, { ...rendered, assets: [] }, Date.now())
+    const cleared = sqlite.prepare('SELECT COUNT(*) AS total FROM blog_post_assets').all() as Array<{ total: number }>
+    expect(cleared[0]!.total).toBe(0)
+  })
+
   it('does not resurrect a trashed projection when its note keeps changing', async () => {
     const content = '---\nblogType: post\nisPublished: true\n---\n\nBody'
     const row = await syncBlogPostFromNote(db, USER, note(content))

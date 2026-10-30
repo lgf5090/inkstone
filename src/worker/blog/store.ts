@@ -661,9 +661,45 @@ export async function publishPostSnapshot(
     )
     .bind(userId, post.id, renderKey, renderHash, snapshot.rendererVersion, now, snapshot.contentHash, status, publishedAt)
     .run()
+  await linkPostAssets(db, userId, post.id, snapshot.assets, now)
   const updated = await findPostById(db, userId, post.id)
   if (!updated) throw new Error('blog_post_missing')
   return updated
+}
+
+/**
+ * Replaces the media library's view of what one published article uses.
+ *
+ * The ids arrive from the owner's snapshot, but the table is still the trust boundary: every id is
+ * checked against the owner's assets so a snapshot cannot make a post claim (and thereby pin) someone
+ * else's file. An id that no longer exists is dropped; the body already carries a placeholder.
+ */
+async function linkPostAssets(
+  db: D1Database,
+  userId: string,
+  postId: string,
+  assets: BlogRenderSnapshot['assets'],
+  now: number,
+): Promise<void> {
+  await db.prepare(`DELETE FROM blog_post_assets WHERE user_id = ?1 AND post_id = ?2`).bind(userId, postId).run()
+  const seen = new Set<string>()
+  for (const asset of assets) {
+    const assetId = asset.blogAssetId
+    if (!assetId || seen.has(assetId)) continue
+    seen.add(assetId)
+    const owned = await db
+      .prepare(`SELECT id FROM blog_assets WHERE user_id = ?1 AND id = ?2`)
+      .bind(userId, assetId)
+      .first<{ id: string }>()
+    if (!owned) continue
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO blog_post_assets (user_id, post_id, asset_id, source_ref, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(userId, postId, assetId, asset.attachmentId ?? '', now)
+      .run()
+  }
 }
 
 export async function unpublishPost(

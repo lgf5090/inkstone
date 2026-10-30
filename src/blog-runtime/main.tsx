@@ -10,7 +10,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { NoteSummary } from '@shared/types'
-import type { BlogEmbeddedNote, BlogReadingSettings } from '@shared/blog/model'
+import type { BlogAssetRef, BlogEmbeddedNote, BlogReadingSettings } from '@shared/blog/model'
 import { BLOG_RENDERER_VERSION } from '@shared/blog/renderer'
 import { initI18nForReading, t } from '../client/lib/i18n'
 import { setAssetBase } from '../client/lib/asset-base'
@@ -32,6 +32,8 @@ export interface BlogReadingMountOptions {
   content: string
   noteTitle?: string
   embeds?: BlogEmbeddedNote[]
+  /** Vault attachments published alongside the article, keyed by their original names and ids. */
+  assets?: BlogAssetRef[]
   settings?: Partial<BlogReadingSettings>
   /** Blog locale; the note app ships zh-CN and en-US reading labels. */
   locale?: string
@@ -158,6 +160,19 @@ function hideWriteActions(root: HTMLElement): void {
   }
 }
 
+function attachmentIndex(assets: BlogAssetRef[] | undefined): {
+  byName: Map<string, BlogAssetRef>
+  byId: Map<string, BlogAssetRef>
+} {
+  const byName = new Map<string, BlogAssetRef>()
+  const byId = new Map<string, BlogAssetRef>()
+  for (const asset of assets ?? []) {
+    if (asset.filename) byName.set(normalizeTarget(asset.filename), asset)
+    if (asset.attachmentId) byId.set(asset.attachmentId, asset)
+  }
+  return { byName, byId }
+}
+
 function currentHref(links: BlogWikiHref[] | undefined, target: string): string | null {
   if (!links?.length) return null
   const key = normalizeTarget(target)
@@ -171,6 +186,7 @@ async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandl
   hydrateNotes(options)
   applyReadingSettings(options.settings)
 
+  const attachments = attachmentIndex(options.assets)
   const root: Root = createRoot(options.container)
   let hideObserver: MutationObserver | null = null
   root.render(
@@ -196,6 +212,23 @@ async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandl
           if (!href) return false
           window.location.assign(href)
           return true
+        }}
+        resolveAttachment={(name) => {
+          const asset = attachments.byName.get(normalizeTarget(name))
+          if (!asset) return null
+          return {
+            filename: asset.filename ?? name,
+            mime: asset.mime ?? '',
+            url: asset.url,
+            size: asset.size ?? 0,
+            width: asset.width ?? null,
+            height: asset.height ?? null,
+          }
+        }}
+        rewriteAssetUrl={(url) => {
+          const match = /\/api\/files\/([A-Za-z0-9_-]{1,64})(?:[?#]|$)/.exec(url)
+          const asset = match ? attachments.byId.get(match[1]!) : undefined
+          return asset?.url ?? null
         }}
       />
       <Lightbox />

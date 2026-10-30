@@ -26,6 +26,11 @@ export const BlogSnapshotSchema = z.object({
         attachmentId: z.string().max(200).optional(),
         blogAssetId: z.string().max(200).optional(),
         url: z.string().min(1).max(2000),
+        filename: z.string().max(500).optional(),
+        mime: z.string().max(200).optional(),
+        size: z.number().int().nonnegative().max(1024 * 1024 * 1024).optional(),
+        width: z.number().int().nonnegative().max(100000).nullable().optional(),
+        height: z.number().int().nonnegative().max(100000).nullable().optional(),
       }),
     )
     .max(500),

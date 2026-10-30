@@ -1,6 +1,7 @@
 import { parseWikiTarget, renderMarkdown } from '../../lib/markdown/renderer'
 import { enhancePreview, renderPendingCharts, renderPendingMermaid } from '../../lib/markdown/enhance'
 import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
+import { isAttachmentTarget } from '../../lib/markdown/attachments'
 import { registerFenceBodies } from '../../lib/markdown/fence-bodies'
 import { getLocale } from '../../lib/i18n'
 import { api } from '../../lib/api'
@@ -9,7 +10,7 @@ import { useSession } from '../../store/session'
 import { readBlogFrontMatter } from '@shared/blog/frontmatter'
 import { BLOG_RENDERER_VERSION } from '@shared/blog/renderer'
 import { normalizeLinkKey, parseFrontMatter } from '@shared/markdown-utils'
-import type { BlogEmbeddedNote, BlogRenderSnapshot } from '@shared/blog/model'
+import type { BlogAssetRef, BlogEmbeddedNote, BlogRenderSnapshot } from '@shared/blog/model'
 
 const RENDERER_VERSION = BLOG_RENDERER_VERSION
 const IMAGE_MAX_WIDTH = 1600
@@ -17,6 +18,14 @@ const MAX_EMBED_DEPTH = 4
 const EMBED_SYNTAX = /!\[\[([^\]\n]+)\]\]/g
 const WIKI_SYNTAX = /(?<!!)\[\[([^\]\n]+)\]\]/g
 const MAX_WIKI_LOOKUPS = 50
+const MAX_SNAPSHOT_ASSETS = 50
+const FILE_ATTACHMENT = /\/api\/files\/([A-Za-z0-9_-]{1,64})(?:[?#]|$)/
+const MIME_EXTENSION: Record<string, string> = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif',
+  'application/pdf': 'pdf', 'text/plain': 'txt', 'application/zip': 'zip',
+  'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/wav': 'wav',
+  'video/mp4': 'mp4', 'video/webm': 'webm',
+}
 
 function hex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -197,6 +206,116 @@ async function capturePublishedEmbeds(
  * lookup is per unique target and capped: a page with two hundred links should not turn a publish
  * into two hundred admin calls.
  */
+function attachmentName(element: Element): string {
+  const head = element.closest('.note-embed')?.querySelector('.note-embed-head')?.textContent?.trim()
+  if (head) return head
+  if (element instanceof HTMLAnchorElement && element.download) return element.download
+  if (element instanceof HTMLImageElement) return element.alt
+  const text = element.textContent?.trim() ?? ''
+  return text.startsWith('/') ? '' : text
+}
+
+function uploadFileName(name: string, mime: string, id: string): string {
+  const clean = name.replace(/[\\/\u0000-\u001f]/g, '').slice(0, 160)
+  if (/\.([A-Za-z0-9]{1,8})$/.test(clean)) return clean
+  return `${clean || `attachment-${id}`}.${MIME_EXTENSION[mime] ?? 'bin'}`
+}
+
+function markAttachmentUnpublished(element: Element, attribute: string, name: string): void {
+  if (element instanceof HTMLImageElement) {
+    element.removeAttribute('src')
+    element.alt = name || 'Attachment'
+    element.classList.add('attachment-unpublished')
+    return
+  }
+  if (element instanceof HTMLAnchorElement) {
+    element.removeAttribute('href')
+    element.setAttribute('aria-disabled', 'true')
+    element.classList.add('attachment-unpublished')
+    if (!element.textContent?.trim()) element.textContent = name || 'Attachment'
+    return
+  }
+  element.removeAttribute(attribute)
+}
+
+/**
+ * Publish the vault files an article embeds into the blog's own media library and rewrite their URLs.
+ *
+ * A note's `/api/files/<id>` address is private: it answers only the owner's session, so a public
+ * article that kept it would show broken media (and hand out an address that must not be public).
+ * Each referenced attachment is copied once through the admin media API — which hash-dedupes — and the
+ * body is pointed at the same-origin blog media route. A file the media library refuses (an unsupported
+ * type, too large, or a failed upload) becomes a named placeholder and a warning, never a private URL.
+ */
+async function publishSnapshotAssets(root: HTMLElement, warnings: string[]): Promise<BlogAssetRef[]> {
+  const uploaded = new Map<string, BlogAssetRef | null>()
+  const assets: BlogAssetRef[] = []
+  // An attachment's display can differ from its file name: an `![[name]]` embed names the real file
+  // in its head, while a plain image's alt is the author's caption. The head wins, because the runtime
+  // resolves `![[name]]` by that name and a caption would not find the file.
+  const preferredName = new Map<string, string>()
+  const elements: Array<{ element: HTMLElement; matches: Array<{ attribute: string; attachmentId: string }> }> = []
+  for (const element of [...root.querySelectorAll<HTMLElement>('[src], [href]')]) {
+    const matches: Array<{ attribute: string; attachmentId: string }> = []
+    for (const attribute of ['src', 'href']) {
+      const value = element.getAttribute(attribute)
+      if (!value) continue
+      const match = FILE_ATTACHMENT.exec(value)
+      if (!match) continue
+      const attachmentId = match[1]!
+      matches.push({ attribute, attachmentId })
+      const head = element.closest('.note-embed')?.querySelector('.note-embed-head')?.textContent?.trim()
+      if (head) preferredName.set(attachmentId, head)
+      else if (!preferredName.has(attachmentId)) preferredName.set(attachmentId, attachmentName(element))
+    }
+    if (matches.length) elements.push({ element, matches })
+  }
+  for (const { element, matches } of elements) {
+    for (const { attribute, attachmentId } of matches) {
+      if (!uploaded.has(attachmentId)) {
+        if (uploaded.size >= MAX_SNAPSHOT_ASSETS) {
+          warnings.push(`asset: ${preferredName.get(attachmentId) || attachmentId} was not published (too many attachments)`)
+          uploaded.set(attachmentId, null)
+          markAttachmentUnpublished(element, attribute, attachmentName(element))
+          continue
+        }
+        try {
+          const response = await fetch(`/api/files/${attachmentId}`, {
+            headers: { 'x-inkstone-client': '1' },
+            credentials: 'same-origin',
+          })
+          if (!response.ok) throw new Error(`file request ${response.status}`)
+          const blob = await response.blob()
+          const mime = blob.type || response.headers.get('content-type')?.split(';', 1)[0]?.trim() || 'application/octet-stream'
+          const name = preferredName.get(attachmentId) ?? attachmentName(element)
+          const uploadName = uploadFileName(name, mime, attachmentId)
+          const file = new File([blob], uploadName, { type: mime })
+          const item = await api.blog.media.upload(file)
+          const asset: BlogAssetRef = {
+            attachmentId,
+            blogAssetId: item.id,
+            url: `/_blog/media/${item.id}`,
+            // The media library dedupes by content and may keep an older filename for the same bytes;
+            // the article's resolver needs the name this article wrote in `![[…]]`.
+            filename: uploadName,
+            mime: item.mime,
+            size: item.size,
+          }
+          uploaded.set(attachmentId, asset)
+          assets.push(asset)
+        } catch (error) {
+          uploaded.set(attachmentId, null)
+          warnings.push(`asset: ${preferredName.get(attachmentId) || attachmentId} was not published (${error instanceof Error ? error.message : String(error)})`)
+        }
+      }
+      const asset = uploaded.get(attachmentId)
+      if (asset) element.setAttribute(attribute, asset.url)
+      else markAttachmentUnpublished(element, attribute, attachmentName(element))
+    }
+  }
+  return assets
+}
+
 async function capturePublishedWikiLinks(content: string, noteTitle: string): Promise<CapturedWikiLinks> {
   const seen = new Set<string>([normalizeLinkKey(noteTitle)])
   const links: Array<{ target: string; slug: string }> = []
@@ -268,6 +387,7 @@ export async function captureBlogSnapshot(noteId: string, content: string): Prom
         currentTitle: noteTitle,
         allowTarget: (target) => {
           if (!target.noteTitle) return true
+          if (isAttachmentTarget(target.noteTitle)) return true
           return captured.allowed.has(normalizeLinkKey(target.noteTitle))
         },
       })
@@ -292,6 +412,7 @@ export async function captureBlogSnapshot(noteId: string, content: string): Prom
   const pendingMermaid = staging.querySelectorAll('[data-mermaid]').length
   const convertedSvgs = await rasterizeSvgs(staging)
   const convertedCharts = rasterizeCanvases(staging)
+  const assets = await publishSnapshotAssets(staging, warnings)
   if (rendered.hasMermaid && preview.mermaid && pendingMermaid > convertedSvgs) warnings.push('mermaid: some diagrams kept their source')
   if (features.includes('chart') && preview.chart && convertedCharts === 0) warnings.push('chart: no chart was drawn')
 
@@ -311,7 +432,7 @@ export async function captureBlogSnapshot(noteId: string, content: string): Prom
       excalidraw: [...rendered.fences.excalidraw],
     },
     features,
-    assets: [],
+    assets,
     wikiLinks: wiki.links,
     settings: {
       locale: getLocale(),

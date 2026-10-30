@@ -182,6 +182,7 @@ const allowed = new Map([
     "/**\n * Write actions a read-only board can still draw.\n *\n * The board's data layer already refuses every write when `editable` is false, and the marked\n * controls are removed by CSS; the add/rename affordances the board builds inside its views carry\n * only their label, so they are recognised by it here. New labels mean a new entry, not a write:\n * the writer above is what makes the page safe.\n */",
     "// Views are mounted asynchronously after the first paint, so a one-shot sweep would run before",
     "// the board has buttons to sweep.",
+    "/** Vault attachments published alongside the article, keyed by their original names and ids. */",
   ]],
   ["src/blog-runtime/runtime.css", [
     "/*\n * Styles for the reading runtime only.\n *\n * The app's own `app.css` scans every feature and ships the styles of screens this runtime never\n * mounts (editor, mail, music, ink tools, …), which on a public article is a megabyte of CSS paid for\n * nothing. This entry keeps the shared tokens and the block styles, and limits Tailwind's source scan\n * to the components the reading surface can actually put on the page.\n */",
@@ -1285,6 +1286,12 @@ const allowed = new Map([
     "/** The body a public page may show for an embedded note, or null when it is not published. */",
     "/**\n * The published notes an article may expand, starting from the embed syntax in its source.\n *\n * The note app resolves embeds against the whole vault; a public page must not, because the target of\n * an embed can be a private note. This walks only what the article actually embeds, keeps the ones\n * whose `isPublished` property is set, and hands the runtime the same bodies so its re-render and the\n * stored still agree. A private target is left out entirely, so the renderer paints the ordinary\n * missing-note notice instead of leaking its body into a snapshot.\n */",
     "/**\n * Wiki links that point at another published article.\n *\n * The note app follows a wiki link through its vault. A public page has no vault, so the only target\n * it may offer is a *published* note, and the address it can offer is that note's article slug. The\n * lookup is per unique target and capped: a page with two hundred links should not turn a publish\n * into two hundred admin calls.\n */",
+    "/**\n * Publish the vault files an article embeds into the blog's own media library and rewrite their URLs.\n *\n * A note's `/api/files/<id>` address is private: it answers only the owner's session, so a public\n * article that kept it would show broken media (and hand out an address that must not be public).\n * Each referenced attachment is copied once through the admin media API — which hash-dedupes — and the\n * body is pointed at the same-origin blog media route. A file the media library refuses (an unsupported\n * type, too large, or a failed upload) becomes a named placeholder and a warning, never a private URL.\n */",
+    "// An attachment's display can differ from its file name: an `![[name]]` embed names the real file",
+    "// in its head, while a plain image's alt is the author's caption. The head wins, because the runtime",
+    "// resolves `![[name]]` by that name and a caption would not find the file.",
+    "// The media library dedupes by content and may keep an older filename for the same bytes;",
+    "// the article's resolver needs the name this article wrote in `![[…]]`.",
   ]],
   ["src/client/features/calendar/CalendarApp.tsx", [
     "/**\n * `/calendar`: the container that owns loading, failure, empty and ready.\n *\n * The surface is mounted only after metadata and the first range have arrived, so DayFlow never sees\n * a half-built registry. A reload keeps the same range around today; navigation beyond it is the\n * surface's own incremental fetch.\n */",
@@ -10517,6 +10524,8 @@ const allowed = new Map([
     "// A published article has no note to write a tick back to, so the box keeps its state.",
     "// A public page resolves note links through its host; a heading or block target points",
     "// inside this very article, so it scrolls exactly as it does in the note app.",
+    "/** The public page's copy of an attachment, when the host published one. */",
+    "/** Rewrites a vault file URL in the rendered body to the host's public asset URL. */",
   ]],
   ["src/client/features/preview/PropertyDecorations.tsx", [
     "// The app's submenu renderer: the bare row list it replaces drew straight onto the",
@@ -21252,7 +21261,8 @@ const allowed = new Map([
     "// block in here finds this set before the one the host carrying the embed registered.",
     "/**\n * A `.elixir` note holds a mind map body, not Markdown: embedded as it is, the reader\n * gets a wall of JSON. Wrapped in a ```mindmap fence it goes through the same drawer a\n * block does — and, like every other embed, comes out a still picture rather than a\n * writable map, because writing back would point at lines of a note that is not there.\n */",
     "// A conversation is not a note: it has no body to embed, and the box is filled from the API.",
-    "/**\n   * Which targets a surface may expand. A public page names the notes it is allowed to show — the\n   * published ones — so an embed of a private note becomes the ordinary \"not found\" notice instead of\n   * being painted into markup that leaves the owner's workspace.\n   */",
+    "/**\n   * Which targets a surface may expand. A public page names the notes it is allowed to show — the\n   * published ones — so an embed of a private note becomes the ordinary \"not found\" notice instead of\n   * being painted into markup that leaves the owner's workspace. It runs before the chat and attachment\n   * branches, because those are also external reads a public surface must name.\n   */",
+    "/** Where a public page gets an attachment: a mapped blog asset instead of the owner's file API. */",
   ]],
   ["src/client/lib/markdown/emoji-shortcodes.test.ts", [
     "// A `:::` run that opens nothing is still a `:::` run, and its colons are not a code's colons.",
@@ -29254,6 +29264,7 @@ const allowed = new Map([
   ["src/shared/blog/model.ts", [
     "/** Blog records, public projections and the render snapshot contract shared by every surface. */",
     "/**\n * A published note an article embeds.\n *\n * Only published targets are captured: the runtime resolves `![[…]]` from this map exactly as the\n * note app resolves it from its store, so an article can never pull a private note into a public page\n * by embedding it. The body is the raw markdown the shared renderer turns into the same HTML.\n */",
+    "/** The name an attachment embed (`![[name]]`) is looked up by on a public surface. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -34214,6 +34225,9 @@ const allowed = new Map([
   ]],
   ["src/worker/blog/schema.ts", [
     "/** Blog tables, indexes and the required-shape lists the schema convergence repair reads. */",
+  ]],
+  ["src/worker/blog/store.ts", [
+    "/**\n * Replaces the media library's view of what one published article uses.\n *\n * The ids arrive from the owner's snapshot, but the table is still the trust boundary: every id is\n * checked against the owner's assets so a snapshot cannot make a post claim (and thereby pin) someone\n * else's file. An id that no longer exists is dropped; the body already carries a placeholder.\n */",
   ]],
   ["src/worker/calendar/attachments.ts", [
     "/**\n * Files hung on an event.\n *\n * The bytes and their row live in the shared attachment pipeline (`scope = 'calendar'`), so one quota,\n * one MIME policy, one cleanup queue and one file door (`/api/files/:id`) already cover them; this\n * module only owns the link between an event and a file, plus the cascade that removes both when the\n * event is deleted. Objects are filed under a category folder — `calendar/images/<id>.png`,\n * `calendar/docx/<id>.pdf` — because that is the layout this deployment is read with.\n *\n * Deleting a whole calendar deletes the link rows of the events it really removes, but not their files:\n * that is the same rule task attachments follow, and it keeps a file that a surviving event in another\n * calendar still links. The files stay counted against the account quota; reclaiming them is the job of\n * a sweep this app does not have yet.\n */",

@@ -17,6 +17,12 @@ export interface BlogAssetRef {
   attachmentId?: string
   blogAssetId?: string
   url: string
+  /** The name an attachment embed (`![[name]]`) is looked up by on a public surface. */
+  filename?: string
+  mime?: string
+  size?: number
+  width?: number | null
+  height?: number | null
 }
 
 export interface BlogWikiLink {

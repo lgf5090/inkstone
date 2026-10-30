@@ -16,7 +16,9 @@ import { useDebounced } from '../../lib/hooks'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget, renderMarkdown, type Heading } from '../../lib/markdown/renderer'
 import { useEmojiUnicodeVersion } from '../../lib/emoji-unicode'
-import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
+import { resolveNoteEmbeds, type EmbedAttachment } from '../../lib/markdown/embeds'
+import { isAttachmentTarget } from '../../lib/markdown/attachments'
+import { chatEmbedId } from '../../lib/markdown/chat-embed'
 import { hasDynamicCommand } from '../../lib/templater/detection'
 import { t, useLocale } from '../../lib/i18n'
 import { slugifyHeading } from '@shared/markdown-utils'
@@ -86,6 +88,10 @@ export interface PreviewProps {
   onWikiLink?: (target: ReturnType<typeof parseWikiTarget>) => boolean
   /** Where a tag goes on a public surface. Returning false leaves the tag inert. */
   onTagClick?: (name: string) => boolean
+  /** The public page's copy of an attachment, when the host published one. */
+  resolveAttachment?: (name: string) => EmbedAttachment | null
+  /** Rewrites a vault file URL in the rendered body to the host's public asset URL. */
+  rewriteAssetUrl?: (url: string) => string | null
 }
 
 export const Preview = memo(function Preview({
@@ -102,6 +108,8 @@ export const Preview = memo(function Preview({
   readOnly = false,
   onWikiLink,
   onTagClick,
+  resolveAttachment,
+  rewriteAssetUrl,
 }: PreviewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const internalScrollerRef = useRef<HTMLDivElement>(null)
@@ -282,8 +290,17 @@ export const Preview = memo(function Preview({
           currentContent: debounced,
           currentTitle: embedContextTitle,
           isCurrent: () => !cancelled && revision === preparationRef.current,
+          allowTarget: readOnly
+            ? (target) => {
+                if (chatEmbedId(target.noteTitle)) return false
+                if (isAttachmentTarget(target.noteTitle)) return Boolean(resolveAttachment)
+                return true
+              }
+            : undefined,
+          resolveAttachment: readOnly ? resolveAttachment : undefined,
         })
       }
+      if (readOnly && rewriteAssetUrl) rewriteAssetUrls(staging, rewriteAssetUrl)
       await enhancePreview(staging, {
         math: preview.math,
         mermaid: preview.mermaid,
@@ -421,6 +438,9 @@ export const Preview = memo(function Preview({
     editorSettings.tabSize,
     editorSettings.codeFormatKeywordCase,
     theme,
+    readOnly,
+    resolveAttachment,
+    rewriteAssetUrl,
   ])
 
 
@@ -875,6 +895,17 @@ export const Preview = memo(function Preview({
     </div>
   )
 })
+
+function rewriteAssetUrls(root: HTMLElement, rewrite: (url: string) => string | null): void {
+  for (const element of root.querySelectorAll<HTMLElement>('[src], [href]')) {
+    for (const attribute of ['src', 'href']) {
+      const value = element.getAttribute(attribute)
+      if (!value) continue
+      const next = rewrite(value)
+      if (next) element.setAttribute(attribute, next)
+    }
+  }
+}
 
 function scrollToWikiTarget(
   hostRef: RefObject<HTMLDivElement | null>,
