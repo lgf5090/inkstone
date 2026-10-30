@@ -26,6 +26,7 @@ import {
   type StorageFile,
 } from './storage'
 import { availableChannelsForUpload, type ResolvedChannel } from './channels'
+import { imgbedMetric } from './metrics'
 
 export interface UploadQuery {
   uploadChannel?: string
@@ -104,12 +105,15 @@ export async function lookupAddress(security: ImgbedSecuritySettings, ip: string
   }
 }
 
-async function moderateContent(security: ImgbedSecuritySettings, url: string): Promise<string> {
+export async function moderateContent(security: ImgbedSecuritySettings, url: string): Promise<string> {
   if (!security.moderate.enabled) return 'None'
-  const unavailable = (): never => { throw new StorageError('Content moderation is unavailable', 503) }
+  const unavailable = (reason: string): never => {
+    imgbedMetric('error', 'moderation.failure', { provider: security.moderate.channel, reason })
+    throw new StorageError('Content moderation is unavailable', 503)
+  }
   if (security.moderate.channel === 'moderatecontent.com') {
     const key = security.moderate.moderateContentApiKey
-    if (!key) unavailable()
+    if (!key) unavailable('missing-key')
     let response: Response
     try {
       response = await fetch('https://api.moderatecontent.com/moderate/', {
@@ -118,21 +122,21 @@ async function moderateContent(security: ImgbedSecuritySettings, url: string): P
         body: new URLSearchParams({ key, url }).toString(),
         signal: AbortSignal.timeout(10_000),
       })
-    } catch { unavailable() }
-    if (!response!.ok) unavailable()
+    } catch { unavailable('request-failed') }
+    if (!response!.ok) unavailable(`http-${response!.status}`)
     const data = await response!.json().catch(() => null) as { rating_label?: string } | null
-    if (!data?.rating_label) unavailable()
+    if (!data?.rating_label) unavailable('invalid-response')
     return data!.rating_label!
   }
-  if (!security.moderate.nsfwApiPath) unavailable()
+  if (!security.moderate.nsfwApiPath) unavailable('missing-path')
   const target = new URL(security.moderate.nsfwApiPath)
   target.searchParams.set('url', url)
   let response: Response
-  try { response = await fetch(target, { signal: AbortSignal.timeout(10_000) }) } catch { unavailable() }
-  if (!response!.ok) unavailable()
+  try { response = await fetch(target, { signal: AbortSignal.timeout(10_000) }) } catch { unavailable('request-failed') }
+  if (!response!.ok) unavailable(`http-${response!.status}`)
   const data = await response!.json().catch(() => null) as { score?: number } | null
   const score = Number(data?.score)
-  if (!Number.isFinite(score)) unavailable()
+  if (!Number.isFinite(score)) unavailable('invalid-response')
   return score >= 0.9 ? 'adult' : score >= 0.7 ? 'teen' : 'everyone'
 }
 

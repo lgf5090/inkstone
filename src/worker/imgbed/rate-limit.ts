@@ -6,6 +6,7 @@ const MAX_BUCKETS = 5000
 export interface RateLimitResult {
   ok: boolean
   retryAfterSec: number
+  firstBlock: boolean
 }
 
 export function checkRateLimit(key: string, max: number, windowMs: number, now = Date.now()): RateLimitResult {
@@ -17,13 +18,13 @@ export function checkRateLimit(key: string, max: number, windowMs: number, now =
   const current = buckets.get(key)
   if (!current || now - current.start >= windowMs) {
     buckets.set(key, { start: now, count: 1 })
-    return { ok: true, retryAfterSec: 0 }
+    return { ok: true, retryAfterSec: 0, firstBlock: false }
   }
   current.count += 1
   if (current.count > max) {
-    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((current.start + windowMs - now) / 1000)) }
+    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((current.start + windowMs - now) / 1000)), firstBlock: current.count === max + 1 }
   }
-  return { ok: true, retryAfterSec: 0 }
+  return { ok: true, retryAfterSec: 0, firstBlock: false }
 }
 
 export function clearRateLimit(): void {

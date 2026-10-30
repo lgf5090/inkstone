@@ -5,6 +5,7 @@ import { parseSecuritySettings } from '@shared/imgbed/settings'
 import { getSettingsGroup, listFiles, randomFile } from './store'
 import { requestClientIp } from '../lib/request'
 import { checkRateLimit } from './rate-limit'
+import { imgbedMetric } from './metrics'
 import { publicDirectoryAllowed } from './access'
 
 export const imgbedPublicRoutes = new Hono<AppBindings>()
@@ -25,7 +26,10 @@ imgbedPublicRoutes.get('/public/config', async (c) => {
 
 imgbedPublicRoutes.get('/public/list', async (c) => {
   const limit = checkRateLimit(`imgbed-public-list:${requestClientIp(c.req.raw)}`, 240, 60_000)
-  if (!limit.ok) return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
+  if (!limit.ok) {
+    if (limit.firstBlock) imgbedMetric('warn', 'rate_limit.blocked', { route: 'public-list', retryAfterSec: limit.retryAfterSec })
+    return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
+  }
   const others = await getSettingsGroup(c.env.DB, 'others')
   if (!others.publicBrowse.enabled) {
     return c.json({ error: 'Public browse is disabled' }, 403)
@@ -104,7 +108,10 @@ function resolveOrientation(device: DeviceInfo): string {
 
 imgbedRandomRoutes.get('/random', async (c) => {
   const limit = checkRateLimit(`imgbed-random:${requestClientIp(c.req.raw)}`, 120, 60_000)
-  if (!limit.ok) return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
+  if (!limit.ok) {
+    if (limit.firstBlock) imgbedMetric('warn', 'rate_limit.blocked', { route: 'random', retryAfterSec: limit.retryAfterSec })
+    return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
+  }
   const others = await getSettingsGroup(c.env.DB, 'others')
   if (!others.randomImageAPI.enabled) return c.json({ error: 'Random is disabled' }, 403, { 'Access-Control-Allow-Origin': '*' })
   const security = parseSecuritySettings(await getSettingsGroup(c.env.DB, 'security'))

@@ -4,6 +4,7 @@ import { categoryFor } from '@shared/imgbed/model'
 import type { ImgbedFile, ImgbedPart } from '@shared/imgbed/model'
 import type { Env } from '../env'
 import type { ResolvedChannel } from './channels'
+import { imgbedMetric } from './metrics'
 
 export interface StorageFile {
   id: string
@@ -638,6 +639,6 @@ export async function abortMultipart(env: Env, channel: ResolvedChannel, session
       await response.body?.cancel().catch(() => {})
     }
   } catch (error) {
-    console.warn('[inkstone] image-bed multipart abort failed:', (error as Error).message)
+    imgbedMetric('warn', 'maintenance.failure', { stage: 'multipart-abort', channel: channel.type, error: (error as Error).message })
   }
 }

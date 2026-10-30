@@ -25,7 +25,7 @@ import { normalizeRepeatedOAuthResource } from './lib/oauth-request'
 import { dispatchInboundEmail } from './email/dispatch'
 import { runEmailTrashCleanup } from './email/trash'
 import { runMusicMaintenance } from './music/cleanup'
-import { runImgbedMaintenance } from './imgbed/cleanup'
+import { runImgbedMaintenanceSafely } from './imgbed/cleanup'
 import { runNavMaintenance } from './nav/cleanup'
 import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
@@ -135,10 +135,7 @@ export default {
               console.warn('[inkstone] Navigation maintenance sweep failed:', (error as Error).message)
               return null
             }),
-            runImgbedMaintenance(env).catch((error) => {
-              console.warn('[inkstone] Image bed maintenance sweep failed:', (error as Error).message)
-              return null
-            }),
+            runImgbedMaintenanceSafely(env),
             runMusicMaintenance(env).catch((error) => {
               console.warn('[inkstone] Music maintenance sweep failed:', (error as Error).message)
               return null

@@ -3,6 +3,7 @@ import { purgeTokens } from './tokens'
 import { listResolvedChannels } from './channels'
 import { abortMultipart, deleteDiscordMessage, deleteTelegramMessage } from './storage'
 import { deleteUploadParts, listUploadParts } from './store'
+import { imgbedMetric } from './metrics'
 
 export async function runImgbedMaintenance(env: Env, now = Date.now()): Promise<{ sessions: number; tokens: number }> {
   const sessions = await env.DB.prepare(
@@ -23,11 +24,11 @@ export async function runImgbedMaintenance(env: Env, now = Date.now()): Promise<
           const result = session.channel === 'discord'
             ? deleteDiscordMessage(channel, part.messageId)
             : deleteTelegramMessage(channel, part.messageId)
-          await result.catch((error) => console.warn('[inkstone] image-bed chunk cleanup failed:', (error as Error).message))
+          await result.catch((error) => imgbedMetric('warn', 'maintenance.failure', { stage: 'chunk-cleanup', channel: session.channel, error: (error as Error).message }))
         }
       }
     } catch (error) {
-      console.warn('[inkstone] image-bed multipart abort failed:', (error as Error).message)
+      imgbedMetric('warn', 'maintenance.failure', { stage: 'session-cleanup', channel: session.channel, error: (error as Error).message })
     }
     await deleteUploadParts(env.DB, session.id)
     await env.DB.prepare('DELETE FROM imgbed_upload_sessions WHERE id = ?1').bind(session.id).run()
@@ -36,5 +37,15 @@ export async function runImgbedMaintenance(env: Env, now = Date.now()): Promise<
   await env.DB.prepare('DELETE FROM imgbed_upload_parts WHERE session_id IN (SELECT id FROM imgbed_upload_sessions WHERE expires_at < ?1 AND status = ?2)').bind(now, 'completed').run()
   await env.DB.prepare("DELETE FROM imgbed_upload_sessions WHERE expires_at < ?1 AND status = 'completed'").bind(now).run()
   const tokens = await purgeTokens(env.DB, now)
+  if (removed || tokens) imgbedMetric('info', 'maintenance.sweep', { sessions: removed, tokens })
   return { sessions: removed, tokens }
+}
+
+export async function runImgbedMaintenanceSafely(env: Env): Promise<{ sessions: number; tokens: number } | null> {
+  try {
+    return await runImgbedMaintenance(env)
+  } catch (error) {
+    imgbedMetric('error', 'maintenance.failure', { stage: 'sweep', error: (error as Error).message })
+    return null
+  }
 }
