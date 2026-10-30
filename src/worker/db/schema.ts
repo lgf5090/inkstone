@@ -3010,6 +3010,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 199,
     statements: BLOG_COMMENT_SCHEMA_STATEMENTS,
   },
+  {
+    version: 200,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_blog_pages_user_note ON blog_pages(user_id, note_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blog_posts_user_published ON blog_posts(user_id, published_at DESC, id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

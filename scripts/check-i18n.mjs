@@ -414,9 +414,17 @@ const developmentCatalogFiles = {
         [path.join(localeRoot, 'zh-CN-development-xget-settings.ts'), 'ZH_CN_DEVELOPMENT_XGET_SETTINGS'],
     ],
 };
+const blogAdminCatalogFiles = {
+    en: [
+        [path.join(localeRoot, 'en-US-blog-admin.ts'), 'EN_US_BLOG_ADMIN'],
+    ],
+    zh: [
+        [path.join(localeRoot, 'zh-CN-blog-admin.ts'), 'ZH_CN_BLOG_ADMIN'],
+    ],
+};
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...developmentCatalogFiles.en],
-    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...clouddriveCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...youtubeCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...developmentCatalogFiles.zh],
+    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...blogAdminCatalogFiles.en, ...developmentCatalogFiles.en],
+    zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...clouddriveCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...youtubeCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...blogAdminCatalogFiles.zh, ...developmentCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
 // The subscription notifications are a catalog of their own because the worker writes them and must

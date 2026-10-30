@@ -18,6 +18,7 @@ export const BLOG_SETTING_KEYS = [
   'fab',
   'contextMenu',
   'discussion',
+  'widgets',
 ] as const
 
 export type BlogSettingKey = (typeof BLOG_SETTING_KEYS)[number]
@@ -67,6 +68,17 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     rateLimitPerHour: 5,
     autoCloseDays: 0,
   },
+  widgets: {
+    items: [
+      { id: 'profile', type: 'profile', title: '', enabled: true, config: {} },
+      { id: 'search', type: 'search', title: '', enabled: true, config: {} },
+      { id: 'categories', type: 'categories', title: '', enabled: true, config: {} },
+      { id: 'tags', type: 'tags', title: '', enabled: true, config: {} },
+      { id: 'series', type: 'series', title: '', enabled: true, config: {} },
+      { id: 'recent', type: 'recent', title: '', enabled: true, config: {} },
+      { id: 'announcement', type: 'announcement', title: '', enabled: false, config: {} },
+    ],
+  },
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -102,6 +114,43 @@ export function mergeBlogSettings(rows: readonly { key: string; value: string }[
   return merged
 }
 
+function safeHref(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const href = value.trim()
+  return href.startsWith('/') && !href.startsWith('//') ? href : /^https?:\/\//i.test(href) ? href : ''
+}
+
+function publicNavLinks(value: unknown): BlogSitePublic['nav'] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const link = entry as { label?: unknown; href?: unknown; children?: unknown }
+    const href = safeHref(link.href)
+    if (!href) return []
+    const children = Array.isArray(link.children)
+      ? link.children.flatMap((child) => {
+          if (!child || typeof child !== 'object') return []
+          const nested = child as { label?: unknown; href?: unknown }
+          const nestedHref = safeHref(nested.href)
+          return nestedHref && typeof nested.label === 'string'
+            ? [{ label: nested.label.slice(0, 80), href: nestedHref }]
+            : []
+        })
+      : undefined
+    return [{ label: typeof link.label === 'string' ? link.label.slice(0, 80) : '', href, ...(children && children.length ? { children } : {}) }]
+  })
+}
+
+function publicProfileLinks(value: unknown): BlogSitePublic['profile']['links'] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const link = entry as { label?: unknown; url?: unknown }
+    const url = safeHref(link.url)
+    return url ? [{ label: typeof link.label === 'string' ? link.label.slice(0, 80) : '', url }] : []
+  })
+}
+
 export function publicBlogSite(
   settings: BlogSettings,
   counts: BlogSitePublic['counts'],
@@ -123,6 +172,7 @@ export function publicBlogSite(
     maxLength?: number
     autoCloseDays?: number
   }
+  const widgets = settings.widgets as { items?: BlogSitePublic['widgets'] }
   return {
     site: {
       title: typeof site.title === 'string' ? site.title : 'Inkstone Blog',
@@ -137,15 +187,18 @@ export function publicBlogSite(
       name: typeof profile.name === 'string' ? profile.name : '',
       bio: typeof profile.bio === 'string' ? profile.bio : '',
       avatar: typeof profile.avatar === 'string' ? profile.avatar : '',
-      links: Array.isArray(profile.links) ? profile.links : [],
+      links: publicProfileLinks(profile.links),
     },
-    nav: Array.isArray(nav.links) ? nav.links : [],
+    nav: publicNavLinks(nav.links),
     sidebar: {
       enable: sidebar.enable !== false,
       arrangement: sidebar.arrangement === 'dual' ? 'dual' : 'single',
       side: sidebar.side === 'right' ? 'right' : 'left',
       widgets: Array.isArray(sidebar.widgets) ? sidebar.widgets : [],
     },
+    widgets: Array.isArray(widgets.items)
+      ? widgets.items.filter((item) => item && typeof item === 'object' && typeof item.id === 'string')
+      : [],
     discussion: {
       enabled: discussion.enabled !== false,
       requireNameEmail: discussion.requireNameEmail !== false,

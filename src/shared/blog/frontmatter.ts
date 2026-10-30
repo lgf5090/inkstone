@@ -2,6 +2,9 @@ import { parseFrontMatter, setFrontMatterValue, type FrontMatterValue } from '@s
 
 export interface BlogFrontMatter {
   isPublished: boolean
+  type: 'post' | 'page' | ''
+  publishedAt: string
+  description: string
   slug: string
   excerpt: string
   cover: string
@@ -51,8 +54,12 @@ export function readBlogFrontMatter(content: string): BlogFrontMatter {
   const parsed = parseFrontMatter(content)
   const data = parsed.data
   const license = data.blogLicense
+  const rawType = text(data, 'blogType').toLowerCase()
   return {
     isPublished: flag(data, 'isPublished', false),
+    type: rawType === 'page' ? 'page' : rawType === 'post' ? 'post' : '',
+    publishedAt: text(data, 'blogPublishedAt'),
+    description: text(data, 'blogDescription'),
     slug: text(data, 'blogSlug'),
     excerpt: text(data, 'blogExcerpt'),
     cover: text(data, 'blogCover'),

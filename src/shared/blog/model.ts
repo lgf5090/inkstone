@@ -1,6 +1,6 @@
 /** Blog records, public projections and the render snapshot contract shared by every surface. */
 
-export const BLOG_POST_STATUSES = ['draft', 'pending_snapshot', 'published', 'withdrawn'] as const
+export const BLOG_POST_STATUSES = ['draft', 'pending_snapshot', 'scheduled', 'published', 'withdrawn'] as const
 export type BlogPostStatus = (typeof BLOG_POST_STATUSES)[number]
 
 export const BLOG_RENDER_STATUSES = ['missing', 'ready', 'stale', 'failed'] as const
@@ -101,6 +101,7 @@ export interface BlogPageItem {
   title: string
   kind: string
   body: string
+  noteId: string | null
   publishedAt: number | null
   updatedAt: number
 }
@@ -180,6 +181,142 @@ export interface BlogPostAdminItem extends BlogPostSummary {
   status: BlogPostStatus
   renderStatus: BlogRenderStatus
   renderHash: string
+  createdAt: number
+  updatedAt: number
+  viewCount: number
+  commentCount: number
+}
+
+export interface BlogPostAdminDetail extends BlogPostAdminItem {
+  noteTitle: string
+  noteUpdatedAt: number | null
+  contentHash: string
+  renderGeneratedAt: number | null
+  rendererVersion: string
+  description: string
+  coverAssetId: string | null
+  categoryId: string | null
+  seriesId: string | null
+  seriesOrder: number | null
+  commentsEnabled: boolean
+  language: string
+  license: string
+  alias: string
+  permalink: string
+  encrypted: boolean
+  passwordHint: string
+  hideHomeContent: boolean
+}
+
+export interface BlogCalendarItem {
+  id: string
+  noteId: string
+  title: string
+  slug: string
+  status: BlogPostStatus
+  publishedAt: number | null
+  updatedAt: number
+  category: string | null
+}
+
+export interface BlogRedirectItem {
+  from: string
+  to: string
+  status: number
+  createdAt: number
+}
+
+export const BLOG_COLLECTION_KINDS = [
+  'moments',
+  'albums',
+  'friends',
+  'projects',
+  'skills',
+  'devices',
+  'games',
+  'anime',
+  'timeline',
+  'compass',
+] as const
+export type BlogCollectionKind = (typeof BLOG_COLLECTION_KINDS)[number]
+
+export interface BlogCollectionItem {
+  id: string
+  kind: BlogCollectionKind
+  title: string
+  slug: string
+  status: string
+  publishedAt: number | null
+  updatedAt: number
+  data: Record<string, unknown>
+}
+
+export interface BlogAlbumPhoto {
+  id: string
+  albumId: string
+  assetId: string
+  url: string
+  caption: string
+  alt: string
+  takenAt: string
+  position: number
+}
+
+export interface BlogWidget {
+  id: string
+  type: string
+  title: string
+  enabled: boolean
+  config: Record<string, unknown>
+}
+
+export interface BlogAuditEntry {
+  id: string
+  action: string
+  entity: string
+  entityId: string
+  detail: Record<string, unknown>
+  createdAt: number
+}
+
+export interface BlogDashboardRecentPost {
+  id: string
+  noteId: string
+  title: string
+  status: BlogPostStatus
+  updatedAt: number
+}
+
+export interface BlogDashboardRecentComment {
+  id: string
+  postTitle: string | null
+  authorName: string
+  content: string
+  status: BlogCommentStatus
+  createdAt: number
+}
+
+export interface BlogDashboard {
+  overview: BlogAdminOverview
+  recentPosts: BlogDashboardRecentPost[]
+  recentComments: BlogDashboardRecentComment[]
+  viewsByDay: { day: string; views: number; visitors: number }[]
+  storageBytes: number
+  scheduled: number
+  draftCount: number
+}
+
+export interface BlogHealth {
+  database: boolean
+  storage: boolean
+  published: number
+  scheduled: number
+  stale: number
+  missing: number
+  failed: number
+  storageBytes: number
+  lastPublishedAt: number | null
+  checkedAt: number
 }
 
 export interface Paginated<T> {
@@ -201,6 +338,7 @@ export interface BlogSitePublic {
   profile: { name: string; bio: string; avatar: string; links: { label: string; url: string }[] }
   nav: { label: string; href: string; children?: { label: string; href: string }[] }[]
   sidebar: { enable: boolean; arrangement: 'single' | 'dual'; side: 'left' | 'right'; widgets: string[] }
+  widgets: BlogWidget[]
   discussion: {
     enabled: boolean
     requireNameEmail: boolean
@@ -219,6 +357,8 @@ export interface BlogAdminOverview {
   published: number
   drafts: number
   pending: number
+  scheduled: number
+  trash: number
   stale: number
   views: number
   moments: number

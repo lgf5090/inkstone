@@ -36,7 +36,8 @@ import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { scheduleAiDrainForNote } from '../mcp/ai-search'
-import { blogOwnerUserId, recordBlogAudit, syncBlogPostFromNote } from '../blog/store'
+import { blogOwnerUserId, findPostByNoteId, recordBlogAudit, syncBlogPostFromNote, unpublishPost } from '../blog/store'
+import { syncBlogPageFromNote } from '../blog/pages'
 import type { BlogNoteInput } from '../blog/store'
 
 /**
@@ -74,12 +75,18 @@ async function syncBlogForNote(c: Context<AppBindings>, note: BlogNoteInput): Pr
   const userId = c.get('userId')
   try {
     if (await blogOwnerUserId(c.env.DB) !== userId) return
-    await syncBlogPostFromNote(c.env.DB, userId, note)
+    const page = await syncBlogPageFromNote(c.env.DB, userId, note)
+    if (page) {
+      const post = await findPostByNoteId(c.env.DB, userId, note.id)
+      if (post && post.status !== 'withdrawn') await unpublishPost(c.env.DB, userId, post.id)
+    } else {
+      await syncBlogPostFromNote(c.env.DB, userId, note)
+    }
   } catch (error) {
     console.warn('[inkstone] blog projection failed:', error)
     await recordBlogAudit(c.env.DB, userId, 'post.sync_failed', 'note', note.id, {
       message: error instanceof Error ? error.message : String(error),
-    }).catch(() => {})
+    }).catch((auditError) => console.warn('[inkstone] blog sync audit failed:', auditError))
   }
 }
 

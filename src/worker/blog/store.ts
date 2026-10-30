@@ -9,6 +9,7 @@ import type {
 } from '@shared/blog/model'
 import { sha256Hex } from '../lib/encoding'
 import { newId } from '../lib/id'
+import { hashPassword } from '../lib/password'
 
 const POST_COLUMNS = `p.id, p.user_id, p.note_id, p.slug, p.title, p.excerpt, p.description,
   p.cover_asset_id, p.category_id, p.series_id, p.series_order, p.status, p.pinned,
@@ -64,7 +65,9 @@ export async function blogCounts(db: D1Database, userId: string): Promise<BlogSi
   const row = await db
     .prepare(
       `SELECT
-         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL) AS posts,
+         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1
+            AND status IN ('published','scheduled') AND deleted_at IS NULL
+            AND published_at IS NOT NULL AND published_at <= (strftime('%s','now') * 1000)) AS posts,
          (SELECT COUNT(*) FROM blog_categories WHERE user_id = ?1) AS categories,
          (SELECT COUNT(*) FROM blog_tags WHERE user_id = ?1) AS tags,
          (SELECT COUNT(*) FROM blog_series WHERE user_id = ?1) AS series`,
@@ -182,18 +185,20 @@ export async function listPublishedPosts(
         `SELECT ${POST_COLUMNS} FROM blog_posts p
          LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
          LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
-         WHERE p.user_id = ?1 AND p.status = 'published' AND p.deleted_at IS NULL
+         WHERE p.user_id = ?1 AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+           AND p.published_at IS NOT NULL AND p.published_at <= ?4
          ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC
          LIMIT ?2 OFFSET ?3`,
       )
-      .bind(userId, safeLimit, offset)
+      .bind(userId, safeLimit, offset, Date.now())
       .all<BlogPostWithNames>(),
     db
       .prepare(
         `SELECT COUNT(*) AS total FROM blog_posts
-         WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL`,
+         WHERE user_id = ?1 AND status IN ('published','scheduled') AND deleted_at IS NULL
+           AND published_at IS NOT NULL AND published_at <= ?2`,
       )
-      .bind(userId)
+      .bind(userId, Date.now())
       .first<{ total: number }>(),
   ])
   return { rows: rows.results, total: count?.total ?? 0 }
@@ -211,9 +216,10 @@ export async function findPublishedPost(
        LEFT JOIN notes n ON n.id = p.note_id AND n.user_id = p.user_id
        LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
        LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
-       WHERE p.user_id = ?1 AND p.slug = ?2 AND p.status = 'published' AND p.deleted_at IS NULL`,
+       WHERE p.user_id = ?1 AND p.slug = ?2 AND p.status IN ('published','scheduled')
+         AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= ?3`,
     )
-    .bind(userId, slug)
+    .bind(userId, slug, Date.now())
     .first<BlogPostWithNote>()
   return row ?? null
 }
@@ -324,6 +330,7 @@ export async function syncBlogPostFromNote(
     .prepare(`SELECT * FROM blog_posts WHERE user_id = ?1 AND note_id = ?2`)
     .bind(userId, note.id)
     .first<BlogPostRow>()
+  if (existing && existing.deleted_at !== null && note.deleted_at === null) return existing
   if (note.deleted_at !== null) {
     if (!existing) return null
     await db
@@ -334,82 +341,90 @@ export async function syncBlogPostFromNote(
   }
 
   const meta = blogMetaFromNote(note.title, note.content)
-  if (!meta.isPublished) {
-    if (!existing) return null
-    await db
-      .prepare(`UPDATE blog_posts SET status = 'withdrawn', updated_at = ?3 WHERE user_id = ?1 AND id = ?2`)
-      .bind(userId, existing.id, now)
-      .run()
-    return { ...existing, status: 'withdrawn', updated_at: now }
-  }
+  const scheduledAt = parseBlogDate(meta.publishedAt)
+  if (!meta.isPublished && !existing && !meta.type) return null
 
   const contentHash = await sha256Hex(note.content)
   const { words } = countText(note.content)
   const minutes = readingMinutes(words)
-  const categoryId = await resolveCategory(db, userId, meta.category, now)
-  const seriesId = await resolveSeries(db, userId, meta.series, now)
+  const categoryId = existing?.category_id ?? await resolveCategory(db, userId, meta.category, now)
+  const seriesId = existing?.series_id ?? await resolveSeries(db, userId, meta.series, now)
   const postId = existing?.id ?? newId()
   const slug = existing?.slug ?? await uniqueBlogSlug(db, userId, meta.slug || slugifyBlogTitle(note.title), postId)
-  const wasPublished = existing?.status === 'published'
   const renderMatches = Boolean(existing?.render_key && existing.content_hash === contentHash)
-  const status = wasPublished || renderMatches ? 'published' : 'pending_snapshot'
+  let status: BlogPostRow['status']
+  if (!meta.isPublished) {
+    status = 'draft'
+  } else if (scheduledAt !== null && scheduledAt > now) {
+    status = 'scheduled'
+  } else {
+    status = existing?.status === 'published' || renderMatches ? 'published' : 'pending_snapshot'
+  }
   const renderStatus = existing?.render_key
     ? renderMatches
       ? existing.render_status
       : 'stale'
     : 'missing'
-  const excerpt = meta.excerpt || deriveExcerpt(note.content)
-  const publishedAt = existing?.published_at ?? now
+  const derivedExcerpt = meta.excerpt || deriveExcerpt(note.content)
+  const excerpt = existing?.excerpt || derivedExcerpt
+  const publishedAt = meta.isPublished
+    ? (scheduledAt ?? existing?.published_at ?? now)
+    : (existing?.published_at ?? null)
 
-  await db
-    .prepare(
-      `INSERT INTO blog_posts (
+  const postBinds: unknown[] = [
+    postId, userId, note.id, slug, note.title, excerpt, meta.description || excerpt,
+    existing?.cover_asset_id ?? (meta.cover || null), categoryId, seriesId,
+    existing?.series_order ?? meta.seriesOrder, status,
+    existing?.pinned ?? (meta.pinned ? 1 : 0),
+    existing?.comments_enabled ?? (meta.comments ? 1 : 0),
+    existing?.language || meta.language, existing?.license || meta.license || '{}',
+    existing?.encrypted ?? (meta.protected ? 1 : 0), existing?.password_hint || meta.passwordHint,
+    existing?.hide_home_content ?? (meta.hideHomeContent ? 1 : 0),
+    existing?.alias || meta.alias, existing?.permalink || meta.permalink,
+    words, minutes, contentHash, renderStatus, publishedAt, now,
+  ]
+  const insertPost = () => db
+    .prepare(`INSERT INTO blog_posts (
          id, user_id, note_id, slug, title, excerpt, description, cover_asset_id, category_id,
          series_id, series_order, status, pinned, comments_enabled, language, license, encrypted,
          password_hint, hide_home_content, alias, permalink, word_count, reading_minutes,
          content_hash, render_status, published_at, created_at, updated_at, deleted_at
        ) VALUES (
-         ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-         ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?26, NULL
+         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+         ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?27, NULL
        )
        ON CONFLICT(user_id, note_id) DO UPDATE SET
-         slug = excluded.slug,
          title = excluded.title,
-         excerpt = excluded.excerpt,
-         description = excluded.description,
-         category_id = excluded.category_id,
-         series_id = excluded.series_id,
-         series_order = excluded.series_order,
-         status = excluded.status,
-         pinned = excluded.pinned,
-         comments_enabled = excluded.comments_enabled,
-         language = excluded.language,
-         license = excluded.license,
-         encrypted = excluded.encrypted,
-         password_hint = excluded.password_hint,
-         hide_home_content = excluded.hide_home_content,
-         alias = excluded.alias,
-         permalink = excluded.permalink,
+         excerpt = CASE WHEN blog_posts.excerpt = '' THEN excluded.excerpt ELSE blog_posts.excerpt END,
+         description = CASE WHEN blog_posts.description = '' THEN excluded.description ELSE blog_posts.description END,
          word_count = excluded.word_count,
          reading_minutes = excluded.reading_minutes,
          content_hash = excluded.content_hash,
          render_status = excluded.render_status,
+         status = excluded.status,
          published_at = COALESCE(blog_posts.published_at, excluded.published_at),
-         updated_at = excluded.updated_at`,
-    )
-    .bind(
-      postId, userId, note.id, slug, note.title, excerpt, existing?.cover_asset_id ?? null,
-      categoryId, seriesId, meta.seriesOrder, status, meta.pinned ? 1 : 0, meta.comments ? 1 : 0,
-      meta.language, meta.license || '{}', meta.protected ? 1 : 0, meta.passwordHint,
-      meta.hideHomeContent ? 1 : 0, meta.alias, meta.permalink, words, minutes, contentHash,
-      renderStatus, publishedAt, now,
-    )
+         updated_at = excluded.updated_at`)
+    .bind(...postBinds)
     .run()
+  try {
+    await insertPost()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.includes('UNIQUE constraint failed: blog_posts.user_id, blog_posts.slug')) throw error
+    postBinds[3] = `${slug}-${Date.now().toString(36).slice(-4)}`
+    await insertPost()
+  }
   await syncPostTags(db, userId, postId, note.id, now)
   return db
     .prepare(`SELECT * FROM blog_posts WHERE user_id = ?1 AND id = ?2`)
     .bind(userId, postId)
     .first<BlogPostRow>()
+}
+
+function parseBlogDate(value: string): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 export function toBlogSummary(
@@ -496,15 +511,18 @@ export async function publishPostSnapshot(
   if (noteHash !== snapshot.contentHash) throw new Error('blog_content_changed')
   const renderKey = await writeRenderSnapshot(bucket, noteId, snapshot)
   const renderHash = await sha256Hex(snapshot.html)
+  const scheduledAt = meta.publishedAt ? Date.parse(meta.publishedAt) : NaN
+  const publishedAt = post.published_at ?? (Number.isFinite(scheduledAt) ? scheduledAt : now)
+  const status = publishedAt > now ? 'scheduled' : 'published'
   await db
     .prepare(
       `UPDATE blog_posts SET
          render_key = ?3, render_hash = ?4, renderer_version = ?5, render_status = 'ready',
-         render_generated_at = ?6, content_hash = ?7, status = 'published',
-         published_at = COALESCE(published_at, ?6), updated_at = ?6
+         render_generated_at = ?6, content_hash = ?7, status = ?8,
+         published_at = ?9, updated_at = ?6
        WHERE user_id = ?1 AND id = ?2`,
     )
-    .bind(userId, post.id, renderKey, renderHash, snapshot.rendererVersion, now, snapshot.contentHash)
+    .bind(userId, post.id, renderKey, renderHash, snapshot.rendererVersion, now, snapshot.contentHash, status, publishedAt)
     .run()
   const updated = await findPostById(db, userId, post.id)
   if (!updated) throw new Error('blog_post_missing')
@@ -524,29 +542,95 @@ export async function unpublishPost(
   return findPostById(db, userId, postId)
 }
 
+async function markDueScheduledPublished(db: D1Database, userId: string, now: number): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE blog_posts SET status = 'published', updated_at = ?3
+       WHERE user_id = ?1 AND status = 'scheduled' AND render_status = 'ready'
+         AND deleted_at IS NULL AND published_at IS NOT NULL AND published_at <= ?2`,
+    )
+    .bind(userId, now, now)
+    .run()
+}
+
+export interface AdminPostQuery {
+  status?: string
+  q?: string
+  categoryId?: string
+  tagId?: string
+  seriesId?: string
+  page?: number
+  limit?: number
+  sort?: string
+}
+
 export async function listAdminPosts(
   db: D1Database,
   userId: string,
-  page = 1,
-  limit = 20,
+  options: AdminPostQuery = {},
 ): Promise<{ rows: BlogPostWithNames[]; total: number }> {
-  const safeLimit = Math.min(Math.max(limit, 1), 100)
-  const offset = (Math.max(page, 1) - 1) * safeLimit
+  await markDueScheduledPublished(db, userId, Date.now())
+  const safeLimit = Math.min(Math.max(options.limit ?? 20, 1), 100)
+  const page = Math.max(options.page ?? 1, 1)
+  const offset = (page - 1) * safeLimit
+  const where = ['p.user_id = ?1']
+  const binds: unknown[] = [userId]
+  const bind = (value: unknown) => {
+    binds.push(value)
+    return `?${binds.length}`
+  }
+  const status = options.status ?? 'all'
+  if (status === 'trash') {
+    where.push('p.deleted_at IS NOT NULL')
+  } else {
+    where.push('p.deleted_at IS NULL')
+    if (status === 'published') {
+      where.push("p.status = 'published'")
+      where.push('(p.published_at IS NULL OR p.published_at <= ?)')
+      binds.push(Date.now())
+    } else if (status === 'scheduled') {
+      where.push("(p.status = 'scheduled' OR (p.status = 'published' AND p.published_at > ?))")
+      binds.push(Date.now())
+    } else if (status === 'draft') {
+      where.push("p.status IN ('draft','pending_snapshot','withdrawn')")
+    } else if (status === 'pending') {
+      where.push("p.status = 'pending_snapshot'")
+    }
+  }
+  const q = options.q?.trim().slice(0, 200)
+  if (q) {
+    const like = `%${q.replace(/[%_]/g, '')}%`
+    const placeholder = bind(like)
+    where.push(`(p.title LIKE ${placeholder} OR p.slug LIKE ${placeholder})`)
+  }
+  if (options.categoryId) where.push(`p.category_id = ${bind(options.categoryId)}`)
+  if (options.seriesId) where.push(`p.series_id = ${bind(options.seriesId)}`)
+  if (options.tagId) {
+    where.push(`EXISTS (SELECT 1 FROM blog_post_tags pt WHERE pt.user_id = p.user_id AND pt.post_id = p.id AND pt.tag_id = ${bind(options.tagId)})`)
+  }
+  const order = options.sort === 'title'
+    ? 'p.title COLLATE NOCASE ASC, p.id DESC'
+    : options.sort === 'published'
+      ? 'COALESCE(p.published_at, p.created_at) DESC, p.id DESC'
+      : options.sort === 'created'
+        ? 'p.created_at DESC, p.id DESC'
+        : 'p.updated_at DESC, p.id DESC'
+  const whereSql = where.join(' AND ')
   const [rows, total] = await Promise.all([
     db
       .prepare(
         `SELECT ${POST_COLUMNS} FROM blog_posts p
          LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
          LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
-         WHERE p.user_id = ?1 AND p.deleted_at IS NULL
-         ORDER BY p.updated_at DESC, p.id DESC
-         LIMIT ?2 OFFSET ?3`,
+         WHERE ${whereSql}
+         ORDER BY ${order}
+         LIMIT ? OFFSET ?`,
       )
-      .bind(userId, safeLimit, offset)
+      .bind(...binds, safeLimit, offset)
       .all<BlogPostWithNames>(),
     db
-      .prepare(`SELECT COUNT(*) AS total FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL`)
-      .bind(userId)
+      .prepare(`SELECT COUNT(*) AS total FROM blog_posts p WHERE ${whereSql}`)
+      .bind(...binds)
       .first<{ total: number }>(),
   ])
   return { rows: rows.results, total: total?.total ?? 0 }
@@ -560,6 +644,8 @@ export async function blogAdminOverview(
   published: number
   drafts: number
   pending: number
+  scheduled: number
+  trash: number
   stale: number
   views: number
   moments: number
@@ -569,13 +655,19 @@ export async function blogAdminOverview(
   commentsApproved: number
   commentsSpam: number
 }> {
+  const now = Date.now()
+  await markDueScheduledPublished(db, userId, now)
   const row = await db
     .prepare(
       `SELECT
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL) AS posts,
-         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL) AS published,
+         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL
+            AND (published_at IS NULL OR published_at <= ?2)) AS published,
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status IN ('draft','withdrawn') AND deleted_at IS NULL) AS drafts,
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'pending_snapshot' AND deleted_at IS NULL) AS pending,
+         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NOT NULL) AS trash,
+         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL
+            AND (status = 'scheduled' OR (status = 'published' AND published_at > ?2))) AS scheduled,
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'stale' AND status = 'published' AND deleted_at IS NULL) AS stale,
          (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1) AS views,
          (SELECT COUNT(*) FROM blog_moments WHERE user_id = ?1 AND deleted_at IS NULL) AS moments,
@@ -585,12 +677,14 @@ export async function blogAdminOverview(
          (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'approved' AND deleted_at IS NULL) AS commentsApproved,
          (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'spam' AND deleted_at IS NULL) AS commentsSpam`,
     )
-    .bind(userId)
+    .bind(userId, now)
     .first<{
       posts: number
       published: number
       drafts: number
       pending: number
+      scheduled: number
+      trash: number
       stale: number
       views: number
       moments: number
@@ -601,8 +695,121 @@ export async function blogAdminOverview(
       commentsSpam: number
     }>()
   return row ?? {
-    posts: 0, published: 0, drafts: 0, pending: 0, stale: 0, views: 0, moments: 0, albums: 0, tasks: 0,
-    commentsPending: 0, commentsApproved: 0, commentsSpam: 0,
+    posts: 0, published: 0, drafts: 0, pending: 0, scheduled: 0, trash: 0, stale: 0, views: 0,
+    moments: 0, albums: 0, tasks: 0, commentsPending: 0, commentsApproved: 0, commentsSpam: 0,
+  }
+}
+
+export async function listCalendarPosts(
+  db: D1Database,
+  userId: string,
+  from: number,
+  to: number,
+): Promise<BlogPostWithNames[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${POST_COLUMNS} FROM blog_posts p
+       LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
+       LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
+       WHERE p.user_id = ?1 AND p.deleted_at IS NULL
+         AND ((p.published_at IS NOT NULL AND p.published_at BETWEEN ?2 AND ?3)
+           OR (p.published_at IS NULL AND p.updated_at BETWEEN ?2 AND ?3))
+       ORDER BY COALESCE(p.published_at, p.updated_at) ASC, p.id ASC
+       LIMIT 500`,
+    )
+    .bind(userId, from, to)
+    .all<BlogPostWithNames>()
+  return results
+}
+
+export async function blogDashboard(
+  db: D1Database,
+  userId: string,
+): Promise<{
+  overview: Awaited<ReturnType<typeof blogAdminOverview>>
+  recentPosts: { id: string; noteId: string; title: string; status: string; updatedAt: number }[]
+  recentComments: { id: string; postTitle: string | null; authorName: string; content: string; status: string; createdAt: number }[]
+  viewsByDay: { day: string; views: number; visitors: number }[]
+  storageBytes: number
+  scheduled: number
+  draftCount: number
+}> {
+  const [overview, recentPosts, recentComments, views, storage] = await Promise.all([
+    blogAdminOverview(db, userId),
+    db.prepare(
+      `SELECT id, note_id, title, status, updated_at FROM blog_posts
+       WHERE user_id = ?1 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 8`,
+    ).bind(userId).all<{ id: string; note_id: string; title: string; status: string; updated_at: number }>(),
+    db.prepare(
+      `SELECT c.id, p.title AS post_title, c.author_name, c.content, c.status, c.created_at
+       FROM blog_comments c LEFT JOIN blog_posts p ON p.id = c.post_id AND p.user_id = c.user_id
+       WHERE c.user_id = ?1 AND c.deleted_at IS NULL ORDER BY c.created_at DESC LIMIT 6`,
+    ).bind(userId).all<{ id: string; post_title: string | null; author_name: string; content: string; status: string; created_at: number }>(),
+    db.prepare(
+      `SELECT day, views, visitors FROM blog_visit_daily WHERE user_id = ?1 ORDER BY day DESC LIMIT 30`,
+    ).bind(userId).all<{ day: string; views: number; visitors: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes FROM blog_assets WHERE user_id = ?1`,
+    ).bind(userId).first<{ bytes: number }>(),
+  ])
+  return {
+    overview,
+    recentPosts: recentPosts.results.map((row) => ({
+      id: row.id, noteId: row.note_id, title: row.title, status: row.status, updatedAt: row.updated_at,
+    })),
+    recentComments: recentComments.results.map((row) => ({
+      id: row.id, postTitle: row.post_title, authorName: row.author_name,
+      content: row.content, status: row.status, createdAt: row.created_at,
+    })),
+    viewsByDay: views.results.reverse(),
+    storageBytes: storage?.bytes ?? 0,
+    scheduled: overview.scheduled,
+    draftCount: overview.drafts,
+  }
+}
+
+export async function blogHealth(
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  userId: string,
+): Promise<import('@shared/blog/model').BlogHealth> {
+  const now = Date.now()
+  const row = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL) AS published,
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL
+          AND (status = 'scheduled' OR (status = 'published' AND published_at > ?2))) AS scheduled,
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'stale' AND deleted_at IS NULL) AS stale,
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'missing' AND deleted_at IS NULL
+          AND status IN ('published','scheduled','pending_snapshot')) AS missing,
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'failed' AND deleted_at IS NULL
+          AND status IN ('published','scheduled','pending_snapshot')) AS failed,
+       (SELECT COALESCE(SUM(size), 0) FROM blog_assets WHERE user_id = ?1) AS storage_bytes,
+       (SELECT MAX(published_at) FROM blog_posts WHERE user_id = ?1 AND status = 'published') AS last_published`,
+  ).bind(userId, now).first<{
+    published: number; scheduled: number; stale: number; missing: number; failed: number;
+    storage_bytes: number; last_published: number | null;
+  }>()
+  let storage = false
+  if (bucket) {
+    try {
+      await bucket.head('blog/.healthcheck')
+      storage = true
+    } catch {
+      storage = false
+    }
+  }
+  return {
+    database: true,
+    storage,
+    published: row?.published ?? 0,
+    scheduled: row?.scheduled ?? 0,
+    stale: row?.stale ?? 0,
+    missing: row?.missing ?? 0,
+    failed: row?.failed ?? 0,
+    storageBytes: row?.storage_bytes ?? 0,
+    lastPublishedAt: row?.last_published ?? null,
+    checkedAt: now,
   }
 }
 
@@ -622,4 +829,173 @@ export async function recordBlogAudit(
     )
     .bind(newId(), userId, action, entity, entityId, JSON.stringify(detail), now)
     .run()
+}
+
+export interface AdminPostMetaPatch {
+  slug?: string
+  excerpt?: string
+  description?: string
+  coverAssetId?: string | null
+  categoryId?: string | null
+  seriesId?: string | null
+  seriesOrder?: number | null
+  pinned?: boolean
+  commentsEnabled?: boolean
+  language?: string
+  license?: string
+  alias?: string
+  permalink?: string
+  hideHomeContent?: boolean
+  password?: string
+  clearPassword?: boolean
+  publishedAt?: number | null
+}
+
+export async function updateAdminPostMeta(
+  db: D1Database,
+  userId: string,
+  postId: string,
+  patch: AdminPostMetaPatch,
+  now = Date.now(),
+): Promise<BlogPostWithNote> {
+  const existing = await findPostById(db, userId, postId)
+  if (!existing) throw new Error('blog_post_missing')
+  const sets: string[] = []
+  const binds: unknown[] = []
+  const set = (column: string, value: unknown) => {
+    binds.push(value)
+    sets.push(`${column} = ?${binds.length + 2}`)
+  }
+  if (patch.slug !== undefined) {
+    const base = slugifyBlogTitle(patch.slug || existing.title)
+    const taken = await db.prepare(`SELECT id FROM blog_posts WHERE user_id = ?1 AND slug = ?2 AND id <> ?3`)
+      .bind(userId, base, postId).first<{ id: string }>()
+    set('slug', taken ? await uniqueBlogSlug(db, userId, base, postId) : base)
+  }
+  if (patch.excerpt !== undefined) set('excerpt', patch.excerpt.slice(0, 2_000))
+  if (patch.description !== undefined) set('description', patch.description.slice(0, 2_000))
+  if (patch.coverAssetId !== undefined) {
+    if (patch.coverAssetId) {
+      const asset = await db.prepare(`SELECT id FROM blog_assets WHERE user_id = ?1 AND id = ?2`).bind(userId, patch.coverAssetId).first<{ id: string }>()
+      if (!asset) throw new Error('media_missing')
+    }
+    set('cover_asset_id', patch.coverAssetId || null)
+  }
+  if (patch.categoryId !== undefined) {
+    if (patch.categoryId) {
+      const row = await db.prepare(`SELECT id FROM blog_categories WHERE user_id = ?1 AND id = ?2`).bind(userId, patch.categoryId).first<{ id: string }>()
+      if (!row) throw new Error('taxonomy_item_missing')
+    }
+    set('category_id', patch.categoryId || null)
+  }
+  if (patch.seriesId !== undefined) {
+    if (patch.seriesId) {
+      const row = await db.prepare(`SELECT id FROM blog_series WHERE user_id = ?1 AND id = ?2`).bind(userId, patch.seriesId).first<{ id: string }>()
+      if (!row) throw new Error('taxonomy_item_missing')
+    }
+    set('series_id', patch.seriesId || null)
+  }
+  if (patch.seriesOrder !== undefined) set('series_order', patch.seriesOrder ?? null)
+  if (patch.pinned !== undefined) set('pinned', patch.pinned ? 1 : 0)
+  if (patch.commentsEnabled !== undefined) set('comments_enabled', patch.commentsEnabled ? 1 : 0)
+  if (patch.language !== undefined) set('language', patch.language.slice(0, 20))
+  if (patch.license !== undefined) set('license', patch.license.slice(0, 500))
+  if (patch.alias !== undefined) set('alias', patch.alias.slice(0, 200))
+  if (patch.permalink !== undefined) set('permalink', patch.permalink.slice(0, 300))
+  if (patch.hideHomeContent !== undefined) set('hide_home_content', patch.hideHomeContent ? 1 : 0)
+  if (patch.clearPassword === true) {
+    sets.push('encrypted = 0')
+    set('password_hash', null)
+  }
+  if (patch.password !== undefined && patch.password.trim()) {
+    set('encrypted', 1)
+    set('password_hash', await hashPassword(patch.password.trim()))
+  }
+  if (patch.publishedAt !== undefined) {
+    set('published_at', patch.publishedAt)
+    if (patch.publishedAt !== null && patch.publishedAt > now) {
+      set('status', 'scheduled')
+    } else if (existing.render_status === 'ready') {
+      set('status', 'published')
+    }
+  }
+  if (sets.length > 0) {
+    await db.prepare(
+      `UPDATE blog_posts SET ${sets.join(', ')}, updated_at = ?2 WHERE user_id = ?1 AND id = ?${binds.length + 3}`,
+    ).bind(userId, now, ...binds, postId).run()
+  }
+  const updated = await findPostById(db, userId, postId)
+  if (!updated) throw new Error('blog_post_missing')
+  return updated
+}
+
+export async function bulkAdminPosts(
+  db: D1Database,
+  userId: string,
+  noteIds: string[],
+  action: 'unpublish' | 'trash' | 'restore' | 'pin' | 'unpin' | 'delete',
+  now = Date.now(),
+): Promise<number> {
+  const ids = [...new Set(noteIds)].slice(0, 100)
+  if (ids.length === 0) return 0
+  const placeholders = ids.map((_, index) => `?${index + 3}`).join(', ')
+  if (action === 'delete') {
+    const deletePlaceholders = ids.map((_, index) => `?${index + 2}`).join(', ')
+    const result = await db.prepare(
+      `DELETE FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NOT NULL AND note_id IN (${deletePlaceholders})`,
+    ).bind(userId, ...ids).run()
+    return result.meta.changes ?? 0
+  }
+  const sets = action === 'unpublish'
+    ? "status = 'withdrawn', updated_at = ?2"
+    : action === 'trash'
+      ? 'deleted_at = ?2, status = \'withdrawn\', updated_at = ?2'
+      : action === 'restore'
+        ? 'deleted_at = NULL, status = \'draft\', updated_at = ?2'
+        : action === 'pin'
+          ? 'pinned = 1, updated_at = ?2'
+          : 'pinned = 0, updated_at = ?2'
+  const result = await db.prepare(
+    `UPDATE blog_posts SET ${sets} WHERE user_id = ?1 AND note_id IN (${placeholders})`,
+  ).bind(userId, now, ...ids).run()
+  return result.meta.changes ?? 0
+}
+
+export async function listBlogAudit(
+  db: D1Database,
+  userId: string,
+  limit = 50,
+): Promise<import('@shared/blog/model').BlogAuditEntry[]> {
+  const { results } = await db.prepare(
+    `SELECT id, action, entity, entity_id, detail, created_at FROM blog_audit
+     WHERE user_id = ?1 ORDER BY created_at DESC, id DESC LIMIT ?2`,
+  ).bind(userId, Math.min(Math.max(limit, 1), 200)).all<{
+    id: string; action: string; entity: string; entity_id: string; detail: string; created_at: number
+  }>()
+  return results.map((row) => {
+    let detail: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(row.detail) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detail = parsed as Record<string, unknown>
+    } catch {
+      detail = {}
+    }
+    return {
+      id: row.id, action: row.action, entity: row.entity, entityId: row.entity_id,
+      detail, createdAt: row.created_at,
+    }
+  })
+}
+
+export async function listPostsNeedingRender(
+  db: D1Database,
+  userId: string,
+): Promise<{ noteId: string; title: string; renderStatus: string }[]> {
+  const { results } = await db.prepare(
+    `SELECT note_id, title, render_status FROM blog_posts
+     WHERE user_id = ?1 AND deleted_at IS NULL AND render_status IN ('stale','missing','failed')
+       AND status IN ('published','scheduled','pending_snapshot')
+     ORDER BY updated_at DESC LIMIT 100`,
+  ).bind(userId).all<{ note_id: string; title: string; render_status: string }>()
+  return results.map((row) => ({ noteId: row.note_id, title: row.title, renderStatus: row.render_status }))
 }

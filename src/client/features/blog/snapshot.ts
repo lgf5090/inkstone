@@ -9,7 +9,7 @@ function hex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function contentHash(content: string): Promise<string> {
+export async function hashBlogContent(content: string): Promise<string> {
   const bytes = new TextEncoder().encode(content)
   return hex(await crypto.subtle.digest('SHA-256', bytes))
 }
@@ -39,7 +39,7 @@ export async function captureBlogSnapshot(noteId: string, content: string): Prom
     version: 1,
     rendererVersion: RENDERER_VERSION,
     noteId,
-    contentHash: await contentHash(content),
+    contentHash: await hashBlogContent(content),
     html: rendered.html,
     headings: rendered.headings.map((heading) => ({
       depth: heading.level,

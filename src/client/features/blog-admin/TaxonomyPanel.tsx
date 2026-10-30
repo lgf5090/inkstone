@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaxonomyItem, TaxonomyKind } from '@shared/blog/model'
-import { Badge, Button, Spinner } from '../../components/primitives'
+import { Badge, Button } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { AdminEmpty, AdminError, AdminLoading, PageHeader, TabBar } from './shared'
 
 const TABS: { kind: TaxonomyKind; label: MessageKey }[] = [
   { kind: 'categories', label: 'blog.admin.categories' },
@@ -24,8 +25,8 @@ interface FormState {
 
 const EMPTY_FORM: FormState = { id: null, name: '', slug: '', description: '', color: '', status: 'ongoing' }
 
-export function TaxonomyPanel() {
-  const [kind, setKind] = useState<TaxonomyKind>('categories')
+export function TaxonomyPanel({ initialKind = 'categories' }: { initialKind?: TaxonomyKind } = {}) {
+  const [kind, setKind] = useState<TaxonomyKind>(initialKind)
   const [data, setData] = useState<Record<TaxonomyKind, TaxonomyItem[]>>({ categories: [], tags: [], series: [] })
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [loading, setLoading] = useState(true)
@@ -109,31 +110,22 @@ export function TaxonomyPanel() {
   }
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="mx-auto max-w-[1180px]">
+      <PageHeader title={t(TABS.find((tab) => tab.kind === kind)!.label)} description={t('blog.admin.taxonomy_subtitle')} />
+      <TabBar
+        tabs={TABS.map((tab) => ({ id: tab.kind, label: t(tab.label), count: data[tab.kind].length }))}
+        value={kind}
+        onChange={setKind}
+        label={t('blog.admin.taxonomy')}
+      />
+      <section className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-4">
-        <div role="tablist" aria-label={t('blog.admin.taxonomy')} className="flex flex-wrap gap-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.kind}
-              type="button"
-              role="tab"
-              aria-selected={kind === tab.kind}
-              onClick={() => setKind(tab.kind)}
-              className={kind === tab.kind
-                ? 'rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-[length:var(--text-12)] font-medium text-[var(--accent-on-soft)]'
-                : 'rounded-full px-3 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'}
-            >
-              {t(tab.label)} <span className="tabular-nums opacity-60">{data[tab.kind].length}</span>
-            </button>
-          ))}
-        </div>
-
-        {error && <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+        {error && <AdminError message={error} onRetry={() => void load()} />}
 
         {loading && items.length === 0 ? (
-          <div className="flex items-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner /> {t('blog.admin.loading')}</div>
+          <AdminLoading />
         ) : items.length === 0 ? (
-          <p className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 text-[length:var(--text-12-5)] text-[var(--text-tertiary)]">{t('blog.admin.taxonomy_empty')}</p>
+          <AdminEmpty>{t('blog.admin.taxonomy_empty')}</AdminEmpty>
         ) : (
           <div className="overflow-x-auto rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
             <table className="w-full min-w-[560px] border-collapse text-left text-[length:var(--text-12-5)]">
@@ -205,6 +197,7 @@ export function TaxonomyPanel() {
           {editing && <Button type="button" variant="ghost" onClick={() => setForm(EMPTY_FORM)}>{t('common.cancel')}</Button>}
         </div>
       </form>
-    </section>
+      </section>
+    </div>
   )
 }

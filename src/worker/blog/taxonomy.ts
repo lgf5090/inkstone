@@ -41,18 +41,18 @@ export async function listTaxonomy(db: D1Database, userId: string): Promise<{
   const [categories, tags, series] = await Promise.all([
     db.prepare(
       `SELECT c.id, c.name, c.slug, c.description, c.position,
-              (SELECT COUNT(*) FROM blog_posts p WHERE p.user_id = c.user_id AND p.category_id = c.id AND p.status = 'published' AND p.deleted_at IS NULL) AS count
+              (SELECT COUNT(*) FROM blog_posts p WHERE p.user_id = c.user_id AND p.category_id = c.id AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)) AS count
        FROM blog_categories c WHERE c.user_id = ?1 ORDER BY c.position, c.name`,
     ).bind(userId).all<{ id: string; name: string; slug: string; description: string; position: number; count: number }>(),
     db.prepare(
       `SELECT t.id, t.name, t.slug, t.color, t.position,
               (SELECT COUNT(*) FROM blog_post_tags pt JOIN blog_posts p ON p.id = pt.post_id AND p.user_id = pt.user_id
-               WHERE pt.user_id = t.user_id AND pt.tag_id = t.id AND p.status = 'published' AND p.deleted_at IS NULL) AS count
+               WHERE pt.user_id = t.user_id AND pt.tag_id = t.id AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)) AS count
        FROM blog_tags t WHERE t.user_id = ?1 ORDER BY t.position, t.name`,
     ).bind(userId).all<{ id: string; name: string; slug: string; color: string | null; position: number; count: number }>(),
     db.prepare(
       `SELECT s.id, s.title AS name, s.slug, s.description, s.status, s.position,
-              (SELECT COUNT(*) FROM blog_posts p WHERE p.user_id = s.user_id AND p.series_id = s.id AND p.status = 'published' AND p.deleted_at IS NULL) AS count
+              (SELECT COUNT(*) FROM blog_posts p WHERE p.user_id = s.user_id AND p.series_id = s.id AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)) AS count
        FROM blog_series s WHERE s.user_id = ?1 ORDER BY s.position, s.title`,
     ).bind(userId).all<{ id: string; name: string; slug: string; description: string; status: string; position: number; count: number }>(),
   ])

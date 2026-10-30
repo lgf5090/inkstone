@@ -11,6 +11,8 @@ import {
   listApprovedComments,
 } from './comments'
 import { getPublishedPage } from './pages'
+import { sanitizeBlogHtml } from './sanitize'
+import { listPublicCollection } from './collections'
 import {
   blogCounts,
   blogOwnerUserId,
@@ -47,7 +49,11 @@ blogPublicRoutes.get('/site', async (c) => {
     loadBlogSettings(c.env.DB, userId),
     blogCounts(c.env.DB, userId),
   ])
-  return c.json(publicBlogSite(settings, counts), 200, {
+  const site = publicBlogSite(settings, counts)
+  site.widgets = site.widgets.map((widget) => widget.type === 'custom'
+    ? { ...widget, config: { ...widget.config, html: sanitizeBlogHtml(String(widget.config.html ?? '')) } }
+    : widget)
+  return c.json(site, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })
@@ -193,7 +199,7 @@ blogPublicRoutes.get('/categories', async (c) => {
       `SELECT c.id, c.name, c.slug, c.description, c.position, COUNT(p.id) AS count
        FROM blog_categories c
        LEFT JOIN blog_posts p ON p.category_id = c.id AND p.user_id = c.user_id
-         AND p.status = 'published' AND p.deleted_at IS NULL
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE c.user_id = ?1
        GROUP BY c.id
        ORDER BY c.position, c.name`,
@@ -211,7 +217,7 @@ blogPublicRoutes.get('/tags', async (c) => {
        FROM blog_tags t
        LEFT JOIN blog_post_tags pt ON pt.tag_id = t.id AND pt.user_id = t.user_id
        LEFT JOIN blog_posts p ON p.id = pt.post_id AND p.user_id = pt.user_id
-         AND p.status = 'published' AND p.deleted_at IS NULL
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE t.user_id = ?1
        GROUP BY t.id
        ORDER BY t.position, t.name`,
@@ -229,7 +235,7 @@ blogPublicRoutes.get('/series', async (c) => {
               COUNT(p.id) AS count
        FROM blog_series s
        LEFT JOIN blog_posts p ON p.series_id = s.id AND p.user_id = s.user_id
-         AND p.status = 'published' AND p.deleted_at IS NULL
+         AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
        WHERE s.user_id = ?1
        GROUP BY s.id
        ORDER BY s.position, s.title`,
@@ -266,5 +272,73 @@ blogPublicRoutes.get('/assets/:id', async (c) => {
       'X-Content-Type-Options': 'nosniff',
       ...(object.httpEtag ? { ETag: object.httpEtag } : {}),
     },
+  })
+})
+
+blogPublicRoutes.get('/redirect', async (c) => {
+  const userId = await ownerId(c)
+  const from = c.req.query('path') ?? ''
+  if (!from.startsWith('/')) return c.json({ found: false })
+  const row = await c.env.DB.prepare(
+    `SELECT to_slug, status FROM blog_redirects WHERE user_id = ?1 AND from_slug = ?2`,
+  ).bind(userId, from.split('?')[0]).first<{ to_slug: string; status: number }>()
+  if (!row) return c.json({ found: false })
+  return c.json({ found: true, to: row.to_slug, status: row.status }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60' })
+})
+
+blogPublicRoutes.get('/collections/albums/:slug', async (c) => {
+  const userId = await ownerId(c)
+  const album = await c.env.DB.prepare(
+    `SELECT * FROM blog_albums WHERE user_id = ?1 AND slug = ?2 AND published_at IS NOT NULL AND published_at <= ?3`,
+  ).bind(userId, c.req.param('slug'), Date.now()).first<Record<string, unknown>>()
+  if (!album) throw ApiError.notFound('Album not found')
+  if (typeof album.password_hash === 'string' && album.password_hash) {
+    throw new ApiError(403, 'forbidden', 'This album is protected', { protected: true, hint: album.password_hint })
+  }
+  const { results: photos } = await c.env.DB.prepare(
+    `SELECT id, asset_id, caption, alt, taken_at, position FROM blog_photos
+     WHERE user_id = ?1 AND album_id = ?2 ORDER BY position, id`,
+  ).bind(userId, String(album.id)).all<{ id: string; asset_id: string; caption: string; alt: string; taken_at: string; position: number }>()
+  return c.json({
+    album: {
+      id: album.id, slug: album.slug, title: album.title, description: album.description,
+      coverUrl: album.cover_asset_id ? `/api/blog/assets/${album.cover_asset_id}` : null,
+      date: album.date, location: album.location,
+      tags: (() => { try { const parsed = JSON.parse(String(album.tags ?? '[]')) as unknown; return Array.isArray(parsed) ? parsed : [] } catch { return [] } })(),
+      layout: typeof album.layout === 'string' && album.layout ? album.layout : 'grid',
+      columns: album.columns, publishedAt: album.published_at,
+    },
+    photos: photos.map((photo) => ({
+      id: photo.id, assetId: photo.asset_id, url: `/api/blog/assets/${photo.asset_id}`,
+      caption: photo.caption, alt: photo.alt, takenAt: photo.taken_at, position: photo.position,
+    })),
+  }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' })
+})
+
+blogPublicRoutes.get('/collections/compass', async (c) => {
+  const userId = await ownerId(c)
+  const { results: shelves } = await c.env.DB.prepare(
+    `SELECT id, key, name, icon, blurb, position FROM blog_compass_shelves WHERE user_id = ?1 ORDER BY position, name`,
+  ).bind(userId).all<Record<string, unknown>>()
+  const { results: entries } = await c.env.DB.prepare(
+    `SELECT shelf_id, label, href, note, icon, image, position FROM blog_compass_entries
+     WHERE user_id = ?1 ORDER BY position, label`,
+  ).bind(userId).all<Record<string, unknown>>()
+  const byShelf = new Map<string, Record<string, unknown>[]>()
+  for (const entry of entries) {
+    const key = String(entry.shelf_id)
+    const list = byShelf.get(key) ?? []
+    list.push(entry)
+    byShelf.set(key, list)
+  }
+  return c.json({
+    items: shelves.map((shelf) => ({ ...shelf, entries: byShelf.get(String(shelf.id)) ?? [] })),
+  }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' })
+})
+
+blogPublicRoutes.get('/collections/:kind', async (c) => {
+  const userId = await ownerId(c)
+  return c.json({ items: await listPublicCollection(c.env.DB, userId, c.req.param('kind')) }, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })

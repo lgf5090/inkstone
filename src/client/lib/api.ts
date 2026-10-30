@@ -38,10 +38,19 @@ import type {
   AdminBlogComment,
   BlogAdminOverview,
   BlogCommentStatus,
+  BlogAlbumPhoto,
+  BlogAuditEntry,
+  BlogCalendarItem,
+  BlogCollectionItem,
+  BlogCollectionKind,
+  BlogDashboard,
+  BlogHealth,
   BlogMediaItem,
   BlogPageItem,
+  BlogPostAdminDetail,
   BlogPostAdminItem,
   BlogPostRow,
+  BlogRedirectItem,
   BlogRenderSnapshot,
   BlogSitePublic,
   TaxonomyItem,
@@ -890,12 +899,54 @@ export const api = {
   blog: {
     site: () => request<BlogSitePublic>('/api/blog/site'),
     overview: () => request<BlogAdminOverview>('/api/blog/admin/overview'),
-    posts: (params: { page?: number; limit?: number } = {}) =>
+    dashboard: () => request<BlogDashboard>('/api/blog/admin/dashboard'),
+    health: () => request<BlogHealth>('/api/blog/admin/health'),
+    audit: (limit = 50) => request<{ items: BlogAuditEntry[] }>(`/api/blog/admin/audit?limit=${limit}`),
+    calendar: (from: number, to: number) =>
+      request<{ items: BlogCalendarItem[] }>(`/api/blog/admin/calendar?from=${from}&to=${to}`),
+    posts: (params: {
+      page?: number
+      limit?: number
+      status?: string
+      q?: string
+      category?: string
+      tag?: string
+      series?: string
+      sort?: string
+    } = {}) =>
       request<{ items: BlogPostAdminItem[]; page: number; limit: number; total: number }>(
         `/api/blog/admin/posts${toQuery(params)}`,
       ),
+    post: (id: string) =>
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/${encodeURIComponent(id)}`),
     postByNote: (noteId: string) =>
-      request<BlogPostAdminItem>(`/api/blog/admin/posts/by-note/${encodeURIComponent(noteId)}`),
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/by-note/${encodeURIComponent(noteId)}`),
+    syncNote: (noteId: string) =>
+      request<Record<string, unknown> | null>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/sync`, {
+        method: 'POST',
+        body: {},
+      }),
+    patchPost: (id: string, patch: Record<string, unknown>) =>
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    trashPost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    restorePost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}/restore`, {
+        method: 'POST',
+        body: {},
+      }),
+    deletePost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}/permanent`, {
+        method: 'DELETE',
+      }),
+    bulkPosts: (noteIds: string[], action: 'unpublish' | 'trash' | 'restore' | 'pin' | 'unpin') =>
+      request<{ ok: true; updated: number }>('/api/blog/admin/posts/bulk', {
+        method: 'POST',
+        body: { noteIds, action },
+      }),
     publish: (noteId: string, snapshot: BlogRenderSnapshot) =>
       request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/publish`, {
         method: 'POST',
@@ -927,6 +978,11 @@ export const api = {
           method: 'POST',
           body: { ids, status },
         }),
+      reply: (id: string, content: string) =>
+        request<{ ok: true; id: string }>(`/api/blog/admin/comments/${encodeURIComponent(id)}/reply`, {
+          method: 'POST',
+          body: { content },
+        }),
       stats: () => request<Record<BlogCommentStatus, number>>('/api/blog/admin/comments/stats'),
     },
     taxonomy: {
@@ -952,12 +1008,94 @@ export const api = {
     pages: {
       list: () => request<{ items: BlogPageItem[] }>('/api/blog/admin/pages'),
       get: (id: string) => request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`),
+      byNote: (noteId: string) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/by-note/${encodeURIComponent(noteId)}`),
       create: (input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
         request<BlogPageItem>('/api/blog/admin/pages', { method: 'POST', body: input }),
       update: (id: string, input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
         request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'PATCH', body: input }),
       remove: (id: string) =>
         request<{ ok: true }>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      bindNote: (id: string, noteId: string | null) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}/note`, {
+          method: 'POST',
+          body: { noteId },
+        }),
+      publish: (id: string, published: boolean) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}/publish`, {
+          method: 'POST',
+          body: { published },
+        }),
+    },
+    collections: {
+      list: (kind: BlogCollectionKind) =>
+        request<{ items: BlogCollectionItem[] }>(`/api/blog/admin/collections/${kind}`),
+      create: (kind: BlogCollectionKind, input: Record<string, unknown>) =>
+        request<BlogCollectionItem>(`/api/blog/admin/collections/${kind}`, { method: 'POST', body: input }),
+      update: (kind: BlogCollectionKind, id: string, input: Record<string, unknown>) =>
+        request<BlogCollectionItem>(`/api/blog/admin/collections/${kind}/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: input,
+        }),
+      remove: (kind: BlogCollectionKind, id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/collections/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      photos: (albumId: string) =>
+        request<{ items: BlogAlbumPhoto[] }>(`/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos`),
+      addPhoto: (albumId: string, input: { assetId: string; caption?: string; alt?: string; takenAt?: string }) =>
+        request<BlogAlbumPhoto>(`/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos`, {
+          method: 'POST',
+          body: input,
+        }),
+      updatePhoto: (albumId: string, photoId: string, input: { caption?: string; alt?: string; takenAt?: string }) =>
+        request<BlogAlbumPhoto>(
+          `/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos/${encodeURIComponent(photoId)}`,
+          { method: 'PATCH', body: input },
+        ),
+      removePhoto: (albumId: string, photoId: string) =>
+        request<{ ok: true }>(
+          `/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos/${encodeURIComponent(photoId)}`,
+          { method: 'DELETE' },
+        ),
+      compassEntries: (shelfId: string) =>
+        request<{ items: Record<string, unknown>[] }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries`,
+        ),
+      saveCompassEntry: (shelfId: string, input: Record<string, unknown>, entryId?: string) =>
+        request<{ items: Record<string, unknown>[] }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries${entryId ? `/${encodeURIComponent(entryId)}` : ''}`,
+          { method: entryId ? 'PATCH' : 'POST', body: input },
+        ),
+      removeCompassEntry: (shelfId: string, entryId: string) =>
+        request<{ ok: true }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries/${encodeURIComponent(entryId)}`,
+          { method: 'DELETE' },
+        ),
+    },
+    redirects: {
+      list: () => request<{ items: BlogRedirectItem[] }>('/api/blog/admin/redirects'),
+      save: (input: { from: string; to: string; status: number }) =>
+        request<BlogRedirectItem>('/api/blog/admin/redirects', { method: 'POST', body: input }),
+      remove: (from: string) =>
+        request<{ ok: true }>(`/api/blog/admin/redirects/${encodeURIComponent(from)}`, { method: 'DELETE' }),
+    },
+    tools: {
+      renderQueue: () => request<{ items: { noteId: string; title: string; renderStatus: string }[] }>('/api/blog/admin/tools/render-queue'),
+      purge: () => request<{ configured: boolean; purged: boolean; message?: string }>('/api/blog/admin/tools/purge', { method: 'POST', body: {} }),
+      exportData: () => request<Record<string, unknown>>('/api/blog/admin/export'),
+      importData: (data: Record<string, unknown>) =>
+        request<{ ok: true; settings: number; redirects: number }>('/api/blog/admin/import', {
+          method: 'POST',
+          body: data,
+          timeoutMs: 60_000,
+        }),
+    },
+    account: {
+      get: () => request<{
+        id: string; username: string; name: string; avatarUrl: string; role: string;
+        createdAt: number; lastSeenAt: number; profile: Record<string, unknown>;
+      }>('/api/blog/admin/account'),
+      update: (input: { name?: string; avatarUrl?: string; bio?: string; links?: { label: string; url: string }[] }) =>
+        request<{ ok: true }>('/api/blog/admin/account', { method: 'PATCH', body: input }),
     },
   },
 

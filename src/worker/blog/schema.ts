@@ -373,6 +373,10 @@ export const BLOG_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_pages_user_slug
      ON blog_pages(user_id, slug)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_pages_user_note
+     ON blog_pages(user_id, note_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_posts_user_published
+     ON blog_posts(user_id, published_at DESC, id)`,
 
   `CREATE TABLE IF NOT EXISTS blog_assets (
     id TEXT NOT NULL,
@@ -598,6 +602,8 @@ export const BLOG_REQUIRED_INDEXES = [
   'idx_blog_compass_entries_user',
   'idx_blog_timeline_user_position',
   'idx_blog_pages_user_slug',
+  'idx_blog_pages_user_note',
+  'idx_blog_posts_user_published',
   'idx_blog_assets_user_hash',
   'idx_blog_assets_user_created',
   'idx_blog_post_assets_post',

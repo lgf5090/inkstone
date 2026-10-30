@@ -40874,6 +40874,9 @@ const allowed = new Map([
     "// A second account is nowhere near the first account's ceiling.",
     "// Stopping is idempotent for the client, and the second press says what the first one means.",
   ]],
+  ["tests/blog-admin-contract.test.ts", [
+    "/// <reference types=\"node\" />",
+  ]],
   ["tests/boot-scripts.test.ts", [
     "// Declared with the two arguments `fetch` is called with, so reading the call's `init` is checked.",
     "// The shape Cloudflare's analytics beacon takes: appended at the edge, then killed by CSP, by a",
