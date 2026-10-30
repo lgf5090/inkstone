@@ -20,7 +20,7 @@ describe('imgbed file headers', () => {
 
     const png = imgbedResponseHeaders({ fileType: 'image/png', fileName: 'x.png' })
     expect(png.get('Content-Disposition')).toContain('inline')
-    expect(png.get('Cache-Control')).toBe('public, max-age=300')
+    expect(png.get('Cache-Control')).toBe('public, max-age=60')
   })
 
   it('sandboxes SVG responses', () => {
@@ -52,14 +52,14 @@ describe('imgbed file headers', () => {
 
   it('keeps cache and security headers on transformed responses', () => {
     const base = new Headers({
-      'Cache-Control': 'public, max-age=300',
+      'Cache-Control': 'public, max-age=60',
       'Access-Control-Allow-Origin': '*',
       'X-Content-Type-Options': 'nosniff',
       ETag: '"abc"',
     })
     const transformed = new Response('x', { headers: { 'Content-Type': 'image/webp', 'Content-Length': '1' } })
     const merged = imgbedTransformHeaders(base, transformed, { requested: true, width: 300, height: 200, fallback: false })
-    expect(merged.get('Cache-Control')).toBe('public, max-age=300')
+    expect(merged.get('Cache-Control')).toBe('public, max-age=60')
     expect(merged.get('Access-Control-Allow-Origin')).toBe('*')
     expect(merged.get('X-Content-Type-Options')).toBe('nosniff')
     expect(merged.get('Content-Type')).toBe('image/webp')

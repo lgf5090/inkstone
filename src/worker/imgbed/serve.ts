@@ -132,6 +132,7 @@ async function handleFile(c: Context<AppBindings>): Promise<Response> {
     referer: c.req.header('referer') ?? null,
     requestHost: url.hostname,
     admin: Boolean(adminActor),
+    fetchDest: c.req.header('sec-fetch-dest') ?? null,
   })
   if (!decision.allowed) return denied(decision.reason ?? 'blocked')
   if (file.source === 'external') return Response.redirect(file.externalLink ?? '', 302)

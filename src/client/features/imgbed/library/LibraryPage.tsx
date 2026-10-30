@@ -263,7 +263,7 @@ export function LibraryPage(): ReactElement {
       toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' })
     }
   }
-  const absoluteFileUrl = (file: ImgbedFile): string => `${location.origin}/imgbed/file/${filePath(file.id)}`
+  const absoluteFileUrl = (file: ImgbedFile): string => `${location.origin}/imgbed/file/${filePath(file.id)}?v=${file.updatedAt}`
   const copyFileLink = async (file: ImgbedFile): Promise<void> => {
     const ok = await copyText(absoluteFileUrl(file))
     toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' })
@@ -275,7 +275,7 @@ export function LibraryPage(): ReactElement {
   const openFileInNewTab = (file: ImgbedFile): void => { window.open(absoluteFileUrl(file), '_blank', 'noopener,noreferrer') }
   const downloadFile = (file: ImgbedFile): void => {
     const anchor = document.createElement('a')
-    anchor.href = `${absoluteFileUrl(file)}?download=1`
+    anchor.href = `${absoluteFileUrl(file)}&download=1`
     anchor.download = file.fileName
     document.body.appendChild(anchor)
     anchor.click()
@@ -446,7 +446,7 @@ export function LibraryPage(): ReactElement {
                 >
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-inset)]">
                     {image
-                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
+                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
                       : <FileText size={26} className="text-[var(--text-quaternary)]" />}
                   </div>
                   <div className="px-2 py-1.5">
@@ -515,7 +515,7 @@ function FileDetail({ file, onClose, onChanged, onToggleFlag }: { file: ImgbedFi
     imgbedApi<{ enabled: boolean }>('/api/imgbed/ai/tags').then((result) => setAiEnabled(result.enabled)).catch(() => setAiEnabled(false))
   }, [file?.id])
   if (!file) return <Modal open={false} onClose={onClose} title="">{null}</Modal>
-  const url = `/imgbed/file/${filePath(file.id)}`
+  const url = `/imgbed/file/${filePath(file.id)}?v=${file.updatedAt}`
   const channelLabel = imgbedChannelLabel(file.channel)
   const channelDisplay = imgbedChannelDisplayName(file.channelName)
   const channelValue = channelDisplay === channelLabel ? channelDisplay : `${channelDisplay} (${channelLabel})`
@@ -589,7 +589,7 @@ function FileDetail({ file, onClose, onChanged, onToggleFlag }: { file: ImgbedFi
     }>
       <div className="grid gap-3 md:grid-cols-[1fr_260px]">
         <div className="flex min-h-[180px] items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)]">
-          {image ? <img src={`${url}?from=admin`} alt={file.fileName} className="max-h-[420px] max-w-full object-contain" /> : file.fileType.startsWith('video/') ? <video src={`${url}?from=admin`} controls className="max-h-[420px] max-w-full" /> : file.fileType.startsWith('audio/') ? <audio src={`${url}?from=admin`} controls /> : <FileText size={36} className="text-[var(--text-quaternary)]" />}
+          {image ? <img src={`${url}?from=admin&v=${file.updatedAt}`} alt={file.fileName} className="max-h-[420px] max-w-full object-contain" /> : file.fileType.startsWith('video/') ? <video src={`${url}?from=admin&v=${file.updatedAt}`} controls className="max-h-[420px] max-w-full" /> : file.fileType.startsWith('audio/') ? <audio src={`${url}?from=admin&v=${file.updatedAt}`} controls /> : <FileText size={36} className="text-[var(--text-quaternary)]" />}
         </div>
         <dl className="space-y-1.5 text-[length:var(--text-11-5)]">
           <Row label={t('imgbed.library.channel')} value={channelValue} />
@@ -600,12 +600,12 @@ function FileDetail({ file, onClose, onChanged, onToggleFlag }: { file: ImgbedFi
           <Row label={t('imgbed.library.tags')} value={file.tags.join(', ') || '—'} />
           {aiTags && <Row label={t('imgbed.ai.title')} value={aiTags.join(', ')} />}
           <div className="flex flex-wrap gap-1 pt-2">
-            <Button size="sm" variant="secondary" icon={<Copy size={12} />} onClick={() => void copyText(url).then((ok) => toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' }))}>{t('imgbed.upload.copy')}</Button>
+            <Button size="sm" variant="secondary" icon={<Copy size={12} />} onClick={() => void copyText(url.startsWith('http') ? url : `${location.origin}${url}`).then((ok) => toast({ title: ok ? t('imgbed.upload.copied') : t('imgbed.common.error'), tone: ok ? 'success' : 'danger' }))}>{t('imgbed.upload.copy')}</Button>
             <Button size="sm" variant="secondary" onClick={() => {
               if (moreLinks) { setMoreLinks(null); return }
               imgbedFileLinks(file.id).then(setMoreLinks).catch((reason: Error) => toast({ title: reason.message, tone: 'danger' }))
             }}>{t('imgbed.library.more_links' as never)}</Button>
-            <a href={`${url}?download=1`} className="inline-flex min-h-8 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} />{t('imgbed.library.download')}</a>
+            <a href={`${url}&download=1`} className="inline-flex min-h-8 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11-5)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Download size={12} />{t('imgbed.library.download')}</a>
           </div>
           {moreLinks && <ul className="space-y-1 pt-1">{moreLinks.map((link) => {
             const value = link.value.startsWith('/') ? `${location.origin}${link.value}` : link.value

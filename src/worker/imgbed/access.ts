@@ -9,12 +9,13 @@ export interface FileAccessInput {
   referer: string | null
   requestHost: string
   admin: boolean
+  fetchDest?: string | null
 }
 
-export function domainAllowed(referer: string | null, requestHost: string, allowedDomains: string): boolean {
+export function domainAllowed(referer: string | null, requestHost: string, allowedDomains: string, fetchDest?: string | null): boolean {
   const configured = String(allowedDomains ?? '').split(',').map((domain) => domain.trim()).filter(Boolean)
   if (!configured.length) return true
-  if (!referer) return true
+  if (!referer) return !fetchDest || !['image', 'video', 'audio', 'embed', 'object', 'iframe'].includes(fetchDest)
   let host: string
   try { host = new URL(referer).hostname.toLowerCase() } catch { return false }
   configured.push(requestHost)
@@ -26,7 +27,7 @@ export function domainAllowed(referer: string | null, requestHost: string, allow
 
 export function fileAccessDecision(input: FileAccessInput): { allowed: boolean; reason?: ImgbedDeniedReason } {
   if (input.admin) return { allowed: true }
-  if (!domainAllowed(input.referer, input.requestHost, input.access.allowedDomains)) {
+  if (!domainAllowed(input.referer, input.requestHost, input.access.allowedDomains, input.fetchDest)) {
     return { allowed: false, reason: 'domain' }
   }
   if (input.file.listType === 'White') return { allowed: true }

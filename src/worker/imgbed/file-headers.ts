@@ -31,7 +31,7 @@ export function imgbedResponseHeaders(
   headers.set('Vary', 'Range')
   headers.set('Access-Control-Allow-Origin', '*')
   headers.set('X-Content-Type-Options', 'nosniff')
-  headers.set('Cache-Control', options.cacheControl ?? (options.admin ? 'private, max-age=86400' : 'public, max-age=300'))
+  headers.set('Cache-Control', options.cacheControl ?? (options.admin ? 'private, max-age=60' : 'public, max-age=60'))
   if (file.fileType === 'image/svg+xml') {
     headers.set('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'")
   }

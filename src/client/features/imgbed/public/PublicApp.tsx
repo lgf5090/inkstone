@@ -10,7 +10,7 @@ import { usePathname } from '../../../lib/app-history'
 
 interface PublicFile {
   name: string
-  metadata: { FileType?: string; TimeStamp?: number; FileSize?: string; Width?: number; Height?: number }
+  metadata: { FileType?: string; TimeStamp?: number; UpdatedAt?: number; FileSize?: string; Width?: number; Height?: number }
 }
 
 interface PublicList {
@@ -210,7 +210,7 @@ export function PublicApp(): ReactElement {
             ))}
             {data?.files.map((file) => {
               const fileType = file.metadata.FileType ?? ''
-              const url = `/imgbed/file/${filePath(file.name)}`
+              const url = `/imgbed/file/${filePath(file.name)}?v=${file.metadata.UpdatedAt ?? file.metadata.TimeStamp ?? 0}`
               return (
                 <button key={file.name} type="button" onClick={() => setPreview(file)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-left">
                   {fileType.startsWith('image/') && fileType !== 'image/svg+xml'
@@ -227,10 +227,10 @@ export function PublicApp(): ReactElement {
           {data && data.files.length > 0 && start < data.totalCount && <div className="flex justify-center p-3"><Button loading={loading} onClick={() => void load(false)}>{t('imgbed.common.loading')}</Button></div>}
         </>
       )}
-      <Modal open={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.name.split('/').pop() ?? ''} width={900} footer={preview ? <div className="flex justify-end gap-2"><Button icon={<Copy size={13} />} onClick={() => void copyText(`${location.origin}/imgbed/file/${filePath(preview.name)}`)}>{t('imgbed.upload.copy')}</Button><a href={`/imgbed/file/${filePath(preview.name)}?download=1`} className="inline-flex items-center gap-1 text-[length:var(--text-12)] text-[var(--accent)]"><Download size={13} />{t('imgbed.library.download')}</a></div> : null}>
+      <Modal open={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.name.split('/').pop() ?? ''} width={900} footer={preview ? <div className="flex justify-end gap-2"><Button icon={<Copy size={13} />} onClick={() => void copyText(`${location.origin}/imgbed/file/${filePath(preview.name)}?v=${preview.metadata.UpdatedAt ?? preview.metadata.TimeStamp ?? 0}`)}>{t('imgbed.upload.copy')}</Button><a href={`/imgbed/file/${filePath(preview.name)}?v=${preview.metadata.UpdatedAt ?? preview.metadata.TimeStamp ?? 0}&download=1`} className="inline-flex items-center gap-1 text-[length:var(--text-12)] text-[var(--accent)]"><Download size={13} />{t('imgbed.library.download')}</a></div> : null}>
         {preview && (() => {
           const fileType = preview.metadata.FileType ?? ''
-          const url = `/imgbed/file/${filePath(preview.name)}`
+          const url = `/imgbed/file/${filePath(preview.name)}?v=${preview.metadata.UpdatedAt ?? preview.metadata.TimeStamp ?? 0}`
           if (fileType.startsWith('video/')) return <video src={url} controls autoPlay className="max-h-[70vh] w-full" />
           if (fileType.startsWith('audio/')) return <audio src={url} controls autoPlay className="w-full" />
           if (fileType.startsWith('image/')) return <ImagePreview url={url} alt={preview.name} onPrev={() => stepPreview(-1)} onNext={() => stepPreview(1)} />

@@ -14,8 +14,9 @@ function allowedDirectories(value: string): string[] {
 
 imgbedPublicRoutes.get('/public/config', async (c) => {
   const others = await getSettingsGroup(c.env.DB, 'others')
+  if (!others.publicBrowse.enabled) return c.json({ enabled: false, allowedDirs: [] })
   return c.json({
-    enabled: others.publicBrowse.enabled,
+    enabled: true,
     allowedDirs: allowedDirectories(others.publicBrowse.allowedDir),
   })
 })
@@ -68,6 +69,7 @@ function publicFile(file: ImgbedFile) {
     metadata: {
       FileType: file.fileType,
       TimeStamp: file.createdAt,
+      UpdatedAt: file.updatedAt,
       FileSize: (file.sizeBytes / 1024 / 1024).toFixed(2),
       Width: file.width,
       Height: file.height,
