@@ -32,6 +32,8 @@ run_worker_first = [
   "/inknote/*",
   "/memos",
   "/memos/*",
+  "/blog-admin",
+  "/blog-admin/*",
   "/calendar",
   "/todo",
   "/email",

@@ -11,13 +11,14 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
   | 'notes'
   | 'inknote'
   | 'memos'
+  | 'blog-admin'
   | 'clouddrive'
   | 'calendar'
   | 'todo'
@@ -47,6 +48,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'notes', path: '/notes', labelKey: 'app.tabs.notes', icon: FileText },
   { id: 'inknote', path: '/inknote', labelKey: 'app.tabs.inknote', icon: NotebookPen },
   { id: 'memos', path: '/memos', labelKey: 'app.tabs.memos', icon: StickyNote },
+  { id: 'blog-admin', path: '/blog-admin', labelKey: 'app.tabs.blog_admin', icon: Newspaper },
   { id: 'nav', path: '/nav', labelKey: 'app.tabs.nav', icon: Compass },
   { id: 'clouddrive', path: '/clouddrive', labelKey: 'app.tabs.clouddrive', icon: HardDrive },
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
@@ -78,6 +80,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/reading/', 'reading'],
   ['/imgbed/', 'imgbed'],
   ['/memos/', 'memos'],
+  ['/blog-admin/', 'blog-admin'],
   ['/clouddrive/', 'clouddrive'],
   ['/email/', 'email'],
   ['/music/', 'music'],
