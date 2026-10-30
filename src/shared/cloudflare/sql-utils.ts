@@ -355,12 +355,10 @@ function statementIsDestructive(statement: string): boolean {
   return dml !== undefined && !top.includes('WHERE')
 }
 
-/** Whether the text contains a statement that can lose rows or an object outright. */
 export function isDestructiveSql(sql: string): boolean {
   return splitSqlStatements(sql).some(statementIsDestructive)
 }
 
-/** Whether the text contains a statement that changes the schema (which a browser has to reload). */
 export function isSchemaChangeSql(sql: string): boolean {
   return splitSqlStatements(sql).some((statement) => {
     const first = topLevelWords(statement).find((word) => word.depth === 0)?.value
