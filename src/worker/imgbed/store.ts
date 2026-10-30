@@ -366,14 +366,17 @@ export async function listFiles(db: D1Database, query: ImgbedListQuery): Promise
     .bind(...binds).first<{ n: number }>()
   const directWhere = `${base.where} AND ${dir ? 'f.directory = ?' : "f.directory = ''"}`
   const directBinds = dir ? [...base.binds, dir] : [...base.binds]
-  const directRow = await db.prepare(`SELECT COUNT(*) AS n FROM imgbed_files f WHERE ${directWhere}`)
-    .bind(...directBinds).first<{ n: number }>()
+  const directRow = recursive
+    ? await db.prepare(`SELECT COUNT(*) AS n FROM imgbed_files f WHERE ${directWhere}`).bind(...directBinds).first<{ n: number }>()
+    : totalRow
 
   const dirWhere = `${base.where} AND ${dir ? 'f.directory LIKE ?' : '1 = 1'}`
   const dirBinds = dir ? [...base.binds, `${dir}%`] : [...base.binds]
-  const dirRows = await db.prepare(
-    `SELECT DISTINCT f.directory AS directory FROM imgbed_files f WHERE ${dirWhere}`,
-  ).bind(...dirBinds).all<{ directory: string }>()
+  const dirRows = query.skipDirectories === true
+    ? { results: [] as { directory: string }[] }
+    : await db.prepare(
+      `SELECT DISTINCT f.directory AS directory FROM imgbed_files f WHERE ${dirWhere}`,
+    ).bind(...dirBinds).all<{ directory: string }>()
   const directorySet = new Set<string>()
   for (const row of dirRows.results ?? []) {
     if (!row.directory || !row.directory.startsWith(dir)) continue

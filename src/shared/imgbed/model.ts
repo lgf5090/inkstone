@@ -399,6 +399,7 @@ export interface ImgbedListQuery {
   createdFrom?: number
   createdTo?: number
   recursive?: boolean
+  skipDirectories?: boolean
   sort?: 'time' | 'size' | 'rawName' | 'fileName'
   sortOrder?: 'asc' | 'desc'
 }

@@ -1,9 +1,10 @@
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import type { ImgbedFile } from '@shared/imgbed/model'
-import { getFile, getSettingsGroup } from './store'
+import { getFileRow, getSettingsGroup, rowToFile } from './store'
 import { parseSecuritySettings } from '@shared/imgbed/settings'
-import { listResolvedChannels } from './channels'
+import { getResolvedChannel } from './channels'
+import type { ImgbedChannelType } from '@shared/imgbed/model'
 import { getWholeFile } from './storage'
 import { fileAccessDecision } from './access'
 import { optionalAdminActor } from './auth'
@@ -30,9 +31,7 @@ function denied(reason: 'blocked' | 'whitelist' | 'domain'): Response {
 }
 
 async function resolveChannel(env: AppBindings['Bindings'], db: D1Database, file: ImgbedFile) {
-  const channels = await listResolvedChannels(env, db, true)
-  return channels.find((channel) => channel.type === file.source && channel.name === file.channelName)
-    ?? null
+  return getResolvedChannel(env, db, file.source as ImgbedChannelType, file.channelName)
 }
 
 async function chunkedResponse(file: ImgbedFile, channel: NonNullable<Awaited<ReturnType<typeof resolveChannel>>>, range: string | null, headers: Headers): Promise<Response | null> {
@@ -119,8 +118,9 @@ async function handleFile(c: Context<AppBindings>): Promise<Response> {
   try { id = decodeURIComponent(raw) } catch { return new Response('Bad file id', { status: 400 }) }
   if (!id || id.includes('..') || id.includes('\\') || /[\u0000-\u001f]/.test(id)) return new Response('Bad file id', { status: 400 })
   const db = c.env.DB
-  const file = await getFile(db, id)
-  if (!file) return new Response('File not found', { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  const row = await getFileRow(db, id)
+  if (!row) return new Response('File not found', { status: 404, headers: { 'Cache-Control': 'no-store' } })
+  const file = rowToFile(row)
   const security = parseSecuritySettings(await getSettingsGroup(db, 'security'))
   const url = new URL(c.req.url)
   const fromAdmin = url.searchParams.get('from') === 'admin'

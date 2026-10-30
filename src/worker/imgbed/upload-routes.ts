@@ -9,7 +9,7 @@ import { deleteUploadParts, fileExists, getSettingsGroup, insertFile, listUpload
 import { parseSecuritySettings } from '@shared/imgbed/settings'
 import { requestClientIp } from '../lib/request'
 import { lookupAddress } from './upload-service'
-import { availableChannelsForUpload, listResolvedChannels } from './channels'
+import { availableChannelsForUpload, getResolvedChannel } from './channels'
 import { pickChannel } from './upload-service'
 import { abortMultipart, completeMultipart, createMultipart, putDiscordPart, putTelegramPart, uploadMultipartPart, type MultipartSession } from './storage'
 import { newId } from '../lib/id'
@@ -152,8 +152,7 @@ imgbedUploadRoutes.put('/uploads/:id/parts/:index', async (c) => {
     if (!Number.isInteger(index) || index < 0 || index >= row.total_parts) throw ApiError.badRequest('Invalid part index')
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.byteLength > row.part_size + 1024) throw new StorageError('Part is too large', 413)
-    const channels = await listResolvedChannels(c.env, c.env.DB, true)
-    const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
+    const channel = await getResolvedChannel(c.env, c.env.DB, row.channel as ImgbedChannelType, row.channel_name)
     if (!channel) throw new StorageError('The upload channel is no longer configured', 503)
     let part: Record<string, unknown>
     if (channel.type === 'telegram') {
@@ -197,8 +196,7 @@ imgbedUploadRoutes.post('/uploads/:id/complete', async (c) => {
       }))
     }
     if (parts.length !== row.total_parts) throw ApiError.badRequest(`Expected ${row.total_parts} parts, received ${parts.length}`)
-    const channels = await listResolvedChannels(c.env, c.env.DB, true)
-    const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
+    const channel = await getResolvedChannel(c.env, c.env.DB, row.channel as ImgbedChannelType, row.channel_name)
     if (!channel) throw new StorageError('The upload channel is no longer configured', 503)
     let objectKey = row.object_key
     let storedParts: ImgbedPart[] | null = null
@@ -238,8 +236,7 @@ imgbedUploadRoutes.delete('/uploads/:id', async (c) => {
     const row = await session(c, c.req.param('id'))
     if (row.actor_key !== actor?.actorKey) throw ApiError.forbidden('This upload belongs to another actor')
     if (row.remote_upload_id) {
-      const channels = await listResolvedChannels(c.env, c.env.DB, true)
-      const channel = channels.find((item) => item.type === row.channel && item.name === row.channel_name)
+      const channel = await getResolvedChannel(c.env, c.env.DB, row.channel as ImgbedChannelType, row.channel_name)
       if (channel) await abortMultipart(c.env, channel, { uploadId: row.remote_upload_id, objectKey: row.object_key })
     }
     await deleteUploadParts(c.env.DB, row.id)

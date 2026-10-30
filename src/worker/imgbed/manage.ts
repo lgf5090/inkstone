@@ -12,10 +12,11 @@ import {
   type ImgbedFile,
   type ImgbedLinkFormat,
   type ImgbedListQuery,
+  type ImgbedChannelType,
 } from '@shared/imgbed/model'
 import { parseSettingsGroup, type ImgbedOthersSettings, type ImgbedSecuritySettings } from '@shared/imgbed/settings'
 import { requireImgbedActor, type ImgbedActor } from './auth'
-import { listResolvedChannels } from './channels'
+import { getResolvedChannel, listResolvedChannels } from './channels'
 import {
   addFileTags,
   allDirectories,
@@ -75,6 +76,7 @@ function queryList(c: { req: { url: string } }): ImgbedListQuery {
     createdFrom: url.searchParams.get('createdFrom') ? Number(url.searchParams.get('createdFrom')) : undefined,
     createdTo: url.searchParams.get('createdTo') ? Number(url.searchParams.get('createdTo')) : undefined,
     recursive: url.searchParams.get('recursive') === 'true',
+    skipDirectories: url.searchParams.get('skipDirectories') === 'true',
     sort: (url.searchParams.get('sort') ?? 'time') as ImgbedListQuery['sort'],
     sortOrder: (url.searchParams.get('sortOrder') ?? 'desc') as ImgbedListQuery['sortOrder'],
   }
@@ -266,6 +268,27 @@ imgbedManageRoutes.post('/manage/files/move', async (c) => {
     }
   }
   return c.json({ processed, failed })
+})
+
+imgbedManageRoutes.post('/manage/files/delete', async (c) => {
+  await requireImgbedActor(c, 'delete')
+  const body = await c.req.json().catch(() => null) as { ids?: string[] } | null
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((id) => typeof id === 'string').slice(0, 1000) : []
+  if (!ids.length) throw ApiError.badRequest('ids are required')
+  let deleted = 0
+  const failed: { id: string; error: string }[] = []
+  for (const id of ids) {
+    const file = await getFile(c.env.DB, id)
+    if (!file) { failed.push({ id, error: 'not_found' }); continue }
+    try {
+      const channel = await getResolvedChannel(c.env, c.env.DB, file.source as ImgbedChannelType, file.channelName)
+      if (!channel) throw new Error('channel_not_configured')
+      await deleteWholeFile(c.env, channel, file)
+      await deleteFileRow(c.env.DB, file.id)
+      deleted += 1
+    } catch (error) { failed.push({ id, error: error instanceof Error ? error.message : 'delete_failed' }) }
+  }
+  return c.json({ deleted, failed }, failed.length ? 207 : 200)
 })
 
 imgbedManageRoutes.delete('/manage/files', async (c) => {

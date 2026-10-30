@@ -5,11 +5,12 @@ import { verifyPassword } from '../lib/password'
 import { parseOthersSettings } from '@shared/imgbed/settings'
 import { baseNameOf } from '@shared/imgbed/model'
 import { getSettingsGroup, getFile, listFiles } from './store'
-import { listResolvedChannels } from './channels'
+import { getResolvedChannel } from './channels'
 import { getWholeFile, deleteWholeFile, moveWholeFile } from './storage'
 import { deleteFileRow, renameFileRow } from './store'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import type { ImgbedActor } from './auth'
+import type { ImgbedChannelType } from '@shared/imgbed/model'
 import { imgbedResponseHeaders } from './file-headers'
 import { requestClientIp } from '../lib/request'
 import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
@@ -71,9 +72,7 @@ async function ownerId(c: { env: AppBindings['Bindings'] }): Promise<string> {
 }
 
 async function channelFor(env: AppBindings['Bindings'], db: D1Database, file: ImgbedFile) {
-  const channels = await listResolvedChannels(env, db, true)
-  return channels.find((channel) => channel.type === file.source && channel.name === file.channelName)
-    ?? null
+  return getResolvedChannel(env, db, file.source as ImgbedChannelType, file.channelName)
 }
 
 imgbedDavRoutes.on(['OPTIONS'], '*', () => new Response(null, {

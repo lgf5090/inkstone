@@ -142,6 +142,9 @@ function safeHeaders(value: string | undefined): Record<string, string> {
   }
 }
 
+const credentialCache = new Map<string, { value: ImgbedSecretRecord; at: number }>()
+const CREDENTIAL_CACHE_MS = 60_000
+
 export async function resolveChannelCredentials(
   env: Env,
   channel: ImgbedChannel,
@@ -149,7 +152,11 @@ export async function resolveChannelCredentials(
 ): Promise<ImgbedSecretRecord | null> {
   if (channel.fixed) return envChannel(env, channel.type)?.credentials ?? null
   if (!ciphertext) return {}
-  return await decryptImgbedSecret(env, channel.id, ciphertext)
+  const cached = credentialCache.get(ciphertext)
+  if (cached && Date.now() - cached.at < CREDENTIAL_CACHE_MS) return cached.value
+  const value = await decryptImgbedSecret(env, channel.id, ciphertext)
+  if (value) credentialCache.set(ciphertext, { value, at: Date.now() })
+  return value
 }
 
 export async function listResolvedChannels(
@@ -171,6 +178,22 @@ export async function listResolvedChannels(
     out.push({ ...channel, credentials })
   }
   return includeDisabled ? out : out.filter((channel) => channel.enabled)
+}
+
+export async function getResolvedChannel(
+  env: Env,
+  db: D1Database,
+  type: ImgbedChannelType,
+  name: string,
+): Promise<ResolvedChannel | null> {
+  const virtual = envChannel(env, type)
+  if (virtual && virtual.name === name) return virtual
+  const row = await db.prepare('SELECT * FROM imgbed_channels WHERE type = ?1 AND name = ?2 LIMIT 1')
+    .bind(type, name).first<ChannelRow>()
+  if (!row) return virtual && !name ? virtual : null
+  const channel = toChannel(row)
+  const credentials = await resolveChannelCredentials(env, channel, row.credentials_ciphertext) ?? {}
+  return { ...channel, credentials }
 }
 
 export async function getChannelRow(db: D1Database, id: string): Promise<ChannelRow | null> {
