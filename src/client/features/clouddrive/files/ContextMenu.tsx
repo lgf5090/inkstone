@@ -31,6 +31,7 @@ export interface ContextMenuProps {
   /** The current selection the action applies to; the right-clicked entry is included. */
   targets: CloudDriveEntry[]
   readOnly: boolean
+  external?: boolean
   showCheckboxes: boolean
   canPaste: boolean
   busy: boolean
@@ -57,6 +58,7 @@ export function ContextMenu({
   target,
   targets,
   readOnly,
+  external = false,
   showCheckboxes,
   canPaste,
   busy,
@@ -93,7 +95,7 @@ export function ContextMenu({
   const entry = target?.entry ?? null
   const writable = !readOnly && targets.every((item) => !item.readOnly) && targets.length > 0
   const metadataWritable = writable && targets.every((item) => item.storageKind !== 'external')
-  const copyable = writable && targets.every((item) => item.storageKind !== 'external')
+  const copyable = writable && !external && targets.every((item) => item.storageKind !== 'external')
   const single = targets.length === 1 && entry !== null
   const isFolder = entry?.kind === 'folder'
 
@@ -110,6 +112,7 @@ export function ContextMenu({
         id: 'download',
         label: isFolder ? t('clouddrive.action.download_zip') : t('clouddrive.action.download'),
         icon: <Download size={14} />,
+        disabled: isFolder && external,
         onSelect: () => onDownload(targets),
       },
       {
@@ -144,14 +147,14 @@ export function ContextMenu({
         id: 'cut',
         label: t('clouddrive.action.cut'),
         icon: <Scissors size={14} />,
-        disabled: !writable,
+        disabled: !writable || external,
         onSelect: () => onCut(targets),
       },
       {
         id: 'paste',
         label: t('clouddrive.action.paste'),
         icon: <ClipboardPaste size={14} />,
-        disabled: !writable || !canPaste,
+        disabled: !writable || external || !canPaste,
         onSelect: onPaste,
       },
       {
@@ -171,7 +174,7 @@ export function ContextMenu({
       },
       {
         id: 'delete',
-        label: t('clouddrive.action.delete'),
+        label: external ? t('clouddrive.action.delete_external') : t('clouddrive.action.delete'),
         icon: <Trash2 size={14} />,
         tone: 'danger',
         disabled: !writable || busy,
@@ -221,6 +224,7 @@ export function ContextMenu({
     targets,
     isFolder,
     writable,
+    external,
     metadataWritable,
     copyable,
     single,

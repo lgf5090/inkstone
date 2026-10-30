@@ -164,13 +164,22 @@ export async function externalProxyLocation(
   return appendProxyTarget(proxy, source)
 }
 
+export async function externalCapacityBytes(
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+): Promise<number | null> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) return null
+  const value = configOf(storage).capacityBytes
+  return typeof value === 'number' && value > 0 ? value : null
+}
+
 export async function externalFolderSize(
   env: Env,
   db: D1Database,
   mount: CloudDriveMountInfo,
   path: string,
-): Promise<{ bytes: number; truncated: boolean }> {
-  const storage = await storageFor(db, mount.id, mount.storageId)
+): Promise<{ bytes: number; truncated: boolean }> {  const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
   const queue = [path]
   const visited = new Set<string>()
@@ -252,7 +261,7 @@ function toEntry(mount: CloudDriveMountInfo, parent: string, entry: DriverEntry)
     uploadedAt: entry.modifiedAt,
     modifiedAt: entry.modifiedAt,
     starredAt: null,
-    readOnly: true,
+    readOnly: mount.readOnly,
     hasThumbnail: false,
     storage: mount.storageType,
     storageKind: 'external',
@@ -414,7 +423,7 @@ async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMount
   const base = `${target.url.origin}${target.url.pathname.replace(/\/$/, '')}`
   const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
   const relative = path === '/' ? '' : path.replace(/^\/+/, '')
-  const url = `${base}/${[root, relative].filter(Boolean).join('/')}`
+  const url = `${base}/${[root, relative].filter(Boolean).join('/')}`.replace(/\/?$/, '/')
   const headers: Record<string, string> = { Depth: '1' }
   if (credentials.username || credentials.password) headers.Authorization = `Basic ${btoa(`${credentials.username ?? ''}:${credentials.password ?? ''}`)}`
   const response = await fetch(url, { method: 'PROPFIND', headers, redirect: 'manual' })
@@ -1033,6 +1042,256 @@ export async function deleteExternalObject(
   if (!response.ok && response.status !== 404) {
     throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 part delete failed (${response.status})`)
   }
+}
+
+function webdavBase(storage: StorageRow): string {
+  const config = configOf(storage)
+  const target = checkTarget(String(config.baseUrl ?? ''))
+  if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
+  const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
+  return [target.url.origin + target.url.pathname.replace(/\/$/, ''), root].filter(Boolean).join('/')
+}
+
+function webdavUrl(storage: StorageRow, path: string): string {
+  const base = webdavBase(storage)
+  const relative = path.replace(/^\/+|\/+$/g, '')
+  return relative ? `${base}/${encodeKey(relative)}` : `${base}/`
+}
+
+async function webdavHeaders(env: Env, storage: StorageRow): Promise<Record<string, string>> {
+  const credentials = await credentialsOf(env, storage)
+  const headers: Record<string, string> = {}
+  if (credentials.username || credentials.password) {
+    headers.Authorization = `Basic ${btoa(`${credentials.username ?? ''}:${credentials.password ?? ''}`)}`
+  }
+  return headers
+}
+
+async function webdavWriteRequest(url: string, init: RequestInit): Promise<Response> {
+  const response = await fetch(url, { ...init, redirect: 'manual' })
+  if (![301, 302, 303, 307, 308].includes(response.status)) return response
+  const location = response.headers.get('location')
+  if (!location) return response
+  const target = new URL(location, url)
+  if (target.origin !== new URL(url).origin) return response
+  await discard(response)
+  return await fetch(target.toString(), { ...init, redirect: 'manual' })
+}
+
+export async function writeExternalFile(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  if (storage.type === 's3') {
+    const config = configOf(storage)
+    const key = joinPath(String(config.rootPath ?? ''), path)
+    await putS3Key(env, db, mount, key, bytes, contentType)
+    return
+  }
+  if (storage.type === 'webdav') {
+    const headers = await webdavHeaders(env, storage)
+    const response = await webdavWriteRequest(webdavUrl(storage, path), { method: 'PUT', headers: { ...headers, 'Content-Type': contentType }, body: bytes })
+    await discard(response)
+    if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV write failed (${response.status})`)
+    return
+  }
+  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+}
+
+export async function mkdirExternal(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<void> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  if (storage.type === 's3') {
+    const config = configOf(storage)
+    const key = `${joinPath(String(config.rootPath ?? ''), path)}/`.replace(/^\/+/, '')
+    await putS3Key(env, db, mount, key, new Uint8Array(0), 'application/x-directory')
+    return
+  }
+  if (storage.type === 'webdav') {
+    const headers = await webdavHeaders(env, storage)
+    const segments = path.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean)
+    let current = ''
+    for (const segment of segments) {
+      current = `${current}/${segment}`
+      const response = await webdavWriteRequest(webdavUrl(storage, current), { method: 'MKCOL', headers })
+      await discard(response)
+      if (!response.ok && response.status !== 405) {
+        throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV folder creation failed (${response.status})`)
+      }
+    }
+    return
+  }
+  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+}
+
+async function listS3Keys(env: Env, storage: StorageRow, prefix: string): Promise<string[]> {
+  const config = configOf(storage)
+  const target = checkTarget(String(config.endpoint ?? ''))
+  if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
+  const credentials = await credentialsOf(env, storage)
+  const aws = new AwsClient({
+    accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '',
+    region: String(config.region ?? 'auto'), service: 's3', retries: 1,
+  })
+  const keys: string[] = []
+  let token: string | null = null
+  do {
+    const url = s3RequestUrl(target.url, config, null)
+    url.searchParams.set('list-type', '2')
+    url.searchParams.set('max-keys', '1000')
+    if (prefix) url.searchParams.set('prefix', prefix)
+    if (token) url.searchParams.set('continuation-token', token)
+    const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual' })
+    const xml = await response.text()
+    if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 list failed (${response.status})`)
+    for (const match of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(xmlText(match[1]!))
+    token = /<IsTruncated>true<\/IsTruncated>/i.test(xml)
+      ? xmlText(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/i.exec(xml)?.[1] ?? '') || null
+      : null
+    if (keys.length > MAX_DRIVER_ENTRIES) throw new ApiError(413, 'clouddrive_folder_too_large', 'The remote folder holds too many objects for this operation')
+  } while (token)
+  return keys
+}
+
+async function copyS3Object(env: Env, db: D1Database, mount: CloudDriveMountInfo, fromKey: string, toKey: string): Promise<void> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage || storage.type !== 's3') throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const config = configOf(storage)
+  const target = checkTarget(String(config.endpoint ?? ''))
+  if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
+  const credentials = await credentialsOf(env, storage)
+  const aws = new AwsClient({
+    accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '',
+    region: String(config.region ?? 'auto'), service: 's3', retries: 1,
+  })
+  const url = s3RequestUrl(target.url, config, toKey)
+  const source = `/${bucketName(config)}/${encodeKey(fromKey)}`
+  const response = await aws.fetch(url.toString(), {
+    method: 'PUT', headers: { 'x-amz-copy-source': source }, redirect: 'manual',
+  })
+  await discard(response)
+  if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 copy failed (${response.status})`)
+}
+
+function bucketName(config: Record<string, unknown>): string {
+  return String(config.bucketName ?? '')
+}
+
+async function s3AbsoluteClient(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+): Promise<{ aws: AwsClient; config: Record<string, unknown>; endpoint: URL }> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage || storage.type !== 's3') throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const config = configOf(storage)
+  const target = checkTarget(String(config.endpoint ?? ''))
+  if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
+  const credentials = await credentialsOf(env, storage)
+  return {
+    config,
+    endpoint: target.url,
+    aws: new AwsClient({
+      accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '',
+      region: String(config.region ?? 'auto'), service: 's3', retries: 1,
+    }),
+  }
+}
+
+async function putS3Key(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const { aws, config, endpoint } = await s3AbsoluteClient(env, db, mount)
+  const response = await aws.fetch(s3RequestUrl(endpoint, config, key).toString(), {
+    method: 'PUT', headers: { 'Content-Type': contentType }, body: bytes.slice().buffer,
+  })
+  await discard(response)
+  if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 write failed (${response.status})`)
+}
+
+async function deleteS3Key(env: Env, db: D1Database, mount: CloudDriveMountInfo, key: string): Promise<void> {
+  const { aws, config, endpoint } = await s3AbsoluteClient(env, db, mount)
+  const response = await aws.fetch(s3RequestUrl(endpoint, config, key).toString(), { method: 'DELETE', redirect: 'manual' })
+  await discard(response)
+  if (!response.ok && response.status !== 404) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 delete failed (${response.status})`)
+}
+
+export async function deleteExternalPath(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<void> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  if (storage.type === 's3') {
+    const config = configOf(storage)
+    const key = joinPath(String(config.rootPath ?? ''), path)
+    const children = key ? await listS3Keys(env, storage, `${key}/`) : []
+    for (const child of children) await deleteS3Key(env, db, mount, child)
+    await deleteS3Key(env, db, mount, key)
+    return
+  }
+  if (storage.type === 'webdav') {
+    const headers = await webdavHeaders(env, storage)
+    const response = await webdavWriteRequest(webdavUrl(storage, path), { method: 'DELETE', headers })
+    await discard(response)
+    if (!response.ok && response.status !== 404) {
+      throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV delete failed (${response.status})`)
+    }
+    return
+  }
+  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+}
+
+export async function moveExternalPath(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  from: string,
+  to: string,
+): Promise<void> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  if (storage.type === 's3') {
+    const config = configOf(storage)
+    const root = String(config.rootPath ?? '')
+    const fromKey = joinPath(root, from)
+    const toKey = joinPath(root, to)
+    const children = fromKey ? await listS3Keys(env, storage, `${fromKey}/`) : []
+    for (const child of children) {
+      const suffix = child.slice(fromKey.length)
+      await copyS3Object(env, db, mount, child, `${toKey}${suffix}`)
+    }
+    await copyS3Object(env, db, mount, fromKey, toKey)
+    for (const child of children) await deleteS3Key(env, db, mount, child)
+    await deleteS3Key(env, db, mount, fromKey)
+    return
+  }
+  if (storage.type === 'webdav') {
+    const headers = await webdavHeaders(env, storage)
+    const response = await webdavWriteRequest(webdavUrl(storage, from), { method: 'MOVE', headers: { ...headers, Destination: webdavUrl(storage, to), Overwrite: 'T' } })
+    await discard(response)
+    if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV move failed (${response.status})`)
+    return
+  }
+  throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
 }
 
 function encodeKey(key: string): string {

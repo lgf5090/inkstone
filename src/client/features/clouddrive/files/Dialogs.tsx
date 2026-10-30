@@ -247,12 +247,14 @@ export function ConfirmDeleteDialog({
   open,
   count,
   busy,
+  external = false,
   onClose,
   onConfirm,
 }: {
   open: boolean
   count: number
   busy: boolean
+  external?: boolean
   onClose: () => void
   onConfirm: () => Promise<boolean>
 }) {
@@ -260,7 +262,7 @@ export function ConfirmDeleteDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={t('clouddrive.dialog.delete_title')}
+      title={external ? t('clouddrive.dialog.delete_external_title') : t('clouddrive.dialog.delete_title')}
       width={440}
       dismissible={!busy}
       footer={(
@@ -276,13 +278,15 @@ export function ConfirmDeleteDialog({
               })
             }}
           >
-            {t('clouddrive.dialog.delete')}
+            {external ? t('clouddrive.dialog.delete_external') : t('clouddrive.dialog.delete')}
           </Button>
         </>
       )}
     >
       <p className="text-[length:var(--text-12-5)] leading-relaxed text-[var(--text-secondary)]">
-        {t('clouddrive.dialog.delete_body', { count })}
+        {external
+          ? t('clouddrive.dialog.delete_external_body', { count })
+          : t('clouddrive.dialog.delete_body', { count })}
       </p>
     </Modal>
   )

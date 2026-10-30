@@ -46,6 +46,7 @@ const TYPE_KEYS = {
 
 export type StorageType = keyof typeof TYPE_KEYS
 export const STORAGE_TYPE_VALUES = Object.keys(TYPE_KEYS) as StorageType[]
+export const WRITABLE_EXTERNAL_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
 
 export function storageTypeLabel(type: string): string {
   const key = TYPE_KEYS[type as StorageType]

@@ -14,6 +14,7 @@ export type FileListChange =
 export interface FileActionsOptions {
   mountId: string
   refresh: () => void | Promise<void>
+  external?: boolean
   /** Local list updates applied before the refresh confirms them. */
   onLocalChange?: (change: FileListChange) => void
 }
@@ -34,9 +35,9 @@ export interface FileActions {
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
-  move: (ids: string[], toPath: string) => Promise<boolean>
+  move: (ids: string[], toPath: string, entries?: CloudDriveEntry[]) => Promise<boolean>
   copy: (ids: string[], toPath: string) => Promise<boolean>
-  trash: (ids: string[]) => Promise<boolean>
+  trash: (ids: string[], entries?: CloudDriveEntry[]) => Promise<boolean>
   restore: (ids: string[]) => Promise<boolean>
   purge: (ids?: string[], all?: boolean) => Promise<boolean>
   upload: (files: File[], parentPath: string) => Promise<boolean>
@@ -60,7 +61,16 @@ function failedResults(results: unknown[]): number {
   }).length
 }
 
-export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsOptions): FileActions {
+function childPath(parent: string, name: string): string {
+  return parent === '/' ? `/${name}` : `${parent}/${name}`
+}
+
+function parentPath(path: string): string {
+  const index = path.lastIndexOf('/')
+  return index <= 0 ? '/' : path.slice(0, index)
+}
+
+export function useFileActions({ mountId, refresh, external = false, onLocalChange }: FileActionsOptions): FileActions {
   const [pending, setPending] = useState(0)
 
   const execute = useCallback(async (work: () => Promise<void>): Promise<boolean> => {
@@ -81,16 +91,21 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     return true
   }, [refresh])
 
-  const mkdir = useCallback((parentPath: string, name: string) => execute(async () => {
-    await clouddriveApi.mkdir({ mountId, parentPath, name })
+  const mkdir = useCallback((parentPathValue: string, name: string) => execute(async () => {
+    if (external) await clouddriveApi.externalMkdir(mountId, childPath(parentPathValue, name))
+    else await clouddriveApi.mkdir({ mountId, parentPath: parentPathValue, name })
     showSuccess(t('clouddrive.toast.created'))
-  }), [execute, mountId])
+  }), [execute, external, mountId])
 
   const rename = useCallback((entry: CloudDriveEntry, name: string) => execute(async () => {
-    const result = await clouddriveApi.patch(entry.id, { name })
-    onLocalChange?.({ type: 'replace', entry: result.entry })
+    if (external) {
+      await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPath(entry.path), name))
+    } else {
+      const result = await clouddriveApi.patch(entry.id, { name })
+      onLocalChange?.({ type: 'replace', entry: result.entry })
+    }
     showSuccess(t('clouddrive.toast.renamed'))
-  }), [execute, onLocalChange])
+  }), [execute, external, mountId, onLocalChange])
 
   const setColor = useCallback((entry: CloudDriveEntry, color: string | null) => execute(async () => {
     const result = await clouddriveApi.patch(entry.id, { color })
@@ -116,13 +131,23 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     showSuccess(t('clouddrive.toast.tags_saved'))
   }), [execute, onLocalChange])
 
-  const move = useCallback((ids: string[], toPath: string) => execute(async () => {
-    const result = await clouddriveApi.move({ ids, toPath, conflict: 'rename' })
-    onLocalChange?.({ type: 'remove', ids })
-    const failed = failedResults(result.results)
-    if (failed > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
-    else showSuccess(t('clouddrive.toast.moved', { count: ids.length }))
-  }), [execute, onLocalChange])
+  const move = useCallback((ids: string[], toPath: string, entries?: CloudDriveEntry[]) => execute(async () => {
+    if (external) {
+      if (!entries || entries.length === 0) throw new CloudDriveApiError('internal', 'missing entries', 0)
+      for (const entry of entries) {
+        await clouddriveApi.externalMove(mountId, entry.path, childPath(toPath, entry.name))
+      }
+      onLocalChange?.({ type: 'remove', ids })
+    } else {
+      const result = await clouddriveApi.move({ ids, toPath, conflict: 'rename' })
+      onLocalChange?.({ type: 'remove', ids })
+      const failed = failedResults(result.results)
+      if (failed > 0) showError(new CloudDriveApiError('internal', 'partial move', 0))
+      else showSuccess(t('clouddrive.toast.moved', { count: ids.length }))
+      return
+    }
+    showSuccess(t('clouddrive.toast.moved', { count: entries.length }))
+  }), [execute, external, mountId, onLocalChange])
 
   const copy = useCallback((ids: string[], toPath: string) => execute(async () => {
     const result = await clouddriveApi.copy({ ids, toPath, conflict: 'rename' })
@@ -131,11 +156,19 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     else showSuccess(t('clouddrive.toast.copied', { count: ids.length }))
   }), [execute])
 
-  const trash = useCallback((ids: string[]) => execute(async () => {
+  const trash = useCallback((ids: string[], entries?: CloudDriveEntry[]) => execute(async () => {
+    if (external) {
+      if (!entries || entries.length === 0) throw new CloudDriveApiError('internal', 'missing entries', 0)
+      const result = await clouddriveApi.externalDelete(mountId, entries.map((entry) => entry.path))
+      onLocalChange?.({ type: 'remove', ids })
+      if (result.failed > 0) showError(new CloudDriveApiError('internal', `${result.failed} item(s) could not be deleted`, 0))
+      else showSuccess(t('clouddrive.toast.deleted_external', { count: result.deleted }))
+      return
+    }
     const result = await clouddriveApi.remove(ids)
     onLocalChange?.({ type: 'remove', ids })
     showSuccess(t('clouddrive.toast.deleted', { count: result.deleted || ids.length }))
-  }), [execute, onLocalChange])
+  }), [execute, external, mountId, onLocalChange])
 
   const restore = useCallback((ids: string[]) => execute(async () => {
     await clouddriveApi.restore(ids, mountId)
@@ -148,12 +181,29 @@ export function useFileActions({ mountId, refresh, onLocalChange }: FileActionsO
     showSuccess(t('clouddrive.toast.purged', { count: result.deleted || ids?.length || 0 }))
   }), [execute, onLocalChange, mountId])
 
-  const upload = useCallback(async (files: File[], parentPath: string): Promise<boolean> => {
+  const upload = useCallback(async (files: File[], parentPathValue: string): Promise<boolean> => {
     if (files.length === 0) return true
-    useTransferStore.getState().enqueueUpload(files, { mountId, parentPath })
+    if (external) {
+      setPending((count) => count + 1)
+      try {
+        for (const file of files) {
+          await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, file.name), file)
+        }
+        showSuccess(t('clouddrive.toast.uploaded_external', { count: files.length }))
+        await refresh()
+        return true
+      } catch (error) {
+        showError(error)
+        try { await refresh() } catch (refreshError) { console.warn('[inkstone] CloudDrive refresh after a failed upload failed', refreshError) }
+        return false
+      } finally {
+        setPending((count) => Math.max(0, count - 1))
+      }
+    }
+    useTransferStore.getState().enqueueUpload(files, { mountId, parentPath: parentPathValue })
     showSuccess(t('clouddrive.upload.queued', { count: files.length }))
     return true
-  }, [mountId])
+  }, [external, mountId, refresh])
 
   const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
     setPending((count) => count + 1)

@@ -68,10 +68,11 @@ async function call(method: string, path: string, body?: unknown) {
   return { status: response.status, body: await response.json().catch(() => ({})) as any }
 }
 
-async function raw(method: string, path: string): Promise<Response> {
+async function raw(method: string, path: string, body?: BodyInit, headers: Record<string, string> = {}): Promise<Response> {
   return await app().fetch(new Request(`http://localhost${path}`, {
     method,
-    headers: { 'X-Inkstone-Client': '1' },
+    headers: { 'X-Inkstone-Client': '1', ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
+    body,
   }), env)
 }
 
@@ -113,7 +114,7 @@ describe('cloud drive mounts', () => {
     expect(result.status).toBe(400)
   })
 
-  it('seals storage credentials and mounts an external storage read-only', async () => {
+  it('seals storage credentials and mounts a writable WebDAV storage', async () => {
     const storage = await call('POST', '/api/clouddrive/storages', {
       name: 'dav',
       type: 'webdav',
@@ -130,10 +131,10 @@ describe('cloud drive mounts', () => {
       readOnly: false,
     })
     expect(mount.status).toBe(200)
-    expect(mount.body.mount.readOnly).toBe(true)
+    expect(mount.body.mount.readOnly).toBe(false)
   })
 
-  it('lets an S3 mount opt into distributed parts while other external mounts stay read-only', async () => {
+  it('lets S3 and WebDAV mounts be writable while read-only drivers stay read-only', async () => {
     const storage = await call('POST', '/api/clouddrive/storages', {
       name: 'parts',
       type: 's3',
@@ -149,6 +150,18 @@ describe('cloud drive mounts', () => {
     })
     expect(mount.status).toBe(200)
     expect(mount.body.mount.readOnly).toBe(false)
+    const webdav = await call('POST', '/api/clouddrive/storages', {
+      name: 'dav', type: 'webdav', config: { baseUrl: 'https://dav.example.com' }, credentials: {},
+    })
+    expect((await call('POST', '/api/clouddrive/mounts', {
+      name: 'dav', storageId: webdav.body.storage.id, mountPath: '/dav', readOnly: false,
+    })).body.mount.readOnly).toBe(false)
+    const github = await call('POST', '/api/clouddrive/storages', {
+      name: 'gh', type: 'github', config: { repo: 'owner/repo' }, credentials: {},
+    })
+    expect((await call('POST', '/api/clouddrive/mounts', {
+      name: 'gh', storageId: github.body.storage.id, mountPath: '/gh', readOnly: false,
+    })).body.mount.readOnly).toBe(true)
   })
 
   it('accepts a public storage with no credentials', async () => {
@@ -251,7 +264,7 @@ describe('cloud drive mounts', () => {
     expect(patched.status).toBe(200)
     expect(patched.body.mount).toMatchObject({
       name: 'dav2', mountPath: '/dav2', storageId: other.body.storage.id,
-      remark: 'team drive', sortOrder: 9, cacheTtl: 0, enabled: false, readOnly: true,
+      remark: 'team drive', sortOrder: 9, cacheTtl: 0, enabled: false, readOnly: false,
     })
     const listed = await call('GET', '/api/clouddrive/mounts')
     expect(listed.body.mounts.find((item: any) => item.id === mount.body.mount.id)).toMatchObject({ remark: 'team drive', enabled: false })
@@ -291,7 +304,7 @@ describe('cloud drive mounts', () => {
     })
     expect(mount.status).toBe(200)
     expect(mount.body.mount).toMatchObject({
-      folderSummary: true, webProxy: true, webdavPolicy: 'use_proxy_url', readOnly: true,
+      folderSummary: true, webProxy: true, webdavPolicy: 'use_proxy_url', readOnly: false,
     })
     const patched = await call('PATCH', `/api/clouddrive/mounts/${mount.body.mount.id}`, {
       webdavPolicy: 'native_proxy', webProxy: false, folderSummary: false,
@@ -351,5 +364,49 @@ describe('cloud drive mounts', () => {
     const proxied = await raw('GET', `/api/clouddrive/files/${id}/content`)
     expect(proxied.status).toBe(302)
     expect(proxied.headers.get('location')).toBe(`https://proxy.example.com/fetch?url=${encodeURIComponent('https://cdn.example.com/readme.txt')}`)
+  })
+
+  it('rejects an external upload that would exceed the storage capacity', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'small', type: 'webdav',
+      config: { baseUrl: 'https://dav.example.com/dav', capacityBytes: 5 },
+      credentials: {},
+    })
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'small', storageId: storage.body.storage.id, mountPath: '/small', readOnly: false,
+    })
+    const fetchMock = vi.fn(async () => new Response('<D:multistatus xmlns:D="DAV:"/>', { status: 207 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await raw('POST', `/api/clouddrive/external/${mount.body.mount.id}/upload?path=${encodeURIComponent('/big.txt')}`, '0123456789', { 'content-type': 'text/plain' })
+    expect(result.status).toBe(403)
+    expect(await result.json()).toMatchObject({ error: { code: 'clouddrive_quota_exceeded' } })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]![1] as RequestInit).toMatchObject({ method: 'PROPFIND' })
+  })
+
+  it('writes, creates, moves and deletes files on a writable WebDAV mount', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'dav', type: 'webdav', config: { baseUrl: 'https://dav.example.com/dav' }, credentials: { username: 'u', password: 'p' },
+    })
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'dav', storageId: storage.body.storage.id, mountPath: '/dav', readOnly: false,
+    })
+    const fetchMock = vi.fn(async () => new Response(null, { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const mountId = mount.body.mount.id
+    const uploaded = await raw('POST', `/api/clouddrive/external/${mountId}/upload?path=${encodeURIComponent('/a.txt')}`, 'hello', { 'content-type': 'text/plain' })
+    expect(uploaded.status).toBe(201)
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://dav.example.com/dav/a.txt')
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe('PUT')
+    expect((await raw('POST', `/api/clouddrive/external/${mountId}/folders`, JSON.stringify({ path: '/folder' }))).status).toBe(201)
+    expect((fetchMock.mock.calls.at(-1)![1] as RequestInit).method).toBe('MKCOL')
+    expect((await raw('POST', `/api/clouddrive/external/${mountId}/move`, JSON.stringify({ from: '/a.txt', to: '/folder/a.txt' }))).status).toBe(200)
+    expect((fetchMock.mock.calls.at(-1)![1] as RequestInit).method).toBe('MOVE')
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const deleted = await raw('DELETE', `/api/clouddrive/external/${mountId}/files`, JSON.stringify({ paths: ['/folder/a.txt'] }))
+    expect(deleted.status).toBe(200)
+    expect((fetchMock.mock.calls.at(-1)![1] as RequestInit).method).toBe('DELETE')
+    await call('PATCH', `/api/clouddrive/mounts/${mountId}`, { readOnly: true })
+    expect((await raw('POST', `/api/clouddrive/external/${mountId}/folders`, JSON.stringify({ path: '/x' }))).status).toBe(403)
   })
 })

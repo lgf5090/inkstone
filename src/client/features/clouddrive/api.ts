@@ -170,6 +170,19 @@ export const clouddriveApi = {
 
   contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,
   folderSize: (id: string) => request<{ bytes: number; truncated: boolean }>(`/api/clouddrive/files/${encodeURIComponent(id)}/folder-size`),
+  externalUpload: async (mountId: string, path: string, file: File): Promise<void> => {
+    const headers = new Headers({ [CLIENT_HEADER]: '1', 'Content-Type': file.type || 'application/octet-stream' })
+    const response = await fetch(`/api/clouddrive/external/${encodeURIComponent(mountId)}/upload?path=${encodeURIComponent(path)}`, {
+      method: 'POST', headers, body: file, credentials: 'same-origin',
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null
+      throw new CloudDriveApiError(body?.error?.code ?? 'internal', body?.error?.message ?? response.statusText, response.status)
+    }
+  },
+  externalMkdir: (mountId: string, path: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/folders`, json({ path })),
+  externalMove: (mountId: string, from: string, to: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/move`, json({ from, to })),
+  externalDelete: (mountId: string, paths: string[]) => request<{ deleted: number; failed: number }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/files`, { method: 'DELETE', body: JSON.stringify({ paths }) }),
   thumbnailUrl: (id: string, width = 320) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?w=${width}`,
   zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams(params).toString()}`,
 

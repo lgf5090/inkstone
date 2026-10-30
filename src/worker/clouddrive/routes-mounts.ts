@@ -17,6 +17,7 @@ clouddriveMountRoutes.use('/mounts/*', requireOwner)
 
 const STORAGE_TYPES = ['s3', 'webdav', 'telegram', 'discord', 'huggingface', 'github', 'onedrive', 'googledrive'] as const
 type StorageType = (typeof STORAGE_TYPES)[number]
+const WRITABLE_EXTERNAL_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
 
 interface StorageRow {
   id: string
@@ -176,10 +177,10 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   const storage = storageId === 'primary' ? null : await storageById(c, storageId)
   if (storageId !== 'primary' && !storage) throw ApiError.badRequest('Storage not found')
   if (storage && storage.status !== 'enabled') throw ApiError.badRequest('The storage is disabled')
-  const partEligible = storageId === 'primary' || storage?.type === 's3'
+  const writableExternal = storage !== null && WRITABLE_EXTERNAL_TYPES.has(storage.type)
   const readOnly = storageId === 'primary'
     ? (body.readOnly ? 1 : 0)
-    : partEligible && body.readOnly === false ? 0 : 1
+    : writableExternal ? (body.readOnly ? 1 : 0) : 1
   const now = Date.now()
   const id = newId()
   try {
@@ -262,12 +263,12 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   const storageChanged = nextStorageId !== row.storage_id
   if (body.readOnly !== undefined || storageChanged) {
     const storage = await storageById(c, nextStorageId)
-    const partEligible = nextStorageId === 'primary' || storage?.type === 's3'
-    const readOnly = body.readOnly === undefined
-      ? (nextStorageId === 'primary' ? 0 : 1)
-      : nextStorageId === 'primary'
-        ? (body.readOnly ? 1 : 0)
-        : partEligible && body.readOnly === false ? 0 : 1
+    const writableExternal = storage !== null && WRITABLE_EXTERNAL_TYPES.has(storage.type)
+    const readOnly = nextStorageId === 'primary'
+      ? (body.readOnly === undefined ? 0 : body.readOnly ? 1 : 0)
+      : writableExternal
+        ? (body.readOnly === undefined ? 0 : body.readOnly ? 1 : 0)
+        : 1
     put('read_only = ?', readOnly)
   }
   if (body.cacheTtl !== undefined) put('cache_ttl = ?', clampInt(body.cacheTtl, 0, 86400, 300))

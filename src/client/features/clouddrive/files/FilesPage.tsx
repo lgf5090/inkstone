@@ -70,6 +70,7 @@ export interface FilesPageProps {
   path: string
   onNavigate(path: string): void
   readOnly?: boolean
+  external?: boolean
   folderSummary?: boolean
   /** Opens the preview/Quick Look surface. The shell owns the renderer. */
   onPreview?(entry: CloudDriveEntry, context?: PreviewContext): void
@@ -80,13 +81,13 @@ type ViewMode = 'icon' | 'list' | 'gallery'
 type DialogState =
   | { kind: 'mkdir' }
   | { kind: 'rename'; entry: CloudDriveEntry }
-  | { kind: 'move'; ids: string[]; initialPath: string }
-  | { kind: 'delete'; ids: string[] }
+  | { kind: 'move'; ids: string[]; initialPath: string; entries: CloudDriveEntry[] }
+  | { kind: 'delete'; ids: string[]; entries: CloudDriveEntry[] }
   | { kind: 'share'; entries: CloudDriveEntry[] }
   | { kind: 'versions'; entry: CloudDriveEntry }
   | null
 
-export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, folderSummary = false, onPreview }: FilesPageProps) {
+export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, external = false, folderSummary = false, onPreview }: FilesPageProps) {
   const prefs = useCloudDriveStore((state) => state.prefs)
   const setPrefs = useCloudDriveStore((state) => state.setPrefs)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
@@ -230,7 +231,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     })
   }, [])
 
-  const actions = useFileActions({ mountId, refresh: load, onLocalChange: applyLocalChange })
+  const actions = useFileActions({ mountId, refresh: load, external, onLocalChange: applyLocalChange })
 
   const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
     setSelected((current) => {
@@ -302,7 +303,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
 
   const requestDelete = useCallback((targets: CloudDriveEntry[]) => {
     if (targets.length === 0) return
-    setDialog({ kind: 'delete', ids: targets.map((entry) => entry.id) })
+    setDialog({ kind: 'delete', ids: targets.map((entry) => entry.id), entries: targets })
   }, [])
 
   const requestShare = useCallback((targets: CloudDriveEntry[]) => {
@@ -600,6 +601,17 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           aria-label={t('clouddrive.nav.files')}
           aria-busy={status === 'loading'}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto"
+          onDragOver={(event) => {
+            if (!writable) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'copy'
+          }}
+          onDrop={(event) => {
+            if (!writable) return
+            event.preventDefault()
+            const files = Array.from(event.dataTransfer.files)
+            if (files.length > 0) void actions.upload(files, path)
+          }}
         >
           {listing?.note && (
             <div className="mx-2 mt-2 whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
@@ -700,11 +712,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         totalBytes={totalEntryBytes(selectedEntries)}
         busy={actions.busy}
         writable={writableSelection}
+        external={external}
+        canDownload={!external || !selectedEntries.some((entry) => entry.kind === 'folder')}
         onDownload={() => actions.download(selectedEntries)}
         onShare={() => requestShare(selectedEntries)}
         onCopy={() => rememberClipboard('copy', selectedEntries.map((entry) => entry.id))}
         onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
-        onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path })}
+        onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
         onDelete={() => requestDelete(selectedEntries)}
         onClear={() => {
           clearSelection()
@@ -724,6 +738,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         target={contextTarget}
         targets={menuTargets}
         readOnly={readOnly}
+        external={external}
         showCheckboxes={prefs.showCheckboxes}
         canPaste={canPaste}
         busy={actions.busy}
@@ -738,7 +753,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onCut={(targets) => rememberClipboard('cut', targets.map((entry) => entry.id))}
         onPaste={() => void pasteClipboard()}
         onRename={(entry) => setDialog({ kind: 'rename', entry })}
-        onMove={(targets) => setDialog({ kind: 'move', ids: targets.map((entry) => entry.id), initialPath: path })}
+        onMove={(targets) => setDialog({ kind: 'move', ids: targets.map((entry) => entry.id), initialPath: path, entries: targets })}
         onDelete={requestDelete}
         onColor={(entry, color) => void actions.setColor(entry, color)}
         onAddTag={(entry, tag, color) => void actions.addTag(entry, tag, color)}
@@ -767,7 +782,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onClose={() => setDialog(null)}
         onSubmit={(destination) => {
           if (dialog?.kind !== 'move') return Promise.resolve(false)
-          return actions.move(dialog.ids, destination).then((ok) => {
+          return actions.move(dialog.ids, destination, dialog.entries).then((ok) => {
             if (ok) focusFirstEntry()
             return ok
           })
@@ -789,11 +804,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       <ConfirmDeleteDialog
         open={dialog?.kind === 'delete'}
         count={dialog?.kind === 'delete' ? dialog.ids.length : 0}
+        external={external}
         busy={actions.busy}
         onClose={() => setDialog(null)}
         onConfirm={() => {
           if (dialog?.kind !== 'delete') return Promise.resolve(false)
-          return actions.trash(dialog.ids).then((ok) => {
+          return actions.trash(dialog.ids, dialog.entries).then((ok) => {
             if (ok) focusFirstEntry()
             return ok
           })

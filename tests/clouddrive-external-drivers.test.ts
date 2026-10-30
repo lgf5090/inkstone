@@ -3,13 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import {
+  deleteExternalPath,
   externalDirectUrl,
   externalEntryId,
   externalFolderSize,
   externalProxyLocation,
   listExternal,
+  mkdirExternal,
+  moveExternalPath,
   parseExternalEntryId,
   readExternal,
+  writeExternalFile,
 } from '../src/worker/clouddrive/external'
 import type { CloudDriveMountInfo } from '../src/worker/clouddrive/lib'
 import { encryptCloudDriveCredentials, decryptCloudDriveCredentials } from '../src/worker/lib/crypto'
@@ -366,6 +370,49 @@ describe('direct and proxied external links', () => {
     expect(await externalProxyLocation(env, db, dav, '/readme.txt')).toBe(
       `https://proxy.example.com/fetch?url=${encodeURIComponent('https://dav.example.com/dav/root/readme.txt')}`,
     )
+  })
+})
+
+describe('external writes', () => {
+  it('writes, creates, moves and deletes through WebDAV', async () => {
+    const mount = await mountWith('webdav', { baseUrl: 'https://dav.example.com/dav', rootPath: 'root' }, { username: 'u', password: 'p' })
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 201 }))
+    await writeExternalFile(env, db, mount, '/folder/a.txt', new TextEncoder().encode('hello'), 'text/plain')
+    let init = fetchMock.mock.calls[0]![1] as RequestInit
+    expect(callUrl()).toBe('https://dav.example.com/dav/root/folder/a.txt')
+    expect(init.method).toBe('PUT')
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Basic ${btoa('u:p')}`)
+
+    fetchMock.mockResolvedValue(new Response(null, { status: 201 }))
+    await mkdirExternal(env, db, mount, '/a/b')
+    expect(fetchMock.mock.calls.slice(1).map((_, index) => callUrl(index + 1))).toEqual([
+      'https://dav.example.com/dav/root/a',
+      'https://dav.example.com/dav/root/a/b',
+    ])
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 201 }))
+    await moveExternalPath(env, db, mount, '/a.txt', '/folder/b.txt')
+    const moveCall = fetchMock.mock.calls.at(-1)!
+    init = moveCall[1] as RequestInit
+    expect(String(moveCall[0])).toBe('https://dav.example.com/dav/root/a.txt')
+    expect(init.method).toBe('MOVE')
+    expect((init.headers as Record<string, string>).Destination).toBe('https://dav.example.com/dav/root/folder/b.txt')
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await deleteExternalPath(env, db, mount, '/folder/b.txt')
+    init = fetchMock.mock.calls.at(-1)![1] as RequestInit
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('writes an object through S3', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }))
+    await writeExternalFile(env, db, mount, '/folder/a.txt', new TextEncoder().encode('hello'), 'text/plain')
+    expect(callUrl()).toContain('https://s3.example.com/bucket/root/folder/a.txt')
+    const request = fetchMock.mock.calls[0]![0] as Request
+    expect(request.method).toBe('PUT')
   })
 })
 

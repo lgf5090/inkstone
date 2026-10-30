@@ -11,7 +11,7 @@ import type { CloudDriveEntry, CloudDriveListing } from '@shared/clouddrive/mode
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { externalFolderSize, listExternal, parseExternalEntryId } from './external'
+import { deleteExternalPath, externalCapacityBytes, externalFolderSize, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
@@ -65,6 +65,8 @@ cloudDriveFilesRoutes.use('*', async (c, next) => {
 
 const BODY_LIMIT = 64 * 1024
 const MAX_BATCH = 200
+const EXTERNAL_UPLOAD_MAX_BYTES = 90 * 1024 * 1024
+const EXTERNAL_WRITE_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')
@@ -76,6 +78,14 @@ function mountIdOf(value: unknown): string {
 
 async function mountFor(c: Context<AppBindings>, userId: string, mountId: string): Promise<CloudDriveMountInfo> {
   return await resolveMount(c.env.DB, userId, mountId)
+}
+
+async function writableExternalMount(c: Context<AppBindings>, userId: string, mountId: string): Promise<CloudDriveMountInfo> {
+  const mount = await mountFor(c, userId, mountId)
+  if (mount.storageId === 'primary') throw ApiError.badRequest('This is not an external mount')
+  if (mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+  if (!EXTERNAL_WRITE_TYPES.has(mount.storageType)) throw new ApiError(403, 'clouddrive_read_only', 'This storage type does not support writes')
+  return mount
 }
 
 async function entriesOf(
@@ -191,6 +201,76 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
     note: parentMeta.note,
   }
   return c.json(body)
+})
+
+cloudDriveFilesRoutes.post('/external/:mountId/upload', async (c) => {
+  const userId = userIdOf(c)
+  const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
+  const path = parsePath(c.req.query('path') ?? '', { allowRoot: false })
+  const declared = c.req.header('content-length')
+  if (declared !== undefined) {
+    const length = Number(declared)
+    if (!Number.isSafeInteger(length) || length < 0) throw ApiError.badRequest('Content-Length is not a byte count')
+    if (length > EXTERNAL_UPLOAD_MAX_BYTES) throw ApiError.tooLarge('The file is larger than the external upload limit')
+  }
+  const bytes = new Uint8Array(await c.req.arrayBuffer())
+  if (bytes.byteLength > EXTERNAL_UPLOAD_MAX_BYTES) throw ApiError.tooLarge('The file is larger than the external upload limit')
+  const capacity = await externalCapacityBytes(c.env.DB, mount)
+  if (capacity !== null) {
+    const usage = await externalFolderSize(c.env, c.env.DB, mount, '/')
+    if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
+    if (usage.bytes + bytes.byteLength > capacity) {
+      throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit', {
+        usedBytes: usage.bytes,
+        quotaBytes: capacity,
+      })
+    }
+  }
+  const mime = (c.req.header('content-type') ?? 'application/octet-stream').split(';')[0]!.trim().slice(0, 120) || 'application/octet-stream'
+  await writeExternalFile(c.env, c.env.DB, mount, path, bytes, mime)
+  return c.json({ ok: true, path, size: bytes.byteLength }, 201)
+})
+
+cloudDriveFilesRoutes.post('/external/:mountId/folders', async (c) => {
+  const userId = userIdOf(c)
+  const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
+  const body = await readJson<{ path?: unknown }>(c, BODY_LIMIT)
+  const path = parsePath(body.path ?? '', { allowRoot: false })
+  await mkdirExternal(c.env, c.env.DB, mount, path)
+  return c.json({ ok: true, path }, 201)
+})
+
+cloudDriveFilesRoutes.post('/external/:mountId/move', async (c) => {
+  const userId = userIdOf(c)
+  const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
+  const body = await readJson<{ from?: unknown; to?: unknown }>(c, BODY_LIMIT)
+  const from = parsePath(body.from ?? '', { allowRoot: false })
+  const to = parsePath(body.to ?? '', { allowRoot: false })
+  if (from === to) throw ApiError.badRequest('The source and destination are the same')
+  await moveExternalPath(c.env, c.env.DB, mount, from, to)
+  return c.json({ ok: true, from, to })
+})
+
+cloudDriveFilesRoutes.delete('/external/:mountId/files', async (c) => {
+  const userId = userIdOf(c)
+  const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
+  const body = await readJson<{ paths?: unknown }>(c, BODY_LIMIT)
+  if (!Array.isArray(body.paths) || body.paths.length === 0 || body.paths.length > MAX_BATCH) {
+    throw ApiError.badRequest('paths must hold between 1 and 200 paths')
+  }
+  const paths = [...new Set(body.paths.map((value) => parsePath(value, { allowRoot: false })))]
+  let deleted = 0
+  let failed = 0
+  for (const path of paths) {
+    try {
+      await deleteExternalPath(c.env, c.env.DB, mount, path)
+      deleted++
+    } catch (error) {
+      failed++
+      console.warn('[inkstone] CloudDrive external delete failed', error)
+    }
+  }
+  return c.json({ deleted, failed }, failed > 0 ? 207 : 200)
 })
 
 cloudDriveFilesRoutes.get('/files/:id/folder-size', async (c) => {

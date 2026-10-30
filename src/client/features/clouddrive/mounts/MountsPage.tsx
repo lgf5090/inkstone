@@ -15,6 +15,7 @@ import {
   pageLabel,
   pageSlice,
   storageTypeLabel,
+  WRITABLE_EXTERNAL_TYPES,
   type Mount,
   type Storage,
 } from './shared'
@@ -27,7 +28,7 @@ interface MountForm {
   cacheTtl: string
   sortOrder: string
   enabled: boolean
-  distributed: boolean
+  readOnly: boolean
   folderSummary: boolean
   webProxy: boolean
   webdavPolicy: string
@@ -37,7 +38,7 @@ interface MountForm {
 function blankMount(storageId = 'primary'): MountForm {
   return {
     name: '', storageId, mountPath: '', remark: '', cacheTtl: '300', sortOrder: '0', enabled: true,
-    distributed: false, folderSummary: false, webProxy: false, webdavPolicy: 'native_proxy', storageTypeFilter: 'all',
+    readOnly: false, folderSummary: false, webProxy: false, webdavPolicy: 'native_proxy', storageTypeFilter: 'all',
   }
 }
 
@@ -58,7 +59,7 @@ function formFromMount(mount: Mount, storages: readonly Storage[]): MountForm {
     cacheTtl: String(mount.cacheTtl),
     sortOrder: String(mount.sortOrder),
     enabled: mount.enabled,
-    distributed: !mount.readOnly,
+    readOnly: mount.readOnly,
     folderSummary: mount.folderSummary,
     webProxy: mount.webProxy,
     webdavPolicy: policy || 'native_proxy',
@@ -153,9 +154,11 @@ export function MountsPage() {
     setBusy(true)
     try {
       const selectedType = form.storageId === 'primary' ? 'primary' : storages.find((storage) => storage.id === form.storageId)?.type
-      const readOnly = editing?.id === 'primary' || form.storageId === 'primary'
+      const readOnly = form.storageId === 'primary'
         ? false
-        : selectedType === 's3' ? !form.distributed : true
+        : !WRITABLE_EXTERNAL_TYPES.has(selectedType ?? '')
+          ? true
+          : form.readOnly
       const body: Record<string, unknown> = {
         name: form.name.trim(),
         mountPath: form.mountPath.trim(),
@@ -236,7 +239,7 @@ export function MountsPage() {
             {mount.id === 'primary' && <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-primary)]">{t('clouddrive.admin.mount.primary_badge')}</span>}
             <span className={`rounded-full px-1.5 py-0.5 text-[length:var(--text-10)] ${statusBadgeClass(mount.enabled)}`}>{mount.enabled ? t('clouddrive.admin.enabled') : t('clouddrive.admin.disabled')}</span>
             {mount.readOnly && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.readonly_badge')}</span>}
-            {!mount.readOnly && mount.storageId !== 'primary' && <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-primary)]">{t('clouddrive.mounts.distributed_badge')}</span>}
+            {!mount.readOnly && mount.storageId !== 'primary' && <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-primary)]">{t('clouddrive.admin.mount.writable_badge')}</span>}
             {mount.webProxy && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.proxy_badge')}</span>}
             {mount.folderSummary && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.compute_badge')}</span>}
             {mount.webdavPolicy === '302_redirect' && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.policy_badge_redirect')}</span>}
@@ -343,7 +346,7 @@ export function MountsPage() {
                     ? []
                     : storages.filter((storage) => storage.type === filter)
                 const storageId = filter === 'r2' ? 'primary' : candidates.find((storage) => storage.status === 'enabled')?.id ?? candidates[0]?.id ?? 'primary'
-                set({ storageTypeFilter: filter, storageId, distributed: false, webdavPolicy: 'native_proxy' })
+                set({ storageTypeFilter: filter, storageId, readOnly: false, webdavPolicy: 'native_proxy' })
               }}
             >
               <option value="all">{t('clouddrive.admin.filter_all')}</option>
@@ -365,7 +368,7 @@ export function MountsPage() {
                   : form.webdavPolicy === 'use_proxy_url' && !urlProxy
                     ? 'native_proxy'
                     : form.webdavPolicy
-                set({ storageId, distributed: type === 's3' ? form.distributed : false, webdavPolicy: policy })
+                set({ storageId, readOnly: type === 'primary' ? false : !WRITABLE_EXTERNAL_TYPES.has(type ?? '') ? true : form.readOnly, webdavPolicy: policy })
               }}
             >
               {showPrimaryOption && <option value="primary">{t('clouddrive.admin.mount.storage_primary')}</option>}
@@ -384,9 +387,16 @@ export function MountsPage() {
             <Input value={form.mountPath} disabled={editing?.id === 'primary'} onChange={(event) => set({ mountPath: event.target.value })} placeholder={t('clouddrive.mounts.path_placeholder')} />
           </Field>
           {editing?.id === 'primary' && <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.path_locked')}</p>}
-          {selectedType !== 'primary' && selectedType !== 's3' && <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.readonly_note')}</p>}
-          {selectedType === 's3' && (
-            <Checkbox checked={form.distributed} label={t('clouddrive.admin.mount.distributed')} onChange={(next) => set({ distributed: next })} />
+          {selectedType !== 'primary' && (
+            <div className="space-y-1">
+              <Checkbox
+                checked={form.readOnly || !WRITABLE_EXTERNAL_TYPES.has(selectedType)}
+                disabled={!WRITABLE_EXTERNAL_TYPES.has(selectedType)}
+                label={t('clouddrive.admin.mount.readonly')}
+                onChange={(next) => set({ readOnly: next })}
+              />
+              <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{WRITABLE_EXTERNAL_TYPES.has(selectedType) ? t('clouddrive.admin.mount.readonly_hint') : t('clouddrive.admin.mount.readonly_note')}</p>
+            </div>
           )}
           <Field label={t('clouddrive.admin.mount.remark')}>
             <Textarea value={form.remark} onChange={(event) => set({ remark: event.target.value })} placeholder={t('clouddrive.admin.mount.remark_placeholder')} rows={2} />

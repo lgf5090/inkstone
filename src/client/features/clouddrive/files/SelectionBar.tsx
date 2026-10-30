@@ -8,6 +8,8 @@ export interface SelectionBarProps {
   totalBytes: number
   busy: boolean
   writable: boolean
+  external?: boolean
+  canDownload?: boolean
   onDownload: () => void
   onShare: () => void
   onCopy: () => void
@@ -22,6 +24,8 @@ export function SelectionBar({
   totalBytes,
   busy,
   writable,
+  external = false,
+  canDownload = true,
   onDownload,
   onShare,
   onCopy,
@@ -37,16 +41,16 @@ export function SelectionBar({
         <span className="font-medium text-[var(--text-primary)]">{t('clouddrive.selection.count', { count })}</span>
         {totalBytes > 0 && <span className="tabular-nums">{t('clouddrive.status.selected_size', { size: formatBytes(totalBytes) })}</span>}
       </span>
-      <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={onDownload}>
+      <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={onDownload} disabled={!canDownload || busy}>
         {t('clouddrive.action.download')}
       </Button>
       <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={onShare} disabled={busy}>
         {t('clouddrive.action.share')}
       </Button>
-      <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={onCopy} disabled={!writable || busy}>
+      <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={onCopy} disabled={!writable || external || busy}>
         {t('clouddrive.action.copy')}
       </Button>
-      <Button size="sm" variant="secondary" icon={<Scissors size={13} />} onClick={onCut} disabled={!writable || busy}>
+      <Button size="sm" variant="secondary" icon={<Scissors size={13} />} onClick={onCut} disabled={!writable || external || busy}>
         {t('clouddrive.action.cut')}
       </Button>
       <Button size="sm" variant="secondary" icon={<FolderInput size={13} />} onClick={onMove} disabled={!writable || busy}>
