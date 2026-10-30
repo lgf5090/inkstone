@@ -79,9 +79,10 @@ function normalizeOrigin(value: string): string | null {
 }
 
 function normalizeOrigins(value: unknown): string[] {
-  if (!Array.isArray(value)) {
+  if (value === undefined) {
     return [...XGET_CONFIG_DEFAULTS.allowed_origins]
   }
+  if (!Array.isArray(value)) return []
 
   const origins: string[] = []
   for (const entry of value) {
@@ -92,7 +93,7 @@ function normalizeOrigins(value: unknown): string[] {
   }
 
   if (origins.includes('*')) return ['*']
-  return origins.length ? origins : [...XGET_CONFIG_DEFAULTS.allowed_origins]
+  return origins
 }
 
 export function createConfig(overrides: XgetConfigOverrides = {}): XgetConfig {

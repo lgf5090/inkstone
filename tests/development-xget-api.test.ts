@@ -122,6 +122,20 @@ describe('Xget settings API', () => {
     expect((await call('PUT', '/settings', { body: { allowed_methods: 'GET' } })).status).toBe(400)
   })
 
+  it('rejects an invalid origin instead of widening the allow list', async () => {
+    const rejected = await call('PUT', '/settings', { body: { allowed_origins: ['not-a-url'] } })
+    expect(rejected.status).toBe(400)
+    const unchanged = await readJson<{ data: { config: { allowed_origins: string[] } } }>(
+      await call('GET', '/settings'),
+    )
+    expect(unchanged.data.config.allowed_origins).toEqual(['*'])
+
+    const cleared = await call('PUT', '/settings', { body: { allowed_origins: [] } })
+    expect(cleared.status).toBe(200)
+    const clearedBody = await readJson<{ data: { config: { allowed_origins: string[] } } }>(cleared)
+    expect(clearedBody.data.config.allowed_origins).toEqual([])
+  })
+
   it('stores only a token hash, reports ON/OFF and clears it with an empty value', async () => {
     const set = await call('PUT', '/settings/token', { body: { token: 'secret-token-123' } })
     expect(set.status).toBe(200)

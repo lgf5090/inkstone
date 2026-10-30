@@ -222,6 +222,9 @@ describe('the Xget request validation', () => {
         MAX_PATH_LENGTH: 2048,
       },
     })
+
+    expect(createConfig({ SECURITY: { ALLOWED_ORIGINS: ['not-a-url'] } }).SECURITY.ALLOWED_ORIGINS).toEqual([])
+    expect(createConfig({ SECURITY: { ALLOWED_ORIGINS: [] } }).SECURITY.ALLOWED_ORIGINS).toEqual([])
   })
 })
 

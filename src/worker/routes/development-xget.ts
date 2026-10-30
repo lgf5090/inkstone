@@ -1,6 +1,5 @@
 import { Hono, type Context } from 'hono'
 import {
-  XGET_CONFIG_DEFAULTS,
   XGET_KNOWN_METHODS,
   XGET_PROXY_PREFIX,
   XGET_STATS_MAX_DAYS,
@@ -78,25 +77,27 @@ function normalizeMethods(value: string[]): string[] {
 }
 
 function normalizeOrigins(value: string[]): string[] {
+  const entries = value.map((entry) => entry.trim()).filter(Boolean)
+  if (entries.includes('*')) return ['*']
+
   const origins: string[] = []
-  for (const entry of value) {
-    const trimmed = entry.trim()
-    if (!trimmed) continue
-    if (trimmed === '*') {
-      if (!origins.includes('*')) origins.push('*')
-      continue
-    }
+  for (const entry of entries) {
+    let parsed: URL
     try {
-      const parsed = new URL(trimmed)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue
-      if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) continue
-      const origin = parsed.origin
-      if (!origins.includes(origin)) origins.push(origin)
+      parsed = new URL(entry)
     } catch {
-      continue
+      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
     }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
+    }
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw ApiError.badRequest(`Invalid CORS origin: ${entry}`)
+    }
+    const origin = parsed.origin
+    if (!origins.includes(origin)) origins.push(origin)
   }
-  return origins.length ? origins : [...XGET_CONFIG_DEFAULTS.allowed_origins]
+  return origins
 }
 
 function patchToOverrides(
