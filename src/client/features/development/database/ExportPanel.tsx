@@ -259,7 +259,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
                 ['nullText', t('development.database.export.null_value')],
               ] as const).map(([key, label]) => (
                 <label key={key} className="block">
-                  <span className="mb-0.5 block text-[length:var(--text-10)] text-[var(--text-tertiary)]">{label}</span>
+                  <span className="mb-0.5 block text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</span>
                   <Input
                     value={settings[key]}
                     onChange={(event) => set(key, event.target.value)}
@@ -270,12 +270,12 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
             </div>
           )}
           {invalidSettings && (
-            <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--danger)]">
+            <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
               {t('development.database.export.invalid_settings')}
             </p>
           )}
           {truncated && (
-            <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
+            <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
               {t('development.database.export.truncated_note')}
             </p>
           )}
@@ -287,11 +287,11 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
               </IconButton>
             </div>
             {recentError ? (
-              <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--danger)]">
+              <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
                 {recentError}
               </p>
             ) : recent.length === 0 ? (
-              <p className="py-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              <p className="py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                 {recentLoading ? t('development.database.export.loading') : t('development.database.export.recent_empty')}
               </p>
             ) : (
@@ -299,7 +299,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
                 {recent.map((file) => (
                   <li key={file.id} className="flex items-center gap-1.5">
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]" title={file.filename}>{file.filename}</span>
-                    <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{formatSize(file.size)}</span>
+                    <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatSize(file.size)}</span>
                     <IconButton label={t('development.database.export.download')} size="xs" onClick={() => void downloadRecent(file)}>
                       <Download size={11} />
                     </IconButton>

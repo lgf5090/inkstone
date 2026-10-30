@@ -92,7 +92,7 @@ export function AgentPanel({ onToolComplete, className, writesBlocked = false }:
             )}
           >
             {entry === 'agent' ? <Bot size={14} /> : <Wrench size={14} />}
-            {entry === 'agent' ? t('development.database.agent.tab_agent') : t('development.database.agent.tab_mcp')}
+            {entry === 'agent' ? t('development.database.agent.tab_chat') : t('development.database.agent.tab_mcp')}
           </button>
         ))}
       </div>
@@ -166,7 +166,7 @@ export function AgentPanel({ onToolComplete, className, writesBlocked = false }:
               disabled={writesBlocked}
               label={t('development.database.agent.allow_writes')}
             />
-            <p className="text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">
+            <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
               {writesBlocked ? t('development.database.agent.write_blocked') : t('development.database.agent.allow_writes_hint')}
             </p>
             <div className="flex items-center gap-1.5">
@@ -185,9 +185,9 @@ export function AgentPanel({ onToolComplete, className, writesBlocked = false }:
               )}
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.agent.enter_to_send')}</span>
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.agent.enter_to_send')}</span>
               {messages.length > 0 && (
-                <button type="button" onClick={clear} className="flex items-center gap-1 text-[length:var(--text-10)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+                <button type="button" onClick={clear} className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
                   <Trash2 size={11} />
                   {t('development.database.agent.clear')}
                 </button>
@@ -203,21 +203,21 @@ export function AgentPanel({ onToolComplete, className, writesBlocked = false }:
               <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.mcp.intro')}</p>
             </div>
             <div>
-              <p className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.mcp.endpoint')}</p>
+              <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.mcp.endpoint')}</p>
               <code className="block truncate rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2 py-1.5 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">{origin}{t('development.database.mcp.path')}</code>
             </div>
             <div>
-              <p className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.mcp.tools', { count: DATABASE_TOOL_DEFS.length })}</p>
+              <p className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.mcp.tools', { count: DATABASE_TOOL_DEFS.length })}</p>
               <div className="space-y-1.5">
                 {DATABASE_TOOL_DEFS.map((tool) => (
                   <div key={tool.name} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2.5 py-2">
                     <p className="font-mono text-[length:var(--text-11)] font-medium text-[var(--accent)]">{tool.name}</p>
-                    <p className="mt-0.5 text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">{tool.description}</p>
+                    <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{tool.description}</p>
                   </div>
                 ))}
               </div>
             </div>
-            <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
+            <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
               {t('development.database.mcp.scope_hint')}
             </p>
           </div>

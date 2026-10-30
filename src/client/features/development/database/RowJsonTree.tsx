@@ -140,7 +140,7 @@ export function RowJsonTree({ data, className }: RowJsonTreeProps) {
           <Copy size={12} />
         </button>
         {copied === JSON.stringify(value, null, 2) && (
-          <span className="shrink-0 text-[length:var(--text-10)] text-[var(--success)]">
+          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--success)]">
             {t('development.database.common.copied')}
           </span>
         )}

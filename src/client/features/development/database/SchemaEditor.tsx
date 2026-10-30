@@ -216,7 +216,7 @@ export function SchemaEditor({ driver, table, schemaModel, onSchemaChanged, ensu
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
         <span className="truncate text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">{table.name}</span>
-        <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+        <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {t('development.database.schema.column_count', { count: table.columns.length })}
           {table.withoutRowid ? ' · WITHOUT ROWID' : ''}
           {table.strict ? ' · STRICT' : ''}

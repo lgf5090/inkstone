@@ -612,7 +612,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.agent.suggest_rows": "Preview the latest rows in a table and explain the columns",
   "development.database.agent.suggest_schema": "Show the schema of a table and its row count",
   "development.database.agent.suggest_tables": "List all tables and describe what they are for",
-  "development.database.agent.tab_agent": "Agent",
+  "development.database.agent.tab_chat": "Chat",
   "development.database.agent.tab_mcp": "MCP",
   "development.database.agent.thinking": "Thinking…",
   "development.database.agent.title": "Database agent",

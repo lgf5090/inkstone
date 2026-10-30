@@ -145,12 +145,12 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
               <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
                 <Table2 size={12} className="text-[var(--text-tertiary)]" />
                 <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-primary)]">{hit.table}</span>
-                <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.search.row_count', { count: hit.rows.length })}</span>
+                <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.search.row_count', { count: hit.rows.length })}</span>
                 <Button variant="ghost" size="sm" onClick={() => { onOpenTable(hit.table); close() }}>{t('development.database.search.open_table')}</Button>
               </div>
               <ul className="divide-y divide-[var(--border-subtle)]">
                 {hit.rows.slice(0, 5).map((row, index) => (
-                  <li key={index} className="truncate px-2 py-1 font-mono text-[length:var(--text-10)] text-[var(--text-secondary)]" title={row.map((value) => String(value ?? '')).join(' | ')}>
+                  <li key={index} className="truncate px-2 py-1 font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]" title={row.map((value) => String(value ?? '')).join(' | ')}>
                     {row.map((value) => String(value ?? 'NULL')).join(' | ')}
                   </li>
                 ))}

@@ -121,7 +121,7 @@ export function DatabaseDumpDialog({ open, driver, schema, connectionName, onClo
             <span className="text-[length:var(--text-12)] text-[var(--text-primary)]">{t(`development.database.dump.${key}`)}</span>
           </label>
         ))}
-        <p className="text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.dump.warning', { rows: MAX_ROWS_PER_TABLE })}</p>
+        <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.dump.warning', { rows: MAX_ROWS_PER_TABLE })}</p>
         {progress && (
           <div className="flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
             <Loader2 size={12} className="animate-spin" />

@@ -100,7 +100,7 @@ export function AggregatePanel({ columns, rows, selectedRows }: AggregatePanelPr
               <span className="font-mono text-[length:var(--text-14)] font-semibold tabular-nums text-[var(--text-primary)]">{format(result.value)}</span>
             </div>
           )}
-          <p className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.database.aggregate.current_page_only')}</p>
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.database.aggregate.current_page_only')}</p>
         </div>
       </ToolbarPanel>
     </>

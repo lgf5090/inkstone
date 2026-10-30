@@ -126,7 +126,7 @@ export function ErdView({ tables, className, onOpenData, onOpenSchema }: ErdView
                       key={column.name}
                       data-fk={foreign ? 'true' : undefined}
                       className={cn(
-                        'flex items-center gap-1.5 px-2.5 font-mono text-[length:var(--text-10)]',
+                        'flex items-center gap-1.5 px-2.5 font-mono text-[length:var(--text-11)]',
                         foreign && 'bg-[var(--accent-soft)]',
                       )}
                       style={{ height: ERD_NODE_ROW_HEIGHT }}
@@ -157,7 +157,7 @@ export function ErdView({ tables, className, onOpenData, onOpenSchema }: ErdView
                 })}
                 {table.columns.length === 0 && (
                   <div
-                    className="flex items-center px-2.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]"
+                    className="flex items-center px-2.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"
                     style={{ height: ERD_NODE_ROW_HEIGHT }}
                   >
                     {t('development.database.erd.no_columns')}
@@ -173,7 +173,7 @@ export function ErdView({ tables, className, onOpenData, onOpenSchema }: ErdView
         data-erd-stats="true"
         data-tables={tables.length}
         data-foreign-keys={layout.edges.length}
-        className="pointer-events-none absolute top-3 left-1/2 z-[var(--z-sticky)] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1 text-[length:var(--text-10)] text-[var(--text-tertiary)] shadow-[var(--shadow-sm)]"
+        className="pointer-events-none absolute top-3 left-1/2 z-[var(--z-sticky)] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)] shadow-[var(--shadow-sm)]"
       >
         <GitBranch size={12} aria-hidden="true" />
         {t('development.database.erd.stats', { tables: tables.length, foreignKeys: layout.edges.length })}

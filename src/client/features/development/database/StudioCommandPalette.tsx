@@ -116,7 +116,7 @@ export function StudioCommandPalette({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t('development.database.palette.title')} width={560} footer={<span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.palette.hint_keys')}</span>}>
+    <Modal open={open} onClose={onClose} title={t('development.database.palette.title')} width={560} footer={<span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.palette.hint_keys')}</span>}>
       <FilterInput
         data-autofocus
         size="panel"
@@ -153,8 +153,8 @@ export function StudioCommandPalette({
           >
             <span className="shrink-0 text-[var(--text-tertiary)]">{icon(command.icon)}</span>
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)]">{command.label}</span>
-            <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{command.hint}</span>
-            <span className="shrink-0 text-[length:var(--text-9)] text-[var(--text-quaternary)]">{command.group}</span>
+            <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{command.hint}</span>
+            <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{command.group}</span>
           </button>
         ))}
       </div>

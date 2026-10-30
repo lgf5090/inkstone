@@ -106,7 +106,7 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
         <label className="flex items-center gap-2">
           <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.database.generate.rows')}</span>
           <Input value={count} onChange={(event) => setCount(event.target.value)} className="h-8 w-24" inputMode="numeric" aria-label={t('development.database.generate.rows')} />
-          <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.generate.rows_hint')}</span>
+          <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.generate.rows_hint')}</span>
         </label>
         <div className="max-h-[46vh] space-y-2 overflow-y-auto pr-1">
           {table.columns.map((column) => {
@@ -115,7 +115,7 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
               <div key={column.name} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-primary)]" title={column.name}>{column.name}</span>
-                  <span className="shrink-0 font-mono text-[length:var(--text-10)] text-[var(--text-tertiary)]">{column.type || 'TEXT'}</span>
+                  <span className="shrink-0 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">{column.type || 'TEXT'}</span>
                   <SelectMenu
                     label={`${column.name} ${t('development.database.generate.kind')}`}
                     value={config.kind}

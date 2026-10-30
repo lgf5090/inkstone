@@ -77,7 +77,7 @@ export function DistinctValuePanel({ open, table, column, knownColumns, driver, 
                   className="flex w-full items-center gap-2 rounded-[var(--r-sm)] px-1.5 py-1.5 text-left hover:bg-[var(--bg-hover)]"
                 >
                   <span className="truncate font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]" title={text}>{text}</span>
-                  <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{row.count}</span>
+                  <span className="ml-auto shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{row.count}</span>
                 </button>
               </li>
             )

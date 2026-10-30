@@ -653,7 +653,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
             </Button>
             <div className="flex-1" />
             {!isWriteSql(sql) && sql.trim() && (
-              <span className="hidden text-[length:var(--text-10)] text-[var(--text-tertiary)] sm:inline">{t('development.database.query.read_only')}</span>
+              <span className="hidden text-[length:var(--text-11)] text-[var(--text-tertiary)] sm:inline">{t('development.database.query.read_only')}</span>
             )}
             <Button variant="secondary" size="sm" onClick={() => { setEditingSaved(null); setSaveName(''); setSaveNamespace(''); setSaveOpen(true) }}>
               <Save size={14} />
@@ -687,11 +687,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               className="h-full min-h-0"
             />
           </div>
-          <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+          <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <span className="tabular-nums">{t('development.database.query.line')} {cursor.line}, {t('development.database.query.column')} {cursor.column + 1}</span>
             <div className="flex-1" />
             {diagnostics.length > 0 && (
-              <span className="min-w-0 flex-1 truncate text-[length:var(--text-10)] text-[var(--warning)]" role="status">
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--warning)]" role="status">
                 {diagnostics.map((diagnostic) => diagnostic.kind === 'missing_table'
                   ? t('development.database.diag.missing_table', { name: diagnostic.name })
                   : t('development.database.diag.unknown_column', { table: diagnostic.table, column: diagnostic.column })).join(' · ')}
@@ -701,10 +701,10 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           </div>
           {placeholders.length > 0 && (
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
-              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.query.placeholders')}</span>
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.query.placeholders')}</span>
               {placeholders.map((name) => (
                 <label key={name} className="flex items-center gap-1">
-                  <span className="font-mono text-[length:var(--text-10)] text-[var(--accent)]">:{name}</span>
+                  <span className="font-mono text-[length:var(--text-11)] text-[var(--accent)]">:{name}</span>
                   <Input
                     value={String(placeholderValues[name] ?? '')}
                     onChange={(event) => setPlaceholderValues((current) => ({ ...current, [name]: event.target.value }))}
@@ -718,7 +718,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           )}
           {fileRun && (
             <div className="shrink-0 space-y-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
-              <div className="flex items-center gap-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]" role="status">
+              <div className="flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
                 {fileRunning && <Loader2 size={12} className="animate-spin text-[var(--accent)]" />}
                 <span className="min-w-0 flex-1 truncate">{t('development.database.query.file_progress', { name: fileRun.name, done: fileRun.done, total: fileRun.total })}</span>
                 {fileRunning && (
@@ -729,7 +729,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                 )}
               </div>
               {fileRun.failed.slice(0, 5).map((failure) => (
-                <div key={failure.index} className="truncate text-[length:var(--text-10)] text-[var(--danger)]" title={failure.sql}>
+                <div key={failure.index} className="truncate text-[length:var(--text-11)] text-[var(--danger)]" title={failure.sql}>
                   #{failure.index} · {failure.message}
                 </div>
               ))}
@@ -738,7 +738,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           {progress && (
             <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1">
               <Loader2 size={12} className="animate-spin text-[var(--accent)]" />
-              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                 {t('development.database.query.executing', { current: progress.current, total: progress.total })}
               </span>
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--bg-inset)]">
@@ -770,12 +770,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               {active && <ExportPanel columns={active.columns} rows={filteredRows} tableName={resultTableName(executedSql) ?? t('development.database.query.result_name', { n: activeResult + 1 })} selectedRows={selectedRows} truncated={Boolean(active.truncated)} />}
               {active && <AggregatePanel columns={active.columns} rows={filteredRows} selectedRows={selectedRows} />}
               {active?.truncated && (
-                <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+                <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--warning)]">
                   {t('development.database.query.truncated', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
                 </span>
               )}
               {active && (
-                <span className="shrink-0 pl-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                <span className="shrink-0 pl-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                   {filteredRows.length.toLocaleString()} {t('development.database.query.rows')} · {active.durationMs}{t('development.database.query.ms')}
                   {typeof active.meta?.rows_read === 'number' && <> · {t('development.database.query.rows_read', { count: active.meta.rows_read as number })}</>}
                   {typeof active.meta?.rows_written === 'number' && (active.meta.rows_written as number) > 0 && <> · {t('development.database.query.rows_written', { count: active.meta.rows_written as number })}</>}
@@ -835,7 +835,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                 <div className="flex h-full flex-col items-center justify-center gap-1 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
                   <span>{running ? t('development.database.query.executing_hint') : t('development.database.query.result_placeholder')}</span>
                   {!running && (
-                    <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                    <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                       {t('development.database.query.row_cap', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
                     </span>
                   )}
@@ -919,11 +919,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                 {entry.query}
               </span>
               {entry.error && (
-                <span className="shrink-0 rounded bg-[var(--danger-soft)] px-1 text-[length:var(--text-9)] text-[var(--danger)]" title={entry.error}>
+                <span className="shrink-0 rounded bg-[var(--danger-soft)] px-1 text-[length:var(--text-11)] text-[var(--danger)]" title={entry.error}>
                   {t('development.database.query.history_failed')}
                 </span>
               )}
-              <span className="shrink-0 tabular-nums text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+              <span className="shrink-0 tabular-nums text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                 {entry.durationMs}{t('development.database.query.ms')}
               </span>
             </button>

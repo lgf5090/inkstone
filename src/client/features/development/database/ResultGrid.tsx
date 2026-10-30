@@ -377,7 +377,7 @@ export const ResultGrid = memo(function ResultGrid({
                 scope="col"
                 role="columnheader"
                 aria-colindex={1}
-                className="sticky left-0 z-30 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]"
+                className="sticky left-0 z-30 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]"
                 style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH, maxWidth: ROW_NUMBER_WIDTH }}
               >
                 #
@@ -415,7 +415,7 @@ export const ResultGrid = memo(function ResultGrid({
                         <span className="truncate">{name}</span>
                         {onSort && <span className={cn('shrink-0', sorted ? 'text-[var(--accent)]' : 'opacity-30')}>{icon}</span>}
                         {sorted && (sort?.length ?? 0) > 1 && (
-                          <span aria-hidden="true" className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1 text-[length:var(--text-9)] font-medium text-[var(--accent)]">
+                          <span aria-hidden="true" className="shrink-0 rounded-full bg-[var(--accent-soft)] px-1 text-[length:var(--text-11)] font-medium text-[var(--accent)]">
                             {ruleIndex + 1}
                           </span>
                         )}
@@ -472,7 +472,7 @@ export const ResultGrid = memo(function ResultGrid({
                     scope="row"
                     role="rowheader"
                     aria-colindex={1}
-                    className="sticky left-0 z-10 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-normal text-[var(--text-quaternary)]"
+                    className="sticky left-0 z-10 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-11)] font-normal text-[var(--text-quaternary)]"
                   >
                     {index + 1}
                   </th>
@@ -558,7 +558,7 @@ export const ResultGrid = memo(function ResultGrid({
       </div>
 
       {rows.length > 0 && rowKeyHint && (
-        <div className="pointer-events-none absolute bottom-0.5 left-2 z-10 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+        <div className="pointer-events-none absolute bottom-0.5 left-2 z-10 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {rowKeyHint}
         </div>
       )}

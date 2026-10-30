@@ -80,7 +80,7 @@ export function MassDropPanel({ driver, tables, onSchemaChanged, ensureWritable,
         ) : (
           <table className="w-full text-[length:var(--text-12)]">
             <thead className="sticky top-0 z-10 bg-[var(--bg-sunken)]">
-              <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              <tr className="border-b border-[var(--border-subtle)] text-left text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                 <th className="w-10 px-2 py-1.5">
                   <Checkbox
                     checked={allSelected}

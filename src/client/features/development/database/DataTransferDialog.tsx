@@ -222,7 +222,7 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
                       />
                       <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]">{name}</span>
                       {entry && (
-                        <span className={entry.state === 'failed' ? 'text-[length:var(--text-10)] text-[var(--danger)]' : 'text-[length:var(--text-10)] text-[var(--text-tertiary)]'} title={entry.message}>
+                        <span className={entry.state === 'failed' ? 'text-[length:var(--text-11)] text-[var(--danger)]' : 'text-[length:var(--text-11)] text-[var(--text-tertiary)]'} title={entry.message}>
                           {entry.state === 'running' ? t('development.database.transfer.status_running')
                             : entry.state === 'done' ? t('development.database.transfer.status_done', { rows: entry.rows ?? 0 })
                               : entry.state === 'failed' ? t('development.database.transfer.status_failed')
@@ -235,7 +235,7 @@ export function DataTransferDialog({ open, sourceDriver, sourceLabel, sourceConn
               </div>
             </div>
 
-            <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.transfer.row_cap', { rows: ROW_CAP })}</p>
+            <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.transfer.row_cap', { rows: ROW_CAP })}</p>
             {progress && (
               <div className="flex items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]" role="status">
                 <Loader2 size={12} className="animate-spin" />

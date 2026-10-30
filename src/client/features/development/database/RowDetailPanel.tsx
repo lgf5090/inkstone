@@ -37,7 +37,7 @@ function formatBytes(size: number): string {
 
 function ImageThumb({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false)
-  if (failed) return <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.image_failed')}</p>
+  if (failed) return <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.detail.image_failed')}</p>
   return <img src={src} alt={alt} onError={() => setFailed(true)} className="max-h-32 rounded-[var(--r-sm)] border border-[var(--border-subtle)] object-contain" />
 }
 
@@ -167,7 +167,7 @@ export function RowDetailPanel({
                     <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-secondary)]" title={extra.column}>{extra.column}</span>
                     {extra.kind === 'blob' ? (
                       <>
-                        <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.blob_size', { size: formatBytes(extra.bytes.length) })}</span>
+                        <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.detail.blob_size', { size: formatBytes(extra.bytes.length) })}</span>
                         <Button variant="ghost" size="sm" onClick={() => setHexView({ column: extra.column, bytes: extra.bytes })}>
                           <Eye size={12} />
                           {t('development.database.detail.hex')}
@@ -202,7 +202,7 @@ export function RowDetailPanel({
           return (
             <div className="space-y-1">
               <pre className="max-h-80 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">{dump.text || '—'}</pre>
-              {dump.truncated && <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.detail.hex_truncated')}</p>}
+              {dump.truncated && <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.detail.hex_truncated')}</p>}
             </div>
           )
         })()}

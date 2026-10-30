@@ -180,7 +180,7 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
 
         {parsed && (
           <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)]">
-            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               <span>{t('development.database.import.preview', { rows: parsed.rows.length, columns: parsed.headers.length })}</span>
               <span>{t('development.database.import.delimiter', { delimiter: parsed.delimiter === '\t' ? 'TAB' : parsed.delimiter })}</span>
             </div>
@@ -205,7 +205,7 @@ export function CsvImportDialog({ open, table, driver, ensureWritable, onClose, 
                             size="sm"
                           />
                         ) : (
-                          <span className="block text-[length:var(--text-10)] text-[var(--text-quaternary)]">{inferColumnType(parsed.rows.map((row) => row[index] ?? ''))}</span>
+                          <span className="block text-[length:var(--text-11)] text-[var(--text-quaternary)]">{inferColumnType(parsed.rows.map((row) => row[index] ?? ''))}</span>
                         )}
                       </th>
                     ))}

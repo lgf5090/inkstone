@@ -169,7 +169,7 @@ function ConnectionItem({
               {connection.name}
             </span>
           </span>
-          <span className="block truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+          <span className="block truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             {connectionSub(connection)}
           </span>
         </span>
@@ -230,7 +230,7 @@ function SchemaGroup({
 }) {
   return (
     <div>
-      <div className="px-1.5 pb-0.5 text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]">{title}</div>
+      <div className="px-1.5 pb-0.5 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{title}</div>
       <div className="space-y-0.5">
         {items.map((item) => (
           <button
@@ -392,12 +392,12 @@ export function StudioSidebar(props: StudioSidebarProps) {
 
       <div className="flex max-h-[52%] shrink-0 flex-col border-b border-[var(--border-subtle)] p-2">
         <div className="mb-1.5 flex items-center justify-between px-1">
-          <span className="text-[length:var(--text-10)] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">
+          <span className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">
             {t('development.database.app.connections')}
           </span>
           <div className="flex items-center gap-0.5">
             {guard?.production && (
-              <span className="rounded bg-[var(--warning-soft)] px-1 text-[length:var(--text-9)] font-semibold text-[var(--warning)]">{t('development.database.guard.prod_badge')}</span>
+              <span className="rounded bg-[var(--warning-soft)] px-1 text-[length:var(--text-11)] font-semibold text-[var(--warning)]">{t('development.database.guard.prod_badge')}</span>
             )}
             {guard && onGuardChange && onLockNow && (
               <GuardPanel
@@ -462,7 +462,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
               )}
             >
               {label}
-              <span className={cn('text-[length:var(--text-10)] tabular-nums', connFilter === id ? 'opacity-80' : 'opacity-60')}>
+              <span className={cn('text-[length:var(--text-11)] tabular-nums', connFilter === id ? 'opacity-80' : 'opacity-60')}>
                 {count}
               </span>
             </button>
@@ -506,7 +506,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                     <FileCode2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{localName}</span>
-                      <span className="block truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                      <span className="block truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                         {t('development.database.app.local_file_memory')}
                       </span>
                     </span>
@@ -546,12 +546,12 @@ export function StudioSidebar(props: StudioSidebarProps) {
 
       <div className="flex min-h-0 flex-1 flex-col p-2">
         <div className="mb-1.5 flex items-center justify-between px-1">
-          <span className="text-[length:var(--text-10)] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">
+          <span className="text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-tertiary)] uppercase">
             {t('development.database.app.schema')}
           </span>
           {schema && (
             <span className="flex items-center gap-1">
-              <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                 {tableSearch.trim()
                   ? t('development.database.app.table_count_filtered', { shown: filteredTables.length, total: schema.tables.length })
                   : t('development.database.app.table_count', { count: schema.tables.length })}
@@ -629,7 +629,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
           ) : schema ? (
             <div className="space-y-3">
               {schema.truncated && (
-                <p role="status" className="mx-1.5 rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
+                <p role="status" className="mx-1.5 rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
                   {t('development.database.app.schema_truncated')}
                 </p>
               )}
@@ -656,11 +656,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
                         <Table2 size={14} className="shrink-0 text-[var(--text-tertiary)]" />
                         <span className="truncate">{table.name}</span>
                         {tableQuery && !table.name.toLowerCase().includes(tableQuery) && (
-                          <span className="shrink-0 rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-9)] text-[var(--accent)]">
+                          <span className="shrink-0 rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-11)] text-[var(--accent)]">
                             {t('development.database.app.column_match')}
                           </span>
                         )}
-                        <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                        <span className="ml-auto shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                           {table.columns.length ? t('development.database.app.column_count_short', { count: table.columns.length }) : '?'}
                         </span>
                       </button>
@@ -683,11 +683,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
                             {column.pk && (
                               <KeyRound size={9} className="shrink-0 text-[var(--warning)]" aria-label={t('development.database.app.primary_key')} />
                             )}
-                            <span className="ml-auto shrink-0 font-mono text-[length:var(--text-10)] text-[var(--text-tertiary)]">{column.type || '—'}</span>
+                            <span className="ml-auto shrink-0 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">{column.type || '—'}</span>
                           </li>
                         ))}
                         {table.columns.length === 0 && (
-                          <li className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.schema.no_columns')}</li>
+                          <li className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.schema.no_columns')}</li>
                         )}
                       </ul>
                     )}

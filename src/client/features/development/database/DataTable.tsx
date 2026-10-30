@@ -790,7 +790,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         <Button variant="secondary" size="sm" onClick={() => setFilterOpen(true)}>
           <Filter size={14} className={filters.length > 0 ? 'text-[var(--accent)]' : undefined} />
           {t('development.database.table.filter')}
-          {filters.length > 0 && <span className="rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-10)] text-[var(--accent)]">{filters.length}</span>}
+          {filters.length > 0 && <span className="rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-11)] text-[var(--accent)]">{filters.length}</span>}
         </Button>
         {editable && (
           <>
@@ -835,15 +835,15 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         <Button ref={columnsAnchor} variant="secondary" size="sm" onClick={() => setColumnsOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={columnsOpen}>
           <Columns3 size={14} />
           {t('development.database.table.columns')}
-          {hiddenColumns.size > 0 && <span className="rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-10)] text-[var(--accent)]">{hiddenColumns.size}</span>}
+          {hiddenColumns.size > 0 && <span className="rounded bg-[var(--accent-soft)] px-1 text-[length:var(--text-11)] text-[var(--accent)]">{hiddenColumns.size}</span>}
         </Button>
         {refreshSeconds > 0 && lastRefreshAt && (
-          <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             {t('development.database.table.refreshed_at', { time: lastRefreshAt.toLocaleTimeString(undefined, { hour12: false }) })}
           </span>
         )}
         {refreshSeconds > 0 && dirtyCount > 0 && (
-          <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+          <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--warning)]">
             {t('development.database.table.refresh_paused')}
           </span>
         )}
@@ -858,7 +858,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         <div className="flex-1" />
         <div className="flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {truncated && (
-            <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+            <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--warning)]">
               {t('development.database.query.truncated', { rows: MAX_QUERY_ROWS, size: MAX_QUERY_BYTES / (1024 * 1024) })}
             </span>
           )}
@@ -910,7 +910,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       {filters.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
           {filters.map((filter) => (
-            <span key={filter.id} className="flex items-center gap-1 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)]">
+            <span key={filter.id} className="flex items-center gap-1 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)]">
               <span className="font-medium">{filter.column}</span>
               <span className="opacity-70">{t(OPERATORS.find((entry) => entry.value === filter.op)?.labelKey as MessageKey)}</span>
               <span className="text-[var(--text-tertiary)]">{filter.op === 'isNull' || filter.op === 'notNull' ? '' : filter.value}</span>
@@ -1069,7 +1069,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         <div className="mb-2 flex items-center gap-2">
           <span className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{t('development.database.table.insert_count')}</span>
           <Input value={insertCount} onChange={(event) => setInsertCount(event.target.value)} className="h-8 w-20 text-[length:var(--text-12)]" inputMode="numeric" aria-label={t('development.database.table.insert_count')} />
-          <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.table.insert_count_hint')}</span>
+          <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.table.insert_count_hint')}</span>
         </div>
         <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
           {table.columns.map((column) => (
@@ -1233,7 +1233,7 @@ function FilterDialog({
         {filters.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {filters.map((filter) => (
-              <span key={filter.id} className="flex items-center gap-1 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)]">
+              <span key={filter.id} className="flex items-center gap-1 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)]">
                 {filter.column} {t(OPERATORS.find((entry) => entry.value === filter.op)?.labelKey as MessageKey)} {filter.value}
                 <button type="button" onClick={() => onChange(filters.filter((entry) => entry.id !== filter.id))} aria-label={t('development.database.table.remove_filter')}>
                   <X size={10} />

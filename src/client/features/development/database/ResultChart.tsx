@@ -116,7 +116,7 @@ export function ResultChart({ columns, rows, className }: ResultChartProps) {
           className="w-40"
           size="sm"
         />
-        {rows.length > MAX_POINTS && <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.chart.capped', { count: MAX_POINTS })}</span>}
+        {rows.length > MAX_POINTS && <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.chart.capped', { count: MAX_POINTS })}</span>}
       </div>
       {build ? <ChartCanvas<ChartType> height="240px" label={t('development.database.chart.label', { label: labelColumn, value: valueColumn })} build={build} /> : null}
     </div>

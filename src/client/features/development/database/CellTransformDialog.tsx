@@ -98,11 +98,11 @@ export function CellTransformDialog({ open, column, value, onClose }: CellTransf
         {kind === 'baseConvert' && (
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
-              <span className="mb-0.5 block text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.grid.transform_from_base')}</span>
+              <span className="mb-0.5 block text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.grid.transform_from_base')}</span>
               <Input value={fromBase} onChange={(event) => setFromBase(event.target.value)} className="h-8 font-mono" inputMode="numeric" />
             </label>
             <label className="block">
-              <span className="mb-0.5 block text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.grid.transform_to_base')}</span>
+              <span className="mb-0.5 block text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.grid.transform_to_base')}</span>
               <Input value={toBase} onChange={(event) => setToBase(event.target.value)} className="h-8 font-mono" inputMode="numeric" />
             </label>
           </div>

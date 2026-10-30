@@ -77,7 +77,7 @@ export function ExplainPlanView({ rows, className }: { rows: ExplainPlanRow[]; c
           const kind = classify(row.detail)
           return (
             <div className={cn('min-w-full rounded-[var(--r-md)] border bg-[var(--bg-overlay)] px-2.5 py-1.5 shadow-[var(--shadow-pop)]', KIND_CLASS[kind])}>
-              <span className="mb-1 inline-block rounded px-1 py-0.5 font-mono text-[length:var(--text-9)] font-semibold tracking-wide">
+              <span className="mb-1 inline-block rounded px-1 py-0.5 font-mono text-[length:var(--text-11)] font-semibold tracking-wide">
                 {KIND_LABEL[kind]}
               </span>
               <div className="font-mono text-[length:var(--text-11)] leading-snug break-words">{row.detail}</div>

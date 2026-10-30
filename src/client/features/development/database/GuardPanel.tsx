@@ -40,19 +40,19 @@ export function GuardPanel({ open, onOpenChange, guard, onChange, unlockedUntil,
             <Checkbox checked={guard.readOnly} onChange={(next) => onChange({ readOnly: next })} ariaLabel={t('development.database.guard.read_only')} />
             <span className="min-w-0">
               <span className="block text-[length:var(--text-12)] text-[var(--text-primary)]">{t('development.database.guard.read_only')}</span>
-              <span className="block text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.guard.read_only_hint')}</span>
+              <span className="block text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.guard.read_only_hint')}</span>
             </span>
           </label>
           <label className="flex items-start gap-2 rounded-[var(--r-sm)] px-1 py-1 hover:bg-[var(--bg-hover)]">
             <Checkbox checked={guard.production} onChange={(next) => onChange({ production: next })} ariaLabel={t('development.database.guard.production')} />
             <span className="min-w-0">
               <span className="block text-[length:var(--text-12)] text-[var(--text-primary)]">{t('development.database.guard.production')}</span>
-              <span className="block text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.guard.production_hint')}</span>
+              <span className="block text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.database.guard.production_hint')}</span>
             </span>
           </label>
           {locked && unlockedUntil && (
             <div className="flex items-center justify-between gap-2 rounded-[var(--r-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-2 py-1.5">
-              <span className="text-[length:var(--text-10)] text-[var(--warning)]">
+              <span className="text-[length:var(--text-11)] text-[var(--warning)]">
                 {t('development.database.guard.unlocked_until', { time: new Date(unlockedUntil).toLocaleTimeString(undefined, { hour12: false }) })}
               </span>
               <Button variant="ghost" size="sm" onClick={onLockNow}>{t('development.database.guard.lock_now')}</Button>

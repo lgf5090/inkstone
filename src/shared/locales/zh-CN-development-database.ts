@@ -612,7 +612,7 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.agent.suggest_rows": "预览一张表的最近数据并说明列含义",
   "development.database.agent.suggest_schema": "查看一张表的结构和行数",
   "development.database.agent.suggest_tables": "列出所有表并说明用途",
-  "development.database.agent.tab_agent": "Agent",
+  "development.database.agent.tab_chat": "对话",
   "development.database.agent.tab_mcp": "MCP",
   "development.database.agent.thinking": "思考中…",
   "development.database.agent.title": "数据库 Agent",

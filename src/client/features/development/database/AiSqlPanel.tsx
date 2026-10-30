@@ -103,10 +103,10 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
         </div>
       )}
       {configured && modelLabel && (
-        <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.ai.model', { model: modelLabel })}</div>
+        <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.ai.model', { model: modelLabel })}</div>
       )}
       {schema.omitted > 0 && (
-        <div className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.ai.schema_trimmed', { count: schema.omitted })}</div>
+        <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.ai.schema_trimmed', { count: schema.omitted })}</div>
       )}
 
       {mode === 'generate' ? (
@@ -122,8 +122,8 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
         />
       ) : (
         <div className="shrink-0">
-          <div className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.ai.current_sql')}</div>
-          <pre className="max-h-28 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-10)] leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)]">
+          <div className="mb-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.ai.current_sql')}</div>
+          <pre className="max-h-28 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11)] leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)]">
             {currentSql || t('development.database.ai.editor_empty')}
           </pre>
         </div>
@@ -131,7 +131,7 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
 
       <div className="flex min-h-28 flex-1 flex-col overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)]">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
-          <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{output ? t('development.database.ai.output_chars', { count: output.length }) : t('development.database.ai.output')}</span>
+          <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{output ? t('development.database.ai.output_chars', { count: output.length }) : t('development.database.ai.output')}</span>
           {streaming && <Button variant="ghost" size="sm" onClick={stop}><Square size={12} />{t('development.database.ai.stop')}</Button>}
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">

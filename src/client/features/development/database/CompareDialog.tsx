@@ -243,7 +243,7 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
             />
           </div>
           <div className="flex flex-col items-start gap-1">
-            <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.compare.or_local')}</span>
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.compare.or_local')}</span>
             <Button variant="secondary" size="sm" onClick={() => localInput.current?.click()}>
               {localTarget ? localTarget.name : t('development.database.compare.local_file')}
             </Button>
@@ -289,7 +289,7 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
                     type="button"
                     aria-pressed={keys.includes(candidate)}
                     onClick={() => { setKeys((current) => current.includes(candidate) ? current.filter((item) => item !== candidate) : [...current, candidate]); setResult(null) }}
-                    className={keys.includes(candidate) ? 'rounded bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[length:var(--text-10)] text-[var(--accent)]' : 'rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[length:var(--text-10)] text-[var(--text-tertiary)]'}
+                    className={keys.includes(candidate) ? 'rounded bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono text-[length:var(--text-11)] text-[var(--accent)]' : 'rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]'}
                   >
                     {candidate}
                   </button>
@@ -316,8 +316,8 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
                 {t('development.database.compare.manual_rebuild_note')}
               </p>
             )}
-            <pre className="max-h-64 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-10)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{result.statements.join('\n') || t('development.database.compare.no_changes')}</pre>
-            <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.compare.apply_hint')}</p>
+            <pre className="max-h-64 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{result.statements.join('\n') || t('development.database.compare.no_changes')}</pre>
+            <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.compare.apply_hint')}</p>
           </div>
         )}
       </div>
