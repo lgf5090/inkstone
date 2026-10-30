@@ -14,6 +14,7 @@ import {
   publishPostSnapshot,
   syncBlogPostFromNote,
   updateAdminPostMeta,
+  toBlogSummary,
 } from '../src/worker/blog/store'
 import { sha256Hex } from '../src/worker/lib/encoding'
 import { DEFAULT_BLOG_SETTINGS, publicBlogSite } from '@shared/blog/settings'
@@ -198,6 +199,15 @@ describe('blog admin projection', () => {
     expect(published?.status).toBe('published')
     const list = await listPublishedPosts(db, USER, 1, 10)
     expect(list.rows.map((item) => item.slug)).toEqual([row!.slug])
+  })
+
+  it('never exposes a protected article excerpt or description', async () => {
+    const content = '---\nblogType: post\nisPublished: true\n---\n\nSecret body'
+    const row = await syncBlogPostFromNote(db, USER, note(content))
+    const summary = toBlogSummary({ ...row!, excerpt: 'secret first line', description: 'secret summary', encrypted: 1 }, [])
+    expect(summary.excerpt).toBe('')
+    expect(summary.description).toBe('')
+    expect(summary.encrypted).toBe(true)
   })
 
   it('records the media library assets a published article uses and clears stale links', async () => {

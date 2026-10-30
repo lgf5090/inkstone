@@ -65,6 +65,9 @@ export interface Env {
   /** HMAC secret for the blog Worker's cache purge endpoint. */
   BLOG_PURGE_SECRET?: string
 
+  /** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */
+  BLOG_UNLOCK_SECRET?: string
+
   /** Optional public base for the versioned reading runtime. */
   BLOG_RUNTIME_PUBLIC_URL?: string
 

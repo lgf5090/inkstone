@@ -180,6 +180,7 @@ export interface PublicPostQuery {
   q?: string
   year?: number
   pinned?: boolean
+  excludeEncrypted?: boolean
 }
 
 export async function listPublishedPostsFiltered(
@@ -219,6 +220,7 @@ export async function listPublishedPostsFiltered(
     binds.push(String(query.year))
   }
   if (query.pinned) where.push('p.pinned = 1')
+  if (query.excludeEncrypted) where.push('p.encrypted = 0')
   const joins = `LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
     LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
   const whereSql = where.join(' AND ')
@@ -317,6 +319,7 @@ export async function searchPublishedPosts(
     LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
   const where = `notes_fts.user_id = ? AND notes_fts MATCH ?
     AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+    AND p.encrypted = 0
     AND p.published_at IS NOT NULL AND p.published_at <= ?`
   try {
     const [rows, count] = await Promise.all([
@@ -336,7 +339,7 @@ export async function searchPublishedPosts(
     return { rows: rows.results, total: count?.total ?? 0, engine: 'fts' }
   } catch (error) {
     console.warn('[inkstone] blog search fell back to LIKE:', error)
-    const fallback = await listPublishedPostsFiltered(db, userId, { q: rawQuery, page, limit: safeLimit })
+    const fallback = await listPublishedPostsFiltered(db, userId, { q: rawQuery, page, limit: safeLimit, excludeEncrypted: true })
     return { ...fallback, engine: 'like' }
   }
 }
@@ -568,12 +571,15 @@ export function toBlogSummary(
   row: BlogPostWithNames,
   tags: string[],
 ): BlogPostSummary {
+  const protectedPost = row.encrypted === 1
   return {
     id: row.id,
     slug: row.slug,
     title: row.title,
-    excerpt: row.excerpt,
-    description: row.description,
+    // A locked article's excerpt and description come from the note body; a listing, feed or search
+    // result must not hand a reader the first lines the unlock page is protecting.
+    excerpt: protectedPost ? '' : row.excerpt,
+    description: protectedPost ? '' : row.description,
     coverUrl: row.cover_asset_id ? `/api/blog/assets/${row.cover_asset_id}` : null,
     category: row.category_name,
     series: row.series_title,
@@ -1020,6 +1026,7 @@ export interface AdminPostMetaPatch {
   permalink?: string
   hideHomeContent?: boolean
   password?: string
+  passwordHint?: string
   clearPassword?: boolean
   publishedAt?: number | null
 }
@@ -1084,6 +1091,7 @@ export async function updateAdminPostMeta(
     set('encrypted', 1)
     set('password_hash', await hashPassword(patch.password.trim()))
   }
+  if (patch.passwordHint !== undefined) set('password_hint', patch.passwordHint.slice(0, 200))
   if (patch.publishedAt !== undefined) {
     set('published_at', patch.publishedAt)
     if (patch.publishedAt !== null && patch.publishedAt > now) {

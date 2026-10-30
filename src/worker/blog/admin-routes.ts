@@ -243,6 +243,7 @@ blogAdminRoutes.patch('/posts/:id', async (c) => {
   string('alias', 200)
   string('permalink', 300)
   string('password', 200)
+  string('passwordHint', 200)
   if ('coverAssetId' in payload) patch.coverAssetId = typeof payload.coverAssetId === 'string' ? payload.coverAssetId : null
   if ('categoryId' in payload) patch.categoryId = typeof payload.categoryId === 'string' ? payload.categoryId : null
   if ('seriesId' in payload) patch.seriesId = typeof payload.seriesId === 'string' ? payload.seriesId : null

@@ -34228,6 +34228,11 @@ const allowed = new Map([
   ]],
   ["src/worker/blog/store.ts", [
     "/**\n * Replaces the media library's view of what one published article uses.\n *\n * The ids arrive from the owner's snapshot, but the table is still the trust boundary: every id is\n * checked against the owner's assets so a snapshot cannot make a post claim (and thereby pin) someone\n * else's file. An id that no longer exists is dropped; the body already carries a placeholder.\n */",
+    "// A locked article's excerpt and description come from the note body; a listing, feed or search",
+    "// result must not hand a reader the first lines the unlock page is protecting.",
+  ]],
+  ["src/worker/blog/unlock.ts", [
+    "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
   ]],
   ["src/worker/calendar/attachments.ts", [
     "/**\n * Files hung on an event.\n *\n * The bytes and their row live in the shared attachment pipeline (`scope = 'calendar'`), so one quota,\n * one MIME policy, one cleanup queue and one file door (`/api/files/:id`) already cover them; this\n * module only owns the link between an event and a file, plus the cascade that removes both when the\n * event is deleted. Objects are filed under a category folder — `calendar/images/<id>.png`,\n * `calendar/docx/<id>.pdf` — because that is the layout this deployment is read with.\n *\n * Deleting a whole calendar deletes the link rows of the events it really removes, but not their files:\n * that is the same rule task attachments follow, and it keeps a file that a surviving event in another\n * calendar still links. The files stay counted against the account quota; reclaiming them is the job of\n * a sweep this app does not have yet.\n */",
@@ -35616,6 +35621,7 @@ const allowed = new Map([
     "/** Public blog origin used for links and cache purge. */",
     "/** HMAC secret for the blog Worker's cache purge endpoint. */",
     "/** Optional public base for the versioned reading runtime. */",
+    "/** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -40951,6 +40957,9 @@ const allowed = new Map([
     "/// <reference types=\"node\" />",
   ]],
   ["tests/blog-runtime.test.ts", [
+    "/// <reference types=\"node\" />",
+  ]],
+  ["tests/blog-unlock.test.ts", [
     "/// <reference types=\"node\" />",
   ]],
   ["tests/boot-scripts.test.ts", [

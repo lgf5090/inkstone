@@ -4,7 +4,17 @@ import { ApiError } from '../lib/errors'
 import { readJson, requestClientIp } from '../lib/request'
 import { publicBlogSite } from '@shared/blog/settings'
 import type { BlogPostDetail } from '@shared/blog/model'
+import { verifyPassword } from '../lib/password'
 import { requireBlogProxy } from './guard'
+import {
+  clearUnlockAttempts,
+  guardUnlockAttempt,
+  issueUnlockToken,
+  unlockExpiry,
+  unlockNotConfigured,
+  unlockSecret,
+  verifyUnlockToken,
+} from './unlock'
 import {
   createBlogComment,
   discussionSettings,
@@ -152,12 +162,15 @@ blogPublicRoutes.get('/posts/:slug/render', async (c) => {
   const userId = await ownerId(c)
   const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
   if (!row) throw ApiError.notFound('Post not found')
-  if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected', {
-    protected: true,
-    hint: row.password_hint,
-  })
+  if (row.encrypted === 1 && !(await verifyUnlockToken(c.env, row.id, c.req.header('x-blog-unlock')))) {
+    throw new ApiError(403, 'forbidden', 'This post is protected', {
+      protected: true,
+      hint: row.password_hint,
+    })
+  }
   const render = await readRenderSnapshot(c.env.FILES, row)
   if (!render) throw ApiError.notFound('This post has no render yet')
+  if (row.encrypted === 1) return c.json(render, 200, { 'Cache-Control': 'private, no-store' })
   const etag = `"${row.render_hash}"`
   if (c.req.header('if-none-match') === etag) return c.body(null, 304, { ETag: etag })
   return c.json(render, 200, {
@@ -179,10 +192,12 @@ blogPublicRoutes.get('/posts/:slug/comments', async (c) => {
   const userId = await ownerId(c)
   const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
   if (!row) throw ApiError.notFound('Post not found')
-  if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected', {
-    protected: true,
-    hint: row.password_hint,
-  })
+  if (row.encrypted === 1 && !(await verifyUnlockToken(c.env, row.id, c.req.header('x-blog-unlock')))) {
+    throw new ApiError(403, 'forbidden', 'This post is protected', {
+      protected: true,
+      hint: row.password_hint,
+    })
+  }
   const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
   const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
     && row.published_at < Date.now() - settings.autoCloseDays * 24 * 60 * 60 * 1000
@@ -203,6 +218,12 @@ blogPublicRoutes.post('/posts/:slug/comments', async (c) => {
   const userId = await ownerId(c)
   const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
   if (!row) throw ApiError.notFound('Post not found')
+  if (row.encrypted === 1 && !(await verifyUnlockToken(c.env, row.id, c.req.header('x-blog-unlock')))) {
+    throw new ApiError(403, 'forbidden', 'This post is protected', {
+      protected: true,
+      hint: row.password_hint,
+    })
+  }
   if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected')
   const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
   const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
@@ -244,7 +265,8 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
   const userId = await ownerId(c)
   const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
   if (!row) throw ApiError.notFound('Post not found')
-  if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected', {
+  const unlocked = row.encrypted !== 1 || (await verifyUnlockToken(c.env, row.id, c.req.header('x-blog-unlock')))
+  if (!unlocked) throw new ApiError(403, 'forbidden', 'This post is protected', {
     protected: true,
     hint: row.password_hint,
   })
@@ -262,8 +284,34 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
     permalink: row.permalink,
   }
   return c.json(detail, 200, {
-    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+    'Cache-Control': row.encrypted === 1
+      ? 'private, no-store'
+      : 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
+})
+
+blogPublicRoutes.post('/posts/:slug/unlock', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row) throw ApiError.notFound('Post not found')
+  if (row.encrypted !== 1) return c.json({ token: null, expiresAt: null })
+  if (!row.password_hash) throw unlockNotConfigured()
+  if (!unlockSecret(c.env)) throw unlockNotConfigured()
+  const body = await readJson<{ password?: unknown }>(c, 4096)
+  const password = typeof body.password === 'string' ? body.password : ''
+  if (!password || password.length > 200) throw ApiError.badRequest('Password required')
+  const ip = requestClientIp(c)
+  await guardUnlockAttempt(c.env.DB, row.id, ip)
+  if (!(await verifyPassword(password, row.password_hash))) {
+    throw new ApiError(403, 'forbidden', 'Incorrect password', {
+      protected: true,
+      hint: row.password_hint,
+    })
+  }
+  await clearUnlockAttempts(c.env.DB, row.id, ip)
+  const token = await issueUnlockToken(c.env, row.id)
+  if (!token) throw unlockNotConfigured()
+  return c.json({ token, expiresAt: unlockExpiry() }, 200, { 'Cache-Control': 'private, no-store' })
 })
 
 blogPublicRoutes.get('/categories', async (c) => {
