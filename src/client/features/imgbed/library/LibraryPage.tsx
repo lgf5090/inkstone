@@ -94,7 +94,11 @@ export function LibraryPage(): ReactElement {
   const gridRef = useRef<HTMLDivElement>(null)
   const loadSeq = useRef(0)
   const sidebarFetchedAt = useRef(0)
-  const dragRef = useRef<{ x: number; y: number; base: Set<string> } | null>(null)
+  const dragRef = useRef<{
+    x: number; y: number; base: Set<string>
+    boxes: { id: string; left: number; top: number; right: number; bottom: number }[]
+    last: { x: number; y: number } | null; frame: number
+  } | null>(null)
   const toast = useUi((state) => state.toast)
   const globalScope = quick !== 'all' || Boolean(typeFilter) || Boolean(channelFilter) || Boolean(tagFilter)
   const filters: ImgbedFilters = { quick, type: typeFilter, channel: channelFilter, tag: tagFilter }
@@ -114,29 +118,38 @@ export function LibraryPage(): ReactElement {
     if (event.pointerType !== 'mouse' || event.button !== 0) return
     const target = event.target as HTMLElement
     if (target.closest('button,a,input,label,[data-imgbed-sidebar],[role=dialog]')) return
-    dragRef.current = { x: event.clientX, y: event.clientY, base: new Set(selected) }
+    const boxes = [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-file-id]') ?? [])].map((element) => {
+      const box = element.getBoundingClientRect()
+      return { id: element.dataset.fileId ?? '', left: box.left, top: box.top, right: box.right, bottom: box.bottom }
+    }).filter((box) => box.id)
+    dragRef.current = { x: event.clientX, y: event.clientY, base: new Set(selected), boxes, last: null, frame: 0 }
     setMarquee({ left: event.clientX, top: event.clientY, width: 0, height: 0 })
     event.currentTarget.setPointerCapture(event.pointerId)
   }
   const onGridPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current
     if (!drag) return
-    const left = Math.min(drag.x, event.clientX)
-    const top = Math.min(drag.y, event.clientY)
-    const width = Math.abs(event.clientX - drag.x)
-    const height = Math.abs(event.clientY - drag.y)
-    setMarquee({ left, top, width, height })
-    const next = new Set(drag.base)
-    gridRef.current?.querySelectorAll<HTMLElement>('[data-file-id]').forEach((element) => {
-      const box = element.getBoundingClientRect()
-      if (box.left < left + width && box.right > left && box.top < top + height && box.bottom > top) {
-        const id = element.dataset.fileId
-        if (id) next.add(id)
+    drag.last = { x: event.clientX, y: event.clientY }
+    if (drag.frame) return
+    drag.frame = requestAnimationFrame(() => {
+      const active = dragRef.current
+      if (!active?.last) return
+      const left = Math.min(active.x, active.last.x)
+      const top = Math.min(active.y, active.last.y)
+      const width = Math.abs(active.last.x - active.x)
+      const height = Math.abs(active.last.y - active.y)
+      setMarquee({ left, top, width, height })
+      const next = new Set(active.base)
+      for (const box of active.boxes) {
+        if (box.left < left + width && box.right > left && box.top < top + height && box.bottom > top) next.add(box.id)
       }
+      setSelected(next)
+      active.frame = 0
     })
-    setSelected(next)
   }
   const endMarquee = (): void => {
+    const drag = dragRef.current
+    if (drag?.frame) cancelAnimationFrame(drag.frame)
     dragRef.current = null
     setMarquee(null)
   }
