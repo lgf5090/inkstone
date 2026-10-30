@@ -267,7 +267,7 @@ function SidebarLink({ page, label, icon: Icon, active, mountId, onNavigate }: {
         event.preventDefault()
         onNavigate(path)
       }}
-      className={cn('flex h-8 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)]', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
+      className={cn('flex h-8 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)]', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}
     >
       <Icon size={14} aria-hidden /> <span className="truncate">{label}</span>
     </a>
