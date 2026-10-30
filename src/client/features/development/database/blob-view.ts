@@ -17,10 +17,6 @@ export function blobBytes(value: unknown): Uint8Array | null {
   return null
 }
 
-export function isBlobLike(value: unknown): boolean {
-  return blobBytes(value) !== null
-}
-
 export function hexDump(bytes: Uint8Array, limit = 4096): { text: string; truncated: boolean } {
   const size = Math.min(bytes.length, Math.max(0, limit))
   const lines: string[] = []

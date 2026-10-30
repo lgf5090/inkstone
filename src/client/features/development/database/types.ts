@@ -1,6 +1,4 @@
-import type { ExportFormat, ParsedColumn, QueryResult } from '@shared/development/database/types'
-
-export type StudioQueryResult = QueryResult
+import type { ParsedColumn } from '@shared/development/database/types'
 
 export interface SavedConnectionSelection {
   kind: 'saved'
@@ -20,7 +18,6 @@ export type StudioTabKind = 'query' | 'data' | 'schema' | 'tools' | 'erd'
 export interface StudioTab {
   id: string
   kind: StudioTabKind
-  title?: string
   table?: string
   initialSql?: string
 }
@@ -80,21 +77,6 @@ export type RowKey = RowKeyPk | RowKeyRowid | RowKeyNone
 export interface SqlStatement {
   sql: string
   params: unknown[]
-}
-
-export type ExportTarget = 'clipboard' | 'file'
-export type ExportScope = 'all' | 'selected'
-
-export interface ExportSettings {
-  format: ExportFormat
-  target: ExportTarget
-  scope: ExportScope
-  delimiter: string
-  lineTerminator: string
-  encloser: string
-  nullText: string
-  includeHeader: boolean
-  bom: boolean
 }
 
 export interface ExportCreateResult {

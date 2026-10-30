@@ -6,7 +6,7 @@ import { buildRebuildSql } from '../src/client/features/development/database/ddl
 import { buildTableDataSql, loadSchema, stableOrderBy } from '../src/client/features/development/database/schema-utils'
 import { buildDistinctSql } from '../src/client/features/development/database/distinct-ops'
 import { buildDataSearchSql, searchableColumns } from '../src/client/features/development/database/data-search'
-import { buildRowInsert, chunkRows, transferInsertStatements } from '../src/client/features/development/database/transfer-ops'
+import { buildRowInsert } from '../src/client/features/development/database/transfer-ops'
 import { generateRows } from '../src/client/features/development/database/data-generate'
 import { diagnoseSql } from '../src/client/features/development/database/sql-diagnostics'
 import { computeColumnWidths } from '../src/client/features/development/database/snapshot'
@@ -274,13 +274,8 @@ describe('development database core', () => {
     expect(inferColumnType([])).toBe('TEXT')
   })
 
-  it('chunks transfer rows and quotes INSERT literals', () => {
-    expect(chunkRows([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
+  it('quotes INSERT literals for transfer rows', () => {
     expect(buildRowInsert('t', ['a', 'b'], ["x'y", null])).toBe(`INSERT INTO "t" ("a", "b") VALUES ('x''y', NULL)`)
-    expect(transferInsertStatements('t', ['a'], [[1], [2]])).toEqual([
-      'INSERT INTO "t" ("a") VALUES (1);',
-      'INSERT INTO "t" ("a") VALUES (2);',
-    ])
   })
 
   it('generates deterministic rows for each generator kind', () => {

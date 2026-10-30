@@ -53,14 +53,6 @@ export async function loadSchema(driver: StudioDriver): Promise<SchemaModel> {
   return { tables, views, triggers, indexes, ...(result.truncated ? { truncated: true } : {}) }
 }
 
-export function buildSchemaNamespace(model: SchemaModel): Record<string, string[]> {
-  const namespace: Record<string, string[]> = {}
-  for (const table of model.tables) {
-    namespace[table.name] = table.columns.map((column) => column.name)
-  }
-  return namespace
-}
-
 export function buildTableDataSql(
   table: string,
   options: TableDataOptions,

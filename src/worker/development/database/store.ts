@@ -365,15 +365,19 @@ export async function findMissingConnectionIds(
   ids: string[],
 ): Promise<string[]> {
   if (ids.length === 0) return []
-  const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
-  const result = await db
-    .prepare(
-      `SELECT id FROM development_database_connections
-        WHERE user_id = ?1 AND id IN (${placeholders})`,
-    )
-    .bind(userId, ...ids)
-    .all<{ id: string }>()
-  const found = new Set((result.results ?? []).map((row) => row.id))
+  const found = new Set<string>()
+  for (let index = 0; index < ids.length; index += 90) {
+    const chunk = ids.slice(index, index + 90)
+    const placeholders = chunk.map((_, position) => `?${position + 2}`).join(', ')
+    const result = await db
+      .prepare(
+        `SELECT id FROM development_database_connections
+          WHERE user_id = ?1 AND id IN (${placeholders})`,
+      )
+      .bind(userId, ...chunk)
+      .all<{ id: string }>()
+    for (const row of result.results ?? []) found.add(row.id)
+  }
   return ids.filter((id) => !found.has(id))
 }
 

@@ -295,4 +295,26 @@ describe('export store', () => {
     expect(await deleteExport(db, USER_A, 'exp-2')).toBe(true)
     expect(await findExport(db, USER_A, 'exp-2')).toBeNull()
   })
+
+  it('checks connection existence in chunks below the D1 bind limit', async () => {
+    const bindLimited = {
+      prepare: (sql: string) => {
+        const statement = db.prepare(sql)
+        return {
+          bind: (...values: unknown[]) => {
+            if (values.length > 100) throw new Error(`too many SQL variables: ${values.length}`)
+            return statement.bind(...(values as never[]))
+          },
+        }
+      },
+    } as unknown as D1Database
+    const ids: string[] = []
+    for (let index = 0; index < 120; index++) {
+      const id = `conn-many-${index}`
+      await insertConnection(db, USER_A, connection(id, id))
+      ids.push(id)
+    }
+    await expect(findMissingConnectionIds(bindLimited, USER_A, ids)).resolves.toEqual([])
+    await expect(findMissingConnectionIds(bindLimited, USER_A, [...ids, 'conn-missing'])).resolves.toEqual(['conn-missing'])
+  })
 })
