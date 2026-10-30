@@ -7,11 +7,14 @@ import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { readJson } from '../../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../../lib/throttle'
+import { readCappedBody } from './body'
 
 export const oauthRoutes = new Hono<AppBindings>()
 
 /** OAuth token endpoints answer quickly; a hung one must not hold the Worker open. */
 const OAUTH_TIMEOUT_MS = 15_000
+/** A token response is a small JSON object; anything past this is not one. */
+const OAUTH_RESPONSE_MAX_BYTES = 1024 * 1024
 
 /**
  * The token endpoint this exchange may call.
@@ -133,6 +136,9 @@ oauthRoutes.post('/oauth2/token', async (c) => {
         Accept: 'application/json',
       },
       body: tokenForm(input).toString(),
+      // Redirects are refused the same way the relay refuses them: a hop is a new target, and a
+      // public token endpoint that answers 302 into the network this Worker can see must not be followed.
+      redirect: 'manual',
       signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
     })
   } catch (error) {
@@ -146,9 +152,31 @@ oauthRoutes.post('/oauth2/token', async (c) => {
     throw new ApiError(502, 'apitester_upstream_unreachable', 'The token endpoint could not be reached')
   }
 
+  if (response.status >= 300 && response.status < 400) {
+    try {
+      await response.body?.cancel()
+    } catch {
+      // The redirect body is never read; a cancel that rejects changes nothing here.
+    }
+    console.warn('[inkstone] API tester OAuth token endpoint redirected:', target.hostname, response.status)
+    throw new ApiError(
+      502,
+      'apitester_token_redirect',
+      'The token endpoint must answer directly; redirects are not followed',
+    )
+  }
+
+  const read = await readCappedBody(response, OAUTH_RESPONSE_MAX_BYTES)
+  if (read.tooLarge || !read.bytes) {
+    console.warn('[inkstone] API tester OAuth token endpoint returned too much data:', target.hostname, response.status)
+    return c.json<OAuthTokenResponse>({
+      error: `The token endpoint returned more than ${OAUTH_RESPONSE_MAX_BYTES} bytes (HTTP ${response.status})`,
+    })
+  }
+
   let payload: unknown
   try {
-    payload = await response.json()
+    payload = JSON.parse(new TextDecoder().decode(read.bytes)) as unknown
   } catch {
     // A provider that answers HTML or an empty body still gets an envelope the client can show;
     // the body itself is not repeated here because an error page can echo credentials.

@@ -14,6 +14,7 @@ import { toBase64 } from '../../lib/encoding'
 import { ApiError } from '../../lib/errors'
 import { readJson } from '../../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../../lib/throttle'
+import { readCappedBody } from './body'
 import { readOwnedFileBytes } from './files'
 
 export const relayRoutes = new Hono<AppBindings>()
@@ -182,46 +183,6 @@ async function discardBody(response: Response): Promise<void> {
   }
 }
 
-interface BodyRead {
-  bytes: Uint8Array | null
-  size: number
-  tooLarge: boolean
-}
-
-async function readCappedBody(response: Response): Promise<BodyRead> {
-  const reader = response.body?.getReader()
-  if (!reader) return { bytes: new Uint8Array(0), size: 0, tooLarge: false }
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value) continue
-      total += value.byteLength
-      if (total > MAX_PROXY_RESPONSE_BYTES) {
-        try {
-          await reader.cancel('response_too_large')
-        } catch {
-          // The payload is already refused; the reader is released below either way.
-        }
-        return { bytes: null, size: total, tooLarge: true }
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return { bytes, size: total, tooLarge: false }
-}
-
 function errorEnvelope(input: {
   error: string
   url: string
@@ -339,7 +300,7 @@ async function runProxy(input: ProxyRequest, body: string | Uint8Array | undefin
       const headersOut = responseHeaders(response.headers)
       const contentType = response.headers.get('content-type') ?? ''
       const cookies = readCookies(response.headers)
-      const read = await readCappedBody(response)
+      const read = await readCappedBody(response, MAX_PROXY_RESPONSE_BYTES)
       const finishedAt = performance.now()
       const totalMs = Math.max(0, Math.round(finishedAt - startedAt))
       const downloadMs = Math.max(0, Math.round(finishedAt - ttfbAt))

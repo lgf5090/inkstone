@@ -126,6 +126,7 @@ describe('POST /oauth2/token', () => {
       'application/x-www-form-urlencoded',
     )
     expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(init.redirect).toBe('manual')
     expect(Object.fromEntries(new URLSearchParams(String(init.body)))).toEqual({
       grant_type: 'authorization_code',
       code: 'code-1',
@@ -185,6 +186,41 @@ describe('POST /oauth2/token', () => {
     expect(body.error).toContain('non-JSON')
     expect(body.error).toContain('502')
     expect(body.accessToken).toBeUndefined()
+  })
+
+  it('refuses to follow a redirect instead of letting the hop pick a new target', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(null, { status: 303, headers: { location: 'http://127.0.0.1:8080/token' } }),
+      ),
+    )
+
+    const response = await call('POST', '/oauth2/token', {
+      body: { tokenUrl: TOKEN_URL, code: 'code-1' },
+    })
+
+    expect(response.status).toBe(502)
+    const body = await bodyOf<ErrorEnvelope>(response)
+    expect(body.error.code).toBe('apitester_token_redirect')
+  })
+
+  it('refuses a token response larger than the cap instead of buffering it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({ access_token: 'x'.repeat(1_100_000), token_type: 'Bearer' }),
+      ),
+    )
+
+    const response = await call('POST', '/oauth2/token', {
+      body: { tokenUrl: TOKEN_URL, code: 'code-1' },
+    })
+
+    expect(response.status).toBe(200)
+    const body = await bodyOf<OAuthTokenResponse>(response)
+    expect(body.accessToken).toBeUndefined()
+    expect(body.error).toContain('1048576')
   })
 
   it('passes an upstream OAuth error and description through unchanged', async () => {

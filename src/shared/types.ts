@@ -1555,6 +1555,7 @@ export type ApiErrorCode =
   | 'apitester_blocked_target'
   | 'apitester_upstream_unreachable'
   | 'apitester_request_timeout'
+  | 'apitester_token_redirect'
   | 'apitester_ticket_not_found'
   | 'apitester_ticket_expired'
   | 'apitester_origin_not_trusted'
