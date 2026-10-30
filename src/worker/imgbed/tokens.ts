@@ -143,12 +143,14 @@ export async function resolveToken(
   if (!isImgbedToken(token)) return null
   const hash = await sha256Hex(token)
   const row = await db.prepare(
-    `SELECT id, created_by, scopes, expires_at FROM imgbed_api_tokens
+    `SELECT id, created_by, scopes, expires_at, last_used_at FROM imgbed_api_tokens
       WHERE token_hash = ?1 AND revoked_at IS NULL`,
-  ).bind(hash).first<{ id: string; created_by: string; scopes: string; expires_at: number | null }>()
+  ).bind(hash).first<{ id: string; created_by: string; scopes: string; expires_at: number | null; last_used_at: number | null }>()
   if (!row) return null
   if (row.expires_at !== null && row.expires_at <= now) return null
-  await db.prepare('UPDATE imgbed_api_tokens SET last_used_at = ?2 WHERE id = ?1').bind(row.id, now).run()
+  if (!row.last_used_at || now - row.last_used_at >= 5 * 60_000) {
+    await db.prepare('UPDATE imgbed_api_tokens SET last_used_at = ?2 WHERE id = ?1').bind(row.id, now).run()
+  }
   return {
     id: row.id,
     userId: row.created_by,
