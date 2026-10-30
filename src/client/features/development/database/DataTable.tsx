@@ -116,6 +116,8 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
   const [currentSql, setCurrentSql] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadSeq = useRef(0)
+  const lastLoadError = useRef<string | null>(null)
 
   const searchColumns = useMemo(() => table.columns.map((column) => column.name), [table.columns])
   const where = useMemo(() => buildWhere(filters, debouncedSearch, searchColumns), [filters, debouncedSearch, searchColumns])
@@ -132,7 +134,9 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     targetSort: TableSortRule[],
     targetWhere?: { sql: string; params: unknown[] } | null,
     skipCount = false,
+    preserveDirty = false,
   ) => {
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       const whereValue = targetWhere === undefined ? where : targetWhere
@@ -160,6 +164,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       } else {
         result = await driver.query(data.sql, data.params)
       }
+      if (seq !== loadSeq.current) return
 
       const nextColumns = result.columns.length > 0
         ? result.columns.filter((column) => column !== '__inkstone_rowid__')
@@ -170,25 +175,33 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       setPage(targetPage)
       setPageSize(targetPageSize)
       setTruncated(Boolean(result.truncated))
-      setDirty(new Map())
-      setEditing(null)
-      setSelectedRows(new Set())
-      setDetailRow(null)
+      if (!preserveDirty) {
+        setDirty(new Map())
+        setEditing(null)
+        setSelectedRows(new Set())
+        setDetailRow(null)
+      }
+      lastLoadError.current = null
 
       if (!skipCount) {
         try {
           const count = buildCountSql(table.name, whereValue?.sql, whereValue?.params)
           const countResult = await driver.query(count.sql, count.params)
+          if (seq !== loadSeq.current) return
           const value = countResult.rows[0]?.[0]
           setTotal(typeof value === 'number' ? value : Number(value ?? 0))
         } catch {
-          setTotal(null)
+          if (seq === loadSeq.current) setTotal(null)
         }
       }
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause))
+      const message = cause instanceof Error ? cause.message : String(cause)
+      if (seq === loadSeq.current && message !== lastLoadError.current) {
+        lastLoadError.current = message
+        onError(message)
+      }
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [driver, onError, table, useRowid, where])
 
@@ -303,7 +316,8 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     if (!editable) return
     const key = keyFor(row)
     if (key.kind === 'none') return
-    const value = rows[row]?.[column]
+    const pending = dirty.get(row)
+    const value = pending?.has(column) ? pending.get(column) : rows[row]?.[column]
     if (isBlobValue(value)) return
     const kind = kindAt(column)
     const text = value === null || value === undefined ? '' : String(value)
@@ -328,6 +342,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     if (!(await allowed())) return
     if (dirtyCount === 0) return
     let done = 0
+    let failed = false
     for (const [rowIndex, cells] of dirty) {
       const key = keyFor(rowIndex)
       if (key.kind === 'none') continue
@@ -337,7 +352,13 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       try {
         await driver.query(statement.sql, statement.params)
         done++
+        setDirty((current) => {
+          const next = new Map(current)
+          next.delete(rowIndex)
+          return next
+        })
       } catch (cause) {
+        failed = true
         onError(t('development.database.table.update_failed', {
           n: done + 1,
           message: cause instanceof Error ? cause.message : String(cause),
@@ -345,7 +366,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         break
       }
     }
-    if (done > 0) void load(page, pageSize, sort, where)
+    if (done > 0) void load(page, pageSize, sort, where, false, failed)
   }
 
   const deleteRows = async (targets: Set<number>) => {
@@ -415,15 +436,24 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
     const statement = buildInsert(table.name, entries)
     if (!statement) return
     const count = Math.max(1, Math.min(100, Math.trunc(Number(insertCount)) || 1))
+    let done = 0
     try {
-      for (let index = 0; index < count; index++) {
+      for (; done < count; done++) {
         await driver.query(statement.sql, statement.params)
       }
       setInsertOpen(false)
       setInsertCount('1')
       void load(page, pageSize, sort, where)
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : String(cause))
+      const message = cause instanceof Error ? cause.message : String(cause)
+      if (done > 0) {
+        setInsertOpen(false)
+        setInsertCount('1')
+        void load(page, pageSize, sort, where)
+        onError(t('development.database.table.insert_partial', { done, total: count, message }))
+      } else {
+        onError(message)
+      }
     }
   }
 
@@ -460,7 +490,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
 
   const refreshRef = useRef<() => void>(() => {})
   refreshRef.current = () => {
-    if (!loading) void load(page, pageSize, sort, where)
+    if (!loading && dirtyCount === 0) void load(page, pageSize, sort, where)
   }
   useEffect(() => {
     if (!active || refreshSeconds <= 0) return
@@ -742,7 +772,11 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1.5">
-        <TooltipIcon label={t('development.database.table.refresh')} onClick={() => void load(page, pageSize, sort, where)}>
+        <TooltipIcon
+          label={dirtyCount > 0 ? t('development.database.table.refresh_blocked') : t('development.database.table.refresh')}
+          disabled={dirtyCount > 0}
+          onClick={() => void load(page, pageSize, sort, where)}
+        >
           {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
         </TooltipIcon>
         <Button variant="secondary" size="sm" onClick={() => setFilterOpen(true)}>
@@ -798,6 +832,11 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         {refreshSeconds > 0 && lastRefreshAt && (
           <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
             {t('development.database.table.refreshed_at', { time: lastRefreshAt.toLocaleTimeString(undefined, { hour12: false }) })}
+          </span>
+        )}
+        {refreshSeconds > 0 && dirtyCount > 0 && (
+          <span className="shrink-0 rounded bg-[var(--warning-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--warning)]">
+            {t('development.database.table.refresh_paused')}
           </span>
         )}
         <SelectMenu
@@ -884,6 +923,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
           <ResultGrid
             columns={columns}
             rows={rows}
+            dirty={dirty}
             sort={sort}
             onSort={sortBy}
             onSortDir={sortOne}
@@ -1104,9 +1144,9 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
   )
 }
 
-function TooltipIcon({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function TooltipIcon({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
   return (
-    <IconButton label={label} size="sm" onClick={onClick}>
+    <IconButton label={label} size="sm" onClick={onClick} disabled={disabled}>
       {children}
     </IconButton>
   )

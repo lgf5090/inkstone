@@ -32,6 +32,7 @@ export interface ResultGridProps {
   selectedRow?: number | null
   onRowClick?: (rowIndex: number) => void
   rowKeyHint?: string
+  dirty?: ReadonlyMap<number, ReadonlyMap<number, unknown>>
   editable?: boolean
   editing?: { row: number; col: number } | null
   onEdit?: (row: number, col: number) => void
@@ -90,6 +91,7 @@ export function ResultGrid({
   selectedRow,
   onRowClick,
   rowKeyHint,
+  dirty,
   editable = false,
   editing,
   onEdit,
@@ -379,7 +381,10 @@ export function ResultGrid({
                   </th>
                   {visibleColumns.map((column) => {
                     const isPinned = pinned.has(column)
-                    const cell = renderCellValue(row[column])
+                    const pendingCells = dirty?.get(index)
+                    const pending = pendingCells?.has(column) ? pendingCells.get(column) : undefined
+                    const hasPending = pendingCells?.has(column) ?? false
+                    const cell = renderCellValue(hasPending ? pending : row[column])
                     const isEditing = editable && editing?.row === index && editing.col === column
                     if (isEditing) {
                       return (
@@ -409,9 +414,9 @@ export function ResultGrid({
                     return (
                       <td
                         key={`${column}-${index}`}
-                        className={cn('truncate px-1.5', cell.className, editable && 'cursor-cell', isPinned && 'sticky z-10 bg-[var(--bg-base)]')}
+                        className={cn('truncate px-1.5', cell.className, hasPending && 'bg-[var(--warning-soft)] shadow-[inset_2px_0_0_var(--warning)]', editable && 'cursor-cell', isPinned && (hasPending ? 'sticky z-10' : 'sticky z-10 bg-[var(--bg-base)]'))}
                         style={isPinned ? { left: pinnedLeft.get(column) } : undefined}
-                        title={cell.title}
+                        title={hasPending ? `${cell.title ?? cell.text} · ${t('development.database.table.uncommitted')}` : cell.title}
                         onDoubleClick={() => editable && onEdit?.(index, column)}
                         onContextMenu={(event) => {
                           if (!onCellContextMenu) return
