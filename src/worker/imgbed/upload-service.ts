@@ -106,31 +106,34 @@ export async function lookupAddress(security: ImgbedSecuritySettings, ip: string
 
 async function moderateContent(security: ImgbedSecuritySettings, url: string): Promise<string> {
   if (!security.moderate.enabled) return 'None'
-  try {
-    if (security.moderate.channel === 'moderatecontent.com') {
-      const key = security.moderate.moderateContentApiKey
-      if (!key) return 'None'
-      const response = await fetch('https://api.moderatecontent.com/moderate/', {
+  const unavailable = (): never => { throw new StorageError('Content moderation is unavailable', 503) }
+  if (security.moderate.channel === 'moderatecontent.com') {
+    const key = security.moderate.moderateContentApiKey
+    if (!key) unavailable()
+    let response: Response
+    try {
+      response = await fetch('https://api.moderatecontent.com/moderate/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ key, url }).toString(),
         signal: AbortSignal.timeout(10_000),
       })
-      if (!response.ok) return 'None'
-      const data = await response.json().catch(() => null) as { rating_label?: string } | null
-      return data?.rating_label ?? 'None'
-    }
-    if (!security.moderate.nsfwApiPath) return 'None'
-    const target = new URL(security.moderate.nsfwApiPath)
-    target.searchParams.set('url', url)
-    const response = await fetch(target, { signal: AbortSignal.timeout(10_000) })
-    if (!response.ok) return 'None'
-    const data = await response.json().catch(() => null) as { score?: number } | null
-    const score = Number(data?.score ?? 0)
-    return score >= 0.9 ? 'adult' : score >= 0.7 ? 'teen' : 'everyone'
-  } catch {
-    return 'None'
+    } catch { unavailable() }
+    if (!response!.ok) unavailable()
+    const data = await response!.json().catch(() => null) as { rating_label?: string } | null
+    if (!data?.rating_label) unavailable()
+    return data!.rating_label!
   }
+  if (!security.moderate.nsfwApiPath) unavailable()
+  const target = new URL(security.moderate.nsfwApiPath)
+  target.searchParams.set('url', url)
+  let response: Response
+  try { response = await fetch(target, { signal: AbortSignal.timeout(10_000) }) } catch { unavailable() }
+  if (!response!.ok) unavailable()
+  const data = await response!.json().catch(() => null) as { score?: number } | null
+  const score = Number(data?.score)
+  if (!Number.isFinite(score)) unavailable()
+  return score >= 0.9 ? 'adult' : score >= 0.7 ? 'teen' : 'everyone'
 }
 
 function dimensionsOf(bytes: Uint8Array, fileType: string): { width: number; height: number } | null {
@@ -235,10 +238,19 @@ export async function uploadSingle(
     throw lastError instanceof StorageError ? lastError : new StorageError('All upload channels failed', 502)
   }
 
-  const label = fileTypeCategory(fileType) === 'image'
-    ? await moderateContent(security, publicFileUrl(channel, id) || `${new URL(request.url).origin}/imgbed/file/${id}`)
-    : 'None'
+  const fileRecord = {
+    id, objectKey: put.objectKey, fileName, fileType, sizeBytes: size,
+    width: null, height: null, uploadIp: ip, uploadAddress: address,
+    listType: 'None' as const, label: 'None' as const, directory: '', source: channel.type,
+    externalLink: null, channel: canonicalChannel(channel),
+    channelName: channel.name, isChunked: false, parts: null, uploaderId: actor.userId,
+    favorite: false, pinned: false,
+    createdAt: now, updatedAt: now, tags: [],
+  } satisfies ImgbedFile
   try {
+    const label = fileTypeCategory(fileType) === 'image'
+      ? await moderateContent(security, publicFileUrl(channel, id) || `${new URL(request.url).origin}/imgbed/file/${id}`)
+      : 'None'
     await insertFile(db, {
       id, objectKey: put.objectKey, fileName, fileType, sizeBytes: size,
       width: dimensions?.width ?? null, height: dimensions?.height ?? null,
@@ -247,16 +259,9 @@ export async function uploadSingle(
       uploaderId: actor.userId, createdAt: now,
     })
   } catch (error) {
-    const fileRecord = {
-      id, objectKey: put.objectKey, fileName, fileType, sizeBytes: size,
-      width: null, height: null, uploadIp: ip, uploadAddress: address,
-      listType: 'None' as const, label: 'None' as const, directory: '', source: channel.type,
-      externalLink: null, channel: canonicalChannel(channel),
-      channelName: channel.name, isChunked: false, parts: null, uploaderId: actor.userId,
-      favorite: false, pinned: false,
-      createdAt: now, updatedAt: now, tags: [],
-    } satisfies ImgbedFile
-    await deleteWholeFile(env, channel, fileRecord).catch(() => {})
+    await deleteWholeFile(env, channel, fileRecord).catch((cleanupError) => {
+      console.warn('[inkstone] image-bed rollback after a failed insert failed:', (cleanupError as Error).message)
+    })
     throw error
   }
 
