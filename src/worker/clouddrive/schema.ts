@@ -421,6 +421,37 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_job_runs_job
      ON CloudDrive_job_runs(user_id, job_id, started_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_meta (
+    user_id TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    header_md TEXT NOT NULL DEFAULT '',
+    footer_md TEXT NOT NULL DEFAULT '',
+    hide_patterns TEXT NOT NULL DEFAULT '[]',
+    password_hash TEXT NOT NULL DEFAULT '',
+    inherit_header INTEGER NOT NULL DEFAULT 0,
+    inherit_footer INTEGER NOT NULL DEFAULT 0,
+    inherit_hide INTEGER NOT NULL DEFAULT 0,
+    inherit_password INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, mount_id, path)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_meta_mount
+     ON CloudDrive_meta(user_id, mount_id, path)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_meta_unlocks (
+    token_hash TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, token_hash)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_meta_unlocks_lookup
+     ON CloudDrive_meta_unlocks(user_id, mount_id, path, expires_at)`,
 ]
 
 export const CLOUDDRIVE_REQUIRED_TABLES = [
@@ -446,6 +477,8 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
+  'CloudDrive_meta',
+  'CloudDrive_meta_unlocks',
 ] as const
 
 export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -509,6 +542,14 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
     'builtin', 'config', 'last_run_at', 'next_run_after', 'lock_until', 'created_at', 'updated_at',
+  ],
+  CloudDrive_meta: [
+    'user_id', 'mount_id', 'path', 'header_md', 'footer_md', 'hide_patterns',
+    'password_hash', 'inherit_header', 'inherit_footer', 'inherit_hide', 'inherit_password',
+    'created_at', 'updated_at',
+  ],
+  CloudDrive_meta_unlocks: [
+    'token_hash', 'user_id', 'mount_id', 'path', 'expires_at', 'created_at',
   ],
   CloudDrive_job_runs: [
     'id', 'user_id', 'job_id', 'status', 'result', 'error', 'started_at', 'finished_at', 'duration_ms',

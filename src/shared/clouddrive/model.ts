@@ -269,6 +269,7 @@ export interface CloudDriveListing {
   total: number | null
   foldersTruncated: boolean
   note?: string | null
+  footer?: string | null
 }
 
 export interface CloudDriveUsage {

@@ -29,6 +29,7 @@ import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
+import { assertMetaAccess } from './routes-meta'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { storageKeyReferenced } from './store-files'
 import { assignParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
@@ -376,6 +377,7 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
     throw invalidPath('The parent path is not valid')
   }
 
+  await assertMetaAccess(c, userId, mountId, parentPath)
   if (typeof body.name !== 'string') throw invalidPath('A file name is required')
   const name = body.name.normalize('NFC')
   const nameProblem = cloudDriveNameProblem(name)

@@ -13,6 +13,7 @@ export type CloudDrivePage =
   | 'shared'
   | 'mounts'
   | 'storage'
+  | 'meta'
   | 'dashboard'
   | 'files-admin'
   | 'index'
@@ -41,6 +42,7 @@ const PAGES: readonly [string, CloudDrivePage][] = [
   ['/clouddrive/shared', 'shared'],
   ['/clouddrive/mounts', 'mounts'],
   ['/clouddrive/storage', 'storage'],
+  ['/clouddrive/meta', 'meta'],
   ['/clouddrive/dashboard', 'dashboard'],
   ['/clouddrive/files-admin', 'files-admin'],
   ['/clouddrive/index', 'index'],
@@ -102,6 +104,7 @@ export function cloudDrivePath(page: CloudDrivePage, mountId: string, path = '/'
     shared: '/clouddrive/shared',
     mounts: '/clouddrive/mounts',
     storage: '/clouddrive/storage',
+    meta: '/clouddrive/meta',
     dashboard: '/clouddrive/dashboard',
     'files-admin': '/clouddrive/files-admin',
     index: '/clouddrive/index',

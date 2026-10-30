@@ -302,7 +302,11 @@ clouddriveMountRoutes.delete('/mounts/:id', async (c) => {
        + (SELECT COUNT(*) FROM CloudDrive_shares WHERE user_id = ?1 AND mount_id = ?2 AND revoked_at IS NULL) AS count`,
   ).bind(userId, row.id).first<{ count: number }>()
   if ((used?.count ?? 0) > 0) throw ApiError.conflict('This mount still holds files, file parts or active shares')
-  await c.env.DB.prepare(`DELETE FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`).bind(userId, row.id).run()
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2`).bind(userId, row.id),
+    c.env.DB.prepare(`DELETE FROM CloudDrive_meta_unlocks WHERE user_id = ?1 AND mount_id = ?2`).bind(userId, row.id),
+    c.env.DB.prepare(`DELETE FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`).bind(userId, row.id),
+  ])
   return c.json({ ok: true })
 })
 

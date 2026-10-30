@@ -16,6 +16,7 @@ import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
 import { MountsPage } from './mounts/MountsPage'
 import { StoragePage } from './mounts/StoragePage'
+import { MetaPage } from './admin/MetaPage'
 import { SharesPage } from './shares/SharesPage'
 import { DashboardPage } from './admin/DashboardPage'
 import { AdminFilesPage } from './admin/AdminFilesPage'
@@ -50,6 +51,7 @@ const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: ty
 const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; ownerOnly?: boolean }[] = [
   { page: 'mounts', labelKey: 'clouddrive.nav.mounts', ownerOnly: true },
   { page: 'storage', labelKey: 'clouddrive.nav.storage', ownerOnly: true },
+  { page: 'meta', labelKey: 'clouddrive.nav.meta', ownerOnly: true },
   { page: 'dashboard', labelKey: 'clouddrive.nav.dashboard', ownerOnly: true },
   { page: 'files-admin', labelKey: 'clouddrive.nav.admin_files', ownerOnly: true },
   { page: 'index', labelKey: 'clouddrive.nav.index', ownerOnly: true },
@@ -219,6 +221,8 @@ export function ClouddriveApp() {
                         ? <MountsPage />
                         : address.page === 'storage'
                           ? <StoragePage />
+                          : address.page === 'meta'
+                            ? <MetaPage />
                           : <PagePlaceholder page={address.page} />}
         </main>
       </div>

@@ -37,6 +37,23 @@ function json(body: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(body) }
 }
 
+export interface CloudDriveMetaView {
+  mountId: string
+  mountName: string
+  mountPath: string
+  path: string
+  header: string
+  footer: string
+  hidePatterns: string[]
+  hasPassword: boolean
+  inheritHeader: boolean
+  inheritFooter: boolean
+  inheritHide: boolean
+  inheritPassword: boolean
+  createdAt: number
+  updatedAt: number
+}
+
 export interface CloudDriveAclGrant {
   granteeId: string
   username: string
@@ -232,6 +249,10 @@ export const clouddriveApi = {
   testStorage: (id: string) => request<{ ok: boolean; message: string; quota?: { used: number; total: number | null } }>(`/api/clouddrive/storages/${encodeURIComponent(id)}/test`, { method: 'POST', body: '{}' }, true),
 
   capacity: () => request<{ used: number; trashBytes: number; quota: number | null; mounts: unknown[] }>('/api/clouddrive/capacity'),
+  metaList: () => request<{ meta: CloudDriveMetaView[] }>('/api/clouddrive/meta'),
+  metaUpsert: (body: unknown) => request<{ meta: CloudDriveMetaView | null }>('/api/clouddrive/meta', { method: 'PUT', body: JSON.stringify(body) }),
+  metaDelete: (body: { mountId: string; path: string }) => request<{ ok: boolean }>('/api/clouddrive/meta', { method: 'DELETE', body: JSON.stringify(body) }),
+  metaUnlock: (body: { mountId: string; path: string; password: string }) => request<{ ok: true; path: string }>('/api/clouddrive/meta/unlock', json(body)),
   settings: () => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings'),
   patchSettings: (patch: CloudDriveSettingsPatch) => request<{ settings: CloudDrivePublicSettings }>('/api/clouddrive/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 

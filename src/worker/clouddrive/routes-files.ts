@@ -7,7 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import type { CloudDriveEntry, CloudDriveListing } from '@shared/clouddrive/model'
+import { parentPathOf, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -32,6 +32,9 @@ import {
   type CloudDriveMountInfo,
 } from './lib'
 import { fileParts } from './distributed'
+import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
+import { getCookie } from 'hono/cookie'
+import { assertMetaAccess } from './routes-meta'
 import {
   albumEntries,
   copyEntries,
@@ -159,12 +162,42 @@ function transferResponse(c: { json: (body: unknown, status?: number) => Respons
   return c.json({ results }, partial ? 207 : 200)
 }
 
+async function filterMetaVisible<T extends { name: string; path: string }>(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  rows: readonly T[],
+): Promise<T[]> {
+  const cache = new Map<string, Awaited<ReturnType<typeof effectiveMeta>>>()
+  const visible: T[] = []
+  for (const row of rows) {
+    const parent = parentPathOf(row.path)
+    let meta = cache.get(parent)
+    if (!meta) {
+      meta = await effectiveMeta(c.env.DB, userId, mountId, parent)
+      cache.set(parent, meta)
+    }
+    if (hiddenByPatterns(row.name, meta.hidePatterns)) continue
+    if (meta.passwordHash && meta.passwordPath) {
+      const cookie = getCookie(c, await metaCookieName(mountId, meta.passwordPath))
+      if (!await isMetaUnlocked(c.env.DB, userId, mountId, meta.passwordPath, cookie)) continue
+    }
+    visible.push(row)
+  }
+  return visible
+}
+
 cloudDriveFilesRoutes.get('/files', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
   const path = parsePath(c.req.query('path') ?? '/')
+  const meta = await effectiveMeta(c.env.DB, userId, mount.id, path)
+  if (meta.passwordHash) await assertMetaAccess(c, userId, mount.id, path)
   if (mount.storageId !== 'primary') {
-    return c.json(await listExternal(c.env, c.env.DB, mount, path))
+    const listing = await listExternal(c.env, c.env.DB, mount, path)
+    const folders = listing.folders.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+    const files = listing.files.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+    return c.json({ ...listing, folders, files, note: meta.header || null, footer: meta.footer || null })
   }
   const parent = await resolveEntry(c.env.DB, userId, mount.id, path)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The path is not a folder')
@@ -190,15 +223,19 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
     entriesOf(c.env.DB, userId, mount, result.folders),
     entriesOf(c.env.DB, userId, mount, result.files),
   ])
+  const visibleFolders = folders.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+  const visibleFiles = files.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+  const hiddenFiles = files.length - visibleFiles.length
   const body: CloudDriveListing = {
     mountId: mount.id,
     path: parent.path,
-    folders,
-    files,
+    folders: visibleFolders,
+    files: visibleFiles,
     cursor: result.cursor,
-    total: result.total,
+    total: result.total === null ? null : Math.max(0, result.total - hiddenFiles),
     foldersTruncated: result.foldersTruncated,
-    note: parentMeta.note,
+    note: meta.header || parentMeta.note,
+    footer: meta.footer || null,
   }
   return c.json(body)
 })
@@ -207,6 +244,7 @@ cloudDriveFilesRoutes.post('/external/:mountId/upload', async (c) => {
   const userId = userIdOf(c)
   const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
   const path = parsePath(c.req.query('path') ?? '', { allowRoot: false })
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(path))
   const declared = c.req.header('content-length')
   if (declared !== undefined) {
     const length = Number(declared)
@@ -236,6 +274,7 @@ cloudDriveFilesRoutes.post('/external/:mountId/folders', async (c) => {
   const mount = await writableExternalMount(c, userId, c.req.param('mountId'))
   const body = await readJson<{ path?: unknown }>(c, BODY_LIMIT)
   const path = parsePath(body.path ?? '', { allowRoot: false })
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(path))
   await mkdirExternal(c.env, c.env.DB, mount, path)
   return c.json({ ok: true, path }, 201)
 })
@@ -247,6 +286,8 @@ cloudDriveFilesRoutes.post('/external/:mountId/move', async (c) => {
   const from = parsePath(body.from ?? '', { allowRoot: false })
   const to = parsePath(body.to ?? '', { allowRoot: false })
   if (from === to) throw ApiError.badRequest('The source and destination are the same')
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(from))
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(to))
   await moveExternalPath(c.env, c.env.DB, mount, from, to)
   return c.json({ ok: true, from, to })
 })
@@ -263,6 +304,7 @@ cloudDriveFilesRoutes.delete('/external/:mountId/files', async (c) => {
   let failed = 0
   for (const path of paths) {
     try {
+      await assertMetaAccess(c, userId, mount.id, parentPathOf(path))
       await deleteExternalPath(c.env, c.env.DB, mount, path)
       deleted++
     } catch (error) {
@@ -279,6 +321,7 @@ cloudDriveFilesRoutes.get('/files/:id/folder-size', async (c) => {
   const external = parseExternalEntryId(id)
   if (external) {
     const mount = await mountFor(c, userId, external.mountId)
+    await assertMetaAccess(c, userId, mount.id, external.path)
     if (!mount.folderSummary) throw new ApiError(403, 'clouddrive_folder_summary_disabled', 'Folder size calculation is disabled for this mount')
     return c.json(await externalFolderSize(c.env, c.env.DB, mount, external.path))
   }
@@ -287,6 +330,7 @@ cloudDriveFilesRoutes.get('/files/:id/folder-size', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   if (row.kind !== 'folder') throw ApiError.badRequest('The entry is not a folder')
   const mount = await mountFor(c, userId, row.mount_id)
+  await assertMetaAccess(c, userId, mount.id, row.path)
   if (!mount.folderSummary) throw new ApiError(403, 'clouddrive_folder_summary_disabled', 'Folder size calculation is disabled for this mount')
   return c.json({ bytes: await folderSize(c.env.DB, userId, mount.id, row.id), truncated: false })
 })
@@ -297,6 +341,7 @@ cloudDriveFilesRoutes.get('/files/:id', async (c) => {
   if (!isValidId(id)) throw ApiError.notFound('File not found')
   const row = await getFileById(c.env.DB, userId, id)
   if (!row) throw ApiError.notFound('File not found')
+  await assertMetaAccess(c, userId, row.mount_id, parentPathOf(row.path))
   const mount = await mountFor(c, userId, row.mount_id)
   const entry = await entryOf(c.env.DB, userId, mount, row)
   if (row.storage_kind === 'distributed') {
@@ -320,6 +365,7 @@ cloudDriveFilesRoutes.post('/folders', async (c) => {
   const mount = await mountFor(c, userId, mountIdOf(body.mountId))
   assertWritable(mount)
   const parentPath = parsePath(body.parentPath ?? '/')
+  await assertMetaAccess(c, userId, mount.id, parentPath)
   const parent = await resolveEntry(c.env.DB, userId, mount.id, parentPath)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The parent path is not a folder')
   const name = parseName(body.name)
@@ -331,6 +377,18 @@ cloudDriveFilesRoutes.post('/folders', async (c) => {
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, created.entry) }, 201)
 })
 
+async function assertIdsMetaAccess(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  ids: readonly string[],
+): Promise<void> {
+  for (const id of ids) {
+    const row = await getFileById(c.env.DB, userId, id)
+    if (row) await assertMetaAccess(c, userId, mountId, parentPathOf(row.path))
+  }
+}
+
 cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
   const userId = userIdOf(c)
   const id = c.req.param('id')
@@ -340,6 +398,7 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
   assertWritable(mount)
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(row.path))
 
   if (body.name !== undefined && typeof body.name !== 'string') throw ApiError.badRequest('name must be a string')
   if (body.starred !== undefined && typeof body.starred !== 'boolean') {
@@ -415,6 +474,8 @@ cloudDriveFilesRoutes.post('/files/move', async (c) => {
   const targetPath = parsePath(body.toPath)
   const target = await resolveEntry(c.env.DB, userId, mount.id, targetPath)
   if (target.kind !== 'folder') throw ApiError.badRequest('The destination is not a folder')
+  await assertMetaAccess(c, userId, mount.id, targetPath)
+  await assertIdsMetaAccess(c, userId, mount.id, ids)
   const results = await moveEntries(c.env.DB, userId, mount.id, ids, target, parseConflict(body.conflict), Date.now())
   return transferResponse(c, results)
 })
@@ -428,6 +489,8 @@ cloudDriveFilesRoutes.post('/files/copy', async (c) => {
   const targetPath = parsePath(body.toPath)
   const target = await resolveEntry(c.env.DB, userId, mount.id, targetPath)
   if (target.kind !== 'folder') throw ApiError.badRequest('The destination is not a folder')
+  await assertMetaAccess(c, userId, mount.id, targetPath)
+  await assertIdsMetaAccess(c, userId, mount.id, ids)
   const results = await copyEntries(c.env.DB, userId, mount.id, ids, target, parseConflict(body.conflict), Date.now())
   return transferResponse(c, results)
 })
@@ -438,6 +501,7 @@ cloudDriveFilesRoutes.delete('/files', async (c) => {
   const mount = await mountFor(c, userId, mountIdOf(body.mountId))
   assertWritable(mount)
   const ids = await resolveIdList(c.env.DB, userId, mount.id, body)
+  await assertIdsMetaAccess(c, userId, mount.id, ids)
   const deleted = await trashEntries(c.env.DB, userId, mount.id, ids, Date.now())
   return c.json({ deleted })
 })
@@ -551,11 +615,12 @@ cloudDriveFilesRoutes.get('/search', async (c) => {
     cursor: c.req.query('cursor') || undefined,
     limit: parseLimit(c.req.query('limit')),
   })
+  const files = await filterMetaVisible(c, userId, mount.id, result.files)
   return c.json({
     q,
-    files: await entriesOf(c.env.DB, userId, mount, result.files),
+    files: await entriesOf(c.env.DB, userId, mount, files),
     cursor: result.cursor,
-    total: result.total,
+    total: result.total === null ? null : Math.max(0, result.total - (result.files.length - files.length)),
   })
 })
 
@@ -568,7 +633,8 @@ cloudDriveFilesRoutes.get('/recent', async (c) => {
     cursor: c.req.query('cursor') || undefined,
     limit: parseLimit(c.req.query('limit')),
   })
-  return c.json({ files: await entriesOf(c.env.DB, userId, mount, result.files), cursor: result.cursor })
+  const files = await filterMetaVisible(c, userId, mount.id, result.files)
+  return c.json({ files: await entriesOf(c.env.DB, userId, mount, files), cursor: result.cursor })
 })
 
 cloudDriveFilesRoutes.get('/album', async (c) => {
@@ -581,9 +647,9 @@ cloudDriveFilesRoutes.get('/album', async (c) => {
     limit: parseLimit(c.req.query('limit'), 60),
   })
   const tags = await tagsForFiles(c.env.DB, userId, result.groups.flatMap((group) => group.files.map((file) => file.id)))
-  const groups = result.groups.map((group) => ({
+  const groups = await Promise.all(result.groups.map(async (group) => ({
     month: group.month,
-    files: group.files.map((file) => buildEntry(file, mount, tags.get(file.id) ?? [])),
-  }))
+    files: (await filterMetaVisible(c, userId, mount.id, group.files)).map((file) => buildEntry(file, mount, tags.get(file.id) ?? [])),
+  })))
   return c.json({ groups, cursor: result.cursor })
 })

@@ -12,10 +12,11 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
-import { filenameOf } from '@shared/clouddrive/model'
+import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
 import { resolveMount } from './lib'
+import { assertMetaAccess } from './routes-meta'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
 
@@ -25,6 +26,8 @@ const THUMBNAIL_WIDTHS = new Set([160, 320, 640, 1280])
 
 interface FileRow {
   id: string
+  mount_id: string
+  path: string
   name: string
   kind: string
   category: string
@@ -53,7 +56,7 @@ function requireUserId(c: Context<AppBindings>): string {
 
 async function findLiveFile(c: Context<AppBindings>, userId: string, id: string): Promise<FileRow> {
   const row = await c.env.DB.prepare(
-    `SELECT id, name, kind, category, mime, size, etag, storage_kind, storage_key, uploaded_at, modified_at
+    `SELECT id, mount_id, path, name, kind, category, mime, size, etag, storage_kind, storage_key, uploaded_at, modified_at
        FROM CloudDrive_files
       WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
   ).bind(userId, id).first<FileRow>()
@@ -111,6 +114,7 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   if (external) {
     const mount = await resolveMount(c.env.DB, userId, external.mountId)
     if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
+    await assertMetaAccess(c, userId, mount.id, parentPathOf(external.path))
     if (!mount.webProxy) {
       const location = mount.webdavPolicy === '302_redirect'
         ? await externalDirectUrl(c.env, c.env.DB, mount, external.path)
@@ -128,6 +132,7 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
     return new Response(c.req.method === 'HEAD' ? null : response.body, { status: response.status, headers })
   }
   const file = await findLiveFile(c, userId, c.req.param('id'))
+  await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))
   const download = c.req.query('download') === '1'
   const etag = entityTagOf(file)
   if (file.storage_kind === 'distributed') {
@@ -215,6 +220,7 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
     return new Response(response.body, { status: 200, headers })
   }
   const file = await findLiveFile(c, userId, c.req.param('id'))
+  await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))
   if (!file.mime.startsWith('image/')) throw ApiError.badRequest('Only images have thumbnails')
   if (file.storage_kind !== 'r2' || !file.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')

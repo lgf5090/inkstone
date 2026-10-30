@@ -37,11 +37,12 @@ import {
 } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
+import { isImeComposing } from '../../../lib/ime'
 import { useUi } from '../../../store/ui'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
-import { Input, Segmented } from '../../../components/form'
-import { Menu, type MenuItem } from '../../../components/overlay'
-import { clouddriveApi, cloudDriveErrorKey } from '../api'
+import { Field, Input, Segmented } from '../../../components/form'
+import { Menu, Modal, type MenuItem } from '../../../components/overlay'
+import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { cloudDriveCssVars } from '../prefs'
 import { useCloudDriveStore } from '../store'
 import { useTransferStore } from '../transfers/useTransferStore'
@@ -57,6 +58,7 @@ import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
+import { MarkdownBody } from '../../preview/MarkdownBody'
 import './files.css'
 
 export interface PreviewContext {
@@ -100,6 +102,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const [anchorId, setAnchorId] = useState<string | null>(null)
   const [focusedId, setFocusedId] = useState<string | null>(null)
+  const [lockPath, setLockPath] = useState<string | null>(null)
+  const [lockPassword, setLockPassword] = useState('')
+  const [lockBusy, setLockBusy] = useState(false)
   const [clipboard, setClipboard] = useState<FileClipboard | null>(null)
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
@@ -141,6 +146,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       setStatus('ready')
     } catch (caught) {
       if (sequence !== requestRef.current) return
+      if (caught instanceof CloudDriveApiError && caught.code === 'clouddrive_meta_locked') {
+        setStatus('ready')
+        setError(null)
+        setLockPath(path)
+        return
+      }
       const message = t(cloudDriveErrorKey(caught) as MessageKey)
       if (listingRef.current) {
         // The previous directory is still usable; the failed refresh explains itself in a toast.
@@ -162,6 +173,8 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     setMenuTarget(null)
     setSearch('')
     setQuery('')
+    setLockPath(null)
+    setLockPassword('')
   }, [mountId, path])
 
   useEffect(() => {
@@ -407,6 +420,21 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     }
   }, [actions, clipboard, focusFirstEntry, path])
 
+  const unlockFolder = async () => {
+    if (!lockPath) return
+    setLockBusy(true)
+    try {
+      await clouddriveApi.metaUnlock({ mountId, path: lockPath, password: lockPassword })
+      setLockPath(null)
+      setLockPassword('')
+      await load()
+    } catch (error) {
+      useUi.getState().toast({ title: t('clouddrive.meta.unlock'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    } finally {
+      setLockBusy(false)
+    }
+  }
+
   const handleUploadPicked = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
@@ -614,8 +642,8 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           }}
         >
           {listing?.note && (
-            <div className="mx-2 mt-2 whitespace-pre-wrap rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
-              {listing.note}
+            <div className="cd-meta-note mx-2 mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
+              <MarkdownBody source={listing.note} />
             </div>
           )}
           {status === 'loading' && !listing && <LoadingSkeleton />}
@@ -689,6 +717,11 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                 </div>
               )}
             </>
+          )}
+          {listing?.footer && (
+            <div className="cd-meta-note mx-2 my-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
+              <MarkdownBody source={listing.footer} />
+            </div>
           )}
         </div>
         <Inspector
@@ -815,6 +848,19 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           })
         }}
       />
+
+      <Modal
+        open={lockPath !== null}
+        onClose={() => { setLockPath(null); setLockPassword('') }}
+        title={t('clouddrive.meta.locked_title')}
+        width={420}
+        footer={<><Button variant="ghost" onClick={() => { setLockPath(null); setLockPassword('') }}>{t('clouddrive.dialog.cancel')}</Button><Button variant="primary" loading={lockBusy} onClick={() => void unlockFolder()}>{t('clouddrive.meta.unlock')}</Button></>}
+      >
+        <p className="mb-2 text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('clouddrive.meta.locked_body')}</p>
+        <Field label={t('clouddrive.meta.password')}>
+          <Input type="password" value={lockPassword} autoFocus onChange={(event) => setLockPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !isImeComposing(event)) void unlockFolder() }} />
+        </Field>
+      </Modal>
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
     </div>
