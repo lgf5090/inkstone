@@ -292,6 +292,11 @@ export function SettingsPanel({
           </Button>
         </div>
         <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.xget.settings.token_hint')}</p>
+        <code className="mt-2 block rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 py-2 font-mono text-[length:var(--text-11)] text-[var(--text-primary)]">
+          {'X-Xget-Token: <token>'}
+        </code>
+        <p className="mt-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.xget.settings.token_carrier_hint')}</p>
+        <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">{t('development.xget.settings.token_git_hint')}</p>
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">

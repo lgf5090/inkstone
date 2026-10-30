@@ -210,6 +210,15 @@ describe('Xget proxy API', () => {
     expect(withSession.status).toBe(200)
   })
 
+  it('does not accept an Authorization bearer as the proxy token', async () => {
+    await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
+    const response = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', {
+      user: null,
+      headers: { authorization: 'Bearer token-12345678' },
+    })
+    expect(response.status).toBe(401)
+  })
+
   it('never forwards the proxy token to the upstream', async () => {
     await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
 

@@ -175,6 +175,7 @@ describe('the Xget settings panel', () => {
     rendered = renderElement(
       <SettingsPanel settings={SETTINGS} loading={false} error={null} onReload={vi.fn(async () => undefined)} />,
     )
+    expect(rendered.container.textContent).toContain('X-Xget-Token')
     const timeout = rendered.container.querySelector<HTMLInputElement>('input[type="number"]')!
     setInput(timeout, '5')
     act(() => button(rendered!.container, t('development.xget.settings.save')).click())
