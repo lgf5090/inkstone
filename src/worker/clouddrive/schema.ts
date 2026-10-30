@@ -320,6 +320,19 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_sync_user
      ON CloudDrive_sync_targets(user_id, created_at)`,
 
+  `CREATE TABLE IF NOT EXISTS CloudDrive_acl (
+    owner_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    grantee_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    revoked_at INTEGER,
+    PRIMARY KEY (owner_id, file_id, grantee_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_grantee
+     ON CloudDrive_acl(grantee_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_acl_file
+     ON CloudDrive_acl(owner_id, file_id)`,
+
   `CREATE TABLE IF NOT EXISTS CloudDrive_file_requests (
     slug TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
@@ -427,6 +440,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_sync_targets',
   'CloudDrive_file_versions',
   'CloudDrive_file_requests',
+  'CloudDrive_acl',
   'CloudDrive_index_state',
   'CloudDrive_scheduled_jobs',
   'CloudDrive_job_runs',
@@ -488,6 +502,7 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
     'max_files', 'max_bytes', 'max_file_bytes', 'received_files', 'received_bytes', 'is_enabled',
     'created_at', 'last_upload_at', 'revoked_at',
   ],
+  CloudDrive_acl: ['owner_id', 'file_id', 'grantee_id', 'created_at', 'revoked_at'],
   CloudDrive_index_state: ['user_id', 'mount_id', 'last_indexed_at', 'status', 'error', 'updated_at'],
   CloudDrive_scheduled_jobs: [
     'user_id', 'id', 'name', 'handler', 'schedule_type', 'interval_sec', 'cron', 'enabled',
@@ -533,6 +548,8 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_versions_file',
   'idx_clouddrive_versions_key',
   'idx_clouddrive_requests_user',
+  'idx_clouddrive_acl_grantee',
+  'idx_clouddrive_acl_file',
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',

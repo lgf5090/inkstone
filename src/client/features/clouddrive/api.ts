@@ -36,6 +36,38 @@ function json(body: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(body) }
 }
 
+export interface CloudDriveAclGrant {
+  granteeId: string
+  username: string
+  name: string
+  createdAt: number
+}
+
+export interface CloudDriveSharedItem {
+  ownerId: string
+  ownerUsername: string
+  ownerName: string
+  fileId: string
+  name: string
+  path: string
+  kind: 'file' | 'folder'
+  size: number
+  mime: string
+  modifiedAt: number
+  sharedAt: number
+}
+
+export interface CloudDriveSharedEntry {
+  ownerId: string
+  fileId: string
+  name: string
+  path: string
+  kind: 'file' | 'folder'
+  size: number
+  mime: string
+  modifiedAt: number
+}
+
 export interface CloudDriveFileRequest {
   slug: string
   url: string
@@ -147,6 +179,12 @@ export const clouddriveApi = {
   clearClipboard: () => request<{ ok: true }>('/api/clouddrive/clipboard', { method: 'DELETE' }),
 
   requests: () => request<{ requests: CloudDriveFileRequest[] }>('/api/clouddrive/requests'),
+  aclGrants: (fileId: string) => request<{ grants: CloudDriveAclGrant[] }>(`/api/clouddrive/acl/grants?${new URLSearchParams({ fileId }).toString()}`),
+  addAclGrant: (fileId: string, username: string) => request<{ grant: CloudDriveAclGrant }>('/api/clouddrive/acl/grants', json({ fileId, username })),
+  removeAclGrant: (fileId: string, granteeId: string) => request<{ ok: true }>('/api/clouddrive/acl/grants', { method: 'DELETE', body: JSON.stringify({ fileId, granteeId }) }),
+  sharedWithMe: () => request<{ shared: CloudDriveSharedItem[] }>('/api/clouddrive/acl/shared'),
+  sharedList: (ownerId: string, fileId: string, path: string) => request<{ ownerId: string; path: string; entries: CloudDriveSharedEntry[] }>(`/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/list?${new URLSearchParams({ path }).toString()}`),
+  sharedContentUrl: (ownerId: string, fileId: string, download = false) => `/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/content${download ? '?download=1' : ''}`,
   createRequest: (body: { name: string; targetPath: string; password?: string; expiresAt?: number | null; maxFiles?: number; maxBytes?: number; maxFileBytes?: number }) => request<{ request: CloudDriveFileRequest }>('/api/clouddrive/requests', json(body)),
   patchRequest: (slug: string, body: { password?: string; expiresAt?: number | null; isEnabled?: boolean }) => request<{ request: CloudDriveFileRequest }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeRequest: (slug: string) => request<{ ok: true }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'DELETE' }),

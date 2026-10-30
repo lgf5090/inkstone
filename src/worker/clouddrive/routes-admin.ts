@@ -40,7 +40,7 @@ clouddriveAdminRoutes.use('*', async (c, next) => {
   if (!c.get('userId')) throw ApiError.unauthenticated()
   await next()
 })
-clouddriveAdminRoutes.use('*', requireOwner)
+clouddriveAdminRoutes.use('/admin/*', requireOwner)
 clouddriveAdminRoutes.use('*', async (c, next) => {
   await ensurePrimaryMount(c.env.DB, c.get('userId'))
   await next()

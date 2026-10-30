@@ -7,6 +7,7 @@ import { t } from '../../../lib/i18n'
 import { clouddriveApi } from '../api'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
+import { useUi } from '../../../store/ui'
 import { FileIcon } from './FileIcon'
 import { FolderColorMenu, TagEditorMenu } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize, totalEntryBytes } from './format'
@@ -17,6 +18,69 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
       <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{label}</dt>
       <dd className="min-w-0 text-[length:var(--text-12)] text-[var(--text-primary)]">{children}</dd>
     </div>
+  )
+}
+
+function AclEditor({ entry }: { entry: CloudDriveEntry }) {
+  const toast = useUi((state) => state.toast)
+  const [grants, setGrants] = useState<{ granteeId: string; username: string; name: string }[]>([])
+  const [username, setUsername] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = () => {
+    void clouddriveApi.aclGrants(entry.id).then((result) => setGrants(result.grants)).catch((error) => {
+      console.warn('[inkstone] CloudDrive ACL grants could not be read', error)
+    })
+  }
+  useEffect(() => { load() }, [entry.id])
+  const add = async () => {
+    if (!username.trim()) return
+    setBusy(true)
+    try {
+      await clouddriveApi.addAclGrant(entry.id, username.trim())
+      setUsername('')
+      load()
+      toast({ title: t('clouddrive.inspector.acl_added') })
+    } catch (caught) {
+      toast({
+        title: t('clouddrive.toast.failed'),
+        description: caught instanceof Error ? caught.message : '',
+        tone: 'danger',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async (granteeId: string) => {
+    setBusy(true)
+    try {
+      await clouddriveApi.removeAclGrant(entry.id, granteeId)
+      load()
+      toast({ title: t('clouddrive.inspector.acl_removed') })
+    } catch {
+      toast({ title: t('clouddrive.toast.failed'), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section>
+      <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl')}</h3>
+      <p className="mb-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_hint')}</p>
+      <div className="flex gap-1.5">
+        <Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder={t('clouddrive.inspector.acl')} aria-label={t('clouddrive.inspector.acl')} />
+        <Button size="sm" variant="secondary" loading={busy} onClick={() => void add()}>{t('clouddrive.inspector.acl_add')}</Button>
+      </div>
+      {grants.length === 0 ? <p className="mt-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.inspector.acl_empty')}</p> : (
+        <ul className="mt-1 flex flex-col gap-0.5 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+          {grants.map((grant) => (
+            <li key={grant.granteeId} className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate">{grant.username}{grant.name && grant.name !== grant.username ? ` · ${grant.name}` : ''}</span>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void remove(grant.granteeId)}>{t('clouddrive.inspector.acl_remove')}</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -200,6 +264,7 @@ export function Inspector({
               </DetailRow>
             </dl>
             {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
+            {single.storageKind !== 'external' && !readOnly && !single.readOnly && <AclEditor entry={single} />}
             {single.kind === 'folder' && (
               <section>
                 <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.color')}</h3>

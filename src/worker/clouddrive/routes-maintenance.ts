@@ -21,7 +21,7 @@ clouddriveMaintenanceRoutes.use('*', async (c, next) => {
   if (!c.get('userId')) throw ApiError.unauthenticated()
   await next()
 })
-clouddriveMaintenanceRoutes.use('*', requireOwner)
+clouddriveMaintenanceRoutes.use('/admin/maintenance/*', requireOwner)
 clouddriveMaintenanceRoutes.use('*', async (c, next) => {
   await ensurePrimaryMount(c.env.DB, c.get('userId'))
   await next()

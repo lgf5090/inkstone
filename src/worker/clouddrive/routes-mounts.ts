@@ -9,7 +9,10 @@ import { requireOwner } from '../middleware/auth'
 
 export const clouddriveMountRoutes = new Hono<AppBindings>()
 
-clouddriveMountRoutes.use('*', requireOwner)
+clouddriveMountRoutes.use('/storages', requireOwner)
+clouddriveMountRoutes.use('/storages/*', requireOwner)
+clouddriveMountRoutes.use('/mounts', requireOwner)
+clouddriveMountRoutes.use('/mounts/*', requireOwner)
 
 const STORAGE_TYPES = ['s3', 'webdav', 'telegram', 'discord', 'huggingface', 'github', 'onedrive', 'googledrive'] as const
 type StorageType = (typeof STORAGE_TYPES)[number]

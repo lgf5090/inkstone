@@ -10,6 +10,7 @@ export type CloudDrivePage =
   | 'trash'
   | 'shares'
   | 'requests'
+  | 'shared'
   | 'mounts'
   | 'storage'
   | 'dashboard'
@@ -37,6 +38,7 @@ const PAGES: readonly [string, CloudDrivePage][] = [
   ['/clouddrive/trash', 'trash'],
   ['/clouddrive/shares', 'shares'],
   ['/clouddrive/requests', 'requests'],
+  ['/clouddrive/shared', 'shared'],
   ['/clouddrive/mounts', 'mounts'],
   ['/clouddrive/storage', 'storage'],
   ['/clouddrive/dashboard', 'dashboard'],
@@ -97,6 +99,7 @@ export function cloudDrivePath(page: CloudDrivePage, mountId: string, path = '/'
     trash: '/clouddrive/trash',
     shares: '/clouddrive/shares',
     requests: '/clouddrive/requests',
+    shared: '/clouddrive/shared',
     mounts: '/clouddrive/mounts',
     storage: '/clouddrive/storage',
     dashboard: '/clouddrive/dashboard',

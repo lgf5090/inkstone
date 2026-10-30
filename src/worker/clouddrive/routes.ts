@@ -15,6 +15,7 @@ import { clouddriveTaskRoutes } from './routes-tasks'
 import { clouddriveSyncRoutes } from './routes-sync'
 import { clouddriveVersionRoutes } from './routes-versions'
 import { clouddriveRequestRoutes, clouddrivePublicRequestRoutes } from './routes-requests'
+import { clouddriveAclRoutes } from './routes-acl'
 import { clouddriveMaintenanceRoutes } from './routes-maintenance'
 import { clouddriveAdminRoutes } from './routes-admin'
 import { clouddriveJobRoutes } from './routes-jobs'
@@ -67,6 +68,7 @@ clouddriveRoutes.route('/', clouddriveTaskRoutes)
 clouddriveRoutes.route('/', clouddriveSyncRoutes)
 clouddriveRoutes.route('/', clouddriveVersionRoutes)
 clouddriveRoutes.route('/', clouddriveRequestRoutes)
+clouddriveRoutes.route('/', clouddriveAclRoutes)
 clouddriveRoutes.route('/', clouddriveMaintenanceRoutes)
 clouddriveRoutes.route('/', clouddriveAdminRoutes)
 clouddriveRoutes.route('/', clouddriveJobRoutes)
