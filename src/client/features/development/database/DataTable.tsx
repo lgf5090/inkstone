@@ -68,6 +68,7 @@ export interface DataTableProps {
   onSchemaChanged?: () => void
   driver: StudioDriver
   table: ParsedTable
+  active?: boolean
   onError: (message: string) => void
 }
 
@@ -75,7 +76,7 @@ function isBlobValue(value: unknown): boolean {
   return value instanceof Uint8Array || (Boolean(value) && typeof value === 'object' && '__inkstone_blob__' in (value as object))
 }
 
-export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onError }: DataTableProps) {
+export function DataTable({ driver, table, active = true, ensureWritable, onSchemaChanged, onError }: DataTableProps) {
   const pkColumns = useMemo(() => primaryKeyColumns(table), [table])
   const useRowid = pkColumns.length === 0 && !table.withoutRowid
   const editable = pkColumns.length > 0 || useRowid
@@ -191,12 +192,20 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
     }
   }, [driver, onError, table, useRowid, where])
 
+  const booted = useRef(false)
   useEffect(() => {
-    setSort([])
+    if (!active || booted.current) return
+    booted.current = true
     void load(0, pageSize, [], where)
-  }, [driver, table.name])
+  }, [active, load, pageSize, where])
 
+  const searchBooted = useRef(false)
   useEffect(() => {
+    if (!active) return
+    if (!searchBooted.current) {
+      searchBooted.current = true
+      return
+    }
     if (searchTimer.current) clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(() => {
       const next = buildWhere(filters, search, searchColumns)
@@ -206,7 +215,7 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current)
     }
-  }, [search])
+  }, [search, active])
 
   const totalPages = total === null ? 0 : Math.max(1, Math.ceil(total / pageSize))
   const goPage = (next: number) => {
@@ -454,12 +463,12 @@ export function DataTable({ driver, table, ensureWritable, onSchemaChanged, onEr
     if (!loading) void load(page, pageSize, sort, where)
   }
   useEffect(() => {
-    if (refreshSeconds <= 0) return
+    if (!active || refreshSeconds <= 0) return
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') refreshRef.current()
     }, refreshSeconds * 1000)
     return () => clearInterval(timer)
-  }, [refreshSeconds])
+  }, [refreshSeconds, active])
 
   const saveDetail = async (values: Record<string, string>) => {
     if (!(await allowed())) return

@@ -190,6 +190,17 @@ export function StudioApp() {
     if (!activeTabId && tabs.length > 0) setActiveTabId(tabs[0]!.id)
   }, [activeTabId, tabs])
 
+  const [visitedTabIds, setVisitedTabIds] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    if (!activeTabId) return
+    setVisitedTabIds((current) => {
+      if (current.has(activeTabId)) return current
+      const next = new Set(current)
+      next.add(activeTabId)
+      return next
+    })
+  }, [activeTabId])
+
   useEffect(() => {
     saveStudioLayout({ sidebarWidth, sidebarCollapsed })
   }, [sidebarWidth, sidebarCollapsed])
@@ -351,14 +362,19 @@ export function StudioApp() {
     return () => {
       next.close()
     }
-  }, [selection, localFile, activeSaved?.type, activeSaved?.name, notifyError, reloadSchema, initialLayout])
+  }, [selection, localFile, activeSaved?.type, notifyError, reloadSchema, initialLayout])
 
   const handleSaved = (connection: DatabaseConnectionView) => {
+    const wasCreating = editingConnection === null
     setConnections((current) => sortConnections([
       ...current.filter((entry) => entry.id !== connection.id),
       connection,
     ]))
-    setSelection({ kind: 'saved', id: connection.id })
+    setSelection((current) => {
+      if (current?.kind === 'saved' && current.id === connection.id) return current
+      if (wasCreating || !current) return { kind: 'saved', id: connection.id }
+      return current
+    })
     setMobileSidebarOpen(false)
   }
 
@@ -610,9 +626,81 @@ export function StudioApp() {
     return t('development.database.app.query')
   }
 
-  const activeTable = activeTab?.table
-    ? schema?.tables.find((table) => table.name === activeTab.table) ?? null
-    : null
+  const tableForTab = (tab: StudioTab) => tab.table ? schema?.tables.find((table) => table.name === tab.table) ?? null : null
+  const renderTabContent = (tab: StudioTab, active: boolean) => {
+    if (!driver) return null
+    const table = tableForTab(tab)
+    if (tab.kind === 'query') {
+      return (
+        <QueryTab
+          key={tab.id}
+          driver={driver}
+          connectionId={connectionId}
+          connectionType={connectionType}
+          schemaModel={schema ?? EMPTY_SCHEMA}
+          {...(tab.initialSql ? { initialSql: tab.initialSql } : {})}
+          active={active}
+          onDraftChange={persistDraft}
+          onSchemaChanged={() => void reloadSchema(driver)}
+          ensureWritable={ensureWritable}
+          onOpenSql={(text) => openQueryTab(text)}
+          onSqlChange={handleContextSql}
+          onError={notifyError}
+        />
+      )
+    }
+    if (tab.kind === 'data') {
+      if (!table) {
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
+            <Table2 size={28} className="opacity-40" />
+            <p className="text-[length:var(--text-13)]">
+              {t('development.database.app.table_missing', { table: tab.table ?? '' })}
+            </p>
+          </div>
+        )
+      }
+      return <DataTable key={tab.id} driver={driver} table={table} active={active} ensureWritable={ensureWritable} onSchemaChanged={() => void reloadSchema(driver)} onError={notifyError} />
+    }
+    if (tab.kind === 'schema') {
+      return (
+        <SchemaEditor
+          key={tab.id}
+          driver={driver}
+          table={table}
+          schemaModel={schema ?? EMPTY_SCHEMA}
+          onSchemaChanged={() => void reloadSchema(driver)}
+          ensureWritable={ensureWritable}
+          onError={notifyError}
+          onOpenSql={(sql) => openQueryTab(sql)}
+          onTableCreated={(name) => openDataTab(name)}
+        />
+      )
+    }
+    if (tab.kind === 'tools') {
+      return (
+        <MassDropPanel
+          key={tab.id}
+          driver={driver}
+          tables={schema?.tables ?? []}
+          onSchemaChanged={() => void reloadSchema(driver)}
+          ensureWritable={ensureWritable}
+          onError={notifyError}
+        />
+      )
+    }
+    if (tab.kind === 'erd') {
+      return (
+        <ErdView
+          tables={schema?.tables ?? []}
+          className="h-full w-full"
+          onOpenData={openDataTab}
+          onOpenSchema={openSchemaTab}
+        />
+      )
+    }
+    return null
+  }
 
   const sidebar = (
     <StudioSidebar
@@ -632,12 +720,14 @@ export function StudioApp() {
       connFilter={connFilter}
       onConnFilter={setConnFilter}
       onSelectSaved={(id) => {
-        setSelection({ kind: 'saved', id })
+        setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })
         setMobileSidebarOpen(false)
       }}
       onSelectLocal={() => {
         if (localFile) {
-          setSelection({ kind: 'local', name: localFile.name, file: localFile.file })
+          setSelection((current) => current?.kind === 'local' && current.name === localFile.name && current.file === localFile.file
+            ? current
+            : { kind: 'local', name: localFile.name, file: localFile.file })
           setMobileSidebarOpen(false)
         }
       }}
@@ -779,59 +869,17 @@ export function StudioApp() {
             <Loader2 size={14} className="mr-2 animate-spin" />
             {t('development.database.app.connecting')}
           </div>
-        ) : activeTab.kind === 'query' ? (
-          <QueryTab
-            key={activeTab.id}
-            driver={driver}
-            connectionId={connectionId}
-            connectionType={connectionType}
-            schemaModel={schema ?? EMPTY_SCHEMA}
-            {...(activeTab.initialSql ? { initialSql: activeTab.initialSql } : {})}
-            onDraftChange={persistDraft}
-            onSchemaChanged={() => void reloadSchema(driver)}
-            ensureWritable={ensureWritable}
-            onOpenSql={(text) => openQueryTab(text)}
-            onSqlChange={handleContextSql}
-            onError={notifyError}
-          />
-        ) : activeTab.kind === 'data' && activeTable ? (
-          <DataTable key={activeTab.id} driver={driver} table={activeTable} ensureWritable={ensureWritable} onSchemaChanged={() => void reloadSchema(driver)} onError={notifyError} />
-        ) : activeTab.kind === 'data' ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--text-tertiary)]">
-            <Table2 size={28} className="opacity-40" />
-            <p className="text-[length:var(--text-13)]">
-              {t('development.database.app.table_missing', { table: activeTab.table ?? '' })}
-            </p>
-          </div>
-        ) : activeTab.kind === 'schema' ? (
-          <SchemaEditor
-            key={activeTab.id}
-            driver={driver}
-            table={activeTable}
-            schemaModel={schema ?? EMPTY_SCHEMA}
-            onSchemaChanged={() => void reloadSchema(driver)}
-            ensureWritable={ensureWritable}
-            onError={notifyError}
-            onOpenSql={(sql) => openQueryTab(sql)}
-            onTableCreated={(name) => openDataTab(name)}
-          />
-        ) : activeTab.kind === 'tools' ? (
-          <MassDropPanel
-            key={activeTab.id}
-            driver={driver}
-            tables={schema?.tables ?? []}
-            onSchemaChanged={() => void reloadSchema(driver)}
-            ensureWritable={ensureWritable}
-            onError={notifyError}
-          />
-        ) : activeTab.kind === 'erd' ? (
-          <ErdView
-            tables={schema?.tables ?? []}
-            className="h-full w-full"
-            onOpenData={openDataTab}
-            onOpenSchema={openSchemaTab}
-          />
-        ) : null}
+        ) : (
+          tabs.map((tab) => {
+            const active = tab.id === activeTabId
+            if (!active && !visitedTabIds.has(tab.id)) return null
+            return (
+              <div key={tab.id} className={active ? 'h-full min-h-0' : 'hidden'}>
+                {renderTabContent(tab, active)}
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )
@@ -949,9 +997,11 @@ export function StudioApp() {
         connections={connections}
         hasLocal={Boolean(localFile)}
         schema={schema}
-        onSelectSaved={(id) => setSelection({ kind: 'saved', id })}
+        onSelectSaved={(id) => setSelection((current) => current?.kind === 'saved' && current.id === id ? current : { kind: 'saved', id })}
         onSelectLocal={() => {
-          if (localFile) setSelection({ kind: 'local', name: localFile.name, file: localFile.file })
+          if (localFile) setSelection((current) => current?.kind === 'local' && current.name === localFile.name && current.file === localFile.file
+            ? current
+            : { kind: 'local', name: localFile.name, file: localFile.file })
         }}
         onOpenData={openDataTab}
         onOpenSchema={openSchemaTab}
