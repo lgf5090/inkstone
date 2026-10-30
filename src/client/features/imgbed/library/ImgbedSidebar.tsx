@@ -8,17 +8,17 @@ import { weekStartFor } from '../../../lib/time'
 import { buildStripWeeks, heatCell } from '../../../components/activity-calendar'
 import { SectionLabel } from '../../../components/primitives'
 import { Input } from '../../../components/form'
-import { imgbedChannelLabel } from '@shared/imgbed/model'
+import { imgbedChannelDisplayName } from '@shared/imgbed/model'
 import type { ImgbedSidebarResponse } from '../api'
 
 export interface ImgbedFilters {
   quick: 'all' | 'favorite' | 'pinned'
   type: string
-  channel: string
+  channelName: string
   tag: string
 }
 
-const DEFAULT_FILTERS: ImgbedFilters = { quick: 'all', type: '', channel: '', tag: '' }
+const DEFAULT_FILTERS: ImgbedFilters = { quick: 'all', type: '', channelName: '', tag: '' }
 const TAG_STORAGE_KEY = 'inkstone.imgbed.tagCollapsed'
 const ACTIVITY_DAYS = 120
 const CHART_STROKES = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
@@ -60,11 +60,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
     })
   }
   const counts = data?.counts
-  const channelRows = useMemo(() => {
-    const totals = new Map<string, number>()
-    for (const row of data?.channels ?? []) totals.set(row.channel, (totals.get(row.channel) ?? 0) + row.count)
-    return [...totals.entries()].sort((left, right) => right[1] - left[1])
-  }, [data])
+  const channelRows = useMemo(() => [...(data?.channels ?? [])].sort((left, right) => right.count - left.count), [data])
   const activity = useMemo(() => {
     if (!data) return { weeks: [], total: 0 }
     const map = new Map(data.activity.map((entry) => [entry.date, entry.count]))
@@ -118,7 +114,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
         <SectionLabel>{t('imgbed.library.filter_quick' as never)}</SectionLabel>
         <p className="px-2 pb-1 text-[length:var(--text-9)] text-[var(--text-quaternary)]">{t('imgbed.library.counts_scope' as never)}</p>
         <div className="space-y-0.5">
-          <SidebarRow icon={null} label={t('imgbed.public.all')} count={counts?.all} active={filters.quick === 'all' && !filters.type && !filters.channel && !filters.tag} onClick={() => onChange({ quick: 'all', type: '', channel: '', tag: '' })} />
+          <SidebarRow icon={null} label={t('imgbed.public.all')} count={counts?.all} active={filters.quick === 'all' && !filters.type && !filters.channelName && !filters.tag} onClick={() => onChange({ quick: 'all', type: '', channelName: '', tag: '' })} />
           <SidebarRow icon={<Star size={13} className="text-[var(--warning)]" />} label={t('imgbed.library.favorite' as never)} count={counts?.favorite} active={filters.quick === 'favorite'} onClick={() => onChange({ quick: filters.quick === 'favorite' ? 'all' : 'favorite' })} />
           <SidebarRow icon={<Pin size={13} className="text-[var(--warning)]" />} label={t('imgbed.library.pinned' as never)} count={counts?.pinned} active={filters.quick === 'pinned'} onClick={() => onChange({ quick: filters.quick === 'pinned' ? 'all' : 'pinned' })} />
         </div>
@@ -138,8 +134,8 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
         <SectionLabel>{t('imgbed.library.filter_channels' as never)}</SectionLabel>
         {channelRows.length === 0 ? <p className="px-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('imgbed.settings.no_data')}</p> : (
           <div className="space-y-0.5">
-            {channelRows.map(([channel, count], index) => (
-              <SidebarRow key={channel} icon={<span className="size-2 rounded-full" style={{ background: CHART_STROKES[index % CHART_STROKES.length] }} />} label={imgbedChannelLabel(channel)} count={count} active={filters.channel === channel} onClick={() => onChange({ channel: filters.channel === channel ? '' : channel })} />
+            {channelRows.map((row, index) => (
+              <SidebarRow key={row.channelName} icon={<span className="size-2 rounded-full" style={{ background: CHART_STROKES[index % CHART_STROKES.length] }} />} label={imgbedChannelDisplayName(row.channelName)} count={row.count} active={filters.channelName === row.channelName} onClick={() => onChange({ channelName: filters.channelName === row.channelName ? '' : row.channelName })} />
             ))}
           </div>
         )}
@@ -159,7 +155,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
             )}
         </div>
       </section>
-      {filters.quick !== 'all' || filters.type || filters.channel || filters.tag ? (
+      {filters.quick !== 'all' || filters.type || filters.channelName || filters.tag ? (
         <button type="button" onClick={() => onChange(DEFAULT_FILTERS)} className="flex min-h-10 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">{t('imgbed.library.clear_filter' as never)}</button>
       ) : null}
     </div>

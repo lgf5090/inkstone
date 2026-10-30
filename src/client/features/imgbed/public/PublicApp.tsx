@@ -119,6 +119,7 @@ export function PublicApp(): ReactElement {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [type, setType] = useState('')
+  const [sort, setSort] = useState('time')
   const [loading, setLoading] = useState(false)
   const [preview, setPreview] = useState<PublicFile | null>(null)
   const [start, setStart] = useState(0)
@@ -139,6 +140,7 @@ export function PublicApp(): ReactElement {
       const params = new URLSearchParams({ dir, start: String(reset ? 0 : start), count: '60' })
       if (search) params.set('search', search)
       if (type) params.set('type', type)
+      params.set('sort', sort)
       const response = await fetch(`/api/imgbed/public/list?${params.toString()}`, { credentials: 'same-origin' })
       const body = await response.json().catch(() => null) as PublicList & { error?: string }
       if (!response.ok) {
@@ -159,7 +161,7 @@ export function PublicApp(): ReactElement {
     } finally {
       setLoading(false)
     }
-  }, [dir, search, type, start])
+  }, [dir, search, type, sort, start])
 
   useEffect(() => {
     fetch('/api/imgbed/public/config', { credentials: 'same-origin' })
@@ -168,7 +170,7 @@ export function PublicApp(): ReactElement {
       .catch(() => setEnabled(false))
   }, [])
 
-  useEffect(() => { if (enabled) void load(true) }, [enabled, dir, search, type])
+  useEffect(() => { if (enabled) void load(true) }, [enabled, dir, search, type, sort])
 
   const up = (): void => {
     const parts = dir.split('/').filter(Boolean)
@@ -186,7 +188,11 @@ export function PublicApp(): ReactElement {
         <h1 className="text-[length:var(--text-16)] font-semibold text-[var(--text-primary)]">{t('imgbed.public.title')}</h1>
         <div className="flex min-w-[200px] flex-1 items-center gap-1">
           <Input leading={<Search size={13} />} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('imgbed.public.search')} />
-          <Select value={type} onChange={(event) => setType(event.target.value)} className="w-[110px]">
+          <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[96px]" aria-label={t('imgbed.sort.time' as never)}>
+            <option value="time">{t('imgbed.sort.time' as never)}</option>
+            <option value="size">{t('imgbed.sort.size' as never)}</option>
+          </Select>
+          <Select value={type} onChange={(event) => setType(event.target.value)} className="w-[104px]">
             <option value="">{t('imgbed.public.all')}</option>
             <option value="image">{t('imgbed.public.images')}</option>
             <option value="video">{t('imgbed.public.videos')}</option>

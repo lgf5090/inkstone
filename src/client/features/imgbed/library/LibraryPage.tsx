@@ -102,11 +102,11 @@ export function LibraryPage(): ReactElement {
   } | null>(null)
   const toast = useUi((state) => state.toast)
   const globalScope = quick !== 'all' || Boolean(typeFilter) || Boolean(channelFilter) || Boolean(tagFilter)
-  const filters: ImgbedFilters = { quick, type: typeFilter, channel: channelFilter, tag: tagFilter }
+  const filters: ImgbedFilters = { quick, type: typeFilter, channelName: channelFilter, tag: tagFilter }
   const updateFilters = (patch: Partial<ImgbedFilters>): void => {
     if (patch.quick !== undefined) setQuick(patch.quick)
     if (patch.type !== undefined) setTypeFilter(patch.type)
-    if (patch.channel !== undefined) setChannelFilter(patch.channel)
+    if (patch.channelName !== undefined) setChannelFilter(patch.channelName)
     if (patch.tag !== undefined) setTagFilter(patch.tag)
   }
   const updateFiltersAndClose = (patch: Partial<ImgbedFilters>): void => {
@@ -197,7 +197,7 @@ export function LibraryPage(): ReactElement {
         tagPrefix: tagFilter || undefined,
         fileType: typeFilter ? [typeFilter] : undefined,
         accessStatus: accessFilter ? [accessFilter] : undefined,
-        channel: channelFilter ? [channelFilter] : undefined,
+        channelName: channelFilter ? [channelFilter] : undefined,
       })
       if (sequence !== loadSeq.current) return
       if (reset) {
@@ -447,7 +447,7 @@ export function LibraryPage(): ReactElement {
           <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('imgbed.library.showing_all' as never)}</span>
           {quick !== 'all' ? <FilterChip label={t((quick === 'favorite' ? 'imgbed.library.favorite' : 'imgbed.library.pinned') as never)} onClear={() => setQuick('all')} /> : null}
           {typeFilter ? <FilterChip label={t((TYPE_LABELS[typeFilter] ?? 'imgbed.public.all') as never)} onClear={() => setTypeFilter('')} /> : null}
-          {channelFilter ? <FilterChip label={imgbedChannelLabel(channelFilter)} onClear={() => setChannelFilter('')} /> : null}
+          {channelFilter ? <FilterChip label={imgbedChannelDisplayName(channelFilter)} onClear={() => setChannelFilter('')} /> : null}
           {tagFilter ? <FilterChip label={`#${tagFilter}`} onClear={() => setTagFilter('')} /> : null}
         </div>
       ) : null}
@@ -475,7 +475,7 @@ export function LibraryPage(): ReactElement {
         <Empty art="search" title={t('imgbed.library.empty')} />
       ) : (
         <div className="flex flex-col gap-3">
-          {marquee && <div className="pointer-events-none fixed z-50 border border-[var(--accent)] bg-[var(--accent-soft)]/20" style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
+          {marquee && <div className="pointer-events-none fixed z-[var(--z-pop)] border border-[var(--accent)] bg-[var(--accent-soft)]/20" style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }} />}
           {!globalScope && data.directories.length > 0 && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-6">
               {data.directories.map((directory) => (
