@@ -3001,6 +3001,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE CloudDrive_mounts ADD COLUMN remark TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    version: 199,
+    skipIfColumnExists: { table: 'CloudDrive_mounts', column: 'folder_summary' },
+    statements: [
+      `ALTER TABLE CloudDrive_mounts ADD COLUMN folder_summary INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

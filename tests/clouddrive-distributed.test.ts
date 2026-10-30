@@ -123,6 +123,18 @@ describe('distributed part assignment', () => {
       'CloudDrive/parts/session/4',
     ])
   })
+
+  it('keeps parts under a storage capacity and prefixes its upload folder', () => {
+    const mounts: PartMount[] = [
+      { id: 'primary', storageId: 'primary', storageType: 'r2', weight: 1 },
+      { id: 'a', storageId: 'sa', storageType: 's3', weight: 1, usedBytes: 900, capacityBytes: 1000 },
+      { id: 'b', storageId: 'sb', storageType: 's3', weight: 1, usedBytes: 0, capacityBytes: 1000, uploadPrefix: 'uploads' },
+    ]
+    const plan = assignParts('session', 4, mounts, 100, 400)
+    expect(plan.map((part) => part.mountId)).toEqual(['primary', 'a', 'b', 'primary'])
+    expect(plan[2]!.storageKey).toBe('uploads/CloudDrive/parts/session/3')
+    expect(() => assignParts('session', 1, [mounts[1]!], 200, 200)).toThrow('capacity limit')
+  })
 })
 
 describe('distributed upload and read', () => {

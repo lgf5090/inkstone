@@ -28,13 +28,28 @@ interface MountForm {
   sortOrder: string
   enabled: boolean
   distributed: boolean
+  folderSummary: boolean
+  webProxy: boolean
+  webdavPolicy: string
+  storageTypeFilter: string
 }
 
 function blankMount(storageId = 'primary'): MountForm {
-  return { name: '', storageId, mountPath: '', remark: '', cacheTtl: '300', sortOrder: '0', enabled: true, distributed: false }
+  return {
+    name: '', storageId, mountPath: '', remark: '', cacheTtl: '300', sortOrder: '0', enabled: true,
+    distributed: false, folderSummary: false, webProxy: false, webdavPolicy: 'native_proxy', storageTypeFilter: 'all',
+  }
 }
 
-function formFromMount(mount: Mount): MountForm {
+function formFromMount(mount: Mount, storages: readonly Storage[]): MountForm {
+  const type = mount.storageId === 'primary' ? 'r2' : storages.find((storage) => storage.id === mount.storageId)?.type ?? 'all'
+  const storage = storages.find((item) => item.id === mount.storageId)
+  const urlProxy = typeof storage?.config.urlProxy === 'string' && storage.config.urlProxy ? storage.config.urlProxy : ''
+  const policy = mount.webdavPolicy === '302_redirect' && type !== 's3'
+    ? 'native_proxy'
+    : mount.webdavPolicy === 'use_proxy_url' && !urlProxy
+      ? 'native_proxy'
+      : mount.webdavPolicy
   return {
     name: mount.name,
     storageId: mount.storageId,
@@ -44,6 +59,10 @@ function formFromMount(mount: Mount): MountForm {
     sortOrder: String(mount.sortOrder),
     enabled: mount.enabled,
     distributed: !mount.readOnly,
+    folderSummary: mount.folderSummary,
+    webProxy: mount.webProxy,
+    webdavPolicy: policy || 'native_proxy',
+    storageTypeFilter: type,
   }
 }
 
@@ -116,12 +135,12 @@ export function MountsPage() {
   const openCreate = () => {
     const preferred = storages.find((storage) => storage.isDefault && storage.status === 'enabled') ?? storages.find((storage) => storage.status === 'enabled')
     setEditing(null)
-    setForm(blankMount(preferred?.id ?? 'primary'))
+    setForm({ ...blankMount(preferred?.id ?? 'primary'), storageTypeFilter: preferred?.type ?? 'r2' })
     setOpen(true)
   }
   const openEdit = (mount: Mount) => {
     setEditing(mount)
-    setForm(formFromMount(mount))
+    setForm(formFromMount(mount, storages))
     setOpen(true)
   }
   const set = (patch: Partial<MountForm>) => setForm((current) => ({ ...current, ...patch }))
@@ -146,6 +165,9 @@ export function MountsPage() {
         enabled: form.enabled,
         storageId: form.storageId,
         readOnly,
+        folderSummary: form.folderSummary,
+        webProxy: form.webProxy,
+        webdavPolicy: form.webdavPolicy,
       }
       if (editing) await clouddriveApi.patchMount(editing.id, body)
       else await clouddriveApi.createMount(body)
@@ -190,6 +212,14 @@ export function MountsPage() {
   const selectedType = form.storageId === 'primary'
     ? 'primary'
     : storages.find((storage) => storage.id === form.storageId)?.type ?? 'unknown'
+  const selectedStorage = storages.find((storage) => storage.id === form.storageId)
+  const urlProxyConfigured = typeof selectedStorage?.config.urlProxy === 'string' && selectedStorage.config.urlProxy.length > 0
+  const typeFilteredStorages = form.storageTypeFilter === 'all'
+    ? storages
+    : form.storageTypeFilter === 'r2'
+      ? []
+      : storages.filter((storage) => storage.type === form.storageTypeFilter)
+  const showPrimaryOption = form.storageTypeFilter === 'all' || form.storageTypeFilter === 'r2' || form.storageId === 'primary'
 
   const renderMount = (mount: Mount) => {
     const type = mountStorageType(mount, storages)
@@ -207,6 +237,10 @@ export function MountsPage() {
             <span className={`rounded-full px-1.5 py-0.5 text-[length:var(--text-10)] ${statusBadgeClass(mount.enabled)}`}>{mount.enabled ? t('clouddrive.admin.enabled') : t('clouddrive.admin.disabled')}</span>
             {mount.readOnly && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.readonly_badge')}</span>}
             {!mount.readOnly && mount.storageId !== 'primary' && <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-primary)]">{t('clouddrive.mounts.distributed_badge')}</span>}
+            {mount.webProxy && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.proxy_badge')}</span>}
+            {mount.folderSummary && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.compute_badge')}</span>}
+            {mount.webdavPolicy === '302_redirect' && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.policy_badge_redirect')}</span>}
+            {mount.webdavPolicy === 'use_proxy_url' && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.admin.mount.policy_badge_proxy')}</span>}
             {storage?.status === 'disabled' && <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--danger)]">{t('clouddrive.admin.mount.storage_disabled')}</span>}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
@@ -298,22 +332,51 @@ export function MountsPage() {
       >
         <div className="grid gap-2">
           <Field label={t('clouddrive.mounts.name')} required><Input value={form.name} onChange={(event) => set({ name: event.target.value })} /></Field>
+          <Field label={t('clouddrive.admin.mount.storage_type')}>
+            <Select
+              value={form.storageTypeFilter}
+              onChange={(event) => {
+                const filter = event.target.value
+                const candidates = filter === 'all'
+                  ? storages
+                  : filter === 'r2'
+                    ? []
+                    : storages.filter((storage) => storage.type === filter)
+                const storageId = filter === 'r2' ? 'primary' : candidates.find((storage) => storage.status === 'enabled')?.id ?? candidates[0]?.id ?? 'primary'
+                set({ storageTypeFilter: filter, storageId, distributed: false, webdavPolicy: 'native_proxy' })
+              }}
+            >
+              <option value="all">{t('clouddrive.admin.filter_all')}</option>
+              <option value="r2">{t('clouddrive.admin.storage.primary_title')}</option>
+              {STORAGE_TYPE_VALUES.map((type) => <option key={type} value={type}>{storageTypeLabel(type)}</option>)}
+            </Select>
+          </Field>
           <Field label={t('clouddrive.mounts.storage')} required>
             <Select
               value={form.storageId}
               disabled={editing?.id === 'primary'}
               onChange={(event) => {
                 const storageId = event.target.value
-                const type = storageId === 'primary' ? 'primary' : storages.find((storage) => storage.id === storageId)?.type
-                set({ storageId, distributed: type === 's3' ? form.distributed : false })
+                const storage = storages.find((item) => item.id === storageId)
+                const type = storageId === 'primary' ? 'primary' : storage?.type
+                const urlProxy = typeof storage?.config.urlProxy === 'string' && storage.config.urlProxy.length > 0
+                const policy = form.webdavPolicy === '302_redirect' && type !== 's3'
+                  ? 'native_proxy'
+                  : form.webdavPolicy === 'use_proxy_url' && !urlProxy
+                    ? 'native_proxy'
+                    : form.webdavPolicy
+                set({ storageId, distributed: type === 's3' ? form.distributed : false, webdavPolicy: policy })
               }}
             >
-              <option value="primary">{t('clouddrive.admin.mount.storage_primary')}</option>
-              {storages.map((storage) => (
+              {showPrimaryOption && <option value="primary">{t('clouddrive.admin.mount.storage_primary')}</option>}
+              {typeFilteredStorages.map((storage) => (
                 <option key={storage.id} value={storage.id} disabled={storage.status !== 'enabled' && editing?.storageId !== storage.id}>
                   {storage.name} ({storageTypeLabel(storage.type)}){storage.status === 'disabled' ? ` · ${t('clouddrive.admin.disabled')}` : ''}
                 </option>
               ))}
+              {form.storageId !== 'primary' && !typeFilteredStorages.some((storage) => storage.id === form.storageId) && (
+                <option value={form.storageId}>{storages.find((storage) => storage.id === form.storageId)?.name ?? form.storageId}</option>
+              )}
             </Select>
           </Field>
           {storages.length === 0 && <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.storage_required')}</p>}
@@ -336,6 +399,23 @@ export function MountsPage() {
               <Input type="number" value={form.sortOrder} onChange={(event) => set({ sortOrder: event.target.value })} />
             </Field>
           </div>
+          <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.admin.mount.advanced')}</p>
+          <div className="space-y-1">
+            <Checkbox checked={form.folderSummary} label={t('clouddrive.admin.mount.folder_summary')} onChange={(next) => set({ folderSummary: next })} />
+            <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.folder_summary_hint')}</p>
+          </div>
+          <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.admin.mount.proxy_section')}</p>
+          <div className="space-y-1">
+            <Checkbox checked={form.webProxy} label={t('clouddrive.admin.mount.web_proxy')} onChange={(next) => set({ webProxy: next })} />
+            <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.web_proxy_hint')}</p>
+          </div>
+          <Field label={t('clouddrive.admin.mount.webdav_policy')} hint={t('clouddrive.admin.mount.webdav_policy_hint')}>
+            <Select value={form.webdavPolicy} onChange={(event) => set({ webdavPolicy: event.target.value })}>
+              <option value="native_proxy">{t('clouddrive.admin.mount.policy_native')}</option>
+              {selectedType === 's3' && <option value="302_redirect">{t('clouddrive.admin.mount.policy_redirect')}</option>}
+              {urlProxyConfigured && <option value="use_proxy_url">{t('clouddrive.admin.mount.policy_proxy_url')}</option>}
+            </Select>
+          </Field>
           <Checkbox checked={form.enabled} label={t('clouddrive.admin.mount.enabled')} onChange={(next) => set({ enabled: next })} />
           <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.mount.enabled_hint')}</p>
         </div>

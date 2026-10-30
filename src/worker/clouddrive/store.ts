@@ -11,6 +11,7 @@ interface MountRow {
   mount_path: string
   read_only: number
   enabled: number
+  folder_summary: number
 }
 
 export async function ensurePrimaryMount(db: D1Database, userId: string): Promise<void> {
@@ -24,7 +25,7 @@ export async function ensurePrimaryMount(db: D1Database, userId: string): Promis
 
 export async function listMounts(db: D1Database, userId: string): Promise<CloudDriveMountSummary[]> {
   const { results } = await db.prepare(
-    `SELECT id, storage_id, name, mount_path, read_only, enabled
+    `SELECT id, storage_id, name, mount_path, read_only, enabled, folder_summary
        FROM CloudDrive_mounts WHERE user_id = ?1 ORDER BY sort_order, created_at, id`,
   ).bind(userId).all<MountRow>()
   const storageTypes = await storageTypeMap(db, userId)
@@ -37,6 +38,7 @@ export async function listMounts(db: D1Database, userId: string): Promise<CloudD
     readOnly: row.read_only === 1,
     enabled: row.enabled === 1,
     online: row.storage_id === 'primary' ? true : storageTypes.has(row.storage_id),
+    folderSummary: row.folder_summary === 1,
   }))
 }
 

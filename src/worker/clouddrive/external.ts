@@ -113,6 +113,91 @@ export async function readExternal(
   return await readStorage(env, db, mount, storage, path, range, ref)
 }
 
+export async function externalDirectUrl(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<string | null> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage || storage.type !== 's3') return null
+  const config = configOf(storage)
+  const key = joinPath(String(config.rootPath ?? ''), path)
+  const customHost = stringValue(config.customHost)
+  if (customHost) return `${customHost.replace(/\/$/, '')}/${encodeKey(key)}`
+  const target = checkTarget(String(config.endpoint ?? ''))
+  if (!target.url) return null
+  const credentials = await credentialsOf(env, storage)
+  if (!credentials.accessKeyId || !credentials.secretAccessKey) return null
+  const aws = new AwsClient({
+    accessKeyId: credentials.accessKeyId,
+    secretAccessKey: credentials.secretAccessKey,
+    region: String(config.region ?? 'auto'),
+    service: 's3',
+  })
+  const url = s3RequestUrl(target.url, config, key)
+  url.searchParams.set('X-Amz-Expires', '300')
+  const signed = await aws.sign(url.toString(), { method: 'GET', aws: { signQuery: true } })
+  return signed.url
+}
+
+export async function externalProxyLocation(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<string | null> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) return null
+  const config = configOf(storage)
+  const proxy = stringValue(config.urlProxy)
+  if (!proxy) return null
+  const direct = await externalDirectUrl(env, db, mount, path)
+  if (direct) return appendProxyTarget(proxy, direct)
+  if (storage.type !== 'webdav') return null
+  const target = checkTarget(stringValue(config.baseUrl))
+  if (!target.url) return null
+  const base = `${target.url.origin}${target.url.pathname.replace(/\/$/, '')}`
+  const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
+  const relative = path.replace(/^\/+/, '')
+  const source = `${base}/${[root, relative].filter(Boolean).join('/')}`
+  return appendProxyTarget(proxy, source)
+}
+
+export async function externalFolderSize(
+  env: Env,
+  db: D1Database,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<{ bytes: number; truncated: boolean }> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
+  if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
+  const queue = [path]
+  const visited = new Set<string>()
+  let bytes = 0
+  let entries = 0
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    if (visited.has(current)) continue
+    visited.add(current)
+    const listed = await listStorage(env, db, mount, storage, current)
+    entries += listed.length
+    if (entries > MAX_DRIVER_ENTRIES) return { bytes, truncated: true }
+    for (const entry of listed) {
+      if (!safeSegment(entry.name)) continue
+      const child = current === '/' ? `/${entry.name}` : `${current}/${entry.name}`
+      if (entry.kind === 'folder') queue.push(child)
+      else bytes += entry.size
+    }
+  }
+  return { bytes, truncated: false }
+}
+
+function appendProxyTarget(proxy: string, target: string): string {
+  const separator = proxy.includes('?') ? '&' : '?'
+  return `${proxy}${separator}url=${encodeURIComponent(target)}`
+}
+
 async function listStorage(
   env: Env,
   db: D1Database,

@@ -431,12 +431,13 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
   let partSize = 0
   let totalParts = 0
   let distributedMounts: Awaited<ReturnType<typeof partMounts>> = []
+  const distributedPartSize = Math.min(Math.max(32 * 1024 * 1024, settings.uploadPartSizeBytes), CLOUDDRIVE_LIMITS.partSizeMaxBytes)
   if (size >= settings.uploadDistributedMinBytes) {
-    distributedMounts = await partMounts(c.env.DB, userId)
+    distributedMounts = await partMounts(c.env.DB, userId, distributedPartSize)
   }
   if (distributedMounts.length >= 2) {
     strategy = 'distributed'
-    partSize = Math.min(Math.max(32 * 1024 * 1024, settings.uploadPartSizeBytes), CLOUDDRIVE_LIMITS.partSizeMaxBytes)
+    partSize = distributedPartSize
     totalParts = Math.ceil(size / partSize)
     if (totalParts < 1) totalParts = 1
     if (totalParts > CLOUDDRIVE_LIMITS.partsMax) {
@@ -461,7 +462,7 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
   const now = Date.now()
   const sessionId = newId()
   const sessionKey = strategy === 'distributed' ? null : storageKey
-  const assignments = strategy === 'distributed' ? assignParts(sessionId, totalParts, distributedMounts) : []
+  const assignments = strategy === 'distributed' ? assignParts(sessionId, totalParts, distributedMounts, partSize, size) : []
   try {
     const statements = [
       c.env.DB.prepare(

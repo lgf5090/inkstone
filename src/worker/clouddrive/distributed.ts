@@ -8,6 +8,9 @@ export interface PartMount {
   storageId: string
   storageType: string
   weight: number
+  usedBytes?: number
+  capacityBytes?: number | null
+  uploadPrefix?: string
 }
 
 export interface PartAssignment {
@@ -24,31 +27,95 @@ export interface FilePartRow {
   etag: string | null
 }
 
-export async function partMounts(db: D1Database, userId: string): Promise<PartMount[]> {
+export async function partMounts(db: D1Database, userId: string, partSize = 0): Promise<PartMount[]> {
   const { results } = await db.prepare(
-    `SELECT m.id, m.storage_id, m.weight, s.type AS storage_type
+    `SELECT m.id, m.storage_id, m.weight, s.type AS storage_type, s.config, s.default_path,
+            COALESCE((SELECT SUM(p.size) FROM CloudDrive_file_parts p
+                       WHERE p.user_id = m.user_id AND p.mount_id = m.id), 0)
+            + COALESCE((SELECT SUM(u.size) FROM CloudDrive_upload_part_objects u
+                          JOIN CloudDrive_upload_sessions us ON us.id = u.session_id
+                         WHERE us.user_id = m.user_id AND u.mount_id = m.id), 0) AS used_bytes
        FROM CloudDrive_mounts m
        LEFT JOIN CloudDrive_storages s ON s.user_id = m.user_id AND s.id = m.storage_id
       WHERE m.user_id = ? AND m.enabled = 1 AND m.read_only = 0
         AND (m.id = 'primary' OR (s.type = 's3' AND s.status = 'enabled'))
       ORDER BY m.sort_order, m.created_at, m.id`,
-  ).bind(userId).all<{ id: string; storage_id: string; weight: number; storage_type: string | null }>()
-  return (results ?? []).map((row) => ({
-    id: row.id,
-    storageId: row.storage_id,
-    storageType: row.storage_id === 'primary' ? 'r2' : row.storage_type ?? 'unknown',
-    weight: row.weight,
-  }))
+  ).bind(userId).all<{
+    id: string
+    storage_id: string
+    weight: number
+    storage_type: string | null
+    config: string | null
+    default_path: string | null
+    used_bytes: number
+  }>()
+  const mounts: PartMount[] = []
+  for (const row of results ?? []) {
+    const config = row.config ? safeObject(row.config) : {}
+    const capacity = typeof config.capacityBytes === 'number' && config.capacityBytes > 0 ? config.capacityBytes : null
+    const usedBytes = Number(row.used_bytes) || 0
+    if (capacity !== null && usedBytes + partSize > capacity) continue
+    mounts.push({
+      id: row.id,
+      storageId: row.storage_id,
+      storageType: row.storage_id === 'primary' ? 'r2' : row.storage_type ?? 'unknown',
+      weight: row.weight,
+      usedBytes,
+      capacityBytes: capacity,
+      uploadPrefix: row.default_path ? row.default_path.replace(/^\/+|\/+$/g, '') : '',
+    })
+  }
+  return mounts
 }
 
-export function assignParts(sessionId: string, totalParts: number, mounts: readonly PartMount[]): PartAssignment[] {
+function safeObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+export function assignParts(
+  sessionId: string,
+  totalParts: number,
+  mounts: readonly PartMount[],
+  partSize = 0,
+  fileSize = 0,
+): PartAssignment[] {
   if (mounts.length === 0) return []
   const pool = mounts.flatMap((mount) => Array<PartMount>(Math.max(1, Math.min(10, mount.weight))).fill(mount))
-  return Array.from({ length: totalParts }, (_, index) => ({
-    partNumber: index + 1,
-    mountId: pool[index % pool.length]!.id,
-    storageKey: `CloudDrive/parts/${sessionId}/${index + 1}`,
-  }))
+  const remaining = new Map<string, number>()
+  for (const mount of mounts) {
+    remaining.set(mount.id, mount.capacityBytes == null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, mount.capacityBytes - (mount.usedBytes ?? 0)))
+  }
+  const assignments: PartAssignment[] = []
+  let cursor = 0
+  for (let index = 0; index < totalParts; index++) {
+    const bytes = partSize > 0 ? Math.min(partSize, Math.max(0, fileSize - index * partSize)) : 0
+    let picked: PartMount | null = null
+    for (let attempt = 0; attempt < pool.length; attempt++) {
+      const candidate = pool[cursor % pool.length]!
+      cursor++
+      if ((remaining.get(candidate.id) ?? 0) >= bytes) {
+        picked = candidate
+        break
+      }
+    }
+    if (!picked) throw new ApiError(403, 'clouddrive_quota_exceeded', 'The storage capacity limit would be exceeded')
+    remaining.set(picked.id, (remaining.get(picked.id) ?? Number.POSITIVE_INFINITY) - bytes)
+    assignments.push({
+      partNumber: index + 1,
+      mountId: picked.id,
+      storageKey: picked.uploadPrefix
+        ? `${picked.uploadPrefix}/CloudDrive/parts/${sessionId}/${index + 1}`
+        : `CloudDrive/parts/${sessionId}/${index + 1}`,
+    })
+  }
+  return assignments
 }
 
 async function mountFor(db: D1Database, userId: string, mountId: string): Promise<CloudDriveMountInfo> {

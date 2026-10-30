@@ -173,12 +173,44 @@ function FolderMetaEditor({
   )
 }
 
+function FolderSizeTool({ entry }: { entry: CloudDriveEntry }) {
+  const toast = useUi((state) => state.toast)
+  const [result, setResult] = useState<{ bytes: number; truncated: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setResult(null) }, [entry.id])
+  const compute = async () => {
+    setBusy(true)
+    try {
+      setResult(await clouddriveApi.folderSize(entry.id))
+    } catch (error) {
+      toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section>
+      <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.folder_size')}</h3>
+      {result && (
+        <p className="mb-1 text-[length:var(--text-12)] text-[var(--text-primary)]">
+          {formatBytes(result.bytes)}
+          {result.truncated && <span className="ml-1 text-[var(--text-tertiary)]">· {t('clouddrive.inspector.size_truncated')}</span>}
+        </p>
+      )}
+      <Button size="sm" variant="secondary" loading={busy} onClick={() => void compute()}>
+        {busy ? t('clouddrive.inspector.computing') : t('clouddrive.inspector.compute_size')}
+      </Button>
+    </section>
+  )
+}
+
 export function Inspector({
   open,
   entries,
   readOnly,
   busy,
   shared = false,
+  folderSummary = false,
   onClose,
   onOpen,
   onShare,
@@ -193,6 +225,7 @@ export function Inspector({
   busy: boolean
   /** Share existence is not part of the entry model; the shell may supply it later. */
   shared?: boolean
+  folderSummary?: boolean
   onClose: () => void
   onOpen: (entry: CloudDriveEntry) => void
   onShare: (entries: CloudDriveEntry[]) => void
@@ -265,6 +298,7 @@ export function Inspector({
             </dl>
             {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
             {single.storageKind !== 'external' && !readOnly && !single.readOnly && <AclEditor entry={single} />}
+            {single.kind === 'folder' && folderSummary && <FolderSizeTool entry={single} />}
             {single.kind === 'folder' && (
               <section>
                 <h3 className="mb-1 text-[length:var(--text-11)] font-medium text-[var(--text-tertiary)]">{t('clouddrive.inspector.color')}</h3>

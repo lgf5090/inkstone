@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import {
+  externalDirectUrl,
   externalEntryId,
+  externalFolderSize,
+  externalProxyLocation,
   listExternal,
   parseExternalEntryId,
   readExternal,
@@ -273,6 +276,21 @@ describe('WebDAV driver', () => {
     await listExternal(env, db, mount, '/')
     expect(callUrl()).toBe('https://dav.example.com/dav/root/')
   })
+
+  it('sums a folder recursively for the folder-size tool', async () => {
+    const mount = await mountWith('webdav', { baseUrl: 'https://dav.example.com/dav/root' }, { username: 'u', password: 'p' })
+    fetchMock.mockResolvedValueOnce(new Response(`<D:multistatus xmlns:D="DAV:">
+      <D:response><D:href>/dav/root/a.txt</D:href><D:propstat><D:prop>
+        <D:getcontentlength>10</D:getcontentlength></D:prop></D:propstat></D:response>
+      <D:response><D:href>/dav/root/sub/</D:href><D:propstat><D:prop>
+        <D:collection/></D:prop></D:propstat></D:response>
+    </D:multistatus>`, { status: 207 }))
+    fetchMock.mockResolvedValueOnce(new Response(`<D:multistatus xmlns:D="DAV:">
+      <D:response><D:href>/dav/root/sub/b.txt</D:href><D:propstat><D:prop>
+        <D:getcontentlength>5</D:getcontentlength></D:prop></D:propstat></D:response>
+    </D:multistatus>`, { status: 207 }))
+    expect(await externalFolderSize(env, db, mount, '/')).toEqual({ bytes: 15, truncated: false })
+  })
 })
 
 describe('S3 driver', () => {
@@ -310,6 +328,44 @@ describe('S3 driver', () => {
     const response = await readExternal(env, db, mount, '/readme.txt', null)
     expect(await response?.text()).toBe('bytes')
     expect(callUrl()).toBe('https://bucket.s3.example.com/readme.txt')
+  })
+})
+
+describe('direct and proxied external links', () => {
+  it('prefers a custom host for an S3 direct link', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root', customHost: 'https://cdn.example.com/',
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    expect(await externalDirectUrl(env, db, mount, '/readme.txt')).toBe('https://cdn.example.com/root/readme.txt')
+    expect(await externalProxyLocation(env, db, mount, '/readme.txt')).toBeNull()
+  })
+
+  it('presigns an S3 object when only the endpoint is configured', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', rootPath: 'root',
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    const url = await externalDirectUrl(env, db, mount, '/readme.txt')
+    expect(url).toContain('https://s3.example.com/bucket/root/readme.txt?')
+    expect(url).toContain('X-Amz-Signature=')
+  })
+
+  it('wraps an S3 direct link in the configured proxy URL', async () => {
+    const s3 = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', customHost: 'https://cdn.example.com',
+      urlProxy: 'https://proxy.example.com/fetch',
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    expect(await externalProxyLocation(env, db, s3, '/readme.txt')).toBe(
+      `https://proxy.example.com/fetch?url=${encodeURIComponent('https://cdn.example.com/readme.txt')}`,
+    )
+  })
+
+  it('wraps a WebDAV source in the configured proxy URL', async () => {
+    const dav = await mountWith('webdav', {
+      baseUrl: 'https://dav.example.com/dav', rootPath: 'root', urlProxy: 'https://proxy.example.com/fetch',
+    }, { username: 'u', password: 'p' })
+    expect(await externalProxyLocation(env, db, dav, '/readme.txt')).toBe(
+      `https://proxy.example.com/fetch?url=${encodeURIComponent('https://dav.example.com/dav/root/readme.txt')}`,
+    )
   })
 })
 

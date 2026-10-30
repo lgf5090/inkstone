@@ -266,9 +266,25 @@ export async function listFolder(
   return { folders, files, cursor, total, foldersTruncated }
 }
 
+export async function folderSize(db: D1Database, userId: string, mountId: string, folderId: string): Promise<number> {
+  const row = await db.prepare(
+    `WITH RECURSIVE tree(id) AS (
+       SELECT id FROM CloudDrive_files
+        WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
+       UNION ALL
+       SELECT f.id FROM CloudDrive_files f
+         JOIN tree t ON f.parent_id = t.id
+        WHERE f.user_id = ?1 AND f.mount_id = ?2 AND f.deleted_at IS NULL
+     )
+     SELECT COALESCE(SUM(size), 0) AS bytes FROM CloudDrive_files
+      WHERE user_id = ?1 AND mount_id = ?2 AND kind = 'file' AND deleted_at IS NULL
+        AND id IN (SELECT id FROM tree)`,
+  ).bind(userId, mountId, folderId).first<{ bytes: number }>()
+  return Number(row?.bytes ?? 0)
+}
+
 /** Trash is one flat page; the route splits it into the folder and file groups it presents. */
-export async function listTrash(
-  db: D1Database,
+export async function listTrash(  db: D1Database,
   userId: string,
   mountId: string,
   options: { cursor?: string; limit: number },

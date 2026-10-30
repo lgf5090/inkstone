@@ -50,14 +50,17 @@ interface MountRow {
   sort_order: number
   enabled: number
   remark: string
+  folder_summary: number
   created_at: number
   updated_at: number
 }
 
 
 clouddriveMountRoutes.get('/storages', async (c) => {
+  const userId = c.get('userId')
   const rows = await storages(c)
-  return c.json({ storages: rows.map(toStorageView) })
+  const usage = await storageUsage(c.env.DB, userId)
+  return c.json({ storages: rows.map((row) => toStorageView(row, usage.get(row.id) ?? 0)) })
 })
 
 clouddriveMountRoutes.post('/storages', async (c) => {
@@ -182,12 +185,13 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   try {
     await c.env.DB.prepare(
       `INSERT INTO CloudDrive_mounts
-         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, remark, created_at, updated_at)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,0,'native_proxy',1,?8,?9,?10,?11,?11)`,
+         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, remark, folder_summary, created_at, updated_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1,?10,?11,?12,?13,?14,?14)`,
     ).bind(
       userId, id, storageId, name, mountPath, readOnly,
-      clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0),
-      body.enabled === false ? 0 : 1, cleanRemark(body.remark), now,
+      clampInt(body.cacheTtl, 0, 86400, 300), body.webProxy ? 1 : 0, webdavPolicy(body.webdavPolicy),
+      clampInt(body.sortOrder, -10000, 10000, 0),
+      body.enabled === false ? 0 : 1, cleanRemark(body.remark), body.folderSummary ? 1 : 0, now,
     ).run()
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
@@ -205,7 +209,8 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
     if (body.mountPath !== undefined && body.mountPath !== '/') throw ApiError.badRequest('The primary mount path cannot change')
     if (body.storageId !== undefined && body.storageId !== 'primary') throw ApiError.badRequest('The primary mount storage cannot change')
     await c.env.DB.prepare(
-      `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, cache_ttl = ?5, sort_order = ?6, remark = ?7, updated_at = ?8
+      `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, cache_ttl = ?5, sort_order = ?6, remark = ?7,
+              web_proxy = ?8, webdav_policy = ?9, folder_summary = ?10, updated_at = ?11
         WHERE user_id = ?1 AND id = ?2`,
     ).bind(
       userId, row.id,
@@ -214,6 +219,9 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
       body.cacheTtl === undefined ? row.cache_ttl : clampInt(body.cacheTtl, 0, 86400, row.cache_ttl),
       body.sortOrder === undefined ? row.sort_order : clampInt(body.sortOrder, -10000, 10000, row.sort_order),
       body.remark === undefined ? row.remark : cleanRemark(body.remark),
+      body.webProxy === undefined ? row.web_proxy : (body.webProxy ? 1 : 0),
+      body.webdavPolicy === undefined ? row.webdav_policy : webdavPolicy(body.webdavPolicy),
+      body.folderSummary === undefined ? row.folder_summary : (body.folderSummary ? 1 : 0),
       Date.now(),
     ).run()
     return c.json({ mount: toMountView((await mountById(c, row.id))!) })
@@ -266,6 +274,9 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   if (body.sortOrder !== undefined) put('sort_order = ?', clampInt(body.sortOrder, -10000, 10000, 0))
   if (body.enabled !== undefined) put('enabled = ?', body.enabled ? 1 : 0)
   if (body.remark !== undefined) put('remark = ?', cleanRemark(body.remark))
+  if (body.folderSummary !== undefined) put('folder_summary = ?', body.folderSummary ? 1 : 0)
+  if (body.webProxy !== undefined) put('web_proxy = ?', body.webProxy ? 1 : 0)
+  if (body.webdavPolicy !== undefined) put('webdav_policy = ?', webdavPolicy(body.webdavPolicy))
   if (!sets.length) return c.json({ mount: toMountView(row) })
   values.push(Date.now(), userId, row.id)
   try {
@@ -325,7 +336,7 @@ async function mountById(c: Context<AppBindings>, id: string): Promise<MountRow 
 
 const SENSITIVE_CONFIG_KEY = /(token|secret|password|credential|accesskey|private)/i
 
-function toStorageView(row: StorageRow) {
+function toStorageView(row: StorageRow, usedBytes = 0) {
   const config = Object.fromEntries(
     Object.entries(safeObject(row.config)).filter(([key]) => !SENSITIVE_CONFIG_KEY.test(key)),
   )
@@ -340,11 +351,34 @@ function toStorageView(row: StorageRow) {
     readQuota: row.read_quota === 1,
     defaultPath: row.default_path,
     hasCredentials: row.credentials.length > 0,
+    usedBytes,
     lastUsedAt: row.last_used_at,
     lastTestAt: row.last_test_at,
     lastTestStatus: row.last_test_status,
     createdAt: row.created_at,
   }
+}
+
+async function storageUsage(db: D1Database, userId: string): Promise<Map<string, number>> {
+  const usage = new Map<string, number>()
+  const [files, pending] = await Promise.all([
+    db.prepare(
+      `SELECT m.storage_id AS storage_id, COALESCE(SUM(p.size), 0) AS bytes
+         FROM CloudDrive_file_parts p
+         JOIN CloudDrive_mounts m ON m.user_id = p.user_id AND m.id = p.mount_id
+        WHERE p.user_id = ?1
+        GROUP BY m.storage_id`,
+    ).bind(userId).all<{ storage_id: string; bytes: number }>(),
+    db.prepare(
+      `SELECT m.storage_id AS storage_id, COALESCE(SUM(u.size), 0) AS bytes
+         FROM CloudDrive_upload_part_objects u
+         JOIN CloudDrive_mounts m ON m.user_id = ?1 AND m.id = u.mount_id
+        GROUP BY m.storage_id`,
+    ).bind(userId).all<{ storage_id: string; bytes: number }>(),
+  ])
+  for (const row of files.results ?? []) usage.set(row.storage_id, (usage.get(row.storage_id) ?? 0) + Number(row.bytes))
+  for (const row of pending.results ?? []) usage.set(row.storage_id, (usage.get(row.storage_id) ?? 0) + Number(row.bytes))
+  return usage
 }
 
 function toMountView(row: MountRow) {
@@ -358,8 +392,27 @@ function toMountView(row: MountRow) {
     sortOrder: row.sort_order,
     enabled: row.enabled === 1,
     remark: row.remark,
+    folderSummary: row.folder_summary === 1,
+    webProxy: row.web_proxy === 1,
+    webdavPolicy: row.webdav_policy,
     createdAt: row.created_at,
   }
+}
+
+const WEBDAV_QUOTA_PROPFIND = `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:"><D:prop><D:quota-used-bytes/><D:quota-available-bytes/></D:prop></D:propfind>`
+
+function webdavQuota(xml: string): { used: number; total: number | null } | null {
+  const numberFor = (name: string): number | null => {
+    const match = new RegExp(`<(?:[A-Za-z_][\\w.-]*:)?${name}\\b[^>]*>(\\d+)</(?:[A-Za-z_][\\w.-]*:)?${name}>`, 'i').exec(xml)
+    if (!match) return null
+    const value = Number(match[1])
+    return Number.isSafeInteger(value) && value >= 0 ? value : null
+  }
+  const used = numberFor('quota-used-bytes')
+  if (used === null) return null
+  const available = numberFor('quota-available-bytes')
+  return { used, total: available === null ? null : used + available }
 }
 
 async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ ok: boolean; message: string; quota?: { used: number; total: number | null } }> {
@@ -398,20 +451,27 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
     if (credentials.username || credentials.password) {
       headers.Authorization = `Basic ${btoa(`${credentials.username ?? ''}:${credentials.password ?? ''}`)}`
     }
+    const wantsQuota = row.read_quota === 1
+    if (wantsQuota) headers['Content-Type'] = 'application/xml; charset=utf-8'
     try {
       const response = await fetch(webdavCollectionUrl(target.url).toString(), {
         method: 'PROPFIND', headers, redirect: 'manual', signal: AbortSignal.timeout(15_000),
+        ...(wantsQuota ? { body: WEBDAV_QUOTA_PROPFIND } : {}),
       })
-      // A test response has no body worth reading once its status is known.
-      await discard(response)
+      const xml = wantsQuota && response.ok ? await response.text() : ''
+      if (!wantsQuota || !response.ok) await discard(response)
+      const quota = wantsQuota ? webdavQuota(xml) : null
       const ok = response.status >= 200 && response.status < 300
       return {
         ok,
         message: ok
-          ? 'WebDAV is reachable'
+          ? quota
+            ? `WebDAV is reachable · quota ${quota.used} / ${quota.total ?? 'unknown'} bytes`
+            : 'WebDAV is reachable'
           : response.status >= 300 && response.status < 400
             ? 'WebDAV answered a redirect; check that the base URL ends with the collection path'
             : `WebDAV answered HTTP ${response.status}`,
+        ...(quota ? { quota } : {}),
       }
     } catch (error) {
       return { ok: false, message: testFailure(error, 'WebDAV test failed') }
@@ -530,6 +590,15 @@ function storageConfig(type: StorageType, value: unknown): Record<string, unknow
   const config = objectValue(value)
   if (JSON.stringify(config).length > 16 * 1024) throw ApiError.badRequest('The storage configuration is too large')
   const text = (key: string) => typeof config[key] === 'string' ? config[key].trim() : ''
+  if (config.capacityBytes !== undefined && config.capacityBytes !== null) {
+    const capacity = Number(config.capacityBytes)
+    if (!Number.isSafeInteger(capacity) || capacity < 0 || capacity > 10 * 1024 ** 4) {
+      throw ApiError.badRequest('The storage capacity limit must be a byte count')
+    }
+    config.capacityBytes = capacity
+  }
+  if (text('urlProxy')) httpUrl(text('urlProxy'), 'The proxy URL')
+  if (text('customHost')) httpUrl(text('customHost'), 'The custom host')
   if (type === 's3') {
     httpUrl(text('endpoint'), 'S3 endpoint')
     if (!text('bucketName')) throw ApiError.badRequest('An S3 bucket name is required')
@@ -557,6 +626,14 @@ function cleanRootPath(value: unknown): string {
 
 function cleanRemark(value: unknown): string {
   return typeof value === 'string' ? value.trim().slice(0, 200) : ''
+}
+
+const WEBDAV_POLICIES = ['native_proxy', '302_redirect', 'use_proxy_url'] as const
+
+function webdavPolicy(value: unknown): string {
+  if (value === undefined) return 'native_proxy'
+  if (typeof value === 'string' && (WEBDAV_POLICIES as readonly string[]).includes(value)) return value
+  throw ApiError.badRequest('The WebDAV policy is not supported')
 }
 
 async function mergedCredentials(

@@ -9,6 +9,9 @@ export interface Storage {
   isDefault: boolean
   hasCredentials: boolean
   defaultPath: string
+  readQuota: boolean
+  apiKeyVisible: boolean
+  usedBytes: number
   lastTestAt: number | null
   lastTestStatus: string | null
   createdAt: number
@@ -24,6 +27,9 @@ export interface Mount {
   sortOrder: number
   enabled: boolean
   remark: string
+  folderSummary: boolean
+  webProxy: boolean
+  webdavPolicy: string
   createdAt: number
 }
 

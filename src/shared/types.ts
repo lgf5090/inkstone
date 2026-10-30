@@ -1534,6 +1534,7 @@ export type ApiErrorCode =
   | 'clouddrive_path_invalid'
   | 'clouddrive_quota_exceeded'
   | 'clouddrive_read_only'
+  | 'clouddrive_folder_summary_disabled'
   | 'clouddrive_mount_unavailable'
   | 'clouddrive_upload_expired'
   | 'clouddrive_share_locked'

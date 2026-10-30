@@ -33,6 +33,7 @@ interface StorageForm {
   region: string
   pathStyle: boolean
   rootPath: string
+  customHost: string
   baseUrl: string
   repo: string
   branch: string
@@ -51,16 +52,52 @@ interface StorageForm {
   clientId: string
   clientSecret: string
   botToken: string
+  capacityValue: string
+  capacityUnit: CapacityUnit
+  defaultPath: string
+  urlProxy: string
+  readQuota: boolean
+  apiKeyVisible: boolean
+}
+
+type CapacityUnit = 'B' | 'KB' | 'MB' | 'GB' | 'TB'
+
+const CAPACITY_UNITS: readonly { value: CapacityUnit; factor: number }[] = [
+  { value: 'B', factor: 1 },
+  { value: 'KB', factor: 1024 },
+  { value: 'MB', factor: 1024 ** 2 },
+  { value: 'GB', factor: 1024 ** 3 },
+  { value: 'TB', factor: 1024 ** 4 },
+]
+
+function splitCapacity(bytes: number | undefined): { value: string; unit: CapacityUnit } {
+  if (!bytes || bytes <= 0) return { value: '', unit: 'GB' }
+  let factor = 1024 ** 4
+  let unit: CapacityUnit = 'TB'
+  for (const candidate of CAPACITY_UNITS) {
+    if (bytes >= candidate.factor) factor = candidate.factor
+    else break
+    unit = candidate.value
+  }
+  return { value: String(Math.round((bytes / factor) * 100) / 100), unit }
+}
+
+function parseCapacity(value: string, unit: CapacityUnit): number | null {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) return null
+  const factor = CAPACITY_UNITS.find((candidate) => candidate.value === unit)?.factor ?? 1
+  return Math.floor(number * factor)
 }
 
 function blankForm(type: StorageType = 's3'): StorageForm {
   return {
     name: '', type, status: 'enabled', isDefault: false, provider: 'r2',
-    endpoint: '', bucketName: '', region: 'auto', pathStyle: true, rootPath: '',
+    endpoint: '', bucketName: '', region: 'auto', pathStyle: true, rootPath: '', customHost: '',
     baseUrl: '', repo: '', branch: '', repoType: 'model', revision: 'main',
     channelId: '', chatId: '', driveId: '', folderId: '',
     accessKeyId: '', secretAccessKey: '', username: '', password: '', token: '',
     refreshToken: '', clientId: '', clientSecret: '', botToken: '',
+    capacityValue: '', capacityUnit: 'GB', defaultPath: '', urlProxy: '', readQuota: false, apiKeyVisible: false,
   }
 }
 
@@ -68,6 +105,7 @@ function formFromStorage(storage: Storage): StorageForm {
   const config = storage.config
   const text = (key: string) => typeof config[key] === 'string' ? String(config[key]) : ''
   const form = blankForm(storage.type as StorageType)
+  const capacity = splitCapacity(typeof config.capacityBytes === 'number' ? config.capacityBytes : undefined)
   return {
     ...form,
     name: storage.name,
@@ -79,6 +117,7 @@ function formFromStorage(storage: Storage): StorageForm {
     region: text('region') || 'auto',
     pathStyle: config.pathStyle !== false,
     rootPath: text('rootPath'),
+    customHost: text('customHost'),
     baseUrl: text('baseUrl'),
     repo: text('repo'),
     branch: text('branch'),
@@ -88,16 +127,32 @@ function formFromStorage(storage: Storage): StorageForm {
     chatId: text('chatId'),
     driveId: text('driveId'),
     folderId: text('folderId'),
+    capacityValue: capacity.value,
+    capacityUnit: capacity.unit,
+    defaultPath: storage.defaultPath && storage.defaultPath !== '/' ? storage.defaultPath : '',
+    urlProxy: text('urlProxy'),
+    readQuota: storage.readQuota,
+    apiKeyVisible: storage.apiKeyVisible,
   }
 }
 
-function storagePayload(form: StorageForm): { config: Record<string, unknown>; credentials: Record<string, string> } {
+function storagePayload(form: StorageForm): {
+  config: Record<string, unknown>
+  credentials: Record<string, string>
+  defaultPath: string
+  readQuota: boolean
+  apiKeyVisible: boolean
+} {
   const config: Record<string, unknown> = {}
   const credentials: Record<string, string> = {}
+  const capacity = parseCapacity(form.capacityValue, form.capacityUnit)
+  if (capacity !== null) config.capacityBytes = capacity
+  if (form.urlProxy.trim()) config.urlProxy = form.urlProxy.trim()
   if (form.type === 's3') {
     Object.assign(config, {
       provider: form.provider, endpoint: form.endpoint.trim(), bucketName: form.bucketName.trim(),
       region: form.region.trim() || 'auto', pathStyle: form.pathStyle, rootPath: form.rootPath.trim(),
+      ...(form.customHost.trim() ? { customHost: form.customHost.trim() } : {}),
     })
     if (form.accessKeyId) credentials.accessKeyId = form.accessKeyId
     if (form.secretAccessKey) credentials.secretAccessKey = form.secretAccessKey
@@ -130,7 +185,10 @@ function storagePayload(form: StorageForm): { config: Record<string, unknown>; c
     if (form.clientId) credentials.clientId = form.clientId
     if (form.clientSecret) credentials.clientSecret = form.clientSecret
   }
-  return { config, credentials }
+  return {
+    config, credentials,
+    defaultPath: form.defaultPath.trim(), readQuota: form.readQuota, apiKeyVisible: form.apiKeyVisible,
+  }
 }
 
 function storageDetails(storage: Storage): { label: string; value: string }[] {
@@ -160,9 +218,19 @@ function storageDetails(storage: Storage): { label: string; value: string }[] {
   } else {
     rows.push({ label: t('clouddrive.storage.folder_id'), value: text('folderId') || 'root' })
   }
+  const capacity = typeof config.capacityBytes === 'number' && config.capacityBytes > 0 ? config.capacityBytes : null
+  rows.push({
+    label: t('clouddrive.admin.storage.capacity'),
+    value: capacity
+      ? t('clouddrive.admin.storage.used_of', { used: formatBytes(storage.usedBytes), total: formatBytes(capacity) })
+      : t('clouddrive.admin.storage.used', { used: formatBytes(storage.usedBytes) }),
+  })
   if (storage.defaultPath && storage.defaultPath !== '/') {
-    rows.push({ label: t('clouddrive.storage.root_path'), value: storage.defaultPath })
+    rows.push({ label: t('clouddrive.admin.storage.default_path'), value: storage.defaultPath })
   }
+  if (text('urlProxy')) rows.push({ label: t('clouddrive.admin.storage.url_proxy'), value: text('urlProxy') })
+  if (storage.readQuota) rows.push({ label: t('clouddrive.admin.storage.read_quota'), value: t('clouddrive.admin.enabled') })
+  if (storage.apiKeyVisible) rows.push({ label: t('clouddrive.admin.storage.api_key_visible'), value: t('clouddrive.admin.enabled') })
   rows.push({
     label: t('clouddrive.admin.last_test'),
     value: storage.lastTestStatus
@@ -236,9 +304,10 @@ export function StoragePage() {
     }
     setBusy(true)
     try {
-      const { config, credentials } = storagePayload(form)
+      const { config, credentials, defaultPath, readQuota, apiKeyVisible } = storagePayload(form)
       const body: Record<string, unknown> = {
         name: form.name.trim(), status: form.status, isDefault: form.isDefault, config,
+        defaultPath: defaultPath || '/', readQuota, apiKeyVisible,
       }
       if (editing) {
         if (Object.keys(credentials).length > 0) body.credentials = credentials
@@ -261,7 +330,10 @@ export function StoragePage() {
   const test = async (storage: Storage) => {
     try {
       const result = await clouddriveApi.testStorage(storage.id)
-      toast({ title: result.ok ? t('clouddrive.storage.test') : t('clouddrive.toast.failed'), description: result.message, tone: result.ok ? 'default' : 'danger' })
+      const description = result.quota
+        ? `${t('clouddrive.admin.storage.quota')}: ${formatBytes(result.quota.used)} / ${result.quota.total === null ? '—' : formatBytes(result.quota.total)}`
+        : result.message
+      toast({ title: result.ok ? t('clouddrive.storage.test') : t('clouddrive.toast.failed'), description, tone: result.ok ? 'default' : 'danger' })
     } catch (error) {
       toast({ title: t('clouddrive.toast.failed'), description: error instanceof Error ? error.message : '', tone: 'danger' })
     }
@@ -410,6 +482,14 @@ export function StoragePage() {
           </div>
           {editing && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.type_locked')}</p>}
           <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.status_hint')}</p>
+          <Field label={t('clouddrive.admin.storage.capacity')} hint={t('clouddrive.admin.storage.capacity_hint')}>
+            <div className="flex gap-2">
+              <Input type="number" min="0" step="0.01" value={form.capacityValue} onChange={(event) => set({ capacityValue: event.target.value })} placeholder={t('clouddrive.admin.storage.capacity_placeholder')} aria-label={t('clouddrive.admin.storage.capacity')} className="flex-1" />
+              <Select value={form.capacityUnit} onChange={(event) => set({ capacityUnit: event.target.value as CapacityUnit })} aria-label={t('clouddrive.admin.storage.capacity')} className="w-24">
+                {CAPACITY_UNITS.map((unit) => <option key={unit.value} value={unit.value}>{unit.value}</option>)}
+              </Select>
+            </div>
+          </Field>
 
           {form.type === 's3' && (
             <>
@@ -442,6 +522,9 @@ export function StoragePage() {
               </div>
               <Checkbox checked={form.pathStyle} label={t('clouddrive.admin.storage.path_style')} onChange={(next) => set({ pathStyle: next })} />
               <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.path_style_hint')}</p>
+              <Field label={t('clouddrive.admin.storage.custom_host')}>
+                <Input value={form.customHost} onChange={(event) => set({ customHost: event.target.value })} placeholder={t('clouddrive.admin.storage.custom_host_placeholder')} />
+              </Field>
               <div className="grid gap-2 sm:grid-cols-2">
                 <Field label={t('clouddrive.storage.access_key')}><Input value={form.accessKeyId} onChange={(event) => set({ accessKeyId: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
                 <Field label={t('clouddrive.storage.secret_key')}><Input type="password" value={form.secretAccessKey} onChange={(event) => set({ secretAccessKey: event.target.value })} placeholder={editing?.hasCredentials ? t('clouddrive.admin.storage.secret_keep') : ''} /></Field>
@@ -504,6 +587,30 @@ export function StoragePage() {
               </div>
             </>
           )}
+
+          <p className="pt-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('clouddrive.admin.storage.advanced')}</p>
+          <Field label={t('clouddrive.admin.storage.default_path')}>
+            <Input value={form.defaultPath} onChange={(event) => set({ defaultPath: event.target.value })} placeholder={t('clouddrive.admin.storage.default_path_placeholder')} />
+          </Field>
+          <Field label={t('clouddrive.admin.storage.url_proxy')}>
+            <Input value={form.urlProxy} onChange={(event) => set({ urlProxy: event.target.value })} placeholder={t('clouddrive.admin.storage.url_proxy_placeholder')} />
+          </Field>
+          {form.type === 'webdav' && (
+            <>
+              <div className="space-y-1">
+                <Checkbox checked={form.readQuota} label={t('clouddrive.admin.storage.read_quota')} onChange={(next) => set({ readQuota: next })} />
+                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.read_quota_hint')}</p>
+              </div>
+              <div className="space-y-1">
+                <Checkbox checked={false} disabled label={t('clouddrive.admin.storage.tls_insecure')} onChange={() => undefined} />
+                <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.tls_insecure_hint')}</p>
+              </div>
+            </>
+          )}
+          <div className="space-y-1">
+            <Checkbox checked={form.apiKeyVisible} label={t('clouddrive.admin.storage.api_key_visible')} onChange={(next) => set({ apiKeyVisible: next })} />
+            <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.api_key_visible_hint')}</p>
+          </div>
 
           <Checkbox checked={form.isDefault} label={t('clouddrive.storage.set_default')} onChange={(next) => set({ isDefault: next })} />
           <p className="-mt-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('clouddrive.admin.storage.default_hint')}</p>

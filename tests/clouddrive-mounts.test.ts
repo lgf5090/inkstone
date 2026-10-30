@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
+import { externalEntryId } from '../src/worker/clouddrive/external'
 import { decryptCloudDriveCredentials } from '../src/worker/lib/crypto'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -42,6 +43,10 @@ beforeEach(() => {
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
 })
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 function app(): Hono<AppBindings> {
   const instance = new Hono<AppBindings>()
   instance.onError((err, c) => errorResponse(c, err))
@@ -61,6 +66,13 @@ async function call(method: string, path: string, body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body),
   }), env)
   return { status: response.status, body: await response.json().catch(() => ({})) as any }
+}
+
+async function raw(method: string, path: string): Promise<Response> {
+  return await app().fetch(new Request(`http://localhost${path}`, {
+    method,
+    headers: { 'X-Inkstone-Client': '1' },
+  }), env)
 }
 
 describe('cloud drive mounts', () => {
@@ -243,5 +255,101 @@ describe('cloud drive mounts', () => {
     })
     const listed = await call('GET', '/api/clouddrive/mounts')
     expect(listed.body.mounts.find((item: any) => item.id === mount.body.mount.id)).toMatchObject({ remark: 'team drive', enabled: false })
+  })
+
+  it('stores capacity, defaults, proxy and quota settings on a storage', async () => {
+    const capacityBytes = 25 * 1024 ** 3
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 's3',
+      type: 's3',
+      config: {
+        endpoint: 'https://s3.example.com', bucketName: 'bucket', capacityBytes,
+        urlProxy: 'https://proxy.example.com', customHost: 'https://cdn.example.com',
+      },
+      credentials: {},
+      defaultPath: '/uploads',
+      readQuota: true,
+      apiKeyVisible: true,
+    })
+    expect(storage.status).toBe(200)
+    expect(storage.body.storage.config).toMatchObject({
+      capacityBytes, urlProxy: 'https://proxy.example.com', customHost: 'https://cdn.example.com',
+    })
+    expect(storage.body.storage).toMatchObject({ defaultPath: '/uploads', readQuota: true, apiKeyVisible: true })
+    const listed = await call('GET', '/api/clouddrive/storages')
+    expect(listed.body.storages[0]).toMatchObject({ usedBytes: 0, defaultPath: '/uploads', readQuota: true, apiKeyVisible: true })
+  })
+
+  it('stores mount computation, proxy and WebDAV policy settings', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'dav', type: 'webdav',
+      config: { baseUrl: 'https://dav.example.com', urlProxy: 'https://proxy.example.com' }, credentials: {},
+    })
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'dav', storageId: storage.body.storage.id, mountPath: '/dav',
+      folderSummary: true, webProxy: true, webdavPolicy: 'use_proxy_url',
+    })
+    expect(mount.status).toBe(200)
+    expect(mount.body.mount).toMatchObject({
+      folderSummary: true, webProxy: true, webdavPolicy: 'use_proxy_url', readOnly: true,
+    })
+    const patched = await call('PATCH', `/api/clouddrive/mounts/${mount.body.mount.id}`, {
+      webdavPolicy: 'native_proxy', webProxy: false, folderSummary: false,
+    })
+    expect(patched.body.mount).toMatchObject({ folderSummary: false, webProxy: false, webdavPolicy: 'native_proxy' })
+    expect((await call('PATCH', `/api/clouddrive/mounts/${mount.body.mount.id}`, { webdavPolicy: 'nope' })).status).toBe(400)
+  })
+
+  it('reads a WebDAV quota when the storage opts in', async () => {
+    const quotaXml = `<?xml version="1.0"?><D:multistatus xmlns:D="DAV:"><D:response>
+      <D:href>/dav/</D:href><D:propstat><D:prop>
+      <D:quota-used-bytes>1024</D:quota-used-bytes>
+      <D:quota-available-bytes>9216</D:quota-available-bytes>
+      </D:prop></D:propstat></D:response></D:multistatus>`
+    const fetchMock = vi.fn(async () => new Response(quotaXml, { status: 207, headers: { 'content-type': 'application/xml' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'dav', type: 'webdav', config: { baseUrl: 'https://dav.example.com/dav' }, credentials: {}, readQuota: true,
+    })
+    const tested = await call('POST', `/api/clouddrive/storages/${storage.body.storage.id}/test`)
+    expect(tested.status).toBe(200)
+    expect(tested.body).toMatchObject({ ok: true, quota: { used: 1024, total: 10240 } })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://dav.example.com/dav/')
+    expect(String(init.body)).toContain('quota-used-bytes')
+    expect((init.headers as Record<string, string>)['Content-Type']).toContain('application/xml')
+  })
+
+  it('only calculates folder sizes when the mount opts in', async () => {
+    await call('GET', '/api/clouddrive/bootstrap')
+    const mount = await call('POST', '/api/clouddrive/mounts', { name: 'Photos', storageId: 'primary', mountPath: '/photos' })
+    const folder = await call('POST', '/api/clouddrive/folders', { mountId: mount.body.mount.id, parentPath: '/', name: 'empty' })
+    expect((await call('GET', `/api/clouddrive/files/${folder.body.entry.id}/folder-size`)).status).toBe(403)
+    await call('PATCH', `/api/clouddrive/mounts/${mount.body.mount.id}`, { folderSummary: true })
+    const sized = await call('GET', `/api/clouddrive/files/${folder.body.entry.id}/folder-size`)
+    expect(sized.status).toBe(200)
+    expect(sized.body).toEqual({ bytes: 0, truncated: false })
+  })
+
+  it('redirects external content according to the mount policy', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 's3', type: 's3',
+      config: {
+        endpoint: 'https://s3.example.com', bucketName: 'bucket',
+        customHost: 'https://cdn.example.com', urlProxy: 'https://proxy.example.com/fetch',
+      },
+      credentials: {},
+    })
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 's3', storageId: storage.body.storage.id, mountPath: '/s3', readOnly: false, webProxy: false, webdavPolicy: '302_redirect',
+    })
+    const id = encodeURIComponent(externalEntryId(mount.body.mount.id, '/readme.txt'))
+    const direct = await raw('GET', `/api/clouddrive/files/${id}/content`)
+    expect(direct.status).toBe(302)
+    expect(direct.headers.get('location')).toBe('https://cdn.example.com/readme.txt')
+    await call('PATCH', `/api/clouddrive/mounts/${mount.body.mount.id}`, { webdavPolicy: 'use_proxy_url' })
+    const proxied = await raw('GET', `/api/clouddrive/files/${id}/content`)
+    expect(proxied.status).toBe(302)
+    expect(proxied.headers.get('location')).toBe(`https://proxy.example.com/fetch?url=${encodeURIComponent('https://cdn.example.com/readme.txt')}`)
   })
 })

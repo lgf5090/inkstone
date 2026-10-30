@@ -13,7 +13,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { filenameOf } from '@shared/clouddrive/model'
-import { parseExternalEntryId, readExternal } from './external'
+import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
 import { resolveMount } from './lib'
 
@@ -111,6 +111,14 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   if (external) {
     const mount = await resolveMount(c.env.DB, userId, external.mountId)
     if (mount.storageId === 'primary') throw ApiError.notFound('File not found')
+    if (!mount.webProxy) {
+      const location = mount.webdavPolicy === '302_redirect'
+        ? await externalDirectUrl(c.env, c.env.DB, mount, external.path)
+        : mount.webdavPolicy === 'use_proxy_url'
+          ? await externalProxyLocation(c.env, c.env.DB, mount, external.path)
+          : null
+      if (location) return new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } })
+    }
     const response = await readExternal(c.env, c.env.DB, mount, external.path, c.req.header('range') ?? null, external.ref)
     if (!response) throw ApiError.notFound('File not found')
     const headers = new Headers(response.headers)

@@ -62,6 +62,9 @@ export interface CloudDriveMountInfo {
   storageType: string
   readOnly: boolean
   enabled: boolean
+  webProxy?: boolean
+  webdavPolicy?: string
+  folderSummary?: boolean
 }
 
 interface MountRow {
@@ -71,6 +74,9 @@ interface MountRow {
   mount_path: string
   read_only: number
   enabled: number
+  web_proxy: number
+  webdav_policy: string
+  folder_summary: number
 }
 
 export const PRIMARY_MOUNT = 'primary'
@@ -107,7 +113,7 @@ export async function resolveMount(
   mountId: string,
 ): Promise<CloudDriveMountInfo> {
   const row = await db.prepare(
-    `SELECT id, storage_id, name, mount_path, read_only, enabled
+    `SELECT id, storage_id, name, mount_path, read_only, enabled, web_proxy, webdav_policy, folder_summary
        FROM CloudDrive_mounts
       WHERE user_id = ? AND id = ? AND enabled = 1`,
   ).bind(userId, mountId).first<MountRow>()
@@ -132,6 +138,9 @@ export async function resolveMount(
     storageType,
     readOnly: row.read_only === 1,
     enabled: row.enabled === 1,
+    webProxy: row.web_proxy === 1,
+    webdavPolicy: row.webdav_policy,
+    folderSummary: row.folder_summary === 1,
   }
 }
 

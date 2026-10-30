@@ -70,6 +70,7 @@ export interface FilesPageProps {
   path: string
   onNavigate(path: string): void
   readOnly?: boolean
+  folderSummary?: boolean
   /** Opens the preview/Quick Look surface. The shell owns the renderer. */
   onPreview?(entry: CloudDriveEntry, context?: PreviewContext): void
 }
@@ -85,7 +86,7 @@ type DialogState =
   | { kind: 'versions'; entry: CloudDriveEntry }
   | null
 
-export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, onPreview }: FilesPageProps) {
+export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = false, folderSummary = false, onPreview }: FilesPageProps) {
   const prefs = useCloudDriveStore((state) => state.prefs)
   const setPrefs = useCloudDriveStore((state) => state.setPrefs)
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
@@ -682,6 +683,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           open={prefs.inspectorVisible}
           entries={selectedEntries}
           readOnly={readOnly}
+          folderSummary={folderSummary}
           busy={actions.busy}
           onClose={() => setPrefs({ inspectorVisible: false })}
           onOpen={openEntry}

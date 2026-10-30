@@ -173,6 +173,7 @@ export function ClouddriveApp() {
                   mountName={mounts.find((mount) => mount.id === address.mountId)?.name}
                   path={address.path}
                   readOnly={!activeMount || activeMount.storageId !== 'primary' || activeMount.readOnly}
+                  folderSummary={activeMount?.folderSummary ?? false}
                   onNavigate={(nextPath) => navigate(cloudDrivePath('files', address.mountId, nextPath))}
                   onPreview={(entry, context) => setPreview({ entries: context?.entries ?? [entry], index: context?.index ?? 0 })}
                 />

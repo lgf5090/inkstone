@@ -11,7 +11,7 @@ import type { CloudDriveEntry, CloudDriveListing } from '@shared/clouddrive/mode
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { listExternal } from './external'
+import { externalFolderSize, listExternal, parseExternalEntryId } from './external'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
@@ -36,6 +36,7 @@ import {
   albumEntries,
   copyEntries,
   createFolder,
+  folderSize,
   getFileById,
   listFolder,
   listTags,
@@ -190,6 +191,24 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
     note: parentMeta.note,
   }
   return c.json(body)
+})
+
+cloudDriveFilesRoutes.get('/files/:id/folder-size', async (c) => {
+  const userId = userIdOf(c)
+  const id = c.req.param('id')
+  const external = parseExternalEntryId(id)
+  if (external) {
+    const mount = await mountFor(c, userId, external.mountId)
+    if (!mount.folderSummary) throw new ApiError(403, 'clouddrive_folder_summary_disabled', 'Folder size calculation is disabled for this mount')
+    return c.json(await externalFolderSize(c.env, c.env.DB, mount, external.path))
+  }
+  if (!isValidId(id)) throw ApiError.notFound('File not found')
+  const row = await getFileById(c.env.DB, userId, id)
+  if (!row) throw ApiError.notFound('File not found')
+  if (row.kind !== 'folder') throw ApiError.badRequest('The entry is not a folder')
+  const mount = await mountFor(c, userId, row.mount_id)
+  if (!mount.folderSummary) throw new ApiError(403, 'clouddrive_folder_summary_disabled', 'Folder size calculation is disabled for this mount')
+  return c.json({ bytes: await folderSize(c.env.DB, userId, mount.id, row.id), truncated: false })
 })
 
 cloudDriveFilesRoutes.get('/files/:id', async (c) => {

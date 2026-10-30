@@ -287,6 +287,7 @@ export interface CloudDriveMountSummary {
   readOnly: boolean
   enabled: boolean
   online: boolean
+  folderSummary: boolean
 }
 
 export interface CloudDriveBootstrap {
