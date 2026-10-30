@@ -18,6 +18,9 @@ const MAP_TAIL = '\n])\n'
 const ALLOWLIST_CJK = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u
 
 const allowed = new Map([
+  ["src/worker/development/api-tester/schema.ts", [
+    "/**\n * One row per live relay socket.\n *\n * The row is inserted when the upgrade is accepted and deleted when the pair closes; `expires_at`\n * is the crash safety net (the same idle window the socket itself honours). Counting these rows is\n * how a single account is kept from parking dozens of long-lived Worker connections.\n */",
+  ]],
   ["src/client/features/development/api-tester/components/HistoryDialog.tsx", [
     "// History no longer rides along with the workspace state: it is read when the dialog needs it.",
   ]],
@@ -35368,6 +35371,8 @@ const allowed = new Map([
     "// The Xget proxy's instance-wide settings row and its day/platform status counts.",
     "// The API Tester's workspace state, encrypted history, R2 file registry and WebSocket tickets.",
     "// Renumbered after Xget took 188 on test while the port ran in parallel.",
+    "// The API Tester's live WebSocket session rows: one per relayed socket, so concurrent",
+    "// connections can be counted per account. New table only; migration 189 is already applied.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -35426,6 +35431,8 @@ const allowed = new Map([
     "// The payload predates this request's checks by design (it was written by the ticket route), but",
     "// a ciphertext is still untrusted data at the boundary it is read on.",
     "// Workers fetch a WebSocket as an HTTP upgrade, not as a ws(s):// URL.",
+    "// The row expires with the idle window regardless; a failed cleanup must not fail the socket.",
+    "// Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.",
   ]],
   ["src/worker/development/xget/lib/app/handle-request.ts", [
     "// Derived from Xget (AGPL-3.0-only) src/app/handle-request.js, via mpages functions/_lib/development/xget, with Inkstone adaptations.",

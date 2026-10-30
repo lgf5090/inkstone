@@ -101,3 +101,29 @@ export const DEVELOPMENT_APITESTER_REQUIRED_COLUMNS: Readonly<Record<string, rea
   ],
   development_apitester_ws_tickets: ['id', 'user_id', 'data', 'expires_at'],
 }
+
+/**
+ * One row per live relay socket.
+ *
+ * The row is inserted when the upgrade is accepted and deleted when the pair closes; `expires_at`
+ * is the crash safety net (the same idle window the socket itself honours). Counting these rows is
+ * how a single account is kept from parking dozens of long-lived Worker connections.
+ */
+export const DEVELOPMENT_APITESTER_WS_SESSION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS development_apitester_ws_sessions (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_development_apitester_ws_sessions_user_expires
+     ON development_apitester_ws_sessions(user_id, expires_at)`,
+]
+
+export const DEVELOPMENT_APITESTER_WS_SESSION_REQUIRED_TABLES: readonly string[] = [
+  'development_apitester_ws_sessions',
+]
+
+export const DEVELOPMENT_APITESTER_WS_SESSION_REQUIRED_INDEXES: readonly string[] = [
+  'idx_development_apitester_ws_sessions_user_expires',
+]

@@ -1560,6 +1560,7 @@ export type ApiErrorCode =
   | 'apitester_ticket_expired'
   | 'apitester_origin_not_trusted'
   | 'apitester_upgrade_required'
+  | 'apitester_too_many_sockets'
   | 'apitester_quota_exceeded'
   | 'apitester_file_too_large'
   | 'github_rate_limited'

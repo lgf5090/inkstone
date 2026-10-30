@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { newApiTesterId } from '@shared/development/api-tester/ids'
 import {
+  MAX_WS_CONNECTIONS_PER_USER,
   MAX_WS_FRAME_BYTES,
   WS_IDLE_TIMEOUT_MS,
   WS_TICKET_RATE_LIMIT,
@@ -142,6 +143,39 @@ async function consumeTicket(env: AppBindings['Bindings'], userId: string, ticke
   return results[0]
 }
 
+async function countOpenSessions(db: D1Database, userId: string, now: number): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS count FROM development_apitester_ws_sessions WHERE user_id = ?1 AND expires_at > ?2')
+    .bind(userId, now)
+    .first<{ count: number }>()
+  return Number(row?.count ?? 0)
+}
+
+async function pruneExpiredSessions(db: D1Database, now: number): Promise<void> {
+  await db.prepare('DELETE FROM development_apitester_ws_sessions WHERE expires_at <= ?1').bind(now).run()
+}
+
+async function insertSession(db: D1Database, userId: string, now: number): Promise<string> {
+  const id = newApiTesterId()
+  await db
+    .prepare('INSERT INTO development_apitester_ws_sessions (id, user_id, expires_at) VALUES (?1, ?2, ?3)')
+    .bind(id, userId, now + WS_IDLE_TIMEOUT_MS)
+    .run()
+  return id
+}
+
+async function releaseSession(db: D1Database, userId: string, id: string): Promise<void> {
+  try {
+    await db
+      .prepare('DELETE FROM development_apitester_ws_sessions WHERE user_id = ?1 AND id = ?2')
+      .bind(userId, id)
+      .run()
+  } catch (error) {
+    // The row expires with the idle window regardless; a failed cleanup must not fail the socket.
+    console.warn('[inkstone] API tester WebSocket session cleanup failed:', error)
+  }
+}
+
 function frameByteLength(data: unknown): number | null {
   if (typeof data === 'string') return new TextEncoder().encode(data).byteLength
   if (data instanceof ArrayBuffer) return data.byteLength
@@ -166,7 +200,7 @@ function relayCloseCode(event: Event): number {
  * without being buffered anywhere, and an oversized frame closes the pair with 1009 instead of
  * being read into memory.
  */
-export function pipeWebSockets(upstream: WebSocket, server: WebSocket): void {
+export function pipeWebSockets(upstream: WebSocket, server: WebSocket, onFinished?: () => void): void {
   upstream.accept()
   server.accept()
 
@@ -187,6 +221,7 @@ export function pipeWebSockets(upstream: WebSocket, server: WebSocket): void {
     } catch {
       // Same for the upstream side; `closed` above keeps this from being attempted twice.
     }
+    onFinished?.()
   }
 
   const touch = (): void => {
@@ -237,6 +272,17 @@ wsRoutes.get('/ws', async (c) => {
   const ticket = c.req.query('ticket')
   if (!ticket) throw ApiError.badRequest('A WebSocket ticket is required')
 
+  // Checked before the ticket is consumed so a refused upgrade can be retried with the same ticket.
+  const now = Date.now()
+  await pruneExpiredSessions(c.env.DB, now)
+  if ((await countOpenSessions(c.env.DB, userId, now)) >= MAX_WS_CONNECTIONS_PER_USER) {
+    throw new ApiError(
+      429,
+      'apitester_too_many_sockets',
+      `At most ${MAX_WS_CONNECTIONS_PER_USER} WebSocket connections may be open at once`,
+    )
+  }
+
   const row = await consumeTicket(c.env, userId, ticket)
   if (!row) {
     throw new ApiError(404, 'apitester_ticket_not_found', 'This WebSocket ticket does not exist')
@@ -259,12 +305,14 @@ wsRoutes.get('/ws', async (c) => {
   )
   headers.Upgrade = 'websocket'
 
+  const sessionId = await insertSession(c.env.DB, userId, now)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), WS_HANDSHAKE_TIMEOUT_MS)
   let upstreamResponse: Response
   try {
     upstreamResponse = await fetch(target.toString(), { headers, signal: controller.signal })
   } catch {
+    await releaseSession(c.env.DB, userId, sessionId)
     console.warn('[inkstone] API tester WebSocket target could not be reached:', target.hostname)
     throw new ApiError(502, 'apitester_upstream_unreachable', 'The WebSocket target could not be reached')
   } finally {
@@ -273,6 +321,7 @@ wsRoutes.get('/ws', async (c) => {
 
   const upstream = upstreamResponse.webSocket
   if (!upstream) {
+    await releaseSession(c.env.DB, userId, sessionId)
     console.warn('[inkstone] API tester WebSocket target refused the upgrade:', target.hostname, upstreamResponse.status)
     throw new ApiError(
       502,
@@ -284,6 +333,8 @@ wsRoutes.get('/ws', async (c) => {
   const pair = new WebSocketPair()
   const client = pair[0]
   const server = pair[1]
-  pipeWebSockets(upstream, server)
+  pipeWebSockets(upstream, server, () => {
+    void releaseSession(c.env.DB, userId, sessionId)
+  })
   return new Response(null, { status: 101, webSocket: client })
 })

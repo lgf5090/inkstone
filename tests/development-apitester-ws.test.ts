@@ -2,13 +2,17 @@
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEVELOPMENT_APITESTER_SCHEMA_STATEMENTS } from '../src/worker/development/api-tester/schema'
+import {
+  DEVELOPMENT_APITESTER_SCHEMA_STATEMENTS,
+  DEVELOPMENT_APITESTER_WS_SESSION_SCHEMA_STATEMENTS,
+} from '../src/worker/development/api-tester/schema'
 import { sealWsTicket } from '../src/worker/development/api-tester/crypto'
 import { pipeWebSockets, wsRoutes } from '../src/worker/development/api-tester/ws'
 import { CredentialVault } from '../src/worker/durable/credential-vault'
 import { errorResponse } from '../src/worker/lib/errors'
 import { newApiTesterId } from '../src/shared/development/api-tester/ids'
 import {
+  MAX_WS_CONNECTIONS_PER_USER,
   MAX_WS_FRAME_BYTES,
   WS_IDLE_TIMEOUT_MS,
   WS_TICKET_TTL_MS,
@@ -113,6 +117,21 @@ function upgradeHeaders(origin: string | null = ORIGIN): Record<string, string> 
   return headers
 }
 
+function sessionRows(user = USER_A): number {
+  const row = sqlite
+    .prepare('SELECT COUNT(*) AS count FROM development_apitester_ws_sessions WHERE user_id = ?')
+    .get(user) as { count: number } | undefined
+  return Number(row?.count ?? 0)
+}
+
+function seedSessions(user: string, count: number, expiresAt: number): void {
+  for (let index = 0; index < count; index++) {
+    sqlite
+      .prepare('INSERT INTO development_apitester_ws_sessions (id, user_id, expires_at) VALUES (?, ?, ?)')
+      .run(`session-${index}`, user, expiresAt)
+  }
+}
+
 function expiredAt(ticket: string, user = USER_A): void {
   sqlite
     .prepare('UPDATE development_apitester_ws_tickets SET expires_at = ? WHERE user_id = ? AND id = ?')
@@ -123,6 +142,7 @@ beforeEach(() => {
   vaultStorage.clear()
   sqlite = new DatabaseSync(':memory:')
   for (const statement of DEVELOPMENT_APITESTER_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  for (const statement of DEVELOPMENT_APITESTER_WS_SESSION_SCHEMA_STATEMENTS) sqlite.exec(statement)
   sqlite.exec(`CREATE TABLE login_attempts (
     key TEXT PRIMARY KEY,
     fails INTEGER NOT NULL DEFAULT 0,
@@ -306,6 +326,38 @@ describe('GET /ws', () => {
     expect(second.status).toBe(404)
     expect((await bodyOf<ErrorEnvelope>(second)).error.code).toBe('apitester_ticket_not_found')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the concurrency slot when the upstream refuses the upgrade', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 502 })))
+    const ticket = await createTicket(USER_A)
+
+    const response = await call('GET', `/ws?ticket=${ticket.ticket}`, { headers: upgradeHeaders() })
+
+    expect(response.status).toBe(502)
+    expect(sessionRows()).toBe(0)
+  })
+
+  it('refuses the next socket past the per-user cap and leaves its ticket usable', async () => {
+    seedSessions(USER_A, MAX_WS_CONNECTIONS_PER_USER, Date.now() + WS_IDLE_TIMEOUT_MS)
+    const ticket = await createTicket(USER_A)
+
+    const response = await call('GET', `/ws?ticket=${ticket.ticket}`, { headers: upgradeHeaders() })
+
+    expect(response.status).toBe(429)
+    expect((await bodyOf<ErrorEnvelope>(response)).error.code).toBe('apitester_too_many_sockets')
+    expect(ticketRow(ticket.ticket)).toBeDefined()
+  })
+
+  it('does not count an expired session row against the cap', async () => {
+    seedSessions(USER_A, MAX_WS_CONNECTIONS_PER_USER, Date.now() - 1)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 502 })))
+    const ticket = await createTicket(USER_A)
+
+    const response = await call('GET', `/ws?ticket=${ticket.ticket}`, { headers: upgradeHeaders() })
+
+    expect(response.status).toBe(502)
+    expect(sessionRows()).toBe(0)
   })
 
   it('rechecks the stored target before opening the upstream socket', async () => {

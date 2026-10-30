@@ -67,6 +67,7 @@ export const WS_TICKET_TTL_MS = 60_000
 export const MAX_WS_HEADERS = 50
 export const MAX_WS_FRAME_BYTES = 1024 * 1024
 export const WS_IDLE_TIMEOUT_MS = 10 * 60 * 1_000
+export const MAX_WS_CONNECTIONS_PER_USER = 8
 
 export const PROXY_RATE_LIMIT = { maxAttempts: 120, windowMs: 60_000, lockMs: 60_000 } as const
 export const OAUTH_RATE_LIMIT = { maxAttempts: 20, windowMs: 60_000, lockMs: 60_000 } as const
