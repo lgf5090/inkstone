@@ -153,6 +153,28 @@ describe('the Xget converter', () => {
     )
   })
 
+  it('ignores a test result after the input changes', async () => {
+    let resolveTest: ((value: { platform: string; target_url: string }) => void) | null = null
+    apiMocks.testTarget.mockReturnValueOnce(
+      new Promise<{ platform: string; target_url: string }>((resolve) => {
+        resolveTest = resolve
+      }),
+    )
+    const history: XgetHistoryItem[] = []
+    rendered = renderElement(<Harness initial="" proxyBase={SETTINGS.proxy_base_url} history={history} />)
+    act(() => button(rendered!.container, t('development.xget.converter.paste_example')).click())
+    act(() => button(rendered!.container, t('development.xget.converter.test')).click())
+
+    const input = rendered.container.querySelector<HTMLInputElement>('input')!
+    setInput(input, 'https://github.com/other/repo/archive/main.zip')
+    await act(async () => {
+      resolveTest?.({ platform: 'gh', target_url: 'https://github.com/a/b' })
+      await Promise.resolve()
+    })
+
+    expect(rendered.container.querySelector('[role="status"]')).toBeNull()
+  })
+
   it('reuses a history item with the value it names', () => {
     const history: XgetHistoryItem[] = []
     rendered = renderElement(<Harness initial="https://example.com/nothing" proxyBase={SETTINGS.proxy_base_url} history={history} />)

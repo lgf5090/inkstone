@@ -189,6 +189,12 @@ describe('the Xget URL detection', () => {
     }
   })
 
+  it('rejects bare platform roots without a resource path', () => {
+    expect(detectPlatform('https://github.com')).toBeNull()
+    expect(detectPlatform('https://github.com/')).toBeNull()
+    expect(detectPlatform('https://huggingface.co')).toBeNull()
+  })
+
   it('accepts only supported absolute http URLs', () => {
     expect(detectPlatform('ftp://github.com/facebook/react')).toBeNull()
     expect(detectPlatform('file:///etc/passwd')).toBeNull()

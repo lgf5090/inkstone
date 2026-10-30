@@ -3,6 +3,7 @@ import { Search } from 'lucide-react'
 import { XGET_PLATFORMS, type XgetPlatform } from '@shared/development/xget/catalog'
 import { XGET_CATEGORIES, type XgetCategory, type XgetSettings } from '@shared/development/xget/types'
 import { t } from '../../../lib/i18n'
+import { useUiStore } from '../../../lib/ui-store'
 import { useSession } from '../../../store/session'
 import { Badge } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -97,12 +98,17 @@ export function XgetApp() {
   }
 
   function addHistory(item: XgetHistoryItem): void {
-    setHistory((current) => prependXgetHistory(userId, current, item))
+    const next = prependXgetHistory(userId, history, item, () => {
+      useUiStore.getState().toast(t('development.xget.converter.history_save_failed'), 'error')
+    })
+    setHistory(next)
   }
 
   function clearHistory(): void {
-    clearXgetHistory(userId)
-    setHistory([])
+    const cleared = clearXgetHistory(userId, () => {
+      useUiStore.getState().toast(t('development.xget.converter.history_clear_failed'), 'error')
+    })
+    if (cleared) setHistory([])
   }
 
   function openPlatform(platform: XgetPlatform): void {

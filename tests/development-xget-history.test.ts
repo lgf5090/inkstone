@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearXgetHistory,
   loadXgetHistory,
@@ -65,6 +65,26 @@ describe('the Xget conversion history', () => {
     clearXgetHistory(USER_A)
     expect(loadXgetHistory(USER_A)).toEqual([])
     expect(loadXgetHistory(USER_B)).toHaveLength(1)
+  })
+
+  it('dedupes the same URL and reports storage failures', () => {
+    const first = prependXgetHistory(USER_A, [], item(1))
+    const second = prependXgetHistory(USER_A, first, {
+      ...item(1),
+      time: item(1).time + 10,
+    })
+    expect(second).toHaveLength(1)
+    expect(second[0]?.time).toBe(item(1).time + 10)
+
+    const onError = vi.fn()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota')
+    })
+    saveXgetHistory(USER_A, [item(2)], onError)
+    expect(onError).toHaveBeenCalledTimes(1)
+    setItem.mockRestore()
+    warn.mockRestore()
   })
 
   it('does nothing without a signed-in account', () => {

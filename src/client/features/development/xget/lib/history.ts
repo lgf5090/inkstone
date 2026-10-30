@@ -49,6 +49,7 @@ export function loadXgetHistory(userId: string | null | undefined): XgetHistoryI
 export function saveXgetHistory(
   userId: string | null | undefined,
   items: XgetHistoryItem[],
+  onError?: () => void,
 ): XgetHistoryItem[] {
   const next = items.filter(validItem).slice(0, XGET_HISTORY_LIMIT)
   if (!userId || typeof localStorage === 'undefined') return next
@@ -56,6 +57,7 @@ export function saveXgetHistory(
     localStorage.setItem(storageKey(userId), JSON.stringify(next))
   } catch (error) {
     console.warn('[inkstone] Xget history could not be saved:', error)
+    onError?.()
   }
   return next
 }
@@ -64,15 +66,26 @@ export function prependXgetHistory(
   userId: string | null | undefined,
   items: XgetHistoryItem[],
   item: XgetHistoryItem,
+  onError?: () => void,
 ): XgetHistoryItem[] {
-  return saveXgetHistory(userId, [item, ...items].slice(0, XGET_HISTORY_LIMIT))
+  const next = [item, ...items.filter((existing) => existing.url !== item.url)].slice(
+    0,
+    XGET_HISTORY_LIMIT,
+  )
+  return saveXgetHistory(userId, next, onError)
 }
 
-export function clearXgetHistory(userId: string | null | undefined): void {
-  if (!userId || typeof localStorage === 'undefined') return
+export function clearXgetHistory(
+  userId: string | null | undefined,
+  onError?: () => void,
+): boolean {
+  if (!userId || typeof localStorage === 'undefined') return true
   try {
     localStorage.removeItem(storageKey(userId))
+    return true
   } catch (error) {
     console.warn('[inkstone] Xget history could not be cleared:', error)
+    onError?.()
+    return false
   }
 }

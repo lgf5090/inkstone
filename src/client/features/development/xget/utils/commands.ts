@@ -61,6 +61,7 @@ export function detectPlatform(input: string): DetectedUrl | null {
     return null
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  if (url.pathname === '/' || url.pathname === '') return null
 
   const matched = pathMatch(url)
   if (matched) return { platform: matched, url, original: input }

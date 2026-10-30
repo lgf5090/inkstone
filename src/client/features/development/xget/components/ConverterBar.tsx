@@ -34,8 +34,11 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
   inputRef.current = input
   const debounceRef = useRef<number | null>(null)
   const copyTimerRef = useRef<number | null>(null)
+  const testRequestRef = useRef(0)
 
   function perform(value: string): { detected: DetectedUrl | null; converted: string } {
+    testRequestRef.current += 1
+    setTesting(false)
     const nextDetected = detectPlatform(value)
     const nextConverted =
       nextDetected && proxyBase
@@ -57,6 +60,8 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
 
   useEffect(() => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current)
+    testRequestRef.current += 1
+    setTesting(false)
     const value = input.trim()
     if (!value) {
       setDetected(null)
@@ -113,20 +118,23 @@ export function ConverterBar({ proxyBase, input, onInputChange, convertSignal, o
 
   async function testLink(): Promise<void> {
     if (!detected || !converted) return
+    const requestId = ++testRequestRef.current
     setTesting(true)
     setTestResult(null)
     try {
       const result = await xgetApi.testTarget(
         `/${xgetPathPrefix(detected.platform.key)}${detected.url.pathname}`,
       )
+      if (requestId !== testRequestRef.current) return
       const okText = t('development.xget.converter.test_ok', { url: result.target_url })
       setTestResult({ ok: true, text: okText })
       useUiStore.getState().toast(okText, 'success')
     } catch (error) {
+      if (requestId !== testRequestRef.current) return
       const failure = t('development.xget.converter.test_fail', { msg: describeXgetError(error) })
       setTestResult({ ok: false, text: failure })
     } finally {
-      setTesting(false)
+      if (requestId === testRequestRef.current) setTesting(false)
     }
   }
 
