@@ -18,6 +18,7 @@ import { ApiError } from '../../../lib/api'
 import { errorMessage } from './api'
 import * as api from './api'
 import { StateSaver } from './persistence'
+import { closeWsSession } from './ws-session'
 import { canMove, duplicateSubtree, reordered, subtreeIds, tagDescendantIds } from './lib/tree'
 
 const LAST_WORKSPACE_KEY = 'inkstone.development.api-tester.last-workspace'
@@ -280,6 +281,7 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
 
     deleteNode: (id) => {
       const removed = subtreeIds(get().state.nodes, id)
+      for (const removedId of removed) closeWsSession(removedId)
       get().patchState((state) => ({ ...state, nodes: state.nodes.filter((node) => !removed.has(node.id)) }))
       const snapshot = get()
       set({

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Plus, Send, Trash2 } from 'lucide-react'
 import { kv } from '@shared/development/api-tester/state'
 import type { CollectionNode, KeyValue } from '@shared/development/api-tester/types'
@@ -6,16 +6,14 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
-import { createWsTicket } from '../api'
-
-type WsStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
-
-interface WsMessage {
-  id: string
-  direction: 'in' | 'out' | 'system'
-  data: string
-  ts: number
-}
+import {
+  connectWs,
+  disconnectWs,
+  sendWsMessage,
+  subscribeWsSessions,
+  wsSessionOf,
+  type WsStatus,
+} from '../ws-session'
 
 const STATUS_CLASS: Record<WsStatus, string> = {
   idle: 'text-[var(--text-tertiary)]',
@@ -23,12 +21,6 @@ const STATUS_CLASS: Record<WsStatus, string> = {
   open: 'text-[var(--success)]',
   closed: 'text-[var(--text-tertiary)]',
   error: 'text-[var(--danger)]',
-}
-
-function absoluteSocketUrl(path: string): string {
-  const url = new URL(path, window.location.href)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString()
 }
 
 export function WebSocketPanel({
@@ -39,76 +31,30 @@ export function WebSocketPanel({
   onChange: (patch: Partial<CollectionNode>) => void
 }) {
   const ws = node.ws ?? { url: '', headers: [] }
-  const [messages, setMessages] = useState<WsMessage[]>([])
+  const session = useSyncExternalStore(
+    subscribeWsSessions,
+    () => wsSessionOf(node.id),
+    () => wsSessionOf(node.id),
+  )
+  const { status, messages } = session
   const [input, setInput] = useState('')
-  const [status, setStatus] = useState<WsStatus>('idle')
-  const socketRef = useRef<WebSocket | null>(null)
   const logRef = useRef<HTMLDivElement>(null)
 
-  const push = (direction: WsMessage['direction'], data: string) => {
-    setMessages((current) => [
-      ...current.slice(-499),
-      { id: `${Date.now()}-${Math.random()}`, direction, data, ts: Date.now() },
-    ])
-    requestAnimationFrame(() => {
-      if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
-    })
-  }
+  useEffect(() => {
+    const log = logRef.current
+    if (log) log.scrollTop = log.scrollHeight
+  }, [messages])
 
-  useEffect(() => () => {
-    socketRef.current?.close()
-    socketRef.current = null
-  }, [])
-
-  const connect = async () => {
-    if (!ws.url) return
-    if (!/^wss?:\/\//i.test(ws.url)) {
-      push('system', t('development.apitester.ws_url_invalid'))
-      return
-    }
-    socketRef.current?.close()
-    setStatus('connecting')
-    push('system', t('development.apitester.ws_connecting_msg', { url: ws.url }))
-    try {
-      const ticket = await createWsTicket(
-        ws.url,
-        ws.headers.filter((header) => header.enabled && header.key).map((header) => ({ key: header.key, value: header.value })),
-      )
-      const socket = new WebSocket(absoluteSocketUrl(ticket.url))
-      socketRef.current = socket
-      socket.onopen = () => {
-        setStatus('open')
-        push('system', t('development.apitester.ws_connected_msg'))
-      }
-      socket.onmessage = (event) => {
-        push('in', typeof event.data === 'string' ? event.data : t('development.apitester.binary_data'))
-      }
-      socket.onerror = () => {
-        setStatus('error')
-        push('system', t('development.apitester.ws_error_msg'))
-      }
-      socket.onclose = (event) => {
-        setStatus('closed')
-        push('system', `${t('development.apitester.ws_closed_msg')}${event.code ? ` (${event.code})` : ''}${event.reason ? ` ${event.reason}` : ''}`)
-      }
-    } catch (error) {
-      setStatus('error')
-      push('system', error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const disconnect = () => {
-    socketRef.current?.close()
-    socketRef.current = null
-    setStatus('closed')
+  const connect = () => {
+    void connectWs(
+      node.id,
+      ws.url,
+      ws.headers.filter((header) => header.enabled && header.key).map((header) => ({ key: header.key, value: header.value })),
+    )
   }
 
   const send = () => {
-    const socket = socketRef.current
-    if (!input || !socket || socket.readyState !== WebSocket.OPEN) return
-    socket.send(input)
-    push('out', input)
-    setInput('')
+    if (sendWsMessage(node.id, input)) setInput('')
   }
 
   const updateHeaders = (headers: KeyValue[]) => onChange({ ws: { ...ws, headers } })
@@ -133,9 +79,9 @@ export function WebSocketPanel({
         />
         <span className={cn('shrink-0 text-[length:var(--text-11)]', STATUS_CLASS[status])}>{statusLabel[status]}</span>
         {status === 'open' ? (
-          <Button size="sm" variant="danger" onClick={disconnect}>{t('development.apitester.disconnect')}</Button>
+          <Button size="sm" variant="danger" onClick={() => disconnectWs(node.id)}>{t('development.apitester.disconnect')}</Button>
         ) : (
-          <Button size="sm" disabled={!ws.url || status === 'connecting'} onClick={() => void connect()}>{t('development.apitester.connect')}</Button>
+          <Button size="sm" disabled={!ws.url || status === 'connecting'} onClick={connect}>{t('development.apitester.connect')}</Button>
         )}
       </div>
       <details className="shrink-0 border-b border-[var(--border-subtle)] px-2 py-1">

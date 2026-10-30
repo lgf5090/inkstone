@@ -10,6 +10,7 @@ import { Drawer } from '../../../components/overlay'
 import { useApiTesterStore } from './store'
 import { sendActiveRequest } from './send'
 import { isSendShortcut } from './lib/shortcut'
+import { closeAllWsSessions } from './ws-session'
 import { AppToolbar, type ToolbarDialog } from './components/AppToolbar'
 import { TabBar } from './components/TabBar'
 import { ConflictBanner } from './components/ConflictBanner'
@@ -65,6 +66,7 @@ export function ApiTesterApp() {
     void useApiTesterStore.getState().initialize()
     return () => {
       void useApiTesterStore.getState().flush()
+      closeAllWsSessions()
     }
   }, [])
 

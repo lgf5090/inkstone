@@ -11,6 +11,7 @@ const apiMock = vi.hoisted(() => ({
   listHistory: vi.fn(),
   appendHistory: vi.fn(),
   clearHistory: vi.fn(),
+  createWsTicket: vi.fn(),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
 }))
 
