@@ -43,7 +43,7 @@ export function WorkspaceView({
       tags={state.tags}
       variables={variables}
       loading={loading}
-      onCancel={cancelActiveRequest}
+      onCancel={() => cancelActiveRequest(node.id)}
       onChange={onChange}
       onSend={onSend}
     />

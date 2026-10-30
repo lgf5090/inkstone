@@ -11,10 +11,9 @@ import { appendHistory } from './api'
 import { executeRequest, RelayClientError } from './lib/relay-client'
 import { runPreScript, runTests } from './lib/script-sandbox'
 import { activeVariables, variableRecord, type Variable } from './lib/variables'
+import { beginRequest, cancelRequest, endRequest } from './lib/inflight'
 import { t } from '../../../lib/i18n'
 import { useApiTesterStore } from './store'
-
-let activeController: AbortController | null = null
 
 function contextFor(
   environment: Record<string, string>,
@@ -88,8 +87,8 @@ function historyEntry(
   }
 }
 
-export function cancelActiveRequest(): void {
-  activeController?.abort()
+export function cancelActiveRequest(tabId: string): void {
+  cancelRequest(tabId)
 }
 
 export async function sendActiveRequest(): Promise<void> {
@@ -138,9 +137,7 @@ export async function sendActiveRequest(): Promise<void> {
     environment = pre.env
   }
 
-  activeController?.abort()
-  const controller = new AbortController()
-  activeController = controller
+  const controller = beginRequest(tabId)
   store.getState().setTabLoading(tabId, true)
   store.getState().setResult(tabId, null)
   store.getState().setTestResults(tabId, null)
@@ -205,7 +202,7 @@ export async function sendActiveRequest(): Promise<void> {
       error: message,
     })
   } finally {
-    if (activeController === controller) activeController = null
+    endRequest(tabId, controller)
     store.getState().setTabLoading(tabId, false)
   }
 }
