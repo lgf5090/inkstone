@@ -355,7 +355,6 @@ describe('Xget proxy API', () => {
     expect(viaHeader.status).toBe(200)
     expect(outgoingHeaders.get('x-xget-token')).toBeNull()
 
-    // A signed-in session bypasses the proxy token, so an upstream access_token stays a query argument.
     const sessionUpstream = await call(
       'GET',
       '/api/development/xget/ip/openai/v1/models?access_token=upstream-key&keep=1',
