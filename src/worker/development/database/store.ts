@@ -695,6 +695,24 @@ export async function findExport(
   return row ? rowToExport(row) : null
 }
 
+export async function listExports(
+  db: D1Database,
+  userId: string,
+  limit = 50,
+): Promise<ExportRecord[]> {
+  const result = await db
+    .prepare(
+      `SELECT ${EXPORT_COLUMNS}
+         FROM development_database_exports
+        WHERE user_id = ?1
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?2`,
+    )
+    .bind(userId, Math.max(1, Math.min(200, limit)))
+    .all<ExportRow>()
+  return (result.results ?? []).map(rowToExport)
+}
+
 export async function listExpiredExports(
   db: D1Database,
   userId: string,

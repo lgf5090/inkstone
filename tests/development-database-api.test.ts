@@ -719,11 +719,17 @@ describe('exports', () => {
 
     expect((await call('GET', `/exports/${file.id}`, { user: USER_B })).status).toBe(404)
 
+    const listed = await bodyOf<Array<{ id: string; filename: string }>>(await call('GET', '/exports'))
+    expect(listed.data?.map((entry) => entry.id)).toEqual([file.id])
+    expect(listed.data?.[0]?.filename).toBe('数据 (1).csv')
+    expect((await bodyOf<unknown[]>(await call('GET', '/exports', { user: USER_B }))).data).toEqual([])
+
     const removed = await call('DELETE', `/exports/${file.id}`)
     expect(removed.status).toBe(200)
     expect(bucket.objects.has(key)).toBe(false)
     expect(await findExport(db, USER_A, file.id)).toBeNull()
     expect((await call('GET', `/exports/${file.id}`)).status).toBe(404)
+    expect((await bodyOf<unknown[]>(await call('GET', '/exports'))).data).toEqual([])
   })
 
   it('cleans expired exports on the next upload', async () => {

@@ -4,6 +4,7 @@ import type {
   DatabaseConnectionInput,
   DatabaseConnectionPatch,
   DatabaseConnectionView,
+  DatabaseExportFile,
   DatabaseSettings,
   ExportFormat,
   QueryHistoryEntry,
@@ -216,6 +217,10 @@ export function createExport(input: {
 
 export async function deleteExport(id: string): Promise<void> {
   await requestData<unknown>(`/exports/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function listExports(): Promise<DatabaseExportFile[]> {
+  return requestData<DatabaseExportFile[]>('/exports')
 }
 
 export function exportDownloadUrl(id: string): string {

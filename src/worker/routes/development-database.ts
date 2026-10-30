@@ -62,6 +62,7 @@ import {
   listConnections,
   listHistory,
   listSavedQueries,
+  listExports,
   recordHistory,
   saveSettings,
   toConnectionView,
@@ -526,6 +527,16 @@ developmentDatabaseRoutes.post('/exports', async (c) => {
   return c.json({
     ok: true,
     data: exportFileView(id, body.filename, body.format, written.size, createdAt),
+  })
+})
+
+developmentDatabaseRoutes.get('/exports', async (c) => {
+  const userId = userIdOf(c)
+  await cleanupExpiredExports(c.env, c.env.DB, userId)
+  const files = await listExports(c.env.DB, userId)
+  return c.json({
+    ok: true,
+    data: files.map((record) => exportFileView(record.id, record.filename, record.format, record.size, record.createdAt)),
   })
 })
 

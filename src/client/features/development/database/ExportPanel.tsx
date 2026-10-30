@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { Download, Loader2 } from 'lucide-react'
-import type { ExportFormat } from '@shared/development/database/types'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import type { DatabaseExportFile, ExportFormat } from '@shared/development/database/types'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
-import { Button } from '../../../components/primitives'
+import { Button, IconButton } from '../../../components/primitives'
 import { Input, Segmented } from '../../../components/form'
 import { ToolbarPanel } from './ToolbarPanel'
-import { createExport, fetchExportBlob } from './api'
+import { createExport, deleteExport, fetchExportBlob, listExports } from './api'
 import { downloadBlob, exportMimeType, toCsv, toDelimited, toInsertSql, toJson } from './export-utils'
 
 type UiFormat = 'csv' | 'delimited' | 'json' | 'sql'
@@ -50,6 +50,12 @@ function parseEscapes(value: string): string {
   return value.replace(/\\r/g, '\r').replace(/\\n/g, '\n').replace(/\\t/g, '\t')
 }
 
+function formatSize(size: number): string {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export interface ExportPanelProps {
   columns: string[]
   rows: unknown[][]
@@ -63,6 +69,52 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
   const [open, setOpen] = useState(false)
   const [settings, setSettings] = useState<ExportSettings>(loadSettings)
   const [busy, setBusy] = useState(false)
+  const [recent, setRecent] = useState<DatabaseExportFile[]>([])
+  const [recentLoading, setRecentLoading] = useState(false)
+  const [recentError, setRecentError] = useState<string | null>(null)
+
+  const refreshRecent = useCallback(async () => {
+    setRecentLoading(true)
+    try {
+      setRecent(await listExports())
+      setRecentError(null)
+    } catch (error) {
+      setRecentError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRecentLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    void refreshRecent()
+  }, [open, refreshRecent])
+
+  const downloadRecent = async (file: DatabaseExportFile) => {
+    try {
+      downloadBlob(file.filename, await fetchExportBlob(file.id))
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('development.database.export.download_failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    }
+  }
+
+  const removeRecent = async (file: DatabaseExportFile) => {
+    try {
+      await deleteExport(file.id)
+      setRecent((current) => current.filter((entry) => entry.id !== file.id))
+      useUi.getState().toast({ title: t('development.database.export.deleted'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('development.database.export.delete_failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    }
+  }
 
   useEffect(() => {
     try {
@@ -125,6 +177,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
           const blob = await fetchExportBlob(created.id)
           downloadBlob(filename, blob)
           useUi.getState().toast({ title: t('development.database.export.downloaded', { count: selected.length }), tone: 'success' })
+          void refreshRecent()
         } catch (error) {
           downloadBlob(filename, new Blob([text], { type: `${exportMimeType(formatForServer)};charset=utf-8` }))
           useUi.getState().toast({
@@ -226,6 +279,38 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
               {t('development.database.export.truncated_note')}
             </p>
           )}
+          <div className="border-t border-[var(--border-subtle)] pt-2">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.database.export.recent')}</span>
+              <IconButton label={t('development.database.export.refresh')} size="xs" onClick={() => void refreshRecent()} disabled={recentLoading}>
+                <RefreshCw size={12} />
+              </IconButton>
+            </div>
+            {recentError ? (
+              <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--danger)]">
+                {recentError}
+              </p>
+            ) : recent.length === 0 ? (
+              <p className="py-1 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                {recentLoading ? t('development.database.export.loading') : t('development.database.export.recent_empty')}
+              </p>
+            ) : (
+              <ul className="max-h-40 overflow-y-auto">
+                {recent.map((file) => (
+                  <li key={file.id} className="flex items-center gap-1.5">
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]" title={file.filename}>{file.filename}</span>
+                    <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{formatSize(file.size)}</span>
+                    <IconButton label={t('development.database.export.download')} size="xs" onClick={() => void downloadRecent(file)}>
+                      <Download size={11} />
+                    </IconButton>
+                    <IconButton label={t('development.database.export.delete')} size="xs" onClick={() => void removeRecent(file)}>
+                      <Trash2 size={11} />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-2">
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>{t('development.database.common.cancel')}</Button>
             <Button size="sm" onClick={() => void run()} disabled={busy || selected.length === 0 || invalidSettings}>
