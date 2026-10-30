@@ -171,37 +171,174 @@ export async function writeRenderSnapshot(
   return key
 }
 
+export interface PublicPostQuery {
+  page?: number
+  limit?: number
+  category?: string
+  tag?: string
+  series?: string
+  q?: string
+  year?: number
+  pinned?: boolean
+}
+
+export async function listPublishedPostsFiltered(
+  db: D1Database,
+  userId: string,
+  query: PublicPostQuery = {},
+): Promise<{ rows: BlogPostWithNames[]; total: number }> {
+  const safeLimit = Math.min(Math.max(query.limit ?? 10, 1), 100)
+  const offset = (Math.max(query.page ?? 1, 1) - 1) * safeLimit
+  const where = [
+    'p.user_id = ?',
+    "p.status IN ('published','scheduled')",
+    'p.deleted_at IS NULL',
+    'p.published_at IS NOT NULL',
+    'p.published_at <= ?',
+  ]
+  const binds: unknown[] = [userId, Date.now()]
+  if (query.category) {
+    where.push('c.slug = ?')
+    binds.push(query.category)
+  }
+  if (query.series) {
+    where.push('s.slug = ?')
+    binds.push(query.series)
+  }
+  if (query.tag) {
+    where.push('EXISTS (SELECT 1 FROM blog_post_tags pt JOIN blog_tags bt ON bt.id = pt.tag_id AND bt.user_id = pt.user_id WHERE pt.user_id = p.user_id AND pt.post_id = p.id AND bt.slug = ?)')
+    binds.push(query.tag)
+  }
+  const needle = query.q?.trim().slice(0, 200)
+  if (needle) {
+    where.push('(p.title LIKE ? OR p.excerpt LIKE ? OR p.description LIKE ?)')
+    binds.push(`%${needle}%`, `%${needle}%`, `%${needle}%`)
+  }
+  if (query.year) {
+    where.push("strftime('%Y', p.published_at / 1000, 'unixepoch') = ?")
+    binds.push(String(query.year))
+  }
+  if (query.pinned) where.push('p.pinned = 1')
+  const joins = `LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
+    LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
+  const whereSql = where.join(' AND ')
+  const [rows, count] = await Promise.all([
+    db
+      .prepare(
+        `SELECT ${POST_COLUMNS} FROM blog_posts p
+         ${joins}
+         WHERE ${whereSql}
+         ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .bind(...binds, safeLimit, offset)
+      .all<BlogPostWithNames>(),
+    db
+      .prepare(`SELECT COUNT(*) AS total FROM blog_posts p ${joins} WHERE ${whereSql}`)
+      .bind(...binds)
+      .first<{ total: number }>(),
+  ])
+  return { rows: rows.results, total: count?.total ?? 0 }
+}
+
 export async function listPublishedPosts(
   db: D1Database,
   userId: string,
   page = 1,
   limit = 10,
 ): Promise<{ rows: BlogPostWithNames[]; total: number }> {
+  return listPublishedPostsFiltered(db, userId, { page, limit })
+}
+
+export async function blogArchive(
+  db: D1Database,
+  userId: string,
+): Promise<{ year: string; count: number; months: { month: string; count: number }[] }[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT strftime('%Y', p.published_at / 1000, 'unixepoch') AS year,
+              strftime('%m', p.published_at / 1000, 'unixepoch') AS month,
+              COUNT(*) AS total
+       FROM blog_posts p
+       WHERE p.user_id = ? AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+         AND p.published_at IS NOT NULL AND p.published_at <= ?
+       GROUP BY year, month
+       ORDER BY year DESC, month DESC`,
+    )
+    .bind(userId, Date.now())
+    .all<{ year: string; month: string; total: number }>()
+  const years = new Map<string, { year: string; count: number; months: { month: string; count: number }[] }>()
+  for (const row of results) {
+    const entry = years.get(row.year) ?? { year: row.year, count: 0, months: [] }
+    entry.count += row.total
+    entry.months.push({ month: row.month, count: row.total })
+    years.set(row.year, entry)
+  }
+  return [...years.values()]
+}
+
+export async function findAdjacentPosts(
+  db: D1Database,
+  userId: string,
+  current: Pick<BlogPostRow, 'id' | 'published_at'>,
+): Promise<{ previous: BlogPostWithNames | null; next: BlogPostWithNames | null }> {
+  const now = Date.now()
+  const base = `SELECT ${POST_COLUMNS} FROM blog_posts p
+    LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
+    LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
+    WHERE p.user_id = ? AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+      AND p.published_at IS NOT NULL AND p.published_at <= ?`
+  const [previous, next] = await Promise.all([
+    db.prepare(`${base} AND (p.published_at < ? OR (p.published_at = ? AND p.id < ?))
+      ORDER BY p.published_at DESC, p.id DESC LIMIT 1`)
+      .bind(userId, now, current.published_at, current.published_at, current.id)
+      .first<BlogPostWithNames>(),
+    db.prepare(`${base} AND (p.published_at > ? OR (p.published_at = ? AND p.id > ?))
+      ORDER BY p.published_at ASC, p.id ASC LIMIT 1`)
+      .bind(userId, now, current.published_at, current.published_at, current.id)
+      .first<BlogPostWithNames>(),
+  ])
+  return { previous: previous ?? null, next: next ?? null }
+}
+
+export async function searchPublishedPosts(
+  db: D1Database,
+  userId: string,
+  rawQuery: string,
+  page = 1,
+  limit = 10,
+): Promise<{ rows: BlogPostWithNames[]; total: number; engine: 'fts' | 'like' }> {
   const safeLimit = Math.min(Math.max(limit, 1), 50)
   const offset = (Math.max(page, 1) - 1) * safeLimit
-  const [rows, count] = await Promise.all([
-    db
-      .prepare(
-        `SELECT ${POST_COLUMNS} FROM blog_posts p
-         LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
-         LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id
-         WHERE p.user_id = ?1 AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
-           AND p.published_at IS NOT NULL AND p.published_at <= ?4
-         ORDER BY p.pinned DESC, COALESCE(p.published_at, p.created_at) DESC, p.id DESC
-         LIMIT ?2 OFFSET ?3`,
-      )
-      .bind(userId, safeLimit, offset, Date.now())
-      .all<BlogPostWithNames>(),
-    db
-      .prepare(
-        `SELECT COUNT(*) AS total FROM blog_posts
-         WHERE user_id = ?1 AND status IN ('published','scheduled') AND deleted_at IS NULL
-           AND published_at IS NOT NULL AND published_at <= ?2`,
-      )
-      .bind(userId, Date.now())
-      .first<{ total: number }>(),
-  ])
-  return { rows: rows.results, total: count?.total ?? 0 }
+  const tokens = rawQuery.trim().split(/\s+/).filter(Boolean).slice(0, 8)
+  if (tokens.length === 0) return { rows: [], total: 0, engine: 'fts' }
+  const match = tokens.map((token) => `"${token.replace(/"/g, ' ')}"`).join(' AND ')
+  const joins = `LEFT JOIN blog_categories c ON c.id = p.category_id AND c.user_id = p.user_id
+    LEFT JOIN blog_series s ON s.id = p.series_id AND s.user_id = p.user_id`
+  const where = `notes_fts.user_id = ? AND notes_fts MATCH ?
+    AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+    AND p.published_at IS NOT NULL AND p.published_at <= ?`
+  try {
+    const [rows, count] = await Promise.all([
+      db.prepare(`SELECT ${POST_COLUMNS} FROM notes_fts
+        JOIN blog_posts p ON p.note_id = notes_fts.note_id AND p.user_id = notes_fts.user_id
+        ${joins}
+        WHERE ${where}
+        ORDER BY rank LIMIT ? OFFSET ?`)
+        .bind(userId, match, Date.now(), safeLimit, offset)
+        .all<BlogPostWithNames>(),
+      db.prepare(`SELECT COUNT(*) AS total FROM notes_fts
+        JOIN blog_posts p ON p.note_id = notes_fts.note_id AND p.user_id = notes_fts.user_id
+        WHERE ${where}`)
+        .bind(userId, match, Date.now())
+        .first<{ total: number }>(),
+    ])
+    return { rows: rows.results, total: count?.total ?? 0, engine: 'fts' }
+  } catch (error) {
+    console.warn('[inkstone] blog search fell back to LIKE:', error)
+    const fallback = await listPublishedPostsFiltered(db, userId, { q: rawQuery, page, limit: safeLimit })
+    return { ...fallback, engine: 'like' }
+  }
 }
 
 export async function findPublishedPost(

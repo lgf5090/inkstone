@@ -14,12 +14,15 @@ import { getPublishedPage } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
 import { listPublicCollection } from './collections'
 import {
+  blogArchive,
   blogCounts,
   blogOwnerUserId,
+  findAdjacentPosts,
   findPublishedPost,
   listPostTags,
-  listPublishedPosts,
+  listPublishedPostsFiltered,
   loadBlogSettings,
+  searchPublishedPosts,
   readRenderSnapshot,
   toBlogSummary,
 } from './store'
@@ -32,6 +35,14 @@ async function ownerId(c: Context<AppBindings>): Promise<string> {
   const id = await blogOwnerUserId(c.env.DB)
   if (!id) throw ApiError.notFound('The blog owner has not been configured')
   return id
+}
+
+function publicSite(settings: Parameters<typeof publicBlogSite>[0], counts: Parameters<typeof publicBlogSite>[1]) {
+  const site = publicBlogSite(settings, counts)
+  site.widgets = site.widgets.map((widget) => widget.type === 'custom'
+    ? { ...widget, config: { ...widget.config, html: sanitizeBlogHtml(String(widget.config.html ?? '')) } }
+    : widget)
+  return site
 }
 
 function pageQuery(c: Context<AppBindings>): { page: number; limit: number } {
@@ -49,11 +60,7 @@ blogPublicRoutes.get('/site', async (c) => {
     loadBlogSettings(c.env.DB, userId),
     blogCounts(c.env.DB, userId),
   ])
-  const site = publicBlogSite(settings, counts)
-  site.widgets = site.widgets.map((widget) => widget.type === 'custom'
-    ? { ...widget, config: { ...widget.config, html: sanitizeBlogHtml(String(widget.config.html ?? '')) } }
-    : widget)
-  return c.json(site, 200, {
+  return c.json(publicSite(settings, counts), 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
 })
@@ -61,7 +68,17 @@ blogPublicRoutes.get('/site', async (c) => {
 blogPublicRoutes.get('/posts', async (c) => {
   const userId = await ownerId(c)
   const { page, limit } = pageQuery(c)
-  const { rows, total } = await listPublishedPosts(c.env.DB, userId, page, limit)
+  const year = Number(c.req.query('year'))
+  const { rows, total } = await listPublishedPostsFiltered(c.env.DB, userId, {
+    page,
+    limit,
+    category: c.req.query('category')?.trim().slice(0, 120) || undefined,
+    tag: c.req.query('tag')?.trim().slice(0, 120) || undefined,
+    series: c.req.query('series')?.trim().slice(0, 120) || undefined,
+    q: c.req.query('q')?.trim().slice(0, 200) || undefined,
+    year: Number.isFinite(year) && year > 0 ? Math.trunc(year) : undefined,
+    pinned: c.req.query('pinned') === 'true',
+  })
   const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
   return c.json({
     items: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
@@ -69,6 +86,63 @@ blogPublicRoutes.get('/posts', async (c) => {
     limit,
     total,
     nextCursor: null,
+  }, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/archive', async (c) => {
+  const userId = await ownerId(c)
+  return c.json({ years: await blogArchive(c.env.DB, userId) }, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/search', async (c) => {
+  const userId = await ownerId(c)
+  const { page, limit } = pageQuery(c)
+  const query = (c.req.query('q') ?? '').trim().slice(0, 200)
+  const result = await searchPublishedPosts(c.env.DB, userId, query, page, limit)
+  const tags = await listPostTags(c.env.DB, userId, result.rows.map((row) => row.id))
+  return c.json({
+    query,
+    engine: result.engine,
+    items: result.rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+    page,
+    limit,
+    total: result.total,
+    nextCursor: null,
+  }, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/feeds', async (c) => {
+  const userId = await ownerId(c)
+  const [settings, counts] = await Promise.all([
+    loadBlogSettings(c.env.DB, userId),
+    blogCounts(c.env.DB, userId),
+  ])
+  const { rows } = await listPublishedPostsFiltered(c.env.DB, userId, { page: 1, limit: 100 })
+  const tags = await listPostTags(c.env.DB, userId, rows.map((row) => row.id))
+  return c.json({
+    site: publicSite(settings, counts),
+    posts: rows.map((row) => toBlogSummary(row, tags.get(row.id) ?? [])),
+  }, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/posts/:slug/adjacent', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row) throw ApiError.notFound('Post not found')
+  const adjacent = await findAdjacentPosts(c.env.DB, userId, row)
+  const ids = [adjacent.previous?.id, adjacent.next?.id].filter((id): id is string => Boolean(id))
+  const tags = await listPostTags(c.env.DB, userId, ids)
+  return c.json({
+    previous: adjacent.previous ? toBlogSummary(adjacent.previous, tags.get(adjacent.previous.id) ?? []) : null,
+    next: adjacent.next ? toBlogSummary(adjacent.next, tags.get(adjacent.next.id) ?? []) : null,
   }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
@@ -251,7 +325,7 @@ blogPublicRoutes.get('/series', async (c) => {
       position: number
       count: number
     }>()
-  return c.json({ items: results })
+  return c.json({ items: results.map((row) => ({ ...row, name: row.title })) })
 })
 
 blogPublicRoutes.get('/assets/:id', async (c) => {

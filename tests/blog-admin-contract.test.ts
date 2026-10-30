@@ -4,8 +4,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { BLOG_SCHEMA_STATEMENTS } from '../src/worker/blog/schema'
 import { listPublicCollection, saveCollectionItem } from '../src/worker/blog/collections'
 import {
+  blogArchive,
+  findAdjacentPosts,
   findPublishedPost,
   listAdminPosts,
+  listPublishedPostsFiltered,
+  searchPublishedPosts,
   listPublishedPosts,
   publishPostSnapshot,
   syncBlogPostFromNote,
@@ -242,6 +246,58 @@ describe('blog admin projection', () => {
     const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0 })
     expect(site.nav.map((link) => link.href)).toEqual(['/posts'])
     expect(site.profile.links.map((link) => link.url)).toEqual(['https://example.com'])
+  })
+
+  it('filters published posts by category, series, tag, year and pinned', async () => {
+    const first = '---\nblogType: post\nisPublished: true\nblogCategory: Guides\nblogSeries: Tour\nblogPinned: true\n---\n\nFirst body'
+    const second = '---\nblogType: post\nisPublished: true\nblogCategory: Notes\n---\n\nSecond body'
+    const a = await syncBlogPostFromNote(db, USER, note(first), Date.now() - 2000)
+    sqlite.prepare('INSERT INTO notes (id, user_id, title, content, deleted_at) VALUES (?, ?, ?, ?, NULL)').run('note-2', USER, 'Second story', second)
+    const b = await syncBlogPostFromNote(db, USER, { id: 'note-2', title: 'Second story', content: second, deleted_at: null }, Date.now() - 1000)
+    sqlite.prepare("UPDATE blog_posts SET status = 'published', published_at = ? WHERE user_id = ?").run(Date.now() - 500, USER)
+    sqlite.prepare('INSERT INTO tags (id, user_id, name, color) VALUES (?, ?, ?, ?)').run('tag-1', USER, 'demo', null)
+    sqlite.prepare('INSERT INTO note_tags (note_id, tag_id, user_id) VALUES (?, ?, ?)').run('note-2', 'tag-1', USER)
+    await syncBlogPostFromNote(db, USER, { id: 'note-2', title: 'Second story', content: second, deleted_at: null })
+    sqlite.prepare("UPDATE blog_posts SET status = 'published', published_at = ? WHERE user_id = ?").run(Date.now() - 500, USER)
+    const categories = await listPublishedPostsFiltered(db, USER, { category: 'guides' })
+    expect(categories.rows.map((row) => row.id)).toEqual([a!.id])
+    const series = await listPublishedPostsFiltered(db, USER, { series: 'tour' })
+    expect(series.rows.map((row) => row.id)).toEqual([a!.id])
+    const tag = await listPublishedPostsFiltered(db, USER, { tag: 'demo' })
+    expect(tag.rows.map((row) => row.id)).toEqual([b!.id])
+    const pinned = await listPublishedPostsFiltered(db, USER, { pinned: true })
+    expect(pinned.rows.map((row) => row.id)).toEqual([a!.id])
+    const year = await listPublishedPostsFiltered(db, USER, { year: new Date().getUTCFullYear() })
+    expect(year.rows).toHaveLength(2)
+  })
+
+  it('returns the archive counts and adjacent posts in publication order', async () => {
+    const content = '---\nblogType: post\nisPublished: true\n---\n\nBody'
+    const a = await syncBlogPostFromNote(db, USER, note(content), Date.now() - 2000)
+    sqlite.prepare('INSERT INTO notes (id, user_id, title, content, deleted_at) VALUES (?, ?, ?, ?, NULL)').run('note-2', USER, 'Second', content)
+    const b = await syncBlogPostFromNote(db, USER, { id: 'note-2', title: 'Second', content, deleted_at: null }, Date.now() - 1000)
+    sqlite.prepare("UPDATE blog_posts SET status = 'published', published_at = ? WHERE user_id = ? AND note_id = ?").run(Date.now() - 2000, USER, 'note-1')
+    sqlite.prepare("UPDATE blog_posts SET status = 'published', published_at = ? WHERE user_id = ? AND note_id = ?").run(Date.now() - 1000, USER, 'note-2')
+    const archive = await blogArchive(db, USER)
+    expect(archive[0]?.count).toBe(2)
+    const current = sqlite.prepare('SELECT published_at FROM blog_posts WHERE user_id = ? AND id = ?').all(USER, a!.id)[0] as { published_at: number }
+    const adjacent = await findAdjacentPosts(db, USER, { id: a!.id, published_at: current.published_at })
+    expect(adjacent.next?.id).toBe(b!.id)
+    expect(adjacent.previous).toBeNull()
+  })
+
+  it('searches published notes through FTS and falls back when the index is absent', async () => {
+    const content = '---\nblogType: post\nisPublished: true\n---\n\nBody'
+    await syncBlogPostFromNote(db, USER, note(content), Date.now() - 1000)
+    sqlite.prepare("UPDATE blog_posts SET status = 'published', published_at = ? WHERE user_id = ?").run(Date.now() - 500, USER)
+    const fallback = await searchPublishedPosts(db, USER, 'Scheduled', 1, 10)
+    expect(fallback.engine).toBe('like')
+    expect(fallback.rows).toHaveLength(1)
+    sqlite.exec('CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, user_id, title, body)')
+    sqlite.prepare('INSERT INTO notes_fts (note_id, user_id, title, body) VALUES (?, ?, ?, ?)').run(NOTE, USER, 'Scheduled story', 'Body')
+    const fts = await searchPublishedPosts(db, USER, 'Scheduled', 1, 10)
+    expect(fts.engine).toBe('fts')
+    expect(fts.rows).toHaveLength(1)
   })
 
   it('creates moments with their own timestamps and defaults', async () => {
