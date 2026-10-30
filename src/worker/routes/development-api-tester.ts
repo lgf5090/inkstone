@@ -90,9 +90,7 @@ developmentApiTesterRoutes.get('/state', async (c) => {
   const row = await getStateRow(c.env.DB, userId, workspaceId)
   if (!row) throw ApiError.notFound('This workspace has not been saved yet')
   const data = await openState<ApiTesterStateData>(c.env, workspaceId, row.data)
-  const rows = await listHistoryRows(c.env.DB, userId, workspaceId)
-  const history = await Promise.all(rows.map((entry) => openHistory<HistoryEntry>(c.env, entry.id, entry.data)))
-  const response: ApiTesterStateResponse = { data, history, rev: row.rev, updatedAt: row.updated_at }
+  const response: ApiTesterStateResponse = { data, rev: row.rev, updatedAt: row.updated_at }
   return c.json(response)
 })
 

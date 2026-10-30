@@ -221,14 +221,6 @@ export async function listHistoryRows(
   return results
 }
 
-export async function countHistory(db: D1Database, userId: string, workspaceId: string): Promise<number> {
-  const row = await db
-    .prepare('SELECT COUNT(*) AS count FROM development_apitester_history WHERE user_id = ? AND workspace_id = ?')
-    .bind(userId, workspaceId)
-    .first<{ count: number }>()
-  return row?.count ?? 0
-}
-
 export async function insertHistory(
   db: D1Database,
   userId: string,

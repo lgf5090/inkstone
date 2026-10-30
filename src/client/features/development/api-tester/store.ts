@@ -54,6 +54,8 @@ export interface ApiTesterStore {
   results: Record<string, ResponseResult>
   loadingTabs: Record<string, boolean>
   testResults: Record<string, { results: TestResult[]; error?: string }>
+  historyLoading: boolean
+  historyError: string | null
 
   initialize: () => Promise<void>
   reloadWorkspace: () => Promise<void>
@@ -77,6 +79,7 @@ export interface ApiTesterStore {
   setResult: (id: string, result: ResponseResult | null) => void
   setTabLoading: (id: string, loading: boolean) => void
   setTestResults: (id: string, results: { results: TestResult[]; error?: string } | null) => void
+  loadHistory: () => Promise<void>
   appendHistoryLocal: (entry: HistoryEntry) => void
   clearHistoryLocal: () => void
 
@@ -135,7 +138,7 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     try {
       if (id === get().activeWorkspaceId) await activeSaver.flush()
       const response = await api.getState(id)
-      const state = normalizeState({ ...response.data, workspaceId: id, history: response.history }, id)
+      const state = normalizeState({ ...response.data, workspaceId: id }, id)
       activeSaver.setRev(response.rev)
       set({
         state,
@@ -148,6 +151,8 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
         results: {},
         loadingTabs: {},
         testResults: {},
+        historyLoading: false,
+        historyError: null,
       })
       writeLastWorkspace(id)
       const first = state.nodes.find((node) => node.type === 'request')
@@ -156,7 +161,20 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
       if (error instanceof ApiError && error.status === 404) {
         const state = defaultState(id)
         activeSaver.setRev(0)
-        set({ state, activeWorkspaceId: id, loaded: true, loading: false, conflict: false, activeId: null, openTabs: [] })
+        set({
+          state,
+          activeWorkspaceId: id,
+          loaded: true,
+          loading: false,
+          conflict: false,
+          activeId: null,
+          openTabs: [],
+          results: {},
+          loadingTabs: {},
+          testResults: {},
+          historyLoading: false,
+          historyError: null,
+        })
         writeLastWorkspace(id)
         return
       }
@@ -179,6 +197,8 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
     results: {},
     loadingTabs: {},
     testResults: {},
+    historyLoading: false,
+    historyError: null,
 
     initialize: () => {
       if (initialization) return initialization
@@ -338,6 +358,25 @@ export const useApiTesterStore = create<ApiTesterStore>((set, get) => {
         else delete testResults[id]
         return { testResults }
       })
+    },
+
+    loadHistory: async () => {
+      const workspaceId = get().activeWorkspaceId
+      if (!workspaceId) return
+      set({ historyLoading: true, historyError: null })
+      try {
+        const rows = await api.listHistory(workspaceId)
+        // The workspace may have been switched while the request was in flight.
+        if (get().activeWorkspaceId !== workspaceId) return
+        set((snapshot) => {
+          const byId = new Map(snapshot.state.history.map((entry) => [entry.id, entry]))
+          for (const entry of rows) byId.set(entry.id, entry)
+          const history = [...byId.values()].sort((left, right) => right.ts - left.ts).slice(0, HISTORY_LIMIT)
+          return { state: { ...snapshot.state, history }, historyLoading: false, historyError: null }
+        })
+      } catch (error) {
+        set({ historyLoading: false, historyError: errorMessage(error) })
+      }
     },
 
     appendHistoryLocal: (entry) => {

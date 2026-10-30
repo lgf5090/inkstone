@@ -271,7 +271,6 @@ export interface WsTicketResponse {
 
 export interface ApiTesterStateResponse {
   data: ApiTesterStateData
-  history: HistoryEntry[]
   rev: number
   updatedAt: number
 }

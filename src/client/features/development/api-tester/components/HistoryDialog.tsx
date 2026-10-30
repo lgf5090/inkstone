@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import { History as HistoryIcon, Trash2 } from 'lucide-react'
 import { newApiTesterId } from '@shared/development/api-tester/ids'
 import type { HistoryEntry } from '@shared/development/api-tester/types'
 import { Modal, confirm } from '../../../../components/overlay'
+import { LoadingBlock } from '../../../../components/feedback'
 import { Button } from '../../../../components/primitives'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
@@ -19,6 +21,14 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
   const workspaceId = useApiTesterStore((s) => s.activeWorkspaceId)
   const addNode = useApiTesterStore((s) => s.addNode)
   const clearLocal = useApiTesterStore((s) => s.clearHistoryLocal)
+  const loadHistory = useApiTesterStore((s) => s.loadHistory)
+  const historyLoading = useApiTesterStore((s) => s.historyLoading)
+  const historyError = useApiTesterStore((s) => s.historyError)
+
+  // History no longer rides along with the workspace state: it is read when the dialog needs it.
+  useEffect(() => {
+    if (open) void loadHistory()
+  }, [open, loadHistory, workspaceId])
 
   const restore = (entry: HistoryEntry) => {
     addNode({
@@ -63,7 +73,16 @@ export function HistoryDialog({ open, onClose }: { open: boolean; onClose: () =>
             <Trash2 size={13} /> {t('development.apitester.clear_history')}
           </Button>
         </div>
-        {history.length === 0 ? (
+        {historyError ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-[length:var(--text-12)] text-[var(--danger)]">
+            <p className="max-w-[420px] break-words">{t('development.apitester.load_failed', { msg: historyError })}</p>
+            <Button size="sm" variant="secondary" onClick={() => void loadHistory()}>
+              {t('development.apitester.retry')}
+            </Button>
+          </div>
+        ) : historyLoading && history.length === 0 ? (
+          <LoadingBlock label={t('development.apitester.loading')} />
+        ) : history.length === 0 ? (
           <p className="py-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.apitester.history_empty')}</p>
         ) : (
           <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
