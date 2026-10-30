@@ -147,7 +147,7 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
         <div className="mt-1">
           {tree.length === 0 ? <p className="px-2 py-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('imgbed.library.tags_empty' as never)}</p>
             : tagQuery.trim() ? (
-              <ul className="space-y-px">{tagRows.map((node) => <li key={node.fullPath}><button type="button" onClick={() => onChange({ tag: filters.tag === node.fullPath ? '' : node.fullPath })} className={cn('flex min-h-9 w-full items-center gap-1.5 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)]', filters.tag === node.fullPath ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}><Hash size={11} className="shrink-0 text-[var(--text-quaternary)]" /><span className="min-w-0 flex-1 truncate">{node.fullPath}</span><span className="text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">{node.totalCount}</span></button></li>)}</ul>
+              <ul className="space-y-px">{tagRows.map((node) => <li key={node.fullPath}><button type="button" onClick={() => onChange({ tag: filters.tag === node.fullPath ? '' : node.fullPath })} className={cn('flex min-h-9 w-full items-center gap-1.5 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)]', filters.tag === node.fullPath ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}><Hash size={11} className="shrink-0 text-[var(--text-quaternary)]" /><span className="min-w-0 flex-1 truncate">{node.fullPath}</span><span className="text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">{node.totalCount}</span></button></li>)}</ul>
             ) : (
               <ul role="tree" aria-label={t('imgbed.library.tags_section' as never)} className="space-y-px">
                 {tree.map((node, index) => <TagRow key={node.fullPath} node={node} collapsed={collapsed} active={filters.tag} setSize={tree.length} posInSet={index + 1} onToggle={toggleExpanded} onSelect={(path) => onChange({ tag: filters.tag === path ? '' : path })} />)}
@@ -164,10 +164,10 @@ export function ImgbedSidebar({ data, loading, filters, onChange }: {
 
 function SidebarRow({ icon, label, count, active, onClick }: { icon: ReactNode; label: string; count?: number; active: boolean; onClick: () => void }): ReactElement {
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} className={cn('flex min-h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)] transition-colors md:min-h-0 md:h-7', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+    <button type="button" onClick={onClick} aria-pressed={active} className={cn('flex min-h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[length:var(--text-12)] transition-colors md:min-h-0 md:h-7', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
       <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count !== undefined && <span className="shrink-0 text-[length:var(--text-10)] tabular text-[var(--text-quaternary)]">{count}</span>}
+      {count !== undefined && <span className={cn('shrink-0 text-[length:var(--text-10)] tabular', active ? 'text-[var(--text-primary)]' : 'text-[var(--text-quaternary)]')}>{count}</span>}
     </button>
   )
 }
@@ -187,7 +187,7 @@ function TagRow({ node, collapsed, active, setSize, posInSet, onToggle, onSelect
   const selected = node.fullPath === active
   return (
     <li {...treeItemProps({ level: node.depth + 1, expanded: hasChildren ? open : undefined, selected, setSize, posInSet })}>
-      <div className={cn('flex min-h-10 items-center gap-0.5 rounded-[var(--r-md)] pr-1 md:min-h-0 md:h-7', selected ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
+      <div className={cn('flex min-h-10 items-center gap-0.5 rounded-[var(--r-md)] pr-1 md:min-h-0 md:h-7', selected ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(node.depth) }}>
         {hasChildren ? (
           <button type="button" data-tree-toggle aria-expanded={open} aria-label={t((open ? 'imgbed.library.collapse_tag' : 'imgbed.library.expand_tag') as never, { tag: node.fullPath })} onClick={() => onToggle(node.fullPath)} className="flex size-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] hover:bg-[var(--bg-active)] md:size-5">
             <ChevronRight size={11} className={cn('transition-transform duration-[var(--dur-fast)]', open && 'rotate-90')} />

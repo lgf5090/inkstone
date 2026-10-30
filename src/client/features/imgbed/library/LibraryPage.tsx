@@ -430,12 +430,12 @@ export function LibraryPage(): ReactElement {
         <div className="order-last w-full min-w-[200px] sm:order-none sm:w-auto sm:min-w-[220px] sm:flex-1">
           <Input leading={<Search size={13} />} value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('imgbed.library.search')} />
         </div>
-        <Select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="w-[112px]">
+        <Select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="w-[112px]" aria-label={t('imgbed.library.access')}>
           <option value="">{t('imgbed.library.access')}</option>
           <option value="normal">{t('imgbed.library.normal')}</option>
           <option value="blocked">{t('imgbed.library.blocked')}</option>
         </Select>
-        <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[116px]">
+        <Select value={sort} onChange={(event) => setSort(event.target.value)} className="w-[116px]" aria-label={t('imgbed.sort.time' as never)}>
           <option value="time">{t('imgbed.sort.time' as never)}</option>
           <option value="size">{t('imgbed.sort.size' as never)}</option>
           <option value="fileName">{t('imgbed.sort.file_name' as never)}</option>

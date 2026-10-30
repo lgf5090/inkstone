@@ -192,7 +192,7 @@ export function PublicApp(): ReactElement {
             <option value="time">{t('imgbed.sort.time' as never)}</option>
             <option value="size">{t('imgbed.sort.size' as never)}</option>
           </Select>
-          <Select value={type} onChange={(event) => setType(event.target.value)} className="w-[104px]">
+          <Select value={type} onChange={(event) => setType(event.target.value)} className="w-[104px]" aria-label={t('imgbed.public.all')}>
             <option value="">{t('imgbed.public.all')}</option>
             <option value="image">{t('imgbed.public.images')}</option>
             <option value="video">{t('imgbed.public.videos')}</option>
