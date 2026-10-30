@@ -13,6 +13,7 @@ import { runPreScript, runTests } from './lib/script-sandbox'
 import { activeVariables, variableRecord, type Variable } from './lib/variables'
 import { beginRequest, cancelRequest, endRequest } from './lib/inflight'
 import { t } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { useApiTesterStore } from './store'
 
 function contextFor(
@@ -60,6 +61,9 @@ function applyEnvironmentChanges(store: typeof useApiTesterStore, before: Record
   }
   if (changed) store.getState().updateEnvironment(environment.id, { variables })
 }
+
+/** One toast per outage, not one per request: a failing history endpoint would otherwise shout every send. */
+let historyFailureNotified = false
 
 function historyEntry(
   node: { name: string; tags: string[] },
@@ -178,9 +182,16 @@ export async function sendActiveRequest(): Promise<void> {
 
     const entry = historyEntry(node, request, kind, result)
     store.getState().appendHistoryLocal(entry)
-    void appendHistory(snapshot.activeWorkspaceId, entry).catch((error) => {
-      console.warn('[inkstone] API Tester history could not be saved', error)
-    })
+    void appendHistory(snapshot.activeWorkspaceId, entry)
+      .then(() => {
+        historyFailureNotified = false
+      })
+      .catch((error) => {
+        console.warn('[inkstone] API Tester history could not be saved', error)
+        if (historyFailureNotified) return
+        historyFailureNotified = true
+        useUi.getState().toast({ title: t('development.apitester.history_save_failed'), tone: 'danger' })
+      })
   } catch (error) {
     const message = error instanceof RelayClientError
       ? error.code === 'url_required'

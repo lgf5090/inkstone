@@ -18,6 +18,43 @@ const MAP_TAIL = '\n])\n'
 const ALLOWLIST_CJK = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u
 
 const allowed = new Map([
+  ["src/client/features/development/api-tester/components/HistoryDialog.tsx", [
+    "// History no longer rides along with the workspace state: it is read when the dialog needs it.",
+  ]],
+  ["src/client/features/development/api-tester/components/RawViewer.tsx", [
+    "/** One rendered line is exactly one 20px row, which is what makes windowing possible. */",
+    "/** Rows drawn above and below the viewport so a fast wheel scroll never meets a blank strip. */",
+    "/** Without a measurable viewport (jsdom, a hidden pane) render this many rows rather than guessing. */",
+    "/** A one-character query on a 5 MB body can match a million times; the list is bounded, the count says so. */",
+    "// `scrollTop` stays authoritative even when no height can be measured: that is how a jump to a",
+    "// match still renders its row in jsdom, where every element reports a zero-height viewport.",
+  ]],
+  ["src/client/features/development/api-tester/components/RequestBuilder.tsx", [
+    "// The module-level Cmd/Ctrl+Enter handler owns the modified key, so this answers the bare key only.",
+  ]],
+  ["src/client/features/development/api-tester/lib/inflight.ts", [
+    "/** One in-flight controller per tab, so a send in one tab cannot abort a send in another. */",
+    "/** Starts a request for a tab, aborting only that tab's earlier request. */",
+    "/** Unregisters `controller` if it is still the one this tab owns. */",
+  ]],
+  ["src/client/features/development/api-tester/lib/shortcut.ts", [
+    "/**\n * Cmd/Ctrl+Enter sends the active request from anywhere in the module.\n *\n * The URL field's own Enter handler answers the bare key only, so the two paths cannot both fire\n * for one keystroke. An IME frame is excluded the same way every other bare-key handler here is.\n */",
+  ]],
+  ["src/client/features/development/api-tester/send.ts", [
+    "/** One toast per outage, not one per request: a failing history endpoint would otherwise shout every send. */",
+  ]],
+  ["src/client/features/development/api-tester/store.ts", [
+    "// The workspace may have been switched while the request was in flight.",
+  ]],
+  ["src/client/features/development/api-tester/ws-session.ts", [
+    "/**\n * Socket sessions outlive the panel that shows them.\n *\n * A tab switch unmounts the panel but must not drop the connection or the transcript: the node id\n * owns both, so coming back shows the same conversation and the socket is closed only on an explicit\n * disconnect, a deleted node, or leaving the module.\n */",
+    "// The peer may already be gone; the session state below is what the user sees either way.",
+    "/** A deleted request takes its conversation with it. */",
+  ]],
+  ["src/worker/development/api-tester/body.ts", [
+    "/**\n * Reads an upstream body up to `maxBytes`, cancelling the stream the moment it crosses the cap.\n *\n * Every relay in this module needs the same thing: the caller chooses the target, so a response it\n * never bounds is a response that can hold the Worker open and fill its memory.\n */",
+    "// The payload is already refused; the reader is released below either way.",
+  ]],
   ["scripts/check-comments.mjs", [
     "// The rebuild rewrites this gate’s own allowlist, so it has to be armed explicitly and",
     "// cannot be reached by a plain flag; the summary makes the diff reviewable afterwards.",
@@ -6031,6 +6068,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/development/api-tester/ApiTesterApp.tsx", [
     "/* storage may be unavailable */",
+    "// A modal owns the keyboard while it is open; sending behind it would be a surprise.",
   ]],
   ["src/client/features/development/api-tester/components/CodeBlock.tsx", [
     "/**\n * Codegen language ids are product names (`python-requests`, `javascript-fetch`); Prism knows the\n * language underneath them. Anything not listed here is already a Prism alias, and `plaintext` is\n * deliberately absent so it never waits on a grammar load.\n */",
@@ -6053,10 +6091,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/development/api-tester/components/ResponseBody.tsx", [
     "/**\n * The response body's own CSP, injected at the front of `srcdoc`. `sandbox=\"\"` already gives the\n * document an opaque origin; this stops it from loading scripts, network resources or fonts even if a\n * future browser relaxes the sandbox default. Inline styles and data/blob images are allowed so a\n * self-contained HTML report still renders.\n */",
+    "// The relay refused to buffer it (over the size cap), so there is nothing to show and",
+    "// loading `result.url` here would fetch straight from the target, outside the relay.",
   ]],
   ["src/client/features/development/api-tester/components/ResponsePanel.tsx", [
-    "/**\n * Locale gap: the catalog has no `development.apitester.cookies` / `.timing` / `.code` keys yet, and\n * this task may not touch the locale files. These are protocol-level labels in the reference UI; when\n * the keys land, replace this table with `t()` and delete it.\n */",
-    "/** Cookie fields the reference shows without a catalog entry. */",
     "/** The server-side file kind the \"save to server\" action should ask for. */",
     "/**\n   * `autoPrettify` is a default, not a lock: it picks the first view for each new response and then\n   * leaves the user's Pretty/RAW/Preview choice alone. `lastResult` makes that reset depend on the\n   * response identity rather than on every render or settings change.\n   */",
     "// The response body is binary. It goes up as a binary file, never as a text body.",
@@ -6155,6 +6193,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/development/api-tester/persistence.ts", [
     "/** The page is going away: one last keepalive write, under the browser's 64 KiB limit. */",
+    "/** Delays before each automatic retry of a failed save; the budget resets on the next edit or success. */",
+    "/** The user asked for another attempt: spend the whole retry budget again, immediately. */",
+    "/**\n   * A failed save keeps `dirty`, so the next edit already retries; this covers the case where the\n   * user stops editing after the failure and would otherwise never learn the state is unsaved.\n   */",
+    "// The keepalive budget is 64 KiB of *bytes*; counting characters lets a CJK-heavy state through",
+    "// an API that then refuses the whole request.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -35352,6 +35395,10 @@ const allowed = new Map([
     "/**\n * The token response in the shape the client expects.\n *\n * OAuth's wire names are snake_case while the API talks camelCase, so the values are translated —\n * never reinterpreted. An upstream `error`/`error_description` keeps its exact text, because the\n * reader needs the provider's own words to fix the grant.\n */",
     "// A provider that answers HTML or an empty body still gets an envelope the client can show;",
     "// the body itself is not repeated here because an error page can echo credentials.",
+    "// Redirects are refused the same way the relay refuses them: a hop is a new target, and a",
+    "// public token endpoint that answers 302 into the network this Worker can see must not be followed.",
+    "// The redirect body is never read; a cancel that rejects changes nothing here.",
+    "/** A token response is a small JSON object; anything past this is not one. */",
   ]],
   ["src/worker/development/api-tester/relay.ts", [
     "/**\n * The headers a relay must never forward.\n *\n * `host` and `content-length` describe the request this worker is making, not the one the user\n * composed, and the rest belong to the connection between two hops rather than to the call itself.\n */",
@@ -35361,7 +35408,6 @@ const allowed = new Map([
     "// Header names are case-insensitive, so a repeated user header keeps the last value.",
     "/** The fallback split for runtimes without `Headers.getSetCookie`, where one string holds every cookie. */",
     "// The redirect's own payload is never read; a cancel that itself rejects changes nothing here.",
-    "// The payload is already refused; the reader is released below either way.",
     "// Every hop is judged again: a public host may redirect into the network this worker",
     "// can see but the caller cannot.",
   ]],

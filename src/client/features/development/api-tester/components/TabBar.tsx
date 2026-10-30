@@ -92,8 +92,8 @@ export function TabBar({
             </button>
             <button
               type="button"
-              aria-hidden="true"
               tabIndex={-1}
+              aria-label={t('development.apitester.tabs.close')}
               title={t('development.apitester.tabs.close')}
               onClick={() => onClose(node.id)}
               className="flex size-4 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"

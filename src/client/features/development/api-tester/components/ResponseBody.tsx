@@ -74,15 +74,19 @@ export function ResponseBody({
         data-mode="preview"
       >
         {shape.isImage ? (
-          <img
-            src={
-              result.bodyB64
-                ? `data:${result.contentType};base64,${result.bodyB64}`
-                : result.url
-            }
-            alt={t('development.apitester.preview')}
-            className="max-w-full rounded-[var(--r-md)]"
-          />
+          result.bodyB64 ? (
+            <img
+              src={`data:${result.contentType};base64,${result.bodyB64}`}
+              alt={t('development.apitester.preview')}
+              className="max-w-full rounded-[var(--r-md)]"
+            />
+          ) : (
+            // The relay refused to buffer it (over the size cap), so there is nothing to show and
+            // loading `result.url` here would fetch straight from the target, outside the relay.
+            <div className="flex h-full items-center justify-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('development.apitester.preview_unsupported')}
+            </div>
+          )
         ) : shape.isHtml ? (
           <iframe
             title={t('development.apitester.preview')}

@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { CollectionNode } from '../src/shared/development/api-tester/types'
 import { defaultRequest } from '../src/shared/development/api-tester/state'
 import { TabBar } from '../src/client/features/development/api-tester/components/TabBar'
-import { initI18n } from '../src/client/lib/i18n'
+import { initI18n, t } from '../src/client/lib/i18n'
 import { renderElement, type RenderedElement } from '../src/client/lib/test-render'
 
 const views: RenderedElement[] = []
@@ -74,10 +74,11 @@ describe('API tester tab bar keyboard', () => {
     expect(document.activeElement).toBe(buttons[1])
   })
 
-  it('keeps the decorative close button out of the tab order', () => {
+  it('keeps the close button out of the tab order but named for assistive technology', () => {
     const { view } = renderTabs('tab-a')
     const close = view.container.querySelector<HTMLButtonElement>('button[title]')
-    expect(close?.getAttribute('aria-hidden')).toBe('true')
     expect(close?.getAttribute('tabindex')).toBe('-1')
+    expect(close?.getAttribute('aria-hidden')).toBeNull()
+    expect(close?.getAttribute('aria-label')).toBe(t('development.apitester.tabs.close'))
   })
 })

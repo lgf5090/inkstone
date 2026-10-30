@@ -38,6 +38,8 @@ describe('API Tester state saver', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('debounces an edit into one save and reports the new revision', async () => {
@@ -100,6 +102,43 @@ describe('API Tester state saver', () => {
     saver.markDirty()
     await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS)
     expect(events.saved).toEqual([9])
+  })
+
+  it('sends one keepalive write when the state fits the 64 KiB budget', () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { saver } = makeSaver()
+
+    saver.markDirty()
+    saver.flushOnHide()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(init.keepalive).toBe(true)
+    expect(init.method).toBe('PUT')
+  })
+
+  it('skips the keepalive write when a CJK-heavy state is under 60k characters but over 60k bytes', () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const state = {
+      ...defaultState('ws-1'),
+      globalVariables: [{ id: 'g1', key: 'bulk', value: '汉'.repeat(25_000), enabled: true }],
+    }
+    const saver = new StateSaver({
+      read: () => ({ state, workspaceId: 'ws-1' }),
+      onSaving: () => {},
+      onSaved: () => {},
+      onConflict: () => {},
+      onError: () => {},
+    })
+
+    saver.markDirty()
+    saver.flushOnHide()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 
   it('retries immediately when the user asks', async () => {

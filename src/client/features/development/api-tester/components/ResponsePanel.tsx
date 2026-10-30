@@ -30,23 +30,6 @@ import { StatusPill } from './StatusPill'
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timing' | 'code' | 'tests'
 
-/**
- * Locale gap: the catalog has no `development.apitester.cookies` / `.timing` / `.code` keys yet, and
- * this task may not touch the locale files. These are protocol-level labels in the reference UI; when
- * the keys land, replace this table with `t()` and delete it.
- */
-const TAB_LABEL_FALLBACK = {
-  cookies: 'Cookies',
-  timing: 'Timing',
-  code: 'Code',
-} as const
-
-/** Cookie fields the reference shows without a catalog entry. */
-const COOKIE_FIELD_FALLBACK = {
-  domain: 'domain',
-  path: 'path',
-} as const
-
 const BODY_MODE_KEY = {
   pretty: 'development.apitester.pretty',
   raw: 'development.apitester.raw',
@@ -143,11 +126,11 @@ export function ResponsePanel({
     {
       id: 'cookies',
       label: cookieCount > 0
-        ? `${TAB_LABEL_FALLBACK.cookies} (${cookieCount})`
-        : TAB_LABEL_FALLBACK.cookies,
+        ? `${t('development.apitester.cookies')} (${cookieCount})`
+        : t('development.apitester.cookies'),
     },
-    { id: 'timing', label: TAB_LABEL_FALLBACK.timing },
-    { id: 'code', label: TAB_LABEL_FALLBACK.code },
+    { id: 'timing', label: t('development.apitester.timing') },
+    { id: 'code', label: t('development.apitester.code') },
     ...(testResults
       ? [{
           id: 'tests' as const,
@@ -359,7 +342,7 @@ export function ResponsePanel({
                     {cookie.domain && (
                       <div className="break-all">
                         <span className="text-[var(--text-tertiary)]">
-                          {COOKIE_FIELD_FALLBACK.domain}:
+                          {t('development.apitester.cookie_domain')}:
                         </span>{' '}
                         <span className="text-[var(--text-secondary)]">{cookie.domain}</span>
                       </div>
@@ -367,7 +350,7 @@ export function ResponsePanel({
                     {cookie.path && (
                       <div className="break-all">
                         <span className="text-[var(--text-tertiary)]">
-                          {COOKIE_FIELD_FALLBACK.path}:
+                          {t('development.apitester.cookie_path')}:
                         </span>{' '}
                         <span className="text-[var(--text-secondary)]">{cookie.path}</span>
                       </div>

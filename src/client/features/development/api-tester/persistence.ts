@@ -1,5 +1,4 @@
-import { gzipSync } from 'fflate'
-import { STATE_GZIP_MAX_BYTES, STATE_JSON_MAX_BYTES } from '@shared/development/api-tester/limits'
+import { STATE_JSON_MAX_BYTES } from '@shared/development/api-tester/limits'
 import { stateDataOf } from '@shared/development/api-tester/state'
 import type { ApiTesterState } from '@shared/development/api-tester/types'
 import { CLIENT_HEADER } from '@shared/constants'
@@ -117,11 +116,6 @@ export class StateSaver {
       this.options.onError(t('development.apitester.app.save_too_large'))
       return
     }
-    if (gzipSync(bytes).byteLength > STATE_GZIP_MAX_BYTES) {
-      this.dirty = false
-      this.options.onError(t('development.apitester.app.save_too_large'))
-      return
-    }
     this.saving = true
     this.options.onSaving()
     try {
@@ -154,7 +148,12 @@ export class StateSaver {
       rev: this.rev,
       data: stateDataOf(snapshot.state),
     })
-    if (json.length > 60_000) return
+    // The keepalive budget is 64 KiB of *bytes*; counting characters lets a CJK-heavy state through
+    // an API that then refuses the whole request.
+    if (new TextEncoder().encode(json).byteLength > 60_000) {
+      console.warn('[inkstone] API Tester keepalive save skipped: the state does not fit the keepalive budget')
+      return
+    }
     try {
       void fetch('/api/development/api-tester/state', {
         method: 'PUT',

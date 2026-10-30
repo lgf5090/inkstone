@@ -236,11 +236,38 @@ describe('ResponsePanel', () => {
     expect(container.textContent).toContain('x-request-id')
     expect(container.textContent).toContain('trace-1')
 
+    expect(container.textContent).toContain(t('development.apitester.cookies'))
+
     click(tab(container, 2))
     expect(container.textContent).toContain('sid')
     expect(container.textContent).toContain('abc123')
     expect(container.textContent).toContain('.example.com')
     expect(container.textContent).toContain('/')
+    expect(container.textContent).toContain(t('development.apitester.cookie_domain'))
+    expect(container.textContent).toContain(t('development.apitester.cookie_path'))
+  })
+
+  it('shows an unavailable notice for an image the relay refused to buffer', () => {
+    const container = renderPanel(
+      response({
+        contentType: 'image/png',
+        sizeBytes: 6 * 1024 * 1024,
+        body: '',
+        bodyB64: null,
+        url: 'https://api.example.com/huge.png',
+        error: 'response_too_large',
+      }),
+      { autoPrettify: false },
+    )
+
+    const preview = [...container.querySelectorAll('button')].find(
+      (element) => (element.textContent ?? '').trim() === t('development.apitester.preview'),
+    )
+    if (!preview) throw new Error('preview toggle is missing')
+    click(preview)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).toContain(t('development.apitester.preview_unsupported'))
   })
 
   it('draws the timing waterfall with a dash for missing phases', () => {
