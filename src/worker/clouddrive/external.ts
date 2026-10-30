@@ -6,6 +6,7 @@ import { ApiError } from '../lib/errors'
 import { decryptCloudDriveCredentials, encryptCloudDriveCredentials } from '../lib/crypto'
 import { checkTarget } from '../lib/outbound'
 import type { CloudDriveMountInfo } from './lib'
+import { s3RequestUrl } from './storage-urls'
 
 interface StorageRow {
   id: string
@@ -35,6 +36,7 @@ export interface ExternalListing {
 }
 
 const EXTERNAL_PREFIX = 'x'
+const MAX_DRIVER_ENTRIES = 5000
 
 async function discard(response: Response): Promise<void> {
   try {
@@ -54,11 +56,33 @@ export function parseExternalEntryId(id: string): { mountId: string; path: strin
   try {
     const decoded = new TextDecoder().decode(base64UrlDecode(id.slice(EXTERNAL_PREFIX.length)))
     const [mountId, rawPath, ...rest] = decoded.split('\0')
-    if (!mountId) return null
-    return { mountId, path: rawPath || '/', ref: rest.length > 0 && rest.join('\0') ? rest.join('\0') : null }
+    const path = rawPath || '/'
+    if (!mountId || !safeExternalPath(path)) return null
+    return { mountId, path, ref: rest.length > 0 && rest.join('\0') ? rest.join('\0') : null }
   } catch {
     return null
   }
+}
+
+function safeSegment(value: string): boolean {
+  if (value === '.' || value === '..') return false
+  if (value.includes('/') || value.includes('\\') || /[\u0000-\u001f]/.test(value)) return false
+  return true
+}
+
+function safeExternalPath(path: string): boolean {
+  if (!path.startsWith('/')) return false
+  for (const raw of path.split('/')) {
+    if (!raw) continue
+    let segment = raw
+    try {
+      segment = decodeURIComponent(raw)
+    } catch {
+      return false
+    }
+    if (!safeSegment(segment)) return false
+  }
+  return true
 }
 
 export async function listExternal(
@@ -69,7 +93,8 @@ export async function listExternal(
 ): Promise<ExternalListing> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const entries = await listStorage(env, db, mount, storage, path)
+  const listed = await listStorage(env, db, mount, storage, path)
+  const entries = listed.filter((entry) => safeSegment(entry.name))
   const folders = entries.filter((entry) => entry.kind === 'folder').map((entry) => toEntry(mount, path, entry))
   const files = entries.filter((entry) => entry.kind === 'file').map((entry) => toEntry(mount, path, entry))
   return { mountId: mount.id, path, folders, files, cursor: null, total: null, foldersTruncated: false }
@@ -193,6 +218,56 @@ function joinPath(root: string, path: string): string {
   return [base, tail].filter(Boolean).join('/')
 }
 
+const XML_PREFIX = '(?:[A-Za-z_][\\w.-]*:)?'
+const XML_RESPONSE = new RegExp(`<${XML_PREFIX}response\\b[^>]*>([\\s\\S]*?)</${XML_PREFIX}response>`, 'gi')
+const XML_HREF = new RegExp(`<${XML_PREFIX}href\\b[^>]*>([\\s\\S]*?)</${XML_PREFIX}href>`, 'i')
+const XML_COLLECTION = new RegExp(`<${XML_PREFIX}collection\\b[^>]*\\/?>`, 'i')
+const XML_LENGTH = new RegExp(`<${XML_PREFIX}getcontentlength\\b[^>]*>(\\d+)</${XML_PREFIX}getcontentlength>`, 'i')
+const XML_MODIFIED = new RegExp(`<${XML_PREFIX}getlastmodified\\b[^>]*>([^<]+)</${XML_PREFIX}getlastmodified>`, 'i')
+
+function xmlText(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+    const lower = entity.toLowerCase()
+    if (lower === 'amp') return '&'
+    if (lower === 'lt') return '<'
+    if (lower === 'gt') return '>'
+    if (lower === 'quot') return '"'
+    if (lower === 'apos') return "'"
+    const code = lower.startsWith('#x') ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10)
+    return Number.isSafeInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
+  })
+}
+
+interface WebdavChild {
+  name: string
+}
+
+function webdavChild(href: string, requestUrl: string): WebdavChild | null {
+  if (!href) return null
+  let url: URL
+  let request: URL
+  try {
+    request = new URL(requestUrl)
+    url = new URL(xmlText(href).trim(), request)
+  } catch {
+    return null
+  }
+  const requestPath = request.pathname.endsWith('/') ? request.pathname : `${request.pathname}/`
+  const path = url.pathname.endsWith('/') ? url.pathname : `${url.pathname}/`
+  if (path === requestPath || !path.startsWith(requestPath)) return null
+  const rest = path.slice(requestPath.length).replace(/\/$/, '')
+  if (!rest || rest.includes('/')) return null
+  const raw = rest
+  if (!raw) return null
+  let name = raw
+  try {
+    name = decodeURIComponent(raw)
+  } catch {
+    name = raw
+  }
+  return { name }
+}
+
 async function listS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string): Promise<DriverEntry[]> {
   const config = configOf(storage)
   const credentials = await credentialsOf(env, storage)
@@ -201,10 +276,9 @@ async function listS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo
   const target = checkTarget(endpointRaw)
   if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
   const aws = new AwsClient({ accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '', region: String(config.region ?? 'auto'), service: 's3', retries: 1 })
-  const bucket = String(config.bucketName ?? '')
   const root = String(config.rootPath ?? '')
   const prefix = joinPath(root, path)
-  const url = new URL(`${target.url.origin.replace(/\/$/, '')}/${bucket}`)
+  const url = s3RequestUrl(target.url, config, null)
   url.searchParams.set('list-type', '2')
   url.searchParams.set('delimiter', '/')
   url.searchParams.set('max-keys', '1000')
@@ -234,11 +308,9 @@ async function readS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo
   const target = checkTarget(endpointRaw)
   if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
   const endpoint = target.url
-  const bucket = String(config.bucketName ?? '')
   const key = joinPath(String(config.rootPath ?? ''), path)
   const aws = new AwsClient({ accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '', region: String(config.region ?? 'auto'), service: 's3', retries: 1 })
-  const pathStyle = config.pathStyle === true || endpoint.hostname.endsWith('amazonaws.com') === false
-  const url = pathStyle ? `${endpoint.origin}/${bucket}/${encodeKey(key)}` : `${endpoint.protocol}//${bucket}.${endpoint.host}/${encodeKey(key)}`
+  const url = s3RequestUrl(endpoint, config, key).toString()
   const headers: Record<string, string> = {}
   if (range) headers.Range = range
   const response = await aws.fetch(url, { method: 'GET', headers, redirect: 'manual' })
@@ -254,7 +326,7 @@ async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMount
   if (!baseRaw) throw new ApiError(502, 'clouddrive_mount_unavailable', 'WebDAV base URL is missing')
   const target = checkTarget(baseRaw)
   if (!target.url) throw new ApiError(502, 'clouddrive_mount_unavailable', target.error)
-  const base = target.url.origin + target.url.pathname.replace(/\/$/, '')
+  const base = `${target.url.origin}${target.url.pathname.replace(/\/$/, '')}`
   const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
   const relative = path === '/' ? '' : path.replace(/^\/+/, '')
   const url = `${base}/${[root, relative].filter(Boolean).join('/')}`
@@ -264,16 +336,23 @@ async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMount
   const xml = await response.text()
   if (!response.ok && response.status !== 207) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV list failed (${response.status})`)
   const entries: DriverEntry[] = []
-  for (const block of xml.matchAll(/<(?:D:|[a-z]+:)?response>([\s\S]*?)<\/(?:D:|[a-z]+:)?response>/gi)) {
+  const seen = new Set<string>()
+  for (const block of xml.matchAll(XML_RESPONSE)) {
+    if (entries.length >= MAX_DRIVER_ENTRIES) break
     const body = block[1]!
-    const href = /<(?:D:|[a-z]+:)?href>([^<]+)<\/(?:D:|[a-z]+:)?href>/i.exec(body)?.[1] ?? ''
-    const name = decodeURIComponent(href.split('/').filter(Boolean).pop() ?? '')
-    if (!name) continue
-    const folder = /<(?:D:|[a-z]+:)?collection\s*\/?>/i.test(body)
-    const size = Number(/<(?:D:|[a-z]+:)?getcontentlength>(\d+)</i.exec(body)?.[1] ?? 0)
-    const modifiedText = /<(?:D:|[a-z]+:)?getlastmodified>([^<]+)</i.exec(body)?.[1]
-    const modified = modifiedText ? (Date.parse(modifiedText) || 0) : 0
-    entries.push({ name, kind: folder ? 'folder' : 'file', size, modifiedAt: modified })
+    const child = webdavChild(XML_HREF.exec(body)?.[1] ?? '', url)
+    if (!child) continue
+    const folder = XML_COLLECTION.test(body)
+    const key = `${folder ? 'folder' : 'file'}:${child.name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const modifiedText = XML_MODIFIED.exec(body)?.[1]
+    entries.push({
+      name: child.name,
+      kind: folder ? 'folder' : 'file',
+      size: folder ? 0 : Number(XML_LENGTH.exec(body)?.[1] ?? 0),
+      modifiedAt: modifiedText ? (Date.parse(modifiedText) || 0) : 0,
+    })
   }
   return entries
 }

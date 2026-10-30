@@ -92,6 +92,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
+function callUrl(index = 0): string {
+  const input = fetchMock.mock.calls[index]![0] as string | Request
+  return typeof input === 'string' ? input : input.url
+}
+
 describe('CloudDrive credential vault policy', () => {
   it('accepts a storage token bundle scoped to the storage id', () => {
     const scope = `clouddrive:${newId()}`
@@ -109,6 +114,11 @@ describe('external entry ids', () => {
     expect(parseExternalEntryId(id)).toEqual({ mountId: 'm1', path: '/a/b.txt', ref: 'ref:1' })
     const legacy = externalEntryId('m1', '/a/b.txt')
     expect(parseExternalEntryId(legacy)).toEqual({ mountId: 'm1', path: '/a/b.txt', ref: null })
+  })
+
+  it('rejects forged ids that would escape the mount root', () => {
+    expect(parseExternalEntryId(externalEntryId('m1', '/../secret'))).toBeNull()
+    expect(parseExternalEntryId(externalEntryId('m1', '/%2e%2e/secret'))).toBeNull()
   })
 })
 
@@ -217,6 +227,89 @@ describe('Discord driver', () => {
     expect(await response?.text()).toBe('bytes')
     const [cdnUrl] = fetchMock.mock.calls[2] as [string, RequestInit]
     expect(cdnUrl).toBe('https://cdn.discordapp.com/att')
+  })
+})
+
+describe('WebDAV driver', () => {
+  it('lists namespace-decorated responses, skips the collection itself and decodes hrefs', async () => {
+    const mount = await mountWith('webdav', { baseUrl: 'https://dav.example.com/dav/root', rootPath: '' }, {
+      username: 'user',
+      password: 'secret',
+    })
+    fetchMock.mockResolvedValueOnce(new Response(
+      `<?xml version="1.0" encoding="utf-8"?>
+       <D:multistatus xmlns:D="DAV:">
+         <D:response xmlns:lp2="http://apache.org/dav/props/" xmlns:lp1="DAV:">
+           <D:href>/dav/root/</D:href>
+           <D:propstat><D:prop><lp1:resourcetype><D:collection/></lp1:resourcetype></D:prop></D:propstat>
+         </D:response>
+         <D:response xmlns:lp2="http://apache.org/dav/props/">
+           <D:href>/dav/root/Folder%20One/</D:href>
+           <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+         </D:response>
+         <D:response xmlns:lp2="http://apache.org/dav/props/">
+           <D:href>https://dav.example.com/dav/root/photo%20one.jpg</D:href>
+           <D:propstat><D:prop>
+             <D:getcontentlength>42</D:getcontentlength>
+             <D:getlastmodified>Wed, 01 Oct 2026 10:00:00 GMT</D:getlastmodified>
+           </D:prop></D:propstat>
+         </D:response>
+       </D:multistatus>`,
+      { status: 207, headers: { 'content-type': 'application/xml' } },
+    ))
+    const listing = await listExternal(env, db, mount, '/')
+    expect(listing.folders.map((entry) => entry.name)).toEqual(['Folder One'])
+    expect(listing.files.map((entry) => entry.name)).toEqual(['photo one.jpg'])
+    expect(listing.files[0]!.size).toBe(42)
+    const init = fetchMock.mock.calls[0]![1] as RequestInit
+    expect(callUrl()).toBe('https://dav.example.com/dav/root/')
+    expect((init.headers as Record<string, string>).Depth).toBe('1')
+    expect((init.headers as Record<string, string>).Authorization).toBe(`Basic ${btoa('user:secret')}`)
+  })
+
+  it('adds a trailing slash to a base URL that lacks one', async () => {
+    const mount = await mountWith('webdav', { baseUrl: 'https://dav.example.com/dav/root' }, { username: 'u', password: 'p' })
+    fetchMock.mockResolvedValueOnce(new Response('<D:multistatus xmlns:D="DAV:"/>', { status: 207 }))
+    await listExternal(env, db, mount, '/')
+    expect(callUrl()).toBe('https://dav.example.com/dav/root/')
+  })
+})
+
+describe('S3 driver', () => {
+  const listXml = `<?xml version="1.0" encoding="UTF-8"?>
+    <ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+      <Contents><Key>root/readme.txt</Key><LastModified>2026-10-01T10:00:00.000Z</LastModified><Size>7</Size></Contents>
+      <CommonPrefixes><Prefix>root/docs/</Prefix></CommonPrefixes>
+    </ListBucketResult>`
+
+  it('uses path-style requests when pathStyle is true', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    fetchMock.mockResolvedValueOnce(new Response(listXml, { status: 200 }))
+    const listing = await listExternal(env, db, mount, '/')
+    expect(listing.folders.map((entry) => entry.name)).toEqual(['docs'])
+    expect(listing.files.map((entry) => entry.name)).toEqual(['readme.txt'])
+    expect(callUrl()).toBe('https://s3.example.com/bucket?list-type=2&delimiter=%2F&max-keys=1000')
+  })
+
+  it('uses virtual-hosted requests when pathStyle is false', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: false,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    fetchMock.mockResolvedValueOnce(new Response(listXml, { status: 200 }))
+    await listExternal(env, db, mount, '/')
+    expect(callUrl()).toBe('https://bucket.s3.example.com/?list-type=2&delimiter=%2F&max-keys=1000')
+  })
+
+  it('reads through the same addressing style as the list', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: false,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    fetchMock.mockResolvedValueOnce(new Response('bytes', { status: 200 }))
+    const response = await readExternal(env, db, mount, '/readme.txt', null)
+    expect(await response?.text()).toBe('bytes')
+    expect(callUrl()).toBe('https://bucket.s3.example.com/readme.txt')
   })
 })
 
