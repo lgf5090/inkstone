@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Copy, Download, GitCompare, Loader2 } from 'lucide-react'
 import type { DatabaseConnectionView, SchemaModel } from '@shared/development/database/types'
+import { MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { Button } from '../../../components/primitives'
@@ -40,6 +41,7 @@ export interface CompareDialogProps {
 interface CompareResult {
   statements: string[]
   summary: string
+  truncated?: boolean
 }
 
 export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectionId, sourceSchema, connections, onClose, onError }: CompareDialogProps) {
@@ -106,8 +108,11 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
           onError(t('development.database.compare.need_key'))
           return
         }
-        const sourceRows = await sourceDriver.query(`SELECT * FROM ${quoteIdent(table.name)} LIMIT 5000`)
-        const targetRows = await targetDriver.query(`SELECT * FROM ${quoteIdent(table.name)} LIMIT 5000`)
+        const orderBy = keysToUse.map(quoteIdent).join(', ')
+        const rowSql = `SELECT * FROM ${quoteIdent(table.name)} ORDER BY ${orderBy} LIMIT ${MAX_QUERY_ROWS}`
+        const sourceRows = await sourceDriver.query(rowSql)
+        const targetRows = await targetDriver.query(rowSql)
+        const truncated = Boolean(sourceRows.truncated || targetRows.truncated)
         const diff = diffRows({
           table: table.name,
           keyColumns: keysToUse,
@@ -115,10 +120,11 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
           sourceRows: sourceRows.rows,
           targetColumns: targetRows.columns,
           targetRows: targetRows.rows,
-        })
+        }, { allowDeletes: !truncated })
         setResult({
           statements: [...diff.inserts, ...diff.updates, ...diff.deletes],
           summary: t('development.database.compare.data_summary', { inserts: diff.inserts.length, updates: diff.updates.length, deletes: diff.deletes.length }),
+          ...(truncated ? { truncated: true } : {}),
         })
       }
     } catch (error) {
@@ -293,6 +299,11 @@ export function CompareDialog({ open, sourceDriver, sourceLabel, sourceConnectio
         {result && (
           <div className="space-y-2">
             <p className="text-[length:var(--text-12)] text-[var(--text-primary)]">{result.summary}</p>
+            {result.truncated && (
+              <p role="status" className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--warning)]">
+                {t('development.database.compare.truncated_note', { rows: MAX_QUERY_ROWS })}
+              </p>
+            )}
             <pre className="max-h-64 overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 font-mono text-[length:var(--text-10)] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-all">{result.statements.join('\n') || t('development.database.compare.no_changes')}</pre>
             <p className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.compare.apply_hint')}</p>
           </div>

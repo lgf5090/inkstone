@@ -360,6 +360,36 @@ describe('development database core', () => {
     expect(diffRows({ table: 't', keyColumns: ['missing'], sourceColumns: ['id'], sourceRows: [[1]], targetColumns: ['id'], targetRows: [] })).toEqual({ inserts: [], updates: [], deletes: [] })
   })
 
+  it('matches null keys with IS NULL and can omit deletes for a truncated sample', () => {
+    const nullKey = diffRows({
+      table: 't',
+      keyColumns: ['k'],
+      sourceColumns: ['k', 'v'],
+      sourceRows: [[null, 'a']],
+      targetColumns: ['k', 'v'],
+      targetRows: [[null, 'b']],
+    })
+    expect(nullKey.updates).toEqual([`UPDATE "t" SET "v" = 'a' WHERE "k" IS NULL;`])
+    const deleted = diffRows({
+      table: 't',
+      keyColumns: ['k'],
+      sourceColumns: ['k'],
+      sourceRows: [],
+      targetColumns: ['k'],
+      targetRows: [[null]],
+    })
+    expect(deleted.deletes).toEqual([`DELETE FROM "t" WHERE "k" IS NULL;`])
+    const kept = diffRows({
+      table: 't',
+      keyColumns: ['k'],
+      sourceColumns: ['k'],
+      sourceRows: [],
+      targetColumns: ['k'],
+      targetRows: [[7]],
+    }, { allowDeletes: false })
+    expect(kept.deletes).toEqual([])
+  })
+
   it('diagnoses missing tables and unknown qualified columns', () => {
     const schema = {
       tables: [

@@ -133,6 +133,7 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.compare.run": "Compare",
   "development.database.compare.schema_summary": "Target misses {missing} tables, needs {added} columns; {changed} tables differ by type/extra columns",
   "development.database.compare.data_summary": "{inserts} inserts, {updates} updates, {deletes} deletes",
+  "development.database.compare.truncated_note": "Only the first {rows} rows were compared and no deletes were generated; narrow the range before comparing again.",
   "development.database.compare.no_changes": "No differences",
   "development.database.compare.download": "Download SQL",
   "development.database.compare.apply": "Apply changes",

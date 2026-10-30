@@ -16,12 +16,17 @@ export interface DataDiffResult {
   deletes: string[]
 }
 
+export interface DataDiffOptions {
+  allowDeletes?: boolean
+}
+
 function keyOf(row: unknown[], indexes: number[]): string {
   return indexes.map((index) => JSON.stringify(row[index] ?? null)).join('|')
 }
 
-export function diffRows(input: DataDiffInput): DataDiffResult {
+export function diffRows(input: DataDiffInput, options: DataDiffOptions = {}): DataDiffResult {
   const empty: DataDiffResult = { inserts: [], updates: [], deletes: [] }
+  const allowDeletes = options.allowDeletes ?? true
   const sourceKeyIndexes = input.keyColumns.map((column) => input.sourceColumns.indexOf(column))
   const targetKeyIndexes = input.keyColumns.map((column) => input.targetColumns.indexOf(column))
   if (input.keyColumns.length === 0 || sourceKeyIndexes.some((index) => index < 0) || targetKeyIndexes.some((index) => index < 0)) {
@@ -33,7 +38,12 @@ export function diffRows(input: DataDiffInput): DataDiffResult {
     .filter(({ column }) => targetIndexByColumn.has(column))
 
   const keyClause = (row: unknown[], indexes: number[]) => input.keyColumns
-    .map((column, position) => `${quoteIdent(column)} = ${sqlLiteral(row[indexes[position]!])}`)
+    .map((column, position) => {
+      const value = row[indexes[position]!]
+      return value === null || value === undefined
+        ? `${quoteIdent(column)} IS NULL`
+        : `${quoteIdent(column)} = ${sqlLiteral(value)}`
+    })
     .join(' AND ')
 
   const targetByKey = new Map<string, unknown[]>()
@@ -62,7 +72,7 @@ export function diffRows(input: DataDiffInput): DataDiffResult {
   }
 
   for (const row of input.targetRows) {
-    if (!seen.has(keyOf(row, targetKeyIndexes))) {
+    if (allowDeletes && !seen.has(keyOf(row, targetKeyIndexes))) {
       deletes.push(`DELETE FROM ${quoteIdent(input.table)} WHERE ${keyClause(row, targetKeyIndexes)};`)
     }
   }
