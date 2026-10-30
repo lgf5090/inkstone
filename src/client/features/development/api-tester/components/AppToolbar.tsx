@@ -156,7 +156,9 @@ export function AppToolbar({
           className="flex min-w-0 shrink items-center gap-1 rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-1.5 py-0.5 text-[length:var(--text-10-5)] text-[var(--danger)]"
         >
           <AlertTriangle size={11} className="shrink-0" aria-hidden="true" />
-          <span className="min-w-0 max-w-[220px] truncate" title={saveError}>{saveError}</span>
+          <span className="min-w-0 max-w-[220px] truncate" title={saveError}>
+            {t('development.apitester.app.save_failed')} · {saveError}
+          </span>
           <Button
             size="sm"
             variant="ghost"
