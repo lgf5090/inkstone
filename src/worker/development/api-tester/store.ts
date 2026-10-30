@@ -232,7 +232,8 @@ export async function insertHistory(
       .prepare(
         `INSERT INTO development_apitester_history (id, user_id, workspace_id, data, ts)
          VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, id) DO UPDATE SET data = excluded.data, ts = excluded.ts`,
+         ON CONFLICT(user_id, id) DO UPDATE SET data = excluded.data, ts = excluded.ts
+          WHERE development_apitester_history.workspace_id = excluded.workspace_id`,
       )
       .bind(entry.id, userId, workspaceId, entry.ciphertext, entry.ts),
     db

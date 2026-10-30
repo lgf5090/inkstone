@@ -57,6 +57,19 @@ describe('API Tester workspace store', () => {
     await expect(saveState(db, USER, workspace!.id, 'stale', 1)).rejects.toMatchObject({ status: 409 })
   })
 
+  it('never re-files a history row into another workspace', async () => {
+    const [first] = await ensureDefaultWorkspace(db, USER)
+    const second = await createWorkspace(db, USER, { name: 'Other' })
+    await insertHistory(db, USER, first!.id, { id: 'h-shared', ts: 10, ciphertext: 'first-copy' })
+
+    await insertHistory(db, USER, second.workspace.id, { id: 'h-shared', ts: 20, ciphertext: 'second-copy' })
+
+    const rows = await listHistoryRows(db, USER, first!.id)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ ts: 10, data: 'first-copy' })
+    expect(await listHistoryRows(db, USER, second.workspace.id)).toEqual([])
+  })
+
   it('trims history to the newest 100 entries', async () => {
     const [workspace] = await ensureDefaultWorkspace(db, USER)
     for (let index = 0; index < 105; index++) {
