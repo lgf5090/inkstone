@@ -115,6 +115,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
   const [refreshSeconds, setRefreshSeconds] = useState(0)
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
   const [currentSql, setCurrentSql] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadSeq = useRef(0)
   const lastLoadError = useRef<string | null>(null)
@@ -182,6 +183,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         setDetailRow(null)
       }
       lastLoadError.current = null
+      setLoadError(null)
 
       if (!skipCount) {
         try {
@@ -200,6 +202,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         lastLoadError.current = message
         onError(message)
       }
+      if (seq === loadSeq.current) setLoadError(message)
     } finally {
       if (seq === loadSeq.current) setLoading(false)
     }
@@ -918,6 +921,13 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         </div>
       )}
 
+      {loadError && (
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-11)] text-[var(--danger)]">
+          <span className="min-w-0 flex-1 truncate" title={loadError}>{loadError}</span>
+          <Button variant="secondary" size="sm" onClick={() => void load(page, pageSize, sort, where)}>{t('common.retry')}</Button>
+        </div>
+      )}
+
       <div className="relative min-h-0 flex-1">
         {editable ? (
           <ResultGrid
@@ -1124,7 +1134,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
         open={distinctColumn !== null}
         table={table.name}
         column={distinctColumn ?? columns[0] ?? ''}
-        knownColumns={table.columns.map((column) => column.name)}
+        knownColumns={searchColumns}
         driver={driver}
         onPick={(value) => pickDistinct(value)}
         onClose={() => setDistinctColumn(null)}
@@ -1133,7 +1143,7 @@ export function DataTable({ driver, table, active = true, ensureWritable, onSche
       <FilterDialog
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
-        columns={table.columns.map((column) => column.name)}
+        columns={searchColumns}
         filters={filters}
         onChange={(next) => {
           setFilters(next)

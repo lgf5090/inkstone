@@ -12,6 +12,7 @@ export interface SqlEditorProps {
   onCursorChange?: (line: number, column: number) => void
   placeholder?: string
   readOnly?: boolean
+  ariaLabel?: string
   className?: string
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Upload } from 'lucide-react'
 import type { D1DatabaseInfo, DatabaseConnectionView } from '@shared/development/database/types'
 import { Button } from '../../../components/primitives'
@@ -38,6 +38,7 @@ export function ConnectionDialog({
   const [tursoUrl, setTursoUrl] = useState('')
   const [tursoToken, setTursoToken] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -342,16 +343,24 @@ export function ConnectionDialog({
 
         {type === 'sqlite' && (
           <Field label={t('development.database.conn.sqlite_file')} hint={t('development.database.conn.sqlite_hint')}>
-            <label className="flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] px-3 py-3 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              className="flex min-h-20 w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] px-3 py-3 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            >
               <Upload size={18} />
               {file ? file.name : t('development.database.conn.choose_file')}
-              <input
-                type="file"
-                className="hidden"
-                accept=".db,.sqlite,.sqlite3,.db3"
-                onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
-              />
-            </label>
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              className="hidden"
+              accept=".db,.sqlite,.sqlite3,.db3"
+              onChange={(event) => {
+                chooseFile(event.target.files?.[0] ?? null)
+                event.target.value = ''
+              }}
+            />
           </Field>
         )}
         {type !== 'sqlite' && testResult && (

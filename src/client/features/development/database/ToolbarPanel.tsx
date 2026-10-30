@@ -27,23 +27,33 @@ export function ToolbarPanel({
   suspended = false,
 }: ToolbarPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const [position, setPosition] = useState({ top: 0, left: 0, width })
 
   useEscape(open && !suspended, onClose)
   useClickOutside([panelRef, anchor], open && !suspended, onClose)
 
   useLayoutEffect(() => {
     if (!open) return
-    const rect = anchor.current?.getBoundingClientRect()
-    if (!rect) return
-    const margin = 8
-    const maxLeft = window.innerWidth - width - margin
-    const left = align === 'end' ? rect.right - width : rect.left
-    const panelHeight = panelRef.current?.offsetHeight ?? 320
-    const top = rect.bottom + 6 + panelHeight > window.innerHeight - margin
-      ? Math.max(margin, rect.top - panelHeight - 6)
-      : rect.bottom + 6
-    setPosition({ top, left: Math.min(Math.max(margin, left), maxLeft) })
+    const place = () => {
+      const rect = anchor.current?.getBoundingClientRect()
+      if (!rect) return
+      const margin = 8
+      const effectiveWidth = Math.min(width, window.innerWidth - margin * 2)
+      const maxLeft = window.innerWidth - effectiveWidth - margin
+      const left = align === 'end' ? rect.right - effectiveWidth : rect.left
+      const panelHeight = panelRef.current?.offsetHeight ?? 320
+      const top = rect.bottom + 6 + panelHeight > window.innerHeight - margin
+        ? Math.max(margin, rect.top - panelHeight - 6)
+        : rect.bottom + 6
+      setPosition({ top, left: Math.min(Math.max(margin, left), maxLeft), width: effectiveWidth })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
   }, [open, anchor, align, width])
 
   useEffect(() => {
@@ -68,7 +78,7 @@ export function ToolbarPanel({
         'rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
         className,
       )}
-      style={{ top: position.top, left: position.left, width }}
+      style={{ top: position.top, left: position.left, width: position.width }}
     >
       {children}
     </div>,

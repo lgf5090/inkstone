@@ -185,6 +185,7 @@ export interface SchemaModel {
   views: { name: string; sql: string }[]
   triggers: { name: string; sql: string }[]
   indexes: TableIndexInfo[]
+  truncated?: boolean
 }
 
 export interface TableSortRule {

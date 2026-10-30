@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import type { QueryHistoryEntry, QueryResult, SavedQuery, SchemaModel } from '@shared/development/database/types'
-import { MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
+import { HISTORY_LIMIT_MAX, MAX_QUERY_BYTES, MAX_QUERY_ROWS } from '@shared/development/database/types'
 import { splitSqlStatements, isWriteSql, isDestructiveSql, isSchemaChangeSql } from '@shared/development/database/sql-utils'
 import { isImeComposing } from '../../../lib/ime'
 import { useUi } from '../../../store/ui'
@@ -65,7 +65,6 @@ import {
 
 const LOCAL_HISTORY_PREFIX = 'inkstone.development.database.history.'
 const LOCAL_SAVED_PREFIX = 'inkstone.development.database.saved.'
-const MAX_LOCAL_HISTORY = 30
 
 function readLocal<T>(key: string, fallback: T): T {
   try {
@@ -131,7 +130,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [sqlOpen, setSqlOpen] = useState(false)
   const [peekOpen, setPeekOpen] = useState(false)
   const [chartOpen, setChartOpen] = useState(false)
-  const diagnostics = useMemo(() => (sql.trim() ? diagnoseSql(sql, schemaModel) : []), [schemaModel, sql])
+  const diagnostics = useMemo(() => (sql.trim() && sql.length <= 20_000 ? diagnoseSql(sql, schemaModel) : []), [schemaModel, sql])
   const [fileRunning, setFileRunning] = useState(false)
   const [fileRun, setFileRun] = useState<{ name: string; total: number; done: number; failed: Array<{ index: number; sql: string; message: string }> } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -141,6 +140,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 0 })
   const [resultSearch, setResultSearch] = useState('')
+  const [debouncedResultSearch, setDebouncedResultSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedResultSearch(resultSearch), 200)
+    return () => clearTimeout(timer)
+  }, [resultSearch])
   const [detailRow, setDetailRow] = useState<number | null>(null)
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
   const [history, setHistory] = useState<QueryHistoryEntry[]>([])
@@ -158,6 +162,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const [groupConfirm, setGroupConfirm] = useState(false)
   const [placeholderValues, setPlaceholderValues] = useState<PlaceholderValues>({})
   const [sidePanel, setSidePanel] = useState<'ai' | 'agent' | null>(null)
+  const [panelVisited, setPanelVisited] = useState({ ai: false, agent: false })
+  useEffect(() => {
+    if (!sidePanel) return
+    setPanelVisited((current) => current[sidePanel] ? current : { ...current, [sidePanel]: true })
+  }, [sidePanel])
+  const anyPanelMounted = panelVisited.ai || panelVisited.agent
   const historyAnchor = useRef<HTMLButtonElement>(null)
   const savedAnchor = useRef<HTMLButtonElement>(null)
   const settingsSaving = useRef(false)
@@ -167,6 +177,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     for (const table of schemaModel.tables) result[table.name] = table.columns.map((column) => column.name)
     return result
   }, [schemaModel])
+
+  const statementCount = useMemo(() => splitSqlStatements(sql).length, [sql])
+  const aiTables = useMemo(
+    () => schemaModel.tables.map((table) => ({ name: table.name, columns: table.columns.map((column) => ({ name: column.name, type: column.type })) })),
+    [schemaModel],
+  )
 
   const placeholders = useMemo(() => findPlaceholders(sql), [sql])
 
@@ -182,12 +198,17 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     if (!isLocal) {
       void listHistory(connectionId).then(setHistory).catch((cause) => onError(describeError(cause)))
       void listSavedQueries(connectionId).then(setSaved).catch((cause) => onError(describeError(cause)))
-      void getSettings().then((settings) => setHistoryLimited(settings.historyLimit)).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
     } else {
-      setHistory(readLocal<unknown[]>(`${LOCAL_HISTORY_PREFIX}${connectionId}`, []).slice(0, MAX_LOCAL_HISTORY).map(historyEntry))
+      setHistory(readLocal<unknown[]>(`${LOCAL_HISTORY_PREFIX}${connectionId}`, []).slice(0, HISTORY_LIMIT_MAX).map(historyEntry))
       setSaved(readLocal<SavedQuery[]>(`${LOCAL_SAVED_PREFIX}${connectionId}`, []))
     }
+    void getSettings().then((settings) => setHistoryLimited(settings.historyLimit)).catch((error) => console.warn('[inkstone] Development database history settings could not be read:', error))
   }, [connectionId, isLocal, onError])
+
+  useEffect(() => {
+    if (!isLocal) return
+    setHistory((current) => current.slice(0, historyLimited))
+  }, [historyLimited, isLocal])
 
   useEffect(() => {
     if (initialSql) setSql(initialSql)
@@ -450,20 +471,23 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
   const active = results[activeResult]
   const filteredRows = useMemo(() => {
     if (!active) return []
-    const query = resultSearch.trim().toLowerCase()
+    const query = debouncedResultSearch.trim().toLowerCase()
     if (!query) return active.rows
     return active.rows.filter((row) => active.columns.some((_, index) => {
       const value = row[index]
       return value !== null && value !== undefined && String(value).toLowerCase().includes(query)
     }))
-  }, [active, resultSearch])
+  }, [active, debouncedResultSearch])
 
   const selectResult = (index: number) => {
     setActiveResult(index)
     setResultSearch('')
+    setDebouncedResultSearch('')
     setDetailRow(null)
     setSelectedRows(new Set())
   }
+
+  const selectDetailRow = useCallback((index: number) => setDetailRow(index), [])
 
   const saveQuery = async () => {
     if (!saveName.trim() || !sql.trim()) return
@@ -559,8 +583,8 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
     }
     settingsSaving.current = true
     try {
+      await updateSettings(historyLimited)
       if (!isLocal) {
-        await updateSettings(historyLimited)
         const entries = await listHistory(connectionId)
         setHistory(entries)
       } else {
@@ -607,7 +631,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
           <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
             <Button size="sm" onClick={() => void execute()} disabled={running || !sql.trim()}>
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-              {t('development.database.query.run')}
+              {statementCount > 1 ? t('development.database.query.run_all') : t('development.database.query.run')}
             </Button>
             <Button variant="secondary" size="sm" onClick={() => void explain()} disabled={running || !sql.trim()}>
               {t('development.database.query.explain')}
@@ -666,6 +690,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
               value={sql}
               onChange={setSql}
               schema={namespace}
+              ariaLabel={t('development.database.query.editor_label')}
               onExecute={(text) => void execute(text)}
               onFormat={() => void format()}
               onCursorChange={(line, column) => setCursor({ line, column })}
@@ -734,12 +759,12 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          {error && <div className="shrink-0 border-b border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">{error}</div>}
+          {error && <div role="alert" className="shrink-0 border-b border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">{error}</div>}
           {results.length > 0 && (
             <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2 py-1">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                 {results.map((result, index) => (
-                  <Button key={index} variant={index === activeResult ? 'primary' : 'ghost'} size="sm" onClick={() => selectResult(index)}>
+                  <Button key={index} variant={index === activeResult ? 'primary' : 'ghost'} size="sm" onClick={() => selectResult(index)} aria-pressed={index === activeResult}>
                     {t('development.database.query.result', { n: index + 1 })}
                     <span className="ml-1 opacity-70">{result.columns.length} {t('development.database.query.cols')}</span>
                     {typeof result.rowsAffected === 'number' && result.rowsAffected > 0 && <span className="ml-1 opacity-70">{t('development.database.query.affected', { count: result.rowsAffected })}</span>}
@@ -784,7 +809,11 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
                 <Input
                   value={resultSearch}
-                  onChange={(event) => setResultSearch(event.target.value)}
+                  onChange={(event) => {
+                    setResultSearch(event.target.value)
+                    setSelectedRows(new Set())
+                    setDetailRow(null)
+                  }}
                   onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Escape') setResultSearch('') }}
                   placeholder={t('development.database.query.search_result', { n: activeResult + 1, cols: active.columns.length })}
                   className="h-8 pl-8 pr-8 text-[length:var(--text-11)]"
@@ -809,7 +838,7 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
                     selectedRows={selectedRows}
                     onSelectionChange={setSelectedRows}
                     selectedRow={detailRow}
-                    onRowClick={(index) => setDetailRow(index)}
+                    onRowClick={selectDetailRow}
                   />
                 )
               ) : (
@@ -838,28 +867,35 @@ export function QueryTab({ driver, connectionId, connectionType, schemaModel, in
         </div>
       </div>
 
-      {sidePanel && (
-        <aside className="relative z-20 flex w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)] max-sm:absolute max-sm:inset-y-0 max-sm:right-0 max-sm:w-full">
-          <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
-            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
-              {sidePanel === 'ai' ? <Sparkles size={14} className="text-[var(--accent)]" /> : null}
-              {sidePanel === 'ai' ? t('development.database.query.ai_assistant') : t('development.database.query.db_agent')}
-            </span>
-            <IconButton label={t('development.database.query.close_sidebar')} size="sm" onClick={() => setSidePanel(null)}>
-              <X size={14} />
-            </IconButton>
-          </div>
+      {anyPanelMounted && (
+        <aside className={cn('relative z-20 w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)] max-sm:absolute max-sm:inset-y-0 max-sm:right-0 max-sm:w-full', sidePanel ? 'flex' : 'hidden')}>
+          {sidePanel && (
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
+                {sidePanel === 'ai' ? <Sparkles size={14} className="text-[var(--accent)]" /> : null}
+                {sidePanel === 'ai' ? t('development.database.query.ai_assistant') : t('development.database.query.db_agent')}
+              </span>
+              <IconButton label={t('development.database.query.close_sidebar')} size="sm" onClick={() => setSidePanel(null)}>
+                <X size={14} />
+              </IconButton>
+            </div>
+          )}
           <div className="min-h-0 flex-1">
-            {sidePanel === 'ai' ? (
-              <AiSqlPanel
-                tables={schemaModel.tables.map((table) => ({ name: table.name, columns: table.columns.map((column) => ({ name: column.name, type: column.type })) }))}
-                currentSql={sql}
-                onInsert={insertSql}
-                onError={onError}
-                className="h-full"
-              />
-            ) : (
-              <AgentPanel className="h-full" />
+            {panelVisited.ai && (
+              <div className={sidePanel === 'ai' ? 'h-full' : 'hidden'}>
+                <AiSqlPanel
+                  tables={aiTables}
+                  currentSql={sql}
+                  onInsert={insertSql}
+                  onError={onError}
+                  className="h-full"
+                />
+              </div>
+            )}
+            {panelVisited.agent && (
+              <div className={sidePanel === 'agent' ? 'h-full' : 'hidden'}>
+                <AgentPanel className="h-full" onToolComplete={onSchemaChanged} />
+              </div>
             )}
           </div>
         </aside>

@@ -38,6 +38,8 @@ export interface StudioSidebarProps {
   collapsed?: boolean
   connections: DatabaseConnectionView[]
   loading: boolean
+  connectionsError?: string | null
+  onRetryConnections?: () => void
   selection: StudioSelection | null
   localName?: string
   schema: SchemaModel | null
@@ -252,6 +254,8 @@ export function StudioSidebar(props: StudioSidebarProps) {
     collapsed = false,
     connections,
     loading,
+    connectionsError,
+    onRetryConnections,
     selection,
     localName,
     schema,
@@ -465,6 +469,16 @@ export function StudioSidebar(props: StudioSidebarProps) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {connectionsError && (
+            <div role="alert" className="mx-1 mb-2 rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+              <p className="break-words">{connectionsError}</p>
+              {onRetryConnections && (
+                <Button variant="secondary" size="sm" className="mt-2" onClick={onRetryConnections}>
+                  {t('common.retry')}
+                </Button>
+              )}
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center py-3">
               <Loader2 size={15} className="animate-spin text-[var(--text-tertiary)]" />
@@ -492,7 +506,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{localName}</span>
                       <span className="block truncate text-[length:var(--text-10)] text-[var(--text-tertiary)]">
-                        {t('development.database.app.local_file')}
+                        {t('development.database.app.local_file_memory')}
                       </span>
                     </span>
                   </button>
@@ -613,6 +627,11 @@ export function StudioSidebar(props: StudioSidebarProps) {
             </div>
           ) : schema ? (
             <div className="space-y-3">
+              {schema.truncated && (
+                <p role="status" className="mx-1.5 rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
+                  {t('development.database.app.schema_truncated')}
+                </p>
+              )}
               {filteredTables.map((table) => {
                 const expanded = expandedTables.has(table.name)
                 return (
@@ -641,7 +660,7 @@ export function StudioSidebar(props: StudioSidebarProps) {
                           </span>
                         )}
                         <span className="ml-auto shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
-                          {table.columns.length || '?'}
+                          {table.columns.length ? t('development.database.app.column_count_short', { count: table.columns.length }) : '?'}
                         </span>
                       </button>
                       <Tooltip label={t('development.database.app.edit_schema')}>

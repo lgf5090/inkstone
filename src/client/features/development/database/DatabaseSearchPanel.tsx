@@ -30,13 +30,20 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number; table: string } | null>(null)
   const [hits, setHits] = useState<TableHit[]>([])
+  const [failures, setFailures] = useState<Array<{ table: string; message: string }>>([])
   const [searched, setSearched] = useState(false)
   const cancelled = useRef(false)
 
   const reset = () => {
     setHits([])
+    setFailures([])
     setProgress(null)
     setSearched(false)
+  }
+
+  const close = () => {
+    cancelled.current = true
+    onClose()
   }
 
   const run = async () => {
@@ -47,6 +54,7 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
     setRunning(true)
     const perTable = Math.max(1, Math.min(DATA_SEARCH_LIMIT_MAX, Math.trunc(Number(limit)) || 20))
     const found: TableHit[] = []
+    const errors: Array<{ table: string; message: string }> = []
     try {
       for (let index = 0; index < tables.length; index++) {
         if (cancelled.current) break
@@ -59,12 +67,16 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
           const result = await driver.query(built.sql, built.params)
           if (result.rows.length > 0) found.push({ table: table.name, rows: result.rows, columns: result.columns })
         } catch (error) {
-          onError(t('development.database.search.table_failed', { table: table.name, message: error instanceof Error ? error.message : String(error) }))
+          errors.push({ table: table.name, message: error instanceof Error ? error.message : String(error) })
         }
         if (found.length > 0) setHits([...found])
       }
       setHits(found)
+      setFailures(errors)
       setSearched(true)
+      if (errors.length > 0) {
+        onError(t('development.database.search.table_failed', { table: errors[0]!.table, message: errors[0]!.message }))
+      }
     } finally {
       setRunning(false)
       setProgress(null)
@@ -76,11 +88,11 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={t('development.database.search.title')}
       description={t('development.database.search.hint', { tables: tables.length })}
       width={720}
-      footer={<Button variant="ghost" size="sm" onClick={onClose}>{t('development.database.common.cancel')}</Button>}
+      footer={<Button variant="ghost" size="sm" onClick={close}>{t('development.database.common.cancel')}</Button>}
     >
       <div className="space-y-3">
         <div className="flex items-end gap-2">
@@ -118,6 +130,13 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
         )}
 
         <div className="max-h-80 space-y-2 overflow-y-auto">
+          {failures.length > 0 && (
+            <div role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--danger)]">
+              {failures.slice(0, 3).map((failure) => (
+                <p key={failure.table}>{t('development.database.search.table_failed', { table: failure.table, message: failure.message })}</p>
+              ))}
+            </div>
+          )}
           {hits.length === 0 && searched && !running && (
             <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('development.database.search.no_results')}</p>
           )}
@@ -127,7 +146,7 @@ export function DatabaseSearchPanel({ open, tables, driver, onClose, onOpenTable
                 <Table2 size={12} className="text-[var(--text-tertiary)]" />
                 <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-primary)]">{hit.table}</span>
                 <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('development.database.search.row_count', { count: hit.rows.length })}</span>
-                <Button variant="ghost" size="sm" onClick={() => { onOpenTable(hit.table); onClose() }}>{t('development.database.search.open_table')}</Button>
+                <Button variant="ghost" size="sm" onClick={() => { onOpenTable(hit.table); close() }}>{t('development.database.search.open_table')}</Button>
               </div>
               <ul className="divide-y divide-[var(--border-subtle)]">
                 {hit.rows.slice(0, 5).map((row, index) => (

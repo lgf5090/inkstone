@@ -43,6 +43,7 @@ export function StudioCommandPalette({
   const listRef = useRef<HTMLDivElement>(null)
 
   const commands = useMemo<PaletteCommand[]>(() => {
+    if (!open) return []
     const list: PaletteCommand[] = []
     for (const connection of connections) {
       list.push({
@@ -74,7 +75,7 @@ export function StudioCommandPalette({
     list.push({ id: 'action-export-schema', label: t('development.database.palette.action_export_schema'), hint: '.schema.sql', group: t('development.database.palette.group_actions'), icon: 'action', run: onExportSchema })
     list.push({ id: 'action-refresh-schema', label: t('development.database.palette.action_refresh_schema'), hint: 'PRAGMA', group: t('development.database.palette.group_actions'), icon: 'action', run: onRefreshSchema })
     return list
-  }, [connections, hasLocal, onExportSchema, onNewQuery, onOpenData, onOpenSchema, onRefreshSchema, onSelectLocal, onSelectSaved, onViewSql, schema])
+  }, [open, connections, hasLocal, onExportSchema, onNewQuery, onOpenData, onOpenSchema, onRefreshSchema, onSelectLocal, onSelectSaved, onViewSql, schema])
 
   const compiledQuery = useMemo(() => compileQuery(query), [query])
 

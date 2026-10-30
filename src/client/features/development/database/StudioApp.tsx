@@ -98,6 +98,7 @@ export function StudioApp() {
   const initialLayout = useMemo(loadStudioLayout, [])
   const [connections, setConnections] = useState<DatabaseConnectionView[]>([])
   const [connectionsLoading, setConnectionsLoading] = useState(true)
+  const [connectionsError, setConnectionsError] = useState<string | null>(null)
   const [selection, setSelection] = useState<StudioSelection | null>(null)
   const [localFile, setLocalFile] = useState<{ name: string; file: File } | null>(null)
   const [schema, setSchema] = useState<SchemaModel | null>(null)
@@ -163,6 +164,7 @@ export function StudioApp() {
     try {
       const list = sortConnections(await listConnections())
       setConnections(list)
+      setConnectionsError(null)
       if (!restoredSession.current) {
         restoredSession.current = true
         const wanted = initialLayout.activeConnectionId
@@ -176,7 +178,9 @@ export function StudioApp() {
         return list.some((connection) => connection.id === current.id) ? current : null
       })
     } catch (error) {
-      notifyError(error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      setConnectionsError(message)
+      notifyError(message)
     } finally {
       setConnectionsLoading(false)
     }
@@ -511,6 +515,10 @@ export function StudioApp() {
   )
   const lastAssistantWrite = useRef(0)
   useEffect(() => {
+    if (assistantWriteCount === 0) {
+      lastAssistantWrite.current = 0
+      return
+    }
     if (assistantWriteCount <= lastAssistantWrite.current) return
     lastAssistantWrite.current = assistantWriteCount
     if (driver) void reloadSchema(driver)
@@ -707,6 +715,8 @@ export function StudioApp() {
       collapsed={!isSmall && sidebarCollapsed}
       connections={connections}
       loading={connectionsLoading}
+      connectionsError={connectionsError}
+      onRetryConnections={() => void refreshConnections()}
       selection={selection}
       localName={localFile?.name}
       schema={schema}
@@ -761,51 +771,98 @@ export function StudioApp() {
     />
   )
 
-  const connectionId = selection?.kind === 'saved' ? selection.id : selection?.kind === 'local' ? 'local' : ''
+  const connectionId = selection?.kind === 'saved'
+    ? selection.id
+    : selection?.kind === 'local'
+      ? `local:${selection.name}:${localFile?.file.size ?? 0}:${localFile?.file.lastModified ?? 0}`
+      : ''
   const connectionType = driver?.type ?? 'd1'
+
+  const queryTabNumbers = useMemo(() => {
+    const numbers = new Map<string, number>()
+    let count = 0
+    for (const tab of tabs) {
+      if (tab.kind === 'query') {
+        count += 1
+        numbers.set(tab.id, count)
+      }
+    }
+    return numbers
+  }, [tabs])
 
   const main = (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5" role="tablist" aria-label={t('development.database.app.tabs')}>
-        {tabs.map((tab) => {
-          const active = tab.id === activeTabId
-          return (
-            <div
-              key={tab.id}
-              className={cn(
-                'group flex h-8 max-w-52 min-w-0 shrink-0 items-center gap-1 rounded-t-[var(--r-md)] border border-b-0 px-2 text-[length:var(--text-12)]',
-                active
-                  ? 'border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-primary)]'
-                  : 'border-transparent text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-              )}
-              onClick={() => setActiveTabId(tab.id)}
-              role="tab"
-              aria-selected={active}
-              tabIndex={active ? 0 : -1}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') setActiveTabId(tab.id)
-              }}
-            >
-              {tabKindIcon(tab.kind)}
-              <span className="min-w-0 flex-1 truncate">{tabTitle(tab)}</span>
-              <button
-                type="button"
-                aria-label={t('development.database.app.close_tab')}
-                title={t('development.database.app.close_tab')}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  closeTab(tab.id)
-                }}
+      <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1.5">
+        <div
+          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
+          role="tablist"
+          aria-label={t('development.database.app.tabs')}
+        >
+          {tabs.map((tab) => {
+            const active = tab.id === activeTabId
+            const title = tab.kind === 'query' && queryTabNumbers.size > 1
+              ? `${t('development.database.app.query')} ${queryTabNumbers.get(tab.id)}`
+              : tabTitle(tab)
+            return (
+              <div
+                key={tab.id}
+                data-tab-id={tab.id}
                 className={cn(
-                  'rounded p-0.5 text-[var(--text-quaternary)] hover:text-[var(--text-primary)]',
-                  active ? 'opacity-70 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  'group flex h-8 max-w-52 min-w-0 shrink-0 items-center gap-1 rounded-t-[var(--r-md)] border border-b-0 px-2 text-[length:var(--text-12)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
+                  active
+                    ? 'border-[var(--border-default)] bg-[var(--bg-base)] text-[var(--text-primary)]'
+                    : 'border-transparent text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
                 )}
+                onClick={() => setActiveTabId(tab.id)}
+                role="tab"
+                aria-selected={active}
+                tabIndex={active ? 0 : -1}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setActiveTabId(tab.id)
+                    return
+                  }
+                  const index = tabs.findIndex((entry) => entry.id === tab.id)
+                  const next = event.key === 'ArrowLeft'
+                    ? (index - 1 + tabs.length) % tabs.length
+                    : event.key === 'ArrowRight'
+                      ? (index + 1) % tabs.length
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? tabs.length - 1
+                          : -1
+                  if (next < 0) return
+                  event.preventDefault()
+                  const target = tabs[next]!.id
+                  setActiveTabId(target)
+                  requestAnimationFrame(() => {
+                    document.querySelector<HTMLElement>(`[data-tab-id="${target}"]`)?.focus()
+                  })
+                }}
               >
-                <X size={12} />
-              </button>
-            </div>
-          )
-        })}
+                {tabKindIcon(tab.kind)}
+                <span className="min-w-0 flex-1 truncate">{title}</span>
+                <button
+                  type="button"
+                  aria-label={`${t('development.database.app.close_tab')} ${title}`}
+                  title={t('development.database.app.close_tab')}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    closeTab(tab.id)
+                  }}
+                  className={cn(
+                    'rounded p-0.5 text-[var(--text-quaternary)] hover:text-[var(--text-primary)]',
+                    active ? 'opacity-70 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  )}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
         <Tooltip label={t('development.database.app.new_tab')}>
           <IconButton
             ref={menuAnchor}
@@ -818,7 +875,6 @@ export function StudioApp() {
             <Plus size={14} />
           </IconButton>
         </Tooltip>
-        <div className="flex-1" />
         <Tooltip label={t('development.database.app.assistant')}>
           <IconButton
             label={t('development.database.app.assistant')}

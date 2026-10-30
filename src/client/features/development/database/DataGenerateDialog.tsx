@@ -13,8 +13,9 @@ import { generateRows, type GenConfig, type GenKind } from './data-generate'
 
 const KINDS: GenKind[] = ['skip', 'sequence', 'integer', 'real', 'text', 'uuid', 'email', 'ip', 'date', 'bool', 'enum']
 
-function defaultsFor(column: ParsedColumn): GenConfig {
+function defaultsFor(column: ParsedColumn, ordinal: number): GenConfig {
   if (column.pk && column.autoIncrement) return { kind: 'skip' }
+  if (column.pk) return { kind: 'sequence', start: ordinal * 1_000_000 + 1 }
   const type = column.type.toUpperCase()
   if (/INT/.test(type)) return { kind: 'integer', min: 1, max: 1000 }
   if (/REAL|FLOA|DOUB|NUM/.test(type)) return { kind: 'real', min: 0, max: 1000, decimals: 2 }
@@ -39,7 +40,7 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [configs, setConfigs] = useState<Record<string, GenConfig>>(() => {
     const initial: Record<string, GenConfig> = {}
-    for (const column of table.columns) initial[column.name] = defaultsFor(column)
+    table.columns.forEach((column, index) => { initial[column.name] = defaultsFor(column, index) })
     return initial
   })
 
@@ -54,20 +55,26 @@ export function DataGenerateDialog({ open, table, driver, ensureWritable, onClos
     if (active.length === 0 || running) return
     if (ensureWritable && !(await ensureWritable())) return
     setRunning(true)
+    const rows = generateRows(active.map((column) => ({ name: column.name, config: configs[column.name]! })), total)
+    let done = 0
     try {
-      const rows = generateRows(active.map((column) => ({ name: column.name, config: configs[column.name]! })), total)
-      for (let index = 0; index < rows.length; index++) {
-        const entries = active.map((column, position) => [column.name, rows[index]![position]!] as const)
+      for (; done < rows.length; done++) {
+        const entries = active.map((column, position) => [column.name, rows[done]![position]!] as const)
         const statement = buildInsert(table.name, entries)
         if (!statement) continue
         await driver.query(statement.sql, statement.params)
-        if ((index + 1) % 10 === 0 || index === rows.length - 1) setProgress({ done: index + 1, total })
+        if ((done + 1) % 10 === 0 || done === rows.length - 1) setProgress({ done: done + 1, total })
       }
       useUi.getState().toast({ title: t('development.database.generate.done', { count: total }), tone: 'success' })
       onGenerated()
       onClose()
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error))
+      if (done > 0) onGenerated()
+      onError(t('development.database.generate.partial', {
+        done,
+        total,
+        message: error instanceof Error ? error.message : String(error),
+      }))
     } finally {
       setRunning(false)
       setProgress(null)

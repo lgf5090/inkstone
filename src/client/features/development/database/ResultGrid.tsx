@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, ListFilter, Pin, PinOff, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY, type TableSortRule } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
@@ -76,7 +76,7 @@ export function renderCellValue(value: unknown): { text: string; className?: str
   return text.length > 200 ? { text: `${text.slice(0, 200)}…`, title: text } : { text, title: text }
 }
 
-export function ResultGrid({
+export const ResultGrid = memo(function ResultGrid({
   columns,
   rows,
   sort,
@@ -160,16 +160,21 @@ export function ResultGrid({
     onSelectionChange(next)
   }
 
-  const selectedTsv = useMemo(() => {
-    if (!selectedRows || selectedRows.size === 0) return ''
-    return [...selectedRows]
+  const copySelected = async () => {
+    if (!selectedRows || selectedRows.size === 0) return
+    const tsv = [...selectedRows]
       .sort((left, right) => left - right)
       .map((index) => columns.map((_, column) => {
         const value = rows[index]?.[column]
         return value === null || value === undefined ? '' : String(value)
       }).join('\t'))
       .join('\n')
-  }, [selectedRows, columns, rows])
+    const ok = await copyText(tsv)
+    useUi.getState().toast({
+      title: ok ? t('development.database.grid.copied_tsv') : t('development.database.common.copy_failed'),
+      tone: ok ? 'success' : 'danger',
+    })
+  }
 
   const resize = (event: ReactPointerEvent, column: number) => {
     event.preventDefault()
@@ -196,14 +201,6 @@ export function ResultGrid({
     event.preventDefault()
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     setMenu({ col: column, x: rect.left, y: rect.bottom + 4 })
-  }
-
-  const copySelected = async () => {
-    const ok = await copyText(selectedTsv)
-    useUi.getState().toast({
-      title: ok ? t('development.database.grid.copied_tsv') : t('development.database.common.copy_failed'),
-      tone: ok ? 'success' : 'danger',
-    })
   }
 
   const copySelectedMarkdown = async () => {
@@ -233,24 +230,26 @@ export function ResultGrid({
         setMenu(null)
       },
     },
-    {
-      id: 'asc',
-      label: t('development.database.grid.sort_asc'),
-      icon: <ArrowUp size={13} />,
-      onSelect: () => {
-        onSortDir?.(columns[menu.col]!, 'ASC')
-        setMenu(null)
+    ...(onSortDir ? [
+      {
+        id: 'asc',
+        label: t('development.database.grid.sort_asc'),
+        icon: <ArrowUp size={13} />,
+        onSelect: () => {
+          onSortDir(columns[menu.col]!, 'ASC')
+          setMenu(null)
+        },
       },
-    },
-    {
-      id: 'desc',
-      label: t('development.database.grid.sort_desc'),
-      icon: <ArrowDown size={13} />,
-      onSelect: () => {
-        onSortDir?.(columns[menu.col]!, 'DESC')
-        setMenu(null)
+      {
+        id: 'desc',
+        label: t('development.database.grid.sort_desc'),
+        icon: <ArrowDown size={13} />,
+        onSelect: () => {
+          onSortDir(columns[menu.col]!, 'DESC')
+          setMenu(null)
+        },
       },
-    },
+    ] : []),
     ...(onDistinctColumn ? [{
       id: 'distinct',
       label: t('development.database.grid.distinct_values'),
@@ -444,6 +443,12 @@ export function ResultGrid({
         )}
       </div>
 
+      {rows.length > 0 && rowKeyHint && (
+        <div className="pointer-events-none absolute bottom-0.5 left-2 z-10 text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+          {rowKeyHint}
+        </div>
+      )}
+
       {selectedRows && selectedRows.size > 0 && onSelectionChange && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
           <div className="pointer-events-auto flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-default)] bg-[var(--bg-overlay)] px-3 py-1.5 text-[length:var(--text-12)] shadow-[var(--shadow-pop)]">
@@ -472,4 +477,4 @@ export function ResultGrid({
       />
     </div>
   )
-}
+})

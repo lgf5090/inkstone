@@ -203,6 +203,7 @@ export interface SqlEditorImplProps {
   onCursorChange?: (line: number, column: number) => void
   placeholder?: string
   readOnly?: boolean
+  ariaLabel?: string
   className?: string
 }
 
@@ -215,6 +216,7 @@ export default function SqlEditorImpl({
   onCursorChange,
   placeholder,
   readOnly = false,
+  ariaLabel,
   className,
 }: SqlEditorImplProps) {
   const host = useRef<HTMLDivElement>(null)
@@ -349,6 +351,11 @@ export default function SqlEditorImpl({
           }
         }),
         EditorView.editable.of(!readOnly),
+        EditorView.contentAttributes.of({
+          role: 'textbox',
+          'aria-multiline': 'true',
+          ...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
+        }),
       ],
     })
     const editor = new EditorView({ state, parent: host.current })

@@ -50,7 +50,7 @@ export async function loadSchema(driver: StudioDriver): Promise<SchemaModel> {
   }
 
   const indexes: TableIndexInfo[] = parseIndexesFromSchema(objects)
-  return { tables, views, triggers, indexes }
+  return { tables, views, triggers, indexes, ...(result.truncated ? { truncated: true } : {}) }
 }
 
 export function buildSchemaNamespace(model: SchemaModel): Record<string, string[]> {

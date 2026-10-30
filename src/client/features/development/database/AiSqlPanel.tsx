@@ -148,7 +148,7 @@ export function AiSqlPanel({ tables, currentSql, onInsert, onError, className }:
       </div>
 
       <div className="flex shrink-0 items-center justify-end gap-1.5">
-        <Button variant="secondary" size="sm" disabled={!output.trim()} onClick={() => onInsert(output)}>
+        <Button variant="secondary" size="sm" disabled={!output.trim() || mode === 'explain'} onClick={() => onInsert(output)}>
           <Wand2 size={13} />
           {t('development.database.ai.insert')}
         </Button>
