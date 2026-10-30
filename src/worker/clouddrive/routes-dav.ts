@@ -32,6 +32,18 @@ import {
 import { cloudDriveUsage, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { authenticateApiKey, pathWithinPrefix } from './store-keys'
 import { createFolder, trashEntries } from './store-files'
+import {
+  deleteExternalPath,
+  externalCapacityBytes,
+  externalDirectUrl,
+  externalFolderSize,
+  externalProxyLocation,
+  listExternal,
+  mkdirExternal,
+  moveExternalPath,
+  readExternal,
+  writeExternalFile,
+} from './external'
 
 export const clouddriveDavRoutes = new Hono<AppBindings>()
 
@@ -152,9 +164,66 @@ function assertPrefix(actor: DavActor, path: string): void {
   }
 }
 
-async function davMount(c: Context<AppBindings>, userId: string): Promise<CloudDriveMountInfo> {
-  await ensurePrimaryMount(c.env.DB, userId)
-  return await resolveMount(c.env.DB, userId, 'primary')
+interface DavExternalMount {
+  id: string
+  name: string
+  mountPath: string
+  readOnly: boolean
+  storageType: string
+  apiKeyVisible: boolean
+}
+
+async function davExternalMounts(db: D1Database, userId: string): Promise<DavExternalMount[]> {
+  const { results } = await db.prepare(
+    `SELECT m.id, m.name, m.mount_path, m.read_only, s.type AS storage_type, s.api_key_visible
+       FROM CloudDrive_mounts m
+       JOIN CloudDrive_storages s ON s.user_id = m.user_id AND s.id = m.storage_id
+      WHERE m.user_id = ?1 AND m.enabled = 1 AND m.storage_id != 'primary' AND s.status = 'enabled'
+      ORDER BY m.sort_order, m.created_at, m.id`,
+  ).bind(userId).all<{
+    id: string
+    name: string
+    mount_path: string
+    read_only: number
+    storage_type: string
+    api_key_visible: number
+  }>()
+  return (results ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    mountPath: row.mount_path,
+    readOnly: row.read_only === 1,
+    storageType: row.storage_type,
+    apiKeyVisible: row.api_key_visible === 1,
+  }))
+}
+
+interface DavTarget {
+  mount: CloudDriveMountInfo
+  path: string
+  external: boolean
+}
+
+async function davTarget(c: Context<AppBindings>, actor: DavActor, path: string): Promise<DavTarget> {
+  await ensurePrimaryMount(c.env.DB, actor.userId)
+  const first = path.split('/').filter(Boolean)[0]
+  if (first) {
+    const mounts = await davExternalMounts(c.env.DB, actor.userId)
+    const hit = mounts.find((mount) => mount.mountPath === `/${first}`)
+    if (hit) {
+      if (actor.keyId && !hit.apiKeyVisible) throw ApiError.notFound('Mount not found')
+      const mount = await resolveMount(c.env.DB, actor.userId, hit.id)
+      const subPath = path === hit.mountPath ? '/' : path.slice(hit.mountPath.length)
+      return { mount, path: subPath || '/', external: true }
+    }
+  }
+  const mount = await resolveMount(c.env.DB, actor.userId, 'primary')
+  return { mount, path, external: false }
+}
+
+function virtualPath(mount: CloudDriveMountInfo, path: string): string {
+  if (mount.storageId === 'primary') return path
+  return path === '/' ? mount.mountPath : `${mount.mountPath}${path}`
 }
 
 function requireBucket(c: Context<AppBindings>): R2Bucket {
@@ -268,6 +337,44 @@ function xmlResponse(body: string): Response {
   })
 }
 
+function externalProperty(
+  path: string,
+  name: string,
+  kind: 'file' | 'folder',
+  size: number,
+  mime: string,
+  modifiedAt: number,
+): string {
+  const collection = kind === 'folder'
+  const href = hrefOf(path, collection)
+  const properties = [
+    `<D:displayname>${escapeXml(name)}</D:displayname>`,
+    collection ? '<D:resourcetype><D:collection/></D:resourcetype>' : '<D:resourcetype/>',
+    collection ? '' : `<D:getcontentlength>${size}</D:getcontentlength>`,
+    collection ? '' : `<D:getcontenttype>${escapeXml(mime || 'application/octet-stream')}</D:getcontenttype>`,
+    collection ? '' : `<D:getetag>${escapeXml(`"${size}-${modifiedAt}"`)}</D:getetag>`,
+    `<D:getlastmodified>${new Date(modifiedAt || Date.now()).toUTCString()}</D:getlastmodified>`,
+    '<D:supportedlock/>',
+    '<D:lockdiscovery/>',
+  ].join('')
+  return `<D:response><D:href>${escapeXml(href)}</D:href><D:propstat><D:prop>${properties}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`
+}
+
+function externalMountProperty(mount: CloudDriveMountInfo): string {
+  return externalProperty(mount.mountPath, mount.name, 'folder', 0, '', Date.now())
+}
+
+async function externalEntry(
+  c: Context<AppBindings>,
+  mount: CloudDriveMountInfo,
+  path: string,
+): Promise<{ name: string; kind: 'file' | 'folder'; size: number; mime: string; modifiedAt: number } | null> {
+  if (path === '/') return { name: mount.name, kind: 'folder', size: 0, mime: '', modifiedAt: Date.now() }
+  const listing = await listExternal(c.env, c.env.DB, mount, parentPathOf(path))
+  const name = filenameOf(path)
+  return [...listing.folders, ...listing.files].find((entry) => entry.name === name) ?? null
+}
+
 function mimeOf(header: string | undefined): string {
   const value = (header ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
   return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(value)
@@ -315,13 +422,49 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
     return new Response('Depth must be 0 or 1', { status: 400 })
   }
 
-  const mount = await davMount(c, auth.actor.userId)
-  const row = await resolveEntry(c.env.DB, auth.actor.userId, mount.id, path)
+  const target = await davTarget(c, auth.actor, path)
   const now = Date.now()
+  if (target.external) {
+    const entry = target.path === '/' ? null : await externalEntry(c, target.mount, target.path)
+    if (target.path !== '/' && !entry) throw ApiError.notFound('File not found')
+    const responses = [target.path === '/'
+      ? externalMountProperty(target.mount)
+      : externalProperty(
+        virtualPath(target.mount, target.path),
+        filenameOf(target.path),
+        entry!.kind,
+        entry!.size,
+        entry!.mime,
+        entry!.modifiedAt,
+      )]
+    if (depth === '1') {
+      const listing = await listExternal(c.env, c.env.DB, target.mount, target.path)
+      for (const listed of [...listing.folders, ...listing.files]) {
+        responses.push(externalProperty(
+          virtualPath(target.mount, listed.path),
+          listed.name,
+          listed.kind,
+          listed.size,
+          listed.mime,
+          listed.modifiedAt,
+        ))
+      }
+    }
+    return xmlResponse(`<D:multistatus xmlns:D="DAV:">${responses.join('')}</D:multistatus>`)
+  }
+
+  const row = await resolveEntry(c.env.DB, auth.actor.userId, target.mount.id, target.path)
   const responses = [propertyResponse(row, now)]
   if (depth === '1' && row.kind === 'folder') {
-    const children = await childRows(c.env.DB, auth.actor.userId, mount.id, row.id)
-    for (const child of children) responses.push(propertyResponse(child, now))
+    const children = await childRows(c.env.DB, auth.actor.userId, target.mount.id, row.id)
+    const mounts = target.path === '/'
+      ? (await davExternalMounts(c.env.DB, auth.actor.userId)).filter((mount) => !auth.actor.keyId || mount.apiKeyVisible)
+      : []
+    const mountPaths = new Set(mounts.map((mount) => mount.mountPath))
+    for (const child of children) {
+      if (!mountPaths.has(child.path)) responses.push(propertyResponse(child, now))
+    }
+    for (const mount of mounts) responses.push(externalProperty(mount.mountPath, mount.name, 'folder', 0, '', now))
   }
   return xmlResponse(`<D:multistatus xmlns:D="DAV:">${responses.join('')}</D:multistatus>`)
 })
@@ -331,8 +474,36 @@ clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
   if ('response' in auth) return auth.response
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
-  const mount = await davMount(c, auth.actor.userId)
-  const row = await resolveEntry(c.env.DB, auth.actor.userId, mount.id, path)
+  const target = await davTarget(c, auth.actor, path)
+  if (target.external) {
+    if (target.path === '/') return new Response('A collection cannot be downloaded', { status: 405 })
+    if (!target.mount.webProxy) {
+      const location = target.mount.webdavPolicy === '302_redirect'
+        ? await externalDirectUrl(c.env, c.env.DB, target.mount, target.path)
+        : target.mount.webdavPolicy === 'use_proxy_url'
+          ? await externalProxyLocation(c.env, c.env.DB, target.mount, target.path)
+          : null
+      if (location) return new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } })
+    }
+    const response = await readExternal(c.env, c.env.DB, target.mount, target.path, c.req.header('range') ?? null)
+    if (!response) throw ApiError.notFound('File not found')
+    const headers = new Headers({
+      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+      'Content-Disposition': contentDisposition(response.headers.get('content-type') ?? 'application/octet-stream', filenameOf(target.path)),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    })
+    for (const name of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
+      const value = response.headers.get(name)
+      if (value) headers.set(name, value)
+    }
+    if (c.req.method === 'HEAD') {
+      await response.body?.cancel()
+      return new Response(null, { status: response.status, headers })
+    }
+    return new Response(response.body, { status: response.status, headers })
+  }
+  const row = await resolveEntry(c.env.DB, auth.actor.userId, target.mount.id, target.path)
   if (row.kind !== 'file') return new Response('A collection cannot be downloaded', { status: 405 })
   if (row.storage_kind !== 'r2' || !row.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
@@ -393,7 +564,29 @@ clouddriveDavRoutes.put('*', async (c) => {
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('A file name is required', { status: 400 })
-  const mount = await davMount(c, auth.actor.userId)
+  const target = await davTarget(c, auth.actor, path)
+  if (target.external) {
+    if (target.path === '/') return new Response('A file name is required', { status: 400 })
+    if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+    const declared = Number(c.req.header('content-length'))
+    const maxBytes = auth.settings.uploadMaxFileBytes
+    if (Number.isFinite(declared) && declared > maxBytes) throw ApiError.tooLarge('The file exceeds the configured maximum size')
+    const bytes = new Uint8Array(await c.req.arrayBuffer())
+    if (bytes.byteLength > maxBytes) throw ApiError.tooLarge('The file exceeds the configured maximum size')
+    const capacity = await externalCapacityBytes(c.env.DB, target.mount)
+    if (capacity !== null) {
+      const usage = await externalFolderSize(c.env, c.env.DB, target.mount, '/')
+      if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
+      if (usage.bytes + bytes.byteLength > capacity) {
+        throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit')
+      }
+    }
+    const parent = parentPathOf(target.path)
+    if (parent !== '/') await mkdirExternal(c.env, c.env.DB, target.mount, parent)
+    await writeExternalFile(c.env, c.env.DB, target.mount, target.path, bytes, mimeOf(c.req.header('content-type')))
+    return new Response(null, { status: 201 })
+  }
+  const mount = target.mount
   assertWritable(mount)
   const bucket = requireBucket(c)
   const userId = auth.actor.userId
@@ -497,10 +690,16 @@ clouddriveDavRoutes.delete('*', async (c) => {
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('The root cannot be deleted', { status: 403 })
-  const mount = await davMount(c, auth.actor.userId)
-  assertWritable(mount)
-  const row = await resolveEntry(c.env.DB, auth.actor.userId, mount.id, path)
-  await trashEntries(c.env.DB, auth.actor.userId, mount.id, [row.id], Date.now())
+  const target = await davTarget(c, auth.actor, path)
+  if (target.external) {
+    if (target.path === '/') return new Response('A mount cannot be deleted', { status: 403 })
+    if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+    await deleteExternalPath(c.env, c.env.DB, target.mount, target.path)
+    return new Response(null, { status: 204 })
+  }
+  assertWritable(target.mount)
+  const row = await resolveEntry(c.env.DB, auth.actor.userId, target.mount.id, target.path)
+  await trashEntries(c.env.DB, auth.actor.userId, target.mount.id, [row.id], Date.now())
   return new Response(null, { status: 204 })
 })
 
@@ -510,12 +709,20 @@ clouddriveDavRoutes.on(['MKCOL'], '*', async (c) => {
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('The root already exists', { status: 405 })
-  const mount = await davMount(c, auth.actor.userId)
+  const target = await davTarget(c, auth.actor, path)
+  if (target.external) {
+    if (target.path === '/') return new Response('The mount already exists', { status: 405 })
+    if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+    if (await externalEntry(c, target.mount, target.path)) return new Response('The collection already exists', { status: 405 })
+    await mkdirExternal(c.env, c.env.DB, target.mount, target.path)
+    return new Response(null, { status: 201 })
+  }
+  const mount = target.mount
   assertWritable(mount)
-  if (await optionalEntry(c.env.DB, auth.actor.userId, mount.id, path)) {
+  if (await optionalEntry(c.env.DB, auth.actor.userId, mount.id, target.path)) {
     return new Response('The collection already exists', { status: 405 })
   }
-  const parentPath = parentPathOf(path)
+  const parentPath = parentPathOf(target.path)
   const parent = await optionalEntry(c.env.DB, auth.actor.userId, mount.id, parentPath)
   if (!parent || parent.kind !== 'folder') {
     return new Response('The parent collection does not exist', { status: 409 })
@@ -525,7 +732,7 @@ clouddriveDavRoutes.on(['MKCOL'], '*', async (c) => {
     auth.actor.userId,
     mount.id,
     parent,
-    parseName(filenameOf(path)),
+    parseName(filenameOf(target.path)),
     Date.now(),
   )
   if (!created.entry) return new Response('The collection already exists', { status: 405 })
@@ -578,10 +785,25 @@ clouddriveDavRoutes.on(['MOVE'], '*', async (c) => {
   if (sourcePath === '/' || destination === '/') {
     return new Response('The root cannot be moved', { status: 403 })
   }
-  const mount = await davMount(c, auth.actor.userId)
+  const sourceTarget = await davTarget(c, auth.actor, sourcePath)
+  const destinationTarget = await davTarget(c, auth.actor, destination)
+  if (sourceTarget.external || destinationTarget.external) {
+    if (!sourceTarget.external || !destinationTarget.external || sourceTarget.mount.id !== destinationTarget.mount.id) {
+      return new Response('Cross-mount WebDAV moves are not supported', { status: 502 })
+    }
+    if (sourceTarget.path === '/' || destinationTarget.path === '/') {
+      return new Response('A mount cannot be moved', { status: 403 })
+    }
+    if (sourceTarget.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+    const existing = await externalEntry(c, sourceTarget.mount, destinationTarget.path)
+    if (existing && !overwriteRequested(c)) return new Response(null, { status: 412 })
+    await moveExternalPath(c.env, c.env.DB, sourceTarget.mount, sourceTarget.path, destinationTarget.path)
+    return new Response(null, { status: existing ? 204 : 201 })
+  }
+  const mount = sourceTarget.mount
   assertWritable(mount)
   const userId = auth.actor.userId
-  const source = await resolveEntry(c.env.DB, userId, mount.id, sourcePath)
+  const source = await resolveEntry(c.env.DB, userId, mount.id, sourceTarget.path)
   if (destination === sourcePath) return new Response(null, { status: 204 })
   assertTransferable(source, destination)
 
@@ -639,10 +861,15 @@ clouddriveDavRoutes.on(['COPY'], '*', async (c) => {
   if (sourcePath === '/' || destination === '/') {
     return new Response('The root cannot be copied', { status: 403 })
   }
-  const mount = await davMount(c, auth.actor.userId)
+  const sourceTarget = await davTarget(c, auth.actor, sourcePath)
+  const destinationTarget = await davTarget(c, auth.actor, destination)
+  if (sourceTarget.external || destinationTarget.external) {
+    return new Response('COPY on external mounts is not supported', { status: 501 })
+  }
+  const mount = sourceTarget.mount
   assertWritable(mount)
   const userId = auth.actor.userId
-  const source = await resolveEntry(c.env.DB, userId, mount.id, sourcePath)
+  const source = await resolveEntry(c.env.DB, userId, mount.id, sourceTarget.path)
   assertTransferable(source, destination)
 
   const existing = await optionalEntry(c.env.DB, userId, mount.id, destination)
