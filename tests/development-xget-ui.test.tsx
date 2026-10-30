@@ -8,6 +8,7 @@ import { ConverterBar } from '../src/client/features/development/xget/components
 import { SettingsPanel } from '../src/client/features/development/xget/components/SettingsPanel'
 import { StatsView } from '../src/client/features/development/xget/components/StatsView'
 import type { XgetHistoryItem } from '../src/client/features/development/xget/lib/history'
+import { xgetTooltipOptions } from '../src/client/features/development/xget/lib/chart-options'
 
 const apiMocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -223,5 +224,19 @@ describe('the Xget stats view', () => {
     act(() => button(rendered!.container, t('development.xget.stats.range30')).click())
     await act(async () => {})
     expect(apiMocks.getStats).toHaveBeenLastCalledWith(30)
+  })
+
+  it('uses a readable tooltip background and index interaction', () => {
+    const colors = {
+      palette: ['#111111'],
+      identities: ['#222222'],
+      text: '#333333',
+      grid: 'rgba(0, 0, 0, 0.08)',
+    }
+    const options = xgetTooltipOptions(colors)
+    expect(options.backgroundColor).toBe(colors.grid)
+    expect(options.backgroundColor).not.toBe(colors.text)
+    expect(options.mode).toBe('index')
+    expect(options.intersect).toBe(false)
   })
 })

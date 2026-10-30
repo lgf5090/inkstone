@@ -14,6 +14,7 @@ import { Empty, LoadingBlock } from '../../../../components/feedback'
 import { ChartCanvas, type ChartColors } from '../../../../components/chart-canvas'
 import { xgetApi, describeXgetError } from '../api'
 import { CATEGORY_LABEL_KEYS, CATEGORY_ORDER } from '../lib/category'
+import { xgetTooltipOptions } from '../lib/chart-options'
 import { PlatformIcon } from './PlatformIcon'
 
 type RangeKey = '7' | '30' | 'all'
@@ -98,7 +99,7 @@ export function StatsView() {
         animation: false,
         plugins: {
           legend: { display: false },
-          tooltip: { enabled: true, backgroundColor: colors.text, titleColor: colors.text, bodyColor: colors.text },
+          tooltip: { enabled: true, ...xgetTooltipOptions(colors) },
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: colors.text, maxTicksLimit: 8, font: { size: 10 } } },
@@ -132,7 +133,7 @@ export function StatsView() {
         animation: false,
         plugins: {
           legend: { display: false },
-          tooltip: { enabled: true, backgroundColor: colors.text, titleColor: colors.text, bodyColor: colors.text },
+          tooltip: { enabled: true, ...xgetTooltipOptions(colors) },
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: colors.text, maxTicksLimit: 8, font: { size: 10 } } },
