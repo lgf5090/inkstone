@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronsUpDown, EyeOff, ListFilter, Pin, PinOff, X } from 'lucide-react'
 import { INKSTONE_BLOB_KEY, type TableSortRule } from '@shared/development/database/types'
 import { cn } from '../../../lib/cn'
@@ -144,6 +144,87 @@ export const ResultGrid = memo(function ResultGrid({
   const end = Math.min(rows.length, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN)
   const visibleRows = rows.slice(start, end)
 
+  const [focus, setFocus] = useState<{ row: number; vcol: number } | null>(null)
+  const focusTarget = useMemo(() => {
+    if (rows.length === 0 || visibleColumns.length === 0) return null
+    const candidate = focus && focus.row < rows.length ? focus : { row: Math.min(start, rows.length - 1), vcol: 0 }
+    return { row: candidate.row, vcol: Math.min(candidate.vcol, visibleColumns.length - 1) }
+  }, [focus, rows.length, start, visibleColumns.length])
+
+  const scrollRowIntoView = (row: number) => {
+    const element = viewport.current
+    if (!element) return
+    const top = row * ROW_HEIGHT
+    const bottom = top + ROW_HEIGHT
+    if (top < element.scrollTop) element.scrollTop = top
+    else if (bottom > element.scrollTop + element.clientHeight) element.scrollTop = bottom - element.clientHeight
+  }
+
+  const focusCell = (row: number, vcol: number) => {
+    if (rows.length === 0 || visibleColumns.length === 0) return
+    const nextRow = Math.max(0, Math.min(rows.length - 1, row))
+    const nextVcol = Math.max(0, Math.min(visibleColumns.length - 1, vcol))
+    setFocus({ row: nextRow, vcol: nextVcol })
+    scrollRowIntoView(nextRow)
+    const selector = `[data-cell="${nextRow}-${nextVcol}"]`
+    const target = viewport.current?.querySelector<HTMLElement>(selector)
+    if (target) target.focus({ preventScroll: true })
+    else setTimeout(() => viewport.current?.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true }), 0)
+  }
+
+  const moveFocus = (rowDelta: number, colDelta: number) => {
+    if (!focusTarget) return
+    focusCell(focusTarget.row + rowDelta, focusTarget.vcol + colDelta)
+  }
+
+  const copyFocusedCell = async () => {
+    if (!focusTarget) return
+    if (selectedRows && selectedRows.size > 1) {
+      await copySelected()
+      return
+    }
+    const value = rows[focusTarget.row]?.[visibleColumns[focusTarget.vcol] ?? -1]
+    const ok = await copyText(value === null || value === undefined ? '' : String(value))
+    useUi.getState().toast({
+      title: ok ? t('development.database.grid.copied_cell') : t('development.database.common.copy_failed'),
+      tone: ok ? 'success' : 'danger',
+    })
+  }
+
+  const onGridKeyDown = (event: ReactKeyboardEvent<HTMLTableElement>) => {
+    if ((event.target as HTMLElement).closest('input, textarea, button, a')) return
+    if (!focusTarget) return
+    const { row, vcol } = focusTarget
+    const page = Math.max(1, Math.ceil(viewportHeight / ROW_HEIGHT) - 1)
+    if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(1, 0) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(-1, 0) }
+    else if (event.key === 'ArrowRight') { event.preventDefault(); moveFocus(0, 1) }
+    else if (event.key === 'ArrowLeft') { event.preventDefault(); moveFocus(0, -1) }
+    else if (event.key === 'PageDown') { event.preventDefault(); moveFocus(page, 0) }
+    else if (event.key === 'PageUp') { event.preventDefault(); moveFocus(-page, 0) }
+    else if (event.key === 'Home') { event.preventDefault(); if (event.metaKey || event.ctrlKey) focusCell(0, 0); else focusCell(row, 0) }
+    else if (event.key === 'End') { event.preventDefault(); if (event.metaKey || event.ctrlKey) focusCell(rows.length - 1, visibleColumns.length - 1); else focusCell(row, visibleColumns.length - 1) }
+    else if (event.key === 'Enter') {
+      event.preventDefault()
+      if (editable && !event.shiftKey) onEdit?.(row, visibleColumns[vcol]!)
+      else onRowClick?.(row)
+    } else if (event.key === 'F2' && editable) {
+      event.preventDefault()
+      onEdit?.(row, visibleColumns[vcol]!)
+    } else if (event.key === ' ') {
+      event.preventDefault()
+      if (onSelectionChange) {
+        const next = new Set(selectedRows ?? [])
+        if (next.has(row)) next.delete(row)
+        else next.add(row)
+        onSelectionChange(next)
+      }
+    } else if ((event.metaKey || event.ctrlKey) && (event.key === 'c' || event.key === 'C')) {
+      event.preventDefault()
+      void copyFocusedCell()
+    }
+  }
+
   const toggleRow = (index: number, event: MouseEvent) => {
     if (!onSelectionChange) return
     const next = new Set(selectedRows ?? [])
@@ -281,17 +362,27 @@ export const ResultGrid = memo(function ResultGrid({
         className="h-full overflow-auto overscroll-contain"
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <table className="w-full table-fixed border-collapse text-[length:var(--text-12)]">
+        <table
+          role="grid"
+          aria-label={t('development.database.grid.label')}
+          aria-rowcount={rows.length}
+          aria-colcount={tableColumns}
+          aria-multiselectable={onSelectionChange ? true : undefined}
+          onKeyDown={onGridKeyDown}
+          className="w-full table-fixed border-collapse text-[length:var(--text-12)]"
+        >
           <thead className="sticky top-0 z-20 bg-[var(--bg-sunken)]">
-            <tr>
+            <tr role="row">
               <th
                 scope="col"
+                role="columnheader"
+                aria-colindex={1}
                 className="sticky left-0 z-30 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-medium text-[var(--text-tertiary)]"
                 style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH, maxWidth: ROW_NUMBER_WIDTH }}
               >
                 #
               </th>
-              {visibleColumns.map((column) => {
+              {visibleColumns.map((column, vpos) => {
                 const name = columns[column]!
                 const ruleIndex = sort?.findIndex((rule) => rule.column === name) ?? -1
                 const rule = ruleIndex >= 0 ? sort?.[ruleIndex] : undefined
@@ -303,6 +394,8 @@ export const ResultGrid = memo(function ResultGrid({
                   <th
                     key={`${name}-${column}`}
                     scope="col"
+                    role="columnheader"
+                    aria-colindex={vpos + 2}
                     aria-sort={ruleIndex === 0 ? (rule!.dir === 'ASC' ? 'ascending' : 'descending') : undefined}
                     className={cn('group relative border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-0 py-0 text-left', isPinned && 'sticky z-30')}
                     style={{
@@ -358,6 +451,9 @@ export const ResultGrid = memo(function ResultGrid({
               return (
                 <tr
                   key={index}
+                  role="row"
+                  aria-rowindex={index + 2}
+                  aria-selected={selected}
                   onClick={(event) => {
                     if (event.shiftKey || event.ctrlKey || event.metaKey) {
                       toggleRow(index, event)
@@ -374,21 +470,32 @@ export const ResultGrid = memo(function ResultGrid({
                 >
                   <th
                     scope="row"
+                    role="rowheader"
+                    aria-colindex={1}
                     className="sticky left-0 z-10 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-1 text-center text-[length:var(--text-10)] font-normal text-[var(--text-quaternary)]"
                   >
                     {index + 1}
                   </th>
-                  {visibleColumns.map((column) => {
+                  {visibleColumns.map((column, vpos) => {
                     const isPinned = pinned.has(column)
                     const pendingCells = dirty?.get(index)
                     const pending = pendingCells?.has(column) ? pendingCells.get(column) : undefined
                     const hasPending = pendingCells?.has(column) ?? false
                     const cell = renderCellValue(hasPending ? pending : row[column])
                     const isEditing = editable && editing?.row === index && editing.col === column
+                    const isFocused = focusTarget?.row === index && focusTarget.vcol === vpos
                     if (isEditing) {
                       return (
-                        <td key={`${column}-${index}`} className={cn('p-0', isPinned && 'sticky z-[var(--z-sticky)]')}
-                        style={isPinned ? { left: pinnedLeft.get(column), background: 'var(--bg-base)' } : undefined}>
+                        <td
+                          key={`${column}-${index}`}
+                          role="gridcell"
+                          aria-colindex={vpos + 2}
+                          data-cell={`${index}-${vpos}`}
+                          tabIndex={-1}
+                          onFocus={() => setFocus({ row: index, vcol: vpos })}
+                          className={cn('p-0', isPinned && 'sticky z-[var(--z-sticky)]')}
+                          style={isPinned ? { left: pinnedLeft.get(column), background: 'var(--bg-base)' } : undefined}
+                        >
                           <Input
                             ref={editInput}
                             type={editInputType?.(column) ?? 'text'}
@@ -413,7 +520,14 @@ export const ResultGrid = memo(function ResultGrid({
                     return (
                       <td
                         key={`${column}-${index}`}
-                        className={cn('truncate px-1.5', cell.className, hasPending && 'bg-[var(--warning-soft)] shadow-[inset_2px_0_0_var(--warning)]', editable && 'cursor-cell', isPinned && (hasPending ? 'sticky z-10' : 'sticky z-10 bg-[var(--bg-base)]'))}
+                        role="gridcell"
+                        aria-colindex={vpos + 2}
+                        aria-selected={selected}
+                        data-cell={`${index}-${vpos}`}
+                        tabIndex={isFocused ? 0 : -1}
+                        onFocus={() => setFocus({ row: index, vcol: vpos })}
+                        onClick={() => setFocus({ row: index, vcol: vpos })}
+                        className={cn('truncate px-1.5', cell.className, hasPending && 'bg-[var(--warning-soft)] shadow-[inset_2px_0_0_var(--warning)]', isFocused && 'shadow-[inset_0_0_0_2px_var(--accent)]', editable && 'cursor-cell', isPinned && (hasPending ? 'sticky z-10' : 'sticky z-10 bg-[var(--bg-base)]'))}
                         style={isPinned ? { left: pinnedLeft.get(column) } : undefined}
                         title={hasPending ? `${cell.title ?? cell.text} · ${t('development.database.table.uncommitted')}` : cell.title}
                         onDoubleClick={() => editable && onEdit?.(index, column)}
