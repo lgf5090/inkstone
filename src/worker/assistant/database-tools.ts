@@ -1,5 +1,14 @@
 import { quoteIdent, isDestructiveSql, isWriteSql, splitSqlStatements } from '@shared/development/database/sql-utils'
 import { executeBatch, executeQuery, QueryFailure } from '../development/database/query'
+import {
+  explainSql,
+  foreignKeysSql,
+  indexListSql,
+  listObjectsSql,
+  previewSql,
+  tableDdlSql,
+  tableInfoSql,
+} from '../development/database/tool-core'
 import { findConnection, listConnections } from '../development/database/store'
 import type { ConnectionRecord } from '../development/database/store'
 import type { QueryResult } from '@shared/development/database/types'
@@ -80,7 +89,7 @@ function compact(result: QueryResult, limit = MAX_RESULT_ROWS): Record<string, u
 }
 
 async function tableColumns(ctx: ToolContext, connectionId: string, table: string): Promise<string[]> {
-  const result = await run(ctx, connectionId, `PRAGMA table_info(${quoteIdent(table)})`)
+  const result = await run(ctx, connectionId, tableInfoSql(table))
   if (result.rows.length === 0) throw new ToolError(`Table "${table}" does not exist in that connection.`)
   return result.rows.map((row) => String(row[1]))
 }
@@ -153,7 +162,7 @@ export const DATABASE_TOOLS: ToolDefinition[] = [
     fields: { connectionId: CONNECTION_FIELD },
     async run(args, ctx) {
       const connectionId = connectionIdOf(args, ctx)
-      const result = await run(ctx, connectionId, "SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%' ORDER BY type, name")
+      const result = await run(ctx, connectionId, listObjectsSql())
       const rows = result.rows.map((row) => ({ type: String(row[0]), name: String(row[1]), table: String(row[2]) }))
       return {
         tables: rows.filter((row) => row.type === 'table').map((row) => row.name),
@@ -171,10 +180,10 @@ export const DATABASE_TOOLS: ToolDefinition[] = [
       const connectionId = connectionIdOf(args, ctx)
       const table = String(args.table)
       const [info, indexes, foreignKeys, ddl] = await Promise.all([
-        run(ctx, connectionId, `PRAGMA table_info(${quoteIdent(table)})`),
-        run(ctx, connectionId, `PRAGMA index_list(${quoteIdent(table)})`),
-        run(ctx, connectionId, `PRAGMA foreign_key_list(${quoteIdent(table)})`),
-        run(ctx, connectionId, 'SELECT sql FROM sqlite_master WHERE name = ? LIMIT 1', [table]),
+        run(ctx, connectionId, tableInfoSql(table)),
+        run(ctx, connectionId, indexListSql(table)),
+        run(ctx, connectionId, foreignKeysSql(table)),
+        run(ctx, connectionId, tableDdlSql(), [table]),
       ])
       return {
         table,
@@ -203,7 +212,7 @@ export const DATABASE_TOOLS: ToolDefinition[] = [
     async run(args, ctx) {
       const connectionId = connectionIdOf(args, ctx)
       const limit = typeof args.limit === 'number' ? Math.max(1, Math.min(100, args.limit)) : 20
-      const result = await run(ctx, connectionId, `SELECT * FROM ${quoteIdent(String(args.table))} LIMIT ${limit}`)
+      const result = await run(ctx, connectionId, previewSql(String(args.table), limit))
       return { table: String(args.table), ...compact(result, limit) }
     },
   },
@@ -228,7 +237,7 @@ export const DATABASE_TOOLS: ToolDefinition[] = [
     fields: { connectionId: CONNECTION_FIELD, sql: { ...SQL_FIELD, description: 'The SELECT/WITH statement to explain.' } },
     async run(args, ctx) {
       const connectionId = connectionIdOf(args, ctx)
-      return compact(await run(ctx, connectionId, `EXPLAIN QUERY PLAN ${String(args.sql)}`), 200)
+      return compact(await run(ctx, connectionId, explainSql(String(args.sql))), 200)
     },
   },
   {

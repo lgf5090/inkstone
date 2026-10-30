@@ -1,20 +1,27 @@
 import type { Env } from '../../env'
-import { quoteIdent } from '@shared/development/database/sql-utils'
 import { INKSTONE_BLOB_KEY, MAX_TOOL_CELL_CHARS, MAX_TOOL_ROWS, type QueryResult } from '@shared/development/database/types'
 import { databaseToolDef } from '@shared/development/database/tools'
 import { isDestructiveSql, isWriteSql } from '@shared/development/database/sql-utils'
 import { ApiError } from '../../lib/errors'
 import { listConnections } from './store'
 import { executeQuery, failureToApiError, QueryFailure } from './query'
+import {
+  escapeLike,
+  explainSql,
+  foreignKeysSql,
+  indexListSql,
+  listObjectsSql,
+  previewSql,
+  rowCountSql,
+  searchObjectsSql,
+  tableDdlSql,
+  tableInfoSql,
+} from './tool-core'
 
 function tableName(args: Record<string, unknown>): string {
   const value = String(args.table ?? '').trim()
   if (!value) throw ApiError.badRequest('Missing table')
   return value
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (character) => `\\${character}`)
 }
 
 function displayCell(value: unknown): unknown {
@@ -81,19 +88,19 @@ export async function executeDatabaseTool(
       }))
     }
     case 'list_tables': {
-      const result = await query(env, userId, connectionId, "SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table','view','trigger') ORDER BY type, name")
+      const result = await query(env, userId, connectionId, listObjectsSql())
       return formatToolResult(result)
     }
     case 'search_tables': {
       const keyword = String(input.keyword ?? '').trim()
-      const result = await query(env, userId, connectionId, "SELECT type, name, tbl_name FROM sqlite_master WHERE name LIKE ? ESCAPE '\\' ORDER BY type, name", [`%${escapeLike(keyword)}%`])
+      const result = await query(env, userId, connectionId, searchObjectsSql(), [`%${escapeLike(keyword)}%`])
       return formatToolResult(result)
     }
     case 'get_table_schema': {
       const table = tableName(input)
-      const columns = await query(env, userId, connectionId, `PRAGMA table_info(${quoteIdent(table)})`)
-      const indexes = await query(env, userId, connectionId, `PRAGMA index_list(${quoteIdent(table)})`)
-      const foreignKeys = await query(env, userId, connectionId, `PRAGMA foreign_key_list(${quoteIdent(table)})`)
+      const columns = await query(env, userId, connectionId, tableInfoSql(table))
+      const indexes = await query(env, userId, connectionId, indexListSql(table))
+      const foreignKeys = await query(env, userId, connectionId, foreignKeysSql(table))
       return {
         table,
         columns: formatToolResult(columns),
@@ -103,27 +110,24 @@ export async function executeDatabaseTool(
     }
     case 'get_table_ddl': {
       const table = tableName(input)
-      const result = await query(env, userId, connectionId, "SELECT sql FROM sqlite_master WHERE type IN ('table','view','trigger') AND name = ?", [table])
+      const result = await query(env, userId, connectionId, tableDdlSql(), [table])
       return result.rows[0]?.[0] ?? `No DDL found for ${table}`
     }
     case 'list_indexes': {
       const table = input.table ? tableName(input) : ''
-      const sql = table
-        ? `PRAGMA index_list(${quoteIdent(table)})`
-        : "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY tbl_name, name"
-      return formatToolResult(await query(env, userId, connectionId, sql))
+      return formatToolResult(await query(env, userId, connectionId, indexListSql(table || undefined)))
     }
     case 'get_table_foreign_keys': {
-      return formatToolResult(await query(env, userId, connectionId, `PRAGMA foreign_key_list(${quoteIdent(tableName(input))})`))
+      return formatToolResult(await query(env, userId, connectionId, foreignKeysSql(tableName(input))))
     }
     case 'preview_table': {
       const table = tableName(input)
       const limit = Math.max(1, Math.min(200, Number(input.limit ?? 50) || 50))
-      return formatToolResult(await query(env, userId, connectionId, `SELECT * FROM ${quoteIdent(table)} LIMIT ?`, [limit]))
+      return formatToolResult(await query(env, userId, connectionId, previewSql(table, limit)))
     }
     case 'get_table_row_count': {
       const table = tableName(input)
-      const result = await query(env, userId, connectionId, `SELECT COUNT(*) AS count FROM ${quoteIdent(table)}`)
+      const result = await query(env, userId, connectionId, rowCountSql(table))
       return { table, rowCount: Number(result.rows[0]?.[0] ?? 0) }
     }
     case 'run_query': {
@@ -140,7 +144,7 @@ export async function executeDatabaseTool(
     }
     case 'explain_query': {
       const sql = String(input.sql ?? '').trim()
-      return formatToolResult(await query(env, userId, connectionId, `EXPLAIN QUERY PLAN ${sql}`))
+      return formatToolResult(await query(env, userId, connectionId, explainSql(sql)))
     }
     default:
       throw ApiError.badRequest(`Unknown database tool: ${name}`)

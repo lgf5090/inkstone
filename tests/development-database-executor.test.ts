@@ -93,8 +93,8 @@ describe('database tool executor', () => {
 
   it('quotes a preview table and clamps its limit', async () => {
     await executeDatabaseTool(env, 'u1', 'preview_table', { connectionId: '0123456789abcdefghjkmnpqrs', table: 't', limit: 150 })
-    expect(state.queries[0]?.sql).toBe('SELECT * FROM "t" LIMIT ?')
-    expect(state.queries[0]?.params).toEqual([150])
+    expect(state.queries[0]?.sql).toBe('SELECT * FROM "t" LIMIT 150')
+    expect(state.queries[0]?.params).toEqual([])
   })
 
   it('prefixes explain queries', async () => {

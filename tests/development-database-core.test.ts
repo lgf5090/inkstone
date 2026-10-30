@@ -18,6 +18,7 @@ import { transformValue } from '../src/client/features/development/database/tran
 import { INKSTONE_BLOB_KEY } from '../src/shared/development/database/types'
 import { blobBytes, blobFileName, hexDump, imageSource } from '../src/client/features/development/database/blob-view'
 import { buildWhere } from '../src/client/features/development/database/filter-ops'
+import { listObjectsSql, previewSql, searchObjectsSql, tableInfoSql } from '../src/worker/development/database/tool-core'
 import { SCHEMA_PROMPT_BUDGET_CHARS, buildSchemaPrompt } from '../src/client/features/development/database/schema-prompt'
 import { buildInsert, buildUpdate, fromTemporalInput, rowKeyOf, temporalKind, toTemporalInput } from '../src/client/features/development/database/row-ops'
 import type { StudioDriver } from '../src/client/features/development/database/drivers'
@@ -377,6 +378,13 @@ describe('development database core', () => {
       'CREATE VIEW v AS SELECT 1;',
       'CREATE TRIGGER tr AFTER INSERT ON t BEGIN SELECT 1; END;',
     ])
+  })
+
+  it('shares quoted object queries between the agent and the assistant', () => {
+    expect(listObjectsSql()).toContain("name NOT LIKE 'sqlite_%'")
+    expect(searchObjectsSql()).toContain("ESCAPE '\\'")
+    expect(previewSql('a"b', 999)).toBe('SELECT * FROM "a""b" LIMIT 200')
+    expect(tableInfoSql('t')).toBe('PRAGMA table_info("t")')
   })
 
   it('orders paginated reads by primary key or rowid', () => {
