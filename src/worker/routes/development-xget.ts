@@ -158,6 +158,14 @@ function withoutAccessToken(search: string): string {
   return next ? `?${next}` : ''
 }
 
+function isCorsPreflight(c: Context<AppBindings>): boolean {
+  return (
+    c.req.method.toUpperCase() === 'OPTIONS' &&
+    c.req.header('origin') !== undefined &&
+    c.req.header('access-control-request-method') !== undefined
+  )
+}
+
 function platformFromPath(pathname: string): string | null {
   for (const platform of XGET_PLATFORMS_BY_LONGEST_PREFIX) {
     if (pathname.startsWith(`/${xgetPathPrefix(platform.key)}/`)) return platform.key
@@ -257,7 +265,7 @@ developmentXgetRoutes.use('*', async (c, next) => {
 
   const storedHash = (await readXgetSettingsRow(c.env.DB)).tokenHash
   let provided: ProxyToken | null = null
-  if (storedHash && !c.get('userId')) {
+  if (storedHash && !c.get('userId') && !isCorsPreflight(c)) {
     provided = proxyTokenFrom(c)
     const providedHash = provided ? await hashToken(provided.value) : ''
     if (!providedHash || !sameHash(providedHash, storedHash)) {

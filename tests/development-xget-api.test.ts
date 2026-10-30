@@ -210,6 +210,27 @@ describe('Xget proxy API', () => {
     expect(withSession.status).toBe(200)
   })
 
+  it('lets a valid CORS preflight through the token gate', async () => {
+    await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
+    const preflight = await call('OPTIONS', '/api/development/xget/ip/openai/v1/models', {
+      user: null,
+      headers: {
+        origin: 'https://app.example',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'x-xget-token, content-type',
+      },
+    })
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('*')
+    expect(preflight.headers.get('access-control-allow-headers')).toContain('x-xget-token')
+
+    const actual = await call('POST', '/api/development/xget/ip/openai/v1/models', {
+      user: null,
+      body: {},
+    })
+    expect(actual.status).toBe(401)
+  })
+
   it('does not accept an Authorization bearer as the proxy token', async () => {
     await call('PUT', '/settings/token', { body: { token: 'token-12345678' } })
     const response = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', {
