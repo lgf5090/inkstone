@@ -204,6 +204,14 @@ export async function imgbedDelete(id: string, folder = false): Promise<void> {
   await imgbedApi(`/api/imgbed/manage/files${imgbedQuery({ id, folder })}`, { method: 'DELETE' })
 }
 
+export async function imgbedDeleteMany(ids: string[]): Promise<{ deleted: number; failed: { id: string; error: string }[] }> {
+  return imgbedApi('/api/imgbed/manage/files/delete', { method: 'POST', body: { ids } })
+}
+
+export async function imgbedTagMany(ids: string[], tags: string[], action: 'set' | 'add' | 'remove' = 'add'): Promise<void> {
+  await imgbedApi('/api/imgbed/manage/tags/batch', { method: 'POST', body: { ids, tags, action } })
+}
+
 export async function imgbedMove(ids: string[], dist: string): Promise<void> {
   await imgbedApi('/api/imgbed/manage/files/move', { method: 'POST', body: { ids, dist } })
 }
@@ -226,8 +234,8 @@ export async function imgbedSetTags(id: string, tags: string[], action: 'set' | 
   return result.results[0]?.tags ?? []
 }
 
-export async function imgbedList(params: Record<string, string | number | boolean | string[] | undefined>): Promise<ImgbedListResult> {
-  return imgbedApi(`/api/imgbed/manage/list${imgbedQuery(params)}`)
+export async function imgbedList(params: Record<string, string | number | boolean | string[] | undefined>, signal?: AbortSignal): Promise<ImgbedListResult> {
+  return imgbedApi(`/api/imgbed/manage/list${imgbedQuery(params)}`, { signal })
 }
 
 export async function imgbedCopyLinks(ids: string[], format: string): Promise<string> {

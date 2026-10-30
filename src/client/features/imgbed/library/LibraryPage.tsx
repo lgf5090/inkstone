@@ -11,11 +11,24 @@ import { copyText } from '../../../lib/clipboard'
 import { downloadBlob } from '../../../lib/export-note'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
-import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedFileLinks, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetFlags, imgbedSetTags, imgbedSidebar, type ImgbedSidebarResponse } from '../api'
+import { imgbedApi, imgbedCopyLinks, imgbedDelete, imgbedDeleteMany, imgbedFileLinks, imgbedList, imgbedMove, imgbedRename, imgbedSetAccess, imgbedSetFlags, imgbedSetTags, imgbedSidebar, imgbedTagMany, type ImgbedSidebarResponse } from '../api'
 import { cn } from '../../../lib/cn'
 import { ImgbedSidebar, type ImgbedFilters } from './ImgbedSidebar'
 
 const PAGE_SIZE = 30
+
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await run(items[index]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
 
 const ACCESS_LABEL: Record<string, string> = {
   None: 'imgbed.library.normal',
@@ -56,12 +69,14 @@ export function LibraryPage(): ReactElement {
   const [data, setData] = useState<ImgbedListResult | null>(null)
   const [dir, setDir] = useState('')
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [sort, setSort] = useState('time')
   const [typeFilter, setTypeFilter] = useState('')
   const [accessFilter, setAccessFilter] = useState('')
   const [channelFilter, setChannelFilter] = useState('')
   const [start, setStart] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [detail, setDetail] = useState<ImgbedFile | null>(null)
@@ -77,6 +92,8 @@ export function LibraryPage(): ReactElement {
   const filtersTriggerRef = useRef<HTMLElement>(null)
   const menu = useContextMenu()
   const gridRef = useRef<HTMLDivElement>(null)
+  const loadSeq = useRef(0)
+  const sidebarFetchedAt = useRef(0)
   const dragRef = useRef<{ x: number; y: number; base: Set<string> } | null>(null)
   const toast = useUi((state) => state.toast)
   const globalScope = quick !== 'all' || Boolean(typeFilter) || Boolean(channelFilter) || Boolean(tagFilter)
@@ -125,13 +142,16 @@ export function LibraryPage(): ReactElement {
   }
 
   const load = useCallback(async (reset = true) => {
-    setLoading(true)
+    const sequence = ++loadSeq.current
+    if (reset) setLoading(true)
+    else setLoadingMore(true)
     setError('')
     try {
       const offset = reset ? 0 : start
       const next = await imgbedList({
         dir: globalScope ? '' : dir, search, sort, count: PAGE_SIZE, start: offset,
         recursive: globalScope || Boolean(search),
+        skipDirectories: globalScope,
         favorite: quick === 'favorite' || undefined,
         pinned: quick === 'pinned' || undefined,
         tagPrefix: tagFilter || undefined,
@@ -139,6 +159,7 @@ export function LibraryPage(): ReactElement {
         accessStatus: accessFilter ? [accessFilter] : undefined,
         channel: channelFilter ? [channelFilter] : undefined,
       })
+      if (sequence !== loadSeq.current) return
       if (reset) {
         setData(next)
         setStart(next.files.length)
@@ -148,18 +169,27 @@ export function LibraryPage(): ReactElement {
       }
       setSelected((current) => new Set([...current].filter((id) => next.files.some((file) => file.id === id) || !reset)))
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t('imgbed.common.error'))
+      if (sequence === loadSeq.current) setError(loadError instanceof Error ? loadError.message : t('imgbed.common.error'))
     } finally {
-      setLoading(false)
+      if (sequence === loadSeq.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [dir, search, sort, typeFilter, accessFilter, channelFilter, quick, tagFilter, globalScope, start])
 
-  const loadSidebar = useCallback(async (): Promise<void> => {
+  const loadSidebar = useCallback(async (force = false): Promise<void> => {
+    if (!force && Date.now() - sidebarFetchedAt.current < 10_000) return
+    sidebarFetchedAt.current = Date.now()
     setSidebarLoading(true)
     try { setSidebar(await imgbedSidebar(-new Date().getTimezoneOffset(), 120)) }
     catch (error) { console.warn('[inkstone] Image bed sidebar counts failed to load', error); setSidebar(null) }
     finally { setSidebarLoading(false) }
   }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 280)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
   useEffect(() => { void load(true) }, [dir, search, sort, typeFilter, accessFilter, channelFilter, quick, tagFilter])
   useEffect(() => { void loadSidebar() }, [loadSidebar])
 
@@ -179,9 +209,10 @@ export function LibraryPage(): ReactElement {
     if (!ids.length) return
     if (!(await confirm({ title: t('imgbed.library.confirm_delete'), tone: 'danger', confirmLabel: t('imgbed.library.delete') }))) return
     try {
-      for (const id of ids) await imgbedDelete(id)
+      const result = await imgbedDeleteMany(ids)
       setSelected(new Set())
-      toast({ title: t('imgbed.library.deleted'), tone: 'success' })
+      if (result.failed.length) toast({ title: t('imgbed.common.error'), tone: 'danger' })
+      else toast({ title: t('imgbed.library.deleted'), tone: 'success' })
       await refresh()
     } catch (deleteError) {
       toast({ title: deleteError instanceof Error ? deleteError.message : t('imgbed.common.error'), tone: 'danger' })
@@ -207,7 +238,7 @@ export function LibraryPage(): ReactElement {
     if (value === null) return
     const tags = value.split(',').map((tag) => tag.trim()).filter(Boolean)
     try {
-      for (const id of ids) await imgbedSetTags(id, tags, 'add')
+      await imgbedTagMany(ids, tags, 'add')
       toast({ title: t('imgbed.library.saved'), tone: 'success' })
       await refresh()
     } catch (tagError) {
@@ -229,11 +260,11 @@ export function LibraryPage(): ReactElement {
     const files = (data?.files ?? []).filter((file) => selected.has(file.id))
     if (!files.length) return
     try {
-      const entries = await Promise.all(files.map(async (file) => {
-        const response = await fetch(`/imgbed/file/${filePath(file.id)}?from=admin`)
+      const entries = await mapWithConcurrency(files, 4, async (file) => {
+        const response = await fetch(`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}`)
         if (!response.ok) throw new Error(t('imgbed.common.error'))
         return { name: file.fileName, lastModified: new Date(file.createdAt), input: response }
-      }))
+      })
       downloadBlob(`imgbed-${Date.now()}.zip`, await downloadZip(entries).blob())
     } catch (error) { toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' }) }
   }
@@ -249,7 +280,7 @@ export function LibraryPage(): ReactElement {
     }
   }
 
-  const refresh = async (): Promise<void> => { await Promise.all([load(true), loadSidebar()]) }
+  const refresh = async (): Promise<void> => { await Promise.all([load(true), loadSidebar(true)]) }
   const toggleFlag = async (file: ImgbedFile, key: 'favorite' | 'pinned'): Promise<void> => {
     const next = !file[key]
     const patchFile = (entry: ImgbedFile): ImgbedFile => entry.id === file.id ? { ...entry, [key]: next } : entry
@@ -257,7 +288,14 @@ export function LibraryPage(): ReactElement {
     setDetail((current) => current ? patchFile(current) : current)
     try {
       await imgbedSetFlags([file.id], { [key]: next })
-      await refresh()
+      setSidebar((current) => current ? {
+        ...current,
+        counts: {
+          ...current.counts,
+          [key]: Math.max(0, current.counts[key] + (next ? 1 : -1)),
+        },
+      } : current)
+      if (quick !== 'all') await load(true)
     } catch (error) {
       setData((current) => current ? { ...current, files: current.files.map((entry) => entry.id === file.id ? { ...entry, [key]: !next } : entry) } : current)
       toast({ title: error instanceof Error ? error.message : t('imgbed.common.error'), tone: 'danger' })
@@ -350,7 +388,7 @@ export function LibraryPage(): ReactElement {
         <IconButton label={t('imgbed.library.folder_up')} onClick={up} disabled={!dir || globalScope}><ArrowLeft size={15} /></IconButton>
         <div className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">{globalScope || !dir ? t('imgbed.library.all_files' as never) : `/${dir}`}</div>
         <div className="order-last w-full min-w-[200px] sm:order-none sm:w-auto sm:min-w-[220px] sm:flex-1">
-          <Input leading={<Search size={13} />} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('imgbed.library.search')} />
+          <Input leading={<Search size={13} />} value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder={t('imgbed.library.search')} />
         </div>
         <Select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value)} className="w-[112px]">
           <option value="">{t('imgbed.library.access')}</option>
@@ -375,7 +413,7 @@ export function LibraryPage(): ReactElement {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Checkbox checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(data?.files.map((file) => file.id) ?? []))} label={t('imgbed.library.select_all')} />
+        <Checkbox checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(data?.files.map((file) => file.id) ?? []))} label={t('imgbed.library.select_page' as never)} />
         {ids.length > 0 && <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('imgbed.library.selected', { count: ids.length })}</span>}
         {ids.length > 0 && (
           <div className="hidden flex-wrap items-center gap-1 md:flex">
@@ -446,7 +484,7 @@ export function LibraryPage(): ReactElement {
                 >
                   <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-[var(--bg-inset)]">
                     {image
-                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
+                      ? <img src={`/imgbed/file/${filePath(file.id)}?from=admin&v=${file.updatedAt}&width=480&height=360&fit=cover&fallback=original`} alt={file.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
                       : <FileText size={26} className="text-[var(--text-quaternary)]" />}
                   </div>
                   <div className="px-2 py-1.5">
@@ -462,6 +500,12 @@ export function LibraryPage(): ReactElement {
             )
           })}
           </div>
+          {data && data.files.length < data.totalCount ? (
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('imgbed.library.loaded_count' as never, { loaded: data.files.length, total: data.totalCount })}</span>
+              <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void load(false)}>{t('imgbed.library.load_more' as never)}</Button>
+            </div>
+          ) : null}
         </div>
       )}
 

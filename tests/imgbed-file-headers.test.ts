@@ -48,6 +48,7 @@ describe('imgbed file headers', () => {
     expect(imgbedTransformPolicy(new URLSearchParams({ width: '300', height: '200' }), access({ sizes })).ok).toBe(true)
     expect(imgbedTransformPolicy(new URLSearchParams({ width: '301', height: '200' }), access({ sizes })).ok).toBe(false)
     expect(imgbedTransformPolicy(new URLSearchParams({ width: '300', height: '400' }), access({ sizes })).ok).toBe(false)
+    expect(imgbedTransformPolicy(new URLSearchParams({ width: '300', height: '400', fallback: 'original' }), access({ sizes })).ok).toBe(true)
   })
 
   it('keeps cache and security headers on transformed responses', () => {

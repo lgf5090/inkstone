@@ -70,8 +70,11 @@ export function imgbedTransformPolicy(search: URLSearchParams, access: ImgbedAcc
   const rawHeight = search.get('height')
   const rawFit = search.get('fit')
   const requested = Boolean(rawWidth || rawHeight || rawFit)
+  const fallback = search.get('fallback') === 'original'
   if (!requested) return { ok: true, policy: { requested: false, fallback: false } }
-  if (!access.imageTransformEnabled) return { ok: false, status: 403, message: 'Image transformation is disabled' }
+  if (!access.imageTransformEnabled) {
+    return fallback ? { ok: true, policy: { requested: false, fallback: true } } : { ok: false, status: 403, message: 'Image transformation is disabled' }
+  }
   const width = rawWidth ? Number(rawWidth) : undefined
   const height = rawHeight ? Number(rawHeight) : undefined
   if ((width !== undefined && (!Number.isInteger(width) || width < 1 || width > IMGBED_TRANSFORM_MAX_DIMENSION))
@@ -84,9 +87,9 @@ export function imgbedTransformPolicy(search: URLSearchParams, access: ImgbedAcc
   const allowed = parseAllowedSizes(access.imageTransformAllowedSizes)
   const matches = (value: number | undefined, entry: number | 'auto'): boolean => value === undefined ? entry === 'auto' : entry === value
   if (allowed.length && !allowed.some((entry) => matches(width, entry.width) && matches(height, entry.height))) {
-    return { ok: false, status: 403, message: 'This image size is not allowed' }
+    return fallback ? { ok: true, policy: { requested: false, fallback: true } } : { ok: false, status: 403, message: 'This image size is not allowed' }
   }
-  return { ok: true, policy: { requested: true, width, height, fit, fallback: search.get('fallback') === 'original' } }
+  return { ok: true, policy: { requested: true, width, height, fit, fallback } }
 }
 
 export function imgbedTransformHeaders(base: Headers, transformed: Response, policy: ImgbedTransformPolicy): Headers {

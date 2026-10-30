@@ -214,7 +214,7 @@ export function PublicApp(): ReactElement {
               return (
                 <button key={file.name} type="button" onClick={() => setPreview(file)} className="mb-2 block w-full break-inside-avoid overflow-hidden rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-left">
                   {fileType.startsWith('image/') && fileType !== 'image/svg+xml'
-                    ? <img src={url} alt={file.name} loading="lazy" decoding="async" className="w-full" />
+                    ? <img src={`${url}&width=480&height=360&fit=cover&fallback=original`} alt={file.name} loading="lazy" decoding="async" className="w-full" />
                     : fileType.startsWith('video/')
                       ? <video src={url} className="w-full" muted playsInline preload="metadata" />
                       : <div className="flex min-h-[100px] items-center justify-center"><FileText size={24} className="text-[var(--text-quaternary)]" /></div>}
