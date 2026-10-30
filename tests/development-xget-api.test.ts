@@ -48,6 +48,7 @@ interface CallOptions {
   user?: string | null
   body?: unknown
   headers?: Record<string, string>
+  executionCtx?: ExecutionContext
 }
 
 async function call(method: string, path: string, options: CallOptions = {}): Promise<Response> {
@@ -65,6 +66,7 @@ async function call(method: string, path: string, options: CallOptions = {}): Pr
       body,
     }),
     env,
+    options.executionCtx,
   )
 }
 
@@ -243,6 +245,29 @@ describe('Xget proxy API', () => {
       body: {},
     })
     expect(actual.status).toBe(401)
+  })
+
+  it('registers the stat write with waitUntil when an execution context exists', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })))
+    const waitUntil = vi.fn()
+    const executionCtx = {
+      waitUntil,
+      passThroughOnException: vi.fn(),
+    } as unknown as ExecutionContext
+
+    const response = await call('GET', '/api/development/xget/gh/owner/repo/archive/main.zip', {
+      user: null,
+      executionCtx,
+    })
+    expect(response.status).toBe(200)
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+
+    await waitUntil.mock.calls[0][0]
+    const stat = sqlite
+      .prepare('SELECT platform, ok, count FROM development_xget_stats')
+      .get() as { platform: string; ok: number; count: number }
+    expect(stat.platform).toBe('gh')
+    expect(stat.count).toBe(1)
   })
 
   it('can close anonymous access without a token', async () => {

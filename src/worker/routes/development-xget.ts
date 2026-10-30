@@ -306,12 +306,18 @@ developmentXgetRoutes.use('*', async (c, next) => {
   const engineUrl = new URL(`${pathname}${search}`, url.origin)
   const overrides = settings.overrides
   const request = new Request(engineUrl.toString(), c.req.raw)
+  const waitUntil = executionWaitUntil(c)
   const response = await handleXgetRequest(
     request,
     overrides,
     `${url.origin}${XGET_PROXY_PREFIX}`,
-    executionWaitUntil(c),
+    waitUntil,
   )
-  await recordProxyStat(c.env.DB, platformFromPath(pathname), response.status)
+  const statWrite = recordProxyStat(c.env.DB, platformFromPath(pathname), response.status)
+  if (waitUntil) {
+    waitUntil(statWrite)
+  } else {
+    await statWrite
+  }
   return response
 })
