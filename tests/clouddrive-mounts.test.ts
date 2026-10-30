@@ -319,7 +319,7 @@ describe('cloud drive mounts', () => {
       <D:quota-used-bytes>1024</D:quota-used-bytes>
       <D:quota-available-bytes>9216</D:quota-available-bytes>
       </D:prop></D:propstat></D:response></D:multistatus>`
-    const fetchMock = vi.fn(async () => new Response(quotaXml, { status: 207, headers: { 'content-type': 'application/xml' } }))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(quotaXml, { status: 207, headers: { 'content-type': 'application/xml' } }))
     vi.stubGlobal('fetch', fetchMock)
     const storage = await call('POST', '/api/clouddrive/storages', {
       name: 'dav', type: 'webdav', config: { baseUrl: 'https://dav.example.com/dav' }, credentials: {}, readQuota: true,
@@ -375,7 +375,7 @@ describe('cloud drive mounts', () => {
     const mount = await call('POST', '/api/clouddrive/mounts', {
       name: 'small', storageId: storage.body.storage.id, mountPath: '/small', readOnly: false,
     })
-    const fetchMock = vi.fn(async () => new Response('<D:multistatus xmlns:D="DAV:"/>', { status: 207 }))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('<D:multistatus xmlns:D="DAV:"/>', { status: 207 }))
     vi.stubGlobal('fetch', fetchMock)
     const result = await raw('POST', `/api/clouddrive/external/${mount.body.mount.id}/upload?path=${encodeURIComponent('/big.txt')}`, '0123456789', { 'content-type': 'text/plain' })
     expect(result.status).toBe(403)
@@ -391,7 +391,7 @@ describe('cloud drive mounts', () => {
     const mount = await call('POST', '/api/clouddrive/mounts', {
       name: 'dav', storageId: storage.body.storage.id, mountPath: '/dav', readOnly: false,
     })
-    const fetchMock = vi.fn(async () => new Response(null, { status: 201 }))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 201 }))
     vi.stubGlobal('fetch', fetchMock)
     const mountId = mount.body.mount.id
     const uploaded = await raw('POST', `/api/clouddrive/external/${mountId}/upload?path=${encodeURIComponent('/a.txt')}`, 'hello', { 'content-type': 'text/plain' })
