@@ -35,11 +35,17 @@ import type { ConversationShareInfo, PublicConversation } from '@shared/assistan
 import type { ProviderBalanceAnswer } from '@shared/provider-balance'
 import type { PublicSharePresence, SharePresencePosition, SharePresenceSession } from '@shared/share-presence'
 import type {
+  AdminBlogComment,
   BlogAdminOverview,
+  BlogCommentStatus,
+  BlogMediaItem,
+  BlogPageItem,
   BlogPostAdminItem,
   BlogPostRow,
   BlogRenderSnapshot,
   BlogSitePublic,
+  TaxonomyItem,
+  TaxonomyKind,
 } from '@shared/blog/model'
 import type { BlogSettingKey, BlogSettings } from '@shared/blog/settings'
 import type {
@@ -905,6 +911,53 @@ export const api = {
       get: () => request<BlogSettings>('/api/blog/admin/settings'),
       patch: (key: BlogSettingKey, value: unknown) =>
         request<BlogSettings>('/api/blog/admin/settings', { method: 'PATCH', body: { key, value } }),
+    },
+    comments: {
+      list: (params: { status?: string; q?: string; postId?: string; page?: number; limit?: number } = {}) =>
+        request<{ items: AdminBlogComment[]; total: number; counts: Record<BlogCommentStatus, number> }>(
+          `/api/blog/admin/comments${toQuery(params)}`,
+        ),
+      status: (id: string, status: BlogCommentStatus) =>
+        request<{ ok: true; status: BlogCommentStatus }>(
+          `/api/blog/admin/comments/${encodeURIComponent(id)}/status`,
+          { method: 'POST', body: { status } },
+        ),
+      bulk: (ids: string[], status: BlogCommentStatus) =>
+        request<{ ok: true; updated: number }>('/api/blog/admin/comments/bulk', {
+          method: 'POST',
+          body: { ids, status },
+        }),
+      stats: () => request<Record<BlogCommentStatus, number>>('/api/blog/admin/comments/stats'),
+    },
+    taxonomy: {
+      list: () => request<{ categories: TaxonomyItem[]; tags: TaxonomyItem[]; series: TaxonomyItem[] }>('/api/blog/admin/taxonomy'),
+      create: (kind: TaxonomyKind, input: { name: string; slug?: string; description?: string; color?: string | null; status?: string }) =>
+        request<TaxonomyItem>(`/api/blog/admin/taxonomy/${kind}`, { method: 'POST', body: input }),
+      update: (kind: TaxonomyKind, id: string, input: { name: string; slug?: string; description?: string; color?: string | null; status?: string }) =>
+        request<{ ok: true }>(`/api/blog/admin/taxonomy/${kind}/${encodeURIComponent(id)}`, { method: 'PATCH', body: input }),
+      remove: (kind: TaxonomyKind, id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/taxonomy/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
+    media: {
+      list: (params: { page?: number; limit?: number; kind?: string; q?: string } = {}) =>
+        request<{ items: BlogMediaItem[]; total: number }>(`/api/blog/admin/media${toQuery(params)}`),
+      upload: (file: File) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        return request<BlogMediaItem>('/api/blog/admin/media', { method: 'POST', formData, timeoutMs: 60_000 })
+      },
+      remove: (id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
+    pages: {
+      list: () => request<{ items: BlogPageItem[] }>('/api/blog/admin/pages'),
+      get: (id: string) => request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`),
+      create: (input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
+        request<BlogPageItem>('/api/blog/admin/pages', { method: 'POST', body: input }),
+      update: (id: string, input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'PATCH', body: input }),
+      remove: (id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     },
   },
 

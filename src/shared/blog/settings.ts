@@ -17,6 +17,7 @@ export const BLOG_SETTING_KEYS = [
   'announcement',
   'fab',
   'contextMenu',
+  'discussion',
 ] as const
 
 export type BlogSettingKey = (typeof BLOG_SETTING_KEYS)[number]
@@ -57,6 +58,15 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   announcement: { enable: false, text: '' },
   fab: { enable: false, items: [] },
   contextMenu: { enable: true, actions: ['copySelection', 'backToTop', 'sharePageLink'] },
+  discussion: {
+    enabled: true,
+    requireNameEmail: true,
+    requireApproval: true,
+    allowReplies: true,
+    maxLength: 4000,
+    rateLimitPerHour: 5,
+    autoCloseDays: 0,
+  },
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -105,6 +115,14 @@ export function publicBlogSite(
   const comment = settings.comment as { provider?: string }
   const music = settings.music as { provider?: string }
   const umami = settings.umami as { enable?: boolean }
+  const discussion = settings.discussion as {
+    enabled?: boolean
+    requireNameEmail?: boolean
+    requireApproval?: boolean
+    allowReplies?: boolean
+    maxLength?: number
+    autoCloseDays?: number
+  }
   return {
     site: {
       title: typeof site.title === 'string' ? site.title : 'Inkstone Blog',
@@ -127,6 +145,14 @@ export function publicBlogSite(
       arrangement: sidebar.arrangement === 'dual' ? 'dual' : 'single',
       side: sidebar.side === 'right' ? 'right' : 'left',
       widgets: Array.isArray(sidebar.widgets) ? sidebar.widgets : [],
+    },
+    discussion: {
+      enabled: discussion.enabled !== false,
+      requireNameEmail: discussion.requireNameEmail !== false,
+      requireApproval: discussion.requireApproval !== false,
+      allowReplies: discussion.allowReplies !== false,
+      maxLength: Math.min(Math.max(Number(discussion.maxLength) || 4000, 200), 10000),
+      autoCloseDays: Math.max(Number(discussion.autoCloseDays) || 0, 0),
     },
     display: settings.display,
     integrations: {

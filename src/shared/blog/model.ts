@@ -40,6 +40,71 @@ export interface BlogRenderSnapshot {
   warnings: string[]
 }
 
+export const BLOG_COMMENT_STATUSES = ['pending', 'approved', 'spam', 'trash'] as const
+export type BlogCommentStatus = (typeof BLOG_COMMENT_STATUSES)[number]
+
+export interface PublicBlogComment {
+  id: string
+  parentId: string | null
+  authorName: string
+  authorUrl: string
+  content: string
+  createdAt: number
+  replies: PublicBlogComment[]
+}
+
+export interface AdminBlogComment {
+  id: string
+  postId: string
+  postTitle: string | null
+  postSlug: string | null
+  parentId: string | null
+  authorName: string
+  authorEmailHash: string
+  authorUrl: string
+  content: string
+  status: BlogCommentStatus
+  createdAt: number
+  updatedAt: number
+}
+
+export interface BlogMediaItem {
+  id: string
+  kind: string
+  url: string
+  filename: string
+  mime: string
+  size: number
+  width: number | null
+  height: number | null
+  createdAt: number
+  variants: { width: number; height: number; url: string }[]
+}
+
+export const TAXONOMY_KINDS = ['categories', 'tags', 'series'] as const
+export type TaxonomyKind = (typeof TAXONOMY_KINDS)[number]
+
+export interface TaxonomyItem {
+  id: string
+  kind: TaxonomyKind
+  name: string
+  slug: string
+  description: string
+  color: string | null
+  status: string
+  count: number
+}
+
+export interface BlogPageItem {
+  id: string
+  slug: string
+  title: string
+  kind: string
+  body: string
+  publishedAt: number | null
+  updatedAt: number
+}
+
 export interface BlogPostRow {
   id: string
   user_id: string
@@ -136,6 +201,14 @@ export interface BlogSitePublic {
   profile: { name: string; bio: string; avatar: string; links: { label: string; url: string }[] }
   nav: { label: string; href: string; children?: { label: string; href: string }[] }[]
   sidebar: { enable: boolean; arrangement: 'single' | 'dual'; side: 'left' | 'right'; widgets: string[] }
+  discussion: {
+    enabled: boolean
+    requireNameEmail: boolean
+    requireApproval: boolean
+    allowReplies: boolean
+    maxLength: number
+    autoCloseDays: number
+  }
   display: Record<string, unknown>
   integrations: { comments: string; music: string; umami: string }
   counts: { posts: number; categories: number; tags: number; series: number }
@@ -151,4 +224,7 @@ export interface BlogAdminOverview {
   moments: number
   albums: number
   tasks: number
+  commentsPending: number
+  commentsApproved: number
+  commentsSpam: number
 }

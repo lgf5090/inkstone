@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { BlogAdminOverview, BlogPostAdminItem } from '@shared/blog/model'
-import type { BlogSettings } from '@shared/blog/settings'
+import { BLOG_SETTING_KEYS, type BlogSettingKey, type BlogSettings } from '@shared/blog/settings'
 import { Badge, Button, SectionLabel, Spinner } from '../../components/primitives'
-import { Field, Input, Select, Textarea } from '../../components/form'
+import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
+import { CommentsPanel } from './CommentsPanel'
+import { MediaPanel } from './MediaPanel'
+import { TaxonomyPanel } from './TaxonomyPanel'
+import { PagesPanel } from './PagesPanel'
 
 interface AdminData {
   overview: BlogAdminOverview
@@ -20,6 +24,10 @@ interface AdminData {
 const SECTIONS = [
   { id: 'overview', path: '/blog-admin', label: 'blog.admin.overview' },
   { id: 'posts', path: '/blog-admin/posts', label: 'blog.admin.posts' },
+  { id: 'comments', path: '/blog-admin/comments', label: 'blog.admin.comments' },
+  { id: 'media', path: '/blog-admin/media', label: 'blog.admin.media' },
+  { id: 'pages', path: '/blog-admin/pages', label: 'blog.admin.pages' },
+  { id: 'taxonomy', path: '/blog-admin/taxonomy', label: 'blog.admin.taxonomy' },
   { id: 'settings', path: '/blog-admin/settings', label: 'blog.admin.settings' },
 ] as const satisfies readonly { id: string; path: string; label: MessageKey }[]
 
@@ -157,7 +165,15 @@ export function BlogAdminApp() {
             ? <OverviewPanel overview={data.overview} />
             : section.id === 'posts'
               ? <PostsPanel posts={data.posts} onReload={load} />
-              : <SettingsPanel settings={data.settings} onSaved={load} />
+              : section.id === 'comments'
+                ? <CommentsPanel />
+                : section.id === 'media'
+                  ? <MediaPanel />
+                  : section.id === 'pages'
+                    ? <PagesPanel />
+                    : section.id === 'taxonomy'
+                      ? <TaxonomyPanel />
+                      : <SettingsPanel settings={data.settings} onSaved={load} />
         ) : null}
       </main>
     </div>
@@ -174,6 +190,9 @@ function OverviewPanel({ overview }: { overview: BlogAdminOverview }) {
     { label: 'blog.admin.moments', value: overview.moments },
     { label: 'blog.admin.albums', value: overview.albums },
     { label: 'blog.admin.tasks', value: overview.tasks },
+    { label: 'blog.admin.comments_pending', value: overview.commentsPending },
+    { label: 'blog.admin.comments_approved', value: overview.commentsApproved },
+    { label: 'blog.admin.comments_spam', value: overview.commentsSpam },
   ]
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -280,6 +299,17 @@ function SettingsPanel({ settings, onSaved }: { settings: BlogSettings; onSaved:
   const [timeZone, setTimeZone] = useState(stringValue(site.timeZone) || 'UTC')
   const [profileName, setProfileName] = useState(stringValue(profile.name))
   const [profileBio, setProfileBio] = useState(stringValue(profile.bio))
+  const discussion = settings.discussion
+  const [discussionEnabled, setDiscussionEnabled] = useState(discussion.enabled !== false)
+  const [requireNameEmail, setRequireNameEmail] = useState(discussion.requireNameEmail !== false)
+  const [requireApproval, setRequireApproval] = useState(discussion.requireApproval !== false)
+  const [allowReplies, setAllowReplies] = useState(discussion.allowReplies !== false)
+  const [maxLength, setMaxLength] = useState(String(Number(discussion.maxLength) || 4000))
+  const [rateLimit, setRateLimit] = useState(String(Number(discussion.rateLimitPerHour) || 5))
+  const [autoCloseDays, setAutoCloseDays] = useState(String(Number(discussion.autoCloseDays) || 0))
+  const [advancedDomain, setAdvancedDomain] = useState<BlogSettingKey>('nav')
+  const [advancedJson, setAdvancedJson] = useState(() => JSON.stringify(settings.nav, null, 2))
+  const [advancedError, setAdvancedError] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -290,13 +320,32 @@ function SettingsPanel({ settings, onSaved }: { settings: BlogSettings; onSaved:
     setTimeZone(stringValue(site.timeZone) || 'UTC')
     setProfileName(stringValue(profile.name))
     setProfileBio(stringValue(profile.bio))
-  }, [site, profile])
+    const nextDiscussion = settings.discussion
+    setDiscussionEnabled(nextDiscussion.enabled !== false)
+    setRequireNameEmail(nextDiscussion.requireNameEmail !== false)
+    setRequireApproval(nextDiscussion.requireApproval !== false)
+    setAllowReplies(nextDiscussion.allowReplies !== false)
+    setMaxLength(String(Number(nextDiscussion.maxLength) || 4000))
+    setRateLimit(String(Number(nextDiscussion.rateLimitPerHour) || 5))
+    setAutoCloseDays(String(Number(nextDiscussion.autoCloseDays) || 0))
+    setAdvancedJson(JSON.stringify(settings[advancedDomain], null, 2))
+  }, [site, profile, discussion, settings, advancedDomain])
 
   const save = async () => {
     setSaving(true)
     try {
       await api.blog.settings.patch('site', { ...site, title, subtitle, description, locale, timeZone })
       await api.blog.settings.patch('profile', { ...profile, name: profileName, bio: profileBio })
+      await api.blog.settings.patch('discussion', {
+        ...discussion,
+        enabled: discussionEnabled,
+        requireNameEmail,
+        requireApproval,
+        allowReplies,
+        maxLength: Number(maxLength) || 4000,
+        rateLimitPerHour: Number(rateLimit) || 5,
+        autoCloseDays: Number(autoCloseDays) || 0,
+      })
       useUi.getState().toast({ title: t('blog.admin.saved'), tone: 'success' })
       await onSaved()
     } catch (cause) {
@@ -308,6 +357,26 @@ function SettingsPanel({ settings, onSaved }: { settings: BlogSettings; onSaved:
     } finally {
       setSaving(false)
     }
+  }
+
+  const saveAdvanced = async () => {
+    setAdvancedError('')
+    try {
+      const parsed = JSON.parse(advancedJson)
+      await api.blog.settings.patch(advancedDomain, parsed)
+      useUi.getState().toast({ title: t('blog.admin.saved'), tone: 'success' })
+      await onSaved()
+    } catch (cause) {
+      setAdvancedError(cause instanceof SyntaxError
+        ? t('blog.admin.advanced_invalid')
+        : cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const changeAdvancedDomain = (next: BlogSettingKey) => {
+    setAdvancedDomain(next)
+    setAdvancedJson(JSON.stringify(settings[next], null, 2))
+    setAdvancedError('')
   }
 
   return (
@@ -330,6 +399,34 @@ function SettingsPanel({ settings, onSaved }: { settings: BlogSettings; onSaved:
         <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t('blog.admin.profile_section')}</h2>
         <Field label={t('blog.admin.profile_name')}><Input value={profileName} onChange={(event) => setProfileName(event.target.value)} /></Field>
         <Field label={t('blog.admin.profile_bio')}><Textarea rows={3} value={profileBio} onChange={(event) => setProfileBio(event.target.value)} /></Field>
+      </section>
+      <section className="space-y-4 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-5">
+        <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t('blog.admin.discussion_section')}</h2>
+        <div className="grid gap-1 sm:grid-cols-2">
+          <Checkbox checked={discussionEnabled} onChange={setDiscussionEnabled} label={t('blog.admin.discussion_enabled')} />
+          <Checkbox checked={requireNameEmail} onChange={setRequireNameEmail} label={t('blog.admin.discussion_require_name_email')} />
+          <Checkbox checked={requireApproval} onChange={setRequireApproval} label={t('blog.admin.discussion_require_approval')} />
+          <Checkbox checked={allowReplies} onChange={setAllowReplies} label={t('blog.admin.discussion_allow_replies')} />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label={t('blog.admin.discussion_max_length')}><Input type="number" min={200} max={10000} value={maxLength} onChange={(event) => setMaxLength(event.target.value)} /></Field>
+          <Field label={t('blog.admin.discussion_rate_limit')}><Input type="number" min={1} max={100} value={rateLimit} onChange={(event) => setRateLimit(event.target.value)} /></Field>
+          <Field label={t('blog.admin.discussion_auto_close')}><Input type="number" min={0} max={3650} value={autoCloseDays} onChange={(event) => setAutoCloseDays(event.target.value)} /></Field>
+        </div>
+      </section>
+      <section className="space-y-4 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 sm:p-5">
+        <h2 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{t('blog.admin.advanced_section')}</h2>
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('blog.admin.advanced_hint')}</p>
+        <Field label={t('blog.admin.advanced_domain')}>
+          <Select value={advancedDomain} onChange={(event) => changeAdvancedDomain(event.target.value as BlogSettingKey)}>
+            {BLOG_SETTING_KEYS.map((key) => <option key={key} value={key}>{key}</option>)}
+          </Select>
+        </Field>
+        <Field label={t('blog.admin.advanced_json')}>
+          <Textarea rows={14} className="font-mono" value={advancedJson} onChange={(event) => setAdvancedJson(event.target.value)} spellCheck={false} />
+        </Field>
+        {advancedError && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{advancedError}</p>}
+        <Button type="button" onClick={() => void saveAdvanced()}>{t('blog.admin.save')}</Button>
       </section>
       <div><Button type="submit" loading={saving}>{t('blog.admin.save')}</Button></div>
     </form>

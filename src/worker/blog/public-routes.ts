@@ -1,9 +1,16 @@
 import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { readJson, requestClientIp } from '../lib/request'
 import { publicBlogSite } from '@shared/blog/settings'
 import type { BlogPostDetail } from '@shared/blog/model'
 import { requireBlogProxy } from './guard'
+import {
+  createBlogComment,
+  discussionSettings,
+  listApprovedComments,
+} from './comments'
+import { getPublishedPage } from './pages'
 import {
   blogCounts,
   blogOwnerUserId,
@@ -77,6 +84,80 @@ blogPublicRoutes.get('/posts/:slug/render', async (c) => {
     ETag: etag,
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })
+})
+
+blogPublicRoutes.get('/pages/:slug', async (c) => {
+  const userId = await ownerId(c)
+  const page = await getPublishedPage(c.env.DB, userId, c.req.param('slug'))
+  if (!page) throw ApiError.notFound('Page not found')
+  return c.json(page, 200, {
+    'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
+  })
+})
+
+blogPublicRoutes.get('/posts/:slug/comments', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row) throw ApiError.notFound('Post not found')
+  if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected', {
+    protected: true,
+    hint: row.password_hint,
+  })
+  const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
+  const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
+    && row.published_at < Date.now() - settings.autoCloseDays * 24 * 60 * 60 * 1000
+  const enabled = settings.enabled && row.comments_enabled === 1 && !closedByAge
+  return c.json({
+    enabled,
+    discussion: {
+      requireNameEmail: settings.requireNameEmail,
+      requireApproval: settings.requireApproval,
+      allowReplies: settings.allowReplies,
+      maxLength: settings.maxLength,
+    },
+    items: enabled ? await listApprovedComments(c.env.DB, userId, row.id) : [],
+  })
+})
+
+blogPublicRoutes.post('/posts/:slug/comments', async (c) => {
+  const userId = await ownerId(c)
+  const row = await findPublishedPost(c.env.DB, userId, c.req.param('slug'))
+  if (!row) throw ApiError.notFound('Post not found')
+  if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected')
+  const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
+  const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
+    && row.published_at < Date.now() - settings.autoCloseDays * 24 * 60 * 60 * 1000
+  if (!settings.enabled || row.comments_enabled === 0 || closedByAge) {
+    throw ApiError.badRequest('Comments are closed on this post')
+  }
+  const body = await readJson<Record<string, unknown>>(c, 16 * 1024)
+  if (typeof body.website === 'string' && body.website.trim()) {
+    throw ApiError.badRequest('Invalid comment')
+  }
+  const string = (key: string, max: number): string =>
+    typeof body[key] === 'string' ? body[key].slice(0, max) : ''
+  try {
+    const created = await createBlogComment(c.env.DB, userId, row.id, {
+      authorName: string('authorName', 80),
+      email: string('email', 254),
+      url: string('url', 300),
+      content: string('content', settings.maxLength + 1),
+      parentId: typeof body.parentId === 'string' && body.parentId ? body.parentId : null,
+      ip: requestClientIp(c),
+      userAgent: c.req.header('user-agent') ?? '',
+    }, settings)
+    return c.json(created, 201)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message === 'comment_rate_limited') {
+      throw new ApiError(429, 'too_many_attempts', 'Please wait before commenting again')
+    }
+    if (message === 'comment_too_long') throw ApiError.badRequest('The comment is too long')
+    if (message === 'comment_closed') throw ApiError.badRequest('Comments are closed on this post')
+    if (message === 'comment_replies_disabled') throw ApiError.badRequest('Replies are turned off')
+    if (message === 'comment_parent_missing') throw ApiError.badRequest('The comment being replied to is gone')
+    throw ApiError.badRequest('Check the name, email and comment fields')
+  }
 })
 
 blogPublicRoutes.get('/posts/:slug', async (c) => {

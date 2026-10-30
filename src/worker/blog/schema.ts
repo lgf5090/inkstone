@@ -462,6 +462,37 @@ export const BLOG_SCHEMA_STATEMENTS: readonly string[] = [
      ON blog_audit(user_id, created_at DESC, id)`,
 ]
 
+export const BLOG_COMMENT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS blog_comments (
+    id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    parent_id TEXT,
+    author_name TEXT NOT NULL,
+    author_email_hash TEXT NOT NULL DEFAULT '',
+    author_url TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    ip_hash TEXT NOT NULL DEFAULT '',
+    user_agent_hash TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    deleted_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_comments_post
+     ON blog_comments(user_id, post_id, status, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_comments_status
+     ON blog_comments(user_id, status, created_at DESC, id)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_comments_parent
+     ON blog_comments(user_id, parent_id)`,
+]
+
+export const BLOG_ALL_SCHEMA_STATEMENTS: readonly string[] = [
+  ...BLOG_SCHEMA_STATEMENTS,
+  ...BLOG_COMMENT_SCHEMA_STATEMENTS,
+]
+
 export const BLOG_REQUIRED_TABLES = [
   'blog_settings',
   'blog_posts',
@@ -489,6 +520,7 @@ export const BLOG_REQUIRED_TABLES = [
   'blog_tasks',
   'blog_visit_daily',
   'blog_audit',
+  'blog_comments',
 ] as const
 
 export const BLOG_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -525,6 +557,7 @@ export const BLOG_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> 
   blog_tasks: ['id', 'user_id', 'type', 'status', 'payload', 'progress', 'error', 'created_at', 'started_at', 'finished_at'],
   blog_visit_daily: ['user_id', 'day', 'views', 'visitors'],
   blog_audit: ['id', 'user_id', 'action', 'entity', 'entity_id', 'detail', 'created_at'],
+  blog_comments: ['id', 'user_id', 'post_id', 'parent_id', 'author_name', 'author_email_hash', 'author_url', 'content', 'status', 'ip_hash', 'user_agent_hash', 'created_at', 'updated_at', 'deleted_at'],
 }
 
 export const BLOG_REQUIRED_INDEXES = [
@@ -571,4 +604,7 @@ export const BLOG_REQUIRED_INDEXES = [
   'idx_blog_preview_tokens_expiry',
   'idx_blog_tasks_user_status',
   'idx_blog_audit_user_created',
+  'idx_blog_comments_post',
+  'idx_blog_comments_status',
+  'idx_blog_comments_parent',
 ] as const

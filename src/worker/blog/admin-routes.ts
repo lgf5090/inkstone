@@ -4,7 +4,17 @@ import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
 import { requireAuth, requireOwner } from '../middleware/auth'
 import { BlogPublishSchema, BlogSettingPatchSchema } from '@shared/blog/validation'
+import { BLOG_COMMENT_STATUSES, type BlogCommentStatus } from '@shared/blog/model'
 import { sanitizeBlogHtml } from './sanitize'
+import {
+  bulkSetCommentStatus,
+  commentStats,
+  listAdminComments,
+  setCommentStatus,
+} from './comments'
+import { createTaxonomy, deleteTaxonomy, listTaxonomy, updateTaxonomy } from './taxonomy'
+import { deleteMedia, listMedia, MEDIA_MAX_BYTES, uploadMedia } from './media'
+import { deletePage, getPage, listPages, savePage } from './pages'
 import {
   blogAdminOverview,
   findPostById,
@@ -167,4 +177,214 @@ blogAdminRoutes.patch('/settings', async (c) => {
   await saveBlogSetting(c.env.DB, id, parsed.data.key, parsed.data.value)
   await recordBlogAudit(c.env.DB, id, 'settings.update', 'setting', parsed.data.key, {})
   return c.json(await loadBlogSettings(c.env.DB, id))
+})
+
+function commentStatus(value: unknown): BlogCommentStatus {
+  if (typeof value === 'string' && (BLOG_COMMENT_STATUSES as readonly string[]).includes(value)) {
+    return value as BlogCommentStatus
+  }
+  throw ApiError.badRequest('Invalid comment status')
+}
+
+function mapContentError(error: unknown): never {
+  const message = error instanceof Error ? error.message : ''
+  switch (message) {
+    case 'taxonomy_kind_invalid': throw ApiError.badRequest('Invalid taxonomy kind')
+    case 'taxonomy_name_required': throw ApiError.badRequest('A name is required')
+    case 'taxonomy_in_use': throw ApiError.conflict('Move the posts that use this taxonomy first')
+    case 'media_storage_unavailable': throw new ApiError(503, 'storage_unavailable', 'Blog storage is not configured')
+    case 'media_too_large': throw new ApiError(413, 'payload_too_large', `Files must be at most ${Math.floor(MEDIA_MAX_BYTES / 1024 / 1024)} MiB`)
+    case 'media_type_not_allowed': throw new ApiError(415, 'bad_request', 'This file type is not allowed')
+    case 'media_missing': throw ApiError.notFound('Media not found')
+    case 'media_in_use': throw ApiError.conflict('This asset is still referenced by a post')
+    case 'page_title_required': throw ApiError.badRequest('A page title is required')
+    case 'page_missing': throw ApiError.notFound('Page not found')
+    default: throw error
+  }
+}
+
+blogAdminRoutes.get('/taxonomy', async (c) => {
+  return c.json(await listTaxonomy(c.env.DB, userId(c)))
+})
+
+blogAdminRoutes.post('/taxonomy/:kind', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  try {
+    const item = await createTaxonomy(c.env.DB, id, c.req.param('kind'), {
+      name: typeof payload.name === 'string' ? payload.name : '',
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+      description: typeof payload.description === 'string' ? payload.description : '',
+      color: typeof payload.color === 'string' ? payload.color : null,
+      status: typeof payload.status === 'string' ? payload.status : undefined,
+    })
+    await recordBlogAudit(c.env.DB, id, 'taxonomy.create', 'taxonomy', item.id, { kind: item.kind, name: item.name })
+    return c.json(item, 201)
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.patch('/taxonomy/:kind/:id', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 64 * 1024)
+  try {
+    await updateTaxonomy(c.env.DB, id, c.req.param('kind'), c.req.param('id'), {
+      name: typeof payload.name === 'string' ? payload.name : '',
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+      description: typeof payload.description === 'string' ? payload.description : '',
+      color: typeof payload.color === 'string' ? payload.color : null,
+      status: typeof payload.status === 'string' ? payload.status : undefined,
+    })
+    await recordBlogAudit(c.env.DB, id, 'taxonomy.update', 'taxonomy', c.req.param('id'), { kind: c.req.param('kind') })
+    return c.json({ ok: true })
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.delete('/taxonomy/:kind/:id', async (c) => {
+  const id = userId(c)
+  try {
+    await deleteTaxonomy(c.env.DB, id, c.req.param('kind'), c.req.param('id'))
+    await recordBlogAudit(c.env.DB, id, 'taxonomy.delete', 'taxonomy', c.req.param('id'), { kind: c.req.param('kind') })
+    return c.json({ ok: true })
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.get('/media', async (c) => {
+  return c.json(await listMedia(
+    c.env.DB,
+    userId(c),
+    Number(c.req.query('page') ?? '1') || 1,
+    Number(c.req.query('limit') ?? '30') || 30,
+    c.req.query('kind') ?? '',
+    (c.req.query('q') ?? '').trim().slice(0, 200),
+  ))
+})
+
+blogAdminRoutes.post('/media', async (c) => {
+  const id = userId(c)
+  try {
+    const body = await c.req.parseBody()
+    const file = body.file
+    if (!(file instanceof File)) throw new Error('media_missing')
+    const item = await uploadMedia(c.env, c.env.DB, id, file)
+    await recordBlogAudit(c.env.DB, id, 'media.upload', 'media', item.id, { filename: item.filename, size: item.size })
+    return c.json(item, 201)
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.delete('/media/:id', async (c) => {
+  const id = userId(c)
+  try {
+    await deleteMedia(c.env, c.env.DB, id, c.req.param('id'))
+    await recordBlogAudit(c.env.DB, id, 'media.delete', 'media', c.req.param('id'), {})
+    return c.json({ ok: true })
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.get('/pages', async (c) => {
+  return c.json({ items: await listPages(c.env.DB, userId(c)) })
+})
+
+blogAdminRoutes.get('/pages/:id', async (c) => {
+  const page = await getPage(c.env.DB, userId(c), c.req.param('id'))
+  if (!page) throw ApiError.notFound('Page not found')
+  return c.json(page)
+})
+
+blogAdminRoutes.post('/pages', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 1024 * 1024)
+  try {
+    const page = await savePage(c.env.DB, id, null, {
+      title: typeof payload.title === 'string' ? payload.title : '',
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+      kind: typeof payload.kind === 'string' ? payload.kind : 'custom',
+      body: typeof payload.body === 'string' ? payload.body : '',
+      publish: payload.publish === true,
+    })
+    await recordBlogAudit(c.env.DB, id, 'page.create', 'page', page.id, { slug: page.slug })
+    return c.json(page, 201)
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.patch('/pages/:id', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 1024 * 1024)
+  try {
+    const page = await savePage(c.env.DB, id, c.req.param('id'), {
+      title: typeof payload.title === 'string' ? payload.title : '',
+      slug: typeof payload.slug === 'string' ? payload.slug : undefined,
+      kind: typeof payload.kind === 'string' ? payload.kind : 'custom',
+      body: typeof payload.body === 'string' ? payload.body : '',
+      publish: payload.publish === true,
+    })
+    await recordBlogAudit(c.env.DB, id, 'page.update', 'page', page.id, { slug: page.slug })
+    return c.json(page)
+  } catch (error) {
+    mapContentError(error)
+  }
+})
+
+blogAdminRoutes.delete('/pages/:id', async (c) => {
+  const id = userId(c)
+  await deletePage(c.env.DB, id, c.req.param('id'))
+  await recordBlogAudit(c.env.DB, id, 'page.delete', 'page', c.req.param('id'), {})
+  return c.json({ ok: true })
+})
+
+blogAdminRoutes.get('/comments', async (c) => {
+  const id = userId(c)
+  const { page, limit } = pageQuery(c)
+  const rawStatus = c.req.query('status') ?? 'all'
+  const status = rawStatus === 'all' ? 'all' : commentStatus(rawStatus)
+  return c.json(await listAdminComments(c.env.DB, id, {
+    status,
+    q: (c.req.query('q') ?? '').trim().slice(0, 200),
+    postId: c.req.query('postId') ?? null,
+    page,
+    limit,
+  }))
+})
+
+blogAdminRoutes.get('/comments/stats', async (c) => {
+  return c.json(await commentStats(c.env.DB, userId(c)))
+})
+
+blogAdminRoutes.post('/comments/:id/status', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 8 * 1024)
+  const status = commentStatus(payload.status)
+  await setCommentStatus(c.env.DB, id, c.req.param('id'), status)
+  await recordBlogAudit(c.env.DB, id, 'comment.status', 'comment', c.req.param('id'), { status })
+  return c.json({ ok: true, status })
+})
+
+blogAdminRoutes.delete('/comments/:id', async (c) => {
+  const id = userId(c)
+  await setCommentStatus(c.env.DB, id, c.req.param('id'), 'trash')
+  await recordBlogAudit(c.env.DB, id, 'comment.trash', 'comment', c.req.param('id'), {})
+  return c.json({ ok: true })
+})
+
+blogAdminRoutes.post('/comments/bulk', async (c) => {
+  const id = userId(c)
+  const payload = await readJson<Record<string, unknown>>(c, 16 * 1024)
+  const status = commentStatus(payload.status)
+  const ids = Array.isArray(payload.ids)
+    ? payload.ids.filter((value): value is string => typeof value === 'string' && value.length > 0).slice(0, 100)
+    : []
+  const updated = await bulkSetCommentStatus(c.env.DB, id, ids, status)
+  await recordBlogAudit(c.env.DB, id, 'comment.bulk_status', 'comment', status, { ids, updated })
+  return c.json({ ok: true, updated })
 })

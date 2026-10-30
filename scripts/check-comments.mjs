@@ -34147,6 +34147,9 @@ const allowed = new Map([
   ["src/worker/blog/guard.ts", [
     "/**\n * Public blog reads are served to the blog Worker, not to browsers. A deployment must set\n * BLOG_PROXY_KEY; local development may omit it so the two dev servers can talk without secrets.\n */",
   ]],
+  ["src/worker/blog/media.ts", [
+    "// older rows have no variants; an empty list is the honest answer",
+  ]],
   ["src/worker/blog/sanitize.ts", [
     "/**\n * The snapshot arrives from an authenticated browser, but the worker is still the trust boundary:\n * the owner API accepts a payload from any client that holds the session, so scripts, event handlers,\n * javascript: URLs and CSS that can fetch must not survive the write.\n */",
   ]],

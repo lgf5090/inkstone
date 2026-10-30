@@ -565,6 +565,9 @@ export async function blogAdminOverview(
   moments: number
   albums: number
   tasks: number
+  commentsPending: number
+  commentsApproved: number
+  commentsSpam: number
 }> {
   const row = await db
     .prepare(
@@ -577,7 +580,10 @@ export async function blogAdminOverview(
          (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1) AS views,
          (SELECT COUNT(*) FROM blog_moments WHERE user_id = ?1 AND deleted_at IS NULL) AS moments,
          (SELECT COUNT(*) FROM blog_albums WHERE user_id = ?1) AS albums,
-         (SELECT COUNT(*) FROM blog_tasks WHERE user_id = ?1 AND status IN ('pending','running')) AS tasks`,
+         (SELECT COUNT(*) FROM blog_tasks WHERE user_id = ?1 AND status IN ('pending','running')) AS tasks,
+         (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'pending' AND deleted_at IS NULL) AS commentsPending,
+         (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'approved' AND deleted_at IS NULL) AS commentsApproved,
+         (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'spam' AND deleted_at IS NULL) AS commentsSpam`,
     )
     .bind(userId)
     .first<{
@@ -590,8 +596,14 @@ export async function blogAdminOverview(
       moments: number
       albums: number
       tasks: number
+      commentsPending: number
+      commentsApproved: number
+      commentsSpam: number
     }>()
-  return row ?? { posts: 0, published: 0, drafts: 0, pending: 0, stale: 0, views: 0, moments: 0, albums: 0, tasks: 0 }
+  return row ?? {
+    posts: 0, published: 0, drafts: 0, pending: 0, stale: 0, views: 0, moments: 0, albums: 0, tasks: 0,
+    commentsPending: 0, commentsApproved: 0, commentsSpam: 0,
+  }
 }
 
 export async function recordBlogAudit(

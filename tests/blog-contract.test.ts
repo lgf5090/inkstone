@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readBlogFrontMatter, slugifyBlogTitle } from '../src/shared/blog/frontmatter'
 import { mergeBlogSettings, publicBlogSite } from '../src/shared/blog/settings'
-import { BLOG_REQUIRED_TABLES, BLOG_SCHEMA_STATEMENTS } from '../src/worker/blog/schema'
+import { BLOG_ALL_SCHEMA_STATEMENTS, BLOG_REQUIRED_TABLES } from '../src/worker/blog/schema'
 import { sanitizeBlogHtml } from '../src/worker/blog/sanitize'
 
 describe('blog front matter', () => {
@@ -84,7 +84,7 @@ describe('blog snapshot sanitizer', () => {
 
 describe('blog schema', () => {
   it('declares every required table and gives each one a user scope', () => {
-    const statements = BLOG_SCHEMA_STATEMENTS.join('\n')
+    const statements = BLOG_ALL_SCHEMA_STATEMENTS.join('\n')
     for (const table of BLOG_REQUIRED_TABLES) {
       expect(statements).toContain(`CREATE TABLE IF NOT EXISTS ${table}`)
     }
