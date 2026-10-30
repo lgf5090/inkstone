@@ -165,6 +165,9 @@ describe('the xget stats store', () => {
       trend: [],
       trendByCategory: [],
     })
+    const week = await readStatsSummary(db, 7)
+    expect(week.trend).toEqual([])
+    expect(week.trendByCategory).toEqual([])
   })
 
   it('aggregates totals, platform shares, the daily trend and categories', async () => {
@@ -173,6 +176,9 @@ describe('the xget stats store', () => {
     const { twoDaysAgo, tenDaysAgo } = await seedStats(db)
     const today = utcDay()
     const summary = await readStatsSummary(db, null)
+    const allDays = Array.from({ length: 11 }, (_, index) =>
+      utcDay(Date.now() - (10 - index) * DAY_MS),
+    )
 
     expect(summary.total).toBe(20)
     expect(summary.ok).toBe(16)
@@ -186,16 +192,41 @@ describe('the xget stats store', () => {
       { platform: 'npm', count: 3, ok: 0, pct: 15 },
       { platform: 'unknown', count: 1, ok: 0, pct: 5 },
     ])
-    expect(summary.trend).toEqual([
-      { day: tenDaysAgo, count: 4, ok: 4 },
-      { day: twoDaysAgo, count: 12, ok: 10 },
-      { day: today, count: 4, ok: 2 },
-    ])
-    expect(summary.trendByCategory).toEqual([
-      { day: tenDaysAgo, code: 4, package: 0, linux: 0, misc: 0, ai: 0, registry: 0 },
-      { day: twoDaysAgo, code: 1, package: 2, linux: 0, misc: 0, ai: 0, registry: 4 },
-      { day: today, code: 2, package: 1, linux: 0, misc: 0, ai: 0, registry: 0 },
-    ])
+    expect(summary.trend.map((point) => point.day)).toEqual(allDays)
+    expect(summary.trend.find((point) => point.day === tenDaysAgo)).toEqual({
+      day: tenDaysAgo,
+      count: 4,
+      ok: 4,
+    })
+    expect(summary.trend.find((point) => point.day === twoDaysAgo)).toEqual({
+      day: twoDaysAgo,
+      count: 12,
+      ok: 10,
+    })
+    expect(summary.trend.find((point) => point.day === today)).toEqual({
+      day: today,
+      count: 4,
+      ok: 2,
+    })
+    expect(summary.trendByCategory.map((point) => point.day)).toEqual(allDays)
+    expect(summary.trendByCategory.find((point) => point.day === twoDaysAgo)).toEqual({
+      day: twoDaysAgo,
+      code: 1,
+      package: 2,
+      linux: 0,
+      misc: 0,
+      ai: 0,
+      registry: 4,
+    })
+    expect(summary.trendByCategory.find((point) => point.day === today)).toEqual({
+      day: today,
+      code: 2,
+      package: 1,
+      linux: 0,
+      misc: 0,
+      ai: 0,
+      registry: 0,
+    })
   })
 
   it('limits the summary to the requested number of days', async () => {
@@ -204,6 +235,9 @@ describe('the xget stats store', () => {
     const { twoDaysAgo, tenDaysAgo } = await seedStats(db)
     const today = utcDay()
     const week = await readStatsSummary(db, 7)
+    const weekDays = Array.from({ length: 7 }, (_, index) =>
+      utcDay(Date.now() - (6 - index) * DAY_MS),
+    )
 
     expect(week.total).toBe(16)
     expect(week.ok).toBe(12)
@@ -222,20 +256,34 @@ describe('the xget stats store', () => {
       ok: 0,
       pct: 18.8,
     })
-    expect(week.trend).toEqual([
-      { day: twoDaysAgo, count: 12, ok: 10 },
-      { day: today, count: 4, ok: 2 },
-    ])
+    expect(week.trend.map((point) => point.day)).toEqual(weekDays)
+    expect(week.trend.find((point) => point.day === twoDaysAgo)).toEqual({
+      day: twoDaysAgo,
+      count: 12,
+      ok: 10,
+    })
+    expect(week.trend.find((point) => point.day === today)).toEqual({
+      day: today,
+      count: 4,
+      ok: 2,
+    })
     expect(week.trend.some((point) => point.day === tenDaysAgo)).toBe(false)
-    expect(week.trendByCategory).toEqual([
-      { day: twoDaysAgo, code: 1, package: 2, linux: 0, misc: 0, ai: 0, registry: 4 },
-      { day: today, code: 2, package: 1, linux: 0, misc: 0, ai: 0, registry: 0 },
-    ])
+    expect(week.trendByCategory.map((point) => point.day)).toEqual(weekDays)
+    expect(week.trendByCategory.find((point) => point.day === twoDaysAgo)).toEqual({
+      day: twoDaysAgo,
+      code: 1,
+      package: 2,
+      linux: 0,
+      misc: 0,
+      ai: 0,
+      registry: 4,
+    })
 
     const month = await readStatsSummary(db, 30)
     expect(month.total).toBe(20)
-    expect(month.trend).toHaveLength(3)
-    expect(month.trendByCategory[0]?.day).toBe(tenDaysAgo)
+    expect(month.trend).toHaveLength(30)
+    expect(month.trend[0]?.day).toBe(utcDay(Date.now() - 29 * DAY_MS))
+    expect(month.trendByCategory[0]?.day).toBe(utcDay(Date.now() - 29 * DAY_MS))
   })
 
   it('binds platform names instead of interpolating SQL', async () => {
