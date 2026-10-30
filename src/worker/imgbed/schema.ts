@@ -1,3 +1,43 @@
+export const IMGBED_FTS_STATEMENTS: readonly string[] = [
+  `CREATE VIRTUAL TABLE IF NOT EXISTS imgbed_files_fts USING fts5(
+     file_name, file_id, tags, tokenize='trigram'
+   )`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_files_fts_ai AFTER INSERT ON imgbed_files BEGIN
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     VALUES (new.rowid, new.file_name, new.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = new.id), ''));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_files_fts_au AFTER UPDATE OF file_name, id ON imgbed_files BEGIN
+     DELETE FROM imgbed_files_fts WHERE rowid = new.rowid;
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     VALUES (new.rowid, new.file_name, new.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = new.id), ''));
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_files_fts_ad AFTER DELETE ON imgbed_files BEGIN
+     DELETE FROM imgbed_files_fts WHERE rowid = old.rowid;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_file_tags_fts_ai AFTER INSERT ON imgbed_file_tags BEGIN
+     DELETE FROM imgbed_files_fts WHERE rowid = (SELECT rowid FROM imgbed_files WHERE id = new.file_id);
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     SELECT f.rowid, f.file_name, f.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = f.id), '')
+     FROM imgbed_files f WHERE f.id = new.file_id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_file_tags_fts_ad AFTER DELETE ON imgbed_file_tags BEGIN
+     DELETE FROM imgbed_files_fts WHERE rowid = (SELECT rowid FROM imgbed_files WHERE id = old.file_id);
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     SELECT f.rowid, f.file_name, f.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = f.id), '')
+     FROM imgbed_files f WHERE f.id = old.file_id;
+   END`,
+  `CREATE TRIGGER IF NOT EXISTS imgbed_file_tags_fts_au AFTER UPDATE OF file_id, tag ON imgbed_file_tags BEGIN
+     DELETE FROM imgbed_files_fts WHERE rowid = (SELECT rowid FROM imgbed_files WHERE id = old.file_id);
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     SELECT f.rowid, f.file_name, f.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = f.id), '')
+     FROM imgbed_files f WHERE f.id = old.file_id;
+     DELETE FROM imgbed_files_fts WHERE rowid = (SELECT rowid FROM imgbed_files WHERE id = new.file_id);
+     INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+     SELECT f.rowid, f.file_name, f.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = f.id), '')
+     FROM imgbed_files f WHERE f.id = new.file_id;
+   END`,
+]
+
 export const IMGBED_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS imgbed_files (
     id TEXT PRIMARY KEY,
@@ -69,6 +109,8 @@ export const IMGBED_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_imgbed_file_tags_tag
      ON imgbed_file_tags(tag, file_id)`,
+
+  ...IMGBED_FTS_STATEMENTS,
 
   `CREATE TABLE IF NOT EXISTS imgbed_upload_parts (
     session_id TEXT NOT NULL,

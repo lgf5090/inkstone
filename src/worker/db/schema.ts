@@ -63,6 +63,7 @@ import {
   IMGBED_REQUIRED_COLUMNS,
   IMGBED_REQUIRED_INDEXES,
   IMGBED_REQUIRED_TABLES,
+  IMGBED_FTS_STATEMENTS,
   IMGBED_SCHEMA_STATEMENTS,
 } from '../imgbed/schema'
 import {
@@ -2975,6 +2976,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         PRIMARY KEY (session_id, part_index)
       )`,
       `CREATE INDEX IF NOT EXISTS idx_imgbed_upload_parts_session ON imgbed_upload_parts(session_id)`,
+    ],
+  },
+  {
+    version: 197,
+    statements: [
+      ...IMGBED_FTS_STATEMENTS,
+      `INSERT INTO imgbed_files_fts(rowid, file_name, file_id, tags)
+       SELECT f.rowid, f.file_name, f.id, COALESCE((SELECT group_concat(tag, ' ') FROM imgbed_file_tags WHERE file_id = f.id), '')
+       FROM imgbed_files f`,
     ],
   },
 ]

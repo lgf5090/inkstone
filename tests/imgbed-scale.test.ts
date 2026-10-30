@@ -29,5 +29,12 @@ describe('imgbed scale smoke', () => {
     expect(page.directories).toEqual([])
     expect(sidebar.counts.all).toBe(10_000)
     console.info(`[imgbed-scale] 10k list+sidebar in ${elapsed.toFixed(1)}ms`)
+
+    const searchStarted = performance.now()
+    const found = await listFiles(db, { dir: '', count: 30, recursive: true, search: 'file9999' })
+    const searchElapsed = performance.now() - searchStarted
+    expect(found.totalCount).toBe(1)
+    expect(found.files.map((file) => file.id)).toEqual(['d99/file9999.png'])
+    console.info(`[imgbed-scale] 10k search in ${searchElapsed.toFixed(1)}ms`)
   })
 })

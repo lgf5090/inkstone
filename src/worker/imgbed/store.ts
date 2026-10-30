@@ -281,11 +281,13 @@ function buildListWhere(query: ImgbedListQuery, dirPrefix: string, includeDirect
   }
   const search = String(query.search ?? '').trim().toLowerCase()
   if (search) {
-    const pattern = `%${search.replace(/[%_\\]/g, '\\$&')}%`
     if (search.startsWith('#')) {
       const tagPattern = `%${search.slice(1).replace(/[%_\\]/g, '\\$&')}%`
       clauses.push(`EXISTS (SELECT 1 FROM imgbed_file_tags st WHERE st.file_id = f.id AND lower(st.tag) LIKE ${bind(tagPattern)} ESCAPE '\\')`)
+    } else if (Array.from(search).length >= 3) {
+      clauses.push(`f.rowid IN (SELECT rowid FROM imgbed_files_fts WHERE imgbed_files_fts MATCH ${bind(`"${search.replace(/"/g, '""')}"`)})`)
     } else {
+      const pattern = `%${search.replace(/[%_\\]/g, '\\$&')}%`
       clauses.push(`(lower(f.file_name) LIKE ${bind(pattern)} ESCAPE '\\' OR lower(f.id) LIKE ${bind(pattern)} ESCAPE '\\' OR EXISTS (SELECT 1 FROM imgbed_file_tags st WHERE st.file_id = f.id AND lower(st.tag) LIKE ${bind(pattern)} ESCAPE '\\'))`)
     }
   }

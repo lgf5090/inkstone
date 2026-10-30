@@ -5,7 +5,7 @@ import { IMGBED_SCHEMA_STATEMENTS } from '../src/worker/imgbed/schema'
 import { buildFileId, categoryFor, normalizeTags, parseSearchQuery, sanitizeFolderPath, sanitizeFileName } from '../src/shared/imgbed/model'
 import { fileAccessDecision, publicDirectoryAllowed } from '../src/worker/imgbed/access'
 import { scopeAllows } from '../src/worker/imgbed/tokens'
-import { deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, randomFile, setFileFlags, setFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
+import { deleteFileRow, deleteUploadParts, getSidebarData, insertFile, listFiles, getFileTags, listUploadParts, randomFile, renameFileRow, setFileFlags, setFileTags, addFileTags, removeFileTags, upsertUploadPart } from '../src/worker/imgbed/store'
 import { imgbedDavRoutes } from '../src/worker/imgbed/dav'
 import { redactImgbedFile } from '../src/worker/imgbed/manage'
 import { boundedPartSizeMB } from '../src/worker/imgbed/upload-routes'
@@ -32,8 +32,11 @@ describe('imgbed schema', () => {
     expect(tables.map((row) => row.name)).toEqual(expect.arrayContaining([
       'imgbed_files', 'imgbed_channels', 'imgbed_file_tags', 'imgbed_settings',
       'imgbed_api_tokens', 'imgbed_blocked_ips', 'imgbed_upload_sessions', 'imgbed_upload_parts',
+      'imgbed_files_fts',
     ]))
     expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining(['idx_imgbed_files_dir', 'idx_imgbed_file_tags_tag', 'idx_imgbed_upload_parts_session']))
+    const triggers = (sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all() as { name: string }[]).map((row) => row.name)
+    expect(triggers).toEqual(expect.arrayContaining(['imgbed_files_fts_ai', 'imgbed_files_fts_au', 'imgbed_files_fts_ad', 'imgbed_file_tags_fts_ai', 'imgbed_file_tags_fts_ad', 'imgbed_file_tags_fts_au']))
     const columns = (sqlite.prepare("PRAGMA table_info(imgbed_files)").all() as { name: string }[]).map((row) => row.name)
     expect(columns).toEqual(expect.arrayContaining(['favorite', 'pinned']))
   })
@@ -267,5 +270,70 @@ describe('imgbed list', () => {
     await setFileTags(db, 'a/one.png', ['cat'])
     expect(await getFileTags(db, 'a/one.png')).toEqual(['cat'])
     expect((await listFiles(db, { dir: '', count: 50, includeTags: ['cat'], recursive: true })).files.map((file) => file.id)).toEqual(['a/one.png'])
+  })
+})
+
+describe('imgbed search index', () => {
+  const base = {
+    fileType: 'image/png', width: null, height: null, uploadIp: null, uploadAddress: null,
+    source: 'cfr2', channel: 'CloudflareR2', channelName: 'R2', uploaderId: null, createdAt: 1,
+  }
+  async function seeded() {
+    const { db } = database()
+    await insertFile(db, { ...base, id: 'album/IMG_0001.png', objectKey: 'k1', fileName: 'Photo.PNG', sizeBytes: 1 })
+    await insertFile(db, { ...base, id: 'docs/报告文档.md', objectKey: 'k2', fileName: '报告文档.md', fileType: 'text/markdown', sizeBytes: 1 })
+    await insertFile(db, { ...base, id: 'misc/wall paper.jpg', objectKey: 'k3', fileName: 'wall paper.jpg', sizeBytes: 1 })
+    await setFileTags(db, 'misc/wall paper.jpg', ['风景照片'])
+    await insertFile(db, { ...base, id: 'ab.png', objectKey: 'k4', fileName: 'ab.png', sizeBytes: 1 })
+    return db
+  }
+  const search = async (db: Awaited<ReturnType<typeof seeded>>, term: string) =>
+    (await listFiles(db, { dir: '', count: 50, recursive: true, search: term })).files.map((file) => file.id).sort()
+
+  it('matches file names, ids and tags case-insensitively', async () => {
+    const db = await seeded()
+    expect(await search(db, 'photo')).toEqual(['album/IMG_0001.png'])
+    expect(await search(db, '报告文')).toEqual(['docs/报告文档.md'])
+    expect(await search(db, 'album')).toEqual(['album/IMG_0001.png'])
+    expect(await search(db, '风景照')).toEqual(['misc/wall paper.jpg'])
+    expect(await search(db, 'wall paper')).toEqual(['misc/wall paper.jpg'])
+    expect(await search(db, '#风景照')).toEqual(['misc/wall paper.jpg'])
+  })
+
+  it('keeps short and punctuated queries on the substring path', async () => {
+    const db = await seeded()
+    expect(await search(db, 'ab')).toEqual(['ab.png'])
+    expect(await search(db, '.png')).toEqual(['ab.png', 'album/IMG_0001.png'])
+    expect(await search(db, 'he"llo')).toEqual([])
+  })
+
+  it('reads long terms from the index and short ones from the table', async () => {
+    const { sqlite, db } = database()
+    await insertFile(db, { ...base, id: 'alpha-one.png', objectKey: 'k1', fileName: 'alpha-one.png', sizeBytes: 1 })
+    await insertFile(db, { ...base, id: 'ab.png', objectKey: 'k2', fileName: 'ab.png', sizeBytes: 1 })
+    sqlite.exec('DELETE FROM imgbed_files_fts')
+    expect((await listFiles(db, { dir: '', count: 50, search: 'alpha' })).totalCount).toBe(0)
+    expect((await listFiles(db, { dir: '', count: 50, search: 'ab' })).files.map((file) => file.id)).toEqual(['ab.png'])
+  })
+
+  it('keeps the index in step with tag, name and delete writes', async () => {
+    const db = await seeded()
+    await setFileTags(db, 'misc/wall paper.jpg', ['旅行日记'])
+    expect(await search(db, '风景照')).toEqual([])
+    expect(await search(db, '旅行日')).toEqual(['misc/wall paper.jpg'])
+    await addFileTags(db, 'misc/wall paper.jpg', ['美食记录'])
+    expect(await search(db, '美食记')).toEqual(['misc/wall paper.jpg'])
+    await removeFileTags(db, 'misc/wall paper.jpg', ['美食记录'])
+    expect(await search(db, '美食记')).toEqual([])
+    await insertFile(db, { ...base, id: 'album/IMG_0001.png', objectKey: 'k1b', fileName: 'sunset.png', sizeBytes: 2 })
+    expect(await search(db, 'photo')).toEqual([])
+    expect(await search(db, 'sunset')).toEqual(['album/IMG_0001.png'])
+    expect(await search(db, '旅行日')).toEqual(['misc/wall paper.jpg'])
+    await renameFileRow(db, 'album/IMG_0001.png', 'moved/sunset.png', 'k1b')
+    expect(await search(db, 'moved')).toEqual(['moved/sunset.png'])
+    await deleteFileRow(db, 'moved/sunset.png')
+    expect(await search(db, 'sunset')).toEqual([])
+    await deleteFileRow(db, 'misc/wall paper.jpg')
+    expect(await search(db, '旅行日')).toEqual([])
   })
 })
