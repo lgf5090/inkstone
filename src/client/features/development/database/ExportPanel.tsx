@@ -98,9 +98,16 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
   const filename = `${tableName || 'query_result'}.${extension}`
   const formatForServer: ExportFormat = settings.format === 'delimited' ? 'csv' : settings.format
 
+  const invalidSettings = (settings.format === 'csv' || settings.format === 'delimited')
+    && (!parseEscapes(settings.delimiter) || !parseEscapes(settings.lineTerminator) || settings.encloser.length !== 1)
+
   const run = async () => {
     if (selected.length === 0) {
       useUi.getState().toast({ title: t('development.database.export.no_data'), tone: 'warning' })
+      return
+    }
+    if (invalidSettings) {
+      useUi.getState().toast({ title: t('development.database.export.invalid_settings'), tone: 'danger' })
       return
     }
     setBusy(true)
@@ -117,6 +124,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
           const created = await createExport({ format: formatForServer, filename, content: text })
           const blob = await fetchExportBlob(created.id)
           downloadBlob(filename, blob)
+          useUi.getState().toast({ title: t('development.database.export.downloaded', { count: selected.length }), tone: 'success' })
         } catch (error) {
           downloadBlob(filename, new Blob([text], { type: `${exportMimeType(formatForServer)};charset=utf-8` }))
           useUi.getState().toast({
@@ -125,9 +133,14 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
             tone: 'warning',
           })
         }
-        useUi.getState().toast({ title: t('development.database.export.downloaded', { count: selected.length }), tone: 'success' })
       }
       setOpen(false)
+    } catch (error) {
+      useUi.getState().toast({
+        title: t('development.database.export.failed'),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
     } finally {
       setBusy(false)
     }
@@ -203,6 +216,11 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
               ))}
             </div>
           )}
+          {invalidSettings && (
+            <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--danger)]">
+              {t('development.database.export.invalid_settings')}
+            </p>
+          )}
           {truncated && (
             <p className="rounded-[var(--r-md)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--warning)]">
               {t('development.database.export.truncated_note')}
@@ -210,7 +228,7 @@ export function ExportPanel({ columns, rows, tableName, selectedRows, truncated 
           )}
           <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-2">
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>{t('development.database.common.cancel')}</Button>
-            <Button size="sm" onClick={() => void run()} disabled={busy || selected.length === 0}>
+            <Button size="sm" onClick={() => void run()} disabled={busy || selected.length === 0 || invalidSettings}>
               {busy && <Loader2 size={13} className="animate-spin" />}
               {t('development.database.export.export')}
             </Button>

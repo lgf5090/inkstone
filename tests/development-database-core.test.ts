@@ -13,7 +13,7 @@ import { computeColumnWidths } from '../src/client/features/development/database
 import { diffSchemas, schemaStatements } from '../src/client/features/development/database/schema-diff'
 import { diffRows } from '../src/client/features/development/database/data-diff'
 import { inferColumnType, parseCsv } from '../src/client/features/development/database/csv-parse'
-import { projectColumns, toCsv, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
+import { projectColumns, sqlLiteral, toCsv, toInsertSql, toMarkdown, toSchemaSql } from '../src/client/features/development/database/export-utils'
 import { transformValue } from '../src/client/features/development/database/transform-value'
 import { INKSTONE_BLOB_KEY } from '../src/shared/development/database/types'
 import { blobBytes, blobFileName, hexDump, imageSource } from '../src/client/features/development/database/blob-view'
@@ -385,6 +385,19 @@ describe('development database core', () => {
 
   it('quotes CSV cells containing separators and newlines', () => {
     expect(toCsv(['a', 'b'], [['x,y', 'line\nbreak']], { bom: false })).toBe('a,b\r\n"x,y","line\nbreak"')
+  })
+
+  it('writes remote blob wrappers as hex literals', () => {
+    const wrapper = { [INKSTONE_BLOB_KEY]: Buffer.from([1, 2, 3]).toString('base64') }
+    expect(sqlLiteral(wrapper)).toBe("X'010203'")
+    expect(toInsertSql('t', ['b'], [[wrapper]])).toBe('INSERT INTO "t" ("b") VALUES (X\'010203\');')
+    expect(toCsv(['b'], [[wrapper]], { bom: false })).toBe("b\r\nX'010203'")
+  })
+
+  it('neutralizes spreadsheet formulas in delimited exports without touching numbers', () => {
+    expect(toCsv(['v'], [['=1+1']], { bom: false })).toBe("v\r\n'=1+1")
+    expect(toCsv(['v'], [['@SUM(A1)']], { bom: false })).toBe("v\r\n'@SUM(A1)")
+    expect(toCsv(['v'], [[-5]], { bom: false })).toBe('v\r\n-5')
   })
 
   it('dumps schema objects in dependency order with single terminators', () => {

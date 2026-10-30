@@ -302,6 +302,8 @@ export const ZH_CN_DEVELOPMENT_DATABASE = {
   "development.database.export.format": "格式",
   "development.database.export.line_terminator": "行终止符",
   "development.database.export.local_fallback": "服务端存储不可用，已改为本地下载。",
+  "development.database.export.failed": "导出失败",
+  "development.database.export.invalid_settings": "分隔符和行结束符不能为空，包围符必须是单个字符",
   "development.database.export.no_data": "没有可导出的数据",
   "development.database.export.truncated_note": "结果被截断时，导出只包含已经取回的行。",
   "development.database.export.null_value": "NULL 值",

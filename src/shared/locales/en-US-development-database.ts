@@ -302,6 +302,8 @@ export const EN_US_DEVELOPMENT_DATABASE = {
   "development.database.export.format": "Format",
   "development.database.export.line_terminator": "Line terminator",
   "development.database.export.local_fallback": "Server storage unavailable; downloaded locally instead.",
+  "development.database.export.failed": "Export failed",
+  "development.database.export.invalid_settings": "The delimiter and line terminator cannot be empty, and the encloser must be one character",
   "development.database.export.no_data": "No data to export",
   "development.database.export.truncated_note": "When a result is truncated, the export contains only the rows already fetched.",
   "development.database.export.null_value": "NULL text",

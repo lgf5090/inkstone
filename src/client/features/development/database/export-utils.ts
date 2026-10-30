@@ -1,5 +1,6 @@
 import type { ExportFormat } from '@shared/development/database/types'
 import { quoteIdent } from '@shared/development/database/sql-utils'
+import { blobBytes } from './blob-view'
 
 export interface DelimitedOptions {
   delimiter?: string
@@ -8,10 +9,12 @@ export interface DelimitedOptions {
   nullText?: string
   includeHeader?: boolean
   bom?: boolean
+  neutralizeFormulas?: boolean
 }
 
 const DEFAULT_ENCLOSER = '"'
 const DEFAULT_LINE_TERMINATOR = '\n'
+const FORMULA_PREFIX = /^[=+\-@\t\r]/
 
 function hex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -19,7 +22,8 @@ function hex(value: Uint8Array): string {
 
 function cellText(value: unknown, nullText: string): string {
   if (value === null || value === undefined) return nullText
-  if (value instanceof Uint8Array) return `X'${hex(value)}'`
+  const bytes = blobBytes(value)
+  if (bytes) return `X'${hex(bytes)}'`
   if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'object') return JSON.stringify(value) ?? ''
   return String(value)
@@ -52,12 +56,16 @@ export function toDelimited(
   const encloser = options.encloser ?? DEFAULT_ENCLOSER
   const nullText = options.nullText ?? ''
   const includeHeader = options.includeHeader ?? true
+  const neutralize = options.neutralizeFormulas ?? true
   if (!delimiter) throw new Error('A delimiter is required.')
   if (encloser.length !== 1) throw new Error('The encloser must be one character.')
   if (!lineTerminator) throw new Error('A line terminator is required.')
 
-  const render = (value: unknown): string =>
-    quoteCell(cellText(value, nullText), delimiter, lineTerminator, encloser)
+  const render = (value: unknown): string => {
+    const text = cellText(value, nullText)
+    const safe = neutralize && typeof value === 'string' && FORMULA_PREFIX.test(text) ? `'${text}` : text
+    return quoteCell(safe, delimiter, lineTerminator, encloser)
+  }
 
   const lines: string[] = []
   if (includeHeader) lines.push(columns.map(render).join(delimiter))
@@ -99,7 +107,8 @@ function jsonCell(value: unknown): unknown {
     const numeric = Number(value)
     return Number.isSafeInteger(numeric) ? numeric : value.toString()
   }
-  if (value instanceof Uint8Array) return `X'${hex(value)}'`
+  const bytes = blobBytes(value)
+  if (bytes) return `X'${hex(bytes)}'`
   return value
 }
 
@@ -126,7 +135,8 @@ export function sqlLiteral(value: unknown): string {
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL'
   if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'boolean') return value ? '1' : '0'
-  if (value instanceof Uint8Array) return `X'${hex(value)}'`
+  const bytes = blobBytes(value)
+  if (bytes) return `X'${hex(bytes)}'`
   if (typeof value === 'object') return quoteString(JSON.stringify(value) ?? '')
   return quoteString(String(value))
 }
