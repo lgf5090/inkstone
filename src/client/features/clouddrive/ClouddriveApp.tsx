@@ -116,6 +116,7 @@ export function ClouddriveApp() {
 
   const owner = user?.role === 'owner' || bootstrap.user.role === 'owner'
   const mounts = bootstrap.mounts.filter((mount) => mount.enabled)
+  const activeMount = bootstrap.mounts.find((mount) => mount.id === address.mountId)
   const navigate = (path: string) => navigateToPath(path)
 
   return (
@@ -169,7 +170,7 @@ export function ClouddriveApp() {
                   mountId={address.mountId}
                   mountName={mounts.find((mount) => mount.id === address.mountId)?.name}
                   path={address.path}
-                  readOnly={bootstrap.mounts.find((mount) => mount.id === address.mountId)?.readOnly}
+                  readOnly={!activeMount || activeMount.storageId !== 'primary' || activeMount.readOnly}
                   onNavigate={(nextPath) => navigate(cloudDrivePath('files', address.mountId, nextPath))}
                   onPreview={(entry, context) => setPreview({ entries: context?.entries ?? [entry], index: context?.index ?? 0 })}
                 />
