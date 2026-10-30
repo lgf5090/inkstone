@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import type { AppBindings } from '../env'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import { parseSecuritySettings } from '@shared/imgbed/settings'
-import { getSettingsGroup, listFiles } from './store'
+import { getSettingsGroup, listFiles, randomFile } from './store'
+import { requestClientIp } from '../lib/request'
+import { checkRateLimit } from './rate-limit'
 import { publicDirectoryAllowed } from './access'
 
 export const imgbedPublicRoutes = new Hono<AppBindings>()
@@ -22,6 +24,8 @@ imgbedPublicRoutes.get('/public/config', async (c) => {
 })
 
 imgbedPublicRoutes.get('/public/list', async (c) => {
+  const limit = checkRateLimit(`imgbed-public-list:${requestClientIp(c.req.raw)}`, 240, 60_000)
+  if (!limit.ok) return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
   const others = await getSettingsGroup(c.env.DB, 'others')
   if (!others.publicBrowse.enabled) {
     return c.json({ error: 'Public browse is disabled' }, 403)
@@ -99,6 +103,8 @@ function resolveOrientation(device: DeviceInfo): string {
 }
 
 imgbedRandomRoutes.get('/random', async (c) => {
+  const limit = checkRateLimit(`imgbed-random:${requestClientIp(c.req.raw)}`, 120, 60_000)
+  if (!limit.ok) return c.json({ error: 'Too many requests' }, 429, { 'Retry-After': String(limit.retryAfterSec), 'Access-Control-Allow-Origin': '*' })
   const others = await getSettingsGroup(c.env.DB, 'others')
   if (!others.randomImageAPI.enabled) return c.json({ error: 'Random is disabled' }, 403, { 'Access-Control-Allow-Origin': '*' })
   const security = parseSecuritySettings(await getSettingsGroup(c.env.DB, 'security'))
@@ -113,44 +119,38 @@ imgbedRandomRoutes.get('/random', async (c) => {
   const orientationParam = url.searchParams.get('orientation') ?? ''
   const device = detectDevice(c)
   const orientation = ['landscape', 'portrait', 'square'].includes(orientationParam)
-    ? orientationParam
-    : orientationParam === 'auto' ? resolveOrientation(device) : ''
-  const result = await listFiles(c.env.DB, {
-    dir, count: -1, recursive: true,
+    ? orientationParam as 'landscape' | 'portrait' | 'square'
+    : orientationParam === 'auto' ? resolveOrientation(device) as 'landscape' | 'portrait' | 'square' | '' : ''
+  const allowed = allowedDirectories(others.randomImageAPI.allowedDir)
+  const allAllowed = allowed.some((entry) => entry.replace(/^\/+|\/+$/g, '') === '*')
+  const allowedDirs = allowed.map((entry) => entry.replace(/^\/+|\/+$/g, '')).filter((entry) => entry && entry !== '*')
+  const whiteList = security.access.whiteListMode ? { listType: ['White'] } : {}
+  const query = (targetDir: string, targetOrientation: string | undefined) => ({
+    dir: targetDir,
     fileType: content,
     accessStatus: ['normal'],
-    ...(security.access.whiteListMode ? { listType: ['White'] } : {}),
+    ...whiteList,
+    ...(targetOrientation ? { orientation: targetOrientation as 'landscape' | 'portrait' | 'square' } : {}),
   })
-  let files = result.files
-  if (!dir) {
-    const allowedDirs = allowedDirectories(others.randomImageAPI.allowedDir)
-    const allAllowed = allowedDirs.some((entry) => entry.replace(/^\/+|\/+$/g, '') === '*')
-    if (allowedDirs.length && !allAllowed) {
-      files = files.filter((file) => publicDirectoryAllowed(file.directory, others.randomImageAPI.allowedDir))
+  const pick = async (targetOrientation: string | undefined): Promise<ImgbedFile | null> => {
+    if (dir) return randomFile(c.env.DB, query(dir, targetOrientation))
+    if (!allowed.length || allAllowed) return randomFile(c.env.DB, query('', targetOrientation))
+    const candidates = [...allowedDirs].sort(() => Math.random() - 0.5)
+    for (const candidate of candidates) {
+      const file = await randomFile(c.env.DB, query(candidate, targetOrientation))
+      if (file) return file
     }
+    return null
   }
-  const beforeOrientation = files
-  if (orientation) {
-    files = files.filter((file) => {
-      if (!file.width || !file.height) return false
-      const ratio = file.width / file.height
-      if (orientation === 'landscape') return ratio > 1.1
-      if (orientation === 'portrait') return ratio < 0.9
-      return ratio >= 0.9 && ratio <= 1.1
-    })
-    if (!files.length && orientationParam === 'auto') files = beforeOrientation
-  }
+  let file = await pick(orientation || undefined)
+  if (!file && orientationParam === 'auto') file = await pick(undefined)
   const headers: Record<string, string> = { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' }
   if (orientationParam === 'auto') {
     headers['Accept-CH'] = 'Sec-CH-Viewport-Width, Sec-CH-Viewport-Height'
     headers.Vary = 'Sec-CH-Viewport-Width, Sec-CH-Viewport-Height, User-Agent'
   }
-  if (!files.length) return c.json({}, 200, headers)
-  const file = files[Math.floor(Math.random() * files.length)]!
-  const path = `${url.origin}/imgbed/file/${file.id}`
+  if (!file) return c.json({}, 200, headers)
+  const path = `${url.origin}/imgbed/file/${file.id.split('/').map(encodeURIComponent).join('/')}`
   if (url.searchParams.get('type') === 'img') return Response.redirect(path, 302)
-  if (url.searchParams.get('type') === 'url') {
-    return url.searchParams.get('form') === 'text' ? c.text(path, 200, headers) : c.json({ url: path }, 200, headers)
-  }
   return url.searchParams.get('form') === 'text' ? c.text(path, 200, headers) : c.json({ url: path }, 200, headers)
 })

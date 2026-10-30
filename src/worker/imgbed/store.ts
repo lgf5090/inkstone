@@ -414,6 +414,27 @@ export async function listFiles(db: D1Database, query: ImgbedListQuery): Promise
   }
 }
 
+export async function randomFile(
+  db: D1Database,
+  query: ImgbedListQuery & { orientation?: 'landscape' | 'portrait' | 'square' },
+): Promise<ImgbedFile | null> {
+  const dir = normalizeDirectory(query.dir)
+  const base = buildListWhere(query, dir, false)
+  const clauses = [base.where]
+  const binds = [...base.binds]
+  if (dir) {
+    clauses.push('f.directory LIKE ?')
+    binds.push(`${dir}%`)
+  }
+  if (query.orientation === 'landscape') clauses.push('f.width IS NOT NULL AND f.height IS NOT NULL AND f.width > f.height * 1.1')
+  if (query.orientation === 'portrait') clauses.push('f.width IS NOT NULL AND f.height IS NOT NULL AND f.width < f.height * 0.9')
+  if (query.orientation === 'square') clauses.push('f.width IS NOT NULL AND f.height IS NOT NULL AND f.width >= f.height * 0.9 AND f.width <= f.height * 1.1')
+  const row = await db.prepare(
+    `SELECT f.* FROM imgbed_files f WHERE ${clauses.join(' AND ')} ORDER BY RANDOM() LIMIT 1`,
+  ).bind(...binds).first<FileRow>()
+  return row ? rowToFile(row) : null
+}
+
 export interface ImgbedStats {
   totalFiles: number
   totalBytes: number

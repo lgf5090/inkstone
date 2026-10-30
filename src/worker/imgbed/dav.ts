@@ -11,6 +11,8 @@ import { deleteFileRow, renameFileRow } from './store'
 import type { ImgbedFile } from '@shared/imgbed/model'
 import type { ImgbedActor } from './auth'
 import { imgbedResponseHeaders } from './file-headers'
+import { requestClientIp } from '../lib/request'
+import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
 
 export const imgbedDavRoutes = new Hono<AppBindings>()
 
@@ -22,10 +24,16 @@ function escapeHtml(value: string): string {
   return escapeXml(value)
 }
 
-async function davSettings(c: { env: AppBindings['Bindings']; req: { header: (name: string) => string | undefined } }) {
+async function davSettings(c: { env: AppBindings['Bindings']; req: { header: (name: string) => string | undefined; raw: Request } }) {
   const others = parseOthersSettings(await getSettingsGroup(c.env.DB, 'others'))
   if (!others.webDAV.enabled) throw new ApiError(503, 'internal', 'WebDAV is disabled')
   if (!others.webDAV.username || !others.webDAV.passwordHash) throw new ApiError(503, 'internal', 'WebDAV credentials are not configured')
+  const key = `imgbed-dav:${requestClientIp(c.req.raw)}`
+  try { await assertNotLocked(c.env.DB, [{ key, freeFails: 5 }]) }
+  catch (error) {
+    if (error instanceof ThrottleError) return { settings: others, response: new Response('Too many attempts', { status: 429, headers: { 'Retry-After': String(error.retryAfterSec) } }) }
+    throw error
+  }
   const authorization = c.req.header('authorization') ?? ''
   const match = /^Basic\s+(.+)$/i.exec(authorization)
   if (!match) {
@@ -37,8 +45,10 @@ async function davSettings(c: { env: AppBindings['Bindings']; req: { header: (na
   const username = separator < 0 ? decoded : decoded.slice(0, separator)
   const password = separator < 0 ? '' : decoded.slice(separator + 1)
   if (username !== others.webDAV.username || !(await verifyPassword(password, others.webDAV.passwordHash))) {
+    await recordLoginFailure(c.env.DB, [{ key, freeFails: 5 }]).catch((error) => console.warn('[inkstone] image-bed WebDAV throttle write failed:', (error as Error).message))
     return { settings: others, response: new Response('Invalid credentials', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Image bed"' } }) }
   }
+  await clearLoginFailures(c.env.DB, [{ key }]).catch((error) => console.warn('[inkstone] image-bed WebDAV throttle clear failed:', (error as Error).message))
   return { settings: others, response: null }
 }
 
