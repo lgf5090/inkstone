@@ -24,6 +24,10 @@ function escapeHtml(value: string): string {
   return escapeXml(value)
 }
 
+function multiStatus(items: { href: string; status: number; message?: string }[]): string {
+  return `<?xml version="1.0" encoding="utf-8"?><D:multistatus xmlns:D="DAV:">${items.map((item) => `<D:response><D:href>${escapeXml(item.href)}</D:href><D:status>HTTP/1.1 ${item.status}${item.message ? ` ${escapeXml(item.message)}` : ''}</D:status></D:response>`).join('')}</D:multistatus>`
+}
+
 async function davSettings(c: { env: AppBindings['Bindings']; req: { header: (name: string) => string | undefined; raw: Request } }) {
   const others = parseOthersSettings(await getSettingsGroup(c.env.DB, 'others'))
   if (!others.webDAV.enabled) throw new ApiError(503, 'internal', 'WebDAV is disabled')
@@ -147,12 +151,21 @@ imgbedDavRoutes.delete('*', async (c) => {
     ? [exact]
     : (await listFiles(c.env.DB, { dir: path.replace(/\/$/, ''), count: -1, recursive: true })).files
   if (!files.length) return new Response('Not Found', { status: 404 })
+  const results: { href: string; status: number; message?: string }[] = []
+  let deleted = 0
   for (const file of files) {
     const channel = await channelFor(c.env, c.env.DB, file)
-    if (channel) await deleteWholeFile(c.env, channel, file).catch(() => {})
-    await deleteFileRow(c.env.DB, file.id)
+    try {
+      if (!channel) throw new Error('channel_not_configured')
+      await deleteWholeFile(c.env, channel, file)
+      await deleteFileRow(c.env.DB, file.id)
+      deleted += 1
+    } catch (error) {
+      results.push({ href: `/imgbed/dav/${file.id}`, status: 500, message: error instanceof Error ? error.message : 'delete_failed' })
+    }
   }
-  return new Response(null, { status: 204 })
+  if (!results.length) return new Response(null, { status: 204 })
+  return new Response(multiStatus(results), { status: 207, headers: { 'Content-Type': 'application/xml; charset=utf-8' } })
 })
 
 imgbedDavRoutes.on(['PROPFIND'], '*', async (c) => {
@@ -198,22 +211,34 @@ imgbedDavRoutes.on(['MOVE'], '*', async (c) => {
   if (file) {
     const channel = await channelFor(c.env, c.env.DB, file)
     if (!channel) return new Response('Channel is not configured', { status: 503 })
-    const move = await moveWholeFile(c.env, channel, file, target, file.fileType)
-    await renameFileRow(c.env.DB, source, target, move.objectKey)
-    return new Response(null, { status: 201 })
+    try {
+      const move = await moveWholeFile(c.env, channel, file, target, file.fileType)
+      await renameFileRow(c.env.DB, source, target, move.objectKey)
+      return new Response(null, { status: 201 })
+    } catch (error) {
+      return new Response(error instanceof Error ? error.message : 'move_failed', { status: 502 })
+    }
   }
   const folder = source.replace(/\/$/, '')
   const files = (await listFiles(c.env.DB, { dir: folder, count: -1, recursive: true })).files
   if (!files.length) return new Response('Not Found', { status: 404 })
+  const results: { href: string; status: number; message?: string }[] = []
+  let moved = 0
   for (const item of files) {
     const channel = await channelFor(c.env, c.env.DB, item)
-    if (!channel) continue
     const relative = item.id.slice(folder.length + 1)
     const newId = `${target}/${relative}`
-    const move = await moveWholeFile(c.env, channel, item, newId, item.fileType)
-    await renameFileRow(c.env.DB, item.id, newId, move.objectKey)
+    try {
+      if (!channel) throw new Error('channel_not_configured')
+      const move = await moveWholeFile(c.env, channel, item, newId, item.fileType)
+      await renameFileRow(c.env.DB, item.id, newId, move.objectKey)
+      moved += 1
+    } catch (error) {
+      results.push({ href: `/imgbed/dav/${item.id}`, status: 500, message: error instanceof Error ? error.message : 'move_failed' })
+    }
   }
-  return new Response(null, { status: 201 })
+  if (!results.length) return new Response(null, { status: 201 })
+  return new Response(multiStatus(results), { status: 207, headers: { 'Content-Type': 'application/xml; charset=utf-8' } })
 })
 
 imgbedDavRoutes.on(['MKCOL'], '*', async (c) => {
