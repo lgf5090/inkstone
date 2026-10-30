@@ -14,7 +14,6 @@ describe('API Tester send shortcut', () => {
 
   it('ignores a bare Enter, another key, and an IME frame', () => {
     expect(isSendShortcut(key({}))).toBe(false)
-    // Shift is not a modifier this module assigns, so Ctrl/Cmd+Shift+Enter still means send.
     expect(isSendShortcut(key({ shiftKey: true, ctrlKey: true }))).toBe(true)
     expect(isSendShortcut(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }))).toBe(false)
     expect(isSendShortcut(key({ ctrlKey: true, isComposing: true }))).toBe(false)

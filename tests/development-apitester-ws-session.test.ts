@@ -66,7 +66,6 @@ describe('API Tester WebSocket sessions', () => {
     socket.onmessage?.({ data: 'hello' })
     expect(wsSessionOf('node-1').messages.at(-1)).toMatchObject({ direction: 'in', data: 'hello' })
 
-    // The panel unmounting does not call anything; the session is read again by node id.
     expect(wsSessionOf('node-1').status).toBe('open')
     expect(wsSessionOf('node-1').messages.some((message) => message.data === 'hello')).toBe(true)
   })
