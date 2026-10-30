@@ -88,10 +88,12 @@ export function CategoryRail({
             >
               <Icon size={15} className="shrink-0" />
               <span className="min-w-0 flex-1 truncate text-left">{t(CATEGORY_LABEL_KEYS[category])}</span>
-              <span
-                className="shrink-0 rounded-full px-1.5 text-[length:var(--text-10)] tabular"
-                style={{ color: categoryColor(category, dark), backgroundColor: 'var(--bg-raised)' }}
-              >
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--bg-raised)] px-1.5 text-[length:var(--text-10)] tabular text-[var(--text-tertiary)]">
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: categoryColor(category, dark) }}
+                />
                 {counts[category]}
               </span>
             </NavButton>
@@ -167,7 +169,12 @@ export function CategoryBar({
             >
               <Icon size={13} />
               <span>{t(CATEGORY_LABEL_KEYS[category])}</span>
-              <span className="tabular" style={{ color: categoryColor(category, dark) }}>
+              <span className="inline-flex items-center gap-1 tabular text-[var(--text-tertiary)]">
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ backgroundColor: categoryColor(category, dark) }}
+                />
                 {counts[category]}
               </span>
             </button>

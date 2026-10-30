@@ -2,6 +2,7 @@ import type { XgetCategory } from '@shared/development/xget/types'
 import { useThemeDark } from '../../../../lib/hooks'
 import { categoryColor, categoryTint, CATEGORY_ICONS } from '../lib/category'
 import { PLATFORM_ICONS } from '../utils/platform-icons'
+import { foregroundForHex } from '../lib/icon-contrast'
 
 export function PlatformIcon({
   platformKey,
@@ -23,7 +24,7 @@ export function PlatformIcon({
         title={icon.title}
         aria-hidden="true"
       >
-        <svg viewBox="0 0 24 24" className="h-3/5 w-3/5 fill-white">
+        <svg viewBox="0 0 24 24" className="h-3/5 w-3/5" style={{ fill: foregroundForHex(icon.hex) }}>
           <path d={icon.path} />
         </svg>
       </span>
