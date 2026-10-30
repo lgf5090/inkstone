@@ -2994,6 +2994,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
        FROM imgbed_files f`,
     ],
   },
+  {
+    version: 198,
+    skipIfColumnExists: { table: 'CloudDrive_mounts', column: 'remark' },
+    statements: [
+      `ALTER TABLE CloudDrive_mounts ADD COLUMN remark TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

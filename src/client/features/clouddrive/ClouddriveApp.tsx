@@ -15,6 +15,7 @@ import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
 import { MountsPage } from './mounts/MountsPage'
+import { StoragePage } from './mounts/StoragePage'
 import { SharesPage } from './shares/SharesPage'
 import { DashboardPage } from './admin/DashboardPage'
 import { AdminFilesPage } from './admin/AdminFilesPage'
@@ -209,9 +210,11 @@ export function ClouddriveApp() {
                         ? <RequestsPage />
                       : address.page === 'shared'
                         ? <SharedPage />
-                      : address.page === 'mounts' || address.page === 'storage'
-                        ? <MountsPage showStorages={address.page === 'storage'} />
-                        : <PagePlaceholder page={address.page} />}
+                      : address.page === 'mounts'
+                        ? <MountsPage />
+                        : address.page === 'storage'
+                          ? <StoragePage />
+                          : <PagePlaceholder page={address.page} />}
         </main>
       </div>
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>

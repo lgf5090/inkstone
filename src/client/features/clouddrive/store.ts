@@ -11,6 +11,7 @@ interface CloudDriveState {
   prefs: CloudDrivePrefs
   refreshKey: number
   load: () => Promise<void>
+  refresh: () => Promise<void>
   setPrefs: (patch: Partial<CloudDrivePrefs>) => void
   bumpRefresh: () => void
 }
@@ -31,6 +32,10 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => ({
     } catch (error) {
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
     }
+  },
+  refresh: async () => {
+    const bootstrap = await clouddriveApi.bootstrap()
+    set({ bootstrap, status: 'ready', error: null })
   },
   setPrefs: (patch) => {
     const bootstrap = get().bootstrap

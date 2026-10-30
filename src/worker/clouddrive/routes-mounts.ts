@@ -6,6 +6,7 @@ import { newId } from '../lib/id'
 import { encryptCloudDriveCredentials, decryptCloudDriveCredentials } from '../lib/crypto'
 import { checkTarget } from '../lib/outbound'
 import { requireOwner } from '../middleware/auth'
+import { s3RequestUrl, webdavCollectionUrl } from './storage-urls'
 
 export const clouddriveMountRoutes = new Hono<AppBindings>()
 
@@ -44,9 +45,11 @@ interface MountRow {
   cache_ttl: number
   web_proxy: number
   webdav_policy: string
+  sign_expires: number | null
   weight: number
   sort_order: number
   enabled: number
+  remark: string
   created_at: number
   updated_at: number
 }
@@ -62,22 +65,29 @@ clouddriveMountRoutes.post('/storages', async (c) => {
   const body = await readJson(c)
   const name = cleanName(body.name)
   const type = storageType(body.type)
-  const config = objectValue(body.config)
+  const config = storageConfig(type, body.config)
   const credentials = credentialRecord(body.credentials)
   const now = Date.now()
   const id = newId()
   const secret = Object.keys(credentials).length > 0 ? await encryptCloudDriveCredentials(c.env, id, credentials) : ''
+  const existing = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM CloudDrive_storages WHERE user_id = ?1`).bind(userId).first<{ n: number }>()
+  const isDefault = body.isDefault === true || (existing?.n ?? 0) === 0
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO CloudDrive_storages
-         (user_id, id, name, type, config, credentials, status, is_default, api_key_visible, read_quota,
-          default_path, last_used_at, last_test_at, last_test_status, created_at, updated_at)
-       VALUES (?1,?2,?3,?4,?5,?6,'enabled',?7,?8,?9,?10,NULL,NULL,NULL,?11,?11)`,
-    ).bind(
-      userId, id, name, type, JSON.stringify(config), secret,
-      body.isDefault ? 1 : 0, body.apiKeyVisible ? 1 : 0, body.readQuota ? 1 : 0,
-      typeof body.defaultPath === 'string' && body.defaultPath.startsWith('/') ? body.defaultPath : '/', now,
-    ).run()
+    const statements = [
+      ...(isDefault ? [c.env.DB.prepare(`UPDATE CloudDrive_storages SET is_default = 0 WHERE user_id = ?1`).bind(userId)] : []),
+      c.env.DB.prepare(
+        `INSERT INTO CloudDrive_storages
+           (user_id, id, name, type, config, credentials, status, is_default, api_key_visible, read_quota,
+            default_path, last_used_at, last_test_at, last_test_status, created_at, updated_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL,NULL,NULL,?12,?12)`,
+      ).bind(
+        userId, id, name, type, JSON.stringify(config), secret,
+        body.status === 'disabled' ? 'disabled' : 'enabled',
+        isDefault ? 1 : 0, body.apiKeyVisible ? 1 : 0, body.readQuota ? 1 : 0,
+        cleanRootPath(body.defaultPath), now,
+      ),
+    ]
+    await c.env.DB.batch(statements)
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('A storage with this name already exists')
     throw error
@@ -91,20 +101,30 @@ clouddriveMountRoutes.patch('/storages/:id', async (c) => {
   const row = await storageById(c, c.req.param('id'))
   if (!row) throw ApiError.notFound('Storage not found')
   const body = await readJson(c)
+  if (body.type !== undefined && storageType(body.type) !== row.type) {
+    throw ApiError.badRequest('A storage configuration cannot change its type')
+  }
   const sets: string[] = []
   const values: unknown[] = []
   const put = (sql: string, value: unknown) => { sets.push(sql); values.push(value) }
   if (body.name !== undefined) put('name = ?', cleanName(body.name))
-  if (body.status !== undefined) put('status = ?', body.status === 'disabled' ? 'disabled' : 'enabled')
-  if (body.config !== undefined) put('config = ?', JSON.stringify(objectValue(body.config)))
-  if (body.credentials !== undefined) { const credentials = credentialRecord(body.credentials); put('credentials = ?', Object.keys(credentials).length > 0 ? await encryptCloudDriveCredentials(c.env, row.id, credentials) : '') }
-  if (body.isDefault !== undefined) put('is_default = ?', body.isDefault ? 1 : 0)
+  if (body.status !== undefined) {
+    if (body.status !== 'enabled' && body.status !== 'disabled') throw ApiError.badRequest('Storage status must be enabled or disabled')
+    put('status = ?', body.status)
+  }
+  if (body.config !== undefined) put('config = ?', JSON.stringify(storageConfig(row.type as StorageType, body.config)))
+  if (body.credentials !== undefined) put('credentials = ?', await mergedCredentials(c, row, body.credentials))
   if (body.apiKeyVisible !== undefined) put('api_key_visible = ?', body.apiKeyVisible ? 1 : 0)
   if (body.readQuota !== undefined) put('read_quota = ?', body.readQuota ? 1 : 0)
-  if (body.defaultPath !== undefined) put('default_path = ?', typeof body.defaultPath === 'string' && body.defaultPath.startsWith('/') ? body.defaultPath : '/')
+  if (body.defaultPath !== undefined) put('default_path = ?', cleanRootPath(body.defaultPath))
+  if (body.isDefault !== undefined) put('is_default = ?', body.isDefault ? 1 : 0)
   if (!sets.length) return c.json({ storage: toStorageView(row) })
   values.push(Date.now(), userId, row.id)
-  await c.env.DB.prepare(`UPDATE CloudDrive_storages SET ${sets.join(', ')}, updated_at = ? WHERE user_id = ? AND id = ?`).bind(...values).run()
+  const statements = [
+    ...(body.isDefault === true ? [c.env.DB.prepare(`UPDATE CloudDrive_storages SET is_default = 0 WHERE user_id = ?1`).bind(userId)] : []),
+    c.env.DB.prepare(`UPDATE CloudDrive_storages SET ${sets.join(', ')}, updated_at = ? WHERE user_id = ? AND id = ?`).bind(...values),
+  ]
+  await c.env.DB.batch(statements)
   return c.json({ storage: toStorageView((await storageById(c, row.id))!) })
 })
 
@@ -152,6 +172,7 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   const storageId = typeof body.storageId === 'string' ? body.storageId : 'primary'
   const storage = storageId === 'primary' ? null : await storageById(c, storageId)
   if (storageId !== 'primary' && !storage) throw ApiError.badRequest('Storage not found')
+  if (storage && storage.status !== 'enabled') throw ApiError.badRequest('The storage is disabled')
   const partEligible = storageId === 'primary' || storage?.type === 's3'
   const readOnly = storageId === 'primary'
     ? (body.readOnly ? 1 : 0)
@@ -161,9 +182,13 @@ clouddriveMountRoutes.post('/mounts', async (c) => {
   try {
     await c.env.DB.prepare(
       `INSERT INTO CloudDrive_mounts
-         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, created_at, updated_at)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,0,'native_proxy',1,?8,?9,?10,?10)`,
-    ).bind(userId, id, storageId, name, mountPath, readOnly, clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0), body.enabled === false ? 0 : 1, now).run()
+         (user_id, id, storage_id, name, mount_path, read_only, cache_ttl, web_proxy, webdav_policy, weight, sort_order, enabled, remark, created_at, updated_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,0,'native_proxy',1,?8,?9,?10,?11,?11)`,
+    ).bind(
+      userId, id, storageId, name, mountPath, readOnly,
+      clampInt(body.cacheTtl, 0, 86400, 300), clampInt(body.sortOrder, -10000, 10000, 0),
+      body.enabled === false ? 0 : 1, cleanRemark(body.remark), now,
+    ).run()
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
     throw error
@@ -175,38 +200,80 @@ clouddriveMountRoutes.patch('/mounts/:id', async (c) => {
   const userId = c.get('userId')
   const row = await mountById(c, c.req.param('id'))
   if (!row) throw ApiError.notFound('Mount not found')
+  const body = await readJson(c)
   if (row.id === 'primary') {
-    const body = await readJson(c)
+    if (body.mountPath !== undefined && body.mountPath !== '/') throw ApiError.badRequest('The primary mount path cannot change')
+    if (body.storageId !== undefined && body.storageId !== 'primary') throw ApiError.badRequest('The primary mount storage cannot change')
     await c.env.DB.prepare(
-      `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, updated_at = ?5
+      `UPDATE CloudDrive_mounts SET name = ?3, read_only = ?4, cache_ttl = ?5, sort_order = ?6, remark = ?7, updated_at = ?8
         WHERE user_id = ?1 AND id = ?2`,
     ).bind(
-      userId,
-      row.id,
-      cleanName(body.name ?? row.name),
+      userId, row.id,
+      body.name === undefined ? row.name : cleanName(body.name),
       body.readOnly === undefined ? row.read_only : (body.readOnly ? 1 : 0),
+      body.cacheTtl === undefined ? row.cache_ttl : clampInt(body.cacheTtl, 0, 86400, row.cache_ttl),
+      body.sortOrder === undefined ? row.sort_order : clampInt(body.sortOrder, -10000, 10000, row.sort_order),
+      body.remark === undefined ? row.remark : cleanRemark(body.remark),
       Date.now(),
     ).run()
     return c.json({ mount: toMountView((await mountById(c, row.id))!) })
   }
-  const body = await readJson(c)
   const sets: string[] = []
   const values: unknown[] = []
   const put = (sql: string, value: unknown) => { sets.push(sql); values.push(value) }
   if (body.name !== undefined) put('name = ?', cleanName(body.name))
-  if (body.readOnly !== undefined) {
-    const storage = await storageById(c, row.storage_id)
-    const partEligible = row.storage_id === 'primary' || storage?.type === 's3'
-    put('read_only = ?', row.storage_id === 'primary'
-      ? (body.readOnly ? 1 : 0)
-      : partEligible && body.readOnly === false ? 0 : 1)
+  let nextStorageId = row.storage_id
+  if (body.storageId !== undefined) {
+    if (typeof body.storageId !== 'string' || !body.storageId) throw ApiError.badRequest('Storage not found')
+    const storage = await storageById(c, body.storageId)
+    if (!storage) throw ApiError.badRequest('Storage not found')
+    if (body.storageId !== row.storage_id) {
+      if (storage.status !== 'enabled') throw ApiError.badRequest('The storage is disabled')
+      const used = await c.env.DB.prepare(
+        `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2)
+              + (SELECT COUNT(*) FROM CloudDrive_file_parts WHERE user_id = ?1 AND mount_id = ?2)
+              + (SELECT COUNT(*) FROM CloudDrive_upload_part_objects WHERE mount_id = ?2)
+              + (SELECT COUNT(*) FROM CloudDrive_shares WHERE user_id = ?1 AND mount_id = ?2 AND revoked_at IS NULL) AS count`,
+      ).bind(userId, row.id).first<{ count: number }>()
+      if ((used?.count ?? 0) > 0) throw ApiError.conflict('A mount that holds files, file parts or active shares cannot switch storage')
+      nextStorageId = body.storageId
+      put('storage_id = ?', nextStorageId)
+    }
+  }
+  if (body.mountPath !== undefined) {
+    if (typeof body.mountPath !== 'string' || !/^\/[^/]+$/.test(body.mountPath)) throw ApiError.badRequest('A mount path is one segment, such as /photos')
+    if (body.mountPath !== row.mount_path) {
+      const shared = await c.env.DB.prepare(
+        `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2)
+              + (SELECT COUNT(*) FROM CloudDrive_shares WHERE user_id = ?1 AND mount_id = ?2 AND revoked_at IS NULL) AS n`,
+      ).bind(userId, row.id).first<{ n: number }>()
+      if ((shared?.n ?? 0) > 0) throw ApiError.conflict('A mount that holds files or active shares cannot change its path')
+      put('mount_path = ?', body.mountPath)
+    }
+  }
+  const storageChanged = nextStorageId !== row.storage_id
+  if (body.readOnly !== undefined || storageChanged) {
+    const storage = await storageById(c, nextStorageId)
+    const partEligible = nextStorageId === 'primary' || storage?.type === 's3'
+    const readOnly = body.readOnly === undefined
+      ? (nextStorageId === 'primary' ? 0 : 1)
+      : nextStorageId === 'primary'
+        ? (body.readOnly ? 1 : 0)
+        : partEligible && body.readOnly === false ? 0 : 1
+    put('read_only = ?', readOnly)
   }
   if (body.cacheTtl !== undefined) put('cache_ttl = ?', clampInt(body.cacheTtl, 0, 86400, 300))
   if (body.sortOrder !== undefined) put('sort_order = ?', clampInt(body.sortOrder, -10000, 10000, 0))
   if (body.enabled !== undefined) put('enabled = ?', body.enabled ? 1 : 0)
+  if (body.remark !== undefined) put('remark = ?', cleanRemark(body.remark))
   if (!sets.length) return c.json({ mount: toMountView(row) })
   values.push(Date.now(), userId, row.id)
-  await c.env.DB.prepare(`UPDATE CloudDrive_mounts SET ${sets.join(', ')}, updated_at = ? WHERE user_id = ? AND id = ?`).bind(...values).run()
+  try {
+    await c.env.DB.prepare(`UPDATE CloudDrive_mounts SET ${sets.join(', ')}, updated_at = ? WHERE user_id = ? AND id = ?`).bind(...values).run()
+  } catch (error) {
+    if (String(error).includes('UNIQUE')) throw ApiError.conflict('That mount path is already used')
+    throw error
+  }
   return c.json({ mount: toMountView((await mountById(c, row.id))!) })
 })
 
@@ -217,10 +284,12 @@ clouddriveMountRoutes.delete('/mounts/:id', async (c) => {
   if (row.id === 'primary' || row.mount_path === '/') throw ApiError.badRequest('The primary mount cannot be removed')
   const used = await c.env.DB.prepare(
     `SELECT
-       (SELECT COUNT(*) FROM CloudDrive_file_parts WHERE user_id = ?1 AND mount_id = ?2)
-       + (SELECT COUNT(*) FROM CloudDrive_upload_part_objects WHERE mount_id = ?2) AS count`,
+       (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2)
+       + (SELECT COUNT(*) FROM CloudDrive_file_parts WHERE user_id = ?1 AND mount_id = ?2)
+       + (SELECT COUNT(*) FROM CloudDrive_upload_part_objects WHERE mount_id = ?2)
+       + (SELECT COUNT(*) FROM CloudDrive_shares WHERE user_id = ?1 AND mount_id = ?2 AND revoked_at IS NULL) AS count`,
   ).bind(userId, row.id).first<{ count: number }>()
-  if ((used?.count ?? 0) > 0) throw ApiError.conflict('Distributed files still reference this mount')
+  if ((used?.count ?? 0) > 0) throw ApiError.conflict('This mount still holds files, file parts or active shares')
   await c.env.DB.prepare(`DELETE FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`).bind(userId, row.id).run()
   return c.json({ ok: true })
 })
@@ -288,6 +357,7 @@ function toMountView(row: MountRow) {
     cacheTtl: row.cache_ttl,
     sortOrder: row.sort_order,
     enabled: row.enabled === 1,
+    remark: row.remark,
     createdAt: row.created_at,
   }
 }
@@ -301,6 +371,7 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
     const endpoint = String(config.endpoint ?? '')
     const target = checkTarget(endpoint)
     if (!target.url) return { ok: false, message: target.error }
+    if (!String(config.bucketName ?? '').trim()) return { ok: false, message: 'An S3 bucket name is required' }
     try {
       const aws = new AwsClient({
         accessKeyId: credentials.accessKeyId ?? '',
@@ -309,16 +380,15 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
         service: 's3',
         retries: 1,
       })
-      const bucket = String(config.bucketName ?? '')
-      const url = new URL(`${target.url.origin.replace(/\/$/, '')}${config.pathStyle ? `/${bucket}` : `/${bucket}`}`)
+      const url = s3RequestUrl(target.url, config, null)
       url.searchParams.set('list-type', '2')
       url.searchParams.set('max-keys', '1')
-      const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual' })
+      const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(15_000) })
       // A test response has no body worth reading once its status is known.
       await discard(response)
       return { ok: response.ok, message: response.ok ? 'S3 is reachable' : `S3 answered HTTP ${response.status}` }
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : 'S3 test failed' }
+      return { ok: false, message: testFailure(error, 'S3 test failed') }
     }
   }
   if (row.type === 'webdav') {
@@ -329,20 +399,29 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
       headers.Authorization = `Basic ${btoa(`${credentials.username ?? ''}:${credentials.password ?? ''}`)}`
     }
     try {
-      const response = await fetch(target.url.toString(), { method: 'PROPFIND', headers, redirect: 'manual' })
+      const response = await fetch(webdavCollectionUrl(target.url).toString(), {
+        method: 'PROPFIND', headers, redirect: 'manual', signal: AbortSignal.timeout(15_000),
+      })
       // A test response has no body worth reading once its status is known.
       await discard(response)
-      return { ok: response.status < 500 && response.status !== 401, message: `WebDAV answered HTTP ${response.status}` }
+      const ok = response.status >= 200 && response.status < 300
+      return {
+        ok,
+        message: ok
+          ? 'WebDAV is reachable'
+          : response.status >= 300 && response.status < 400
+            ? 'WebDAV answered a redirect; check that the base URL ends with the collection path'
+            : `WebDAV answered HTTP ${response.status}`,
+      }
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : 'WebDAV test failed' }
+      return { ok: false, message: testFailure(error, 'WebDAV test failed') }
     }
   }
   const tokenType = row.type as string
   try {
-    const result = await testTokenStorage(tokenType, config, credentials)
-    return result
+    return await testTokenStorage(tokenType, config, credentials)
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : 'Storage test failed' }
+    return { ok: false, message: testFailure(error, 'Storage test failed') }
   }
 }
 
@@ -354,6 +433,17 @@ async function discard(response: Response): Promise<void> {
   }
 }
 
+function testFailure(error: unknown, fallback: string): string {
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return 'The storage did not answer within 15 seconds'
+  }
+  return error instanceof Error ? error.message : fallback
+}
+
+function testFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, { ...init, signal: AbortSignal.timeout(15_000) })
+}
+
 async function testTokenStorage(
   type: string,
   config: Record<string, unknown>,
@@ -363,7 +453,7 @@ async function testTokenStorage(
   if (type === 'telegram') {
     const token = text(credentials.botToken)
     if (!token) return { ok: false, message: 'A Telegram bot token is required' }
-    const response = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/getMe`)
+    const response = await testFetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/getMe`)
     await discard(response)
     return { ok: response.ok, message: response.ok ? 'Telegram is reachable' : `Telegram answered HTTP ${response.status}` }
   }
@@ -372,7 +462,7 @@ async function testTokenStorage(
     const channelId = text(credentials.channelId) || text(config.channelId)
     if (!token) return { ok: false, message: 'A Discord bot token is required' }
     if (!/^\d{5,32}$/.test(channelId)) return { ok: false, message: 'A Discord channel id is required' }
-    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}`, {
+    const response = await testFetch(`https://discord.com/api/v10/channels/${channelId}`, {
       headers: { Authorization: `Bot ${token}`, 'User-Agent': 'inkstone-clouddrive' },
     })
     await discard(response)
@@ -380,7 +470,7 @@ async function testTokenStorage(
   }
   if (type === 'huggingface') {
     const token = text(credentials.token)
-    const response = await fetch('https://huggingface.co/api/whoami-v2', {
+    const response = await testFetch('https://huggingface.co/api/whoami-v2', {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
     await discard(response)
@@ -396,14 +486,14 @@ async function testTokenStorage(
       'X-GitHub-Api-Version': '2022-11-28',
     }
     if (token) headers.Authorization = `Bearer ${token}`
-    const response = await fetch(`https://api.github.com/repos/${repo}`, { headers })
+    const response = await testFetch(`https://api.github.com/repos/${repo}`, { headers })
     await discard(response)
     return { ok: response.ok, message: response.ok ? 'GitHub is reachable' : `GitHub answered HTTP ${response.status}` }
   }
   if (type === 'onedrive') {
     const token = text(credentials.accessToken)
     if (!token) return { ok: false, message: 'A OneDrive access token is required' }
-    const response = await fetch('https://graph.microsoft.com/v1.0/me/drive?$select=id', {
+    const response = await testFetch('https://graph.microsoft.com/v1.0/me/drive?$select=id', {
       headers: { Authorization: `Bearer ${token}` },
     })
     await discard(response)
@@ -412,7 +502,7 @@ async function testTokenStorage(
   if (type === 'googledrive') {
     const token = text(credentials.accessToken)
     if (!token) return { ok: false, message: 'A Google Drive access token is required' }
-    const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+    const response = await testFetch('https://www.googleapis.com/drive/v3/about?fields=user', {
       headers: { Authorization: `Bearer ${token}` },
     })
     await discard(response)
@@ -424,6 +514,68 @@ async function testTokenStorage(
 function storageType(value: unknown): StorageType {
   if (!STORAGE_TYPES.includes(value as StorageType)) throw ApiError.badRequest('Unsupported storage type')
   return value as StorageType
+}
+
+function httpUrl(value: string, label: string): void {
+  if (!value) throw ApiError.badRequest(`${label} is required`)
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('protocol')
+  } catch {
+    throw ApiError.badRequest(`${label} must be an http(s) URL`)
+  }
+}
+
+function storageConfig(type: StorageType, value: unknown): Record<string, unknown> {
+  const config = objectValue(value)
+  if (JSON.stringify(config).length > 16 * 1024) throw ApiError.badRequest('The storage configuration is too large')
+  const text = (key: string) => typeof config[key] === 'string' ? config[key].trim() : ''
+  if (type === 's3') {
+    httpUrl(text('endpoint'), 'S3 endpoint')
+    if (!text('bucketName')) throw ApiError.badRequest('An S3 bucket name is required')
+  } else if (type === 'webdav') {
+    httpUrl(text('baseUrl'), 'WebDAV base URL')
+  } else if (type === 'github') {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(text('repo'))) throw ApiError.badRequest('A GitHub owner/name repository is required')
+  } else if (type === 'huggingface') {
+    if (!text('repo')) throw ApiError.badRequest('A Hugging Face repository is required')
+    if (config.repoType !== undefined && config.repoType !== 'model' && config.repoType !== 'dataset') {
+      throw ApiError.badRequest('The Hugging Face repository type must be model or dataset')
+    }
+  } else if (type === 'discord') {
+    if (!/^\d{5,32}$/.test(text('channelId'))) throw ApiError.badRequest('A Discord channel id is required')
+  } else if (type === 'telegram') {
+    if (!text('chatId')) throw ApiError.badRequest('A Telegram chat id is required')
+  }
+  return config
+}
+
+function cleanRootPath(value: unknown): string {
+  const path = typeof value === 'string' ? value.trim().slice(0, 256) : ''
+  return path.startsWith('/') ? path : '/'
+}
+
+function cleanRemark(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 200) : ''
+}
+
+async function mergedCredentials(
+  c: Context<AppBindings>,
+  row: StorageRow,
+  value: unknown,
+): Promise<string> {
+  const provided = credentialRecord(value)
+  let existing: Record<string, string | number> = {}
+  if (row.credentials) {
+    try {
+      const stored = await decryptCloudDriveCredentials(c.env, row.id, row.credentials)
+      existing = Object.fromEntries(Object.entries(stored ?? {}).map(([key, field]) => [key, field]))
+    } catch (error) {
+      console.warn('[inkstone] CloudDrive could not read existing storage credentials while editing; they will be replaced', error)
+    }
+  }
+  const merged = { ...existing, ...provided }
+  return Object.keys(merged).length > 0 ? await encryptCloudDriveCredentials(c.env, row.id, merged) : ''
 }
 function cleanName(value: unknown): string {
   const name = typeof value === 'string' ? value.trim().slice(0, 64) : ''
