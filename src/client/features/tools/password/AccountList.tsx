@@ -3,6 +3,7 @@ import { CheckSquare, Plus, Search, Settings, Sparkles, X } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
+import { compileQuery, queryKeeps, queryKeepsRows } from '../../../lib/query-match'
 import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -61,19 +62,20 @@ export function AccountList({
     return decryptedList
   }, [decryptedList, filterFavoritesOnly, activePasswordView, groupId, selectedGroupId])
 
-  // Filter based on search query (instant fuzzy/substring match)
+  // Filter based on search query. The shared matcher reads a Chinese title by its initials, accepts
+  // `/pattern/flags`, and refuses an unsafe expression instead of stalling the tab — none of which
+  // the hand-written `toLowerCase().includes` could do.
+  const query = useMemo(() => compileQuery(search), [search])
   const filteredAccounts = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return scopeFiltered
-    return scopeFiltered.filter((a) => {
-      return (
-        a.title.toLowerCase().includes(q) ||
-        a.username.toLowerCase().includes(q) ||
-        a.link.toLowerCase().includes(q) ||
-        a.remark.toLowerCase().includes(q)
-      )
-    })
-  }, [scopeFiltered, search])
+    if (queryKeepsRows(query)) return scopeFiltered
+    return scopeFiltered.filter(
+      (a) =>
+        queryKeeps(query, a.title) ||
+        queryKeeps(query, a.username) ||
+        queryKeeps(query, a.link) ||
+        queryKeeps(query, a.remark),
+    )
+  }, [scopeFiltered, query])
 
   const handleQuickNew = async () => {
     const targetGroupId = selectedGroupId || groups[0]?.id

@@ -13,6 +13,7 @@ import { Button } from '../../../components/primitives'
 import { Input, Select, Checkbox } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import { passwordApi } from './api'
 
 export interface BatchOperationsModalProps {
@@ -145,17 +146,16 @@ export function BatchOperationsModal({ open, onClose }: BatchOperationsModalProp
       .join('\n\n-------------------------\n\n')
 
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
-      }
+      await copySecret(text)
       toast({
         title: t('tools.password.batch.copied_success', { count: selectedAccs.length }),
         tone: 'success',
       })
     } catch {
+      // A failed copy used to report success; the reader then pasted nothing.
       toast({
-        title: t('tools.password.batch.copied_success', { count: selectedAccs.length }),
-        tone: 'success',
+        title: t('tools.password.common.copy_failed'),
+        tone: 'danger',
       })
     }
   }

@@ -8,6 +8,7 @@ import { Checkbox, Slider } from '../../../components/form'
 import { Modal, Tooltip } from '../../../components/overlay'
 import { PasswordStrengthIndicator } from './AccountForm'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import { DEFAULT_CUSTOM_SYMBOLS, generateRandomPassword } from './utils/generator'
 
 /**
@@ -54,7 +55,7 @@ export function Generator({ className }: { className?: string }) {
   const copyPassword = async () => {
     if (!generatedPassword) return
     try {
-      await navigator.clipboard.writeText(generatedPassword)
+      await copySecret(generatedPassword)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         tone: 'success',

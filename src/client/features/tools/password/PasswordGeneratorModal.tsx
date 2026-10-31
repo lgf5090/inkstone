@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Copy, Check, RefreshCw, AlertTriangle } from 'lucide-react'
 import { t } from '../../../lib/i18n'
 import { Modal } from '../../../components/overlay'
@@ -6,6 +6,7 @@ import { Button } from '../../../components/primitives'
 import { Input, Checkbox } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import {
   generateRandomPassword,
   DEFAULT_CUSTOM_SYMBOLS,
@@ -33,6 +34,13 @@ export function PasswordGeneratorForm({
 
   const [password, setPassword] = useState<string>('')
   const [copied, setCopied] = useState<boolean>(false)
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+    }
+  }, [])
 
   const isCharsetValid = uppercase || lowercase || numbers || (symbols && customSymbols.length > 0)
 
@@ -61,14 +69,13 @@ export function PasswordGeneratorForm({
   const handleCopy = async () => {
     if (!password) return
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(password)
-      }
+      await copySecret(password)
       setCopied(true)
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
       toast({ title: t('tools.password.account.copied'), tone: 'success' })
-      setTimeout(() => setCopied(false), 2000)
     } catch {
-      toast({ title: t('tools.password.account.copied'), tone: 'success' })
+      toast({ title: t('tools.password.common.copy_failed'), tone: 'danger' })
     }
   }
 

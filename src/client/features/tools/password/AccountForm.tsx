@@ -23,6 +23,7 @@ import { Input, Textarea } from '../../../components/form'
 import { Tooltip, confirm } from '../../../components/overlay'
 import { evaluatePasswordStrength } from './crypto/strength'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import { FaviconAvatar } from './FaviconAvatar'
 
 export interface AccountFormProps {
@@ -187,7 +188,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const copyUsername = async () => {
     if (!formData?.username) return
     try {
-      await navigator.clipboard.writeText(formData.username)
+      await copySecret(formData.username)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: formData.username,
@@ -201,7 +202,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const copyPassword = async () => {
     if (!formData?.password) return
     try {
-      await navigator.clipboard.writeText(formData.password)
+      await copySecret(formData.password)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: t('tools.password.account.password'),
@@ -222,7 +223,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     // Auto write credentials to clipboard before opening URL
     if (formData.password) {
       try {
-        await navigator.clipboard.writeText(formData.password)
+        await copySecret(formData.password)
         useUi.getState().toast({
           title: t('tools.password.account.copied'),
           description: `${t('tools.password.account.password')} -> ${url}`,
@@ -249,7 +250,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
       .join('\n')
 
     try {
-      await navigator.clipboard.writeText(text)
+      await copySecret(text)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: t('tools.password.account.share'),
