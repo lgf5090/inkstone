@@ -572,6 +572,48 @@ describe('Password Manager Accounts Routes', () => {
   })
 })
 
+describe('Password Manager Favicon Proxy', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('refuses a private address, a non-host value and a path', async () => {
+    for (const domain of ['169.254.169.254', '%2Fetc%2Fpasswd', 'localhost', 'https%3A%2F%2Fx.com']) {
+      const res = await call('GET', `/api/tools/password/favicon?domain=${domain}`)
+      expect(res.status, domain).toBe(400)
+    }
+  })
+
+  it('returns the site icon with a private cache header', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })),
+    )
+
+    const res = await call('GET', '/api/tools/password/favicon?domain=example.com')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('cache-control')).toContain('private')
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('answers 404 when the site says something that is not an image', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })),
+    )
+
+    const res = await call('GET', '/api/tools/password/favicon?domain=example.com')
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('Password Manager Settings Routes', () => {
   it('handles GET and PUT settings, and WebDAV test endpoint', async () => {
     // Initial settings

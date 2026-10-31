@@ -44,6 +44,7 @@ import {
 } from '../tools/password/r2'
 import { PasswordStore } from '../tools/password/store'
 import { verifyMasterHash } from '../tools/password/verify'
+import { fetchFavicon, parseFaviconDomain } from '../tools/password/favicon'
 
 export const toolsPasswordRoutes = new Hono<AppBindings>()
 
@@ -261,6 +262,28 @@ toolsPasswordRoutes.delete('/accounts/:id', async (c) => {
   const id = c.req.param('id')
   await store.deleteAccount(id)
   return c.json({ ok: true })
+})
+
+// ---------------------------------------------------------------- Favicon
+toolsPasswordRoutes.get('/favicon', async (c) => {
+  const domain = parseFaviconDomain(c.req.query('domain') ?? '')
+  if (!domain) {
+    throw ApiError.badRequest('Invalid favicon domain')
+  }
+
+  const icon = await fetchFavicon(domain)
+  if (!icon) {
+    throw ApiError.notFound('No favicon available')
+  }
+
+  return new Response(icon.bytes, {
+    headers: {
+      'content-type': icon.contentType,
+      // Behind auth, so a shared cache must not keep it; the browser may.
+      'cache-control': 'private, max-age=604800',
+      'x-content-type-options': 'nosniff',
+    },
+  })
 })
 
 // ---------------------------------------------------------------- Settings
