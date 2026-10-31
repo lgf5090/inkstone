@@ -246,11 +246,8 @@ describe('renewing', () => {
   })
 
   it('starts a fresh term from the payment date in reset mode', async () => {
-    // The 31st has no counterpart in the next month, so the term ends on that month's last day.
-    // `Date.setMonth` would roll it into the month after instead, which is exactly the month-end
-    // defect this pins — the same clamp the calendar helper has its own unit test for.
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-01-31T04:00:00.000Z')) // noon in the default Asia/Shanghai zone
+    vi.setSystemTime(new Date('2026-01-31T04:00:00.000Z'))
     try {
       const created = await create({ subscriptionMode: 'reset', expiryDate: inDays(40) })
       const detail = await json<any>(await send('POST', `/${created.item.id}/renew`, {}))
