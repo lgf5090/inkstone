@@ -135,10 +135,12 @@ it('the only client IP rule set is the one that checks for cf', () => {
   expect(read('../src/worker/mcp/oauth.ts')).toContain('requestClientIp(request)')
 })
 
-it('lets the page itself ask for a microphone, and keeps the camera and location shut', () => {
+it('lets the page itself ask for camera and microphone, and keeps location shut', () => {
   const policy = securityHeaders('https://note.test/')['Permissions-Policy']
   expect(policy).toContain('microphone=(self)')
-  expect(policy).toContain('camera=()')
+  // The QR workshop's live scanner calls getUserMedia({video}); a refused policy kills that feature
+  // in the deployed app even though every unit test passes, so it is pinned here.
+  expect(policy).toContain('camera=(self)')
   expect(policy).toContain('geolocation=()')
 })
 

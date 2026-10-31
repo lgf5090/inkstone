@@ -80,7 +80,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
       }
     }
 
-    startStream()
+    if (isScanning) startStream()
 
     return () => {
       isMounted = false
@@ -88,8 +88,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
         streamRef.current.getTracks().forEach((track) => track.stop())
         streamRef.current = null
       }
+      // A paused camera has to look paused: leaving the last frame on the element reads as a live feed
+      // while the reader's record light has already gone out.
+      if (videoRef.current) videoRef.current.srcObject = null
     }
-  }, [selectedDeviceId])
+  }, [selectedDeviceId, isScanning])
 
   useEffect(() => {
     let timer: number

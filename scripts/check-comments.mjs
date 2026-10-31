@@ -18114,6 +18114,8 @@ const allowed = new Map([
   ["src/client/features/tools/qrcode/scanner/CameraScanner.tsx", [
     "// Ignore frame decode errors",
     "// Four canvases a second were allocated, decoded and dropped; one is reused instead.",
+    "// A paused camera has to look paused: leaving the last frame on the element reads as a live feed",
+    "// while the reader's record light has already gone out.",
   ]],
   ["src/client/features/tools/qrcode/scanner/QrScannerView.tsx", [
     "// Paste image from clipboard",
@@ -36026,8 +36028,6 @@ const allowed = new Map([
     "// The raw `AI_CONNECT_HOSTS` value, handed in by the caller so this module keeps not knowing",
     "// about `Env`. Malformed entries are dropped; a blank value keeps the built-in presets.",
     "// which our own `script-src` refuses — and without that bootstrap the SPA",
-    "// The assistant's dictation and voice mode need the reader's microphone; the page itself is the",
-    "// only frame allowed to ask for it. Camera and location remain shut.",
     "// The note templates run inside QuickJS, which is WebAssembly, so the browser has to be allowed to",
     "// compile a wasm module. `'wasm-unsafe-eval'` is the narrow form of that permission: it covers",
     "// `WebAssembly.instantiate` and nothing else, so `new Function` and `eval` stay refused and the",
@@ -36036,6 +36036,8 @@ const allowed = new Map([
     "/**\n * The two hosts Cloudflare's Web Analytics beacon needs.\n *\n * A zone that has the beacon switched on gets the `<script>` appended to every HTML response by\n * Cloudflare's own edge, so this deployment never chose to load it. Refusing it is not a neutral act\n * either: the element fires a load error on every document — the exact shape `public/boot.js` has to\n * stay clear of, because a script failure is what a replaced build looks like — and no page view is\n * ever recorded. The script comes from `static.cloudflareinsights.com`; it reports to the same-origin\n * `/cdn-cgi/rum` the edge answers, or to `cloudflareinsights.com` when the injected config carries no\n * version of its own, so both are named.\n */",
     "/**\n * A bare host — no scheme, no path, no separator that could end the directive and start another.\n *\n * The URL parser is the validator: building `https://` + the entry and requiring the parser to hand\n * the same host back is what rules out the fragments a hand-written pattern forgets.\n */",
     "/**\n * The presets plus whatever the deployment names, never the deployment list alone.\n *\n * Replacing rather than extending would let one optional variable silently block the readers who\n * picked a built-in provider — the same failure this list exists to prevent — and an entry that\n * parses as something other than a bare host is a mistyped variable, not a directive: it is dropped\n * and reported instead of being pasted into the policy.\n */",
+    "// The assistant's dictation and the QR workshop's live scanner both need a media device, and the",
+    "// page itself is the only frame allowed to ask for one. Location stays shut.",
   ]],
   ["src/worker/lib/throttle.ts", [
     "/**\n * Runs a throttled step — spending an attempt budget, checking a lock, or both — and answers the\n * `429` the API promises once the throttle rejects it.\n *\n * Every throttled route funnels through here so the status, error code, `Retry-After` hint and\n * response shape cannot drift apart. `message` is the human prefix a route shows; the retry count is\n * appended here. The step is a thunk so a route that checks a lock before spending work keeps its\n * exact ordering.\n */",
@@ -42512,6 +42514,8 @@ const allowed = new Map([
     "// as code is the thing that stays refused, and `'wasm-unsafe-eval'` is what draws that line.",
     "// Wrangler now pins its own workerd beside itself; it is the same runtime package as the",
     "// top-level entry, whose postinstall resolves the platform binary.",
+    "// The QR workshop's live scanner calls getUserMedia({video}); a refused policy kills that feature",
+    "// in the deployed app even though every unit test passes, so it is pinned here.",
   ]],
   ["tests/policy-single-source.test.ts", [
     "// A re-forked floor would reintroduce a hard-coded length comparison.",
