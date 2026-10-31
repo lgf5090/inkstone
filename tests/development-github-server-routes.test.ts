@@ -685,6 +685,11 @@ describe('development github gist summaries', () => {
     const reread = await call('GET', `/gist/gists/${GIST_ID}`)
     const rereadGist = (await bodyOf<{ gist: { data: { files: Array<{ content: string }> } } }>(reread)).data!.gist
     expect(rereadGist.data.files[0]!.content).toHaveLength(300)
+
+    const found = await call('GET', `/gist/gists/search?q=${encodeURIComponent('xxx')}`)
+    expect((await bodyOf<{ ids: string[] }>(found)).data!.ids).toContain(GIST_ID)
+    const missing = await call('GET', '/gist/gists/search?q=zzz')
+    expect((await bodyOf<{ ids: string[] }>(missing)).data!.ids).toEqual([])
   })
 })
 

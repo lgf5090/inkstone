@@ -91,7 +91,7 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
           </>
         )}
       </div>
-      {first && <pre className="mt-2 max-h-24 overflow-hidden rounded bg-[var(--bg-inset)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]"><code className="line-clamp-4 font-mono">{first.content.slice(0, CARD_PREVIEW_CHARS) || t('development.github.gists.empty_file')}</code></pre>}
+      {first && <pre className="mt-2 max-h-24 overflow-hidden rounded bg-[var(--bg-inset)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]"><code className="line-clamp-4 font-mono">{(first.preview ?? first.content).slice(0, CARD_PREVIEW_CHARS) || t('development.github.gists.empty_file')}</code></pre>}
       <div className="mt-2 flex flex-wrap gap-1">{gist.data.files.slice(0, CARD_VISIBLE_FILES).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-0.5 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}</div>
       {!remote && <div className="mt-2 flex items-center gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-1"><AssignedTagChips tags={assigned.slice(0, CARD_VISIBLE_TAGS)} /></div><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</span></div>}
       {remote && <div className="mt-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</div>}

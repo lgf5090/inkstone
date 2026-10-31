@@ -168,6 +168,16 @@ export const githubApi = {
     }).then((response) => response.gist)
   },
 
+  getSavedGist(id: string, signal?: AbortSignal): Promise<SavedGist> {
+    return readData<{ gist: SavedGist }>(`/gist/gists/${encodeURIComponent(id)}`, { signal })
+      .then((response) => response.gist)
+  },
+
+  searchSavedGists(query: string, signal?: AbortSignal): Promise<string[]> {
+    return readData<{ ids: string[] }>(`/gist/gists/search?q=${encodeURIComponent(query)}`, { signal })
+      .then((response) => response.ids)
+  },
+
   batchDeleteGists(ids: string[], signal?: AbortSignal): Promise<{ count: number }> {
     return readData<{ count: number }>('/gist/gists/batch-delete', { method: 'POST', body: { ids }, signal })
   },

@@ -516,6 +516,25 @@ export async function listGistSummaries(db: D1Database, userId: string): Promise
   return (await listGists(db, userId)).map(toGistSummary)
 }
 
+export async function searchGistIds(
+  db: D1Database,
+  userId: string,
+  query: string,
+): Promise<string[]> {
+  const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`)
+  const { results } = await db
+    .prepare(
+      `SELECT id FROM development_github_gists
+        WHERE user_id = ?1
+          AND (description LIKE ?2 ESCAPE '\\' OR data_json LIKE ?2 ESCAPE '\\')
+        ORDER BY updated_at DESC
+        LIMIT 500`,
+    )
+    .bind(userId, `%${escaped}%`)
+    .all<{ id: string }>()
+  return results.map((row) => row.id)
+}
+
 export async function findGist(db: D1Database, userId: string, id: string): Promise<SavedGist | null> {
   const row = await db
     .prepare(`SELECT ${GIST_COLUMNS} FROM development_github_gists WHERE user_id = ?1 AND id = ?2`)

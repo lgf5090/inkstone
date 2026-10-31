@@ -85,6 +85,7 @@ import {
   listRepos,
   listTags,
   patchGist,
+  searchGistIds,
   toGistSummary,
   unbindGistTags,
   unbindRepoTags,
@@ -149,6 +150,10 @@ const SavedGistPatchSchema = z
   .refine((value) => Object.values(value).some((entry) => entry !== undefined), {
     message: 'Nothing to update',
   })
+
+const GistSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+})
 
 const RepoDetailQuerySchema = z.object({
   repo: z.string().min(3).max(300),
@@ -504,6 +509,13 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
 developmentGithubRoutes.get('/gist/gists', async (c) => {
   const gists = await listGists(c.env.DB, userIdOf(c))
   return c.json({ ok: true, data: { gists } })
+})
+
+developmentGithubRoutes.get('/gist/gists/search', async (c) => {
+  const userId = userIdOf(c)
+  listBudget(userId)
+  const query = parseQuery(c, GistSearchQuerySchema)
+  return c.json({ ok: true, data: { ids: await searchGistIds(c.env.DB, userId, query.q) } })
 })
 
 developmentGithubRoutes.get('/gist/gists/:id', async (c) => {

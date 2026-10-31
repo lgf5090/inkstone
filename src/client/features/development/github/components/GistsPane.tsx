@@ -19,7 +19,12 @@ import { SidebarFooter } from './SidebarFooter'
 import { GistCreateDialog, GistImportDialog } from './GistDialogs'
 import { ExportHistoryDialog } from './ExportHistoryDialog'
 import { confirm } from '../../../../components/overlay'
+import { Button, Spinner } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
+
+function causeText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function tagId(): string {
   return `gist-tag-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -72,6 +77,11 @@ export function GistsPane({
   const [importOpen, setImportOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [exportHistoryOpen, setExportHistoryOpen] = useState(false)
+  const [searchIds, setSearchIds] = useState<Set<string> | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [fullGists, setFullGists] = useState<Map<string, SavedGist>>(new Map())
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   const remote = isRemoteView(selectedView)
   const remoteUsername = extractUsernameFromView(selectedView)
@@ -95,13 +105,23 @@ export function GistsPane({
     else if (selectedView === GIST_FAV_VIEW) list = gists.filter((gist) => gist.favorited)
     else if (selectedView.startsWith('tag:')) { const tag = selectedView.slice(4); list = gists.filter((gist) => gist.tagIds.includes(tag)) }
     const needle = query.trim().toLowerCase()
-    if (needle) list = list.filter((gist) => gist.description.toLowerCase().includes(needle) || gist.data.files.some((file) => file.filename.toLowerCase().includes(needle) || file.content.toLowerCase().includes(needle)))
+    if (needle) {
+      list = searchIds
+        ? list.filter((gist) => searchIds.has(gist.id))
+        : list.filter((gist) => gist.description.toLowerCase().includes(needle) || gist.data.files.some((file) => file.filename.toLowerCase().includes(needle) || (file.preview ?? '').toLowerCase().includes(needle)))
+    }
     return sortGists(list, prefs)
-  }, [gists, selectedView, query, prefs])
+  }, [gists, selectedView, query, prefs, searchIds])
   const items = remote ? filteredRemote : filteredLocal
   const selectedLocal = gists.find((gist) => gist.id === selectedGistId) ?? null
   const selectedRemote = remote ? remoteItems.find((gist) => gist.id === selectedRemoteId) ?? null : null
-  const detailGist = remote ? remoteDetail.data ?? selectedRemote?.data ?? null : selectedLocal?.data ?? null
+  const needsFull = Boolean(selectedLocal?.data.files.some((file) => file.truncated))
+  const localDetail = selectedLocal
+    ? needsFull
+      ? fullGists.get(selectedLocal.id)?.data ?? null
+      : selectedLocal.data
+    : null
+  const detailGist = remote ? remoteDetail.data ?? selectedRemote?.data ?? null : localDetail
   const ownUsernames = useMemo(() => new Set(accounts.map((account) => account.username)), [accounts])
   const canEditRemote = Boolean(detailGist?.owner && ownUsernames.has(detailGist.owner.login))
   const savedRemoteIds = useMemo(() => new Set(gists.map((gist) => gist.id)), [gists])
@@ -109,6 +129,77 @@ export function GistsPane({
   const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null
 
   useEffect(() => { setRemotePage(1) }, [selectedView])
+
+  const needle = query.trim()
+  useEffect(() => {
+    if (remote || !needle) {
+      setSearchIds(null)
+      setSearchLoading(false)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setSearchLoading(true)
+      githubApi.searchSavedGists(needle)
+        .then((ids) => { if (!cancelled) setSearchIds(new Set(ids)) })
+        .catch((error) => {
+          if (cancelled) return
+          setSearchIds(null)
+          toast({ title: causeText(error), tone: 'danger' })
+        })
+        .finally(() => { if (!cancelled) setSearchLoading(false) })
+    }, 200)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [needle, remote, toast])
+
+  const localId = selectedLocal?.id ?? null
+  const localUpdatedAt = selectedLocal?.updatedAt ?? 0
+  useEffect(() => {
+    if (remote || !localId || !needsFull) {
+      setDetailLoading(false)
+      setDetailError(null)
+      return
+    }
+    const cached = fullGists.get(localId)
+    if (cached && cached.updatedAt >= localUpdatedAt) {
+      setDetailLoading(false)
+      return
+    }
+    let cancelled = false
+    setDetailLoading(true)
+    setDetailError(null)
+    githubApi.getSavedGist(localId)
+      .then((gist) => {
+        if (cancelled) return
+        setFullGists((previous) => {
+          const next = new Map(previous)
+          next.delete(localId)
+          next.set(localId, gist)
+          while (next.size > 20) {
+            const oldest = next.keys().next().value
+            if (oldest === undefined) break
+            next.delete(oldest)
+          }
+          return next
+        })
+      })
+      .catch((error) => { if (!cancelled) setDetailError(causeText(error)) })
+      .finally(() => { if (!cancelled) setDetailLoading(false) })
+    return () => { cancelled = true }
+  }, [remote, localId, localUpdatedAt, needsFull, fullGists])
+
+  const retryFull = () => {
+    if (!localId) return
+    setDetailError(null)
+    setFullGists((previous) => {
+      const next = new Map(previous)
+      next.delete(localId)
+      return next
+    })
+  }
 
   const updatePrefs = (patch: Partial<GistPrefs>) => {
     setPrefs((previous) => {
@@ -253,7 +344,7 @@ export function GistsPane({
             onImport={() => setImportOpen(true)}
             exportsEnabled={exportsEnabled}
             onOpenExportHistory={() => setExportHistoryOpen(true)}
-            loading={remote ? remoteQuery.loading : refreshing}
+            loading={remote ? remoteQuery.loading : refreshing || searchLoading}
             error={remote && remoteQuery.error instanceof Error ? remoteQuery.error.message : null}
             remote={remote}
             savedRemoteIds={remote ? savedRemoteIds : undefined}
@@ -267,7 +358,11 @@ export function GistsPane({
             detailDisabled={detailDisabled}
           />
         )}
-        detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} />}
+        detail={detailLoading && !detailGist
+          ? <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={15} />{t('development.github.common.loading')}</div>
+          : detailError && !detailGist
+            ? <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-12)] text-[var(--danger)]" role="alert">{detailError}</p><Button variant="secondary" size="sm" onClick={retryFull}>{t('development.github.common.retry')}</Button></div>
+            : <GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
