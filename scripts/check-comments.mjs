@@ -18002,6 +18002,10 @@ const allowed = new Map([
     "// Ensure at least one character from each selected charset when length allows",
     "// Fisher-Yates shuffle",
   ]],
+  ["src/client/features/tools/qrcode/ImageDropZone.tsx", [
+    "/** Beyond this an image is not something a browser should decode just to look for one code. */",
+    "/**\n * A file picker with the two other ways people actually get an image here: dropping it, and pasting it\n * (the page-level paste listener lives with the view that owns the result).\n *\n * The drop target is a container, not the control: the clickable affordance is the button below, so a\n * keyboard reaches it and a screen reader announces a button rather than an area that happens to answer\n * clicks.\n */",
+  ]],
   ["src/client/features/tools/qrcode/QrCodeApp.tsx", [
     "// Unreachable preferences leave the workbench on its built-in starting values, and the flag",
     "// stays clear so the next visit asks again.",
@@ -18021,8 +18025,8 @@ const allowed = new Map([
     "// the whole batch and the progress line never repaints.",
   ]],
   ["src/client/features/tools/qrcode/compare/GridAlignModal.tsx", [
-    "// Draw Grid Lines (Red)",
-    "// Draw Margin Box (Lime)",
+    "// One decode for the whole session with the grid being dragged over it: loading it inside the draw",
+    "// effect re-fetched and re-decoded the same picture on every slider step.",
   ]],
   ["src/client/features/tools/qrcode/compare/QrCompareView.tsx", [
     "// Use current generator QR as initial reference QR if empty",
@@ -18066,10 +18070,7 @@ const allowed = new Map([
     "// would let a saved font family or colour close the attribute and add one of its own.",
   ]],
   ["src/client/features/tools/qrcode/options/AiEffectsTab.tsx", [
-    "/* 1. Organic Canvas Effects */",
-    "/* 2. 3D Perspective & Rotation */",
-    "/* 3. Margin Noise for AI QR */",
-    "/* 4. Advanced Parameters & Seed */",
+    "/** One affordance per knob that has a non-default value, rather than a reset per row. */",
   ]],
   ["src/client/features/tools/qrcode/options/ShapeTab.tsx", [
     "/* Pixel Elements */",
@@ -18093,6 +18094,8 @@ const allowed = new Map([
     "/* Header with Mode Switcher */",
     "/* Left: Upload and Viewport */",
     "/* Right: Results Card */",
+    "// A picked or pasted image only has to outlive the decode; without releasing it the page kept one",
+    "// blob URL alive per file for the rest of the session.",
   ]],
   ["src/client/features/tools/qrcode/scanner/scan-pipeline.ts", [
     "// 1. Try native BarcodeDetector if available",
@@ -44561,6 +44564,10 @@ const allowed = new Map([
     "// 9. When R2 is unavailable, returns 503",
     "// A truncated upload used to be caught and defaulted, so the caller that meant \"back up this subset\"",
     "// got a full snapshot instead. The route cannot honour a body it cannot read, so it says so.",
+  ]],
+  ["tests/tools-qrcode-a11y.test.tsx", [
+    "// The hand-rolled version had no key handling at all and left every tab in the tab order.",
+    "// A div answering clicks is not reachable: the drop zone itself must not be the control.",
   ]],
   ["tests/tools-qrcode-api.test.ts", [
     "/** A real 1×1 PNG: the storage guard checks signatures, so fixtures have to carry actual image bytes. */",

@@ -9,8 +9,9 @@ import {
   Type,
   Wand2,
 } from 'lucide-react'
-import { useQrCodeStore, type BeautifyTab } from '../store'
+import { useQrCodeStore } from '../store'
 import { cn } from '../../../../lib/cn'
+import { Tabs } from '../../../../components/tabs'
 import { t } from '../../../../lib/i18n'
 import { TemplatesTab } from './TemplatesTab'
 import { ShapeTab } from './ShapeTab'
@@ -63,33 +64,32 @@ export function QrBeautifyPanel() {
 
       {isOpen && (
         <div className="flex flex-col gap-4 p-3.5">
-          <div role="tablist" className="flex items-center gap-1 border-b border-[var(--border-subtle)] pb-2 overflow-x-auto">
-            {BEAUTIFY_TABS.map((tab) => {
+          <Tabs
+            panelId="qr-beautify-panel"
+            label={t('tools.qrcode.beautify.accordion_title')}
+            value={activeTab}
+            onChange={(next) => setActiveTab(next)}
+            items={BEAUTIFY_TABS.map((tab) => {
               const Icon = tab.icon
-              const isSelected = activeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClick={() => setActiveTab(tab.id as BeautifyTab)}
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-[var(--r-md)] px-3 py-1.5 text-[length:var(--text-13)] font-medium shrink-0',
-                    'transition-[background-color,color] duration-[var(--dur-fast)]',
-                    isSelected
-                      ? 'border-b-2 border-[var(--accent)] text-[var(--accent)] font-semibold'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
-                  )}
-                >
-                  <Icon size={14} />
-                  <span>{t(tab.labelKey)}</span>
-                </button>
-              )
+              return {
+                id: tab.id,
+                label: (
+                  <>
+                    <Icon size={14} />
+                    <span>{t(tab.labelKey)}</span>
+                  </>
+                ),
+              }
             })}
-          </div>
+          />
 
-          <div role="tabpanel" className="min-h-0">
+          <div
+            id="qr-beautify-panel"
+            role="tabpanel"
+            aria-labelledby={`qr-beautify-panel-tab-${activeTab}`}
+            tabIndex={0}
+            className="min-h-0"
+          >
             {activeTab === 'template' && <TemplatesTab />}
             {activeTab === 'shape' && <ShapeTab />}
             {activeTab === 'logo' && <LogoTab />}
