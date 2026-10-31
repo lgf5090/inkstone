@@ -93,50 +93,7 @@ export function appCommands(): AppCommand[] {
   const linterOn = session.settings.linter.enabled
   const isDark = document.documentElement.dataset.theme === 'dark';
 
-  // The vault is loaded on demand: importing its store here would pull the strength evaluator (and
-  // its dictionary) into the palette's own chunk, which every reader downloads to open the palette.
-  const openVault = (view: 'all' | 'generator' | 'health') => {
-    navigateToPath('/tools')
-    void import('../tools/store').then(({ useToolsStore }) => {
-      useToolsStore.getState().setActiveSubmodule('password')
-      useToolsStore.getState().setActivePasswordView(view)
-    })
-  }
-  const lockVault = () => {
-    void import('../tools/password/store').then(({ usePasswordVaultStore }) => {
-      usePasswordVaultStore.getState().lock()
-      toast({ title: t('command.password_locked'), tone: 'success' })
-    })
-  }
-
   return [
-    {
-      id: 'cmd-password-open',
-      kind: 'command',
-      label: t('command.password_open'),
-      detail: t('command.password_open_detail'),
-      group: t("common.navigation"),
-      icon: KeyRound,
-      run: () => openVault('all'),
-    },
-    {
-      id: 'cmd-password-generator',
-      kind: 'command',
-      label: t('command.password_generator'),
-      detail: t('command.password_generator_detail'),
-      group: t("common.navigation"),
-      icon: Sparkles,
-      run: () => openVault('generator'),
-    },
-    {
-      id: 'cmd-password-lock',
-      kind: 'command',
-      label: t('command.password_lock'),
-      detail: t('command.password_lock_detail'),
-      group: t("common.navigation"),
-      icon: Lock,
-      run: lockVault,
-    },
     {
         id: 'cmd-new',
         kind: 'command',
@@ -727,6 +684,7 @@ export function appCommands(): AppCommand[] {
         ...templaterCommands(),
         ...assistantCommands(),
         ...chatCommands(),
+        ...passwordCommands(),
     ]
 }
 
@@ -1034,6 +992,58 @@ function templaterCommands(): AppCommand[] {
             run: () => void import('../templater/cursor-jump').then((module) => module.jumpToNextTemplaterCursor()),
         },
     ];
+}
+
+/**
+ * The password vault's entries.
+ *
+ * The vault and the tools shell are imported on demand: reaching into the password store from here
+ * would pull the strength evaluator and its dictionary into the palette's own chunk, which every
+ * reader pays for the first time they press the palette shortcut.
+ */
+function passwordCommands(): AppCommand[] {
+  const openVault = (view: 'all' | 'generator') => () => {
+    navigateToPath('/tools')
+    void import('../tools/store').then(({ useToolsStore }) => {
+      useToolsStore.getState().setActiveSubmodule('password')
+      useToolsStore.getState().setActivePasswordView(view)
+    })
+  }
+
+  return [
+    {
+      id: 'cmd-password-open',
+      kind: 'command',
+      label: t('command.password_open'),
+      detail: t('command.password_open_detail'),
+      group: t('common.navigation'),
+      icon: KeyRound,
+      run: openVault('all'),
+    },
+    {
+      id: 'cmd-password-generator',
+      kind: 'command',
+      label: t('command.password_generator'),
+      detail: t('command.password_generator_detail'),
+      group: t('common.navigation'),
+      icon: Sparkles,
+      run: openVault('generator'),
+    },
+    {
+      id: 'cmd-password-lock',
+      kind: 'command',
+      label: t('command.password_lock'),
+      detail: t('command.password_lock_detail'),
+      group: t('common.navigation'),
+      icon: Lock,
+      run: () => {
+        void import('../tools/password/store').then(({ usePasswordVaultStore }) => {
+          usePasswordVaultStore.getState().lock()
+          useUi.getState().toast({ title: t('command.password_locked'), tone: 'success' })
+        })
+      },
+    },
+  ]
 }
 
 /** One command by id, or null when nothing registers that id. */
