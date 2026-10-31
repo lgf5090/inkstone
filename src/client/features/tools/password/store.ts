@@ -7,7 +7,16 @@ import type {
   DecryptedAccount,
 } from '@shared/tools/password/types'
 import { passwordApi } from './api'
-import { decryptValue, encryptValue } from './crypto'
+import {
+  createVaultSalt,
+  decryptValue,
+  deriveVaultKey,
+  encryptValue,
+  getKeyIv,
+  hashMasterPassword,
+} from './crypto'
+import { reencryptAccounts } from './utils/reencrypt'
+import { t } from '../../../lib/i18n'
 
 export type PasswordViewMode =
   | 'all'
@@ -47,6 +56,7 @@ export interface PasswordVaultStore {
   // Methods
   checkVaultAndAutoUnlock: () => Promise<void>
   unlock: (keyiv: KeyIV) => void
+  upgradeLegacyVault: (password: string) => Promise<void>
   lock: () => void
   clearVaultState: () => void
   refreshData: () => Promise<void>
@@ -198,11 +208,32 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     void get().refreshData()
   },
 
+  upgradeLegacyVault: async (password) => {
+    // Vaults created before the salted derivation are re-sealed here, while the password is in
+    // hand: one atomic reset that swaps the key, the verifier and every row together.
+    const legacy = getKeyIv(password)
+    const salt = createVaultSalt()
+    const next = deriveVaultKey(password, salt)
+    const raw = await passwordApi.getAccounts()
+    const { rows, failedIndex } = reencryptAccounts(raw, legacy, next)
+    if (failedIndex >= 0) {
+      throw new Error(t('tools.password.upgrade.blocked', { index: String(failedIndex + 1) }))
+    }
+
+    await passwordApi.resetMasterPassword({
+      oldPassword: password,
+      newMasterHash: hashMasterPassword(password),
+      newKdfSalt: salt,
+      accounts: rows,
+    })
+    get().unlock(next)
+  },
+
   lock: () => {
     set({
       isUnlocked: false,
       keyIV: null,
-          selectedAccountId: null,
+      selectedAccountId: null,
     })
   },
 
@@ -211,7 +242,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       vaultState: { hasVault: false },
       isUnlocked: false,
       keyIV: null,
-          groups: [],
+      groups: [],
       groupTree: [],
       accounts: [],
       decryptedAccounts: {},

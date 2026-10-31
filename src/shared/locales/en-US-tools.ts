@@ -34,6 +34,8 @@ export const EN_US_TOOLS = {
   "tools.password.recover.wipe_confirm": "This permanently deletes every group, account, setting and backup under this account. It cannot be undone.",
   "tools.password.recover.wipe_done": "Vault erased",
   "tools.password.recover.wipe_failed": "Could not erase the vault",
+  "tools.password.upgrade.blocked": "Record {index} could not be opened with the old master password; the automatic upgrade was skipped and the vault still opens",
+  "tools.password.upgrade.failed": "The vault is unlocked, but the encryption upgrade did not finish; the next unlock retries it",
   "tools.password.reset.title": "Change Master Password",
   "tools.password.reset.old_pass": "Current master password",
   "tools.password.reset.new_pass": "New 6-digit master password",

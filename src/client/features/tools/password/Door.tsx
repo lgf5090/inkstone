@@ -4,9 +4,10 @@ import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
+import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
 import { PasswordApiError, passwordApi } from './api'
-import { getKeyIv } from './crypto'
+import { deriveVaultKey, getKeyIv } from './crypto'
 
 export interface DoorProps {
   className?: string
@@ -57,11 +58,23 @@ export function Door({ className }: DoorProps) {
 
     try {
       // The server answers whether this is the master password — it holds a verifier and a rate
-      // limit. The browser only derives the key once the answer is yes, so a wrong guess can no
-      // longer "succeed" on a lucky padding byte and unlock a vault of garbage.
-      await passwordApi.unlock(password)
-      const keyiv = getKeyIv(password)
-      unlock(keyiv)
+      // limit. An empty salt marks a vault from before the salted derivation; it is re-sealed now,
+      // which is the only moment the password is in hand.
+      const { salt } = await passwordApi.unlock(password)
+      if (salt) {
+        unlock(deriveVaultKey(password, salt))
+      } else {
+        try {
+          await usePasswordVaultStore.getState().upgradeLegacyVault(password)
+        } catch {
+          // The vault still opens under the legacy derivation; the upgrade retries next unlock.
+          unlock(getKeyIv(password))
+          useUi.getState().toast({
+            title: t('tools.password.upgrade.failed'),
+            tone: 'warning',
+          })
+        }
+      }
     } catch (err) {
       triggerFail(
         err instanceof PasswordApiError && err.code === 'wrong_password'

@@ -74,16 +74,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const passwordApi = {
   getVaultState: () => request<PasswordVaultState>('/vault'),
 
-  initVault: (masterHash: string) =>
+  initVault: (masterHash: string, kdfSalt: string) =>
     request<{ ok: boolean }>('/vault/init', {
       method: 'POST',
-      body: JSON.stringify({ masterHash }),
+      body: JSON.stringify({ masterHash, kdfSalt }),
     }),
 
   // The server owns the "is this the master password" answer now, which is what lets it rate-limit
-  // guesses and what makes /vault/reset require proof of the old one.
+  // guesses and what makes /vault/reset require proof of the old one. An empty `salt` marks a vault
+  // that predates the salted derivation.
   unlock: (password: string) =>
-    request<{ ok: boolean }>('/vault/unlock', {
+    request<{ ok: boolean; salt: string }>('/vault/unlock', {
       method: 'POST',
       body: JSON.stringify({ password }),
     }),
@@ -97,6 +98,7 @@ export const passwordApi = {
   resetMasterPassword: (payload: {
     oldPassword: string
     newMasterHash: string
+    newKdfSalt: string
     accounts: Array<{
       id: string
       title: string

@@ -7,6 +7,7 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     master_hash TEXT NOT NULL,
     recovery_hint TEXT NOT NULL DEFAULT '',
+    kdf_salt TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id)
@@ -92,6 +93,7 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'user_id',
     'master_hash',
     'recovery_hint',
+    'kdf_salt',
     'created_at',
     'updated_at',
   ],

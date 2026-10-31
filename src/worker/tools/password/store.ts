@@ -17,6 +17,7 @@ interface VaultRow {
   user_id: string
   master_hash: string
   recovery_hint: string
+  kdf_salt: string
   created_at: number
   updated_at: number
 }
@@ -127,21 +128,22 @@ export class PasswordStore {
     }
   }
 
-  async getVault(): Promise<{ masterHash: string; createdAt: number; updatedAt: number } | null> {
+  async getVault(): Promise<{ masterHash: string; kdfSalt: string; createdAt: number; updatedAt: number } | null> {
     const row = await this.db
-      .prepare(`SELECT master_hash, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT master_hash, kdf_salt, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
       .first<VaultRow>()
 
     if (!row) return null
     return {
       masterHash: row.master_hash,
+      kdfSalt: row.kdf_salt,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  async initVault(masterHash: string): Promise<PasswordVaultState> {
+  async initVault(masterHash: string, kdfSalt: string): Promise<PasswordVaultState> {
     const existing = await this.getVaultState()
     if (existing.hasVault) {
       throw ApiError.badRequest('Vault is already initialized')
@@ -150,10 +152,10 @@ export class PasswordStore {
     const now = Date.now()
     await this.db
       .prepare(
-        `INSERT INTO tools_password_vault (user_id, master_hash, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4)`,
+        `INSERT INTO tools_password_vault (user_id, master_hash, kdf_salt, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
       )
-      .bind(this.userId, masterHash, now, now)
+      .bind(this.userId, masterHash, kdfSalt, now, now)
       .run()
 
     return {
@@ -165,6 +167,7 @@ export class PasswordStore {
 
   async resetMasterPassword(
     newMasterHash: string,
+    newKdfSalt: string,
     accounts: Array<{
       id: string
       title: string
@@ -183,10 +186,10 @@ export class PasswordStore {
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
-          `UPDATE tools_password_vault SET master_hash = ?1, updated_at = ?2
-           WHERE user_id = ?3`,
+          `UPDATE tools_password_vault SET master_hash = ?1, kdf_salt = ?2, updated_at = ?3
+           WHERE user_id = ?4`,
         )
-        .bind(newMasterHash, now, this.userId),
+        .bind(newMasterHash, newKdfSalt, now, this.userId),
     ]
 
     for (const acc of accounts) {

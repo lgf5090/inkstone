@@ -9,8 +9,8 @@ import { usePasswordVaultStore } from './store'
 import { passwordApi, PasswordApiError } from './api'
 import {
   decryptValue,
+  deriveVaultKey,
   encryptValue,
-  getKeyIv,
 } from './crypto'
 import { Door } from './Door'
 import { Setting } from './Setting'
@@ -53,7 +53,8 @@ function renderWithHosts(node: React.ReactNode) {
 
 describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
   const masterPassword = 'MyPass' // 6 chars
-  const keyiv = getKeyIv(masterPassword)
+  const VAULT_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+  const keyiv = deriveVaultKey(masterPassword, VAULT_SALT)
 
   beforeEach(async () => {
     localStorage.clear()
@@ -233,7 +234,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         updatedAt: Date.now(),
       }
       usePasswordVaultStore.setState({ accounts: [encAccount] })
-      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([encAccount])
 
@@ -363,7 +364,8 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       )
       // The welcome card must not carry the master password: that made every vault an offline oracle.
       const welcomePayload = createAccountSpy.mock.calls[0]![0] as { password: string }
-      expect(decryptValue(getKeyIv('Init01'), welcomePayload.password)).not.toBe('Init01')
+      const initSalt = initSpy.mock.calls[0]![1] as string
+      expect(decryptValue(deriveVaultKey('Init01', initSalt), welcomePayload.password)).not.toBe('Init01')
       expect(usePasswordVaultStore.getState().isSettingOpen).toBe(false)
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
     })
@@ -442,7 +444,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       })
 
       const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
-      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([existingAccount])
 
       renderWithHosts(createElement(Reset))
@@ -467,7 +469,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const payload = resetApiSpy.mock.calls[0][0]
       expect(payload.accounts).toHaveLength(1)
 
-      const newKeyIv = getKeyIv(newPass)
+      const newKeyIv = deriveVaultKey(newPass, payload.newKdfSalt)
       const reencryptedAccount = payload.accounts[0]
       expect(reencryptedAccount.id).toBe(existingAccount.id)
       expect(usePasswordVaultStore.getState().keyIV?.key).toBe(newKeyIv.key)
@@ -499,7 +501,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       })
 
       const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
-      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
 
       renderWithHosts(createElement(Reset))
 

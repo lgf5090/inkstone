@@ -8,6 +8,8 @@ import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
 import { PasswordApiError, passwordApi } from './api'
 import {
+  createVaultSalt,
+  deriveVaultKey,
   evaluatePasswordStrength,
   getKeyIv,
   hashMasterPassword,
@@ -61,8 +63,9 @@ export function Reset({ open, onClose }: ResetProps) {
     try {
       // 1. Ask the server whether this is the old master password. It holds the verifier and the
       // rate limit; a local guess would re-encrypt under the wrong key before anyone noticed.
+      let currentSalt = ''
       try {
-        await passwordApi.unlock(oldPassword)
+        currentSalt = (await passwordApi.unlock(oldPassword)).salt
       } catch (err) {
         setError(
           err instanceof PasswordApiError && err.code === 'wrong_password'
@@ -75,8 +78,13 @@ export function Reset({ open, onClose }: ResetProps) {
       }
 
       // 2. Batch re-encrypt accounts
-      const oldKeyIv = getKeyIv(oldPassword)
-      const newKeyIv = getKeyIv(newPassword)
+      const newSalt = createVaultSalt()
+      // The key the vault is actually open under beats a re-derivation: an unlocked vault already
+      // holds it, and a locked one can derive it from the salt the server just returned.
+      const oldKeyIv =
+        usePasswordVaultStore.getState().keyIV ??
+        (currentSalt ? deriveVaultKey(oldPassword, currentSalt) : getKeyIv(oldPassword))
+      const newKeyIv = deriveVaultKey(newPassword, newSalt)
 
       let allAccounts = accounts
       if (!allAccounts || allAccounts.length === 0) {
@@ -95,6 +103,7 @@ export function Reset({ open, onClose }: ResetProps) {
       await passwordApi.resetMasterPassword({
         oldPassword,
         newMasterHash: hashMasterPassword(newPassword),
+        newKdfSalt: newSalt,
         accounts: reencrypted,
       })
 

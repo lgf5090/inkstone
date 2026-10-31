@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const InitVaultSchema = z.object({
   masterHash: z.string().min(10).max(200),
+  kdfSalt: z.string().min(16).max(128),
 })
 
 export const UnlockVaultSchema = z.object({
@@ -15,6 +16,7 @@ export const WipeVaultSchema = z.object({
 export const ResetMasterPasswordSchema = z.object({
   oldPassword: z.string().min(1).max(200),
   newMasterHash: z.string().min(10).max(200),
+  newKdfSalt: z.string().min(16).max(128),
   accounts: z.array(
     z.object({
       id: z.string().min(1),

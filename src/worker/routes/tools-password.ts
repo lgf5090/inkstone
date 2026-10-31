@@ -109,7 +109,7 @@ toolsPasswordRoutes.get('/vault', async (c) => {
 toolsPasswordRoutes.post('/vault/init', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, InitVaultSchema)
-  const state = await store.initVault(body.masterHash)
+  const state = await store.initVault(body.masterHash, body.kdfSalt)
   return c.json({ ok: true, data: state })
 })
 
@@ -126,7 +126,9 @@ toolsPasswordRoutes.post('/vault/unlock', async (c) => {
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
-  return c.json({ ok: true, data: { ok: true } })
+  // An empty salt means the vault predates the salted derivation; the client re-seals it now that
+  // it has the password in hand.
+  return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt } })
 })
 
 toolsPasswordRoutes.post('/vault/reset', async (c) => {
@@ -144,7 +146,7 @@ toolsPasswordRoutes.post('/vault/reset', async (c) => {
     throw wrongMasterPassword()
   }
   await clearLoginFailures(c.env.DB, [budgetKey])
-  await store.resetMasterPassword(body.newMasterHash, body.accounts)
+  await store.resetMasterPassword(body.newMasterHash, body.newKdfSalt, body.accounts)
   return c.json({ ok: true })
 })
 

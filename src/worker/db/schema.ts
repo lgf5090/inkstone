@@ -3098,6 +3098,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `UPDATE blog_settings SET value = json_set(value, '$.provider', 'local') WHERE key = 'comment' AND json_extract(value, '$.provider') = 'none'`,
     ],
   },
+  {
+    // One random salt per vault, so the client can derive the encryption key with scrypt instead of
+    // a fixed triple-MD5 of the passphrase. '' marks a vault created before this migration; its rows
+    // are re-sealed on the next unlock.
+    version: 212,
+    skipIfColumnExists: { table: 'tools_password_vault', column: 'kdf_salt' },
+    statements: [`ALTER TABLE tools_password_vault ADD COLUMN kdf_salt TEXT NOT NULL DEFAULT ''`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

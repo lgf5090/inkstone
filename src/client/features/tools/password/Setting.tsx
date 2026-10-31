@@ -8,9 +8,10 @@ import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
 import {
+  createVaultSalt,
+  deriveVaultKey,
   encryptValue,
   evaluatePasswordStrength,
-  getKeyIv,
   hashMasterPassword,
 } from './crypto'
 
@@ -54,16 +55,17 @@ export function Setting({ open, onClose }: SettingProps) {
 
     try {
       const masterHash = hashMasterPassword(password)
+      const salt = createVaultSalt()
+      const keyiv = deriveVaultKey(password, salt)
 
       // 1. Initialize vault
-      await passwordApi.initVault(masterHash)
+      await passwordApi.initVault(masterHash, salt)
 
       // 2. Create default group
       const defaultGroupName = t('tools.password.setting.default_group')
       const defaultGroup = await passwordApi.createGroup({ name: defaultGroupName })
 
       // 3. Create guided welcome account
-      const keyiv = getKeyIv(password)
       const welcomeTitle = t('tools.password.setting.welcome_account_title')
       const welcomeUser = t('tools.password.setting.welcome_account_user')
 

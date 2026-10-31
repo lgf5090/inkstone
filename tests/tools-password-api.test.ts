@@ -146,7 +146,7 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
     // 1. User A inits vault
     const initRes = await call('POST', '/api/tools/password/vault/init', {
       user: USER_A,
-      body: { masterHash: 'hash-alice-1234567890' },
+      body: { masterHash: 'hash-alice-1234567890', kdfSalt: 'a1b2c3d4e5f60718293a4b5c6d7e8f90' },
     })
     expect(initRes.status).toBe(200)
 
@@ -238,6 +238,7 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
 describe('Password Manager Vault Routes', () => {
   // Rounds 4 keeps the fixture fast; the route only compares, it never re-hashes at cost 10.
   const OLD_PASSWORD = 'old-pass'
+  const KDF_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
   const OLD_HASH = hashSync(OLD_PASSWORD, 4)
 
   it('handles /vault GET and POST /init, and no longer hands back a recovery hint', async () => {
@@ -251,7 +252,7 @@ describe('Password Manager Vault Routes', () => {
     expect(shortHash.status).toBe(400)
 
     const initRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: OLD_HASH },
+      body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT },
     })
     expect(initRes.status).toBe(200)
     const initData = await json<{ ok: boolean; data: Record<string, unknown> }>(initRes)
@@ -259,13 +260,13 @@ describe('Password Manager Vault Routes', () => {
     expect(initData.data).not.toHaveProperty('recoveryHint')
 
     const reinitRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: hashSync('other', 4) },
+      body: { masterHash: hashSync('other', 4), kdfSalt: KDF_SALT },
     })
     expect(reinitRes.status).toBe(400)
   })
 
   it('verifies the master password on the server and throttles guesses', async () => {
-    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
 
     const wrong = await call('POST', '/api/tools/password/vault/unlock', {
       body: { password: 'not-it' },
@@ -278,6 +279,8 @@ describe('Password Manager Vault Routes', () => {
       body: { password: OLD_PASSWORD },
     })
     expect(right.status).toBe(200)
+    // The client cannot derive the vault key without the per-vault salt.
+    expect((await json<{ data: { salt: string } }>(right)).data.salt).toBe(KDF_SALT)
 
     // A successful unlock clears the budget, so the next mistakes start from zero again.
     const again = await call('POST', '/api/tools/password/vault/unlock', {
@@ -287,7 +290,7 @@ describe('Password Manager Vault Routes', () => {
   })
 
   it('refuses a reset that does not prove the old password', async () => {
-    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
     const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
     const aRes = await call('POST', '/api/tools/password/accounts', {
@@ -299,6 +302,7 @@ describe('Password Manager Vault Routes', () => {
       body: {
         oldPassword: 'guessing',
         newMasterHash: hashSync('attacker-key', 4),
+        newKdfSalt: KDF_SALT,
         accounts: [{ id: account.id, title: 'mine', username: '', password: '' }],
       },
     })
@@ -316,6 +320,7 @@ describe('Password Manager Vault Routes', () => {
       body: {
         oldPassword: OLD_PASSWORD,
         newMasterHash: hashSync('new-key', 4),
+        newKdfSalt: KDF_SALT,
         accounts: [{ id: account.id, title: 'new-title', username: '', password: 'new-pass' }],
       },
     })
@@ -331,7 +336,7 @@ describe('Password Manager Vault Routes', () => {
   })
 
   it('erases the vault only when the confirmation literal is sent', async () => {
-    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
     await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
 
     const noConfirm = await call('POST', '/api/tools/password/vault/wipe', { body: {} })

@@ -34,6 +34,8 @@ export const ZH_CN_TOOLS = {
   "tools.password.recover.wipe_confirm": "将永久删除该账户下的全部分组、账号、设置与备份，且无法撤销。",
   "tools.password.recover.wipe_done": "保险库已清空",
   "tools.password.recover.wipe_failed": "清空失败",
+  "tools.password.upgrade.blocked": "第 {index} 条记录无法用旧主密码解开，已跳过本次自动升级，保险库仍可正常打开",
+  "tools.password.upgrade.failed": "保险库已解锁，但加密方式升级未完成，下次解锁会再试",
   "tools.password.reset.title": "修改开门密码",
   "tools.password.reset.old_pass": "请输入原开门密码",
   "tools.password.reset.new_pass": "请输入新 6 位开门密码",
