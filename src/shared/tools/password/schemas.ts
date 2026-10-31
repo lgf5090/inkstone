@@ -41,12 +41,14 @@ export const CreateGroupSchema = z.object({
   id: z.string().min(1).max(128).optional(),
   name: z.string().trim().min(1).max(100),
   parentId: z.string().max(128).default(''),
+  icon: z.string().max(64).default(''),
   sort: z.number().int().default(0),
 })
 
 export const UpdateGroupSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   parentId: z.string().max(128).optional(),
+  icon: z.string().max(64).optional(),
   sort: z.number().int().optional(),
 })
 

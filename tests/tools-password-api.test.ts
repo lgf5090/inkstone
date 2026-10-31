@@ -421,6 +421,35 @@ describe('Password Manager Groups Routes', () => {
     const delEmptyRes = await call('DELETE', `/api/tools/password/groups/${g3.id}`)
     expect(delEmptyRes.status).toBe(200)
   })
+
+  it('stores a group icon and returns it on the next read', async () => {
+    const createRes = await call('POST', '/api/tools/password/groups', {
+      body: { name: 'Banking', icon: 'bank' },
+    })
+    const group = (await json<{ ok: boolean; data: { id: string; icon: string } }>(createRes)).data
+    expect(group.icon).toBe('bank')
+
+    const updateRes = await call('PUT', `/api/tools/password/groups/${group.id}`, {
+      body: { icon: 'secure' },
+    })
+    expect(updateRes.status).toBe(200)
+
+    const list = (
+      await json<{ ok: boolean; data: Array<{ id: string; icon: string }> }>(
+        await call('GET', '/api/tools/password/groups'),
+      )
+    ).data
+    expect(list.find((row) => row.id === group.id)?.icon).toBe('secure')
+
+    // Clearing it goes back to the default picture.
+    await call('PUT', `/api/tools/password/groups/${group.id}`, { body: { name: 'Banking' } })
+    const after = (
+      await json<{ ok: boolean; data: Array<{ id: string; icon: string }> }>(
+        await call('GET', '/api/tools/password/groups'),
+      )
+    ).data
+    expect(after.find((row) => row.id === group.id)?.icon).toBe('secure')
+  })
 })
 
 describe('Password Manager Accounts Routes', () => {

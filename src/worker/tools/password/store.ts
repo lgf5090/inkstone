@@ -43,6 +43,7 @@ interface GroupRow {
   id: string
   name: string
   parent_id: string
+  icon: string
   sort: number
   created_at: number
   updated_at: number
@@ -92,6 +93,7 @@ function toGroup(row: GroupRow): PasswordGroup {
     userId: row.user_id,
     name: row.name,
     parentId: row.parent_id,
+    icon: row.icon,
     sort: row.sort,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -262,7 +264,7 @@ export class PasswordStore {
   async getGroups(): Promise<PasswordGroup[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT id, user_id, name, parent_id, sort, created_at, updated_at
+        `SELECT id, user_id, name, parent_id, icon, sort, created_at, updated_at
          FROM tools_password_groups
          WHERE user_id = ?1
          ORDER BY sort ASC, id ASC`,
@@ -276,7 +278,7 @@ export class PasswordStore {
   async getGroup(id: string): Promise<PasswordGroup | null> {
     const row = await this.db
       .prepare(
-        `SELECT id, user_id, name, parent_id, sort, created_at, updated_at
+        `SELECT id, user_id, name, parent_id, icon, sort, created_at, updated_at
          FROM tools_password_groups
          WHERE user_id = ?1 AND id = ?2`,
       )
@@ -286,18 +288,19 @@ export class PasswordStore {
     return row ? toGroup(row) : null
   }
 
-  async createGroup(data: { id?: string; name: string; parentId?: string; sort?: number }): Promise<PasswordGroup> {
+  async createGroup(data: { id?: string; name: string; parentId?: string; icon?: string; sort?: number }): Promise<PasswordGroup> {
     const id = data.id || crypto.randomUUID()
     const parentId = data.parentId ?? ''
+    const icon = data.icon ?? ''
     const sort = data.sort ?? 0
     const now = Date.now()
 
     await this.db
       .prepare(
-        `INSERT INTO tools_password_groups (user_id, id, name, parent_id, sort, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
       )
-      .bind(this.userId, id, data.name, parentId, sort, now, now)
+      .bind(this.userId, id, data.name, parentId, icon, sort, now, now)
       .run()
 
     return {
@@ -305,13 +308,14 @@ export class PasswordStore {
       userId: this.userId,
       name: data.name,
       parentId,
+      icon,
       sort,
       createdAt: now,
       updatedAt: now,
     }
   }
 
-  async updateGroup(id: string, data: { name?: string; parentId?: string; sort?: number }): Promise<PasswordGroup> {
+  async updateGroup(id: string, data: { name?: string; parentId?: string; icon?: string; sort?: number }): Promise<PasswordGroup> {
     const existing = await this.getGroup(id)
     if (!existing) {
       throw ApiError.notFound('Group not found')
@@ -319,22 +323,24 @@ export class PasswordStore {
 
     const name = data.name !== undefined ? data.name : existing.name
     const parentId = data.parentId !== undefined ? data.parentId : existing.parentId
+    const icon = data.icon !== undefined ? data.icon : existing.icon
     const sort = data.sort !== undefined ? data.sort : existing.sort
     const now = Date.now()
 
     await this.db
       .prepare(
         `UPDATE tools_password_groups
-         SET name = ?1, parent_id = ?2, sort = ?3, updated_at = ?4
-         WHERE user_id = ?5 AND id = ?6`,
+         SET name = ?1, parent_id = ?2, icon = ?3, sort = ?4, updated_at = ?5
+         WHERE user_id = ?6 AND id = ?7`,
       )
-      .bind(name, parentId, sort, now, this.userId, id)
+      .bind(name, parentId, icon, sort, now, this.userId, id)
       .run()
 
     return {
       ...existing,
       name,
       parentId,
+      icon,
       sort,
       updatedAt: now,
     }
@@ -973,10 +979,19 @@ export class PasswordStore {
       statements.push(
         this.db
           .prepare(
-            `INSERT INTO tools_password_groups (user_id, id, name, parent_id, sort, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+            `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
           )
-          .bind(this.userId, g.id, g.name, g.parentId ?? '', g.sort ?? 0, g.createdAt || Date.now(), g.updatedAt || Date.now()),
+          .bind(
+            this.userId,
+            g.id,
+            g.name,
+            g.parentId ?? '',
+            g.icon ?? '',
+            g.sort ?? 0,
+            g.createdAt || Date.now(),
+            g.updatedAt || Date.now(),
+          ),
       )
     }
 

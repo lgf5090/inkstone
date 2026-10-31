@@ -121,7 +121,7 @@ export const passwordApi = {
       body: JSON.stringify(data),
     }),
 
-  updateGroup: (id: string, data: { name?: string; parentId?: string; sort?: number }) =>
+  updateGroup: (id: string, data: { name?: string; parentId?: string; icon?: string; sort?: number }) =>
     request<PasswordGroup>(`/groups/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),

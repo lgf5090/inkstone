@@ -3121,6 +3121,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'tools_password_accounts', column: 'totp_secret' },
     statements: [`ALTER TABLE tools_password_accounts ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`],
   },
+  {
+    // A short curated icon id per group; '' keeps the default folder picture.
+    version: 215,
+    skipIfColumnExists: { table: 'tools_password_groups', column: 'icon' },
+    statements: [`ALTER TABLE tools_password_groups ADD COLUMN icon TEXT NOT NULL DEFAULT ''`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

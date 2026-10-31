@@ -85,7 +85,10 @@ export interface PasswordVaultStore {
   toggleFavorite: (id: string) => Promise<void>
 
   createGroup: (name: string, parentId?: string) => Promise<PasswordGroup>
-  updateGroup: (id: string, dataOrName: string | { name?: string; parentId?: string; sort?: number }) => Promise<void>
+  updateGroup: (
+    id: string,
+    dataOrName: string | { name?: string; parentId?: string; icon?: string; sort?: number },
+  ) => Promise<void>
   deleteGroup: (id: string) => Promise<void>
   moveAccountToGroup: (accountId: string, targetGroupId: string) => Promise<void>
   reorderAccounts: (accounts: Array<{ id: string; sort: number }>) => Promise<void>

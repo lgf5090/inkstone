@@ -26,6 +26,7 @@ export interface PasswordGroup {
   userId?: string
   name: string
   parentId: string
+  icon?: string
   sort: number
   createdAt: number
   updatedAt: number

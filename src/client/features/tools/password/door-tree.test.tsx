@@ -965,6 +965,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       renderWithHosts(
         createElement(GroupTreeNode, {
           group: maxDepthGroup,
+          onSetIcon: () => {},
           depth: 7,
           selectedGroupId: null,
           expandedIds: new Set<string>(),

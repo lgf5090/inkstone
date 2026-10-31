@@ -8,6 +8,7 @@ import { confirm, prompt, Tooltip } from '../../../components/overlay'
 import { useToolsStore } from '../store'
 import { usePasswordVaultStore } from './store'
 import { GroupTreeNode, MAX_GROUP_TREE_DEPTH } from './GroupTreeNode'
+import { GroupIconPicker } from './GroupIconPicker'
 
 function isDescendant(groups: PasswordGroup[], parentId: string, childId: string): boolean {
   if (parentId === childId) return true
@@ -68,6 +69,7 @@ export function GroupTree() {
   // are therefore expanded the first time they are seen, once each, so a group the reader collapsed
   // stays collapsed while new ones still appear open.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(groups.map((g) => g.id)))
+  const [iconTarget, setIconTarget] = useState<PasswordGroup | null>(null)
   const seenGroupIds = useRef<Set<string>>(new Set(groups.map((g) => g.id)))
 
   useEffect(() => {
@@ -312,11 +314,14 @@ export function GroupTree() {
               onExport={openExportModal}
               onImport={openImportModal}
               onMoveGroup={handleMoveGroup}
+              onSetIcon={setIconTarget}
               onMoveAccount={handleMoveAccount}
             />
           ))
         )}
       </div>
+
+      <GroupIconPicker group={iconTarget} onClose={() => setIconTarget(null)} />
     </div>
   )
 }
