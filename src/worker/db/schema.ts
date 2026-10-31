@@ -3098,6 +3098,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `UPDATE blog_settings SET value = json_set(value, '$.provider', 'local') WHERE key = 'comment' AND json_extract(value, '$.provider') = 'none'`,
     ],
   },
+  {
+    // The click counter rides the link row so the list can sort and page by clicks without aggregating
+    // the whole clicks table; the rows themselves stay for the per-day and per-dimension breakdowns.
+    version: 212,
+    skipIfColumnExists: { table: 'tools_shortlinks_links', column: 'total_clicks' },
+    statements: [
+      `ALTER TABLE tools_shortlinks_links ADD COLUMN total_clicks INTEGER NOT NULL DEFAULT 0`,
+      `UPDATE tools_shortlinks_links SET total_clicks =
+         (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = tools_shortlinks_links.id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

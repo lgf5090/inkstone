@@ -13,7 +13,8 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     created_at INTEGER NOT NULL,
     expires_at INTEGER,
     created_via TEXT DEFAULT 'app',
-    created_by TEXT DEFAULT 'user'
+    created_by TEXT DEFAULT 'user',
+    total_clicks INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_links_user 
     ON tools_shortlinks_links(user_id, created_at DESC)`,
@@ -186,6 +187,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_COLUMNS: Readonly<Record<string, readonly
     'expires_at',
     'created_via',
     'created_by',
+    'total_clicks',
   ],
   tools_shortlinks_slugs: [
     'slug',

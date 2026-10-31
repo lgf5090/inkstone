@@ -89,10 +89,6 @@ export const RestoreBackupSchema = z.object({
 export const TimelineRangeSchema = z.enum(TIMELINE_RANGES)
 export const LinkStatusSchema = z.enum(['all', 'active', 'disabled'])
 
-/**
- * Query shape for `GET /links`. `range` stays optional: when absent the clicks column counts
- * every click ever recorded, which is what the list labels it as.
- */
 export const ListLinksQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
@@ -101,7 +97,6 @@ export const ListLinksQuerySchema = z.object({
   sort_order: z.enum(['asc', 'desc']).default('desc'),
   search: z.string().max(200).optional(),
   bundle_id: z.coerce.number().int().positive().optional(),
-  range: TimelineRangeSchema.optional(),
 })
 
 export const BREAKDOWN_DIMENSIONS = [

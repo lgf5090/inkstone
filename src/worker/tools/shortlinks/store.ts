@@ -338,6 +338,7 @@ export class ShortlinksStore {
         expires_at: number | null
         created_via: string | null
         created_by: string
+        total_clicks: number
       }>()
 
     if (!linkRow) return null
@@ -370,11 +371,6 @@ export class ShortlinksStore {
       disabled_at: s.disabled_at,
     }))
 
-    const totalClicksRow = await this.db
-      .prepare('SELECT COUNT(*) as count FROM tools_shortlinks_clicks WHERE link_id = ? AND user_id = ?')
-      .bind(id, this.userId)
-      .first<{ count: number }>()
-
     return {
       id: linkRow.id,
       user_id: linkRow.user_id,
@@ -386,7 +382,7 @@ export class ShortlinksStore {
       created_via: linkRow.created_via,
       created_by: linkRow.created_by,
       slugs,
-      total_clicks: totalClicksRow?.count || 0,
+      total_clicks: linkRow.total_clicks || 0,
     }
   }
 
@@ -398,7 +394,6 @@ export class ShortlinksStore {
     sort_order?: 'asc' | 'desc'
     bundle_id?: number
     search?: string
-    range?: TimelineRange
     offset?: number
     limit?: number
   }): Promise<{ items: ShortLink[]; links: ShortLink[]; total: number }> {
@@ -439,22 +434,17 @@ export class ShortlinksStore {
     // Fetch link IDs and rows
     let orderSql = `ORDER BY l.created_at ${sortOrder}`
     if (sort === 'clicks') {
-      orderSql = `ORDER BY total_clicks ${sortOrder}, l.created_at ${sortOrder}`
+      orderSql = `ORDER BY l.total_clicks ${sortOrder}, l.created_at ${sortOrder}`
     }
 
-    const sinceTs = rangeToSinceTs(params.range, now)
-    const clickWindow = sinceTs === undefined ? '' : ' AND c.clicked_at >= ?'
-    const clickBinds: (string | number)[] = sinceTs === undefined ? [this.userId] : [this.userId, sinceTs]
-
     const query = `
-      SELECT l.*,
-        (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = l.id AND c.user_id = ?${clickWindow}) as total_clicks
+      SELECT l.*
       FROM tools_shortlinks_links l
       ${whereClause}
       ${orderSql}
       LIMIT ${limit} OFFSET ${offset}
     `
-    const rows = await this.db.prepare(query).bind(...clickBinds, ...binds).all<{
+    const rows = await this.db.prepare(query).bind(...binds).all<{
       id: number
       user_id: string
       url: string
@@ -579,13 +569,7 @@ export class ShortlinksStore {
       throw ApiError.notFound('Link not found')
     }
 
-    // Zero-click deletion guard
-    const clickCountRow = await this.db
-      .prepare('SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE link_id = ? AND user_id = ?')
-      .bind(id, this.userId)
-      .first<{ cnt: number }>()
-
-    if ((clickCountRow?.cnt || 0) > 0) {
+    if (link.total_clicks > 0) {
       throw ApiError.badRequest('Cannot delete a short link with click history. Please disable it instead to preserve analytics.')
     }
 
@@ -777,7 +761,7 @@ export class ShortlinksStore {
 
   async recordClick(slug: string, linkId: number, targetUserId: string, click: ClickData): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
-    await this.db
+    const insertStatement = this.db
       .prepare(
         `INSERT INTO tools_shortlinks_clicks (
            user_id, link_id, slug, clicked_at, referrer, referrer_host, country, region, city,
@@ -817,7 +801,13 @@ export class ShortlinksStore {
         click.visitorFp || null,
         click.isSelfReferrer || 0,
       )
-      .run()
+
+    await this.db.batch([
+      insertStatement,
+      this.db
+        .prepare('UPDATE tools_shortlinks_links SET total_clicks = total_clicks + 1 WHERE id = ? AND user_id = ?')
+        .bind(linkId, targetUserId),
+    ])
   }
 
   // -------------------------------------------------------------------------
@@ -956,6 +946,7 @@ export class ShortlinksStore {
     range?: TimelineRange
     offset?: number
     limit?: number
+    search?: string
   }): Promise<BreakdownPage> {
     const dimension = params.dimension
     const offset = Math.min(1_000_000, Math.max(0, Math.floor(params.offset || 0)))
@@ -991,6 +982,12 @@ export class ShortlinksStore {
     }
 
     where += ` AND ${col} IS NOT NULL`
+
+    const search = params.search?.trim()
+    if (search) {
+      where += ` AND ${col} LIKE ?`
+      binds.push(`%${search}%`)
+    }
 
     const countRow = await this.db
       .prepare(`SELECT COUNT(DISTINCT ${col}) as total FROM tools_shortlinks_clicks WHERE ${where}`)
@@ -1102,12 +1099,14 @@ export class ShortlinksStore {
         .prepare(
           `SELECT b.*,
              (SELECT COUNT(*) FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) as link_count,
-             (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id IN (SELECT bl.link_id FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) AND c.user_id = ?) as total_clicks
+             (SELECT COALESCE(SUM(l.total_clicks), 0) FROM tools_shortlinks_bundle_links bl
+                JOIN tools_shortlinks_links l ON l.id = bl.link_id AND l.user_id = bl.user_id
+                WHERE bl.bundle_id = b.id AND bl.user_id = ?) as total_clicks
            FROM tools_shortlinks_bundles b
            WHERE b.user_id = ?
            ORDER BY b.archived_at ASC, b.created_at DESC`,
         )
-        .bind(this.userId, this.userId, this.userId, this.userId)
+        .bind(this.userId, this.userId, this.userId)
         .all<{
           id: number
           user_id: string
@@ -1354,14 +1353,13 @@ export class ShortlinksStore {
   async getBundleLinks(bundleId: number): Promise<ShortLink[]> {
     const rows = await this.db
       .prepare(
-        `SELECT l.*,
-           (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = l.id AND c.user_id = ?) as total_clicks
+        `SELECT l.*
          FROM tools_shortlinks_links l
          JOIN tools_shortlinks_bundle_links bl ON l.id = bl.link_id
          WHERE bl.bundle_id = ? AND bl.user_id = ? AND l.user_id = ?
          ORDER BY bl.added_at DESC`,
       )
-      .bind(this.userId, bundleId, this.userId, this.userId)
+      .bind(bundleId, this.userId, this.userId)
       .all<{
         id: number
         user_id: string

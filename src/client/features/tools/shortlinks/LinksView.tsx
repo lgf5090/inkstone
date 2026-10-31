@@ -142,7 +142,109 @@ export function LinksView() {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="md:hidden divide-y divide-[var(--border-subtle)]">
+            {links.map((link) => {
+              const primarySlugObj = link.slugs.find((s) => s.is_primary) || link.slugs[0]
+              const primarySlug = primarySlugObj?.slug || ''
+              const isSlugActive = primarySlugObj ? primarySlugObj.disabled_at === null : true
+              const isExpired =
+                link.expires_at !== null && link.expires_at <= Math.floor(Date.now() / 1000)
+              return (
+                <div key={link.id} className="p-3.5 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => selectLink(link.id)}
+                      className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded-[var(--r-sm)]"
+                    >
+                      <div className="flex items-center gap-1.5 font-mono text-[length:var(--text-13)] font-semibold text-[var(--accent)]">
+                        <span>/{primarySlug}</span>
+                        {link.slugs.length > 1 ? (
+                          <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                            +{link.slugs.length - 1}
+                          </span>
+                        ) : null}
+                        {link.password_protected ? (
+                          <Lock size={12} className="text-[var(--warning)]" />
+                        ) : null}
+                      </div>
+                      <div className="truncate text-[length:var(--text-12)] text-[var(--text-primary)] mt-0.5">
+                        {link.label || link.url}
+                      </div>
+                      {link.label ? (
+                        <div className="truncate font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                          {link.url}
+                        </div>
+                      ) : null}
+                    </button>
+                    <span className="shrink-0 font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                      {link.total_clicks.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    {isExpired ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--danger-soft)] text-[var(--danger)]">
+                        <Clock size={11} />
+                        {t('tools.shortlinks.links.expired')}
+                      </span>
+                    ) : isSlugActive ? (
+                      <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--success-soft)] text-[var(--success)]">
+                        {t('tools.shortlinks.links.filter_active')}
+                      </span>
+                    ) : (
+                      <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--bg-inset)] text-[var(--text-tertiary)]">
+                        {t('tools.shortlinks.links.filter_disabled')}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <IconButton
+                        label={t('tools.shortlinks.links.copy_shortlink')}
+                        size="sm"
+                        onClick={() => handleCopyLink(link)}
+                      >
+                        <Copy size={13} />
+                      </IconButton>
+                      <IconButton
+                        label={t('tools.shortlinks.links.qr_code')}
+                        size="sm"
+                        onClick={() => openQrModal(link)}
+                      >
+                        <QrCode size={13} />
+                      </IconButton>
+                      <IconButton
+                        label={t('tools.shortlinks.links.edit')}
+                        size="sm"
+                        onClick={() => openEditModal(link)}
+                      >
+                        <Pencil size={13} />
+                      </IconButton>
+                      <IconButton
+                        label={
+                          isSlugActive
+                            ? t('tools.shortlinks.links.disable')
+                            : t('tools.shortlinks.links.enable')
+                        }
+                        size="sm"
+                        onClick={() => handleToggleSlugStatus(link)}
+                      >
+                        {isSlugActive ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </IconButton>
+                      <IconButton
+                        label={t('tools.shortlinks.links.delete')}
+                        size="sm"
+                        onClick={() => handleDeleteLink(link)}
+                      >
+                        <Trash2 size={13} className="text-[var(--danger)]" />
+                      </IconButton>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
@@ -278,6 +380,7 @@ export function LinksView() {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {/* Pagination Footer */}

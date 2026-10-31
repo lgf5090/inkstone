@@ -273,6 +273,9 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect(red1.status).toBe(302)
     expect(red1.headers.get('Location')).toBe('https://example.com/disable-test')
 
+    const counted = (await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data
+    expect(counted.total_clicks).toBe(1)
+
     const disableRes = await call('PATCH', `/api/tools/shortlinks/links/${link.id}/slugs/disable-me/status`, {
       body: { is_active: false },
     })
@@ -292,6 +295,29 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     const red4 = await call('GET', '/l/disable-me', { user: null })
     expect(red4.status).toBe(404)
+  })
+
+  it('sorts the list by the materialised click counter', async () => {
+    const quiet = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/quiet', custom_slug: 'sort-quiet' },
+      }),
+    )).data
+    const busy = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/busy', custom_slug: 'sort-busy' },
+      }),
+    )).data
+    await call('GET', '/l/sort-busy', { user: null })
+    await call('GET', '/l/sort-busy', { user: null })
+
+    const sorted = (await json<any>(
+      await call('GET', '/api/tools/shortlinks/links?sort_by=clicks&sort_order=desc'),
+    )).data
+    expect(sorted.items[0].id).toBe(busy.id)
+    expect(sorted.items[0].total_clicks).toBe(2)
+    const quietRow = sorted.items.find((row: any) => row.id === quiet.id)
+    expect(quietRow.total_clicks).toBe(0)
   })
 
   it('keeps exactly one primary slug when switching and deleting', async () => {
@@ -321,7 +347,7 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     const badId = await call('GET', '/api/tools/shortlinks/links/abc')
     expect(badId.status).toBe(400)
 
-    const badRange = await call('GET', '/api/tools/shortlinks/links?range=bogus')
+    const badRange = await call('GET', '/api/tools/shortlinks/links/1/stats?range=bogus')
     expect(badRange.status).toBe(400)
 
     const fractionalOffset = await call('GET', '/api/tools/shortlinks/links?offset=1.5')

@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand'
+import { BREAKDOWN_PAGE_SIZE } from '@shared/tools/shortlinks/types'
 import type {
   BreakdownPage,
   BundleStats,
@@ -89,8 +90,12 @@ export interface ShortlinksStoreState {
   breakdownModalOpen: boolean
   breakdownDimension: string | null
   breakdownPage: BreakdownPage | null
+  breakdownSearch: string
   loadingBreakdown: boolean
+  loadingMoreBreakdown: boolean
   openBreakdown: (dimension: string) => Promise<void>
+  setBreakdownSearch: (search: string) => Promise<void>
+  loadMoreBreakdown: () => Promise<void>
   closeBreakdown: () => void
 
   // Modals
@@ -318,23 +323,34 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   breakdownModalOpen: false,
   breakdownDimension: null,
   breakdownPage: null,
+  breakdownSearch: '',
   loadingBreakdown: false,
+  loadingMoreBreakdown: false,
 
   openBreakdown: async (dimension: string) => {
-    const { activeLinkId, activeTimelineRange } = get()
+    const { activeLinkId } = get()
     if (!activeLinkId) return
     set({
       breakdownModalOpen: true,
       breakdownDimension: dimension,
-      loadingBreakdown: true,
+      breakdownSearch: '',
+      // A search typed against one dimension must not narrow the next one.
       breakdownPage: null,
     })
+    await get().setBreakdownSearch('')
+  },
+
+  setBreakdownSearch: async (search: string) => {
+    const { activeLinkId, activeTimelineRange, breakdownDimension } = get()
+    if (!activeLinkId || !breakdownDimension) return
+    set({ breakdownSearch: search, loadingBreakdown: true })
     try {
       const page = await shortlinksApi.getLinkBreakdown(activeLinkId, {
-        dimension,
+        dimension: breakdownDimension,
         range: activeTimelineRange,
-        limit: 50,
+        limit: BREAKDOWN_PAGE_SIZE,
         offset: 0,
+        search: search.trim() || undefined,
       })
       set({ breakdownPage: page })
     } catch (e) {
@@ -344,8 +360,30 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
     }
   },
 
+  loadMoreBreakdown: async () => {
+    const { activeLinkId, activeTimelineRange, breakdownDimension, breakdownPage, breakdownSearch } = get()
+    if (!activeLinkId || !breakdownDimension || !breakdownPage?.has_more) return
+    set({ loadingMoreBreakdown: true })
+    try {
+      const next = await shortlinksApi.getLinkBreakdown(activeLinkId, {
+        dimension: breakdownDimension,
+        range: activeTimelineRange,
+        limit: BREAKDOWN_PAGE_SIZE,
+        offset: breakdownPage.items.length,
+        search: breakdownSearch.trim() || undefined,
+      })
+      const current = get().breakdownPage
+      if (!current) return
+      set({ breakdownPage: { ...next, items: [...current.items, ...next.items] } })
+    } catch (e) {
+      useUiStore.getState().toast((e as Error).message, 'error')
+    } finally {
+      set({ loadingMoreBreakdown: false })
+    }
+  },
+
   closeBreakdown: () => {
-    set({ breakdownModalOpen: false, breakdownDimension: null, breakdownPage: null })
+    set({ breakdownModalOpen: false, breakdownDimension: null, breakdownPage: null, breakdownSearch: '' })
   },
 
   // Modals

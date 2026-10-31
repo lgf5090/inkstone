@@ -132,7 +132,6 @@ toolsShortlinksRoutes.get('/links', async (c) => {
     sort_order: query.sort_order,
     bundle_id: query.bundle_id,
     search: query.search,
-    range: query.range,
     offset: query.offset,
     limit: query.limit,
   })
@@ -248,6 +247,7 @@ toolsShortlinksRoutes.get('/links/:id/breakdown', async (c) => {
     range: query.range,
     offset: query.offset,
     limit: query.limit,
+    search: query.search,
   })
   return c.json({ ok: true, data: res })
 })
@@ -334,6 +334,7 @@ toolsShortlinksRoutes.get('/bundles/:id/breakdown', async (c) => {
     range: query.range,
     offset: query.offset,
     limit: query.limit,
+    search: query.search,
   })
   return c.json({ ok: true, data: res })
 })

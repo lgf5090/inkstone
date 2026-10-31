@@ -18162,6 +18162,7 @@ const allowed = new Map([
     "// A keystroke in the search box is debounced; every other filter change fetches at once.",
     "// The saved default range seeds the analytics range once; a later refetch must not undo a",
     "// range the reader picked by hand.",
+    "// A search typed against one dimension must not narrow the next one.",
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
@@ -31169,7 +31170,6 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
-    "/**\n * Query shape for `GET /links`. `range` stays optional: when absent the clicks column counts\n * every click ever recorded, which is what the list labels it as.\n */",
   ]],
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
@@ -35499,6 +35499,8 @@ const allowed = new Map([
     "// connections can be counted per account. New table only; migration 189 is already applied.",
     "// One short link has one primary code: two of them make the list and the QR pick different",
     "// codes for the same link. Dedupe first so the index can be created on an existing database.",
+    "// The click counter rides the link row so the list can sort and page by clicks without aggregating",
+    "// the whole clicks table; the rows themselves stay for the per-day and per-dimension breakdowns.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -39286,7 +39288,6 @@ const allowed = new Map([
     "// Count total",
     "// Fetch link IDs and rows",
     "// Batch load slugs",
-    "// Zero-click deletion guard",
     "// Slugs Management",
     "// Check count of remaining slugs",
     "// Click Ingestion & Public Resolution",
