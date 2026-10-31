@@ -17,6 +17,8 @@ const GIST_PREFS_KEY = `${PREFIX}.gist-prefs`
 const GIST_VIEW_KEY = `${PREFIX}.gist-view-mode`
 const LAYOUT_KEY = `${PREFIX}.layout`
 const ACCOUNT_KEY = `${PREFIX}.account`
+const SEARCH_HISTORY_KEY = `${PREFIX}.search-history`
+const SEARCH_HISTORY_LIMIT = 8
 
 const RANGES: readonly GithubTimeRange[] = ['today', 'week', 'month', 'quarter', 'year', 'all']
 const SORTS: readonly GithubSortKey[] = ['stars', 'forks', 'updated', 'best-match']
@@ -180,4 +182,24 @@ export function saveActiveAccountId(id: string | null): void {
   } catch (error) {
     console.warn('[inkstone] GitHub active account could not be saved', error)
   }
+}
+
+export function loadSearchHistory(): string[] {
+  const store = storage()
+  if (!store) return []
+  try {
+    const raw = store.getItem(SEARCH_HISTORY_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0).slice(0, SEARCH_HISTORY_LIMIT)
+      : []
+  } catch (error) {
+    console.warn('[inkstone] GitHub search history could not be read', error)
+    return []
+  }
+}
+
+export function saveSearchHistory(entries: readonly string[]): void {
+  writeJson(SEARCH_HISTORY_KEY, entries.slice(0, SEARCH_HISTORY_LIMIT))
 }

@@ -192,6 +192,8 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.repos.current_asc": "当前：升序（点击切换降序）",
   "development.github.repos.current_desc": "当前：降序（点击切换升序）",
   "development.github.repos.default_branch": "默认分支",
+  "development.github.repos.search_history": "搜索历史",
+  "development.github.repos.history_empty": "暂无搜索历史",
   "development.github.repos.notes": "备注",
   "development.github.repos.notes_placeholder": "添加仓库备注…",
   "development.github.repos.no_notes": "暂无备注",

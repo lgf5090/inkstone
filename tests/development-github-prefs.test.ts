@@ -11,11 +11,13 @@ import {
   loadGistViewMode,
   loadLayoutPrefs,
   loadRepoPrefs,
+  loadSearchHistory,
   saveCurrentMirrorId,
   saveGistPrefs,
   saveGistViewMode,
   saveLayoutPrefs,
   saveRepoPrefs,
+  saveSearchHistory,
 } from '../src/client/features/development/github/prefs'
 
 beforeEach(() => {
@@ -27,6 +29,12 @@ afterEach(() => {
 })
 
 describe('GitHub local preferences', () => {
+  it('keeps at most eight searches', () => {
+    expect(loadSearchHistory()).toEqual([])
+    saveSearchHistory(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'])
+    expect(loadSearchHistory()).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+  })
+
   it('falls back to defaults when nothing is stored', () => {
     expect(loadRepoPrefs()).toEqual(DEFAULT_GITHUB_PREFS)
     expect(loadGistPrefs()).toEqual(DEFAULT_GIST_PREFS)

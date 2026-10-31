@@ -9,7 +9,7 @@ import { githubApi } from '../api'
 import { repoAddress } from '../routes'
 import { useGithubSearch } from '../cache'
 import { useGithubStore } from '../store'
-import { loadRepoPrefs, saveRepoPrefs } from '../prefs'
+import { loadRepoPrefs, loadSearchHistory, saveRepoPrefs, saveSearchHistory } from '../prefs'
 import { sortSavedRepos, filterRepos } from '../lib/filters'
 import { GithubPanes } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
@@ -61,6 +61,7 @@ export function ReposPane({
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [syncingStars, setSyncingStars] = useState(false)
+  const [searchHistory, setSearchHistory] = useState(loadSearchHistory)
   const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
   const lookupRef = useRef<string | null>(null)
 
@@ -95,15 +96,27 @@ export function ReposPane({
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
 
+  const rememberSearch = useCallback((value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    setSearchHistory((previous) => {
+      const next = [trimmed, ...previous.filter((entry) => entry !== trimmed)].slice(0, 8)
+      saveSearchHistory(next)
+      return next
+    })
+  }, [])
+
   const updatePrefs = useCallback((patch: Partial<GithubPrefs>, nextQuery?: string) => {
     setPrefs((previous) => {
       const next = { ...previous, ...patch }
       saveRepoPrefs(next)
       return next
     })
-    setCommittedQuery((nextQuery ?? query).trim())
+    const queryValue = (nextQuery ?? query).trim()
+    setCommittedQuery(queryValue)
     setPage(1)
-  }, [query])
+    rememberSearch(queryValue)
+  }, [query, rememberSearch])
 
   const selectView = useCallback((view: GithubViewId) => {
     setSelectedView(view)
@@ -265,8 +278,10 @@ export function ReposPane({
             isExplore={isExplore}
             query={query}
             onQueryChange={setQuery}
-            onCommitSearch={(value) => { setQuery(value); setCommittedQuery(value.trim()); setPage(1) }}
+            onCommitSearch={(value) => { setQuery(value); setCommittedQuery(value.trim()); setPage(1); rememberSearch(value) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
+            searchHistory={searchHistory}
+            onPickSearchHistory={(value) => { setQuery(value); setCommittedQuery(value); setPage(1) }}
             onGoDiscover={() => selectView(GITHUB_EXPLORE_VIEW)}
             loading={search.loading || refreshing}
             error={search.error instanceof Error ? search.error.message : null}

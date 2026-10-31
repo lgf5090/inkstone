@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Download, Globe, PanelLeft, PanelRight, RefreshCw, Settings2, Star, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Download, Globe, History, PanelLeft, PanelRight, RefreshCw, Settings2, Star, X } from 'lucide-react'
 import type { GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
@@ -42,6 +42,8 @@ export function RepoList({
   onCommitSearch,
   onClear,
   onGoDiscover,
+  searchHistory,
+  onPickSearchHistory,
   loading,
   error,
   prefs,
@@ -76,6 +78,8 @@ export function RepoList({
   onCommitSearch: (query: string) => void
   onClear: () => void
   onGoDiscover: () => void
+  searchHistory: string[]
+  onPickSearchHistory: (value: string) => void
   loading: boolean
   error: string | null
   prefs: GithubPrefs
@@ -106,8 +110,10 @@ export function RepoList({
 }) {
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const mirrorAnchor = useRef<HTMLButtonElement>(null)
+  const historyAnchor = useRef<HTMLButtonElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mirrorOpen, setMirrorOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [draft, setDraft] = useState(query)
   useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
@@ -130,6 +136,9 @@ export function RepoList({
     ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
     { id: 'mirror-manage', label: t('development.github.mirrors.manage'), icon: <Settings2 size={13} />, separatorBefore: true, onSelect: onManageMirrors },
   ]
+  const historyItems: MenuItem[] = searchHistory.length > 0
+    ? searchHistory.map((value) => ({ id: value, label: value, icon: <History size={13} />, onSelect: () => onPickSearchHistory(value) }))
+    : [{ id: 'history-empty', label: t('development.github.repos.history_empty'), disabled: true }]
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="repo-list">
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
@@ -151,6 +160,7 @@ export function RepoList({
               trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear() }}><X size={12} /></IconButton> : undefined}
             />
           </div>
+          <Button ref={historyAnchor} variant="secondary" size="sm" className="hidden size-8 px-0 sm:inline-flex" title={t('development.github.repos.search_history')} aria-label={t('development.github.repos.search_history')} onClick={() => setHistoryOpen(true)}><History size={14} /></Button>
           <Button ref={mirrorAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.mirrors.section')} aria-label={t('development.github.mirrors.section')} onClick={() => setMirrorOpen(true)}><Globe size={14} /></Button>
           <Button ref={settingsAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.repos.more_settings')} aria-label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></Button>
           <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
@@ -184,6 +194,7 @@ export function RepoList({
       </div>
       <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsItems} align="end" width={250} label={t('development.github.repos.more_settings')} />
       <Menu anchor={mirrorAnchor} open={mirrorOpen} onClose={() => setMirrorOpen(false)} items={mirrorItems} align="end" width={220} label={t('development.github.mirrors.section')} />
+      <Menu anchor={historyAnchor} open={historyOpen} onClose={() => setHistoryOpen(false)} items={historyItems} align="end" width={240} label={t('development.github.repos.search_history')} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">

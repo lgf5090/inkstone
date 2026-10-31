@@ -192,6 +192,8 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.repos.current_asc": "Current: ascending (click to switch)",
   "development.github.repos.current_desc": "Current: descending (click to switch)",
   "development.github.repos.default_branch": "Default branch",
+  "development.github.repos.search_history": "Search history",
+  "development.github.repos.history_empty": "No search history yet",
   "development.github.repos.notes": "Notes",
   "development.github.repos.notes_placeholder": "Add a note about this repository…",
   "development.github.repos.no_notes": "No notes yet",
