@@ -923,6 +923,8 @@ export const api = {
       ),
     post: (id: string) =>
       request<BlogPostAdminDetail>(`/api/blog/admin/posts/${encodeURIComponent(id)}`),
+    noteStatus: () =>
+      request<{ items: { noteId: string; status: string }[] }>('/api/blog/admin/note-status'),
     postByNote: (noteId: string) =>
       request<BlogPostAdminDetail>(`/api/blog/admin/posts/by-note/${encodeURIComponent(noteId)}`),
     syncNote: (noteId: string) =>

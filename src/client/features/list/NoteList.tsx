@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { PenLine } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
@@ -35,6 +35,7 @@ import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
 import { MobileLibraryFilters } from '../shell/MobileLibraryFilters';
 import { removeTagFromNote } from '../tags/tagMutations';
+import { blogStatusKey, useBlogNoteStatus } from '../blog/status';
 import { pinyinIsLoaded, usePinyinVersion, warmPinyinKeys } from '../../lib/pinyin'
 
 const searchKeyCache = new Map<string, { rev: number; title: string; body: string; tags: string; text: string }>();
@@ -62,6 +63,7 @@ function searchKeyOfNote(n: NoteSummary, contents: Record<string, string> | null
 }
 const VIEW_MESSAGE_KEYS: Record<ViewKind, MessageKey> = {
     all: 'navigation.all_notes',
+    blog: 'navigation.blog',
     recent: 'navigation.recently_edited',
     starred: 'navigation.favorites',
     pinned: 'navigation.pinned',
@@ -98,6 +100,7 @@ export function NoteList() {
     const activeNoteId = useUi((s) => s.activeNoteId);
     const toggleNavDrawer = useUi((s) => s.toggleNavDrawer);
     const notes = useVisibleNotes();
+    useEffect(() => { void useBlogNoteStatus.getState().load(); }, []);
     const allNotes = useNotes((s) => s.notes);
     // Body text only ever reaches the search key through this record, so the memo has to
     // depend on it; reading it imperatively left freshly-opened notes unsearchable.
@@ -470,6 +473,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const toggleSelected = useUi((s) => s.toggleSelected);
     const openView = useUi((s) => s.openView);
     const openNote = useNotes((s) => s.openNote);
+    const blogStatus = useBlogNoteStatus((s) => s.byNote[note.id]);
     const patchNote = useNotes((s) => s.patchNote);
     const deleteNote = useNotes((s) => s.deleteNote);
     const restoreNote = useNotes((s) => s.restoreNote);
@@ -694,6 +698,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
                     </mark>) : (<span key={i}>{part.text}</span>))}
               </h3>
               {note.isStarred && <Star size={10} className="anim-mark-enter shrink-0 fill-current text-[var(--warning)]"/>}
+              {blogStatus && <BlogOpenIcon status={blogStatus}/>}
             </div>
 
             {density === 'comfortable' && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-11-5)] leading-[1.5] text-[var(--text-tertiary)]">
@@ -838,6 +843,11 @@ function BulkBar() {
       {folderPickerOpen && <FolderPicker open title={t("notes.move_to_folder")} folders={folders} currentId={commonFolderId} rootLabel={t("notes.remove_from_folder")} onSelect={(folderId) => void runAll(() => performAll((id) => patchNote(id, { folderId }), folderId ? t("notes.moved") : t("notes.moved_out")))} onClose={() => setFolderPickerOpen(false)}/>}
     </div>);
 }
+function BlogOpenIcon({ status }: { status: import('@shared/blog/model').BlogPostStatus }) {
+    const key = blogStatusKey(status);
+    return <BookOpen size={10} role="img" aria-label={t(key)} className={cn('anim-mark-enter shrink-0', status === 'published' || status === 'scheduled' ? 'text-[var(--accent)]' : status === 'pending_snapshot' ? 'text-[var(--warning)]' : 'text-[var(--text-quaternary)]')}/>;
+}
+
 function ListEmpty({ view, filtering, dayFiltering }: {
     view: string;
     filtering: boolean;
@@ -858,6 +868,7 @@ function ListEmpty({ view, filtering, dayFiltering }: {
     }> = {
         all: { art: 'notes', title: t("notes.no_notes_yet"), desc: t("notes.press_shortcut_or_the_plus_button_to_write_your_first_note", { shortcut: shortcut(APP_SHORTCUTS.newNote) }) },
         recent: { art: 'notes', title: t("notes.nothing_has_been_edited_recently"), desc: t("notes.write_something_and_it_will_appear_here") },
+        blog: { art: 'notes', title: t("notes.no_blog_notes"), desc: t("notes.no_blog_notes_desc") },
         starred: { art: 'starred', title: t("notes.no_favorites_yet"), desc: t("notes.right_click_a_note_or_press_shortcut_to_favorite_it", { shortcut: shortcut(APP_SHORTCUTS.star) }) },
         pinned: { art: 'starred', title: t("notes.no_pinned_yet"), desc: t("notes.right_click_a_note_or_use_its_menu_to_pin_it") },
         unfiled: { art: 'folder', title: t("notes.every_note_is_filed"), desc: t("notes.everything_is_neatly_organized") },

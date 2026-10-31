@@ -9,6 +9,7 @@ import { t } from '../../lib/i18n'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { captureBlogSnapshot } from './snapshot'
+import { useBlogNoteStatus } from './status'
 
 async function unpublishByNote(noteId: string): Promise<void> {
   try {
@@ -99,6 +100,7 @@ export async function publishNoteToBlog(
 
     if (!publish) {
       await unpublishByNote(noteId)
+      void useBlogNoteStatus.getState().reload()
       ui.toast({ title: t('notes.unpublished_from_blog'), tone: 'success' })
       return true
     }
@@ -112,6 +114,7 @@ export async function publishNoteToBlog(
           : t('blog.admin.page_published'),
         tone: 'success',
       })
+      void useBlogNoteStatus.getState().reload()
       return true
     }
 
@@ -122,6 +125,7 @@ export async function publishNoteToBlog(
       title: scheduled ? t('blog.admin.post_scheduled') : t('notes.published_to_blog'),
       tone: 'success',
     })
+    void useBlogNoteStatus.getState().reload()
     return true
   } catch (error) {
     ui.toast({

@@ -910,6 +910,30 @@ blogAdminRoutes.post('/import', async (c) => {
   return c.json({ ok: true, settings: settingsCount, redirects: redirectCount })
 })
 
+blogAdminRoutes.get('/note-status', async (c) => {
+  const id = userId(c)
+  const [posts, pages] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT note_id AS noteId, status FROM blog_posts
+       WHERE user_id = ?1 AND note_id <> '' AND deleted_at IS NULL`,
+    ).bind(id).all<{ noteId: string; status: string }>(),
+    c.env.DB.prepare(
+      `SELECT note_id AS noteId FROM blog_pages
+       WHERE user_id = ?1 AND note_id IS NOT NULL AND note_id <> '' AND published_at IS NOT NULL`,
+    ).bind(id).all<{ noteId: string }>(),
+  ])
+  const rank: Record<string, number> = { published: 5, scheduled: 4, pending_snapshot: 3, draft: 2, withdrawn: 1 }
+  const statuses = new Map<string, string>()
+  for (const row of posts.results) {
+    const current = statuses.get(row.noteId)
+    if (!current || (rank[row.status] ?? 0) > (rank[current] ?? 0)) statuses.set(row.noteId, row.status)
+  }
+  for (const row of pages.results) statuses.set(row.noteId, 'published')
+  return c.json({
+    items: [...statuses].map(([noteId, status]) => ({ noteId, status })),
+  })
+})
+
 blogAdminRoutes.get('/account', async (c) => {
   const id = userId(c)
   const row = await c.env.DB.prepare(

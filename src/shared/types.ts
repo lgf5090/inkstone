@@ -976,6 +976,7 @@ export interface AttachmentWithUsage extends Attachment {
 
 export type ViewKind =
   | 'all'
+  | 'blog'
   | 'recent'
   | 'starred'
   | 'pinned'

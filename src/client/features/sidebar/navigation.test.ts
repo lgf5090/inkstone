@@ -12,6 +12,7 @@ import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog-data';
 import { loadCalendarPrefs, saveCalendarPrefs } from '../../lib/calendar-prefs';
 import { NOTE_DRAG_TYPE } from '../../lib/note-drag';
 import { useNotes, useVisibleNotes } from '../../store/notes';
+import { useBlogNoteStatus } from '../blog/status';
 import { useSession } from '../../store/session';
 import { useUi } from '../../store/ui';
 import { FolderSection, Sidebar } from './Sidebar';
@@ -44,16 +45,18 @@ afterEach(async () => {
     container.remove();
     useUi.setState(originalUi, true);
     useNotes.setState(originalNotes, true);
+    useBlogNoteStatus.setState({ byNote: {}, loading: false, loaded: false });
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
 });
 
-const button = (scope: ParentNode, label: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.trim() === label || element.getAttribute('aria-label') === label)!;
+const controlLabel = (element: HTMLElement) => (element.textContent?.trim() ?? '').replace(/^(\d{1,3}|99\+)/, '');
+const button = (scope: ParentNode, label: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.trim() === label || controlLabel(element) === label || element.getAttribute('aria-label') === label)!;
 const click = async (element: HTMLElement) => { expect(element).toBeTruthy(); await act(() => element.click()); };
 const byLabel = (scope: ParentNode, label: string) => {
-    const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.replace(/✓$/,'').trim() === label || element.getAttribute('aria-label') === label);
+    const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.textContent?.replace(/✓$/,'').trim() === label || controlLabel(element).replace(/✓$/,'').trim() === label || element.getAttribute('aria-label') === label);
     if (!found)
         throw new Error(`missing control ${label}`);
     return found;
@@ -850,7 +853,7 @@ describe('folder tree keyboard', () => {
 
 describe('built-in logical folders', () => {
     const treeRows = () => [...document.querySelectorAll<HTMLElement>('[role="tree"] [data-tree-row]')].map((element) => element.textContent?.trim());
-    const quickFilters = () => [...document.querySelectorAll<HTMLElement>('#sidebar-folders [data-quick-filters] button')].map((element) => element.textContent?.trim());
+    const quickFilters = () => [...document.querySelectorAll<HTMLElement>('#sidebar-folders [data-quick-filters] button')].map((element) => controlLabel(element));
     const header = () => document.querySelector<HTMLElement>('#sidebar-folders [data-folder-head]')!;
     const menu = () => document.querySelector<HTMLElement>('[role="menu"]')!;
 
@@ -869,7 +872,7 @@ describe('built-in logical folders', () => {
         expect(treeRows()).toContain(folder.name);
         // The todo folder is one of the three entries; it is drawn as a quick-filter cell rather than
         // as a tree of its own, which is the whole point of the row it sits in.
-        expect(quickFilters()).toEqual([t('sidebar.todo_folder'), t('navigation.favorites'), t('navigation.pinned')]);
+        expect(quickFilters()).toEqual([t('sidebar.todo_folder'), t('navigation.blog'), t('navigation.favorites'), t('navigation.pinned')]);
     });
 
     it('hides a built-in row when its header-menu checkbox is cleared', async () => {
@@ -887,7 +890,7 @@ describe('built-in logical folders', () => {
         await click(byLabel(menu(), t('sidebar.todo_folder')));
         expect(loadCalendarPrefs().todoVisible).toBe(false);
         await act(() => root.render(createElement(Sidebar)));
-        expect(quickFilters()).toEqual([t('navigation.favorites'), t('navigation.pinned')]);
+        expect(quickFilters()).toEqual([t('navigation.blog'), t('navigation.favorites'), t('navigation.pinned')]);
     });
 
     it('buckets notes by creation week and opens the calendar node as a folder view', async () => {
@@ -1161,6 +1164,18 @@ describe('pinned view', () => {
         const row = button(container, t('navigation.pinned'));
         await click(row);
         expect(useUi.getState()).toMatchObject({ view: 'pinned', listCollapsed: false });
+    });
+
+    it('lists only notes whose blog projection is published or scheduled', async () => {
+        const published = { ...note, id: 'published', title: 'Published' };
+        const scheduled = { ...note, id: 'scheduled', title: 'Scheduled' };
+        const draft = { ...note, id: 'draft', title: 'Draft' };
+        useNotes.setState({ notes: { published, scheduled, draft } });
+        useBlogNoteStatus.setState({ byNote: { published: 'published', scheduled: 'scheduled', draft: 'draft' }, loading: false, loaded: true });
+        useUi.setState({ view: 'blog', folderId: null, searchList: false, listCollapsed: false, expandedFolders: [] });
+        let ids: string[] = [];
+        await act(() => root.render(createElement(PinnedProbe, { onIds: (next) => { ids = next; } })));
+        expect(ids.sort()).toEqual(['published', 'scheduled']);
     });
 });
 

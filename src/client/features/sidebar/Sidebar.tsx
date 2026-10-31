@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, PenLine, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, WandSparkles, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, BookOpen, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, PenLine, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, WandSparkles, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -12,7 +12,8 @@ import { useQuickAdd } from '../../store/quickadd';
 import { useSession } from '../../store/session';
 import { useUpdate } from '../../store/update';
 import { useDropState } from '../../lib/drop-state';
-import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, type FolderNode } from '../../store/notes';
+import { createContextualNote, useFolderTree, useNavigationCounts, useNotes, useTodoNoteCount, type FolderNode } from '../../store/notes';
+import { isBlogPublished, useBlogNoteStatus } from '../blog/status';
 import { folderMoveExclusions, folderPath, folderPathLabel, openFolderView } from '../../lib/folders';
 import { searchFolders } from '../../lib/folder-search';
 import { splitByRanges } from '../../lib/fuzzy';
@@ -342,18 +343,20 @@ function ViewItem({ icon, label, view, count, active, onSelect, }: {
       {count != null && count > 0 && (<span className="shrink-0 text-[length:var(--text-11)] tabular text-[var(--text-quaternary)]">{count}</span>)}
     </button>);
 }
-function CollectionCell({ icon, label, active, onSelect }: {
+function CollectionCell({ icon, label, active, onSelect, count }: {
     icon: React.ReactNode;
     label: string;
     active: boolean;
     onSelect: () => void;
+    count?: number;
 }) {
     // A third of the panel is not a full-width row: "Favorites" beside a 14px icon asks for more than
     // these cells have, so the name sits under the icon, at the size the narrowest cell can hold in
     // either language. The counts live where the room is — the phone's view sheet lists them.
-    return (<button type="button" aria-current={active ? 'page' : undefined} onClick={onSelect} className={cn('flex h-11 min-w-0 flex-1 flex-col items-center justify-center gap-[var(--sp-0-5)] rounded-[var(--r-md)] px-0.5 md:h-10', 'transition-colors duration-[var(--dur-fast)]', active
+    return (<button type="button" aria-current={active ? 'page' : undefined} onClick={onSelect} className={cn('relative flex h-11 min-w-0 flex-1 flex-col items-center justify-center gap-[var(--sp-0-5)] rounded-[var(--r-md)] px-0.5 md:h-10', 'transition-colors duration-[var(--dur-fast)]', active
         ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+      {typeof count === 'number' && (<span aria-hidden="true" className={cn('absolute top-0.5 right-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-1 text-[length:9px] font-semibold leading-none tabular', count > 0 ? 'bg-[var(--danger)] text-white' : 'bg-[var(--bg-inset)] text-[var(--text-quaternary)]')}>{count > 99 ? '99+' : count}</span>)}
       <span className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}>{icon}</span>
       <span className="max-w-full min-w-0 truncate text-[length:var(--text-11)] font-medium">{label}</span>
     </button>);
@@ -367,7 +370,12 @@ function CollectionCell({ icon, label, active, onSelect }: {
  */
 function TodoFilterCell() {
     const active = useUi((s) => s.view === 'folder' && s.folderId === TODO_TREE.rootId);
-    return <CollectionCell icon={<CheckSquare size={14}/>} label={t("sidebar.todo_folder")} active={active} onSelect={() => useUi.getState().openView('folder', { folderId: TODO_TREE.rootId })}/>;
+    const count = useTodoNoteCount();
+    return <CollectionCell icon={<CheckSquare size={14}/>} label={t("sidebar.todo_folder")} active={active} count={count} onSelect={() => useUi.getState().openView('folder', { folderId: TODO_TREE.rootId })}/>;
+}
+function BlogFilterCell({ count }: { count: number }) {
+    const active = useUi((s) => s.view === 'blog');
+    return <CollectionCell icon={<BookOpen size={14}/>} label={t("navigation.blog")} active={active} count={count} onSelect={() => useUi.getState().openView('blog')}/>;
 }
 export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const locale = useLocale();
@@ -412,6 +420,9 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const { inboxFolderId } = useFolderPreferences();
     const { calendarVisible, todoVisible, inboxVisible } = useCalendarTreePreferences();
     const counts = useNavigationCounts();
+    const blogByNote = useBlogNoteStatus((s) => s.byNote);
+    const blogCount = useMemo(() => Object.values(blogByNote).filter(isBlogPublished).length, [blogByNote]);
+    useEffect(() => { void useBlogNoteStatus.getState().load(); }, []);
     const view = useUi((s) => s.view);
     const openView = useUi((s) => s.openView);
     useEffect(() => () => window.clearTimeout(createdTimerRef.current), []);
@@ -633,12 +644,13 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
 
       {!filtering && (<>
         {/* The phone's own header already carries this entry, so the row is the desktop's. */}
-        {!mobile && (<ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>)}
         <div data-quick-filters className="mt-0.5 flex items-center gap-1">
           {todoVisible && <TodoFilterCell/>}
-          <CollectionCell icon={<Star size={14}/>} label={t("navigation.favorites")} active={view === 'starred'} onSelect={() => openView('starred')}/>
-          <CollectionCell icon={<Pin size={14}/>} label={t("navigation.pinned")} active={view === 'pinned'} onSelect={() => openView('pinned')}/>
+          <BlogFilterCell count={blogCount}/>
+          <CollectionCell icon={<Star size={14}/>} label={t("navigation.favorites")} active={view === 'starred'} count={counts.starred} onSelect={() => openView('starred')}/>
+          <CollectionCell icon={<Pin size={14}/>} label={t("navigation.pinned")} active={view === 'pinned'} count={counts.pinned} onSelect={() => openView('pinned')}/>
         </div>
+        {!mobile && (<ViewItem icon={<FileText size={14}/>} label={t("navigation.all_notes")} view="all" count={counts.all} active={view === 'all'} onSelect={openView}/>)}
         <CalendarTree />
         <InboxTree />
       </>)}

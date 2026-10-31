@@ -438,6 +438,11 @@ export interface BlogSitePublic {
   counts: { posts: number; categories: number; tags: number; series: number; views: number }
 }
 
+export interface BlogNoteStatusItem {
+  noteId: string
+  status: BlogPostStatus
+}
+
 export interface BlogAdminOverview {
   posts: number
   published: number

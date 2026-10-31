@@ -35,6 +35,7 @@ import { useMindmapSettingsStore } from '../features/mindmap/mindmap-settings-st
 import { useInkSettingsStore } from '../features/inkpad/ink-settings-store';
 import { createEmptyInkDocument, uniqueInkTitle } from '../lib/inkpad/document';
 import { useSession } from './session';
+import { isBlogPublished, useBlogNoteStatus } from '../features/blog/status';
 import { useUi, type WorkspacePane } from './ui';
 import { getLocale, t, useLocale } from "../lib/i18n";
 export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'synced' | 'offline';
@@ -3189,6 +3190,15 @@ function numberMapEqual(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, n
     }
     return true;
 }
+export function useTodoNoteCount(): number {
+    const notes = useNotes((state) => state.notes);
+    const todoTag = useSession((state) => state.settings.notes?.todoTag ?? '');
+    return useMemo(() => {
+        const tags = splitTodoTags(resolveTodoTag(todoTag));
+        return Object.values(notes).filter((note) => !note.deletedAt && !note.isArchived && isTodoNoteForTags(note, tags)).length;
+    }, [notes, todoTag]);
+}
+
 export function useNavigationCounts(): NavigationCounts {
     return useNotes((state) => selectNavigationProjection(state.notes, state.folders).counts);
 }
@@ -3250,6 +3260,8 @@ function matchesView(note: NoteSummary, view: ViewKind, ctx: ViewContext): boole
     if (excludedTags.length && notesCarryAnyTag(note.tags, excludedTags))
         return false;
     switch (view) {
+        case 'blog':
+            return true;
         case 'starred':
             return note.isStarred;
         case 'pinned':
@@ -3358,10 +3370,12 @@ export function useVisibleNotes(): NoteSummary[] {
     // unrelated folder is renamed, reordered or created.
     const scopedFolders = view === 'folder' || view === 'unfiled' ? folders : EMPTY_FOLDERS;
     const todoTag = useSession((s) => s.settings.notes?.todoTag ?? '');
+    const blogByNote = useBlogNoteStatus((s) => s.byNote);
     return useMemo(() => {
         const ctx = viewContext(view, folderId, tags, excludedTags, scopedFolders);
         const days = dayWindow(dateFilter);
-        const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDayWindow(n, days));
+        const list = Object.values(notes).filter((n) => matchesView(n, view, ctx) && inDayWindow(n, days)
+            && (view !== 'blog' || isBlogPublished(blogByNote[n.id])));
         if (view === 'recent') {
             return list
                 .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
@@ -3370,7 +3384,7 @@ export function useVisibleNotes(): NoteSummary[] {
         if (view === 'trash')
             return list.sort(compareTrash);
         return list.sort((a, b) => compare(a, b, sort, order, locale));
-    }, [notes, scopedFolders, view, folderId, tags, excludedTags, dateFilter, sort, order, locale, todoTag]);
+    }, [notes, scopedFolders, view, folderId, tags, excludedTags, dateFilter, sort, order, locale, todoTag, blogByNote]);
 }
 export interface FolderNode extends Folder {
     children: FolderNode[];
