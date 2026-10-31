@@ -68,6 +68,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.gists.current_asc": "Current: ascending",
   "development.github.gists.current_desc": "Current: descending",
   "development.github.gists.delete_failed": "Failed to delete gist",
+  "development.github.gists.delete_batch_desc": "Delete {count} locally saved gists? This cannot be undone.",
   "development.github.gists.delete_local_desc": "Delete locally saved gist “{description}”? This cannot be undone.",
   "development.github.gists.delete_remote_desc": "This will permanently delete gist “{description}” on GitHub and remove the local record. This cannot be undone.",
   "development.github.gists.delete_title": "Delete gist",

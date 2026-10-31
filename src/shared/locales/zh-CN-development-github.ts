@@ -68,6 +68,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.gists.current_asc": "当前：升序",
   "development.github.gists.current_desc": "当前：降序",
   "development.github.gists.delete_failed": "删除失败",
+  "development.github.gists.delete_batch_desc": "将删除本地保存的 {count} 个 Gist。此操作不可撤销。",
   "development.github.gists.delete_local_desc": "将删除本地保存的 Gist「{description}」。此操作不可撤销。",
   "development.github.gists.delete_remote_desc": "将从 GitHub 上永久删除 Gist「{description}」，同时删除本地保存的记录。此操作不可撤销。",
   "development.github.gists.delete_title": "删除 Gist",

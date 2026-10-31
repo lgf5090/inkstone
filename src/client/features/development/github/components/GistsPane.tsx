@@ -146,7 +146,7 @@ export function GistsPane({
   const batchTag = (tag: string) => { if (selectedIds.size > 0) void batchUpdate(Array.from(selectedIds), { addTagIds: [tag] }) }
   const batchRemove = async () => {
     if (selectedIds.size === 0) return
-    const ok = await confirm({ title: t('development.github.gists.delete_title'), description: t('development.github.gists.delete_local_desc', { description: `${selectedIds.size}` }), confirmLabel: t('development.github.gists.confirm_delete'), tone: 'danger' })
+    const ok = await confirm({ title: t('development.github.gists.delete_title'), description: t('development.github.gists.delete_batch_desc', { count: selectedIds.size }), confirmLabel: t('development.github.gists.confirm_delete'), tone: 'danger' })
     if (!ok) return
     void batchDelete(Array.from(selectedIds))
     setSelectedIds(new Set())
