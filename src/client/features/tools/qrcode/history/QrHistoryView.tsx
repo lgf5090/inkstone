@@ -13,7 +13,7 @@ export function QrHistoryView() {
   const [records, setRecords] = useState<QrCodeRecord[]>([])
   const [loading, setLoading] = useState(false)
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setContentType = useQrCodeStore((s) => s.setContentType)
   const setTextContent = useQrCodeStore((s) => s.setTextContent)
   const setUrlContent = useQrCodeStore((s) => s.setUrlContent)
@@ -47,8 +47,7 @@ export function QrHistoryView() {
       setOptions(parsedOptions)
     } catch {
     }
-    setActiveView('generator')
-    useToolsStore.getState().setActiveQrCodeView('generator')
+    setActiveQrCodeView('generator')
     useUi.getState().toast({ title: t('tools.qrcode.history.restored'), tone: 'success' })
   }
 

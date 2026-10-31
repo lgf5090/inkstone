@@ -26,7 +26,6 @@ describe('QR Code Studio UI Integration Tests', () => {
     })
 
     useQrCodeStore.setState({
-      activeView: 'generator',
       contentType: 'url',
       urlContent: 'https://example.com',
       textContent: '',
@@ -196,6 +195,10 @@ describe('QR Code Studio UI Integration Tests', () => {
   })
 
   it('navigates to History, Templates, and Settings views via activeQrCodeView', async () => {
+    // The module store's own view field was a second nav source that nothing read, so the scanner's
+    // jump buttons wrote into it and the workbench never moved; only toolsStore drives the views.
+    expect(Object.keys(useQrCodeStore.getState())).not.toContain('activeView')
+
     useToolsStore.setState({ activeQrCodeView: 'history' })
     const historyView = await renderElement(<QrCodeApp />)
     expect(historyView.container.textContent).toContain(t('tools.qrcode.history.title'))

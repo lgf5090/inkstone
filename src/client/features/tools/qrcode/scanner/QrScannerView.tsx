@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
 import { useQrCodeStore } from '../store'
+import { useToolsStore } from '../../store'
 import { CameraScanner } from './CameraScanner'
 import {
   preprocessImageToCanvas,
@@ -39,7 +40,7 @@ export const QrScannerView: React.FC = () => {
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setTextContent = useQrCodeStore((s) => s.setTextContent)
   const setContentType = useQrCodeStore((s) => s.setContentType)
 
@@ -143,11 +144,11 @@ export const QrScannerView: React.FC = () => {
       setContentType('text')
       setTextContent(text)
     }
-    setActiveView('generator')
+    setActiveQrCodeView('generator')
   }
 
   const handleSendToCompare = () => {
-    setActiveView('compare' as any)
+    setActiveQrCodeView('compare')
   }
 
   const resetFilters = () => {

@@ -26,7 +26,7 @@ export function QrTemplatesView() {
   const [loading, setLoading] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<'all' | QrTemplateCategory | 'custom'>('all')
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setOptions = useQrCodeStore((s) => s.setOptions)
   const currentOptions = useQrCodeStore((s) => s.options)
 
@@ -49,8 +49,7 @@ export function QrTemplatesView() {
 
   const handleApplyPreset = (preset: QrPreset) => {
     useQrCodeStore.getState().applyPreset(preset)
-    setActiveView('generator')
-    useToolsStore.getState().setActiveQrCodeView('generator')
+    setActiveQrCodeView('generator')
     useUi.getState().toast({ title: t('tools.qrcode.templates.applied'), tone: 'success' })
   }
 
@@ -58,8 +57,7 @@ export function QrTemplatesView() {
     try {
       const parsed = JSON.parse(tpl.optionsJson)
       setOptions(parsed)
-      setActiveView('generator')
-      useToolsStore.getState().setActiveQrCodeView('generator')
+      setActiveQrCodeView('generator')
       useUi.getState().toast({ title: t('tools.qrcode.templates.applied'), tone: 'success' })
     } catch {
       useUi.getState().toast({ title: t('tools.qrcode.templates.apply_error'), tone: 'danger' })

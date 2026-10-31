@@ -44523,6 +44523,8 @@ const allowed = new Map([
   ["tests/tools-qrcode-ui.test.tsx", [
     "// An unmounted view keeps its subscription on the shared store, so its effects would run inside",
     "// the next test and make every observation here a function of test order.",
+    "// The module store's own view field was a second nav source that nothing read, so the scanner's",
+    "// jump buttons wrote into it and the workbench never moved; only toolsStore drives the views.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

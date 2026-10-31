@@ -7,7 +7,6 @@ import type {
   QrEyeShape,
   QrPhoneContent,
   QrPreset,
-  QrRecord,
   QrStylingOptions,
   QrToolkitOptions,
   QrVCardContent,
@@ -16,17 +15,7 @@ import type {
 import { DEFAULT_QR_OPTIONS } from './engine/qr-engine'
 
 export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color' | 'ai'
-export type QrNavView =
-  | 'generator'
-  | 'scanner'
-  | 'compare'
-  | 'batch'
-  | 'history'
-  | 'templates'
-  | 'settings'
-
 export interface QrCodeState {
-  activeView: QrNavView
   contentAccordionOpen: boolean
   beautifyAccordionOpen: boolean
   activeBeautifyTab: BeautifyTab
@@ -45,11 +34,9 @@ export interface QrCodeState {
   exportSize: number
   exportFormat: QrExportFormat
 
-  selectedRecord: QrRecord | null
   infoModalOpen: boolean
   fullscreenModalOpen: boolean
 
-  setActiveView: (view: QrNavView) => void
   toggleContentAccordion: () => void
   setContentAccordionOpen: (open: boolean) => void
   toggleBeautifyAccordion: () => void
@@ -74,7 +61,6 @@ export interface QrCodeState {
   setExportSize: (size: number) => void
   setExportFormat: (format: QrExportFormat) => void
 
-  setSelectedRecord: (record: QrRecord | null) => void
   setInfoModalOpen: (open: boolean) => void
   setFullscreenModalOpen: (open: boolean) => void
 }
@@ -161,7 +147,6 @@ export function encodeQrData(
 }
 
 export const useQrCodeStore = create<QrCodeState>((set) => ({
-  activeView: 'generator',
   contentAccordionOpen: true,
   beautifyAccordionOpen: true,
   activeBeautifyTab: 'template',
@@ -202,11 +187,9 @@ export const useQrCodeStore = create<QrCodeState>((set) => ({
   exportSize: 1000,
   exportFormat: 'png',
 
-  selectedRecord: null,
   infoModalOpen: false,
   fullscreenModalOpen: false,
 
-  setActiveView: (view) => set({ activeView: view }),
   toggleContentAccordion: () => set((s) => ({ contentAccordionOpen: !s.contentAccordionOpen })),
   setContentAccordionOpen: (open) => set({ contentAccordionOpen: open }),
   toggleBeautifyAccordion: () => set((s) => ({ beautifyAccordionOpen: !s.beautifyAccordionOpen })),
@@ -278,7 +261,6 @@ export const useQrCodeStore = create<QrCodeState>((set) => ({
   setExportSize: (size) => set({ exportSize: size }),
   setExportFormat: (format) => set({ exportFormat: format }),
 
-  setSelectedRecord: (record) => set({ selectedRecord: record }),
   setInfoModalOpen: (open) => set({ infoModalOpen: open }),
   setFullscreenModalOpen: (open) => set({ fullscreenModalOpen: open }),
 }))
