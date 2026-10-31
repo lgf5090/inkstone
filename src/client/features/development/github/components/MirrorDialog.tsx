@@ -117,7 +117,6 @@ export function MirrorDialog({
                   label={mirrors.length > 1 ? t('common.delete') : t('development.github.mirrors.keep_one')}
                   size="sm"
                   disabled={mirrors.length <= 1}
-                  title={mirrors.length > 1 ? undefined : t('development.github.mirrors.keep_one')}
                   onClick={() => remove(mirror.id)}
                 >
                   <Trash2 size={13} />
@@ -131,6 +130,7 @@ export function MirrorDialog({
           {t('development.github.mirrors.format_hint')}{' '}
           <code className="rounded bg-[var(--bg-inset)] px-1">{t('development.github.mirrors.format_example')}</code>
         </p>
+        {mirrors.length <= 1 && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.mirrors.keep_one')}</p>}
       </div>
     </Modal>
   )
