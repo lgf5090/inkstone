@@ -78,6 +78,7 @@ export const SavedGithubRepoInputSchema = z.object({
   tagIds: z.array(z.string().min(1).max(100)).max(MAX_TAG_IDS).default([]),
   pinned: z.boolean().default(false),
   favorited: z.boolean().default(false),
+  notes: z.string().max(MAX_NOTES).default(''),
   createdAt: z.number().int().positive().optional(),
 }).superRefine((value, ctx) => {
   const bytes = new TextEncoder().encode(JSON.stringify(value.data)).byteLength

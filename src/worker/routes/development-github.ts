@@ -468,6 +468,7 @@ developmentGithubRoutes.put('/repos/:id', async (c) => {
     tagIds,
     pinned: body.pinned,
     favorited: body.favorited,
+    notes: body.notes,
     createdAt: body.createdAt,
   })
   return c.json({ ok: true, data: { repo } })

@@ -55,6 +55,7 @@ function repo(id: string, tagIds: string[] = []): SavedGithubRepo {
     tagIds,
     pinned: false,
     favorited: false,
+    notes: '',
     createdAt: 1,
     updatedAt: 1,
   }

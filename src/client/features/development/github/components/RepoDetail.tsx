@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Calendar, Code2, Copy, Download, ExternalLink, FileText, GitBranch, History, Package, Scale, Star, Tag as TagIcon } from 'lucide-react'
+import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, History, Package, Save, Scale, Star, Tag as TagIcon } from 'lucide-react'
 import type { GithubMirrorSource, GithubRelease, GithubReleaseAsset, GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
+import { Textarea } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
@@ -88,18 +89,22 @@ function AssetPicker({ assets, value, onChange, mirrorBase }: { assets: GithubRe
   )
 }
 
-export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined }) {
+export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined; notes: string; onUpdateNotes?: (notes: string) => void }) {
   const overview = useRepoDetail(repo?.fullName ?? null, repo?.defaultBranch, OVERVIEW_PARTS)
   const [metaRequested, setMetaRequested] = useState(false)
   const meta = useRepoDetail(metaRequested ? repo?.fullName ?? null : null, repo?.defaultBranch, META_PARTS)
   const [releaseIndex, setReleaseIndex] = useState(0)
   const [assetName, setAssetName] = useState('')
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [notesDraft, setNotesDraft] = useState(notes)
   const toast = useUi((state) => state.toast)
 
+  useEffect(() => setNotesDraft(notes), [notes])
   useEffect(() => {
     setReleaseIndex(0)
     setAssetName('')
     setMetaRequested(false)
+    setEditingNotes(false)
   }, [repo?.id])
 
   const detail = useMemo(() => {
@@ -206,6 +211,11 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>
         {readmeHtml ? <div className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeTooLarge ? t('development.github.repos.readme_too_large') : readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
       </div>
+
+      {onUpdateNotes && <div className="border-t border-[var(--border-subtle)] p-4">
+        <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.notes')}</h3>{!editingNotes && <Button variant="ghost" size="sm" className="ml-auto" onClick={() => { setNotesDraft(notes); setEditingNotes(true) }}><Edit3 size={11} />{t('common.edit')}</Button>}</div>
+        {editingNotes ? <div className="space-y-2"><Textarea value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder={t('development.github.repos.notes_placeholder')} className="min-h-20 text-[length:var(--text-11)]" autoFocus /><div className="flex justify-end gap-1"><Button variant="secondary" size="sm" onClick={() => setEditingNotes(false)}>{t('common.cancel')}</Button><Button size="sm" onClick={() => { onUpdateNotes(notesDraft); setEditingNotes(false) }}><Save size={11} />{t('common.save')}</Button></div></div> : notes ? <p className="whitespace-pre-wrap text-[length:var(--text-11)] text-[var(--text-secondary)]">{notes}</p> : <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.repos.no_notes')}</p>}
+      </div>}
     </div>
   )
 }

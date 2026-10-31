@@ -40,6 +40,7 @@ function savedRepo(
     tagIds: [],
     pinned: false,
     favorited: false,
+    notes: '',
     createdAt: 1,
     updatedAt: 1,
     ...patch,

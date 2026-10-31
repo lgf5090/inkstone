@@ -3018,6 +3018,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 200,
     statements: DEVELOPMENT_APITESTER_WS_SESSION_SCHEMA_STATEMENTS,
   },
+  {
+    version: 201,
+    skipIfColumnExists: { table: 'development_github_repos', column: 'notes' },
+    statements: [
+      `ALTER TABLE development_github_repos ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

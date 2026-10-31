@@ -22,6 +22,7 @@ export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
     tag_ids    TEXT NOT NULL DEFAULT '[]',
     pinned     INTEGER NOT NULL DEFAULT 0,
     favorited  INTEGER NOT NULL DEFAULT 0,
+    notes      TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -122,7 +123,7 @@ export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
 
 export const DEVELOPMENT_GITHUB_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   development_github_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
-  development_github_repos: ['user_id', 'id', 'full_name', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'created_at', 'updated_at'],
+  development_github_repos: ['user_id', 'id', 'full_name', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
   development_github_gist_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
   development_github_gists: ['user_id', 'id', 'description', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
   development_github_accounts: ['user_id', 'id', 'username', 'avatar_url', 'token_ciphertext', 'created_at', 'updated_at'],

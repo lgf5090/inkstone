@@ -126,7 +126,7 @@ export function ReposPane({
     const now = Date.now()
     const next: SavedGithubRepo = existing
       ? { ...existing, ...patch, updatedAt: now }
-      : { id, fullName: repo.fullName, url: repo.url, data: repo, tagIds: [], pinned: false, favorited: false, createdAt: now, updatedAt: now, ...patch }
+      : { id, fullName: repo.fullName, url: repo.url, data: repo, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now, ...patch }
     void upsertRepo(next)
   }, [upsertRepo])
 
@@ -297,7 +297,7 @@ export function ReposPane({
             detailDisabled={detailDisabled}
           />
         )}
-        detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} />}
+        detail={<RepoDetail repo={selectedRepo} mirror={currentMirror} notes={selectedRepo ? repos.find((entry) => entry.id === String(selectedRepo.id))?.notes ?? '' : ''} onUpdateNotes={selectedRepo && repos.some((entry) => entry.id === String(selectedRepo.id)) ? (notes) => saveRepo(selectedRepo, { notes }) : undefined} />}
       />
       <TagManager
         open={tagManagerOpen}

@@ -39,6 +39,7 @@ export interface SavedGithubRepo {
   tagIds: string[]
   pinned: boolean
   favorited: boolean
+  notes: string
   createdAt: number
   updatedAt: number
 }

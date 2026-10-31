@@ -27,6 +27,7 @@ interface RepoRow {
   tag_ids: string
   pinned: number
   favorited: number
+  notes: string
   created_at: number
   updated_at: number
 }
@@ -88,6 +89,7 @@ export interface RepoUpsert {
   tagIds: string[]
   pinned: boolean
   favorited: boolean
+  notes?: string
   createdAt?: number
 }
 
@@ -111,7 +113,7 @@ export interface GistBatchPatch {
 }
 
 const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, created_at, updated_at'
-const REPO_COLUMNS = 'id, full_name, url, data_json, tag_ids, pinned, favorited, created_at, updated_at'
+const REPO_COLUMNS = 'id, full_name, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const GIST_COLUMNS = 'id, description, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const EXPORT_COLUMNS = 'id, filename, format, r2_key, size, created_at'
 
@@ -150,6 +152,7 @@ function toRepo(row: RepoRow): SavedGithubRepo {
     tagIds: readStringArray(row.tag_ids, 'repo tag ids'),
     pinned: row.pinned === 1,
     favorited: row.favorited === 1,
+    notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -320,8 +323,8 @@ export async function upsertRepo(
   await db
     .prepare(
       `INSERT INTO development_github_repos
-         (user_id, id, full_name, url, data_json, tag_ids, pinned, favorited, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         (user_id, id, full_name, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
        ON CONFLICT (user_id, id) DO UPDATE SET
          full_name = excluded.full_name,
          url = excluded.url,
@@ -329,6 +332,7 @@ export async function upsertRepo(
          tag_ids = excluded.tag_ids,
          pinned = excluded.pinned,
          favorited = excluded.favorited,
+         notes = excluded.notes,
          updated_at = excluded.updated_at`,
     )
     .bind(
@@ -340,6 +344,7 @@ export async function upsertRepo(
       JSON.stringify(input.tagIds),
       input.pinned ? 1 : 0,
       input.favorited ? 1 : 0,
+      input.notes ?? '',
       createdAt,
       now,
     )
@@ -352,6 +357,7 @@ export async function upsertRepo(
     tagIds: input.tagIds,
     pinned: input.pinned,
     favorited: input.favorited,
+    notes: input.notes ?? '',
     createdAt,
     updatedAt: now,
   }

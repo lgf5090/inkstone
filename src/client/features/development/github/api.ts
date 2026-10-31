@@ -51,6 +51,7 @@ function repoBody(repo: SavedGithubRepo) {
     tagIds: repo.tagIds,
     pinned: repo.pinned,
     favorited: repo.favorited,
+    notes: repo.notes,
     createdAt: repo.createdAt,
   }
 }
