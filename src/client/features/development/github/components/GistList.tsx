@@ -42,12 +42,13 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
                   <IconButton label={gist.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.stopPropagation(); onTogglePin() }}><Pin size={13} className={cn(gist.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={gist.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.stopPropagation(); onToggleFav() }}><Star size={13} className={cn(gist.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><Copy size={13} /></IconButton>
+                  <TagAssign assignedTags={assigned} allTags={tags} onToggle={onToggleTag} />
                 </>
               )}
             </div>
           </div>
           {gist.data.files.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{gist.data.files.slice(0, 4).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-1 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}{gist.data.files.length > 4 && <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">+{gist.data.files.length - 4}</span>}</div>}
-          {!remote && <div className="mt-1.5 flex flex-wrap items-center gap-1"><AssignedTagChips tags={assigned} /><TagAssign assignedTags={assigned} allTags={tags} onToggle={onToggleTag} /></div>}
+          {!remote && assigned.length > 0 && <div className="mt-1.5 flex flex-wrap items-center gap-1"><AssignedTagChips tags={assigned} /></div>}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
             <span className="inline-flex items-center gap-0.5"><FileCode size={10} />{t('development.github.gists.file_count', { count: gist.data.fileCount })}</span>
             {gist.data.owner && <span>{gist.data.owner.login}</span>}
@@ -82,12 +83,13 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
           <>
             <IconButton label={gist.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.stopPropagation(); onTogglePin() }}><Pin size={13} className={cn(gist.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
             <IconButton label={gist.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.stopPropagation(); onToggleFav() }}><Star size={13} className={cn(gist.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
+            <TagAssign assignedTags={assigned} allTags={tags} onToggle={onToggleTag} />
           </>
         )}
       </div>
       {first && <pre className="mt-2 max-h-24 overflow-hidden rounded bg-[var(--bg-inset)] p-2 text-[length:var(--text-10)] leading-relaxed text-[var(--text-tertiary)]"><code className="line-clamp-4 font-mono">{first.content.slice(0, 200) || t('development.github.gists.empty_file')}</code></pre>}
       <div className="mt-2 flex flex-wrap gap-1">{gist.data.files.slice(0, 3).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-0.5 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}</div>
-      {!remote && <div className="mt-2 flex items-center gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-1"><AssignedTagChips tags={assigned.slice(0, 3)} /><TagAssign assignedTags={assigned} allTags={tags} onToggle={onToggleTag} /></div><span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</span></div>}
+      {!remote && <div className="mt-2 flex items-center gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-1"><AssignedTagChips tags={assigned.slice(0, 3)} /></div><span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</span></div>}
       {remote && <div className="mt-2 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</div>}
     </div>
   )

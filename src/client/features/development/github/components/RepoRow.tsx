@@ -80,6 +80,7 @@ export const RepoRow = memo(function RepoRow({
                   <IconButton label={saved?.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFav(repo) }}><Star size={13} className={cn(saved?.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={t('development.github.repos.copy_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(repo.url, t('development.github.repos.url_copied')) }}><Copy size={13} /></IconButton>
                   <IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(mirrorUrl, t('development.github.repos.mirror_url_copied')) }}><Globe size={13} /></IconButton>
+                  <TagAssign assignedTags={assigned} allTags={tags} onToggle={(tagId) => onToggleTag(repo, tagId)} />
                 </div>
               </div>
               {repo.description && <p className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{repo.description}</p>}
@@ -89,10 +90,9 @@ export const RepoRow = memo(function RepoRow({
                   {repo.topics.length > 5 && <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">+{repo.topics.length - 5}</span>}
                 </div>
               )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              {assigned.length > 0 && <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <AssignedTagChips tags={assigned} />
-                <TagAssign assignedTags={assigned} allTags={tags} onToggle={(tagId) => onToggleTag(repo, tagId)} />
-              </div>
+              </div>}
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
                 {repo.language && <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ backgroundColor: getLanguageColor(repo.language) }} />{repo.language}</span>}
                 <span className="inline-flex items-center gap-1" title={t('development.github.repos.stars')}><Star size={10} />{formatNumber(repo.stargazersCount)}</span>
