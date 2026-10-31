@@ -59,9 +59,9 @@ describe('blog settings', () => {
   })
 
   it('projects only the public site fields', () => {
-    const site = publicBlogSite(mergeBlogSettings([]), { posts: 1, categories: 2, tags: 3, series: 4 })
+    const site = publicBlogSite(mergeBlogSettings([]), { posts: 1, categories: 2, tags: 3, series: 4, views: 0 })
     expect(site.site.title).toBe('Inkstone Blog')
-    expect(site.counts).toEqual({ posts: 1, categories: 2, tags: 3, series: 4 })
+    expect(site.counts).toEqual({ posts: 1, categories: 2, tags: 3, series: 4, views: 0 })
   })
 })
 

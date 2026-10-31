@@ -4,7 +4,7 @@ import { DEFAULT_BLOG_SETTINGS, publicBlogSite } from '../src/shared/blog/settin
 import { sanitizeBlogHtml } from '../src/worker/blog/sanitize'
 import type { BlogSettings } from '../src/shared/blog/settings'
 
-const counts = { posts: 1, categories: 1, tags: 1, series: 1 }
+const counts = { posts: 1, categories: 1, tags: 1, series: 1, views: 0 }
 
 function project(overrides: Partial<Record<keyof BlogSettings, Record<string, unknown>>>) {
   const settings = { ...DEFAULT_BLOG_SETTINGS, ...overrides } as BlogSettings

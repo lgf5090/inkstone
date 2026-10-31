@@ -35,6 +35,8 @@ import {
   blogOwnerUserId,
   findAdjacentPosts,
   findPublishedPost,
+  findPublishedPostByPermalink,
+  incrementPostView,
   listPostTags,
   listPublishedPostsFiltered,
   loadBlogSettings,
@@ -296,7 +298,9 @@ blogPublicRoutes.get('/posts/:slug', async (c) => {
     license: row.license,
     alias: row.alias,
     permalink: row.permalink,
+    viewCount: row.view_count + (row.encrypted === 1 ? 0 : 1),
   }
+  if (row.encrypted !== 1) await incrementPostView(c.env.DB, userId, row.id)
   return c.json(detail, 200, {
     'Cache-Control': row.encrypted === 1
       ? 'private, no-store'
@@ -388,6 +392,20 @@ blogPublicRoutes.get('/series', async (c) => {
       count: number
     }>()
   return c.json({ items: results.map((row) => ({ ...row, name: row.title })) })
+})
+
+blogPublicRoutes.get('/permalink', async (c) => {
+  const userId = await ownerId(c)
+  const settings = await loadBlogSettings(c.env.DB, userId)
+  if ((settings.permalink as { enable?: boolean }).enable !== true) return c.json({ found: false })
+  const raw = (c.req.query('path') ?? '').trim().slice(0, 320)
+  const normalized = raw.replace(/^\/+|\/+$/g, '')
+  if (!normalized || normalized.includes('?') || normalized.includes('#') || normalized.split('/').includes('..')) {
+    return c.json({ found: false })
+  }
+  const row = await findPublishedPostByPermalink(c.env.DB, userId, normalized)
+    ?? await findPublishedPostByPermalink(c.env.DB, userId, `/${normalized}`)
+  return c.json(row ? { found: true, slug: row.slug } : { found: false })
 })
 
 blogPublicRoutes.get('/calendar', async (c) => {

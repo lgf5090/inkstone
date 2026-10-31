@@ -53,6 +53,9 @@ export function WidgetsPanel() {
   const [type, setType] = useState<WidgetType>('profile')
   const [title, setTitle] = useState('')
   const [html, setHtml] = useState('')
+  const [slot, setSlot] = useState<'default' | 'top' | 'sticky'>('default')
+  const [pagesText, setPagesText] = useState('')
+  const [collapseAfter, setCollapseAfter] = useState('')
 
   useEffect(() => {
     setItems(widgetItems(settings.data))
@@ -90,6 +93,9 @@ export function WidgetsPanel() {
     setType('profile')
     setTitle('')
     setHtml('')
+    setSlot('default')
+    setPagesText('')
+    setCollapseAfter('')
     setAdding(true)
   }
 
@@ -98,19 +104,32 @@ export function WidgetsPanel() {
     setType(widget.type as WidgetType)
     setTitle(widget.title)
     setHtml(String((widget.config as { html?: unknown }).html ?? ''))
+    setSlot(widget.slot === 'top' || widget.slot === 'sticky' ? widget.slot : 'default')
+    setPagesText(Array.isArray(widget.pages) ? widget.pages.join(', ') : '')
+    setCollapseAfter(typeof widget.collapseAfter === 'number' ? String(widget.collapseAfter) : '')
     setAdding(true)
   }
 
   const add = () => {
+    const pages = pagesText.split(',').map((item) => item.trim()).filter(Boolean)
+    const collapse = Number(collapseAfter)
+    const extra = {
+      ...(slot === 'default' ? {} : { slot }),
+      ...(pages.length ? { pages } : {}),
+      ...(Number.isFinite(collapse) && collapse > 0 ? { collapseAfter: Math.trunc(collapse) } : {}),
+    }
     const next = editingId
       ? items.map((item) => item.id === editingId
-        ? { ...item, type, title: title.trim(), config: type === 'custom' ? { html } : item.config }
+        ? { ...item, type, title: title.trim(), config: type === 'custom' ? { html } : item.config, ...extra }
         : item)
-      : [...items, { id: `widget-${Date.now().toString(36)}`, type, title: title.trim(), enabled: true, config: type === 'custom' ? { html } : {} }]
+      : [...items, { id: `widget-${Date.now().toString(36)}`, type, title: title.trim(), enabled: true, config: type === 'custom' ? { html } : {}, ...extra }]
     setAdding(false)
     setEditingId(null)
     setTitle('')
     setHtml('')
+    setSlot('default')
+    setPagesText('')
+    setCollapseAfter('')
     void saveItems(next)
   }
 
@@ -215,6 +234,21 @@ export function WidgetsPanel() {
             </Select>
           </Field>
           <Field label={t('blog.admin.widget_title')}><Input value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('blog.admin.widget_slot')}>
+              <Select value={slot} onChange={(event) => setSlot(event.target.value as 'default' | 'top' | 'sticky')}>
+                <option value="default">{t('blog.admin.widget_slot_default')}</option>
+                <option value="top">{t('blog.admin.widget_slot_top')}</option>
+                <option value="sticky">{t('blog.admin.widget_slot_sticky')}</option>
+              </Select>
+            </Field>
+            <Field label={t('blog.admin.widget_collapse')} hint={t('blog.admin.widget_collapse_hint')}>
+              <Input type="number" min={0} value={collapseAfter} onChange={(event) => setCollapseAfter(event.target.value)} />
+            </Field>
+          </div>
+          <Field label={t('blog.admin.widget_pages')} hint={t('blog.admin.widget_pages_hint')}>
+            <Input value={pagesText} onChange={(event) => setPagesText(event.target.value)} />
+          </Field>
           {type === 'custom' && (
             <Field label={t('blog.admin.widget_html')} hint={t('blog.admin.widget_html_hint')}>
               <Textarea rows={6} value={html} onChange={(event) => setHtml(event.target.value)} className="font-mono" />

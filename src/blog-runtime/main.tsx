@@ -57,6 +57,7 @@ export interface BlogReadingMountOptions {
   /** Where a tag press goes. Without a resolver the tag stays inert. */
   tagHref?: (name: string) => string | null
   labels: BlogReadingLabels
+  contextMenu?: { enable: boolean; actions: string[] }
   onHeadings?: (headings: Heading[]) => void
   onRendered?: () => void
 }
@@ -212,6 +213,8 @@ function ReadingSurface({ options }: { options: BlogReadingMountOptions }) {
   const [tableCopy, setTableCopy] = useState<CopyTableState | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [copied, setCopied] = useState('')
+  const contextAction = (action: string) =>
+    options.contextMenu === undefined || options.contextMenu.actions.includes(action)
 
   useEffect(() => {
     const root = options.container
@@ -259,6 +262,7 @@ function ReadingSurface({ options }: { options: BlogReadingMountOptions }) {
       if (!(target instanceof Element)) return
       const host = target.closest('[data-preview-content]')
       if (!host) return
+      if (options.contextMenu?.enable === false || options.contextMenu?.actions.length === 0) return
       event.preventDefault()
       const selection = window.getSelection()?.toString().trim() ?? ''
       const anchor = target.closest<HTMLAnchorElement>('a[href]')
@@ -409,11 +413,11 @@ function ReadingSurface({ options }: { options: BlogReadingMountOptions }) {
             buttons[next]?.focus()
           }}
         >
-          {menu.selection && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.selection))}>{options.labels.copySelection}</button>}
-          {menu.href && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.href!))}>{options.labels.copyLink}</button>}
-          {menu.image && <button type="button" role="menuitem" onClick={() => { setMenu(null); menu.image!.click() }}>{options.labels.openImage}</button>}
-          {menu.image && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.image!.src))}>{options.labels.copyImage}</button>}
-          <button type="button" role="menuitem" onClick={() => { setMenu(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>{options.labels.backToTop}</button>
+          {menu.selection && contextAction('copySelection') && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.selection))}>{options.labels.copySelection}</button>}
+          {menu.href && contextAction('copyLink') && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.href!))}>{options.labels.copyLink}</button>}
+          {menu.image && contextAction('openImage') && <button type="button" role="menuitem" onClick={() => { setMenu(null); menu.image!.click() }}>{options.labels.openImage}</button>}
+          {menu.image && contextAction('copyImage') && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.image!.src))}>{options.labels.copyImage}</button>}
+          {contextAction('backToTop') && <button type="button" role="menuitem" onClick={() => { setMenu(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>{options.labels.backToTop}</button>}
         </div>,
         document.body,
       )}

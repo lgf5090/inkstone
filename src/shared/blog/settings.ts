@@ -181,6 +181,8 @@ function publicProfileLinks(value: unknown): BlogSitePublic['profile']['links'] 
 }
 
 const FAB_ITEMS = new Set(['home', 'toc', 'comment', 'top'])
+const COMMENT_PROVIDERS = new Set(['none', 'local', 'twikoo', 'giscus', 'waline'])
+const CONTEXT_ACTIONS = ['copySelection', 'copyLink', 'openImage', 'copyImage', 'backToTop']
 const MUSIC_PROVIDERS = new Set(['none', 'local', 'meting', 'custom', 'mixed'])
 const METING_SERVERS = new Set(['netease', 'tencent', 'kugou', 'xiami', 'baidu'])
 const METING_TYPES = new Set(['playlist', 'song', 'album', 'artist'])
@@ -254,11 +256,20 @@ export function publicBlogSite(
 ): BlogSitePublic {
   const site = settings.site as Partial<BlogSitePublic['site']> & {
     themeColor?: BlogSitePublic['site']['themeColor']
+    banner?: Partial<BlogSitePublic['site']['banner']>
   }
   const profile = settings.profile as Partial<BlogSitePublic['profile']>
   const nav = settings.nav as { links?: BlogSitePublic['nav'] }
   const sidebar = settings.sidebar as Partial<BlogSitePublic['sidebar']>
-  const comment = settings.comment as { provider?: string }
+  const comment = settings.comment as {
+    provider?: string
+    envId?: unknown
+    repo?: unknown
+    repoId?: unknown
+    category?: unknown
+    categoryId?: unknown
+    serverURL?: unknown
+  }
   const umami = settings.umami as { enable?: boolean; websiteId?: unknown }
   const musicValue = publicMusic(settings.music)
   const discussion = settings.discussion as {
@@ -276,6 +287,8 @@ export function publicBlogSite(
   const fab = settings.fab as Partial<BlogSitePublic['fab']>
   const announcement = settings.announcement as Partial<BlogSitePublic['announcement']>
   const llms = settings.llms as Partial<BlogSitePublic['llms']>
+  const contextMenu = settings.contextMenu as Partial<BlogSitePublic['contextMenu']>
+  const permalink = settings.permalink as Partial<BlogSitePublic['permalink']>
   const fabItems = Array.isArray(fab.items)
     ? [...new Set(fab.items.filter((item): item is string => FAB_ITEMS.has(item as string)))]
     : [...FAB_ITEMS]
@@ -288,6 +301,12 @@ export function publicBlogSite(
       locale: typeof site.locale === 'string' ? site.locale : 'en',
       timeZone: typeof site.timeZone === 'string' ? site.timeZone : 'UTC',
       themeColor: site.themeColor ?? { hue: 315, style: 'tonalSpot', spec: '2025' },
+      banner: {
+        desktopLight: publicUrl(site.banner?.desktopLight) ?? '',
+        desktopDark: publicUrl(site.banner?.desktopDark) ?? '',
+        mobileLight: publicUrl(site.banner?.mobileLight) ?? '',
+        mobileDark: publicUrl(site.banner?.mobileDark) ?? '',
+      },
     },
     profile: {
       name: typeof profile.name === 'string' ? profile.name : '',
@@ -343,6 +362,26 @@ export function publicBlogSite(
       excludeTags: Array.isArray(llms.excludeTags)
         ? [...new Set(llms.excludeTags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0).map((tag) => tag.trim().slice(0, 80)))].slice(0, 50)
         : [],
+    },
+    comment: {
+      provider: typeof comment.provider === 'string' && COMMENT_PROVIDERS.has(comment.provider)
+        ? comment.provider as BlogSitePublic['comment']['provider']
+        : 'none',
+      twikoo: { envId: typeof comment.envId === 'string' ? comment.envId.trim().slice(0, 160) : '' },
+      giscus: {
+        repo: typeof comment.repo === 'string' ? comment.repo.trim().slice(0, 160) : '',
+        repoId: typeof comment.repoId === 'string' ? comment.repoId.trim().slice(0, 80) : '',
+        category: typeof comment.category === 'string' ? comment.category.trim().slice(0, 80) : '',
+        categoryId: typeof comment.categoryId === 'string' ? comment.categoryId.trim().slice(0, 80) : '',
+      },
+      waline: { serverURL: publicUrl(comment.serverURL) ?? '' },
+    },
+    permalink: { enable: permalink.enable === true },
+    contextMenu: {
+      enable: contextMenu.enable !== false,
+      actions: Array.isArray(contextMenu.actions)
+        ? [...new Set(contextMenu.actions.filter((action): action is string => typeof action === 'string' && CONTEXT_ACTIONS.includes(action)))]
+        : CONTEXT_ACTIONS,
     },
     display: settings.display,
     integrations: {

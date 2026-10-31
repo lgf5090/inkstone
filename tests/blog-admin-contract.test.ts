@@ -326,7 +326,7 @@ describe('blog admin projection', () => {
       nav: { links: [{ label: 'Safe', href: '/posts' }, { label: 'Bad', href: 'javascript:alert(1)' }] },
       profile: { ...DEFAULT_BLOG_SETTINGS.profile, links: [{ label: 'Bad', url: 'javascript:alert(1)' }, { label: 'Ok', url: 'https://example.com' }] },
     }
-    const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0 })
+    const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0, views: 0 })
     expect(site.nav.map((link) => link.href)).toEqual(['/posts'])
     expect(site.profile.links.map((link) => link.url)).toEqual(['https://example.com'])
   })
@@ -346,7 +346,7 @@ describe('blog admin projection', () => {
         defaultMode: 'sequence',
       },
     }
-    const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0 })
+    const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0, views: 0 })
     expect(site.integrations.music.enabled).toBe(true)
     expect(site.integrations.music.tracks.map((track) => track.id)).toEqual(['ok', 'remote'])
   })

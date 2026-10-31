@@ -71,16 +71,25 @@ export async function blogCounts(db: D1Database, userId: string): Promise<BlogSi
             AND published_at IS NOT NULL AND published_at <= (strftime('%s','now') * 1000)) AS posts,
          (SELECT COUNT(*) FROM blog_categories WHERE user_id = ?1) AS categories,
          (SELECT COUNT(*) FROM blog_tags WHERE user_id = ?1) AS tags,
-         (SELECT COUNT(*) FROM blog_series WHERE user_id = ?1) AS series`,
+         (SELECT COUNT(*) FROM blog_series WHERE user_id = ?1) AS series,
+         (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1) AS views`,
     )
     .bind(userId)
-    .first<{ posts: number; categories: number; tags: number; series: number }>()
+    .first<{ posts: number; categories: number; tags: number; series: number; views: number }>()
   return {
     posts: row?.posts ?? 0,
     categories: row?.categories ?? 0,
     tags: row?.tags ?? 0,
     series: row?.series ?? 0,
+    views: row?.views ?? 0,
   }
+}
+
+export async function incrementPostView(db: D1Database, userId: string, postId: string): Promise<void> {
+  await db
+    .prepare('UPDATE blog_posts SET view_count = view_count + 1 WHERE id = ?1 AND user_id = ?2')
+    .bind(postId, userId)
+    .run()
 }
 
 function slugifyValue(value: string): string {
@@ -365,6 +374,23 @@ export async function findPublishedPost(
   return row ?? null
 }
 
+export async function findPublishedPostByPermalink(
+  db: D1Database,
+  userId: string,
+  permalink: string,
+): Promise<{ slug: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT p.slug FROM blog_posts p
+       WHERE p.user_id = ?1 AND p.permalink = ?2 AND p.status IN ('published','scheduled')
+         AND p.deleted_at IS NULL AND p.published_at IS NOT NULL AND p.published_at <= ?3
+       LIMIT 1`,
+    )
+    .bind(userId, permalink, Date.now())
+    .first<{ slug: string }>()
+  return row ?? null
+}
+
 export async function listPostTags(db: D1Database, userId: string, postIds: string[]): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
   if (postIds.length === 0) return result
@@ -576,6 +602,7 @@ export function toBlogSummary(
   return {
     id: row.id,
     slug: row.slug,
+    permalink: row.permalink,
     title: row.title,
     // A locked article's excerpt and description come from the note body; a listing, feed or search
     // result must not hand a reader the first lines the unlock page is protecting.

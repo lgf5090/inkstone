@@ -180,6 +180,7 @@ export interface BlogPostRow {
 export interface BlogPostSummary {
   id: string
   slug: string
+  permalink: string
   title: string
   excerpt: string
   description: string
@@ -207,6 +208,7 @@ export interface BlogPostDetail extends BlogPostSummary {
   license: string
   alias: string
   permalink: string
+  viewCount: number
 }
 
 export interface BlogPostAdminItem extends BlogPostSummary {
@@ -296,6 +298,9 @@ export interface BlogAlbumPhoto {
 }
 
 export interface BlogWidget {
+  slot?: 'top' | 'sticky'
+  pages?: string[]
+  collapseAfter?: number
   id: string
   type: string
   title: string
@@ -392,6 +397,7 @@ export interface BlogSitePublic {
     locale: string
     timeZone: string
     themeColor: { hue: number; style: string; spec: string }
+    banner: { desktopLight: string; desktopDark: string; mobileLight: string; mobileDark: string }
   }
   profile: { name: string; bio: string; avatar: string; links: { label: string; url: string }[] }
   nav: { label: string; href: string; children?: { label: string; href: string }[] }[]
@@ -417,10 +423,18 @@ export interface BlogSitePublic {
   fab: { enable: boolean; items: string[] }
   announcement: { enable: boolean; text: string; closable: boolean }
   llms: { enable: boolean; excludeTags: string[] }
+  comment: {
+    provider: 'none' | 'local' | 'twikoo' | 'giscus' | 'waline'
+    twikoo: { envId: string }
+    giscus: { repo: string; repoId: string; category: string; categoryId: string }
+    waline: { serverURL: string }
+  }
+  contextMenu: { enable: boolean; actions: string[] }
+  permalink: { enable: boolean }
   display: Record<string, unknown>
   integrations: { comments: string; music: BlogMusicConfig; umami: { enabled: boolean; websiteId: string } }
   runtimeVersion?: string
-  counts: { posts: number; categories: number; tags: number; series: number }
+  counts: { posts: number; categories: number; tags: number; series: number; views: number }
 }
 
 export interface BlogAdminOverview {

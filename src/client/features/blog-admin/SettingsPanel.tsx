@@ -55,6 +55,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
   const [musicTracksText, setMusicTracksText] = useState('[]')
   const [umami, setUmami] = useState<Record<string, unknown>>({})
   const [fab, setFab] = useState<Record<string, unknown>>({})
+  const [contextMenu, setContextMenu] = useState<Record<string, unknown>>({})
   const [llms, setLlms] = useState<Record<string, unknown>>({})
   const [permalink, setPermalink] = useState<Record<string, unknown>>({})
   const [advancedDomain, setAdvancedDomain] = useState<BlogSettingKey>('nav')
@@ -75,6 +76,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
     setMusicTracksText(JSON.stringify(settings.music.tracks ?? [], null, 2))
     setUmami(settings.umami)
     setFab(settings.fab)
+    setContextMenu(settings.contextMenu)
     setLlms(settings.llms)
     setPermalink(settings.permalink)
     setAdvancedJson(JSON.stringify(settings[advancedDomain], null, 2))
@@ -130,6 +132,8 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
   if (!settings) return null
 
   const themeColor = (site.themeColor ?? {}) as { hue?: unknown; style?: unknown; spec?: unknown }
+  const banner = (site.banner ?? {}) as Record<string, unknown>
+  const setBannerField = (key: string, value: string) => setSite({ ...site, banner: { ...banner, [key]: value } })
 
   return (
     <div className="mx-auto max-w-[980px]">
@@ -225,7 +229,9 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
               {text(comment.provider) === 'giscus' && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label={t('blog.admin.giscus_repo')}><Input value={text(comment.repo)} onChange={(event) => setComment({ ...comment, repo: event.target.value })} placeholder={t('blog.admin.giscus_repo_placeholder')} /></Field>
+                  <Field label={t('blog.admin.giscus_repo_id')}><Input value={text(comment.repoId)} onChange={(event) => setComment({ ...comment, repoId: event.target.value })} /></Field>
                   <Field label={t('blog.admin.giscus_category')}><Input value={text(comment.category)} onChange={(event) => setComment({ ...comment, category: event.target.value })} /></Field>
+                  <Field label={t('blog.admin.giscus_category_id')}><Input value={text(comment.categoryId)} onChange={(event) => setComment({ ...comment, categoryId: event.target.value })} /></Field>
                 </div>
               )}
               {text(comment.provider) === 'waline' && <Field label={t('blog.admin.waline_server_url')}><Input value={text(comment.serverURL)} onChange={(event) => setComment({ ...comment, serverURL: event.target.value })} placeholder="https://" /></Field>}
@@ -235,6 +241,14 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
 
         {tab === 'appearance' && (
           <>
+            <Section title={t('blog.admin.settings_banner')} onSave={() => void saveDomain('site', site)} saving={saving}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={t('blog.admin.banner_desktop_light')}><Input value={text(banner.desktopLight)} onChange={(event) => setBannerField('desktopLight', event.target.value)} placeholder="https://" /></Field>
+                <Field label={t('blog.admin.banner_desktop_dark')}><Input value={text(banner.desktopDark)} onChange={(event) => setBannerField('desktopDark', event.target.value)} placeholder="https://" /></Field>
+                <Field label={t('blog.admin.banner_mobile_light')}><Input value={text(banner.mobileLight)} onChange={(event) => setBannerField('mobileLight', event.target.value)} placeholder="https://" /></Field>
+                <Field label={t('blog.admin.banner_mobile_dark')}><Input value={text(banner.mobileDark)} onChange={(event) => setBannerField('mobileDark', event.target.value)} placeholder="https://" /></Field>
+              </div>
+            </Section>
             <Section title={t('blog.admin.settings_announcement')} onSave={() => void saveDomain('announcement', announcement)} saving={saving}>
               <Checkbox checked={bool(announcement.enable)} onChange={(value) => setAnnouncement({ ...announcement, enable: value })} label={t('blog.admin.enable')} />
               <Field label={t('blog.admin.announcement_text')}><Textarea rows={3} value={text(announcement.text)} onChange={(event) => setAnnouncement({ ...announcement, text: event.target.value })} /></Field>
@@ -315,6 +329,22 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
               <Field label={t('blog.admin.fab_items')} hint={t('blog.admin.fab_items_hint')}>
                 <Input value={strList(fab.items)} onChange={(event) => setFab({ ...fab, items: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} />
               </Field>
+            </Section>
+            <Section title={t('blog.admin.settings_context_menu')} onSave={() => void saveDomain('contextMenu', contextMenu)} saving={saving}>
+              <Checkbox checked={bool(contextMenu.enable, true)} onChange={(value) => setContextMenu({ ...contextMenu, enable: value })} label={t('blog.admin.enable')} />
+              {(['copySelection', 'copyLink', 'openImage', 'copyImage', 'backToTop'] as const).map((action) => {
+                const actions = Array.isArray(contextMenu.actions)
+                  ? contextMenu.actions.filter((item): item is string => typeof item === 'string')
+                  : []
+                return (
+                  <Checkbox
+                    key={action}
+                    checked={actions.includes(action)}
+                    onChange={(value) => setContextMenu({ ...contextMenu, actions: value ? [...new Set([...actions, action])] : actions.filter((item) => item !== action) })}
+                    label={t(`blog.admin.context_${action === 'copySelection' ? 'copy_selection' : action === 'copyLink' ? 'copy_link' : action === 'openImage' ? 'open_image' : action === 'copyImage' ? 'copy_image' : 'back_top'}` as MessageKey)}
+                  />
+                )
+              })}
             </Section>
           </>
         )}
