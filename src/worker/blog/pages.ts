@@ -174,7 +174,7 @@ export async function syncBlogPageFromNote(
     return existing
   }
   const parsed = parseFrontMatter(note.content)
-  const body = parsed.lineOffset ? note.content.slice(parsed.lineOffset) : note.content
+  const body = parsed.body
   const title = note.title.trim().slice(0, 200) || meta.slug || 'Page'
   const slug = existing?.slug ?? await uniqueSlug(db, userId, meta.slug || title, null)
   const kind = meta.slug === 'about' ? 'about' : 'custom'

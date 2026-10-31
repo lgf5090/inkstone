@@ -2,6 +2,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BLOG_SCHEMA_STATEMENTS } from '../src/worker/blog/schema'
+import { syncBlogPageFromNote } from '../src/worker/blog/pages'
 import { listPublicCollection, saveCollectionItem } from '../src/worker/blog/collections'
 import {
   blogArchive,
@@ -162,6 +163,13 @@ describe('blog admin projection', () => {
     expect(row?.status).toBe('draft')
     expect(row?.published_at).toBeNull()
     expect(row?.slug).toBe('scheduled-story')
+  })
+
+  it('stores a page body without its frontmatter block', async () => {
+    const content = '---\nblogType: page\nisPublished: true\n---\n\n# Page\n\nBody'
+    const row = await syncBlogPageFromNote(db, USER, { id: NOTE, title: 'Page', content, deleted_at: null })
+    expect(row?.body).toBe('\n# Page\n\nBody')
+    expect(row?.body).not.toMatch(/blogType|isPublished/)
   })
 
   it('holds a future publication out of every public read', async () => {
