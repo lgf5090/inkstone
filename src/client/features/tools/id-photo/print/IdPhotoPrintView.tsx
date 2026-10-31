@@ -30,6 +30,8 @@ export function IdPhotoPrintView() {
     const engine = new IdPhotoEngine(activeSpec, adjustOptions)
     let isMounted = true
 
+    if (!layout.fits) return
+
     engine.renderCanvas(imageElement).then((photoCanvas) => {
       if (!isMounted || !containerRef.current) return
 
@@ -52,10 +54,10 @@ export function IdPhotoPrintView() {
     return () => {
       isMounted = false
     }
-  }, [imageElement, activeSpec, adjustOptions, printOptions])
+  }, [imageElement, activeSpec, adjustOptions, printOptions, layout])
 
   const handleDownloadSheet = async () => {
-    if (!imageElement) return
+    if (!imageElement || !layout.fits) return
     setExporting(true)
     try {
       const engine = new IdPhotoEngine(activeSpec, adjustOptions)
@@ -212,7 +214,7 @@ export function IdPhotoPrintView() {
         <div className="pt-2">
           <Button
             variant="primary"
-            disabled={!imageElement || exporting}
+            disabled={!imageElement || exporting || !layout.fits}
             onClick={handleDownloadSheet}
             className="w-full"
           >
@@ -237,10 +239,22 @@ export function IdPhotoPrintView() {
             <div className="flex items-center gap-2 rounded-full bg-[var(--bg-sunken)] px-3 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
               <span>{layout.rows} × {layout.cols}</span>
               <span>•</span>
-              <span className="font-semibold text-[var(--accent)]">
+              <span className="font-semibold text-[var(--accent-on-soft)]">
                 {t('tools.id_photo.print.preview_summary', { count: layout.totalCount })}
               </span>
             </div>
+
+            {!layout.fits && (
+              <p className="max-w-[420px] text-center text-[length:var(--text-12)] font-medium text-[var(--danger)]">
+                {t('tools.id_photo.print.not_fit')}
+              </p>
+            )}
+
+            {layout.dpiReduced && (
+              <p className="text-[length:var(--text-11)] text-[var(--warning)]">
+                {t('tools.id_photo.print.dpi_reduced', { dpi: layout.dpi })}
+              </p>
+            )}
           </div>
         )}
       </div>

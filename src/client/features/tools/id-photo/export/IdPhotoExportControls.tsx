@@ -141,14 +141,14 @@ export function IdPhotoExportControls() {
     setSavingCloud(true)
     try {
       const engine = getEngine()
-      const photoExport = await engine.exportDataUrl(imageElement, exportFormat, targetMaxKb)
+      const photoCanvas = await engine.renderCanvas(imageElement)
+      const photoExport = engine.encodeCanvas(photoCanvas, exportFormat, targetMaxKb)
       setLastExport({
         bytes: photoExport.bytes,
         format: exportFormat,
         ...(targetMaxKb ? { targetKb: targetMaxKb } : {}),
         exceededTarget: !photoExport.targetMet,
       })
-      const photoCanvas = await engine.renderCanvas(imageElement)
       const printCanvas = renderPrintSheet(
         photoCanvas,
         printOptions,

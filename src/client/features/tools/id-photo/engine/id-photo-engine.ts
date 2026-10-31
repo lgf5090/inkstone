@@ -10,6 +10,32 @@ export interface ExportedPhoto {
   targetMet: boolean
 }
 
+export function svgViewBoxAspect(svg: string): number {
+  const box = /viewBox=["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/.exec(svg)
+  const width = box ? Number(box[1]) : 0
+  const height = box ? Number(box[2]) : 0
+  if (!(width > 0) || !(height > 0)) return ATTIRE_FALLBACK_ASPECT
+  return width / height
+}
+
+export function attireRect(
+  frameWidth: number,
+  frameHeight: number,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  aspect: number,
+): { x: number; y: number; width: number; height: number } {
+  const width = frameWidth * scale
+  const height = width / (aspect > 0 ? aspect : ATTIRE_FALLBACK_ASPECT)
+  return {
+    width,
+    height,
+    x: (frameWidth - width) / 2 + offsetX,
+    y: frameHeight - height + offsetY,
+  }
+}
+
 export function dataUrlByteLength(dataUrl: string): number {
   const comma = dataUrl.indexOf(',')
   const payload = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
@@ -17,6 +43,7 @@ export function dataUrlByteLength(dataUrl: string): number {
   return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
 }
 
+const ATTIRE_FALLBACK_ASPECT = 4 / 3
 const MIN_JPEG_QUALITY = 0.3
 const MAX_JPEG_QUALITY = 0.95
 const QUALITY_SEARCH_STEPS = 4
@@ -158,16 +185,16 @@ export class IdPhotoEngine {
 
     await new Promise<void>((resolve) => {
       img.onload = () => {
-        const scale = this.options.attireScale ?? 1.0
-        const offsetX = this.options.attireOffsetX ?? 0
-        const offsetY = this.options.attireOffsetY ?? 0
+        const rect = attireRect(
+          width,
+          height,
+          this.options.attireScale ?? 1,
+          this.options.attireOffsetX ?? 0,
+          this.options.attireOffsetY ?? 0,
+          svgViewBoxAspect(attire.previewSvg),
+        )
 
-        const attireW = width * scale
-        const attireH = (height * 0.5) * scale
-        const attireX = (width - attireW) / 2 + offsetX
-        const attireY = height - attireH + offsetY
-
-        ctx.drawImage(img, attireX, attireY, attireW, attireH)
+        ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height)
         URL.revokeObjectURL(url)
         resolve()
       }
@@ -184,7 +211,14 @@ export class IdPhotoEngine {
     format: IdPhotoExportFormat = 'jpg',
     targetMaxKb?: number,
   ): Promise<ExportedPhoto> {
-    const canvas = await this.renderCanvas(sourceImage)
+    return this.encodeCanvas(await this.renderCanvas(sourceImage), format, targetMaxKb)
+  }
+
+  encodeCanvas(
+    canvas: HTMLCanvasElement,
+    format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
+  ): ExportedPhoto {
     const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
 
     if (format === 'png' || !targetMaxKb) {
@@ -219,20 +253,50 @@ export class IdPhotoEngine {
   async exportBlob(
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
   ): Promise<Blob> {
-    const canvas = await this.renderCanvas(sourceImage)
-    const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
+    return this.encodeBlob(await this.renderCanvas(sourceImage), format, targetMaxKb)
+  }
 
-    return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob)
-          else reject(new Error('Canvas toBlob failed'))
-        },
-        mime,
-        0.92,
-      )
-    })
+  async encodeBlob(
+    canvas: HTMLCanvasElement,
+    format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
+  ): Promise<Blob> {
+    const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
+    const encode = (quality: number) =>
+      new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob)
+            else reject(new Error('Canvas toBlob failed'))
+          },
+          mime,
+          quality,
+        )
+      })
+
+    if (!targetMaxKb || format === 'png') return encode(0.92)
+
+    const limitBytes = targetMaxKb * 1024
+    let minQ = MIN_JPEG_QUALITY
+    let maxQ = MAX_JPEG_QUALITY
+    let best = await encode(maxQ)
+    if (best.size <= limitBytes) return best
+
+    for (let step = 0; step < QUALITY_SEARCH_STEPS; step++) {
+      const midQ = (minQ + maxQ) / 2
+      const candidate = await encode(midQ)
+      if (candidate.size <= limitBytes) {
+        best = candidate
+        minQ = midQ
+      } else {
+        maxQ = midQ
+        best = candidate
+      }
+    }
+
+    return best
   }
 
   /**

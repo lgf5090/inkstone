@@ -17621,11 +17621,6 @@ const allowed = new Map([
     "/**\n * Renders complete multi-up photo print sheet with optional cut guides.\n */",
     "// 1. Pure white photo paper background",
     "// 2. Draw photo grid",
-    "// Light border to define photo edge",
-    "// 3. Optional cut guides (dashed lines or corner marks)",
-    "// Top & Bottom tick guides",
-    "// Top left",
-    "// Bottom right",
   ]],
   ["src/client/features/tools/id-photo/engine/retouch-pipeline.ts", [
     "/**\n * The YCbCr skin gamut the retouch step works in: smoothing has to flatten speckle on a face\n * without dragging the backdrop colour across the shoulder line, and a plain wall or a white\n * shirt falls out of this range while lit skin stays inside it.\n */",
@@ -17633,12 +17628,6 @@ const allowed = new Map([
   ["src/client/features/tools/id-photo/export/IdPhotoExportControls.tsx", [
     "/* Target Max KB input and Format Selector */",
     "/* Main Action Buttons */",
-  ]],
-  ["src/client/features/tools/id-photo/history/IdPhotoHistoryView.tsx", [
-    "// ignore",
-    "// fallback",
-    "/* Header */",
-    "/* History Grid */",
   ]],
   ["src/client/features/tools/id-photo/options/AttireTab.tsx", [
     "/* Attire Template Selection */",

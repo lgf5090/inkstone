@@ -145,6 +145,7 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
     const defaultBg = spec?.recommendedBgColors?.[0] ?? '#ffffff'
     set((s) => ({
       selectedSpecId,
+      ...(spec?.fileSizeMaxKb ? { targetMaxKb: spec.fileSizeMaxKb } : {}),
       adjustOptions: {
         ...s.adjustOptions,
         specId: selectedSpecId,
