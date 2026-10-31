@@ -31,7 +31,7 @@ export function TokenScaleModal() {
       setCopiedType('tailwind')
       useUi.getState().toast({
         title: t('tools.color.toast.copied', {
-          label: 'Tailwind Config',
+          label: t('tools.color.token.format_tailwind'),
           value: 'primary: { 50..950 }',
         }),
         tone: 'success',
@@ -52,7 +52,7 @@ export function TokenScaleModal() {
       setCopiedType('css')
       useUi.getState().toast({
         title: t('tools.color.toast.copied', {
-          label: 'CSS Variables',
+          label: t('tools.color.token.format_css'),
           value: '--color-primary-50..950',
         }),
         tone: 'success',

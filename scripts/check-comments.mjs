@@ -99,6 +99,10 @@ const allowed = new Map([
     "// Tools Color Assistant traditional datasets & AI prompt vocabularies",
     "// The API Tester's mock pools are sample data a user generates, not interface copy: a Chinese",
     "// mock record is what the zh generator is asked to produce.",
+    "// The same copy arrives through a template literal, where the substitution hides it from the rule",
+    "// above: `Select ${hex}` and `Copy ${label} value ${value}` are as unlocalized as a plain string,",
+    "// and both were in the colour tool until this check existed.",
+    "/**\n     * A template that speaks to a reader in English instead of speaking to the machine.\n     *\n     * Two space-separated words is the shape of a sentence, while a lone token is an identifier, a unit or\n     * a file name. Syntax a translator must not touch — function calls, lengths, custom properties, hex\n     * colours — is left alone, and so is a template that names a message family.\n     */",
   ]],
   ["scripts/e2e.mjs", [
     "// The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form",
@@ -6032,8 +6036,9 @@ const allowed = new Map([
     "// A snapshot of the list, so a command that quietly disappears is caught. It moves when one is",
     "// added on purpose — the three P2 entries are the assistant's own: folder summary, tag suggestions,",
     "// and deep research; the five after them are the chat's actions (`chat-*`); then Templater's four",
-    "// (`cmd-templater-*`: insert, create, replace, and the cursor jump); and the last four open the",
-    "// to-do app, put a note selection in it, or read today's list.",
+    "// (`cmd-templater-*`: insert, create, replace, and the cursor jump); the four that open the to-do",
+    "// app, put a note selection in it, or read today's list; and the thirteen of the colour tool — one",
+    "// per view (`cmd-color-studio` … `cmd-color-settings`) plus the copy, the token scale and the picker.",
   ]],
   ["src/client/features/command/registry.ts", [
     "/**\n * The application commands, as data.\n *\n * The palette used to build this list inside its own component, which made the commands unreachable\n * from anywhere else — a QuickAdd macro could not say \"do what the palette entry called X does\"\n * without opening the palette. Every entry here reads what it needs from the stores when it is\n * called, so the palette, a hotkey and an automation step all run the same one implementation.\n */",
@@ -6071,6 +6076,8 @@ const allowed = new Map([
     "/**\n * Templater's own four surfaces.\n *\n * They are registered as a list rather than folded into the note-scoped block above, because each one has\n * something to say when there is no note: three of them refuse before the reader spends time choosing, and\n * the fourth is the only cursor jump in the app. None of them imports the engine — the chooser pulls\n * `run-shell.ts` when a template is picked, and the jump pulls `cursor-jump.ts` when the key is pressed,\n * which is what keeps the parser, `yaml` and the sandbox out of the chunk the first screen loads (plan\n * P11-5). Chords belong to the settings card that owns Templater hotkeys (P6-3), so no `combo` is claimed\n * here.\n */",
     "// The note has to be there before a chooser is worth opening; the same rule is checked again by the",
     "// run itself, which is the side that cannot be sure the reader has not closed it since.",
+    "// The colour tool's ten views and the three actions a reader repeats inside it. The list is built from",
+    "// `COLOR_VIEW_COMMANDS`, a record keyed by the view type: a new view without a command stops compiling.",
   ]],
   ["src/client/features/development/api-tester/ApiTesterApp.tsx", [
     "/* storage may be unavailable */",
@@ -17332,10 +17339,28 @@ const allowed = new Map([
     "/* Fourth submodule: ID Photo Studio (tools/id_photo) */",
     "/* Fifth submodule: Color Assistant (tools/color) */",
   ]],
+  ["src/client/features/tools/color-commands.test.ts", [
+    "/**\n * The colour tool, reachable without a mouse.\n *\n * Nine views plus the picker, the copy and the token scale were sidebar-only, which left a keyboard reader\n * and any automation that runs commands outside the module. These tests are the reach: every view has a\n * registered command, and running it lands where the sidebar button would have.\n */",
+    "// The list is typed by ColorNavView, so a view that joins the sidebar without a command stops compiling;",
+    "// this is the same check from the other side, for whoever reads the test.",
+    "// The palette entry returns before the lazily imported store answers, so the run has to be given",
+    "// its turns rather than awaited.",
+  ]],
+  ["src/client/features/tools/color-commands.ts", [
+    "/**\n * The colour tool, asked for from outside it.\n *\n * Its ten views, the screen picker, the copy and the token scale were reachable only by clicking the tool's\n * sidebar, which left a keyboard-only reader — and any automation that runs commands — outside the module.\n * These call the same store actions the buttons do, from wherever the palette was opened.\n */",
+    "/**\n * The command id each view is reachable by.\n *\n * Keyed by the view type itself, so a view added to the sidebar without a command here stops compiling\n * rather than joining the tool as another mouse-only screen.\n */",
+    "/** The views in the order the palette lists them, with the id that opens each one. */",
+    "/** Show this view of the colour tool, from any screen. */",
+    "/**\n * The studio's own state, reached without importing it into this chunk.\n *\n * The colour tool is a lazy chunk and the command list is not: a static import here would put every preset\n * family and colour dictionary back into what the notebook loads before it has shown anything. The type is\n * erased at build time, so it costs nothing to keep the actions checked against the real store.\n */",
+    "/** Put the current seed colour on the clipboard in the format the reader's settings name. */",
+    "/** Open the 50–950 scale built from the current seed colour. */",
+    "/**\n * Take the colour under the cursor and make it the studio's seed.\n *\n * `EyeDropper` is Chromium-only, so elsewhere the command says so — the same sentence the studio shows on\n * its disabled button — rather than looking like a command that does nothing.\n */",
+  ]],
   ["src/client/features/tools/color/ColorApp.tsx", [
     "// Global Modals",
     "/* Active Sub-view */",
     "/* Global Modals */",
+    "/**\n * One chunk per view, because only one view is on screen.\n *\n * All ten used to be static imports, so opening the studio also parsed the four preset families, the\n * ColorHunt data, the two traditional-colour dictionaries and the image quantizer — 80 KB of source that\n * the first screen never touches. The studio stays eager because it is where the tool opens; a lazy studio\n * would show a spinner instead of a colour wheel.\n */",
   ]],
   ["src/client/features/tools/color/api.ts", [
     "/**\n * Color Assistant Client REST API\n */",
@@ -17409,9 +17434,6 @@ const allowed = new Map([
     "// Thumb position",
     "/* Thumb handle */",
   ]],
-  ["src/client/features/tools/color/components/EyedropperButton.tsx", [
-    "// User cancelled pick or escape pressed",
-  ]],
   ["src/client/features/tools/color/components/GradientBarController.tsx", [
     "/* Interactive track with stop markers */",
     "/* Gradient Track */",
@@ -17438,6 +17460,7 @@ const allowed = new Map([
     "/* Swatch & Simulated Hex */",
     "/* Mini Mockup Demo */",
     "// Five colour-blindness simulations ran on every colour change while this modal sat closed.",
+    "/**\n * The five conditions the simulator shows.\n *\n * Prevalence stays as data: it is a number and a scope, not copy — the catalog carries the name and the\n * one-line explanation beside it, keyed on the same machine type the simulator switches on.\n */",
   ]],
   ["src/client/features/tools/color/components/modals/ContrastCheckerModal.tsx", [
     "/**\n * One of the two color slots.\n *\n * The box keeps what the reader typed rather than a normalized color, because the old version fed every\n * keystroke through `normalizeHex`, which answers an unreadable value with `#000000` — so a typo was\n * scored as a 21:1 pass and reported as WCAG AAA.\n */",
@@ -17465,6 +17488,11 @@ const allowed = new Map([
     "/* Step details table */",
     "/* 11-step scale grid: four columns on a phone, eleven once there is room for a hex to read */",
     "// Closed modals used to rebuild their whole derived surface on every color change the studio makes.",
+  ]],
+  ["src/client/features/tools/color/english-chrome.test.tsx", [
+    "/**\n * The tool has to speak the reader's language.\n *\n * Every string named here used to live inside the module as English data — the harmony families, the five\n * colour-vision conditions, the AI style chips, the fallback palette title — which no gate could see\n * because they were never in a JSX attribute. A Chinese interface showed two languages on one screen, and\n * the English went into saved palettes.\n */",
+    "// The value the model is asked for stays the English keyword the prompt is written with.",
+    "// The fallback row is what the studio's own export button meets: a single colour, no saved title.",
   ]],
   ["src/client/features/tools/color/history-write.test.tsx", [
     "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
@@ -17496,6 +17524,9 @@ const allowed = new Map([
     "/** Radius inset that keeps the disk off the canvas edge, so the border never clips a color. */",
     "/**\n * Sizes the blit.\n *\n * The backing store carries the device pixels; the drawing itself stays in CSS units under a `dpr` scale,\n * which is the only way the disk ends up filling the box the pointer math already assumes.\n */",
     "/**\n * Paints the wheel into `canvas` at the device's own resolution.\n *\n * The field is computed at CSS size and then scaled up by `drawImage`, which is the one canvas call that\n * honours the transform. Computing it at device size instead would quadruple a per-pixel HSL conversion on\n * every lightness change, and a hue field has no detail for the extra samples to resolve.\n */",
+  ]],
+  ["src/client/features/tools/color/lib/display-names.ts", [
+    "/**\n * The reader's own words for the schemes the colour engine computes.\n *\n * The harmony families and the algorithmic palettes used to carry English names and one-line descriptions\n * inside `@shared/tools/color`, which meant a Chinese interface showed prose nobody had translated between\n * two swatches — and the same strings were written into saved palettes. Both datasets now ship a machine\n * id only, and these four lookups are the single place that maps it to copy.\n */",
   ]],
   ["src/client/features/tools/color/lib/export-engine.ts", [
     "/**\n * Universal Palette Exporter Engine (ASE, CSS, SCSS, Tailwind, JSON)\n */",
@@ -17541,6 +17572,11 @@ const allowed = new Map([
   ["src/client/features/tools/color/lib/hex-input.ts", [
     "/**\n * Parses what a reader actually types into a hex field.\n *\n * `normalizeHex` is the module's internal normalizer and it never fails: anything it cannot read becomes\n * `#000000`. That is the right answer for a color already stored and the wrong one for a text box, where a\n * typo used to be evaluated as pure black — the contrast checker reported a mistyped value as a 21:1 pass.\n * This returns null so the caller can say \"that is not a color\" instead.\n */",
   ]],
+  ["src/client/features/tools/color/lib/screen-pick.ts", [
+    "/**\n * Picking a colour off the screen.\n *\n * The studio's button and the command palette both need this, and only Chromium implements `EyeDropper`:\n * everywhere else the caller has to say so rather than appear to do nothing.\n */",
+    "// The property can exist as `undefined` on a browser that never shipped the API, so ask for a constructor.",
+    "/**\n * The colour under the cursor, or null.\n *\n * Escape rejects the promise exactly the way a missing permission would; both answers are \"no colour was\n * chosen\", so the caller shows nothing rather than an error the reader did not ask about.\n */",
+  ]],
   ["src/client/features/tools/color/modal-work.test.tsx", [
     "/**\n * What the dialogs do while nobody is looking at them.\n *\n * `ColorApp` keeps all five modals mounted for the life of the tool and each one subscribes to\n * `currentHex`, so a single step of the hue slider re-ran `generateTokenScale`, five\n * `simulateColorBlindness` calls, a WCAG evaluation and the whole export preview. The measurements are\n * fractions of a millisecond each — the point of these tests is that the work happens on open and not\n * at all while closed, which a DOM assertion cannot see because `Modal` already renders nothing.\n */",
     "// Opening seeds the background from the studio colour, so the first paint costs two evaluations.",
@@ -17559,6 +17595,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/color/settings-view.test.tsx", [
     "// ColorApp refetches settings on mount, so the value under test has to come from the server.",
+    "// Views other than the studio arrive as their own chunk, so the panel has to be awaited.",
   ]],
   ["src/client/features/tools/color/store.ts", [
     "/**\n * Reactive state machine for Color Assistant (`tools/color`).\n */",
@@ -17589,6 +17626,8 @@ const allowed = new Map([
     "/* Count */",
     "/* Generate Button */",
     "/* Result Card */",
+    "// The value travels to the model as a prompt ingredient, so it stays English; what a reader picks is the",
+    "// catalogue's own words for it, named key by key rather than built from the value.",
   ]],
   ["src/client/features/tools/color/views/ColorHuntPalettesView.tsx", [
     "/* Header */",
@@ -31094,12 +31133,12 @@ const allowed = new Map([
     "/**\n * Rows a list endpoint returns at most.\n *\n * The favorites and palette queries had no ceiling at all and selected every column, so the collection\n * panels fetched the whole history of a long-lived account on each mount.\n */",
   ]],
   ["src/shared/tools/color/harmonies.ts", [
-    "/**\n * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)\n */",
     "/**\n * Returns all color harmonies for a given base color\n */",
     "// 1. Complementary (180°)",
     "// 2. Triadic / Split-Complementary (120°, 240° & 150°, 210°)",
     "// 3. Analogous (±30°, ±15°)",
     "// 4. Tetradic / Intermediate (±60°, ±90°)",
+    "/**\n * The classical colour harmony schemes computed from one base colour.\n *\n * A group carries its machine type only: the name and the one-line explanation a reader sees come from the\n * message catalog, so a Chinese interface does not show English prose between two colour swatches.\n */",
   ]],
   ["src/shared/tools/color/oklab.ts", [
     "/**\n * OKLab Perceptual Interpolation & Dead-Zone-Free Gradient Engine.\n * Eliminates dull gray midtones occurring in standard sRGB linear interpolation.\n */",
@@ -31245,6 +31284,8 @@ const allowed = new Map([
     "/**\n * A poetic naming pass, with the honesty flag the bare array could not carry.\n *\n * Returned as an object rather than a per-item marker because the answer is one verdict for the whole\n * batch: either the model named these colors or the fallback table did.\n */",
     "/**\n * The color spaces a hex resolves to.\n *\n * Only the values the interface reads. This used to carry eight pre-formatted CSS strings plus an HSI\n * triple that nothing consumed, while the panel that shows the spaces built the same strings again — in a\n * slightly different format, so the copied value and the computed one disagreed.\n */",
     "/** Unrounded HSL: what the studio's sliders rotate on, so a hue change cannot move the other channels. */",
+    "/** Names the message family the panel reads its display name and explanation from. */",
+    "/** Names the message family the row reads its display name and explanation from. */",
   ]],
   ["src/shared/tools/id-photo/presets.ts", [
     "// SVG path representation for lightweight offline formal wear rendering",
@@ -44537,6 +44578,9 @@ const allowed = new Map([
     "// The slider's right-hand end used to send COLOR_EXTRACT_MAX + 1 colors to a schema capped at 12.",
     "// This harness configures no assistant model, so a truthful answer has to admit it computed the palette.",
     "// A second tab, or a page re-read, used to add a fresh row for the color already on top.",
+  ]],
+  ["tests/tools-color-lazy-views.test.ts", [
+    "/**\n * The colour tool stays one chunk per screen.\n *\n * Bundle shape is invisible to every other assertion in this suite: a single re-added static import puts\n * the preset families and the image quantizer back into the chunk that opens with the studio, and all the\n * behaviour tests stay green while the first paint doubles in bytes.\n */",
   ]],
   ["tests/tools-color-list-limit.test.ts", [
     "/**\n * The two collection lists the panel reads on every mount.\n *\n * `listFavorites` and `listPalettes` were `SELECT *` with no ceiling: a long-lived account handed the\n * browser its whole saved-colour history, including the 50 KB `preview_svg` column that no list view\n * renders, and the tag filter ran after that transfer in JavaScript.\n */",

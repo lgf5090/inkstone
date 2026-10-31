@@ -234,11 +234,11 @@ export function ImagePaletteView() {
       }
     })
     await savePalette(
-      'Image Palette',
+      t('tools.color.image.palette_title'),
       items,
       'image',
       ['image-extract', 'palette'],
-      'Extracted palette from uploaded image',
+      t('tools.color.image.palette_desc'),
     )
   }
 
@@ -361,7 +361,7 @@ export function ImagePaletteView() {
                   <IconButton
                     size="sm"
                     label={t('tools.color.studio.copy')}
-                    onClick={() => copyColor(dominantColor, 'Dominant')}
+                    onClick={() => copyColor(dominantColor, t('tools.color.image.dominant_name'))}
                   >
                     <Copy size={14} />
                   </IconButton>
@@ -370,7 +370,7 @@ export function ImagePaletteView() {
                   <IconButton
                     size="sm"
                     label={t('tools.color.favorites.title')}
-                    onClick={() => addFavorite(dominantColor, 'Dominant Color')}
+                    onClick={() => addFavorite(dominantColor, t('tools.color.image.dominant_favorite'))}
                   >
                     <Heart size={14} />
                   </IconButton>
@@ -424,7 +424,7 @@ export function ImagePaletteView() {
                   disabled={extractedPalette.length === 0}
                   onClick={() =>
                     openExportPaletteModal({
-                      title: 'Image Extracted Palette',
+                      title: t('tools.color.image.export_title'),
                       colors: extractedPalette,
                     })
                   }
@@ -460,7 +460,7 @@ export function ImagePaletteView() {
                     >
                       <button
                         type="button"
-                        aria-label={`Select ${hex}`}
+                        aria-label={t('tools.color.swatch.use', { hex })}
                         className="h-16 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                         style={{ backgroundColor: hex }}
                         onClick={() => setCurrentHex(hex, 'image')}
@@ -513,7 +513,7 @@ export function ImagePaletteView() {
         imageSrc={imageSrc}
         colors={[dominantColor, ...extractedPalette]}
         interpretations={interpretations}
-        themeTitle="Aesthetic Essence"
+        themeTitle={t('tools.color.image.poster_theme')}
       />
     </div>
   )

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { installTestGlobals, renderElement, type RenderedElement } from '../../../lib/test-render'
+import { flushLazyModules, installTestGlobals, renderElement, type RenderedElement } from '../../../lib/test-render'
 import { initI18n, t } from '../../../lib/i18n'
 import { useToolsStore } from '../store'
 import { ColorApp } from './ColorApp'
@@ -62,9 +62,8 @@ async function openSettings() {
   act(() => {
     useToolsStore.setState({ activeColorView: 'settings' })
   })
-  await act(async () => {
-    await Promise.resolve()
-  })
+  // Views other than the studio arrive as their own chunk, so the panel has to be awaited.
+  await flushLazyModules(() => document.body.textContent?.includes(t('tools.color.settings.title')) ?? false)
 }
 
 describe('Color settings surface', () => {
@@ -134,9 +133,7 @@ describe('Settings are honored where they are read', () => {
     act(() => {
       useToolsStore.setState({ activeColorView: 'ui_palettes' })
     })
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushLazyModules(() => document.querySelectorAll('[role="radio"]').length > 0)
 
     const selected = [...document.querySelectorAll('[role="radio"][aria-checked="true"]')].map((t) => t.textContent)
     expect(selected.some((label) => label?.includes('Ant Design'))).toBe(true)
@@ -167,9 +164,9 @@ describe('Settings are honored where they are read', () => {
     act(() => {
       useToolsStore.setState({ activeColorView: 'studio' })
     })
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushLazyModules(() =>
+      Boolean(document.querySelector('button[aria-label="' + t('tools.color.studio.copy_all') + '"]')),
+    )
 
     const copyButton = document.querySelector<HTMLButtonElement>('button[aria-label="' + t('tools.color.studio.copy_all') + '"]')!
     await act(async () => {

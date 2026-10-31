@@ -129,7 +129,7 @@ export function ColorStudioView() {
             size="sm"
             onClick={() =>
               openExportPaletteModal({
-                title: `Palette ${currentHex}`,
+                title: t('tools.color.studio.palette_of', { hex: currentHex }),
                 colors: [currentHex],
               })
             }

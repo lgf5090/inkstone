@@ -175,7 +175,7 @@ export function ContrastCheckerModal() {
                       : 'border-[var(--danger-soft)] bg-[var(--danger-soft)] text-[var(--danger)]'
                 }`}
               >
-                {result.score === 'Fail' ? 'Fail' : `WCAG ${result.score}`}
+                {result.score === 'Fail' ? t('tools.color.contrast.grade_fail') : `WCAG ${result.score}`}
               </div>
             </div>
 

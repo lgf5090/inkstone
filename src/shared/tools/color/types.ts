@@ -75,9 +75,8 @@ export type ColorHarmonyType =
   | 'intermediate'
 
 export interface ColorHarmonyGroup {
+  /** Names the message family the panel reads its display name and explanation from. */
   type: ColorHarmonyType
-  label: string
-  description: string
   colors: string[] // hex values
 }
 
@@ -92,9 +91,8 @@ export type ColorSpaceAlgorithmType =
   | 'dust'
 
 export interface AlgorithmicPalette {
+  /** Names the message family the row reads its display name and explanation from. */
   id: ColorSpaceAlgorithmType
-  name: string
-  description: string
   colors: string[] // hex values
 }
 

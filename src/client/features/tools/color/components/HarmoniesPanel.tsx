@@ -5,6 +5,7 @@ import { Tooltip } from '../../../../components/overlay'
 import { IconButton } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
 import { SwatchActions } from './SwatchActions'
+import { harmonyDescription, harmonyName } from '../lib/display-names'
 
 export interface HarmoniesPanelProps {
   currentHex: string
@@ -27,7 +28,9 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {harmonies.map((harmony) => (
+        {harmonies.map((harmony) => {
+          const label = harmonyName(harmony.type)
+          return (
           <div
             key={harmony.type}
             className="flex flex-col gap-2 p-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-default)] transition-colors"
@@ -35,10 +38,10 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-                  {harmony.label}
+                  {label}
                 </span>
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)] line-clamp-1">
-                  {harmony.description}
+                  {harmonyDescription(harmony.type)}
                 </p>
               </div>
               <Tooltip label={t('tools.color.algorithm.save_palette')}>
@@ -47,10 +50,10 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                   size="sm"
                   onClick={() =>
                     savePalette(
-                      `${harmony.label} - ${currentHex}`,
+                      `${label} - ${currentHex}`,
                       harmony.colors.map((hex, i) => ({
                         hex,
-                        name: `${harmony.label} ${i + 1}`,
+                        name: `${label} ${i + 1}`,
                       })),
                       'harmony',
                       [harmony.type],
@@ -82,13 +85,13 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                         key: 'copy',
                         label: t('tools.color.studio.copy'),
                         icon: <Copy size={11} />,
-                        onSelect: () => copyColor(hex, harmony.label),
+                        onSelect: () => copyColor(hex, label),
                       },
                       {
                         key: 'favorite',
                         label: t('tools.color.studio.favorite'),
                         icon: <Heart size={11} />,
-                        onSelect: () => addFavorite(hex, `${harmony.label} ${idx + 1}`),
+                        onSelect: () => addFavorite(hex, `${label} ${idx + 1}`),
                       },
                     ]}
                   />
@@ -97,7 +100,8 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

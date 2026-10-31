@@ -131,7 +131,7 @@ export function FavoritesView() {
                 >
                   <button
                     type="button"
-                    aria-label={`Select ${fav.hex}`}
+                    aria-label={t('tools.color.swatch.use', { hex: fav.hex })}
                     className="h-20 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: fav.hex }}
                     onClick={() => setCurrentHex(fav.hex, 'favorites')}
@@ -328,7 +328,7 @@ export function FavoritesView() {
                 >
                   <button
                     type="button"
-                    aria-label={`Select color ${item.hex}`}
+                    aria-label={t('tools.color.swatch.use', { hex: item.hex })}
                     className="h-12 w-full rounded-[var(--radius-xs)] cursor-pointer shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: item.hex }}
                     onClick={() => setCurrentHex(item.hex, 'history')}

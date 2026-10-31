@@ -6,6 +6,7 @@ import { Tooltip } from '../../../../components/overlay'
 import { IconButton } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
 import { SwatchActions } from './SwatchActions'
+import { algorithmDescription, algorithmName } from '../lib/display-names'
 
 export interface AlgorithmPaletteRowProps {
   palette: AlgorithmicPalette
@@ -22,10 +23,10 @@ export function AlgorithmPaletteRow({ palette }: AlgorithmPaletteRowProps) {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
-            {palette.name}
+            {algorithmName(palette.id)}
           </h3>
           <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)] mt-0.5">
-            {palette.description}
+            {algorithmDescription(palette.id)}
           </p>
         </div>
         <Tooltip label={t('tools.color.algorithm.save_palette')}>
@@ -34,10 +35,10 @@ export function AlgorithmPaletteRow({ palette }: AlgorithmPaletteRowProps) {
             size="sm"
             onClick={() =>
               savePalette(
-                palette.name,
+                algorithmName(palette.id),
                 palette.colors.map((hex, i) => ({
                   hex,
-                  name: `${palette.name} ${i + 1}`,
+                  name: `${algorithmName(palette.id)} ${i + 1}`,
                 })),
                 'mycolorspace',
                 [palette.id],
@@ -69,13 +70,13 @@ export function AlgorithmPaletteRow({ palette }: AlgorithmPaletteRowProps) {
                   key: 'copy',
                   label: t('tools.color.studio.copy'),
                   icon: <Copy size={11} />,
-                  onSelect: () => copyColor(hex, `${palette.name} ${idx + 1}`),
+                  onSelect: () => copyColor(hex, `${algorithmName(palette.id)} ${idx + 1}`),
                 },
                 {
                   key: 'favorite',
                   label: t('tools.color.studio.favorite'),
                   icon: <Heart size={11} />,
-                  onSelect: () => addFavorite(hex, `${palette.name} ${idx + 1}`),
+                  onSelect: () => addFavorite(hex, `${algorithmName(palette.id)} ${idx + 1}`),
                 },
               ]}
             />

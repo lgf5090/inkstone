@@ -36,7 +36,7 @@ export function ColorSpaceDisplay({ spaces }: ColorSpaceDisplayProps) {
               key={item.key}
               type="button"
               onClick={() => handleCopy(item)}
-              aria-label={`Copy ${item.label} value ${item.value}`}
+              aria-label={t('tools.color.space.copy_aria', { label: item.label, value: item.value })}
               className="flex items-center justify-between p-2.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-default)] transition-all text-left group"
             >
               <div className="min-w-0 pr-2">

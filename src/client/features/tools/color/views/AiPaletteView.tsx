@@ -3,6 +3,7 @@ import { Loader2, Sparkles, Wand2 } from 'lucide-react'
 import type { AiPaletteResult } from '@shared/tools/color/types'
 import { COLOR_AI_PALETTE_MAX, COLOR_AI_PALETTE_MIN } from '@shared/tools/color/contract'
 import { t } from '../../../../lib/i18n'
+import type { MessageKey } from '@shared/locales/en-US'
 import { Button } from '../../../../components/primitives'
 import { Select, Slider, Textarea } from '../../../../components/form'
 import { useUi } from '../../../../store/ui'
@@ -10,12 +11,24 @@ import { colorApi } from '../api'
 import { AiPaletteResultCard } from '../components/AiPaletteResultCard'
 import { useColorStudioStore } from '../store'
 
-const STYLES = ['Modern', 'Vintage', 'Cyberpunk', 'Morandi', 'Nature', 'Luxury', 'Pastel']
-const TONES: Array<{ key: 'all' | 'warm' | 'cool' | 'neutral'; label: string }> = [
-  { key: 'all', label: 'Balanced' },
-  { key: 'warm', label: 'Warm' },
-  { key: 'cool', label: 'Cool' },
-  { key: 'neutral', label: 'Neutral' },
+// The value travels to the model as a prompt ingredient, so it stays English; what a reader picks is the
+// catalogue's own words for it, named key by key rather than built from the value.
+const STYLES: Array<{ value: string; labelKey: MessageKey }> = [
+  { value: 'Modern', labelKey: 'tools.color.ai.style_value.modern' },
+  { value: 'Vintage', labelKey: 'tools.color.ai.style_value.vintage' },
+  { value: 'Cyberpunk', labelKey: 'tools.color.ai.style_value.cyberpunk' },
+  { value: 'Morandi', labelKey: 'tools.color.ai.style_value.morandi' },
+  { value: 'Nature', labelKey: 'tools.color.ai.style_value.nature' },
+  { value: 'Luxury', labelKey: 'tools.color.ai.style_value.luxury' },
+  { value: 'Pastel', labelKey: 'tools.color.ai.style_value.pastel' },
+]
+type ToneKey = 'all' | 'warm' | 'cool' | 'neutral'
+
+const TONES: Array<{ key: ToneKey; labelKey: MessageKey }> = [
+  { key: 'all', labelKey: 'tools.color.ai.tone_value.all' },
+  { key: 'warm', labelKey: 'tools.color.ai.tone_value.warm' },
+  { key: 'cool', labelKey: 'tools.color.ai.tone_value.cool' },
+  { key: 'neutral', labelKey: 'tools.color.ai.tone_value.neutral' },
 ]
 
 export function AiPaletteView() {
@@ -23,7 +36,7 @@ export function AiPaletteView() {
 
   const [prompt, setPrompt] = useState('')
   const [selectedStyle, setSelectedStyle] = useState('Modern')
-  const [selectedTone, setSelectedTone] = useState<'all' | 'warm' | 'cool' | 'neutral'>('all')
+  const [selectedTone, setSelectedTone] = useState<ToneKey>('all')
   const [colorCount, setColorCount] = useState(5)
   const [isGenerating, setIsGenerating] = useState(false)
   const [result, setResult] = useState<AiPaletteResult | null>(null)
@@ -50,7 +63,7 @@ export function AiPaletteView() {
     } catch (e: unknown) {
       const err = e as Error
       useUi.getState().toast({
-        title: err.message || 'AI Generation failed',
+        title: err.message || t('tools.color.toast.ai_failed'),
         tone: 'danger',
       })
     } finally {
@@ -123,8 +136,8 @@ export function AiPaletteView() {
               onChange={(e) => setSelectedStyle(e.target.value)}
             >
               {STYLES.map((st) => (
-                <option key={st} value={st}>
-                  {st}
+                <option key={st.value} value={st.value}>
+                  {t(st.labelKey)}
                 </option>
               ))}
             </Select>
@@ -142,12 +155,12 @@ export function AiPaletteView() {
               id="color-ai-tone"
               value={selectedTone}
               onChange={(e) =>
-                setSelectedTone(e.target.value as 'all' | 'warm' | 'cool' | 'neutral')
+                setSelectedTone(e.target.value as ToneKey)
               }
             >
               {TONES.map((tn) => (
                 <option key={tn.key} value={tn.key}>
-                  {tn.label}
+                  {t(tn.labelKey)}
                 </option>
               ))}
             </Select>

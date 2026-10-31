@@ -63,9 +63,10 @@ describe('the command registry', () => {
     // A snapshot of the list, so a command that quietly disappears is caught. It moves when one is
     // added on purpose — the three P2 entries are the assistant's own: folder summary, tag suggestions,
     // and deep research; the five after them are the chat's actions (`chat-*`); then Templater's four
-    // (`cmd-templater-*`: insert, create, replace, and the cursor jump); and the last four open the
-    // to-do app, put a note selection in it, or read today's list.
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(79)
+    // (`cmd-templater-*`: insert, create, replace, and the cursor jump); the four that open the to-do
+    // app, put a note selection in it, or read today's list; and the thirteen of the colour tool — one
+    // per view (`cmd-color-studio` … `cmd-color-settings`) plus the copy, the token scale and the picker.
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(92)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')

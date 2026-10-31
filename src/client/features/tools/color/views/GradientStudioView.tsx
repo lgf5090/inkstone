@@ -35,7 +35,7 @@ export function GradientStudioView() {
       setHasCopied(true)
       useUi.getState().toast({
         title: t('tools.color.toast.copied', {
-          label: 'CSS Gradient',
+          label: t('tools.color.gradient.format'),
           value: cssCode.slice(0, 30) + '...',
         }),
         tone: 'success',
@@ -57,15 +57,15 @@ export function GradientStudioView() {
   const handleSavePalette = async () => {
     const items = gradientConfig.stops.map((stop) => ({
       hex: stop.color,
-      name: `Stop ${stop.offset}%`,
+      name: t('tools.color.gradient.stop_name', { offset: stop.offset }),
       ratio: stop.offset,
     }))
     await savePalette(
-      'Gradient Scheme',
+      t('tools.color.gradient.palette_title'),
       items,
       'custom',
       ['gradient', gradientConfig.type],
-      `Gradient palette with ${gradientConfig.stops.length} stops`,
+      t('tools.color.gradient.palette_desc', { count: gradientConfig.stops.length }),
     )
   }
 

@@ -1,5 +1,8 @@
 /**
- * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)
+ * The classical colour harmony schemes computed from one base colour.
+ *
+ * A group carries its machine type only: the name and the one-line explanation a reader sees come from the
+ * message catalog, so a Chinese interface does not show English prose between two colour swatches.
  */
 
 import { hexToRgb, rgbToHex, rgbToHsl, hslToRgb, normalizeHex } from './spaces'
@@ -44,38 +47,26 @@ export function getHarmonies(baseHex: string): ColorHarmonyGroup[] {
   return [
     {
       type: 'complementary',
-      label: 'Complementary',
-      description: 'Opposite 180° colors on the wheel, creating maximum visual energy and contrast',
       colors: [norm, comp],
     },
     {
       type: 'triadic',
-      label: 'Triadic',
-      description: 'Equilateral triangle (120° / 240°) spacing balancing vibrant diversity and harmony',
       colors: [norm, triadic1, triadic2],
     },
     {
       type: 'analogous',
-      label: 'Analogous',
-      description: 'Adjacent ±30° neighboring colors creating calm, serene and unified transitions',
       colors: [anal1, anal3, norm, anal4, anal2],
     },
     {
       type: 'tetradic',
-      label: 'Tetradic',
-      description: '90° rectangle scheme offering rich variety and layered hierarchy',
       colors: [norm, tetra1, tetra2, tetra3],
     },
     {
       type: 'split_complementary',
-      label: 'Split-Complementary',
-      description: 'Base color combined with ±30° flanks of its complement (150° / 210°)',
       colors: [norm, shiftHue(norm, 150), shiftHue(norm, 210)],
     },
     {
       type: 'intermediate',
-      label: 'Accent Interval',
-      description: '60° step intervals for rhythmic accents and stepped progressions',
       colors: [norm, inter1, inter2, inter3],
     },
   ]

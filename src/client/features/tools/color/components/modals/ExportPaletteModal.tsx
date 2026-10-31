@@ -32,7 +32,7 @@ export function ExportPaletteModal() {
   if (!isOpen) return null
 
   const paletteData = targetPalette || {
-    title: 'Color Scheme',
+    title: t('tools.color.export.default_title'),
     colors: [currentHex, '#3b82f6', '#10b981', '#f59e0b'],
   }
 

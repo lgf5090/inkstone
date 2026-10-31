@@ -37,7 +37,7 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
       palette.colors.map((hex) => ({ hex })),
       'colorhunt',
       palette.tags,
-      `Curated Color Hunt palette: ${palette.title}`,
+      t('tools.color.hunt.saved_desc', { title: palette.title }),
     )
   }
 
