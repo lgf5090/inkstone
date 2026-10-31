@@ -57,6 +57,8 @@ export interface GithubAccountView {
   avatarUrl: string
   createdAt: number
   updatedAt: number
+  /** Present on the add response only: whether GitHub reported the gist scope. */
+  gistScope?: boolean | null
 }
 
 export const DEFAULT_GITHUB_MIRRORS: GithubMirrorSource[] = [

@@ -107,6 +107,7 @@ describe('GitHub module shell', () => {
       gists: [],
       mirrors: [],
       accounts: [],
+      activeAccountId: null,
       capabilities: { exports: false },
     })
     mockFetch()

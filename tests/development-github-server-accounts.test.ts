@@ -100,6 +100,34 @@ describe('development github accounts', () => {
     expect(await githubTokenForUsername(env, db, USER_A, 'unknown')).toBeNull()
   })
 
+  it('uses an explicitly selected account and rejects an unknown one', async () => {
+    const first = await addGithubAccount(env, db, USER_A, TOKEN_A)
+    nextLogin = 'second-user'
+    const second = await addGithubAccount(env, db, USER_A, TOKEN_B)
+    expect(await effectiveGithubToken(env, db, USER_A, second.id)).toBe(TOKEN_B)
+    expect(await effectiveGithubToken(env, db, USER_A, first.id)).toBe(TOKEN_A)
+    await expect(effectiveGithubToken(env, db, USER_A, 'missing')).rejects.toMatchObject({
+      status: 404,
+      code: 'github_not_found',
+    })
+  })
+
+  it('reports whether the token carries the gist scope', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      login: 'octocat',
+      avatar_url: 'https://avatars.example/octocat',
+    }), { status: 200, headers: { 'content-type': 'application/json', 'x-oauth-scopes': 'repo, gist' } })))
+    const withGist = await addGithubAccount(env, db, USER_A, TOKEN_A)
+    expect(withGist.gistScope).toBe(true)
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      login: 'octocat',
+      avatar_url: 'https://avatars.example/octocat',
+    }), { status: 200, headers: { 'content-type': 'application/json', 'x-oauth-scopes': 'repo' } })))
+    const withoutGist = await addGithubAccount(env, db, USER_A, TOKEN_B)
+    expect(withoutGist.gistScope).toBe(false)
+  })
+
   it('updates an existing username instead of adding a second account', async () => {
     const first = await addGithubAccount(env, db, USER_A, TOKEN_A)
     const second = await addGithubAccount(env, db, USER_A, TOKEN_B)

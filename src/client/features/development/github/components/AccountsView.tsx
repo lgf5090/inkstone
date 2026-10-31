@@ -3,22 +3,28 @@ import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck
 import type { GithubAccountView } from '@shared/development/github/types'
 import { localeTag, t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
-import { Button, IconButton } from '../../../../components/primitives'
+import { Button, Badge, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
 import { Modal, confirm } from '../../../../components/overlay'
+import { useUi } from '../../../../store/ui'
 import { GithubIcon } from './GithubIcon'
 import { GithubAvatar } from './GithubAvatar'
 
 export function AccountsView({
   accounts,
+  activeAccountId,
+  onSetActive,
   onAdd,
   onDelete,
 }: {
   accounts: GithubAccountView[]
-  onAdd: (token: string) => Promise<void>
+  activeAccountId: string | null
+  onSetActive: (id: string) => void
+  onAdd: (token: string) => Promise<GithubAccountView>
   onDelete: (id: string) => Promise<void>
 }) {
+  const toast = useUi((state) => state.toast)
   const [token, setToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [pending, setPending] = useState(false)
@@ -36,7 +42,10 @@ export function AccountsView({
     setError(null)
     setSuccess(null)
     try {
-      await onAdd(trimmed)
+      const account = await onAdd(trimmed)
+      if (account.gistScope === false) {
+        toast({ title: t('development.github.accounts.gist_scope_warning'), tone: 'warning' })
+      }
       setSuccess(t('development.github.accounts.added_plain'))
       setToken('')
     } catch (cause) {
@@ -90,6 +99,9 @@ export function AccountsView({
                     {t('development.github.accounts.added_at', { date: new Date(account.createdAt).toLocaleDateString(localeTag()) })}
                   </p>
                 </div>
+                {activeAccountId === account.id
+                  ? <Badge tone="accent">{t('development.github.accounts.current')}</Badge>
+                  : <Button variant="ghost" size="sm" onClick={() => onSetActive(account.id)}>{t('development.github.accounts.set_current')}</Button>}
                 <a href={`https://github.com/${encodeURIComponent(account.username)}`} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" title={t('development.github.accounts.open_profile')}>
                   <ExternalLink size={14} />
                 </a>
@@ -137,18 +149,22 @@ export function AccountsDialog({
   open,
   onClose,
   accounts,
+  activeAccountId,
+  onSetActive,
   onAdd,
   onDelete,
 }: {
   open: boolean
   onClose: () => void
   accounts: GithubAccountView[]
-  onAdd: (token: string) => Promise<void>
+  activeAccountId: string | null
+  onSetActive: (id: string) => void
+  onAdd: (token: string) => Promise<GithubAccountView>
   onDelete: (id: string) => Promise<void>
 }) {
   return (
     <Modal open={open} onClose={onClose} title={<span className="inline-flex items-center gap-2"><GithubIcon className="size-4" /> {t('development.github.accounts.title')}</span>} description={t('development.github.accounts.title_desc')} width={680}>
-      <AccountsView accounts={accounts} onAdd={onAdd} onDelete={onDelete} />
+      <AccountsView accounts={accounts} activeAccountId={activeAccountId} onSetActive={onSetActive} onAdd={onAdd} onDelete={onDelete} />
     </Modal>
   )
 }

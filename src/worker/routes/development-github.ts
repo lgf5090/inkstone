@@ -106,6 +106,7 @@ const GithubGistCreateSchema = z.object({
   description: z.string().max(8000).default(''),
   isPublic: z.boolean(),
   files: z.array(GistFileUploadSchema).min(1).max(MAX_GIST_FILES),
+  account: z.string().min(1).max(100).optional(),
 })
 
 const GistFilePatchSchema = z.object({
@@ -597,7 +598,7 @@ developmentGithubRoutes.get('/gist/mine', async (c) => {
   const userId = userIdOf(c)
   const query = parseQuery(c, GithubGistListQuerySchema)
   const token = requireToken(
-    await effectiveGithubToken(c.env, c.env.DB, userId),
+    await effectiveGithubToken(c.env, c.env.DB, userId, query.account),
     'Add a GitHub account before viewing your gists',
   )
   const result = await listGithubGists('mine', {
@@ -629,7 +630,7 @@ developmentGithubRoutes.post('/gist/github-gists', async (c) => {
   const userId = userIdOf(c)
   const body = await parseBody(c, GithubGistCreateSchema, GIST_BODY_LIMIT)
   const token = requireToken(
-    await effectiveGithubToken(c.env, c.env.DB, userId),
+    await effectiveGithubToken(c.env, c.env.DB, userId, body.account),
     'Add a GitHub account before creating gists',
   )
   const gist = await createGithubGist(

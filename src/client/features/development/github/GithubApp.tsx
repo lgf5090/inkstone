@@ -18,6 +18,8 @@ export function GithubApp() {
   const load = useGithubStore((state) => state.load)
   const mirrors = useGithubStore((state) => state.mirrors)
   const accounts = useGithubStore((state) => state.accounts)
+  const activeAccountId = useGithubStore((state) => state.activeAccountId)
+  const setActiveAccount = useGithubStore((state) => state.setActiveAccount)
   const addAccount = useGithubStore((state) => state.addAccount)
   const deleteAccount = useGithubStore((state) => state.deleteAccount)
   const saveMirrors = useGithubStore((state) => state.saveMirrors)
@@ -71,7 +73,9 @@ export function GithubApp() {
         open={accountsOpen}
         onClose={() => setAccountsOpen(false)}
         accounts={accounts}
-        onAdd={async (token) => { await addAccount(token) }}
+        activeAccountId={activeAccountId}
+        onSetActive={setActiveAccount}
+        onAdd={addAccount}
         onDelete={async (id) => { await deleteAccount(id) }}
       />
       <MirrorDialog

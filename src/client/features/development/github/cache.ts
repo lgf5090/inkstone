@@ -152,11 +152,12 @@ export function useRemoteGists(
   username: string | null,
   page: number,
   enabled = true,
+  accountId?: string | null,
 ): GithubQuery<GistListResult> {
   const active = enabled && (type !== 'user' || Boolean(username))
-  const key = active ? cacheKey('remote-gists', type, username ?? '', page) : null
+  const key = active ? cacheKey('remote-gists', type, username ?? '', page, accountId ?? '') : null
   return useGithubQuery(key, REMOTE_TTL_MS, active, (signal) =>
-    githubApi.remoteGists(type, username, page, signal))
+    githubApi.remoteGists(type, username, page, accountId, signal))
 }
 
 export function useGistDetailRemote(id: string | null | undefined): GithubQuery<GistItem> {

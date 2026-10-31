@@ -224,22 +224,24 @@ export const githubApi = {
     type: RemoteGistType,
     username: string | null,
     page: number,
+    accountId?: string | null,
     signal?: AbortSignal,
   ): Promise<GistListResult> {
     const query = new URLSearchParams({
       page: String(page),
       per_page: String(GIST_REMOTE_PER_PAGE),
     })
+    if (type === 'mine' && accountId) query.set('account', accountId)
     if (type === 'user') {
       return readData(`/gist/users/${encodeURIComponent(username ?? '')}/gists?${query.toString()}`, { signal })
     }
     return readData(`/gist/${type}?${query.toString()}`, { signal })
   },
 
-  createRemoteGist(input: CreateRemoteGistInput, signal?: AbortSignal): Promise<GistItem> {
+  createRemoteGist(input: CreateRemoteGistInput, accountId?: string | null, signal?: AbortSignal): Promise<GistItem> {
     return readData<{ gist: GistItem }>('/gist/github-gists', {
       method: 'POST',
-      body: input,
+      body: accountId ? { ...input, account: accountId } : input,
       signal,
     }).then((response) => response.gist)
   },

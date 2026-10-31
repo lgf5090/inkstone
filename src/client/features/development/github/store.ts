@@ -14,6 +14,7 @@ import { t } from '../../../lib/i18n'
 import { githubApi } from './api'
 import { clearGithubCache } from './cache'
 import { collectTagDescendants } from './lib/tags'
+import { loadActiveAccountId, saveActiveAccountId } from './prefs'
 
 export type GithubLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -26,6 +27,7 @@ export interface GithubStore {
   gists: SavedGist[]
   mirrors: GithubMirrorSource[]
   accounts: GithubAccountView[]
+  activeAccountId: string | null
   capabilities: GithubCapabilities
   load: () => Promise<void>
   reload: () => Promise<void>
@@ -41,8 +43,9 @@ export interface GithubStore {
   batchDeleteGists: (ids: string[]) => Promise<void>
   batchUpdateGists: (ids: string[], patch: GistBatchPatch) => Promise<void>
   saveMirrors: (mirrors: GithubMirrorSource[]) => Promise<void>
-  addAccount: (token: string) => Promise<void>
+  addAccount: (token: string) => Promise<GithubAccountView>
   deleteAccount: (id: string) => Promise<void>
+  setActiveAccount: (id: string | null) => void
 }
 
 type CollectionKey = 'tags' | 'repos' | 'gistTags' | 'gists' | 'mirrors' | 'accounts'
@@ -52,10 +55,10 @@ const writeQueues = new Map<string, Promise<void>>()
 let loadPromise: Promise<void> | null = null
 let bootstrapSequence = 0
 
-function enqueue(key: string, task: () => Promise<void>): Promise<void> {
+function enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = writeQueues.get(key) ?? Promise.resolve()
   const next = previous.then(task, task)
-  const tracked = next.catch((error) => {
+  const tracked = next.then(() => undefined, (error) => {
     console.warn('[inkstone] GitHub write queue failed:', error)
   })
   writeQueues.set(key, tracked)
@@ -141,8 +144,16 @@ export const useGithubStore = create<GithubStore>((set, get) => {
         case 'mirrors':
           set({ mirrors: await githubApi.getMirrors() })
           return
-        case 'accounts':
-          set({ accounts: await githubApi.getAccounts() })
+        case 'accounts': {
+          const accounts = await githubApi.getAccounts()
+          set((state) => {
+            const activeAccountId = accounts.some((account) => account.id === state.activeAccountId)
+              ? state.activeAccountId
+              : accounts[0]?.id ?? null
+            if (activeAccountId !== state.activeAccountId) saveActiveAccountId(activeAccountId)
+            return { accounts, activeAccountId }
+          })
+        }
       }
     } catch (error) {
       console.warn('[inkstone] GitHub collection reload failed', collection, error)
@@ -155,6 +166,12 @@ export const useGithubStore = create<GithubStore>((set, get) => {
 
   const applyBootstrap = (data: GithubBootstrap, sequence: number): void => {
     if (sequence !== bootstrapSequence) return
+    const accounts = data.accounts ?? []
+    const current = get().activeAccountId
+    const activeAccountId = accounts.some((account) => account.id === current)
+      ? current
+      : accounts[0]?.id ?? null
+    if (activeAccountId !== current) saveActiveAccountId(activeAccountId)
     set({
       status: 'ready',
       error: null,
@@ -163,7 +180,8 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       gistTags: data.gistTags ?? [],
       gists: data.gists ?? [],
       mirrors: data.mirrors ?? [],
-      accounts: data.accounts ?? [],
+      accounts,
+      activeAccountId,
       capabilities: { exports: data.capabilities?.exports === true },
     })
   }
@@ -192,6 +210,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     gists: [],
     mirrors: [],
     accounts: [],
+    activeAccountId: loadActiveAccountId(),
     capabilities: DEFAULT_CAPABILITIES,
 
     load: async () => {
@@ -391,7 +410,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
 
     addAccount: async (token) => {
       const revision = bump('accounts')
-      await enqueue('accounts', async () => {
+      return enqueue('accounts', async () => {
         try {
           const account = await githubApi.addAccount(token.trim())
           if (isCurrent('accounts', revision)) {
@@ -403,7 +422,9 @@ export const useGithubStore = create<GithubStore>((set, get) => {
               return { accounts }
             })
           }
+          if (!get().activeAccountId) get().setActiveAccount(account.id)
           clearGithubCache()
+          return account
         } catch (error) {
           if (isCurrent('accounts', revision)) await reconcile(['accounts'])
           throw error
@@ -414,6 +435,9 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     deleteAccount: async (id) => {
       const revision = bump('accounts')
       set((state) => ({ accounts: state.accounts.filter((account) => account.id !== id) }))
+      if (get().activeAccountId === id) {
+        get().setActiveAccount(get().accounts[0]?.id ?? null)
+      }
       await enqueue('accounts', async () => {
         try {
           await githubApi.deleteAccount(id)
@@ -423,6 +447,11 @@ export const useGithubStore = create<GithubStore>((set, get) => {
           throw error
         }
       })
+    },
+
+    setActiveAccount: (id) => {
+      set({ activeAccountId: id })
+      saveActiveAccountId(id)
     },
   }
 })

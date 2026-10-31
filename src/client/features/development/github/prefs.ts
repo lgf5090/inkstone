@@ -16,6 +16,7 @@ const MIRROR_KEY = `${PREFIX}.mirror`
 const GIST_PREFS_KEY = `${PREFIX}.gist-prefs`
 const GIST_VIEW_KEY = `${PREFIX}.gist-view-mode`
 const LAYOUT_KEY = `${PREFIX}.layout`
+const ACCOUNT_KEY = `${PREFIX}.account`
 
 const RANGES: readonly GithubTimeRange[] = ['today', 'week', 'month', 'quarter', 'year', 'all']
 const SORTS: readonly GithubSortKey[] = ['stars', 'forks', 'updated', 'best-match']
@@ -157,4 +158,26 @@ export function saveLayoutPrefs(patch: Partial<GithubLayoutPrefs>): void {
     detailRatio: boundedNumber(patch.detailRatio, previous.detailRatio, 0.3, 0.7),
   }
   writeJson(LAYOUT_KEY, next)
+}
+
+export function loadActiveAccountId(): string | null {
+  const store = storage()
+  if (!store) return null
+  try {
+    return store.getItem(ACCOUNT_KEY) || null
+  } catch (error) {
+    console.warn('[inkstone] GitHub active account could not be read', error)
+    return null
+  }
+}
+
+export function saveActiveAccountId(id: string | null): void {
+  const store = storage()
+  if (!store) return
+  try {
+    if (id) store.setItem(ACCOUNT_KEY, id)
+    else store.removeItem(ACCOUNT_KEY)
+  } catch (error) {
+    console.warn('[inkstone] GitHub active account could not be saved', error)
+  }
 }

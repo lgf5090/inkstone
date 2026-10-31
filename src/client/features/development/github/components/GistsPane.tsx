@@ -45,6 +45,7 @@ export function GistsPane({
   const gistTags = useGithubStore((state) => state.gistTags)
   const gists = useGithubStore((state) => state.gists)
   const accounts = useGithubStore((state) => state.accounts)
+  const activeAccountId = useGithubStore((state) => state.activeAccountId)
   const exportsEnabled = useGithubStore((state) => state.capabilities.exports)
   const mirrors = useGithubStore((state) => state.mirrors)
   const upsertGist = useGithubStore((state) => state.upsertGist)
@@ -72,7 +73,13 @@ export function GistsPane({
   const remote = isRemoteView(selectedView)
   const remoteUsername = extractUsernameFromView(selectedView)
   const remoteType = selectedView === GIST_EXPLORE_VIEW ? 'public' : selectedView === GIST_MY_GITHUB_VIEW ? 'mine' : 'user'
-  const remoteQuery = useRemoteGists(remoteType, remoteUsername, remotePage, remote)
+  const remoteQuery = useRemoteGists(
+    remoteType,
+    remoteUsername,
+    remotePage,
+    remote,
+    selectedView === GIST_MY_GITHUB_VIEW ? activeAccountId : null,
+  )
   const remoteDetail = useGistDetailRemote(remote ? selectedRemoteId : null)
   const remoteItems = useMemo(() => (remoteQuery.data?.items ?? []).map((gist) => wrapRemote(gist, gists.find((local) => local.id === gist.id))), [remoteQuery.data, gists])
   const filteredRemote = useMemo(() => {
@@ -96,6 +103,7 @@ export function GistsPane({
   const canEditRemote = Boolean(detailGist?.owner && ownUsernames.has(detailGist.owner.login))
   const savedRemoteIds = useMemo(() => new Set(gists.map((gist) => gist.id)), [gists])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
+  const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null
 
   useEffect(() => { setRemotePage(1) }, [selectedView])
   useEffect(() => {
@@ -206,7 +214,7 @@ export function GistsPane({
     }
   }
 
-  const remoteTitle = selectedView === GIST_EXPLORE_VIEW ? t('development.github.gists.public_gists') : selectedView === GIST_MY_GITHUB_VIEW ? t('development.github.gists.my_github') : remoteUsername ? t('development.github.gists.user_gists', { username: remoteUsername }) : t('development.github.gists.explore_github')
+  const remoteTitle = selectedView === GIST_EXPLORE_VIEW ? t('development.github.gists.public_gists') : selectedView === GIST_MY_GITHUB_VIEW ? `${t('development.github.gists.my_github')}${activeAccount ? ` · ${activeAccount.username}` : ''}` : remoteUsername ? t('development.github.gists.user_gists', { username: remoteUsername }) : t('development.github.gists.explore_github')
 
   return (
     <>
@@ -261,7 +269,7 @@ export function GistsPane({
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
-      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
+      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} accounts={accounts} activeAccountId={activeAccountId} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
     </>
   )
 }

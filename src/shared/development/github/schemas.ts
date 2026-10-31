@@ -165,6 +165,7 @@ export const GithubExportSchema = z.object({
 export const GithubGistListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   per_page: z.coerce.number().int().min(1).max(100).default(30),
+  account: z.string().min(1).max(100).optional(),
 })
 
 export type GithubTagInput = z.infer<typeof GithubTagInputSchema>

@@ -31,11 +31,13 @@ export interface GithubResponse<T> {
   status: number
   rateLimit: GithubRateLimit | null
   link: string | null
+  scopes: string[] | null
 }
 
 export interface GithubUser {
   login: string
   avatarUrl: string
+  scopes: string[] | null
 }
 
 function readHeaderNumber(headers: Headers, name: string): number | null {
@@ -52,6 +54,12 @@ function readRateLimit(headers: Headers): GithubRateLimit | null {
   const resource = headers.get('x-ratelimit-resource')
   if (limit === null && remaining === null && reset === null) return null
   return { limit, remaining, reset, resource: resource || null }
+}
+
+function readScopes(headers: Headers): string[] | null {
+  const raw = headers.get('x-oauth-scopes')
+  if (raw === null) return null
+  return raw.split(',').map((scope) => scope.trim()).filter(Boolean)
 }
 
 function rateLimitDetails(rateLimit: GithubRateLimit | null): Record<string, unknown> | undefined {
@@ -159,8 +167,9 @@ export async function githubJson<T>(
   options: GithubRequestOptions = {},
 ): Promise<GithubResponse<T>> {
   const { response, rateLimit } = await sendRequest(path, options)
+  const scopes = readScopes(response.headers)
   if (response.status === 204) {
-    return { data: null as T, status: response.status, rateLimit, link: null }
+    return { data: null as T, status: response.status, rateLimit, link: null, scopes }
   }
   const text = await readResponseText(response, options.maxBytes ?? MAX_GITHUB_TEXT_BYTES)
   let data: unknown = null
@@ -176,6 +185,7 @@ export async function githubJson<T>(
     status: response.status,
     rateLimit,
     link: response.headers.get('link'),
+    scopes,
   }
 }
 
@@ -185,11 +195,17 @@ export async function githubText(
 ): Promise<GithubResponse<string>> {
   const { response, rateLimit } = await sendRequest(path, options)
   const text = await readResponseText(response, options.maxBytes ?? MAX_GITHUB_TEXT_BYTES)
-  return { data: text, status: response.status, rateLimit, link: response.headers.get('link') }
+  return {
+    data: text,
+    status: response.status,
+    rateLimit,
+    link: response.headers.get('link'),
+    scopes: readScopes(response.headers),
+  }
 }
 
 export async function fetchGithubUser(token: string): Promise<GithubUser> {
-  const { data } = await githubJson<Record<string, unknown>>('/user', {
+  const { data, scopes } = await githubJson<Record<string, unknown>>('/user', {
     token,
     timeoutMs: GITHUB_DETAIL_TIMEOUT_MS,
   })
@@ -201,5 +217,6 @@ export async function fetchGithubUser(token: string): Promise<GithubUser> {
   return {
     login,
     avatarUrl: readHttpUrl(record.avatar_url, 2048),
+    scopes,
   }
 }

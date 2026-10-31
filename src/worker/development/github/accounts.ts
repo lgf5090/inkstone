@@ -146,6 +146,7 @@ export async function addGithubAccount(
     avatarUrl: user.avatarUrl,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    ...(user.scopes === null ? {} : { gistScope: user.scopes.includes('gist') }),
   }
 }
 
@@ -178,17 +179,20 @@ export async function effectiveGithubToken(
   env: Env,
   db: D1Database,
   userId: string,
+  accountId?: string,
 ): Promise<string | null> {
+  if (accountId) {
+    const record = await findAccountById(db, userId, accountId)
+    if (!record) {
+      throw new ApiError(404, 'github_not_found', 'The GitHub account was not found')
+    }
+    const token = await decryptAccountToken(env, record)
+    if (!token) throw tokenInvalid()
+    return token
+  }
   const records = await listAccountRecords(db, userId)
   if (records.length === 0) return null
-  const ordered = [...records]
-  for (let index = ordered.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    const current = ordered[index]!
-    ordered[index] = ordered[swapIndex]!
-    ordered[swapIndex] = current
-  }
-  for (const record of ordered) {
+  for (const record of records) {
     const token = await decryptAccountToken(env, record)
     if (token) return token
   }

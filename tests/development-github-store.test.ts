@@ -23,6 +23,10 @@ function tag(id: string, parentId: string | null = null): GithubTag {
   return { id, name: id, color: '#64748b', parentId, sortOrder: 0, createdAt: 1, updatedAt: 1 }
 }
 
+function account(id: string) {
+  return { id, username: id, avatarUrl: '', createdAt: 1, updatedAt: 1 }
+}
+
 function repo(id: string, tagIds: string[] = []): SavedGithubRepo {
   return {
     id,
@@ -105,6 +109,7 @@ beforeEach(() => {
     gists: [],
     mirrors: [],
     accounts: [],
+    activeAccountId: null,
     capabilities: { exports: false },
   })
   useUi.setState({ toasts: [] })
@@ -160,6 +165,20 @@ describe('GitHub store bootstrap', () => {
     await pending
     expect(useGithubStore.getState().status).toBe('ready')
     expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['new'])
+  })
+
+  it('keeps a valid active account and falls back to the first', async () => {
+    useGithubStore.setState({ status: 'ready', activeAccountId: 'a2' })
+    fetchMock.mockResolvedValueOnce(envelope({
+      ...BOOTSTRAP,
+      accounts: [account('a1'), account('a2')],
+    }))
+    await useGithubStore.getState().refresh()
+    expect(useGithubStore.getState().activeAccountId).toBe('a2')
+
+    fetchMock.mockResolvedValueOnce(envelope({ ...BOOTSTRAP, accounts: [account('a1')] }))
+    await useGithubStore.getState().refresh()
+    expect(useGithubStore.getState().activeAccountId).toBe('a1')
   })
 })
 
