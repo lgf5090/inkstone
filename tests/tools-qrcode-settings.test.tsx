@@ -9,6 +9,7 @@ import { useQrCodeStore, EXPORT_SIZE_MAX } from '../src/client/features/tools/qr
 import { DEFAULT_QR_OPTIONS } from '../src/client/features/tools/qrcode/engine/qr-engine'
 import { useToolsStore } from '../src/client/features/tools/store'
 import { fetchQrSettings, updateQrSettings } from '../src/client/features/tools/qrcode/api'
+import type { QrErrorCorrectionLevel } from '../src/shared/tools/qrcode/types'
 
 vi.mock('../src/client/features/tools/qrcode/api', () => ({
   fetchQrSettings: vi.fn(),
@@ -98,7 +99,7 @@ describe('QR workbench honours the saved preferences', () => {
     await initI18n()
     vi.mocked(fetchQrSettings).mockResolvedValue({
       ...SETTINGS,
-      defaultErrorCorrection: 'Z' as never,
+      defaultErrorCorrection: 'Z' as QrErrorCorrectionLevel,
     })
 
     const view = renderElement(<QrCodeApp />)

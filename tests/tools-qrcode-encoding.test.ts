@@ -1,20 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import { encodeQrData } from '../src/client/features/tools/qrcode/store'
+import type {
+  QrEmailContent,
+  QrPhoneContent,
+  QrVCardContent,
+  QrWifiContent,
+} from '../src/shared/tools/qrcode/types'
 
-const state = {
-  textContent: '',
-  urlContent: '',
-  wifiContent: { ssid: '', password: '', encryption: 'WPA' as const, hidden: false },
-  vcardContent: {},
-  emailContent: {},
-  phoneContent: {},
+type PayloadState = Parameters<typeof encodeQrData>[1]
+
+const baseVcard: QrVCardContent = {
+  firstName: '',
+  lastName: '',
+  phone: '',
+  mobile: '',
+  email: '',
+  organization: '',
+  title: '',
+  url: '',
+  address: '',
 }
 
-const withUrl = (urlContent: string) => encodeQrData('url', { ...state, urlContent } as never)
-const withEmail = (emailContent: object) => encodeQrData('email', { ...state, emailContent } as never)
-const withPhone = (phoneContent: object) => encodeQrData('phone', { ...state, phoneContent } as never)
-const withWifi = (wifiContent: object) => encodeQrData('wifi', { ...state, wifiContent } as never)
-const withVcard = (vcardContent: object) => encodeQrData('vcard', { ...state, vcardContent } as never)
+const baseState: PayloadState = {
+  textContent: '',
+  urlContent: '',
+  wifiContent: { ssid: '', password: '', encryption: 'WPA', hidden: false },
+  vcardContent: baseVcard,
+  emailContent: { to: '' },
+  phoneContent: { phone: '' },
+}
+
+const withUrl = (urlContent: string) => encodeQrData('url', { ...baseState, urlContent })
+const withEmail = (emailContent: Partial<QrEmailContent>) =>
+  encodeQrData('email', { ...baseState, emailContent: { ...baseState.emailContent, ...emailContent } })
+const withPhone = (phoneContent: Partial<QrPhoneContent>) =>
+  encodeQrData('phone', { ...baseState, phoneContent: { ...baseState.phoneContent, ...phoneContent } })
+const withWifi = (wifiContent: Partial<QrWifiContent>) =>
+  encodeQrData('wifi', { ...baseState, wifiContent: { ...baseState.wifiContent, ...wifiContent } })
+const withVcard = (vcardContent: Partial<QrVCardContent>) =>
+  encodeQrData('vcard', { ...baseState, vcardContent: { ...baseVcard, ...vcardContent } })
 
 describe('QR payload encoders', () => {
   it('normalises a URL into a form readers do not truncate', () => {
