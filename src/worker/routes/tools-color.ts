@@ -4,7 +4,7 @@
 
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
-import { COLOR_HISTORY_WINDOW } from '@shared/tools/color/contract'
+import { COLOR_ASSET_MAX_BYTES, COLOR_HISTORY_WINDOW } from '@shared/tools/color/contract'
 import {
   AddColorHistorySchema,
   AiPaletteGenerateSchema,
@@ -18,9 +18,11 @@ import {
 } from '@shared/tools/color/schemas'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { requireAuth } from '../middleware/auth'
 import { generateAiPalette, interpretAiPoeticColors } from '../tools/color/ai'
 import {
+  colorAssetLooksValid,
   deleteColorAssetFromR2,
   getColorContentType,
   readColorAssetFromR2,
@@ -31,6 +33,17 @@ import { ColorStore } from '../tools/color/store'
 export const toolsColorRoutes = new Hono<AppBindings>()
 
 toolsColorRoutes.use('*', requireAuth)
+
+/**
+ * Per-isolate brakes on the two endpoints that cost something to someone else.
+ *
+ * The assistant's daily ceiling already meters the model itself; these keep one browser tab from holding
+ * twenty-five-second streams or multi-megabyte poster writes open at once.
+ */
+const AI_CALLS_PER_MINUTE = 6
+const ASSET_UPLOADS_PER_MINUTE = 10
+const takeAiBudget = createMinuteBudget(AI_CALLS_PER_MINUTE, 'That is as many color requests as this account makes in a minute.')
+const takeUploadBudget = createMinuteBudget(ASSET_UPLOADS_PER_MINUTE, 'That is as many posters as this account uploads in a minute.')
 
 function getUserId(c: Context<AppBindings>): string {
   const user = c.get('user')
@@ -61,30 +74,33 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
   return result.data
 }
 
-function decodeBase64OrDataUrl(data: string): { bytes: Uint8Array; contentType?: string } {
+/**
+ * Decodes the poster payload.
+ *
+ * The MIME the client put in its data URL is deliberately thrown away: it used to be stored as the object's
+ * content type and echoed back on download, which let a caller with a session turn an application-origin
+ * URL into any document type it liked.
+ */
+function decodeBase64OrDataUrl(data: string): Uint8Array {
   if (data.includes('<svg') && !data.startsWith('data:')) {
-    return {
-      bytes: new TextEncoder().encode(data),
-      contentType: 'image/svg+xml',
-    }
+    return new TextEncoder().encode(data)
   }
 
-  let raw = data
-  let contentType: string | undefined
-  const match = data.match(/^data:([^;]+);base64,(.*)$/s)
-  if (match) {
-    contentType = match[1]
-    raw = match[2]
-  }
+  const match = /^data:[^;,]+;base64,(.*)$/s.exec(data)
+  const raw = match ? match[1] : data
 
   try {
     const binary = atob(raw.trim())
+    if (binary.length > COLOR_ASSET_MAX_BYTES) {
+      throw ApiError.tooLarge(`Color assets are limited to ${Math.floor(COLOR_ASSET_MAX_BYTES / 1024 / 1024)} MB`)
+    }
     const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i)
     }
-    return { bytes, contentType }
-  } catch {
+    return bytes
+  } catch (error) {
+    if (error instanceof ApiError) throw error
     throw ApiError.badRequest('Invalid base64 payload')
   }
 }
@@ -120,9 +136,24 @@ toolsColorRoutes.get('/favorites', async (c) => {
 toolsColorRoutes.post('/favorites', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateColorFavoriteSchema)
-  const created = await store.createFavorite(body)
-  return c.json({ ok: true, data: created })
+  try {
+    const created = await store.createFavorite(body)
+    return c.json({ ok: true, data: created })
+  } catch (error) {
+    if (isUniqueConstraint(error)) throw ApiError.conflict('That color id is already saved')
+    throw error
+  }
 })
+
+/**
+ * A duplicate id is the reader picking the same row twice, not a server fault.
+ *
+ * `createFavorite`/`createPalette` insert, so without this the constraint violation surfaced as a 500 and
+ * the toast showed the raw SQLite text.
+ */
+function isUniqueConstraint(error: unknown): boolean {
+  return /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(String((error as Error)?.message ?? error))
+}
 
 toolsColorRoutes.put('/favorites/:id', async (c) => {
   const store = getStore(c)
@@ -166,8 +197,13 @@ toolsColorRoutes.get('/palettes', async (c) => {
 toolsColorRoutes.post('/palettes', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateColorPaletteSchema)
-  const created = await store.createPalette(body)
-  return c.json({ ok: true, data: created })
+  try {
+    const created = await store.createPalette(body)
+    return c.json({ ok: true, data: created })
+  } catch (error) {
+    if (isUniqueConstraint(error)) throw ApiError.conflict('That palette id is already saved')
+    throw error
+  }
 })
 
 toolsColorRoutes.put('/palettes/:id', async (c) => {
@@ -233,6 +269,7 @@ toolsColorRoutes.delete('/history', async (c) => {
 
 toolsColorRoutes.post('/ai/generate', async (c) => {
   const userId = getUserId(c)
+  takeAiBudget(userId)
   const body = await parseBody(c, AiPaletteGenerateSchema)
   const result = await generateAiPalette(c.env, userId, body)
   return c.json({ ok: true, data: result })
@@ -240,6 +277,7 @@ toolsColorRoutes.post('/ai/generate', async (c) => {
 
 toolsColorRoutes.post('/ai/interpret', async (c) => {
   const userId = getUserId(c)
+  takeAiBudget(userId)
   const body = await parseBody(c, AiPoeticInterpretSchema)
   const result = await interpretAiPoeticColors(c.env, userId, body.colors, body.theme)
   return c.json({ ok: true, data: result })
@@ -252,10 +290,14 @@ toolsColorRoutes.post('/ai/interpret', async (c) => {
 toolsColorRoutes.post('/assets/upload', async (c) => {
   const store = getStore(c)
   const userId = getUserId(c)
+  takeUploadBudget(userId)
   const body = await parseBody(c, UploadColorAssetSchema)
 
   const assetId = crypto.randomUUID()
-  const { bytes, contentType } = decodeBase64OrDataUrl(body.data)
+  const bytes = decodeBase64OrDataUrl(body.data)
+  if (!colorAssetLooksValid(body.fileFormat, bytes)) {
+    throw ApiError.badRequest(`The uploaded bytes are not a ${body.fileFormat.toUpperCase()} file`)
+  }
 
   const r2Key = await uploadColorAssetToR2(
     c.env.FILES,
@@ -263,7 +305,6 @@ toolsColorRoutes.post('/assets/upload', async (c) => {
     assetId,
     body.fileFormat,
     bytes,
-    contentType,
   )
 
   await store.recordAsset(
@@ -300,13 +341,17 @@ toolsColorRoutes.get('/assets/:id', async (c) => {
     throw ApiError.notFound('Asset file not found in storage')
   }
 
-  const contentType = file.contentType || getColorContentType(asset.fileFormat)
+  const contentType = getColorContentType(asset.fileFormat)
   return new Response(file.data, {
     status: 200,
     headers: {
       'Content-Type': contentType,
       'Content-Length': String(file.data.byteLength),
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      // The rest of the API answers `no-store`; this one said `public, immutable` for a per-user object
+      // behind a session cookie, which let a shared cache hold a reader's poster for a year — and keep
+      // serving it after the delete that was supposed to take it away.
+      'Cache-Control': 'private, max-age=86400',
+      'X-Content-Type-Options': 'nosniff',
     },
   })
 })

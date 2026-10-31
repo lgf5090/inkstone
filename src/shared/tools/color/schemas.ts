@@ -7,9 +7,16 @@ import {
   COLOR_AI_INTERPRET_MAX,
   COLOR_AI_PALETTE_MAX,
   COLOR_AI_PALETTE_MIN,
+  COLOR_ASSET_MAX_ENCODED_CHARS,
   COLOR_HISTORY_SOURCES,
   COLOR_PALETTE_MAX_COLORS,
 } from './contract'
+
+/**
+ * Client-supplied row ids are optional, but they are also primary keys: an unbounded string here is an
+ * unbounded string in the index, and a duplicate answers as a constraint violation rather than a conflict.
+ */
+const AssetIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{3,39}$/i, 'Must be 4-40 letters, digits, _ or -')
 
 export const RgbColorSchema = z.object({
   r: z.number().int().min(0).max(255),
@@ -32,7 +39,7 @@ export const LabColorSchema = z.object({
 })
 
 export const CreateColorFavoriteSchema = z.object({
-  id: z.string().optional(),
+  id: AssetIdSchema.optional(),
   name: z.string().max(100).default(''),
   hex: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Must be a 6-digit hex color'),
   rgb: RgbColorSchema.optional(),
@@ -57,7 +64,7 @@ export const PaletteColorItemSchema = z.object({
 })
 
 export const CreateColorPaletteSchema = z.object({
-  id: z.string().optional(),
+  id: AssetIdSchema.optional(),
   title: z.string().min(1).max(100),
   colors: z.array(PaletteColorItemSchema).min(1).max(COLOR_PALETTE_MAX_COLORS),
   sourceType: z
@@ -110,9 +117,16 @@ export const AiPoeticInterpretSchema = z.object({
   theme: z.string().max(200).optional(),
 })
 
+/** Metadata is stored as JSON and echoed back by the asset route; flat scalars only, and few of them. */
+const AssetMetadataSchema = z
+  .record(z.string(), z.union([z.string().max(200), z.number(), z.boolean()]))
+  .refine((value) => Object.keys(value).length <= 12, 'Metadata may carry at most 12 fields')
+
 export const UploadColorAssetSchema = z.object({
   assetType: z.enum(['image_card', 'palette_poster', 'gradient_export', 'ase']),
+  // The format is the only thing that decides the served Content-Type: a client that could name the MIME
+  // could hand back `text/html` from the application's own origin.
   fileFormat: z.enum(['png', 'jpg', 'svg', 'ase']),
-  data: z.string(), // Base64 data URL or raw SVG text
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  data: z.string().min(1).max(COLOR_ASSET_MAX_ENCODED_CHARS),
+  metadata: AssetMetadataSchema.optional(),
 })

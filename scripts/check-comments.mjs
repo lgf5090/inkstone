@@ -31036,6 +31036,8 @@ const allowed = new Map([
     "/**\n * Why a model-backed answer fell back to the algorithm.\n *\n * The reader needs this to know whether the palette on screen was designed or computed: a fallback that\n * arrives without a label is a feature reporting success while not running.\n */",
     "/**\n * The color the studio, the server defaults and the \"we have nothing yet\" fallbacks all start from.\n *\n * It was written out seven times across three layers, which meant a change of default had to find all of\n * them — and the settings row had already drifted (the server answered `flat_ui` where the client kept\n * `flat`).\n */",
     "/**\n * The UI-palette tab a reader with no preference lands on.\n *\n * Both ends used to say `flat_ui`, which is not one of the tab keys — the setting was inert wherever it\n * was honored. Anything the stored value cannot match falls back to this.\n */",
+    "/**\n * Largest poster the module will store, decoded.\n *\n * A 1080×1440 PNG is comfortably under this; the ceiling exists because the payload arrives as base64\n * inside a JSON body that the isolate has to hold whole, and an uncapped string turns a poster button into\n * a memory leak with no limit but the platform's request size.\n */",
+    "/** The same ceiling on the wire, where base64 costs four bytes for every three. */",
   ]],
   ["src/shared/tools/color/harmonies.ts", [
     "/**\n * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)\n */",
@@ -31125,7 +31127,10 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/color/schemas.ts", [
     "/**\n * Zod validation schemas for Color Assistant API requests and storage.\n */",
-    "// Base64 data URL or raw SVG text",
+    "/**\n * Client-supplied row ids are optional, but they are also primary keys: an unbounded string here is an\n * unbounded string in the index, and a duplicate answers as a constraint violation rather than a conflict.\n */",
+    "/** Metadata is stored as JSON and echoed back by the asset route; flat scalars only, and few of them. */",
+    "// The format is the only thing that decides the served Content-Type: a client that could name the MIME",
+    "// could hand back `text/html` from the application's own origin.",
   ]],
   ["src/shared/tools/color/spaces.ts", [
     "/**\n * High-precision mathematical conversions across modern color spaces:\n * HEX, RGB, HSV, HSL, CMYK, HSI, CIE-LAB, and OKLab.\n */",
@@ -38113,6 +38118,12 @@ const allowed = new Map([
     "// History",
     "// AI Palette Studio & Poetic Interpretation",
     "// Assets (R2 upload / download)",
+    "/**\n * Per-isolate brakes on the two endpoints that cost something to someone else.\n *\n * The assistant's daily ceiling already meters the model itself; these keep one browser tab from holding\n * twenty-five-second streams or multi-megabyte poster writes open at once.\n */",
+    "/**\n * Decodes the poster payload.\n *\n * The MIME the client put in its data URL is deliberately thrown away: it used to be stored as the object's\n * content type and echoed back on download, which let a caller with a session turn an application-origin\n * URL into any document type it liked.\n */",
+    "/**\n * A duplicate id is the reader picking the same row twice, not a server fault.\n *\n * `createFavorite`/`createPalette` insert, so without this the constraint violation surfaced as a 500 and\n * the toast showed the raw SQLite text.\n */",
+    "// The rest of the API answers `no-store`; this one said `public, immutable` for a per-user object",
+    "// behind a session cookie, which let a shared cache hold a reader's poster for a year — and keep",
+    "// serving it after the delete that was supposed to take it away.",
   ]],
   ["src/worker/routes/tools-password.ts", [
     "/**\n * Password Manager API routes (`/api/tools/password/*`).\n */",
@@ -39255,6 +39266,7 @@ const allowed = new Map([
     "/**\n * Fills a palette request from the algorithmic engine.\n *\n * One algorithmic group holds at most six colors, so a reader who asked for eight used to be handed four\n * with no comment. The groups overlap heavily, hence the de-duplication, and the random start keeps repeat\n * requests from returning the same list every time.\n */",
     "// The model answered with something unusable: still an algorithmic palette, still worth reporting.",
     "/**\n * Names a color after the closest entry in the traditional palette.\n *\n * The offline fallback used to hand back the same ten poetic names in rotation, so a reader who named two\n * different photos got the same lyric couplet on a red and on a grey, and nothing about the answer was\n * about the color. Naming by nearest catalogued color is not a model's answer, but it is an answer about\n * the color, and it is reproducible.\n */",
+    "/**\n * Clips a model's text to the width the columns and the palette schema allow.\n *\n * The model answers whatever it likes; these strings are stored and later rendered, so an unbounded reply\n * would be a 200 KB \"color name\" in the reader's palette list.\n */",
   ]],
   ["src/worker/tools/color/r2.ts", [
     "/**\n * Cloudflare R2 storage driver for the Color Assistant module (`tools/color`).\n *\n * Strict key naming convention:\n * `tools/color/{format}/{userId}/{assetId}.{format}`\n * where format is normalized to png, jpg, svg, or ase.\n */",
@@ -39263,6 +39275,9 @@ const allowed = new Map([
     "// If R2 is not configured in this environment, return key without throwing",
     "/**\n * Reads an asset from R2 by key.\n */",
     "/**\n * Deletes an asset from R2 by key.\n */",
+    "/**\n * Does the payload actually contain what its format claims?\n *\n * The route used to trust the MIME the client put in its data URL, which meant the stored object — and the\n * response header handed back on download — could say anything at all, including `text/html` served from\n * the application's own origin. The format is now the only authority, and this is where the two are\n * checked against each other.\n */",
+    "// SVG is served as a document on this origin, so anything that could run there is refused even",
+    "// though the CSP would probably stop it.",
   ]],
   ["src/worker/tools/color/schema.ts", [
     "/**\n * D1 database schema statements and required invariants for Color Assistant (`tools_color_*`).\n */",
@@ -44470,6 +44485,10 @@ const allowed = new Map([
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",
+  ]],
+  ["tests/tools-color-security.test.ts", [
+    "/**\n * The color module's upload and quota surface.\n *\n * These are the checks the reviewer could only describe as \"the client decides\" before: what content type\n * a stored poster answers with, how big it may be, and how often one account may ask for a model.\n */",
+    "// The schema ceiling answers 400 before the body is ever decoded.",
   ]],
   ["tests/tools-color-spaces.test.ts", [
     "// Blue",

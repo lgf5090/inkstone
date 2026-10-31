@@ -58,6 +58,18 @@ function algorithmicFallback(seed: string, count: number): string[] {
 }
 
 /**
+ * Clips a model's text to the width the columns and the palette schema allow.
+ *
+ * The model answers whatever it likes; these strings are stored and later rendered, so an unbounded reply
+ * would be a 200 KB "color name" in the reader's palette list.
+ */
+function clip(value: unknown, max: number, fallback = ''): string {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed
+}
+
+/**
  * Generates an AI color palette scheme based on user prompt, seed color, and stylistic preferences.
  */
 export async function generateAiPalette(
@@ -113,14 +125,17 @@ ${userPrompt ? `- Description: ${userPrompt}` : ''}`
 
     if (parsed && Array.isArray(parsed.colors) && parsed.colors.length > 0) {
       return {
-        title: parsed.title || `${style} Color Inspiration`,
-        description: parsed.description || 'Harmonious color palette customized by AI.',
-        colors: parsed.colors.map((c, i) => ({
-          hex: normalizeHex(c.hex, true),
-          name: c.name || `Color ${i + 1}`,
-          description: c.description || '',
+        title: clip(parsed.title, 100) || `${style} Color Inspiration`,
+        description: clip(parsed.description, 1000) || 'Harmonious color palette customized by AI.',
+        colors: parsed.colors.slice(0, count).map((c, i) => ({
+          hex: normalizeHex(typeof c.hex === 'string' ? c.hex : '', true),
+          name: clip(c.name, 100) || `Color ${i + 1}`,
+          description: clip(c.description, 200),
         })),
-        tags: Array.isArray(parsed.tags) ? parsed.tags : [style, tone],
+        tags: (Array.isArray(parsed.tags) ? parsed.tags : [style, tone])
+          .slice(0, 8)
+          .map((tag) => clip(tag, 50))
+          .filter(Boolean),
         degraded: false,
       }
     }
@@ -230,10 +245,10 @@ Colors: ${normColors.join(', ')}`
 
     if (Array.isArray(parsed) && parsed.length > 0) {
       return {
-        items: parsed.map((item, idx) => ({
-          hex: normColors[idx] || normalizeHex(item.hex, true),
-          name: item.name || `Color ${idx + 1}`,
-          story: item.story || 'Extracted color',
+        items: parsed.slice(0, normColors.length).map((item, idx) => ({
+          hex: normColors[idx] || normalizeHex(typeof item.hex === 'string' ? item.hex : '', true),
+          name: clip(item.name, 100) || `Color ${idx + 1}`,
+          story: clip(item.story, 300) || 'Extracted color',
         })),
         degraded: false,
       }

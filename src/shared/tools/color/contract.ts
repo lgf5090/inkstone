@@ -61,6 +61,18 @@ export const DEFAULT_SEED_HEX = '#627486'
 export const DEFAULT_UI_TAB = 'tailwind'
 
 /**
+ * Largest poster the module will store, decoded.
+ *
+ * A 1080×1440 PNG is comfortably under this; the ceiling exists because the payload arrives as base64
+ * inside a JSON body that the isolate has to hold whole, and an uncapped string turns a poster button into
+ * a memory leak with no limit but the platform's request size.
+ */
+export const COLOR_ASSET_MAX_BYTES = 4 * 1024 * 1024
+
+/** The same ceiling on the wire, where base64 costs four bytes for every three. */
+export const COLOR_ASSET_MAX_ENCODED_CHARS = Math.ceil((COLOR_ASSET_MAX_BYTES * 4) / 3) + 1024
+
+/**
  * Why a model-backed answer fell back to the algorithm.
  *
  * The reader needs this to know whether the palette on screen was designed or computed: a fallback that
