@@ -316,6 +316,7 @@ export function GistsPane({
         sidebarHeader={<ModuleTabs value={tab} onChange={onTabChange} />}
         sidebarFooter={<SidebarFooter onOpenAccounts={onOpenAccounts} onOpenMirrors={onOpenMirrors} currentMirrorName={currentMirror?.name} />}
         detailDisabled={!detailGist}
+        detailKey={remote ? selectedRemoteId : selectedGistId}
         sidebar={<GistSidebar tags={gistTags} savedGists={gists} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onCreate={() => setCreateOpen(true)} onImport={() => setImportOpen(true)} accounts={accounts} />}
         list={({ toggleSidebar, toggleDetail, detailDisabled }) => (
           <GistList

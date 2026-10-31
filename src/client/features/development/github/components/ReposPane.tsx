@@ -183,6 +183,7 @@ export function ReposPane({
         sidebarHeader={<ModuleTabs value={tab} onChange={onTabChange} />}
         sidebarFooter={<SidebarFooter onOpenAccounts={onOpenAccounts} onOpenMirrors={onOpenMirrors} currentMirrorName={currentMirror?.name} />}
         detailDisabled={!selectedRepo}
+        detailKey={selectedRepoId}
         sidebar={sidebar}
         list={({ toggleSidebar, toggleDetail, detailDisabled }) => (
           <RepoList

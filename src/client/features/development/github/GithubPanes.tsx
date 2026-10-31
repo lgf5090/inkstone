@@ -22,6 +22,7 @@ export interface GithubPanesProps {
   list: ReactNode | ((controls: ListPaneControls) => ReactNode)
   detail: ReactNode
   detailDisabled?: boolean
+  detailKey?: string | null
 }
 
 export function GithubPanes({
@@ -32,6 +33,7 @@ export function GithubPanes({
   list,
   detail,
   detailDisabled = false,
+  detailKey = null,
 }: GithubPanesProps) {
   const wide = useMediaQuery(WIDE_QUERY)
   const twoPane = useMediaQuery(TWO_PANE_QUERY)
@@ -79,8 +81,8 @@ export function GithubPanes({
   }
 
   useEffect(() => {
-    if (!detailDisabled) setDetailHidden(false)
-  }, [detailDisabled])
+    if (detailKey) setDetailHidden(false)
+  }, [detailKey])
 
   const controls: ListPaneControls = { toggleSidebar, toggleDetail, detailDisabled }
   const listContent = typeof list === 'function' ? list(controls) : list
