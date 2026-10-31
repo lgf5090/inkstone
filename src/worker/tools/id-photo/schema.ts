@@ -66,12 +66,14 @@ export const TOOLS_ID_PHOTO_REQUIRED_TABLES: readonly string[] = [
   'tools_id_photo_records',
   'tools_id_photo_specs',
   'tools_id_photo_settings',
+  'tools_id_photo_orphans',
 ]
 
 export const TOOLS_ID_PHOTO_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_id_photo_records_user',
   'idx_tools_id_photo_records_spec',
   'idx_tools_id_photo_specs_user',
+  'idx_tools_id_photo_orphans_user',
 ]
 
 export const TOOLS_ID_PHOTO_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -125,4 +127,20 @@ export const TOOLS_ID_PHOTO_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'print_paper_size',
     'updated_at',
   ],
+  tools_id_photo_orphans: ['user_id', 'r2_key', 'queued_at'],
 }
+
+/**
+ * Storage objects whose delete failed. Kept apart from the record statements so an applied migration
+ * stays exactly what it was when it ran; this batch is added by its own version.
+ */
+export const TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS tools_id_photo_orphans (
+    user_id TEXT NOT NULL,
+    r2_key TEXT NOT NULL,
+    queued_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, r2_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_id_photo_orphans_user
+     ON tools_id_photo_orphans(user_id, queued_at)`,
+]

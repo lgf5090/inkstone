@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS,
   TOOLS_ID_PHOTO_REQUIRED_COLUMNS,
   TOOLS_ID_PHOTO_REQUIRED_INDEXES,
   TOOLS_ID_PHOTO_REQUIRED_TABLES,
@@ -80,7 +81,7 @@ async function call(
 describe('ID Photo Tool D1 Schema & Invariants', () => {
   beforeEach(() => {
     sqlite = new DatabaseSync(':memory:')
-    for (const statement of TOOLS_ID_PHOTO_SCHEMA_STATEMENTS) {
+    for (const statement of [...TOOLS_ID_PHOTO_SCHEMA_STATEMENTS, ...TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS]) {
       sqlite.exec(statement)
     }
   })
@@ -89,7 +90,7 @@ describe('ID Photo Tool D1 Schema & Invariants', () => {
     sqlite.close()
   })
 
-  it('creates all 3 required tables and 3 indexes', () => {
+  it('creates every required table and index', () => {
     const tables = sqlite
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .all()
@@ -124,7 +125,7 @@ describe('ID Photo Tool D1 Schema & Invariants', () => {
 describe('ID Photo Routes, Tenant Isolation & R2 Storage', () => {
   beforeEach(() => {
     sqlite = new DatabaseSync(':memory:')
-    for (const statement of TOOLS_ID_PHOTO_SCHEMA_STATEMENTS) {
+    for (const statement of [...TOOLS_ID_PHOTO_SCHEMA_STATEMENTS, ...TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS]) {
       sqlite.exec(statement)
     }
     const bucket = testR2Bucket()

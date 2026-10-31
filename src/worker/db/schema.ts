@@ -110,6 +110,7 @@ import {
   TOOLS_COLOR_SCHEMA_STATEMENTS,
 } from '../tools/color/schema'
 import {
+  TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS,
   TOOLS_ID_PHOTO_REQUIRED_COLUMNS,
   TOOLS_ID_PHOTO_REQUIRED_INDEXES,
   TOOLS_ID_PHOTO_REQUIRED_TABLES,
@@ -721,6 +722,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...TOOLS_QRCODE_SCHEMA_STATEMENTS,
   ...TOOLS_COLOR_SCHEMA_STATEMENTS,
   ...TOOLS_ID_PHOTO_SCHEMA_STATEMENTS,
+  ...TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS,
   ...TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
   ...DEVELOPMENT_DATABASE_SCHEMA_STATEMENTS,
   ...DEVELOPMENT_APITESTER_SCHEMA_STATEMENTS,
@@ -3097,6 +3099,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `UPDATE blog_settings SET value = json_set(value, '$.provider', 'local') WHERE key = 'comment' AND json_extract(value, '$.provider') = 'none'`,
     ],
+  },
+  {
+    version: 212,
+    statements: TOOLS_ID_PHOTO_ORPHAN_SCHEMA_STATEMENTS,
   },
 ]
 

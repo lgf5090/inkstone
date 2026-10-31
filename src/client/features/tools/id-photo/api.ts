@@ -34,7 +34,7 @@ export async function listIdPhotoRecords(query: {
   limit?: number
   offset?: number
   search?: string
-} = {}): Promise<{ records: IdPhotoRecord[]; total: number }> {
+} = {}): Promise<{ records: IdPhotoRecord[]; total: number; orphansPending?: number }> {
   const params = new URLSearchParams()
   if (query.specId) params.set('specId', query.specId)
   if (query.limit) params.set('limit', String(query.limit))
@@ -42,7 +42,7 @@ export async function listIdPhotoRecords(query: {
   if (query.search) params.set('search', query.search)
 
   const qs = params.toString()
-  return request<{ records: IdPhotoRecord[]; total: number }>(
+  return request<{ records: IdPhotoRecord[]; total: number; orphansPending?: number }>(
     `/api/tools/id-photo/records${qs ? `?${qs}` : ''}`,
   )
 }

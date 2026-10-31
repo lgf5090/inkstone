@@ -288,6 +288,49 @@ export class IdPhotoStore {
     return { ...current, title }
   }
 
+  async queueOrphans(keys: readonly string[]): Promise<number> {
+    const clean = [...new Set(keys.filter((key) => key.length > 0))]
+    if (clean.length === 0) return 0
+    const now = Date.now()
+    // Each batch item needs its own prepared statement: binding one statement twice leaves every
+    // row bound to the last value.
+    await this.db.batch(
+      clean.map((key) =>
+        this.db
+          .prepare(`INSERT OR IGNORE INTO tools_id_photo_orphans (user_id, r2_key, queued_at) VALUES (?, ?, ?)`)
+          .bind(this.userId, key, now),
+      ),
+    )
+    return clean.length
+  }
+
+  async listOrphans(limit: number): Promise<string[]> {
+    const rows = await this.db
+      .prepare(`SELECT r2_key FROM tools_id_photo_orphans WHERE user_id = ? ORDER BY queued_at LIMIT ?`)
+      .bind(this.userId, limit)
+      .all<{ r2_key: string }>()
+    return rows.results.map((row) => row.r2_key)
+  }
+
+  async countOrphans(): Promise<number> {
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) AS count FROM tools_id_photo_orphans WHERE user_id = ?`)
+      .bind(this.userId)
+      .first<{ count: number }>()
+    return row?.count ?? 0
+  }
+
+  async forgetOrphans(keys: readonly string[]): Promise<void> {
+    if (keys.length === 0) return
+    await this.db.batch(
+      keys.map((key) =>
+        this.db
+          .prepare(`DELETE FROM tools_id_photo_orphans WHERE user_id = ? AND r2_key = ?`)
+          .bind(this.userId, key),
+      ),
+    )
+  }
+
   async listSpecs(): Promise<IdPhotoSpec[]> {
     const rows = await this.db
       .prepare(

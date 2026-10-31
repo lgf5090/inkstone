@@ -38028,6 +38028,9 @@ const allowed = new Map([
   ]],
   ["src/worker/routes/tools-id-photo.ts", [
     "/**\n * The declared fileType is a client claim, so the bytes decide what a stored portrait really is:\n * a mislabelled upload would otherwise be served back with a content type it does not match.\n */",
+    "// The caller keeps the key on the queue, so a refused delete is recorded rather than dropped.",
+    "/**\n * A storage object is only really gone once R2 confirms it. The record row is dropped first, so a\n * key whose delete refused goes on the queue and the next archive read retries it instead of leaving\n * the bytes billed forever.\n */",
+    "// Opening the archive is the cheapest moment to finish an interrupted delete.",
   ]],
   ["src/worker/routes/tools-password.ts", [
     "/**\n * Password Manager API routes (`/api/tools/password/*`).\n */",
@@ -39198,8 +39201,13 @@ const allowed = new Map([
     "// Truncate sliding window if user has more than 100 history items",
     "// Assets",
   ]],
+  ["src/worker/tools/id-photo/schema.ts", [
+    "/**\n * Storage objects whose delete failed. Kept apart from the record statements so an applied migration\n * stays exactly what it was when it ran; this batch is added by its own version.\n */",
+  ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
+    "// Each batch item needs its own prepared statement: binding one statement twice leaves every",
+    "// row bound to the last value.",
   ]],
   ["src/worker/tools/password/r2.ts", [
     "/**\n * R2 storage helpers for Password Manager backups and export files.\n *\n * Path invariants:\n * - Backups: `tools/password/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/password/txt/${userId}/${fileId}.txt`\n * - Plaintext CSV: `tools/password/csv/${userId}/${fileId}.csv`\n */",
@@ -44432,6 +44440,11 @@ const allowed = new Map([
   ["tests/tools-id-photo-head.test.ts", [
     "/** The face is an ellipse, so the rasterised bounds the estimator should recover are known to the pixel. */",
     "// The ellipse runs to y=90 and the neck to y=150; the estimate must stop near the chin.",
+  ]],
+  ["tests/tools-id-photo-orphans.test.ts", [
+    "// A real bucket refuses the whole call, so nothing is removed on a refused delete.",
+    "// The row is gone but the bytes are still billed, which is exactly what the queue remembers.",
+    "// Bob reading his archive must not clear (or keep) Alice\\'s object.",
   ]],
   ["tests/tools-id-photo-rename-ui.test.tsx", [
     "// A dialog lives in a portal, so an unmounted view would leave it in the document for the next case.",

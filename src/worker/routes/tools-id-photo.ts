@@ -9,7 +9,7 @@ import {
   QueryIdPhotoRecordsSchema,
   UpdateIdPhotoSettingsSchema,
 } from '@shared/tools/id-photo/schemas'
-import type { AppBindings } from '../env'
+import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
 import { createMinuteBudget } from '../lib/rate-limit'
@@ -56,6 +56,48 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
 
 const recordsWriteBudget = createMinuteBudget(24, 'Too many archived photos in one minute, try again shortly')
 const specsWriteBudget = createMinuteBudget(30, 'Too many specifications created in one minute, try again shortly')
+
+const ORPHAN_DRAIN_LIMIT = 8
+
+async function deleteStorageObject(env: Env, key: string): Promise<boolean> {
+  try {
+    await deleteIdPhotoFromR2(env.FILES, key)
+    return true
+  } catch {
+    // The caller keeps the key on the queue, so a refused delete is recorded rather than dropped.
+    return false
+  }
+}
+
+/**
+ * A storage object is only really gone once R2 confirms it. The record row is dropped first, so a
+ * key whose delete refused goes on the queue and the next archive read retries it instead of leaving
+ * the bytes billed forever.
+ */
+async function deleteOrQueue(
+  env: Env,
+  store: IdPhotoStore,
+  keys: readonly string[],
+): Promise<{ cleaned: number; queued: number }> {
+  const wanted = keys.filter((key) => key.length > 0)
+  const failed: string[] = []
+  for (const key of wanted) {
+    if (!(await deleteStorageObject(env, key))) failed.push(key)
+  }
+  const queued = await store.queueOrphans(failed)
+  return { cleaned: wanted.length - failed.length, queued }
+}
+
+async function drainOrphans(env: Env, store: IdPhotoStore): Promise<number> {
+  const keys = await store.listOrphans(ORPHAN_DRAIN_LIMIT)
+  if (keys.length === 0) return 0
+  const cleared: string[] = []
+  for (const key of keys) {
+    if (await deleteStorageObject(env, key)) cleared.push(key)
+  }
+  await store.forgetOrphans(cleared)
+  return cleared.length
+}
 
 /**
  * The declared fileType is a client claim, so the bytes decide what a stored portrait really is:
@@ -115,7 +157,9 @@ toolsIdPhotoRoutes.get('/records', async (c) => {
   }
 
   const result = await store.listRecords(query.data)
-  return c.json({ ok: true, data: result })
+  // Opening the archive is the cheapest moment to finish an interrupted delete.
+  await drainOrphans(c.env, store)
+  return c.json({ ok: true, data: { ...result, orphansPending: await store.countOrphans() } })
 })
 
 toolsIdPhotoRoutes.post('/records', async (c) => {
@@ -172,10 +216,7 @@ toolsIdPhotoRoutes.post('/records', async (c) => {
 
     return c.json({ ok: true, data: record }, 201)
   } catch (error) {
-    await Promise.allSettled([
-      r2Key ? deleteIdPhotoFromR2(c.env.FILES, r2Key) : Promise.resolve(),
-      printR2Key ? deleteIdPhotoFromR2(c.env.FILES, printR2Key) : Promise.resolve(),
-    ])
+    await deleteOrQueue(c.env, store, [r2Key, printR2Key])
     throw error
   }
 })
@@ -198,14 +239,15 @@ toolsIdPhotoRoutes.delete('/records/:id', async (c) => {
     throw ApiError.notFound('Record not found')
   }
 
-  const storage = await Promise.allSettled([
-    keys.r2Key ? deleteIdPhotoFromR2(c.env.FILES, keys.r2Key) : Promise.resolve(),
-    keys.printR2Key ? deleteIdPhotoFromR2(c.env.FILES, keys.printR2Key) : Promise.resolve(),
-  ])
+  const outcome = await deleteOrQueue(c.env, store, [keys.r2Key, keys.printR2Key])
 
   return c.json({
     ok: true,
-    data: { deleted: true, storageCleaned: storage.every((result) => result.status === 'fulfilled') },
+    data: {
+      deleted: true,
+      storageCleaned: outcome.queued === 0,
+      orphansQueued: outcome.queued,
+    },
   })
 })
 
