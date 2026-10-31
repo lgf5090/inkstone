@@ -29,7 +29,7 @@ function ReleaseMenu({ releases, index, onChange }: { releases: GithubRelease[];
   const current = releases[index]
   const items: MenuItem[] = releases.map((release, releaseIndex) => ({
     id: String(release.id),
-    label: `${release.tagName}${release.isLatest ? ` · ${t('development.github.repos.latest')}` : ''}${release.isPrerelease ? ' · Pre' : ''}`,
+    label: `${release.tagName}${release.isLatest ? ` · ${t('development.github.repos.latest')}` : ''}${release.isPrerelease ? ` · ${t('development.github.repos.prerelease')}` : ''}`,
     checked: releaseIndex === index,
     onSelect: () => onChange(releaseIndex),
   }))
@@ -145,7 +145,7 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
       </div>
 
       <div className="border-b border-[var(--border-subtle)] p-4">
-        <div className="mb-2 flex items-center gap-2"><Package size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.releases_title')}</h3><span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.repos.versions')}: {detail.releases.length} · {t('development.github.mirrors.current', { name: mirror?.name ?? '' })}</span></div>
+        <div className="mb-2 flex items-center gap-2"><Package size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.releases_title')}</h3><span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.repos.releases_count', { count: detail.releases.length })} · {t('development.github.mirrors.current', { name: mirror?.name ?? '' })}</span></div>
         {detail.releases.length === 0 ? <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{detail.warnings.some((warning) => warning.source === 'releases') ? t('development.github.repos.releases_failed') : t('development.github.repos.no_releases')}</p> : (
           <div className="space-y-2">
             <ReleaseMenu releases={detail.releases} index={releaseIndex} onChange={(index) => { setReleaseIndex(index); setAssetName(detail.releases[index]?.assets[0]?.name ?? '') }} />
