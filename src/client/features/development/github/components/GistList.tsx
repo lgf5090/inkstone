@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Calendar, Check, ChevronLeft, ChevronRight, Download, FileCode, Globe, LayoutGrid, List, Lock, PanelLeft, PanelRight, Pin, Plus, RefreshCw, Settings2, Star, Tag as TagIcon, Trash2, X } from 'lucide-react'
+import { Calendar, Check, ChevronLeft, ChevronRight, Copy, Download, FileCode, Globe, LayoutGrid, List, Lock, PanelLeft, PanelRight, Pin, Plus, RefreshCw, Settings2, Star, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import type { GithubTag, GistPrefs, SavedGist } from '@shared/development/github/types'
 import { GIST_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
@@ -35,13 +35,13 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
               {remote ? (
                 <>
                   <IconButton label={savedRemote ? t('development.github.gists.saved_local') : t('development.github.gists.save_local')} size="sm" onClick={(event) => { event.stopPropagation(); if (!savedRemote) onSaveToLocal() }}>{savedRemote ? <Check size={13} className="text-[var(--success)]" /> : <Download size={13} />}</IconButton>
-                  <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><FileCode size={13} /></IconButton>
+                  <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><Copy size={13} /></IconButton>
                 </>
               ) : (
                 <>
                   <IconButton label={gist.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.stopPropagation(); onTogglePin() }}><Pin size={13} className={cn(gist.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={gist.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.stopPropagation(); onToggleFav() }}><Star size={13} className={cn(gist.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
-                  <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><FileCode size={13} /></IconButton>
+                  <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><Copy size={13} /></IconButton>
                 </>
               )}
             </div>
@@ -76,7 +76,7 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
         {remote ? (
           <>
             <IconButton label={savedRemote ? t('development.github.gists.saved_local') : t('development.github.gists.save_local')} size="sm" onClick={(event) => { event.stopPropagation(); if (!savedRemote) onSaveToLocal() }}>{savedRemote ? <Check size={13} className="text-[var(--success)]" /> : <Download size={13} />}</IconButton>
-            <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><FileCode size={13} /></IconButton>
+            <IconButton label={t('development.github.gists.copy_url')} size="sm" onClick={(event) => { event.stopPropagation(); void copy() }}><Copy size={13} /></IconButton>
           </>
         ) : (
           <>

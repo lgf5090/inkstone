@@ -1,5 +1,5 @@
 import { memo, useMemo, type KeyboardEvent } from 'react'
-import { Archive, Calendar, CircleDot, ExternalLink, GitFork, Pin, Scale, Star } from 'lucide-react'
+import { Archive, Calendar, CircleDot, Copy, ExternalLink, GitFork, Globe, Pin, Scale, Star } from 'lucide-react'
 import type { GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
@@ -78,8 +78,8 @@ export const RepoRow = memo(function RepoRow({
                 <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                   <IconButton label={saved?.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onTogglePin(repo) }}><Pin size={13} className={cn(saved?.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={saved?.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFav(repo) }}><Star size={13} className={cn(saved?.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
-                  <IconButton label={t('development.github.repos.copy_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(repo.url, t('development.github.repos.url_copied')) }}><ExternalLink size={13} /></IconButton>
-                  <IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(mirrorUrl, t('development.github.repos.mirror_url_copied')) }}><ExternalLink size={13} /></IconButton>
+                  <IconButton label={t('development.github.repos.copy_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(repo.url, t('development.github.repos.url_copied')) }}><Copy size={13} /></IconButton>
+                  <IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(mirrorUrl, t('development.github.repos.mirror_url_copied')) }}><Globe size={13} /></IconButton>
                 </div>
               </div>
               {repo.description && <p className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{repo.description}</p>}
