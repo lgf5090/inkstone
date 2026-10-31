@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import type {
   QrContentType,
@@ -76,8 +77,6 @@ export interface QrCodeState {
   setSelectedRecord: (record: QrRecord | null) => void
   setInfoModalOpen: (open: boolean) => void
   setFullscreenModalOpen: (open: boolean) => void
-
-  getEncodedPayload: () => string
 }
 
 export function encodeQrData(
@@ -161,7 +160,7 @@ export function encodeQrData(
   }
 }
 
-export const useQrCodeStore = create<QrCodeState>((set, get) => ({
+export const useQrCodeStore = create<QrCodeState>((set) => ({
   activeView: 'generator',
   contentAccordionOpen: true,
   beautifyAccordionOpen: true,
@@ -282,16 +281,23 @@ export const useQrCodeStore = create<QrCodeState>((set, get) => ({
   setSelectedRecord: (record) => set({ selectedRecord: record }),
   setInfoModalOpen: (open) => set({ infoModalOpen: open }),
   setFullscreenModalOpen: (open) => set({ fullscreenModalOpen: open }),
-
-  getEncodedPayload: () => {
-    const s = get()
-    return encodeQrData(s.contentType, {
-      textContent: s.textContent,
-      urlContent: s.urlContent,
-      wifiContent: s.wifiContent,
-      vcardContent: s.vcardContent,
-      emailContent: s.emailContent,
-      phoneContent: s.phoneContent,
-    })
-  },
 }))
+
+/**
+ * The encoded payload as a render-time value. A component that read it through a store getter during
+ * render stayed stale: the getter is a stable function reference, so editing the content never
+ * re-rendered the panel and it kept drawing — and exporting — the previous payload.
+ */
+export function useQrPayload(): string {
+  const contentType = useQrCodeStore((s) => s.contentType)
+  const textContent = useQrCodeStore((s) => s.textContent)
+  const urlContent = useQrCodeStore((s) => s.urlContent)
+  const wifiContent = useQrCodeStore((s) => s.wifiContent)
+  const vcardContent = useQrCodeStore((s) => s.vcardContent)
+  const emailContent = useQrCodeStore((s) => s.emailContent)
+  const phoneContent = useQrCodeStore((s) => s.phoneContent)
+  return useMemo(
+    () => encodeQrData(contentType, { textContent, urlContent, wifiContent, vcardContent, emailContent, phoneContent }),
+    [contentType, textContent, urlContent, wifiContent, vcardContent, emailContent, phoneContent],
+  )
+}

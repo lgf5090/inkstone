@@ -10,7 +10,8 @@ import {
   Upload,
 } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
-import { useQrCodeStore } from '../store'
+import { useQrCodeStore, useQrPayload } from '../store'
+import { useUi } from '../../../../store/ui'
 import { QrEngine } from '../engine/qr-engine'
 import { GridAlignModal } from './GridAlignModal'
 import {
@@ -39,15 +40,22 @@ export const QrCompareView: React.FC = () => {
   const refInputRef = useRef<HTMLInputElement>(null)
   const displayCanvasRef = useRef<HTMLCanvasElement>(null)
 
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
+  const payload = useQrPayload()
   const options = useQrCodeStore((s) => s.options)
 
   // Use current generator QR as initial reference QR if empty
   const handleUseCurrentGeneratorAsRef = async () => {
-    const payload = getEncodedPayload() || 'https://inkstone.app'
-    const engine = new QrEngine(options, payload)
-    const canvas = await engine.renderCanvas(800, 800)
-    setRefImageUrl(canvas.toDataURL('image/png'))
+    if (!payload.trim()) {
+      useUi.getState().toast({ title: t('tools.qrcode.compare.no_content'), tone: 'danger' })
+      return
+    }
+    try {
+      const engine = new QrEngine(options, payload)
+      const canvas = await engine.renderCanvas(800, 800)
+      setRefImageUrl(canvas.toDataURL('image/png'))
+    } catch {
+      useUi.getState().toast({ title: t('tools.qrcode.preview.render_error'), tone: 'danger' })
+    }
   }
 
   // Segment and compare whenever images or grid sizes change

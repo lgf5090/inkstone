@@ -3,7 +3,7 @@ import { Check, Cloud, Copy, Download } from 'lucide-react'
 import type { QrExportFormat } from '../../../../../shared/tools/qrcode/types'
 import { copyQrCodeToClipboard, downloadQrCode, exportQrToDataUrl } from '../engine/export-pipeline'
 import { QrEngine } from '../engine/qr-engine'
-import { useQrCodeStore } from '../store'
+import { useQrCodeStore, useQrPayload } from '../store'
 import { saveQrRecord } from '../api'
 import { Field, Slider } from '../../../../components/form'
 import { Button } from '../../../../components/primitives'
@@ -18,11 +18,9 @@ export function QrExportControls() {
 
   const exportSize = useQrCodeStore((s) => s.exportSize)
   const setExportSize = useQrCodeStore((s) => s.setExportSize)
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
   const options = useQrCodeStore((s) => s.options)
   const contentType = useQrCodeStore((s) => s.contentType)
-
-  const payload = getEncodedPayload()
+  const payload = useQrPayload()
   const hasContent = Boolean(payload.trim())
 
   const getEngine = () => new QrEngine(options, payload)

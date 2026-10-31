@@ -18034,6 +18034,10 @@ const allowed = new Map([
   ["src/client/features/tools/qrcode/compare/diff-engine.ts", [
     "// Correction map",
   ]],
+  ["src/client/features/tools/qrcode/engine/qr-engine.ts", [
+    "// A blank canvas here would export a code nothing can scan, and the preview would look",
+    "// healthy. Fail loudly instead so the surface can show it and offer a retry.",
+  ]],
   ["src/client/features/tools/qrcode/engine/qr-toolkit-engine.ts", [
     "// 3D Perspective Transformation",
     "// Apply Organic Effects (crystalize or liquidify)",
@@ -18052,7 +18056,9 @@ const allowed = new Map([
     "/* Alignment Sub Marker */",
   ]],
   ["src/client/features/tools/qrcode/preview/QrPreviewPanel.tsx", [
-    "// Safe fallback",
+    "// Past 2× the extra backing-store pixels are not visible, and a 4K canvas per keystroke is not free.",
+    "// A superseded render must not paint over a newer one: the cleanup below marks every in-flight",
+    "// promise stale, which is what keeps a slow 2000px effect from resurrecting an old payload.",
   ]],
   ["src/client/features/tools/qrcode/scanner/CameraScanner.tsx", [
     "// Ignore frame decode errors",
@@ -18069,6 +18075,9 @@ const allowed = new Map([
     "// 1. Try native BarcodeDetector if available",
     "// Fall through to jsQR",
     "// 2. jsQR fallback",
+  ]],
+  ["src/client/features/tools/qrcode/store.ts", [
+    "/**\n * The encoded payload as a render-time value. A component that read it through a store getter during\n * render stayed stale: the getter is a stable function reference, so editing the content never\n * re-rendered the panel and it kept drawing — and exporting — the previous payload.\n */",
   ]],
   ["src/client/features/tools/shortlinks/BundlesView.tsx", [
     "/* Header */",
@@ -44510,6 +44519,10 @@ const allowed = new Map([
     "// Flip luminance on inner modules (not margin) to trigger mismatches",
     "// Index 22: x=2, y=2 (inner), expected 1 (light), flip to dark (20)",
     "// Index 23: x=3, y=2 (inner), expected 0 (dark), flip to light (240)",
+  ]],
+  ["tests/tools-qrcode-ui.test.tsx", [
+    "// An unmounted view keeps its subscription on the shared store, so its effects would run inside",
+    "// the next test and make every observation here a function of test order.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

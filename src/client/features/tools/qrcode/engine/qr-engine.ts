@@ -464,9 +464,9 @@ export class QrEngine {
         if (rawElem) {
           baseCanvas = rawElem as HTMLCanvasElement
         } else {
-          baseCanvas = document.createElement('canvas')
-          baseCanvas.width = width
-          baseCanvas.height = height
+          // A blank canvas here would export a code nothing can scan, and the preview would look
+          // healthy. Fail loudly instead so the surface can show it and offer a retry.
+          throw new Error('QR render failed: no canvas element produced by qr-code-styling')
         }
       }
     }
@@ -532,7 +532,7 @@ export class QrEngine {
       if (rawSvg && typeof rawSvg.outerHTML === 'string') {
         svgString = rawSvg.outerHTML
       } else {
-        svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${this._options.backgroundOptions?.color || '#ffffff'}"/></svg>`
+        throw new Error('QR render failed: no SVG element produced by qr-code-styling')
       }
     }
 

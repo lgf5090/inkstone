@@ -1,4 +1,4 @@
-import { useQrCodeStore } from '../store'
+import { useQrCodeStore, useQrPayload } from '../store'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { t } from '../../../../lib/i18n'
@@ -6,11 +6,9 @@ import { t } from '../../../../lib/i18n'
 export function QrInfoModal() {
   const isOpen = useQrCodeStore((s) => s.infoModalOpen)
   const setOpen = useQrCodeStore((s) => s.setInfoModalOpen)
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
   const options = useQrCodeStore((s) => s.options)
   const contentType = useQrCodeStore((s) => s.contentType)
-
-  const payload = getEncodedPayload()
+  const payload = useQrPayload()
   const charLength = payload.length
 
   const getEstimatedDistance = () => {

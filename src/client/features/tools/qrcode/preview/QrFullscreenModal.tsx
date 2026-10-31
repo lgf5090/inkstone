@@ -1,37 +1,48 @@
-import { useEffect, useRef } from 'react'
-import { useQrCodeStore } from '../store'
+import { useEffect, useRef, useState } from 'react'
+import { useQrCodeStore, useQrPayload } from '../store'
 import { QrEngine } from '../engine/qr-engine'
 import { Modal } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
+
+const FULLSCREEN_SIZE = 480
+const MAX_DPR = 2
 
 export function QrFullscreenModal() {
   const isOpen = useQrCodeStore((s) => s.fullscreenModalOpen)
   const setOpen = useQrCodeStore((s) => s.setFullscreenModalOpen)
   const options = useQrCodeStore((s) => s.options)
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
+  const payload = useQrPayload()
+  const [failed, setFailed] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!isOpen || !containerRef.current) return
+    const container = containerRef.current
+    if (!isOpen || !container || !payload.trim()) return
 
-    const payload = getEncodedPayload() || ' '
+    let stale = false
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR)
     const engine = new QrEngine(options, payload)
 
-    let mounted = true
-    engine.renderCanvas(480, 480).then((canvas) => {
-      if (mounted && containerRef.current) {
-        containerRef.current.innerHTML = ''
-        canvas.style.maxWidth = '100%'
-        canvas.style.height = 'auto'
-        containerRef.current.appendChild(canvas)
-      }
+    engine.renderCanvas(FULLSCREEN_SIZE * dpr, FULLSCREEN_SIZE * dpr).then((canvas) => {
+      if (stale) return
+      canvas.style.width = `${FULLSCREEN_SIZE}px`
+      canvas.style.maxWidth = '100%'
+      canvas.style.height = 'auto'
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', t('tools.qrcode.preview.canvas_label'))
+      container.replaceChildren(canvas)
+      setFailed(false)
+    }).catch(() => {
+      if (stale) return
+      container.replaceChildren()
+      setFailed(true)
     })
 
     return () => {
-      mounted = false
+      stale = true
     }
-  }, [isOpen, options, getEncodedPayload])
+  }, [isOpen, options, payload])
 
   return (
     <Modal
@@ -41,6 +52,11 @@ export function QrFullscreenModal() {
       width={540}
     >
       <div className="flex flex-col items-center justify-center p-6">
+        {failed && (
+          <p role="alert" className="mb-3 text-[length:var(--text-12)] text-[var(--danger)]">
+            {t('tools.qrcode.preview.render_error')}
+          </p>
+        )}
         <div
           ref={containerRef}
           className="flex min-h-[300px] w-full items-center justify-center rounded-[var(--r-lg)] bg-white p-4 shadow-sm"
