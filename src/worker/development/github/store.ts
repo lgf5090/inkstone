@@ -1,8 +1,10 @@
 import { GIST_PREVIEW_CHARS, MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
 import type {
+  GistBatchPatch,
   GistMetaPatch,
   GithubExportFormat,
   GithubTag,
+  RepoBatchPatch,
   SavedGist,
   SavedGithubRepo,
 } from '@shared/development/github/types'
@@ -103,13 +105,6 @@ export interface GistUpsert {
   favorited: boolean
   notes: string
   createdAt?: number
-}
-
-export interface GistBatchPatch {
-  pinned?: boolean
-  favorited?: boolean
-  addTagIds?: string[]
-  removeTagIds?: string[]
 }
 
 const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, created_at, updated_at'
@@ -668,20 +663,39 @@ export async function patchGist(
   }
 }
 
-export async function deleteGists(
+type SavedRowTable = 'development_github_gists' | 'development_github_repos'
+
+async function deleteSavedRows(
   db: D1Database,
+  table: SavedRowTable,
   userId: string,
   ids: readonly string[],
 ): Promise<number> {
   let removed = 0
   for (const chunk of idChunks(ids)) {
     const result = await db
-      .prepare(`DELETE FROM development_github_gists WHERE user_id = ?1 AND id IN (${chunkMarks(chunk)})`)
+      .prepare(`DELETE FROM ${table} WHERE user_id = ?1 AND id IN (${chunkMarks(chunk)})`)
       .bind(userId, ...chunk)
       .run()
     removed += result.meta.changes ?? 0
   }
   return removed
+}
+
+export async function deleteGists(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+): Promise<number> {
+  return deleteSavedRows(db, 'development_github_gists', userId, ids)
+}
+
+export async function deleteRepos(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+): Promise<number> {
+  return deleteSavedRows(db, 'development_github_repos', userId, ids)
 }
 
 export async function unbindGistTags(
@@ -715,11 +729,13 @@ export async function unbindGistTags(
   return updated
 }
 
-export async function batchUpdateGists(
+async function batchUpdateSavedRows(
   db: D1Database,
+  table: SavedRowTable,
+  tagLabel: string,
   userId: string,
   ids: readonly string[],
-  patch: GistBatchPatch,
+  patch: GistBatchPatch | RepoBatchPatch,
 ): Promise<number> {
   const hasFlags = patch.pinned !== undefined || patch.favorited !== undefined
   const hasTags = patch.addTagIds !== undefined || patch.removeTagIds !== undefined
@@ -731,7 +747,7 @@ export async function batchUpdateGists(
   for (const chunk of idChunks(uniqueIds)) {
     const { results } = await db
       .prepare(
-        `SELECT id, tag_ids FROM development_github_gists WHERE user_id = ?1 AND id IN (${chunkMarks(chunk)})`,
+        `SELECT id, tag_ids FROM ${table} WHERE user_id = ?1 AND id IN (${chunkMarks(chunk)})`,
       )
       .bind(userId, ...chunk)
       .all<{ id: string; tag_ids: string }>()
@@ -747,7 +763,7 @@ export async function batchUpdateGists(
         values.push(patch.favorited ? 1 : 0)
       }
       if (hasTags) {
-        let tagIds = readStringArray(row.tag_ids, 'gist tag ids')
+        let tagIds = readStringArray(row.tag_ids, tagLabel)
         if (patch.addTagIds) tagIds = Array.from(new Set([...tagIds, ...patch.addTagIds]))
         if (patch.removeTagIds) {
           const removed = new Set(patch.removeTagIds)
@@ -760,7 +776,7 @@ export async function batchUpdateGists(
       values.push(now, userId, row.id)
       statements.push(
         db
-          .prepare(`UPDATE development_github_gists SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`)
+          .prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`)
           .bind(...values),
       )
       updated += 1
@@ -768,6 +784,24 @@ export async function batchUpdateGists(
   }
   await runBatched(db, statements)
   return updated
+}
+
+export async function batchUpdateGists(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+  patch: GistBatchPatch,
+): Promise<number> {
+  return batchUpdateSavedRows(db, 'development_github_gists', 'gist tag ids', userId, ids, patch)
+}
+
+export async function batchUpdateRepos(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+  patch: RepoBatchPatch,
+): Promise<number> {
+  return batchUpdateSavedRows(db, 'development_github_repos', 'repo tag ids', userId, ids, patch)
 }
 
 type IdTable = 'development_github_tags' | 'development_github_gist_tags'

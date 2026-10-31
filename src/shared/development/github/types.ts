@@ -254,6 +254,13 @@ export interface GistBatchPatch {
   removeTagIds?: string[]
 }
 
+export interface RepoBatchPatch {
+  pinned?: boolean
+  favorited?: boolean
+  addTagIds?: string[]
+  removeTagIds?: string[]
+}
+
 export interface GistListResult {
   items: GistItem[]
   page: number

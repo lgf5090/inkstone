@@ -119,6 +119,19 @@ describe('GitHub API client', () => {
       ids: ['a', 'b'],
       patch: { pinned: true, addTagIds: ['t'] },
     })
+
+    fetchMock.mockResolvedValueOnce(envelope({ count: 1 }))
+    await githubApi.batchUpdateRepos(['1'], { favorited: true, removeTagIds: ['t'] })
+    expect(requestUrl(2).pathname).toBe('/api/development/github/repos/batch-update')
+    expect(JSON.parse(String(requestInit(2).body))).toEqual({
+      ids: ['1'],
+      patch: { favorited: true, removeTagIds: ['t'] },
+    })
+
+    fetchMock.mockResolvedValueOnce(envelope({ count: 1 }))
+    await githubApi.batchDeleteRepos(['1'])
+    expect(requestUrl(3).pathname).toBe('/api/development/github/repos/batch-delete')
+    expect(JSON.parse(String(requestInit(3).body))).toEqual({ ids: ['1'] })
   })
 
   it('adds an account without requiring the token in the response', async () => {

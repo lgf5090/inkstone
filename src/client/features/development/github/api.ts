@@ -17,6 +17,7 @@ import {
   type GithubSearchParams,
   type GithubSearchResult,
   type GithubTag,
+  type RepoBatchPatch,
   type SavedGist,
   type SavedGithubRepo,
 } from '@shared/development/github/types'
@@ -128,6 +129,14 @@ export const githubApi = {
   deleteRepo(id: string, signal?: AbortSignal): Promise<void> {
     return request<{ ok: true }>(`${BASE}/repos/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
       .then(() => undefined)
+  },
+
+  batchDeleteRepos(ids: string[], signal?: AbortSignal): Promise<{ count: number }> {
+    return readData<{ count: number }>('/repos/batch-delete', { method: 'POST', body: { ids }, signal })
+  },
+
+  batchUpdateRepos(ids: string[], patch: RepoBatchPatch, signal?: AbortSignal): Promise<{ count: number }> {
+    return readData<{ count: number }>('/repos/batch-update', { method: 'POST', body: { ids, patch }, signal })
   },
 
   listGistTags(signal?: AbortSignal): Promise<GithubTag[]> {

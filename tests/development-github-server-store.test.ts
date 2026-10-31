@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS } from '../src/worker/development/github/schema'
 import {
   batchUpdateGists,
+  batchUpdateRepos,
   collectDescendantTagIds,
   deleteExpiredExports,
   deleteGistTags,
   deleteGists,
   deleteRepo,
+  deleteRepos,
   deleteTags,
   findExport,
   findGist,
@@ -285,6 +287,42 @@ describe('development github repositories and gists', () => {
     expect(await batchUpdateGists(db, USER_A, ['abcdef12'], {})).toBe(0)
     const after = await findGist(db, USER_A, 'abcdef12')
     expect(after?.updatedAt).toBe(before?.updatedAt)
+  })
+
+  it('batches repository flags and tags without crossing users', async () => {
+    await addTag(USER_A, 'keep')
+    await addTag(USER_A, 'drop')
+    await upsertRepo(db, USER_A, repoInput('1', ['drop']))
+    await upsertRepo(db, USER_A, repoInput('2', ['drop']))
+    await upsertRepo(db, USER_B, repoInput('9'))
+
+    const updated = await batchUpdateRepos(db, USER_A, ['1', '2'], {
+      pinned: true,
+      favorited: true,
+      addTagIds: ['keep'],
+      removeTagIds: ['drop'],
+    })
+    expect(updated).toBe(2)
+    const first = await findRepo(db, USER_A, '1')
+    expect(first).toMatchObject({ pinned: true, favorited: true, tagIds: ['keep'] })
+    expect((await findRepo(db, USER_A, '2'))?.tagIds).toEqual(['keep'])
+
+    expect(await batchUpdateRepos(db, USER_A, ['9'], { pinned: true })).toBe(0)
+    expect((await findRepo(db, USER_B, '9'))?.pinned).toBe(false)
+
+    const before = await findRepo(db, USER_A, '1')
+    expect(await batchUpdateRepos(db, USER_A, ['1'], {})).toBe(0)
+    expect((await findRepo(db, USER_A, '1'))?.updatedAt).toBe(before?.updatedAt)
+  })
+
+  it('deletes repositories in a batch and leaves other users alone', async () => {
+    await upsertRepo(db, USER_A, repoInput('1'))
+    await upsertRepo(db, USER_A, repoInput('2'))
+    await upsertRepo(db, USER_B, repoInput('3'))
+
+    expect(await deleteRepos(db, USER_A, ['1', '2', '3'])).toBe(2)
+    expect(await listRepos(db, USER_A)).toEqual([])
+    expect(await listRepos(db, USER_B)).toHaveLength(1)
   })
 })
 

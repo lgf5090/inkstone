@@ -295,6 +295,39 @@ describe('development github tags and repositories', () => {
     expect((await call('DELETE', '/repos/1', { user: USER_B })).status).toBe(404)
     expect((await bodyOf<{ repos: unknown[] }>(await call('GET', '/repos', { user: USER_B }))).data?.repos).toEqual([])
   })
+
+  it('batch updates and removes saved repositories', async () => {
+    expect((await call('PUT', '/tags/root', { body: { name: 'Root' } })).status).toBe(200)
+    expect((await call('PUT', '/repos/1', { body: repoBody(1) })).status).toBe(200)
+    expect((await call('PUT', '/repos/2', { body: repoBody(2) })).status).toBe(200)
+
+    expect(
+      (await call('POST', '/repos/batch-update', { body: { ids: ['1', 'x'], patch: { pinned: true } } })).status,
+    ).toBe(400)
+    const missing = await call('POST', '/repos/batch-update', {
+      body: { ids: ['1'], patch: { addTagIds: ['missing'] } },
+    })
+    expect(missing.status).toBe(400)
+    expect((await bodyOf(missing)).error?.details).toEqual({ missing: ['missing'] })
+
+    const updated = await call('POST', '/repos/batch-update', {
+      body: { ids: ['1', '2'], patch: { pinned: true, favorited: true, addTagIds: ['root'] } },
+    })
+    expect(updated.status).toBe(200)
+    expect((await bodyOf<{ count: number }>(updated)).data?.count).toBe(2)
+    const repos = await bodyOf<{ repos: Array<{ pinned: boolean; favorited: boolean; tagIds: string[] }> }>(
+      await call('GET', '/repos'),
+    )
+    expect(repos.data?.repos).toHaveLength(2)
+    expect(repos.data?.repos.every((repo) => repo.pinned && repo.favorited)).toBe(true)
+    expect(repos.data?.repos[0]?.tagIds).toEqual(['root'])
+
+    const foreignDelete = await call('POST', '/repos/batch-delete', { body: { ids: ['1', '2'] }, user: USER_B })
+    expect((await bodyOf<{ count: number }>(foreignDelete)).data?.count).toBe(0)
+    const deleted = await call('POST', '/repos/batch-delete', { body: { ids: ['1', '2'] } })
+    expect((await bodyOf<{ count: number }>(deleted)).data?.count).toBe(2)
+    expect((await bodyOf<{ repos: unknown[] }>(await call('GET', '/repos'))).data?.repos).toEqual([])
+  })
 })
 
 describe('development github gist entities', () => {

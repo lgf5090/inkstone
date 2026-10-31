@@ -65,12 +65,14 @@ import {
 } from '../development/github/r2'
 import {
   batchUpdateGists,
+  batchUpdateRepos,
   collectDescendantTagIds,
   deleteExport,
   deleteGist,
   deleteGists,
   deleteGistTags,
   deleteRepo,
+  deleteRepos,
   deleteTags,
   findExport,
   findGist,
@@ -480,6 +482,31 @@ developmentGithubRoutes.delete('/repos/:id', async (c) => {
   if (!(await findRepo(c.env.DB, userId, id))) throw githubNotFound('Repository not found')
   await deleteRepo(c.env.DB, userId, id)
   return c.json({ ok: true, data: { ok: true } })
+})
+
+developmentGithubRoutes.post('/repos/batch-delete', async (c) => {
+  const userId = userIdOf(c)
+  const body = await parseBody(c, GithubBatchDeleteSchema, BATCH_BODY_LIMIT)
+  const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
+  if (ids.length !== body.ids.length) throw ApiError.badRequest('Invalid repository id')
+  const count = await deleteRepos(c.env.DB, userId, ids)
+  return c.json({ ok: true, data: { count } })
+})
+
+developmentGithubRoutes.post('/repos/batch-update', async (c) => {
+  const userId = userIdOf(c)
+  const body = await parseBody(c, GithubBatchUpdateSchema, BATCH_BODY_LIMIT)
+  const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
+  if (ids.length !== body.ids.length) throw ApiError.badRequest('Invalid repository id')
+  const tagIds = [...(body.patch.addTagIds ?? []), ...(body.patch.removeTagIds ?? [])]
+  await assertRepoTags(c, userId, tagIds)
+  const count = await batchUpdateRepos(c.env.DB, userId, ids, {
+    pinned: body.patch.pinned,
+    favorited: body.patch.favorited,
+    addTagIds: body.patch.addTagIds,
+    removeTagIds: body.patch.removeTagIds,
+  })
+  return c.json({ ok: true, data: { count } })
 })
 
 developmentGithubRoutes.get('/gist/tags', async (c) => {

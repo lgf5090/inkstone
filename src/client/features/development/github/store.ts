@@ -7,6 +7,7 @@ import type {
   GithubCapabilities,
   GithubMirrorSource,
   GithubTag,
+  RepoBatchPatch,
   SavedGist,
   SavedGithubRepo,
 } from '@shared/development/github/types'
@@ -39,6 +40,8 @@ export interface GithubStore {
   deleteGistTag: (id: string) => Promise<void>
   upsertRepo: (repo: SavedGithubRepo) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
+  batchDeleteRepos: (ids: string[]) => Promise<void>
+  batchUpdateRepos: (ids: string[], patch: RepoBatchPatch) => Promise<void>
   upsertGist: (gist: SavedGist) => Promise<void>
   patchGist: (id: string, patch: GistMetaPatch) => Promise<void>
   deleteGist: (id: string) => Promise<void>
@@ -103,8 +106,11 @@ function stripTags<T extends { tagIds: string[]; updatedAt: number }>(
   })
 }
 
-function applyBatchPatch(gist: SavedGist, patch: GistBatchPatch): SavedGist {
-  const next = { ...gist }
+function applyBatchPatch<T extends { pinned: boolean; favorited: boolean; tagIds: string[]; updatedAt: number }>(
+  item: T,
+  patch: GistBatchPatch | RepoBatchPatch,
+): T {
+  const next = { ...item }
   if (patch.pinned !== undefined) next.pinned = patch.pinned
   if (patch.favorited !== undefined) next.favorited = patch.favorited
   if (patch.addTagIds?.length) next.tagIds = [...new Set([...next.tagIds, ...patch.addTagIds])]
@@ -338,6 +344,38 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       await enqueue(`repo:${id}`, async () => {
         try {
           await githubApi.deleteRepo(id)
+        } catch (error) {
+          notifyFailure(error)
+          if (isCurrent('repos', revision)) await reconcile(['repos'])
+        }
+      })
+    },
+
+    batchDeleteRepos: async (ids) => {
+      const removed = new Set(ids)
+      if (removed.size === 0) return
+      const revision = bump('repos')
+      set((state) => ({ repos: state.repos.filter((repo) => !removed.has(repo.id)) }))
+      await enqueue('repos:batch', async () => {
+        try {
+          await githubApi.batchDeleteRepos(Array.from(removed))
+        } catch (error) {
+          notifyFailure(error)
+          if (isCurrent('repos', revision)) await reconcile(['repos'])
+        }
+      })
+    },
+
+    batchUpdateRepos: async (ids, patch) => {
+      const targets = new Set(ids)
+      if (targets.size === 0) return
+      const revision = bump('repos')
+      set((state) => ({
+        repos: state.repos.map((repo) => (targets.has(repo.id) ? applyBatchPatch(repo, patch) : repo)),
+      }))
+      await enqueue('repos:batch', async () => {
+        try {
+          await githubApi.batchUpdateRepos(Array.from(targets), patch)
         } catch (error) {
           notifyFailure(error)
           if (isCurrent('repos', revision)) await reconcile(['repos'])

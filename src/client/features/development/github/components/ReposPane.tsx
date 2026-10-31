@@ -48,6 +48,8 @@ export function ReposPane({
   const upsertTag = useGithubStore((state) => state.upsertTag)
   const deleteTag = useGithubStore((state) => state.deleteTag)
   const deleteRepo = useGithubStore((state) => state.deleteRepo)
+  const batchDeleteRepos = useGithubStore((state) => state.batchDeleteRepos)
+  const batchUpdateRepos = useGithubStore((state) => state.batchUpdateRepos)
   const toast = useUi((state) => state.toast)
   const refresh = useGithubStore((state) => state.refresh)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
@@ -55,6 +57,7 @@ export function ReposPane({
   const [selectedView, setSelectedView] = useState<GithubViewId>(GITHUB_EXPLORE_VIEW)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [committedQuery, setCommittedQuery] = useState('')
   const [page, setPage] = useState(1)
@@ -121,8 +124,23 @@ export function ReposPane({
   const selectView = useCallback((view: GithubViewId) => {
     setSelectedView(view)
     setSelectedRepoId(null)
+    setSelectedIds(new Set())
     setPage(1)
   }, [])
+
+  useEffect(() => {
+    setSelectedIds((previous) => {
+      if (previous.size === 0) return previous
+      const present = new Set(repos.map((repo) => repo.id))
+      let changed = false
+      const next = new Set<string>()
+      for (const id of previous) {
+        if (present.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : previous
+    })
+  }, [repos])
 
   const toggleExpand = useCallback((id: string) => {
     setExpanded((previous) => {
@@ -171,8 +189,65 @@ export function ReposPane({
     if (!ok) return
     void deleteRepo(saved.id)
     setSelectedRepoId((current) => (current === saved.id ? null : current))
+    setSelectedIds((previous) => {
+      if (!previous.has(saved.id)) return previous
+      const next = new Set(previous)
+      next.delete(saved.id)
+      return next
+    })
     toast({ title: t('development.github.repos.removed'), tone: 'success' })
   }, [deleteRepo, toast])
+
+  const checkRepo = useCallback((id: string, checked: boolean) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
+
+  const selectAllRepos = useCallback(() => {
+    setSelectedIds((previous) => {
+      const all = listItems.length > 0 && listItems.every((repo) => previous.has(String(repo.id)))
+      const next = new Set(previous)
+      for (const repo of listItems) {
+        const id = String(repo.id)
+        if (all) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
+  }, [listItems])
+
+  const batchPin = useCallback((pinned: boolean) => {
+    if (selectedIds.size > 0) void batchUpdateRepos(Array.from(selectedIds), { pinned })
+  }, [batchUpdateRepos, selectedIds])
+
+  const batchFav = useCallback((favorited: boolean) => {
+    if (selectedIds.size > 0) void batchUpdateRepos(Array.from(selectedIds), { favorited })
+  }, [batchUpdateRepos, selectedIds])
+
+  const batchTag = useCallback((tagId: string, action: 'add' | 'remove') => {
+    if (selectedIds.size > 0) {
+      void batchUpdateRepos(Array.from(selectedIds), action === 'add' ? { addTagIds: [tagId] } : { removeTagIds: [tagId] })
+    }
+  }, [batchUpdateRepos, selectedIds])
+
+  const batchRemove = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    const ok = await confirm({
+      title: t('development.github.repos.remove_batch_title', { count: selectedIds.size }),
+      description: t('development.github.repos.remove_batch_desc', { count: selectedIds.size }),
+      confirmLabel: t('development.github.repos.remove_saved'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    const removed = new Set(selectedIds)
+    void batchDeleteRepos(Array.from(removed))
+    setSelectedIds(new Set())
+    setSelectedRepoId((current) => (current && removed.has(current) ? null : current))
+  }, [batchDeleteRepos, selectedIds])
 
   const selectRepo = useCallback((repo: GithubRepo) => {
     setSelectedRepoId(String(repo.id))
@@ -299,6 +374,13 @@ export function ReposPane({
             repoMap={repoMap}
             tags={tags}
             selectedRepoId={selectedRepoId}
+            selectedIds={selectedIds}
+            onCheckRepo={checkRepo}
+            onSelectAllRepos={selectAllRepos}
+            onBatchPin={batchPin}
+            onBatchFav={batchFav}
+            onBatchTag={batchTag}
+            onBatchRemove={batchRemove}
             onSelectRepo={selectRepo}
             onTogglePin={togglePin}
             onToggleFav={toggleFav}

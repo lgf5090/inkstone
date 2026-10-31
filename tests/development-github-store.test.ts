@@ -262,6 +262,34 @@ describe('GitHub store optimistic writes', () => {
     await pending
   })
 
+  it('patches saved repositories optimistically in a batch', async () => {
+    useGithubStore.setState({ status: 'ready', repos: [repo('1'), repo('2')] })
+    fetchMock.mockResolvedValueOnce(envelope({ count: 1 }))
+    const pending = useGithubStore.getState().batchUpdateRepos(['1'], {
+      pinned: true,
+      favorited: true,
+      addTagIds: ['t1'],
+    })
+    const updated = useGithubStore.getState().repos[0]!
+    expect(updated).toMatchObject({ pinned: true, favorited: true, tagIds: ['t1'] })
+    expect(useGithubStore.getState().repos[1]!.pinned).toBe(false)
+    await pending
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/repos/batch-update')
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
+      ids: ['1'],
+      patch: { pinned: true, favorited: true, addTagIds: ['t1'] },
+    })
+  })
+
+  it('removes saved repositories optimistically in a batch', async () => {
+    useGithubStore.setState({ status: 'ready', repos: [repo('1'), repo('2')] })
+    fetchMock.mockResolvedValueOnce(envelope({ count: 1 }))
+    const pending = useGithubStore.getState().batchDeleteRepos(['1'])
+    expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['2'])
+    await pending
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/repos/batch-delete')
+  })
+
   it('patches gist metadata without sending file content', async () => {
     useGithubStore.setState({ status: 'ready', gists: [gist('a')] })
     fetchMock.mockResolvedValueOnce(envelope({ gist: { ...gist('a'), pinned: true } }))
