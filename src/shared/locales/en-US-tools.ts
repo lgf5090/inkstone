@@ -986,6 +986,7 @@ export const EN_US_TOOLS = {
   // Specs library view
   'tools.id_photo.specs.delete_success': 'Custom specification deleted',
   'tools.id_photo.specs.delete_failed': 'Failed to delete specification',
+  'tools.id_photo.specs.load_failed': 'Failed to load custom specifications',
 
   // Settings view
   'tools.id_photo.settings.title': 'ID Photo Preferences',

@@ -142,12 +142,7 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   },
 
   loadCustomSpecs: async () => {
-    try {
-      const specs = await listCustomSpecs()
-      set({ customSpecs: specs })
-    } catch {
-      // Best effort load
-    }
+    set({ customSpecs: await listCustomSpecs() })
   },
 
   adjustOptions: { ...DEFAULT_ADJUST_OPTIONS },

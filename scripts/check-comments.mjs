@@ -17716,7 +17716,6 @@ const allowed = new Map([
     "// Print Sheet Options",
     "// Export Settings",
     "// View toggles",
-    "// Best effort load",
   ]],
   ["src/client/features/tools/password/AccountArea.tsx", [
     "/* Desktop side-by-side view */",

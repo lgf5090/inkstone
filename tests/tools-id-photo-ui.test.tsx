@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { installTestGlobals, renderElement } from '../src/client/lib/test-render'
 import { IdPhotoApp } from '../src/client/features/tools/id-photo/IdPhotoApp'
@@ -83,6 +83,39 @@ describe('ID Photo Studio UI Integration Tests', () => {
     })
     expect(view.container.textContent).toContain(t('tools.id_photo.attire.none'))
 
+    view.unmount()
+  })
+
+  it('loads saved custom specs on mount so they stay selectable', async () => {
+    const customSpec = {
+      id: 'spec_custom_1',
+      name: 'My 3x4',
+      category: 'custom',
+      countryCode: '',
+      countryNameKey: '',
+      widthMm: 30,
+      heightMm: 40,
+      widthPx: 354,
+      heightPx: 472,
+      dpi: 300,
+      recommendedBgColors: ['#ffffff'],
+      faceRatioMin: 0.6,
+      faceRatioMax: 0.8,
+      isBuiltin: false,
+    }
+    useIdPhotoStore.setState({ customSpecs: [] })
+    const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(
+      async () => Response.json({ ok: true, data: [customSpec] }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const view = await renderElement(<IdPhotoApp />)
+    await vi.waitFor(() => {
+      expect(useIdPhotoStore.getState().customSpecs.map((s) => s.id)).toContain('spec_custom_1')
+    })
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/tools/id-photo/specs'))).toBe(true)
+
+    vi.unstubAllGlobals()
     view.unmount()
   })
 

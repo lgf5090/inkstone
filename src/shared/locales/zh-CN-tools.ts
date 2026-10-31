@@ -986,6 +986,7 @@ export const ZH_CN_TOOLS = {
   // Spec library view
   'tools.id_photo.specs.delete_success': '自定义规格已删除',
   'tools.id_photo.specs.delete_failed': '删除自定义规格失败',
+  'tools.id_photo.specs.load_failed': '自定义规格加载失败',
 
   // Preferences view
   'tools.id_photo.settings.title': '证件照偏好设置',

@@ -1,4 +1,8 @@
+import { useEffect } from 'react'
+import { t } from '../../../lib/i18n'
+import { useUi } from '../../../store/ui'
 import { useToolsStore } from '../store'
+import { useIdPhotoStore } from './store'
 import { IdPhotoUploadCard } from './content/IdPhotoUploadCard'
 import { IdPhotoOptionsPanel } from './options/IdPhotoOptionsPanel'
 import { IdPhotoPreviewCard } from './preview/IdPhotoPreviewCard'
@@ -12,6 +16,13 @@ import { IdPhotoSettingsView } from './settings/IdPhotoSettingsView'
 
 export function IdPhotoApp() {
   const activeIdPhotoView = useToolsStore((s) => s.activeIdPhotoView)
+  const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
+
+  useEffect(() => {
+    loadCustomSpecs().catch(() => {
+      useUi.getState().toast({ title: t('tools.id_photo.specs.load_failed'), tone: 'danger' })
+    })
+  }, [loadCustomSpecs])
 
   return (
     <div
