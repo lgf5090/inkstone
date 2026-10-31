@@ -7,6 +7,7 @@ import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Tooltip } from '../../../components/overlay'
+import { useUi } from '../../../store/ui'
 import { useToolsStore } from '../store'
 import { usePasswordVaultStore } from './store'
 import { AccountCard } from './AccountCard'
@@ -75,17 +76,31 @@ export function AccountList({
   }, [scopeFiltered, search])
 
   const handleQuickNew = async () => {
-    const targetGroupId = selectedGroupId || groups[0]?.id || 'default'
-    const created = await createAccount({
-      groupId: targetGroupId,
-      title: '',
-      username: '',
-      password: '',
-      link: '',
-      remark: '',
-      isFavorite: filterFavoritesOnly || activePasswordView === 'favorites',
-    })
-    setSelectedAccountId(created.id)
+    const targetGroupId = selectedGroupId || groups[0]?.id
+    if (!targetGroupId) {
+      useUi.getState().toast({
+        title: t('tools.password.account.no_group'),
+        tone: 'danger',
+      })
+      return
+    }
+    try {
+      const created = await createAccount({
+        groupId: targetGroupId,
+        title: '',
+        username: '',
+        password: '',
+        link: '',
+        remark: '',
+        isFavorite: filterFavoritesOnly || activePasswordView === 'favorites',
+      })
+      setSelectedAccountId(created.id)
+    } catch (err) {
+      useUi.getState().toast({
+        title: err instanceof Error ? err.message : t('common.save_failed'),
+        tone: 'danger',
+      })
+    }
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -107,6 +122,13 @@ export function AccountList({
       e.preventDefault()
       setSelectedAccountId(filteredAccounts[filteredAccounts.length - 1]!.id)
     }
+  }
+
+  // Without a cancelling dragover on the drop target the browser never fires `drop`, so card-to-card
+  // reordering was dead even though the card carried an onDrop handler.
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
   }
 
   const handleReorderDrop = (e: DragEvent, targetAccount: DecryptedAccount) => {
@@ -249,6 +271,7 @@ export function AccountList({
                 isSelected={acc.id === selectedAccountId}
                 onSelect={(account) => setSelectedAccountId(account.id)}
                 onToggleFavorite={(id) => void toggleFavorite(id)}
+                onDragOver={handleDragOver}
                 onDrop={handleReorderDrop}
               />
             ))}

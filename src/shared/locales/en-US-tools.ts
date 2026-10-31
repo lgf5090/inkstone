@@ -47,6 +47,7 @@ export const EN_US_TOOLS = {
   "tools.password.group.export": "Export Plaintext Data",
   "tools.password.group.import": "Import Accounts to Group",
   "tools.password.account.new": "New Account",
+  "tools.password.account.no_group": "Create a group before adding an account",
   "tools.password.account.quick_add": "Quick Add",
   "tools.password.account.search_placeholder": "Search title, username, URL, remark...",
   "tools.password.account.title": "Title",

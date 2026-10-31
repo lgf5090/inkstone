@@ -47,6 +47,7 @@ export const ZH_CN_TOOLS = {
   "tools.password.group.export": "导出明文数据",
   "tools.password.group.import": "导入账号数据",
   "tools.password.account.new": "新增账号",
+  "tools.password.account.no_group": "请先创建一个分组，再新增账号",
   "tools.password.account.quick_add": "快速新增",
   "tools.password.account.search_placeholder": "搜索标题、用户名、网址、备注...",
   "tools.password.account.title": "标题",

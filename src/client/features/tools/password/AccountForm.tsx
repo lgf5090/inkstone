@@ -273,7 +273,14 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
         void copyPassword()
       } else if (key === 'n') {
         e.preventDefault()
-        const targetGroupId = selectedGroupId || groups[0]?.id || 'default'
+        const targetGroupId = selectedGroupId || groups[0]?.id
+        if (!targetGroupId) {
+          useUi.getState().toast({
+            title: t('tools.password.account.no_group'),
+            tone: 'danger',
+          })
+          return
+        }
         void createAccount({
           groupId: targetGroupId,
           title: '',
@@ -281,6 +288,11 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
           password: '',
           link: '',
           remark: '',
+        }).catch((err: unknown) => {
+          useUi.getState().toast({
+            title: err instanceof Error ? err.message : t('common.save_failed'),
+            tone: 'danger',
+          })
         })
       }
     }

@@ -30,6 +30,8 @@ export function AccountCard({
 }: AccountCardProps) {
   const handleDragStart = (e: DragEvent) => {
     e.dataTransfer.setData('text/plain', account.id)
+    // The group row reads this exact type; without it a dropped card silently did nothing.
+    e.dataTransfer.setData('text/inkstone-password-account-id', account.id)
     e.dataTransfer.setData(
       'application/json',
       JSON.stringify({ id: account.id, type: 'password-account', groupId: account.groupId }),

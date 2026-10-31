@@ -339,7 +339,7 @@ toolsPasswordRoutes.post('/export', async (c) => {
   const userId = getUserId(c)
   const body = await parseBody(c, ExportSchema)
   const fileId = crypto.randomUUID()
-  const { key, size } = await uploadExportToR2(
+  const { size } = await uploadExportToR2(
     c.env.FILES,
     userId,
     fileId,
@@ -347,11 +347,13 @@ toolsPasswordRoutes.post('/export', async (c) => {
     body.content,
   )
 
+  // The R2 key stays server-side: it describes the tenant's storage layout and the client cannot use
+  // it. The download URL names the authenticated route below, which is what a caller can fetch.
   return c.json({
     ok: true,
     data: {
       fileId,
-      key,
+      downloadUrl: `/api/tools/password/export/${body.type}/${fileId}`,
       size,
       type: body.type,
       filename: body.filename || `passwords_export_${Date.now()}.${body.type}`,

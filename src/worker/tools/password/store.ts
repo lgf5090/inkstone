@@ -382,6 +382,14 @@ export class PasswordStore {
     isFavorite?: boolean
     sort?: number
   }): Promise<PasswordAccount> {
+    // A group id the tenant does not own used to be inserted verbatim, which produced rows no view
+    // could reach (they are filtered by a group the client never selects). Refusing here keeps the
+    // dangling-row class out of the table instead of cleaning it up later.
+    const group = await this.getGroup(data.groupId)
+    if (!group) {
+      throw ApiError.badRequest('Target group not found')
+    }
+
     const id = data.id || crypto.randomUUID()
     const title = data.title ?? ''
     const username = data.username ?? ''
@@ -450,6 +458,13 @@ export class PasswordStore {
     const existing = await this.getAccount(id)
     if (!existing) {
       throw ApiError.notFound('Account not found')
+    }
+
+    if (data.groupId !== undefined && data.groupId !== existing.groupId) {
+      const group = await this.getGroup(data.groupId)
+      if (!group) {
+        throw ApiError.badRequest('Target group not found')
+      }
     }
 
     const groupId = data.groupId !== undefined ? data.groupId : existing.groupId

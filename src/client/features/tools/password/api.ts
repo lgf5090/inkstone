@@ -141,11 +141,25 @@ export const passwordApi = {
 
   getSettings: () => request<PasswordSettings>('/settings'),
 
-  saveSettings: (settings: Partial<PasswordSettings>) =>
-    request<PasswordSettings>('/settings', {
+  // The route speaks flat columns; this module's public shape is nested. Translating here keeps the
+  // one contract in a single place — the callers below hand over a `PasswordSettings` and the wire
+  // format is nobody else's concern. A falsy password is omitted rather than sent as '', because the
+  // server reads "absent" as "keep the stored credential" and GET never echoes it back.
+  saveSettings: (settings: Partial<PasswordSettings>) => {
+    const body: Record<string, unknown> = {}
+    if (settings.webdav) {
+      body.webdavUrl = settings.webdav.url ?? ''
+      body.webdavUsername = settings.webdav.username ?? ''
+      body.webdavEnabled = Boolean(settings.webdav.enabled)
+      if (settings.webdav.password) body.webdavPassword = settings.webdav.password
+    }
+    if (settings.autoBackupEnabled !== undefined) body.autoBackupEnabled = settings.autoBackupEnabled
+    if (settings.autoLockMinutes !== undefined) body.autoLockMinutes = settings.autoLockMinutes
+    return request<PasswordSettings>('/settings', {
       method: 'PUT',
-      body: JSON.stringify(settings),
-    }),
+      body: JSON.stringify(body),
+    })
+  },
 
   testWebdav: (config: WebdavConfig) =>
     request<{ ok: boolean; error?: string }>('/settings/webdav-test', {
@@ -171,8 +185,11 @@ export const passwordApi = {
     }),
 
   exportPlaintext: (format: 'txt' | 'csv', content: string) =>
-    request<{ fileId: string; downloadUrl: string; size: number }>('/export', {
-      method: 'POST',
-      body: JSON.stringify({ format, content }),
-    }),
+    request<{ fileId: string; downloadUrl: string; size: number; type: 'txt' | 'csv'; filename: string }>(
+      '/export',
+      {
+        method: 'POST',
+        body: JSON.stringify({ type: format, content }),
+      },
+    ),
 }

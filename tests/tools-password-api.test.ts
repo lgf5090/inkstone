@@ -476,6 +476,32 @@ describe('Password Manager Accounts Routes', () => {
     const delRes = await call('DELETE', `/api/tools/password/accounts/${a3.id}`)
     expect(delRes.status).toBe(200)
   })
+
+  it('refuses an account whose group does not exist', async () => {
+    const createRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: 'no-such-group', title: 'orphan', password: 'x' },
+    })
+    expect(createRes.status).toBe(400)
+
+    // Moving an existing account into a missing group is refused as well.
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Real' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+    const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: group.id, title: 'kept' },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string } }>(aRes)).data
+    const moveRes = await call('PUT', `/api/tools/password/accounts/${account.id}`, {
+      body: { groupId: 'no-such-group' },
+    })
+    expect(moveRes.status).toBe(400)
+
+    const list = (
+      await json<{ ok: boolean; data: Array<{ id: string; groupId: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(list.find((row) => row.id === account.id)?.groupId).toBe(group.id)
+  })
 })
 
 describe('Password Manager Settings Routes', () => {
@@ -621,8 +647,10 @@ describe('Password Manager Backups & Export Routes', () => {
       },
     })
     expect(exportTxtRes.status).toBe(200)
-    const exportTxt = (await json<{ ok: boolean; data: { fileId: string; key: string } }>(exportTxtRes)).data
-    expect(exportTxt.key).toBe(`tools/password/txt/${USER_A}/${exportTxt.fileId}.txt`)
+    const exportTxt = (
+      await json<{ ok: boolean; data: { fileId: string; downloadUrl: string } }>(exportTxtRes)
+    ).data
+    expect(exportTxt.downloadUrl).toBe(`/api/tools/password/export/txt/${exportTxt.fileId}`)
 
     // Read export TXT
     const getExportTxtRes = await call('GET', `/api/tools/password/export/txt/${exportTxt.fileId}`)
@@ -638,8 +666,14 @@ describe('Password Manager Backups & Export Routes', () => {
       },
     })
     expect(exportCsvRes.status).toBe(200)
-    const exportCsv = (await json<{ ok: boolean; data: { fileId: string; key: string } }>(exportCsvRes)).data
-    expect(exportCsv.key).toBe(`tools/password/csv/${USER_A}/${exportCsv.fileId}.csv`)
+    const exportCsv = (
+      await json<{ ok: boolean; data: { fileId: string; downloadUrl: string } }>(exportCsvRes)
+    ).data
+    // The R2 key is internal; what the client is handed must be a route it can actually fetch.
+    expect(exportCsv.downloadUrl).toBe(`/api/tools/password/export/csv/${exportCsv.fileId}`)
+    const roundTrip = await call('GET', exportCsv.downloadUrl)
+    expect(roundTrip.status).toBe(200)
+    expect(await roundTrip.text()).toContain('Example,testuser,secret')
 
     // 9. When R2 is unavailable, returns 503
     const envNoR2 = testBindings(makeD1(sqlite))
