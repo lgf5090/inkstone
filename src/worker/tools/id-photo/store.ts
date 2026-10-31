@@ -192,6 +192,14 @@ export class IdPhotoStore {
     }
   }
 
+  async countRecords(): Promise<number> {
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) as cnt FROM tools_id_photo_records WHERE user_id = ?`)
+      .bind(this.userId)
+      .first<{ cnt: number }>()
+    return row?.cnt ?? 0
+  }
+
   async getRecord(id: string): Promise<IdPhotoRecord | null> {
     const row = await this.db
       .prepare(`SELECT * FROM tools_id_photo_records WHERE user_id = ? AND id = ?`)

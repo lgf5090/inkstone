@@ -60,7 +60,7 @@ export async function uploadIdPhotoToR2(
   await r2.put(key, bytes, {
     httpMetadata: {
       contentType,
-      cacheControl: 'public, max-age=31536000, immutable',
+      cacheControl: 'private, no-store',
     },
   })
 

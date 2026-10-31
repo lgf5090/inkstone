@@ -143,8 +143,9 @@ describe('ID Photo Routes, Tenant Isolation & R2 Storage', () => {
   })
 
   it('creates, lists, reads, downloads and deletes ID photo record with R2 files', async () => {
-    const fakeImageBase64 = 'data:image/jpeg;base64,' + btoa('fake-jpeg-photo-bytes')
-    const fakePrintBase64 = 'data:image/jpeg;base64,' + btoa('fake-print-sheet-bytes')
+    const jpegBytes = [0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode('fake-jpeg-photo-bytes')]
+    const fakeImageBase64 = 'data:image/jpeg;base64,' + btoa(String.fromCharCode(...jpegBytes))
+    const fakePrintBase64 = 'data:image/jpeg;base64,' + btoa(String.fromCharCode(...jpegBytes))
 
     const createRes = await call('POST', '/api/tools/id-photo/records', {
       user: USER_A,
@@ -189,14 +190,15 @@ describe('ID Photo Routes, Tenant Isolation & R2 Storage', () => {
     const downloadRes = await call('GET', `/api/tools/id-photo/records/${recordId}/file`, { user: USER_A })
     expect(downloadRes.status).toBe(200)
     expect(downloadRes.headers.get('content-type')).toBe('image/jpeg')
-    const text = await downloadRes.text()
-    expect(text).toBe('fake-jpeg-photo-bytes')
+    const bytes = new Uint8Array(await downloadRes.arrayBuffer())
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0xff, 0xd8, 0xff, 0xe0])
+    expect(new TextDecoder().decode(bytes.subarray(4))).toBe('fake-jpeg-photo-bytes')
 
     // Download print sheet
     const downloadPrintRes = await call('GET', `/api/tools/id-photo/records/${recordId}/print-file`, { user: USER_A })
     expect(downloadPrintRes.status).toBe(200)
-    const printText = await downloadPrintRes.text()
-    expect(printText).toBe('fake-print-sheet-bytes')
+    const printBytes = new Uint8Array(await downloadPrintRes.arrayBuffer())
+    expect(new TextDecoder().decode(printBytes.subarray(4))).toBe('fake-jpeg-photo-bytes')
 
     // Delete record
     const deleteRes = await call('DELETE', `/api/tools/id-photo/records/${recordId}`, { user: USER_A })
@@ -268,5 +270,71 @@ describe('ID Photo Routes, Tenant Isolation & R2 Storage', () => {
     // Delete custom spec
     const deleteSpecRes = await call('DELETE', `/api/tools/id-photo/specs/${specId}`, { user: USER_A })
     expect(deleteSpecRes.status).toBe(200)
+  })
+
+  it('refuses an archive whose bytes are not a real image', async () => {
+    const res = await call('POST', '/api/tools/id-photo/records', {
+      user: USER_A,
+      body: {
+        title: 'bad bytes',
+        specId: 'cn_one_inch',
+        specName: 'Standard 1-Inch',
+        widthPx: 295,
+        heightPx: 413,
+        bgColor: '#ffffff',
+        options: {},
+        fileData: 'data:image/jpeg;base64,' + btoa('definitely-not-an-image'),
+        fileType: 'jpg',
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects adjustment values outside their ranges', async () => {
+    const res = await call('POST', '/api/tools/id-photo/records', {
+      user: USER_A,
+      body: {
+        title: 'wild options',
+        specId: 'cn_one_inch',
+        specName: 'Standard 1-Inch',
+        widthPx: 295,
+        heightPx: 413,
+        bgColor: '#ffffff',
+        options: { brightness: 1200, rotation: 99999 },
+        fileData:
+          'data:image/jpeg;base64,' + btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0) + 'payload-bytes'),
+        fileType: 'jpg',
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('serves an archived portrait without shared-cache headers', async () => {
+    const created = await call('POST', '/api/tools/id-photo/records', {
+      user: USER_A,
+      body: {
+        title: 'private bytes',
+        specId: 'cn_one_inch',
+        specName: 'Standard 1-Inch',
+        widthPx: 295,
+        heightPx: 413,
+        bgColor: '#ffffff',
+        options: { brightness: 10 },
+        fileData:
+          'data:image/jpeg;base64,' + btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0) + 'payload-bytes'),
+        fileType: 'jpg',
+      },
+    })
+    expect(created.status).toBe(201)
+    const recordId = ((await created.json()) as { data: { id: string } }).data.id
+
+    const file = await call('GET', `/api/tools/id-photo/records/${recordId}/file`)
+    expect(file.status).toBe(200)
+    expect(file.headers.get('cache-control')).toContain('no-store')
+    expect(file.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(file.headers.get('content-disposition')).toBeNull()
+
+    const download = await call('GET', `/api/tools/id-photo/records/${recordId}/file?download=1`)
+    expect(download.headers.get('content-disposition')).toContain('attachment')
   })
 })

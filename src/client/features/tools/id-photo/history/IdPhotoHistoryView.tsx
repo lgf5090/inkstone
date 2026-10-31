@@ -10,7 +10,7 @@ import { useUi } from '../../../../store/ui'
 import { useToolsStore } from '../../store'
 import { useIdPhotoStore } from '../store'
 import { deleteIdPhotoRecord, listIdPhotoRecords } from '../api'
-import { IdPhotoAdjustOptionsSchema } from '@shared/tools/id-photo/schemas'
+import { IdPhotoOptionsPatchSchema } from '@shared/tools/id-photo/schemas'
 
 const EXPORT_FORMATS = ['jpg', 'jpeg', 'png', 'webp'] as const
 
@@ -129,7 +129,7 @@ export function IdPhotoHistoryView() {
 
   const handleLoadEdit = async (record: IdPhotoRecord) => {
     setSelectedSpecId(record.specId)
-    const parsed = IdPhotoAdjustOptionsSchema.safeParse(safeJsonParse(record.optionsJson))
+    const parsed = IdPhotoOptionsPatchSchema.safeParse(safeJsonParse(record.optionsJson))
     if (!parsed.success) {
       useUi.getState().toast({ title: t('tools.id_photo.history.load_failed'), tone: 'danger' })
       return
@@ -253,7 +253,7 @@ export function IdPhotoHistoryView() {
                     <IconButton
                       size="sm"
                       label={t('tools.id_photo.export.download_photo')}
-                      onClick={() => downloadFile(`/api/tools/id-photo/records/${record.id}/file`)}
+                      onClick={() => downloadFile(`/api/tools/id-photo/records/${record.id}/file?download=1`)}
                     >
                       <Download size={14} />
                     </IconButton>
@@ -261,7 +261,7 @@ export function IdPhotoHistoryView() {
                       <IconButton
                         size="sm"
                         label={t('tools.id_photo.export.download_print')}
-                        onClick={() => downloadFile(`/api/tools/id-photo/records/${record.id}/print-file`)}
+                        onClick={() => downloadFile(`/api/tools/id-photo/records/${record.id}/print-file?download=1`)}
                       >
                         <Printer size={14} />
                       </IconButton>

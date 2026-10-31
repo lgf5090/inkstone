@@ -11,6 +11,34 @@ export const IdPhotoCategorySchema = z.enum([
   'custom',
 ])
 
+const optionalRange = (min: number, max: number) => z.number().min(min).max(max).optional()
+
+const MAX_UPLOAD_CHARS = 6_000_000
+
+export const IdPhotoAdjustOptionsSchema = z.object({
+  specId: z.string().min(1).max(60),
+  bgColor: HexColor,
+  bgType: z.enum(['solid', 'gradient']),
+  bgGradientEndColor: HexColor.optional(),
+  feathering: optionalRange(0, 100),
+  brightness: optionalRange(-100, 100),
+  contrast: optionalRange(-100, 100),
+  smoothness: optionalRange(0, 100),
+  whitening: optionalRange(0, 100),
+  sharpness: optionalRange(0, 100),
+  attireId: z.string().max(60).optional(),
+  attireScale: optionalRange(0.5, 2),
+  attireOffsetX: optionalRange(-500, 500),
+  attireOffsetY: optionalRange(-500, 500),
+  cropX: optionalRange(0, 20000),
+  cropY: optionalRange(0, 20000),
+  cropWidth: optionalRange(1, 20000),
+  cropHeight: optionalRange(1, 20000),
+  rotation: optionalRange(-360, 360),
+})
+
+export const IdPhotoOptionsPatchSchema = IdPhotoAdjustOptionsSchema.partial()
+
 export const IdPhotoSpecSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -36,18 +64,18 @@ export const IdPhotoSpecSchema = z.object({
 })
 
 export const CreateIdPhotoRecordSchema = z.object({
-  title: z.string().default(''),
-  specId: z.string().min(1),
-  specName: z.string().default(''),
+  title: z.string().max(120).default(''),
+  specId: z.string().min(1).max(60),
+  specName: z.string().max(120).default(''),
   widthPx: z.number().int().positive(),
   heightPx: z.number().int().positive(),
   widthMm: z.number().nonnegative().default(0),
   heightMm: z.number().nonnegative().default(0),
   dpi: z.number().int().default(300),
   bgColor: z.string().default('#ffffff'),
-  options: z.record(z.string(), z.unknown()).default({}),
-  fileData: z.string().min(1), // base64 / data-url
-  printFileData: z.string().optional(),
+  options: IdPhotoOptionsPatchSchema.default({}),
+  fileData: z.string().min(32).max(MAX_UPLOAD_CHARS),
+  printFileData: z.string().max(MAX_UPLOAD_CHARS).optional(),
   fileType: z.enum(['jpg', 'jpeg', 'png', 'webp']).default('jpg'),
 })
 
@@ -65,45 +93,24 @@ export const CreateCustomSpecSchema = z.object({
   widthMm: z.number().positive(),
   heightMm: z.number().positive(),
   dpi: z.number().int().default(300),
-  recommendedBgColors: z.array(z.string()).default(['#ffffff']),
+  recommendedBgColors: z.array(HexColor).max(6).default(['#ffffff']),
   faceRatioMin: z.number().min(0).max(1).default(0.6),
   faceRatioMax: z.number().min(0).max(1).default(0.8),
-  fileSizeMaxKb: z.number().int().optional(),
+  fileSizeMaxKb: z.number().int().min(1).max(20_480).optional(),
 })
 
 export const UpdateIdPhotoSettingsSchema = z.object({
-  defaultSpecId: z.string().optional(),
-  defaultBgColor: z.string().optional(),
+  defaultSpecId: z.string().min(1).max(60).optional(),
+  defaultBgColor: HexColor.optional(),
   defaultDpi: z.number().int().positive().optional(),
   defaultExportFormat: z.enum(['jpg', 'jpeg', 'png', 'webp']).optional(),
   printPaperSize: z.enum(['5inch', '6inch', 'a4']).optional(),
 })
+
+export const MAX_RECORDS_PER_USER = 200
 
 export const UpdateCustomSpecSchema = z.object({
   name: z.string().min(1).max(50).optional(),
   isFavorite: z.boolean().optional(),
 })
 
-const optionalRange = (min: number, max: number) => z.number().min(min).max(max).optional()
-
-export const IdPhotoAdjustOptionsSchema = z.object({
-  specId: z.string().min(1).max(60),
-  bgColor: HexColor,
-  bgType: z.enum(['solid', 'gradient']),
-  bgGradientEndColor: HexColor.optional(),
-  feathering: optionalRange(0, 100),
-  brightness: optionalRange(-100, 100),
-  contrast: optionalRange(-100, 100),
-  smoothness: optionalRange(0, 100),
-  whitening: optionalRange(0, 100),
-  sharpness: optionalRange(0, 100),
-  attireId: z.string().max(60).optional(),
-  attireScale: optionalRange(0.5, 2),
-  attireOffsetX: optionalRange(-500, 500),
-  attireOffsetY: optionalRange(-500, 500),
-  cropX: optionalRange(0, 20000),
-  cropY: optionalRange(0, 20000),
-  cropWidth: optionalRange(1, 20000),
-  cropHeight: optionalRange(1, 20000),
-  rotation: optionalRange(-360, 360),
-})
