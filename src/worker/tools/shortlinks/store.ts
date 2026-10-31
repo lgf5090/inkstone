@@ -607,6 +607,14 @@ export class ShortlinksStore {
   // -------------------------------------------------------------------------
 
   async addSlug(linkId: number, rawSlug: string, kv?: KVNamespace): Promise<ShortLinkSlug> {
+    const owned = await this.db
+      .prepare('SELECT id FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
+      .bind(linkId, this.userId)
+      .first<{ id: number }>()
+    if (!owned) {
+      throw ApiError.notFound('Link not found')
+    }
+
     const slug = rawSlug.trim().toLowerCase()
     const validationErr = validateCustomSlug(slug)
     if (validationErr) {
@@ -1339,8 +1347,28 @@ export class ShortlinksStore {
   }
 
   async addBundleLinks(bundleId: number, linkIds: number[]): Promise<void> {
+    const bundle = await this.db
+      .prepare('SELECT id FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
+      .bind(bundleId, this.userId)
+      .first<{ id: number }>()
+    if (!bundle) {
+      throw ApiError.notFound('Bundle not found')
+    }
+
+    const unique = [...new Set(linkIds)]
+    const placeholders = unique.map(() => '?').join(', ')
+    const owned = await this.db
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ? AND id IN (${placeholders})`,
+      )
+      .bind(this.userId, ...unique)
+      .first<{ cnt: number }>()
+    if ((owned?.cnt ?? 0) !== unique.length) {
+      throw ApiError.badRequest('One or more links were not found')
+    }
+
     const now = Math.floor(Date.now() / 1000)
-    for (const linkId of linkIds) {
+    for (const linkId of unique) {
       await this.db
         .prepare(
           `INSERT OR IGNORE INTO tools_shortlinks_bundle_links (user_id, bundle_id, link_id, added_at)
@@ -1365,10 +1393,10 @@ export class ShortlinksStore {
            (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = l.id AND c.user_id = ?) as total_clicks
          FROM tools_shortlinks_links l
          JOIN tools_shortlinks_bundle_links bl ON l.id = bl.link_id
-         WHERE bl.bundle_id = ? AND bl.user_id = ?
+         WHERE bl.bundle_id = ? AND bl.user_id = ? AND l.user_id = ?
          ORDER BY bl.added_at DESC`,
       )
-      .bind(this.userId, bundleId, this.userId)
+      .bind(this.userId, bundleId, this.userId, this.userId)
       .all<{
         id: number
         user_id: string

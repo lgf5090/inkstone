@@ -146,6 +146,70 @@ describe('Shortlinks D1 Schema & Tenant Isolation', () => {
     })
     expect(updateRes.status).toBe(404)
   })
+
+  it('refuses a slug or a bundle member owned by another account', async () => {
+    const alice = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        user: USER_A,
+        body: { url: 'https://example.com/alice-owned', custom_slug: 'alice-owned' },
+      }),
+    )).data
+
+    const stolenSlug = await call('POST', `/api/tools/shortlinks/links/${alice.id}/slugs`, {
+      user: USER_B,
+      body: { slug: 'bob-alias' },
+    })
+    expect(stolenSlug.status).toBe(404)
+
+    const bobBundle = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/bundles', {
+        user: USER_B,
+        body: { name: 'bob-bundle', accent: 'blue' },
+      }),
+    )).data
+
+    const stealLink = await call('POST', `/api/tools/shortlinks/bundles/${bobBundle.id}/links`, {
+      user: USER_B,
+      body: { link_ids: [alice.id] },
+    })
+    expect(stealLink.status).toBe(400)
+
+    const bobLink = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        user: USER_B,
+        body: { url: 'https://example.com/bob-owned', custom_slug: 'bob-owned' },
+      }),
+    )).data
+    const intoForeignBundle = await call('POST', '/api/tools/shortlinks/bundles/999999/links', {
+      user: USER_B,
+      body: { link_ids: [bobLink.id] },
+    })
+    expect(intoForeignBundle.status).toBe(404)
+  })
+
+  it('keeps a foreign link out of a bundle listing even when a row was forced in', async () => {
+    const alice = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        user: USER_A,
+        body: { url: 'https://example.com/forced-alice', custom_slug: 'forced-alice' },
+      }),
+    )).data
+    const bobBundle = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/bundles', {
+        user: USER_B,
+        body: { name: 'forced-bundle', accent: 'blue' },
+      }),
+    )).data
+
+    sqlite
+      .prepare('INSERT INTO tools_shortlinks_bundle_links (user_id, bundle_id, link_id, added_at) VALUES (?, ?, ?, ?)')
+      .run(USER_B, bobBundle.id, alice.id, Math.floor(Date.now() / 1000))
+
+    const listed = (await json<any>(
+      await call('GET', `/api/tools/shortlinks/bundles/${bobBundle.id}/links`, { user: USER_B }),
+    )).data
+    expect(listed).toHaveLength(0)
+  })
 })
 
 describe('Shortlinks Link Lifecycle & Slugs', () => {
