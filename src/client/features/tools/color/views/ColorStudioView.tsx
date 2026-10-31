@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   Copy,
   Download,
@@ -11,6 +12,7 @@ import { hslToRgb, rgbToHex } from '@shared/tools/color/spaces'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
+import { parseHexInput } from '../lib/hex-input'
 import { Tooltip } from '../../../../components/overlay'
 import { ColorWheel } from '../components/ColorWheel'
 import { ColorSlider } from '../components/ColorSlider'
@@ -63,14 +65,6 @@ export function ColorStudioView() {
         .toString(16)
         .padStart(6, '0')
     setCurrentColor(randomHex, 'random')
-  }
-
-  const handleHexInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.trim()
-    if (!val.startsWith('#')) val = '#' + val
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-      setCurrentColor(val, 'input')
-    }
   }
 
   // Slider gradients
@@ -172,14 +166,10 @@ export function ColorStudioView() {
               <label className="block text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
                 {t('tools.color.studio.seed_color')}
               </label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  defaultValue={currentHex.toUpperCase()}
-                  key={currentHex}
-                  onChange={handleHexInputChange}
-                  className="w-28 font-mono text-[length:var(--text-14)] font-semibold uppercase h-8"
-                  maxLength={7}
-                  aria-label={t('tools.color.studio.hex_input_label')}
+              <div className="mt-1 flex items-center gap-2">
+                <HexField
+                  value={currentHex}
+                  onCommit={(hex) => setCurrentColor(hex, 'input')}
                 />
                 <Tooltip label={t('tools.color.studio.copy_all')}>
                   <IconButton
@@ -245,5 +235,58 @@ export function ColorStudioView() {
       {/* Harmonies Panel */}
       <HarmoniesPanel currentHex={currentHex} />
     </div>
+  )
+}
+
+/**
+ * The seed color's hex box.
+ *
+ * It used to be re-mounted on every committed color (`key={currentHex}`), which took the caret away the
+ * moment the sixth digit landed and threw away anything half-typed. The draft now lives here and only
+ * follows the store while the field is not being edited, and a value that is not a color says so instead
+ * of being ignored.
+ */
+function HexField({ value, onCommit }: { value: string; onCommit: (hex: string) => void }) {
+  const [draft, setDraft] = useState(() => value.toUpperCase())
+  const editing = useRef(false)
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value.toUpperCase())
+  }, [value])
+
+  const parsed = parseHexInput(draft)
+
+  return (
+    <span className="relative inline-flex flex-col">
+      <Input
+        value={draft}
+        onFocus={() => {
+          editing.current = true
+        }}
+        onBlur={() => {
+          editing.current = false
+          setDraft(value.toUpperCase())
+        }}
+        onChange={(e) => {
+          const raw = e.target.value
+          setDraft(raw)
+          const next = parseHexInput(raw)
+          if (next) onCommit(next)
+        }}
+        className="h-8 w-28 font-mono text-[length:var(--text-14)] font-semibold uppercase"
+        maxLength={7}
+        spellCheck={false}
+        aria-label={t('tools.color.studio.hex_input_label')}
+        aria-invalid={parsed === null || undefined}
+      />
+      {parsed === null && (
+        <span
+          role="status"
+          className="absolute top-full mt-0.5 whitespace-nowrap text-[length:var(--text-10)] text-[var(--danger)]"
+        >
+          {t('tools.color.contrast.invalid')}
+        </span>
+      )}
+    </span>
   )
 }

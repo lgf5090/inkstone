@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button, IconButton } from '../../../../components/primitives'
+import { Segmented } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
@@ -57,44 +58,17 @@ export function FavoritesView() {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('colors')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'colors'
-                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Heart size={13} />
-            {t('tools.color.favorites.tab_colors')} ({favorites.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('palettes')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'palettes'
-                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Palette size={13} />
-            {t('tools.color.favorites.tab_palettes')} ({palettes.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'history'
-                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Clock size={13} />
-            {t('tools.color.favorites.tab_history')} ({history.length})
-          </button>
-        </div>
+        <Segmented
+          size="sm"
+          label={t('tools.color.favorites.title')}
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { value: 'colors' as const, label: `${t('tools.color.favorites.tab_colors')} (${favorites.length})` },
+            { value: 'palettes' as const, label: `${t('tools.color.favorites.tab_palettes')} (${palettes.length})` },
+            { value: 'history' as const, label: `${t('tools.color.favorites.tab_history')} (${history.length})` },
+          ]}
+        />
       </div>
 
       {/* Tab 1: Colors */}

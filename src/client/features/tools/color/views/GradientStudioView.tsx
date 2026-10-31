@@ -100,7 +100,7 @@ export function GradientStudioView() {
             style={{ backgroundImage: buildCssGradient(gradientConfig) }}
           >
             <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-white text-[length:var(--text-12)] font-mono">
-              <span>{gradientConfig.type}</span>
+              <span>{t(`tools.color.gradient.type.${gradientConfig.type}`)}</span>
               {gradientConfig.type !== 'radial' && <span>{gradientConfig.angle}°</span>}
               {gradientConfig.useOklabInterpolation && (
                 <span className="text-[var(--accent)] font-semibold">{'OKLab'}</span>
@@ -163,7 +163,7 @@ export function GradientStudioView() {
                 key={tag}
                 type="button"
                 onClick={() => setSelectedTag(tag)}
-                className={`px-2.5 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors ${
+                className={`min-h-9 px-2.5 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors ${
                   selectedTag === tag
                     ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                     : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'

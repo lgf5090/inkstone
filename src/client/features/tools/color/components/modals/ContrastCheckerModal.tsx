@@ -5,6 +5,7 @@ import { DEFAULT_SEED_HEX } from '@shared/tools/color/contract'
 import { Modal } from '../../../../../components/overlay'
 import { Button } from '../../../../../components/primitives'
 import { Field, Input } from '../../../../../components/form'
+import { ColorWellField } from '../../../../../components/color-field'
 import { t } from '../../../../../lib/i18n'
 import { useColorStudioStore } from '../../store'
 import { parseHexInput } from '../../lib/hex-input'
@@ -34,13 +35,7 @@ function ColorSlot({
   return (
     <Field label={label} hint={parsed === null ? t('tools.color.contrast.invalid') : undefined}>
       <div className="flex items-center gap-2">
-        <input
-          type="color"
-          value={parsed ?? '#000000'}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={label}
-          className="h-8 w-8 shrink-0 cursor-pointer rounded-[var(--r-xs)] border border-[var(--border-subtle)] bg-transparent"
-        />
+        <ColorWellField value={parsed} label={label} onChange={onChange} />
         <Input
           value={value}
           onChange={(e) => onChange(e.target.value)}

@@ -22,6 +22,7 @@ export function PaletteSwatchGrid({ groups }: PaletteSwatchGridProps) {
       {groups.map((group) => (
         <div
           key={group.id}
+          data-testid="ui-palette-group"
           className="flex flex-col gap-3 p-4 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] shadow-sm"
         >
           <div className="flex items-center justify-between">

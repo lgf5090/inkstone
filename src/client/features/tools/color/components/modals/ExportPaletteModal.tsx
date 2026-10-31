@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Copy, Download } from 'lucide-react'
 import { Modal } from '../../../../../components/overlay'
 import { Button } from '../../../../../components/primitives'
+import { Segmented } from '../../../../../components/form'
 import { t } from '../../../../../lib/i18n'
 import { useUi } from '../../../../../store/ui'
 import {
@@ -146,31 +147,21 @@ export function ExportPaletteModal() {
           ))}
         </div>
 
-        {/* Format Selector Tabs */}
-        <div className="flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-1">
-          {(
-            [
-              { key: 'css', label: t('tools.color.export.format_css') },
-              { key: 'scss', label: t('tools.color.export.format_scss') },
-              { key: 'tailwind', label: t('tools.color.export.format_tailwind') },
-              { key: 'ase', label: t('tools.color.export.format_ase') },
-              { key: 'json', label: t('tools.color.export.format_json') },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setActiveFormat(item.key)}
-              className={`flex-1 min-w-[70px] rounded-[var(--radius-sm)] py-1.5 px-2 text-center text-[length:var(--text-12)] font-medium transition-colors ${
-                activeFormat === item.key
-                  ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-xs font-semibold'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        {/* Format Selector */}
+        <Segmented
+          size="sm"
+          className="w-full"
+          label={t('tools.color.export.title')}
+          value={activeFormat}
+          onChange={setActiveFormat}
+          options={[
+            { value: 'css' as const, label: t('tools.color.export.format_css') },
+            { value: 'scss' as const, label: t('tools.color.export.format_scss') },
+            { value: 'tailwind' as const, label: t('tools.color.export.format_tailwind') },
+            { value: 'ase' as const, label: t('tools.color.export.format_ase') },
+            { value: 'json' as const, label: t('tools.color.export.format_json') },
+          ]}
+        />
 
         {/* Code Preview Box */}
         <div className="relative rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">

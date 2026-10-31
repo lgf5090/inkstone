@@ -103,15 +103,18 @@ export function TokenScaleModal() {
           {t('tools.color.token.subtitle')}
         </p>
 
-        {/* 11-step scale grid */}
-        <div className="grid grid-cols-11 gap-1.5 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] p-2 bg-[var(--bg-sunken)]">
+        {/* 11-step scale grid: four columns on a phone, eleven once there is room for a hex to read */}
+        <div
+          data-testid="token-scale-strip"
+          className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-11 gap-1.5 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] p-2 bg-[var(--bg-sunken)]"
+        >
           {scaleItems.map((item) => (
             <button
               key={item.step}
               type="button"
-              onClick={() => copyColor(item.hex, `Step ${item.step}`)}
-              className="group flex flex-col items-center overflow-hidden rounded-[var(--radius-md)] p-1 text-center transition-transform hover:scale-105 focus:outline-none"
-              title={`Click to copy: ${item.hex}`}
+              onClick={() => copyColor(item.hex, t('tools.color.token.step_label', { step: item.step }))}
+              aria-label={t('tools.color.token.copy_step', { step: item.step, hex: item.hex })}
+              className="group flex min-h-11 flex-col items-center overflow-hidden rounded-[var(--radius-md)] p-1 text-center transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >
               <div
                 className="h-16 w-full rounded-[var(--radius-sm)] shadow-xs flex items-center justify-center font-mono text-[length:var(--text-10)] font-bold transition-opacity"
@@ -120,7 +123,7 @@ export function TokenScaleModal() {
                   color: item.textRecommended,
                 }}
               >
-                <span className="opacity-0 group-hover:opacity-100">{item.step}</span>
+                <span className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">{item.step}</span>
               </div>
               <span className="mt-1 font-mono text-[length:var(--text-10)] font-bold text-[var(--text-primary)]">
                 {item.step}
@@ -170,7 +173,7 @@ export function TokenScaleModal() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => copyColor(item.hex, `Step ${item.step}`)}
+                      onClick={() => copyColor(item.hex, t('tools.color.token.step_label', { step: item.step }))}
                     >
                       {t('tools.color.common.copy')}
                     </Button>

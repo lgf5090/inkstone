@@ -117,11 +117,15 @@ export function ColorWheel({
     <div
       role="slider"
       tabIndex={disabled ? -1 : 0}
-      aria-label={t('tools.color.studio.subtitle')}
+      aria-label={t('tools.color.studio.color_wheel')}
+      aria-disabled={disabled || undefined}
       aria-valuenow={Math.round(hue)}
       aria-valuemin={0}
       aria-valuemax={360}
-      aria-valuetext={`Hue: ${Math.round(hue)}deg, Saturation: ${Math.round(saturation)}%`}
+      aria-valuetext={t('tools.color.studio.color_wheel_value', {
+        hue: Math.round(hue),
+        saturation: Math.round(saturation),
+      })}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

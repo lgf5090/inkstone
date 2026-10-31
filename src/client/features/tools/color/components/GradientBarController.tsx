@@ -4,7 +4,7 @@ import { buildCssGradient } from '@shared/tools/color/oklab'
 import { COLOR_PALETTE_MAX_COLORS } from '@shared/tools/color/contract'
 import type { GradientColorStop, GradientConfig, GradientType } from '@shared/tools/color/types'
 import { Button, IconButton } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
+import { Input, Slider } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
@@ -202,13 +202,13 @@ export function GradientBarController({
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('tools.color.gradient.offset')}</span>
-              <input
-                type="range"
+              <Slider
+                value={activeStop.offset}
                 min={0}
                 max={100}
-                value={activeStop.offset}
-                onChange={(e) => handleStopOffsetChange(activeStop.id, Number(e.target.value))}
-                className="h-1.5 w-24 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
+                onChange={(offset) => handleStopOffsetChange(activeStop.id, offset)}
+                label={t('tools.color.gradient.offset')}
+                className="w-24"
               />
               <span className="w-8 font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {activeStop.offset}%
@@ -259,20 +259,20 @@ export function GradientBarController({
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                {type}
+                {t(`tools.color.gradient.type.${type}`)}
               </button>
             ))}
           </div>
 
           {config.type !== 'radial' && (
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <Slider
+                value={config.angle}
                 min={0}
                 max={360}
-                value={config.angle}
-                onChange={(e) => onChange({ ...config, angle: Number(e.target.value) })}
-                className="h-1.5 w-20 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
+                onChange={(angle) => onChange({ ...config, angle })}
+                label={t('tools.color.gradient.angle_label')}
+                className="w-20"
               />
               <span className="font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {config.angle}°

@@ -536,6 +536,10 @@ export const EN_US_TOOLS = {
   // Color Assistant
   'tools.color.module_name': 'Color Assistant',
   'tools.color.nav.studio': 'Color Studio',
+  'tools.color.studio.color_wheel': 'Color wheel: arrow keys change hue, up and down change saturation',
+  'tools.color.studio.color_wheel_value': 'Hue {hue} degrees, saturation {saturation}%',
+  'tools.color.token.step_label': 'Step {step}',
+  'tools.color.token.copy_step': 'Copy step {step} ({hex})',
   'tools.color.nav.settings': 'Color Settings',
   'tools.color.settings.title': 'Color Settings',
   'tools.color.settings.subtitle': 'Copy format, history capture and the default tab',
@@ -776,6 +780,10 @@ export const EN_US_TOOLS = {
   'tools.color.gradient.set_current_hex': 'Set Current Hex',
   'tools.color.gradient.offset': 'Offset',
   'tools.color.gradient.add_stop_label': 'Add Stop',
+  'tools.color.gradient.angle_label': 'Gradient angle',
+  'tools.color.gradient.type.linear': 'Linear',
+  'tools.color.gradient.type.radial': 'Radial',
+  'tools.color.gradient.type.conic': 'Conic',
   'tools.color.gradient.stop_hex_label': 'Stop color',
   'tools.color.gradient.stops_max': 'Up to {max} stops',
   'tools.color.gradient.stop_at': 'Color stop at {offset}%: {hex}',
@@ -791,7 +799,6 @@ export const EN_US_TOOLS = {
   'tools.color.favorites.history_empty': 'No recent history.',
 
   'tools.color.ai.prompt_label': 'Aesthetic Inspiration & Scene Description',
-  'tools.color.ai.prompt_aria': 'Scene description prompt',
   'tools.color.ai.empty_hint': 'Set your desired aesthetic parameters and generate custom palettes with AI.',
 
   // --- ID Photo Studio ---

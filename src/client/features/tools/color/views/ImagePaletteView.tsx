@@ -14,6 +14,7 @@ import { extractPaletteFromPixels } from '@shared/tools/color/quantize'
 import { COLOR_EXTRACT_MAX, COLOR_EXTRACT_MIN } from '@shared/tools/color/contract'
 import type { PoeticColorInterpretation } from '@shared/tools/color/types'
 import { Button, IconButton } from '../../../../components/primitives'
+import { Slider } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
@@ -267,15 +268,13 @@ export function ImagePaletteView() {
               {t('tools.color.image.extract_count')}: {maxColors}
             </span>
             <div className="flex items-center gap-3">
-              <input
-                type="range"
-                aria-label={t('tools.color.image.extract_count')}
+              <Slider
+                value={maxColors}
                 min={COLOR_EXTRACT_MIN}
                 max={COLOR_EXTRACT_MAX}
-                step={1}
-                value={maxColors}
-                onChange={(e) => setMaxColors(Number(e.target.value))}
-                className="h-1.5 w-28 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
+                onChange={setMaxColors}
+                label={t('tools.color.image.extract_count')}
+                className="w-28"
               />
             </div>
           </div>

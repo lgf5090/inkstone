@@ -138,8 +138,8 @@ describe('Settings are honored where they are read', () => {
       await Promise.resolve()
     })
 
-    const selected = [...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map((t) => t.textContent)
-    expect(selected).toContain('Ant Design')
+    const selected = [...document.querySelectorAll('[role="radio"][aria-checked="true"]')].map((t) => t.textContent)
+    expect(selected.some((label) => label?.includes('Ant Design'))).toBe(true)
   })
 
   it('copies in the configured format', async () => {

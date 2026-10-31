@@ -17447,12 +17447,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/color/components/modals/ExportPaletteModal.tsx", [
     "/* Swatches preview strip */",
-    "/* Format Selector Tabs */",
     "/* Code Preview Box */",
+    "/* Format Selector */",
   ]],
   ["src/client/features/tools/color/components/modals/TokenScaleModal.tsx", [
-    "/* 11-step scale grid */",
     "/* Step details table */",
+    "/* 11-step scale grid: four columns on a phone, eleven once there is room for a hex to read */",
   ]],
   ["src/client/features/tools/color/history-write.test.tsx", [
     "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
@@ -17577,6 +17577,7 @@ const allowed = new Map([
     "/* Harmonies Panel */",
     "// The sliders rotate on the unrounded triple: rebuilding a hex from rounded HSL moved the channels the",
     "// reader did not touch, so a hue nudge changed the saturation and lightness too.",
+    "/**\n * The seed color's hex box.\n *\n * It used to be re-mounted on every committed color (`key={currentHex}`), which took the caret away the\n * moment the sixth digit landed and threw away anything half-typed. The draft now lives here and only\n * follows the store while the field is not being edited, and a value that is not a color says so instead\n * of being ignored.\n */",
   ]],
   ["src/client/features/tools/color/views/FavoritesView.tsx", [
     "/* Header */",
@@ -17625,6 +17626,8 @@ const allowed = new Map([
     "/* Swatch Grids */",
     "// The setting arrives after mount, so it is adopted until the reader picks a tab of their own; after",
     "// that a late response must not move the ground under them.",
+    "// The box already says when it refused a pattern; the list has to agree with it. Filtering by a plain",
+    "// substring while handing the compiled query to FilterInput gave two answers to one search.",
   ]],
   ["src/client/features/tools/id-photo/IdPhotoApp.tsx", [
     "/* Mobile Top Preview */",

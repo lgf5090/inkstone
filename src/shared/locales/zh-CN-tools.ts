@@ -536,6 +536,10 @@ export const ZH_CN_TOOLS = {
   // Color Assistant
   'tools.color.module_name': '色彩助手',
   'tools.color.nav.studio': '调色工作室',
+  'tools.color.studio.color_wheel': '色轮：方向键调整色相，上下键调整饱和度',
+  'tools.color.studio.color_wheel_value': '色相 {hue} 度，饱和度 {saturation}%',
+  'tools.color.token.step_label': '色阶 {step}',
+  'tools.color.token.copy_step': '复制色阶 {step}（{hex}）',
   'tools.color.nav.settings': '色彩设置',
   'tools.color.settings.title': '色彩设置',
   'tools.color.settings.subtitle': '复制格式、历史记录与默认页签',
@@ -776,6 +780,10 @@ export const ZH_CN_TOOLS = {
   'tools.color.gradient.set_current_hex': '置为当前色',
   'tools.color.gradient.offset': '位置',
   'tools.color.gradient.add_stop_label': '添加色标',
+  'tools.color.gradient.angle_label': '渐变角度',
+  'tools.color.gradient.type.linear': '线性',
+  'tools.color.gradient.type.radial': '径向',
+  'tools.color.gradient.type.conic': '角度',
   'tools.color.gradient.stop_hex_label': '色标颜色',
   'tools.color.gradient.stops_max': '最多 {max} 个色标',
   'tools.color.gradient.stop_at': '位于 {offset}% 的色标 {hex}',
@@ -791,7 +799,6 @@ export const ZH_CN_TOOLS = {
   'tools.color.favorites.history_empty': '暂无色彩足迹',
 
   'tools.color.ai.prompt_label': '美学灵感与场景描述',
-  'tools.color.ai.prompt_aria': '场景意境提示词',
   'tools.color.ai.empty_hint': '设置期望的美学参数，让 AI 色彩顾问为您生成专属调色方案。',
 
   // --- ID Photo Studio ---
