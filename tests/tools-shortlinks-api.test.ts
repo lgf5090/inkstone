@@ -449,6 +449,36 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(settings.default_range).toBe('7d')
   })
 
+  it('returns the canonical analytics contract the client reads', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://contract.example.com', custom_slug: 'contract-link' },
+      }),
+    )).data
+
+    sqlite
+      .prepare('INSERT INTO tools_shortlinks_clicks (user_id, link_id, slug, clicked_at) VALUES (?, ?, ?, ?)')
+      .run(USER_A, created.id, 'contract-link', Math.floor(Date.now() / 1000) - 40 * 86400)
+
+    const stats = (await json<any>(
+      await call('GET', `/api/tools/shortlinks/links/${created.id}/stats`),
+    )).data
+    expect(stats).toHaveProperty('total_clicks')
+    expect(stats).toHaveProperty('avg_clicks_per_day')
+    expect(stats).not.toHaveProperty('clicks')
+    expect(stats).not.toHaveProperty('os')
+    expect(stats.operating_systems).toBeInstanceOf(Array)
+
+    const dash = (await json<any>(await call('GET', '/api/tools/shortlinks/dashboard'))).data
+    expect(dash.timeline).toEqual({ labels: expect.any(Array), values: expect.any(Array) })
+    expect(dash.timeline.labels).toHaveLength(dash.timeline.values.length)
+    expect(dash).toHaveProperty('active_links')
+    expect(dash).toHaveProperty('avg_clicks_per_day')
+    expect(dash).toHaveProperty('delta_clicks')
+    expect(dash).not.toHaveProperty('clicks_per_day')
+    expect(dash).not.toHaveProperty('top_links')
+  })
+
   it('creates API key and lists keys', async () => {
     const keyRes = await call('POST', '/api/tools/shortlinks/keys', {
       body: { title: 'CI Deployer', scope: 'write' },

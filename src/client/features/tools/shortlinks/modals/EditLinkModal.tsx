@@ -119,7 +119,7 @@ export function EditLinkModal() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={link?.password_protected || link?.is_password_protected ? `•••••••• (${t('tools.shortlinks.links.password_protected')})` : t('tools.shortlinks.modal.password_placeholder')}
+              placeholder={link?.password_protected ? `•••••••• (${t('tools.shortlinks.links.password_protected')})` : t('tools.shortlinks.modal.password_placeholder')}
             />
           </div>
 

@@ -67,10 +67,10 @@ export function SettingsView() {
 
   useEffect(() => {
     if (settings) {
-      setSlugLength(settings.slug_default_length || settings.slug_length || 6)
-      setDefaultRange(settings.default_range || settings.timeline_default_range || '30d')
-      setIgnoreBots(Boolean(settings.filter_bots ?? settings.analytics_ignore_bots))
-      setIgnoreSelf(Boolean(settings.filter_self_referrers ?? settings.analytics_ignore_self_referrer))
+      setSlugLength(settings.slug_default_length)
+      setDefaultRange(settings.default_range)
+      setIgnoreBots(settings.filter_bots)
+      setIgnoreSelf(settings.filter_self_referrers)
     }
   }, [settings])
 
@@ -104,7 +104,7 @@ export function SettingsView() {
         scope: keyScope as 'read' | 'read,write' | 'admin',
       })
       setKeyName('')
-      const returnedKey = (res as any).apiKey || (res as any).api_key || null
+      const returnedKey = res.api_key || null
       setGeneratedKey(returnedKey)
       useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
       void fetchApiKeys()
@@ -408,7 +408,7 @@ export function SettingsView() {
               >
                 <div>
                   <div className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
-                    <span>{k.title || k.name}</span>
+                    <span>{k.title}</span>
                     <span className="rounded bg-[var(--accent-soft)] px-1.5 py-0.2 text-[length:var(--text-10)] font-mono text-[var(--accent-on-soft)] uppercase">
                       {k.scope}
                     </span>
@@ -425,7 +425,7 @@ export function SettingsView() {
                   <IconButton
                     label={t('tools.shortlinks.settings.revoke_key')}
                     size="sm"
-                    onClick={() => handleRevokeApiKey(k.id, k.title || k.name || '')}
+                    onClick={() => handleRevokeApiKey(k.id, k.title)}
                   >
                     <Trash2 size={13} className="text-[var(--danger)]" />
                   </IconButton>
@@ -488,7 +488,7 @@ export function SettingsView() {
                     <Archive size={14} className="text-[var(--accent)]" />
                     <span>{new Date(b.created_at * 1000).toLocaleString()}</span>
                     <span className="text-[var(--text-tertiary)]">
-                      {'('}{(((b.size ?? b.size_bytes ?? 0)) / 1024).toFixed(1)}{' KB)'}
+                      {'('}{(b.size / 1024).toFixed(1)}{' KB)'}
                     </span>
                   </div>
 

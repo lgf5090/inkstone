@@ -328,7 +328,7 @@ function BundleDetailView() {
 
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="font-mono text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-                      {(link.clicks ?? 0).toLocaleString()} {t('tools.shortlinks.links.clicks')}
+                      {link.total_clicks.toLocaleString()} {t('tools.shortlinks.links.clicks')}
                     </span>
                     <div className="flex items-center gap-1">
                       <IconButton

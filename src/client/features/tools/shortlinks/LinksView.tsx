@@ -63,7 +63,7 @@ export function LinksView() {
   }
 
   const handleDeleteLink = async (link: ShortLink) => {
-    const hasClicks = (link.total_clicks ?? link.clicks ?? 0) > 0
+    const hasClicks = link.total_clicks > 0
     const ok = await confirm({
       title: t('tools.shortlinks.links.delete'),
       description: hasClicks
@@ -192,7 +192,7 @@ export function LinksView() {
                               +{link.slugs.length - 1}
                             </span>
                           )}
-                          {link.is_password_protected ? (
+                          {link.password_protected ? (
                             <span
                               title={t('tools.shortlinks.links.password_protected')}
                               className="text-[var(--warning,#eab308)]"
@@ -232,7 +232,7 @@ export function LinksView() {
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono font-semibold text-[var(--text-secondary)]">
-                        {(link.total_clicks ?? link.clicks ?? 0).toLocaleString()}
+                        {link.total_clicks.toLocaleString()}
                       </td>
 
                       <td className="py-3 px-4 text-right text-[length:var(--text-12)] text-[var(--text-tertiary)] font-mono">

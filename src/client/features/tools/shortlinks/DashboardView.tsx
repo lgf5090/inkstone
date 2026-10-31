@@ -76,20 +76,8 @@ export function DashboardView() {
 
   // Chart configuration builder for click trend
   const chartBuilder = useMemo(() => {
-    if (!stats?.timeline) return null
-    let labels: string[] = []
-    let values: number[] = []
-
-    if (Array.isArray(stats.timeline)) {
-      values = stats.timeline
-      labels = values.map((_, i) => `${i + 1}`)
-    } else if (stats.timeline && typeof stats.timeline === 'object' && 'labels' in stats.timeline && 'values' in stats.timeline) {
-      const tl = stats.timeline as { labels: string[]; values: number[] }
-      labels = tl.labels
-      values = tl.values
-    }
-
-    if (labels.length === 0) return null
+    if (!stats?.timeline || stats.timeline.labels.length === 0) return null
+    const { labels, values } = stats.timeline
 
     return (colors: ChartColors): ChartConfiguration<'line'> => ({
       type: 'line',
@@ -422,7 +410,7 @@ export function DashboardView() {
 
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="font-mono text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
-                      {(link.clicks ?? 0).toLocaleString()}{' '}
+                      {link.total_clicks.toLocaleString()}{' '}
                       <span className="text-[length:var(--text-11)] font-normal text-[var(--text-tertiary)]">
                         {t('tools.shortlinks.links.clicks')}
                       </span>

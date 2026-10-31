@@ -6,6 +6,7 @@ import type {
   BreakdownPage,
   BundleStats,
   ClickStats,
+  CreatedShortlinkApiKey,
   DashboardStats,
   ShortLink,
   ShortLinkBundle,
@@ -196,7 +197,7 @@ export const shortlinksApi = {
     request<{ data: ShortlinkApiKey[] }>('/api/tools/shortlinks/api-keys').then((r) => r.data),
 
   createApiKey: (input: CreateApiKeyInput) =>
-    request<{ data: ShortlinkApiKey }>('/api/tools/shortlinks/api-keys', {
+    request<{ data: CreatedShortlinkApiKey }>('/api/tools/shortlinks/api-keys', {
       method: 'POST',
       body: input,
     }).then((r) => r.data),

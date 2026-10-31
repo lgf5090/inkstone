@@ -32,6 +32,10 @@ const RANGES: { id: TimelineRange; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'tools.shortlinks.detail.range_all' },
 ]
 
+function share(count: number, total: number): number {
+  return total > 0 ? Math.min(100, Math.round((count / total) * 100)) : 0
+}
+
 export function LinkDetailView() {
   const link = useShortlinksStore((s) => s.activeLink)
   const stats = useShortlinksStore((s) => s.activeLinkStats)
@@ -50,8 +54,8 @@ export function LinkDetailView() {
   // Chart configuration builder (placed before conditional return to uphold Rules of Hooks)
   const chartBuilder = useMemo(() => {
     if (!timeline) return null
-    const labels = timeline.labels || timeline.buckets?.map((b) => b.label) || []
-    const values = timeline.values || timeline.buckets?.map((b) => b.count) || []
+    const labels = timeline.buckets.map((b) => b.label)
+    const values = timeline.buckets.map((b) => b.count)
     if (labels.length === 0) return null
 
     return (colors: ChartColors): ChartConfiguration<'line'> => ({
@@ -211,7 +215,7 @@ export function LinkDetailView() {
               <span className="font-mono text-xl md:text-2xl font-bold text-[var(--accent)]">
                 /{primarySlug}
               </span>
-              {link.is_password_protected ? (
+              {link.password_protected ? (
                 <span
                   title={t('tools.shortlinks.links.password_protected')}
                   className="rounded-full bg-[var(--warning-soft,#fef9c3)] p-1 text-[var(--warning,#ca8a04)]"
@@ -311,7 +315,7 @@ export function LinkDetailView() {
             {t('tools.shortlinks.links.clicks')}
           </div>
           <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
-            {(stats?.clicks ?? 0).toLocaleString()}
+            {(stats?.total_clicks ?? 0).toLocaleString()}
           </div>
         </div>
 
@@ -481,8 +485,7 @@ export function LinkDetailView() {
           ) : (
             <div className="space-y-2">
               {stats.countries.slice(0, 6).map((c) => {
-                const totalClicks = stats.clicks || 1
-                const pct = Math.min(100, Math.round((c.count / totalClicks) * 100))
+                const pct = share(c.count, stats.total_clicks)
                 return (
                   <div key={c.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="flex items-center gap-1.5 font-medium text-[var(--text-primary)]">
@@ -508,22 +511,21 @@ export function LinkDetailView() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => openBreakdown('referrers')}
+              onClick={() => openBreakdown('referrer_hosts')}
               className="text-[length:var(--text-11)] h-6 px-1.5 text-[var(--accent)]"
             >
               {t('tools.shortlinks.detail.view_all')}
             </Button>
           </div>
 
-          {!stats || stats.referrers.length === 0 ? (
+          {!stats || stats.referrer_hosts.length === 0 ? (
             <div className="py-8 text-center text-[var(--text-tertiary)] text-[length:var(--text-12)]">
               {t('tools.shortlinks.dashboard.no_data')}
             </div>
           ) : (
             <div className="space-y-2">
-              {stats.referrers.slice(0, 6).map((r) => {
-                const totalClicks = stats.clicks || 1
-                const pct = Math.min(100, Math.round((r.count / totalClicks) * 100))
+              {stats.referrer_hosts.slice(0, 6).map((r) => {
+                const pct = share(r.count, stats.total_clicks)
                 return (
                   <div key={r.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="truncate font-medium text-[var(--text-primary)] max-w-[70%]">
@@ -562,8 +564,7 @@ export function LinkDetailView() {
           ) : (
             <div className="space-y-2">
               {stats.devices.map((d) => {
-                const totalClicks = stats.clicks || 1
-                const pct = Math.min(100, Math.round((d.count / totalClicks) * 100))
+                const pct = share(d.count, stats.total_clicks)
                 return (
                   <div key={d.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="capitalize font-medium text-[var(--text-primary)]">
@@ -595,15 +596,14 @@ export function LinkDetailView() {
             </Button>
           </div>
 
-          {!stats || (stats.operating_systems || stats.os || []).length === 0 ? (
+          {!stats || stats.operating_systems.length === 0 ? (
             <div className="py-8 text-center text-[var(--text-tertiary)] text-[length:var(--text-12)]">
               {t('tools.shortlinks.dashboard.no_data')}
             </div>
           ) : (
             <div className="space-y-2">
-              {(stats.operating_systems || stats.os || []).slice(0, 6).map((os) => {
-                const totalClicks = stats.total_clicks || stats.clicks || 1
-                const pct = Math.min(100, Math.round((os.count / totalClicks) * 100))
+              {stats.operating_systems.slice(0, 6).map((os) => {
+                const pct = share(os.count, stats.total_clicks)
                 return (
                   <div key={os.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="font-medium text-[var(--text-primary)]">
@@ -642,8 +642,7 @@ export function LinkDetailView() {
           ) : (
             <div className="space-y-2">
               {stats.browsers.slice(0, 6).map((b) => {
-                const totalClicks = stats.total_clicks || stats.clicks || 1
-                const pct = Math.min(100, Math.round((b.count / totalClicks) * 100))
+                const pct = share(b.count, stats.total_clicks)
                 return (
                   <div key={b.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="font-medium text-[var(--text-primary)]">

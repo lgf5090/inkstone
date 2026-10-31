@@ -419,15 +419,19 @@ export class ShortlinksStore {
       orderSql = `ORDER BY total_clicks ${sortOrder}, l.created_at ${sortOrder}`
     }
 
+    const sinceTs = rangeToSinceTs(params.range, now)
+    const clickWindow = sinceTs === undefined ? '' : ' AND c.clicked_at >= ?'
+    const clickBinds: (string | number)[] = sinceTs === undefined ? [this.userId] : [this.userId, sinceTs]
+
     const query = `
       SELECT l.*,
-        (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = l.id AND c.user_id = ?) as total_clicks
+        (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id = l.id AND c.user_id = ?${clickWindow}) as total_clicks
       FROM tools_shortlinks_links l
       ${whereClause}
       ${orderSql}
       LIMIT ${limit} OFFSET ${offset}
     `
-    const rows = await this.db.prepare(query).bind(this.userId, ...binds).all<{
+    const rows = await this.db.prepare(query).bind(...clickBinds, ...binds).all<{
       id: number
       user_id: string
       url: string
@@ -846,17 +850,21 @@ export class ShortlinksStore {
   // Analytics
   // -------------------------------------------------------------------------
 
+  private clickScope(settings: ShortlinksSettings): string {
+    let scope = ''
+    if (settings.filter_bots) scope += ' AND is_bot = 0'
+    if (settings.filter_self_referrers) scope += ' AND is_self_referrer = 0'
+    return scope
+  }
+
   async getLinkAnalytics(linkId: number, range: TimelineRange = '30d'): Promise<ClickStats> {
     const settings = await this.getSettings()
-    let where = 'user_id = ? AND link_id = ?'
+    const link = await this.db
+      .prepare('SELECT created_at FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
+      .bind(linkId, this.userId)
+      .first<{ created_at: number }>()
+    let where = `user_id = ? AND link_id = ?${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId, linkId]
-
-    if (settings.filter_bots) {
-      where += ' AND is_bot = 0'
-    }
-    if (settings.filter_self_referrers) {
-      where += ' AND is_self_referrer = 0'
-    }
 
     const sinceTs = rangeToSinceTs(range)
     if (sinceTs !== undefined) {
@@ -902,11 +910,11 @@ export class ShortlinksStore {
 
     return {
       total_clicks: totalRow?.cnt || 0,
+      avg_clicks_per_day: formatAvgPerDay(totalRow?.cnt || 0, range, link?.created_at),
       countries: countries.results ?? [],
       referrers: referrers.results ?? [],
       referrer_hosts: referrerHosts.results ?? [],
       devices: devices.results ?? [],
-      os: osList.results ?? [],
       operating_systems: osList.results ?? [],
       browsers: browsers.results ?? [],
       link_modes: fillMissingOptions(linkModes.results ?? [], ['link', 'qr']),
@@ -922,8 +930,9 @@ export class ShortlinksStore {
   }
 
   async getTimeline(linkId?: number, bundleId?: number, range: TimelineRange = '30d'): Promise<TimelineData> {
+    const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
-    let where = 'user_id = ?'
+    let where = `user_id = ?${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId]
 
     if (linkId) {
@@ -932,28 +941,6 @@ export class ShortlinksStore {
     } else if (bundleId) {
       where += ' AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)'
       binds.push(bundleId, this.userId)
-    }
-
-    const t24h = now - 86400
-    const t7d = now - 7 * 86400
-    const t30d = now - 30 * 86400
-    const t90d = now - 90 * 86400
-    const t1y = now - 365 * 86400
-
-    const [last24h, last7d, last30d, last90d, last1y] = await Promise.all([
-      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND clicked_at >= ?`).bind(...binds, t24h).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND clicked_at >= ?`).bind(...binds, t7d).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND clicked_at >= ?`).bind(...binds, t30d).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND clicked_at >= ?`).bind(...binds, t90d).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where} AND clicked_at >= ?`).bind(...binds, t1y).first<{ cnt: number }>(),
-    ])
-
-    const summary = {
-      last_24h: last24h?.cnt || 0,
-      last_7d: last7d?.cnt || 0,
-      last_30d: last30d?.cnt || 0,
-      last_90d: last90d?.cnt || 0,
-      last_1y: last1y?.cnt || 0,
     }
 
     let bucketExpr = "date(clicked_at, 'unixepoch')"
@@ -985,7 +972,7 @@ export class ShortlinksStore {
     const dataMap = new Map((rows.results ?? []).map((r) => [r.label, r.count]))
     const buckets = fillBuckets(range, dataMap, now)
 
-    return { range, buckets, summary }
+    return { range, buckets }
   }
 
   async getBreakdownPage(params: {
@@ -1011,7 +998,8 @@ export class ShortlinksStore {
     else if (dimension === 'link_mode' || dimension === 'link_modes') col = 'link_mode'
     else if (dimension === 'country' || dimension === 'countries') col = 'country'
 
-    let where = 'user_id = ?'
+    const settings = await this.getSettings()
+    let where = `user_id = ?${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId]
 
     if (params.linkId) {
@@ -1060,11 +1048,12 @@ export class ShortlinksStore {
   }
 
   async getDashboardStats(range: TimelineRange = '30d'): Promise<DashboardStats> {
+    const settings = await this.getSettings()
     const now = Math.floor(Date.now() / 1000)
     const sinceTs = rangeToSinceTs(range, now)
     const prevSinceTs = sinceTs !== undefined ? sinceTs - (now - sinceTs) : undefined
 
-    let where = 'user_id = ?'
+    let where = `user_id = ?${this.clickScope(settings)}`
     const binds: (string | number)[] = [this.userId]
 
     let timeFilter = ''
@@ -1073,74 +1062,56 @@ export class ShortlinksStore {
       binds.push(sinceTs)
     }
 
-    // 1. Total links count
     const totalLinksRow = await this.db
-      .prepare('SELECT COUNT(*) as cnt FROM tools_shortlinks_links WHERE user_id = ?')
-      .bind(this.userId)
-      .first<{ cnt: number }>()
+      .prepare(
+        `SELECT
+           COUNT(*) as total,
+           SUM(CASE WHEN (expires_at IS NULL OR expires_at > ?)
+             AND EXISTS (SELECT 1 FROM tools_shortlinks_slugs s WHERE s.link_id = tools_shortlinks_links.id AND s.disabled_at IS NULL)
+             THEN 1 ELSE 0 END) as active
+         FROM tools_shortlinks_links WHERE user_id = ?`,
+      )
+      .bind(now, this.userId)
+      .first<{ total: number; active: number | null }>()
 
-    // 2. Total clicks in range
     const totalClicksRow = await this.db
       .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter}`)
       .bind(...binds)
       .first<{ cnt: number }>()
 
-    // 3. Previous clicks in equivalent period
     let totalClicksPrevious = 0
     if (sinceTs !== undefined && prevSinceTs !== undefined) {
       const prevClicksRow = await this.db
-        .prepare('SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE user_id = ? AND clicked_at >= ? AND clicked_at < ?')
+        .prepare(`SELECT COUNT(*) as cnt FROM tools_shortlinks_clicks WHERE user_id = ?${this.clickScope(settings)} AND clicked_at >= ? AND clicked_at < ?`)
         .bind(this.userId, prevSinceTs, sinceTs)
         .first<{ cnt: number }>()
       totalClicksPrevious = prevClicksRow?.cnt || 0
     }
 
     const totalClicks = totalClicksRow?.cnt || 0
-    const totalClicksDelta = computeDelta(totalClicks, totalClicksPrevious)
+    const deltaClicks = computeDelta(totalClicks, totalClicksPrevious)
 
-    // 4. Domains and Countries
-    const [domainsRow, countriesRow, clickedLinksRow] = await Promise.all([
-      this.db.prepare(`SELECT COUNT(DISTINCT referrer_host) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND referrer_host IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(DISTINCT country) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND country IS NOT NULL`).bind(...binds).first<{ cnt: number }>(),
-      this.db.prepare(`SELECT COUNT(DISTINCT link_id) as cnt FROM tools_shortlinks_clicks WHERE ${where}${timeFilter}`).bind(...binds).first<{ cnt: number }>(),
-    ])
-
-    // 5. Timeline Sparkline
-    const timelineData = await this.getTimeline(undefined, undefined, range)
-    const timeline = timelineData.buckets.map((b) => b.count)
-
-    // 6. Recent Links
-    const recent = await this.listLinks({ limit: 5, sort: 'created_at' })
-
-    // 7. Top Links
-    const top = await this.listLinks({ limit: 5, sort: 'clicks', range })
-
-    // 8. Top Countries & Referrers
-    const [topCountries, topReferrers] = await Promise.all([
+    const [timelineData, recent, topCountries, topReferrers] = await Promise.all([
+      this.getTimeline(undefined, undefined, range),
+      this.listLinks({ limit: 5, sort: 'created_at' }),
       this.db.prepare(`SELECT country as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
       this.db.prepare(`SELECT referrer_host as name, COUNT(*) as count FROM tools_shortlinks_clicks WHERE ${where}${timeFilter} AND referrer_host IS NOT NULL GROUP BY referrer_host ORDER BY count DESC LIMIT 5`).bind(...binds).all<{ name: string; count: number }>(),
     ])
 
-    const clicksPerDay = Number(formatAvgPerDay(totalClicks, range))
-
     return {
       range,
-      total_links: totalLinksRow?.cnt || 0,
+      total_links: totalLinksRow?.total || 0,
+      active_links: totalLinksRow?.active || 0,
       total_clicks: totalClicks,
-      total_clicks_previous: totalClicksPrevious,
-      total_clicks_delta: totalClicksDelta,
-      clicks_per_day: clicksPerDay,
-      num_domains: domainsRow?.cnt || 0,
-      num_countries: countriesRow?.cnt || 0,
-      clicked_links: clickedLinksRow?.cnt || 0,
-      timeline,
-      timeline_links: [],
-      timeline_clicked_links: [],
+      delta_clicks: deltaClicks,
+      avg_clicks_per_day: formatAvgPerDay(totalClicks, range),
+      timeline: {
+        labels: timelineData.buckets.map((b) => b.label),
+        values: timelineData.buckets.map((b) => b.count),
+      },
       recent_links: recent.items,
-      top_links: top.items,
       top_countries: topCountries.results ?? [],
       top_referrers: topReferrers.results ?? [],
-      num_referrers: domainsRow?.cnt || 0,
     }
   }
 
@@ -1204,7 +1175,6 @@ export class ShortlinksStore {
         link_count: r.link_count || 0,
         total_clicks: r.total_clicks || 0,
         sparkline: buckets.map((b) => b.count),
-        top_links: [],
         archived_at: r.archived_at,
         created_at: r.created_at,
         updated_at: r.updated_at,
@@ -1279,7 +1249,6 @@ export class ShortlinksStore {
       link_count: row.link_count || 0,
       total_clicks: row.total_clicks || 0,
       sparkline: [],
-      top_links: [],
       archived_at: row.archived_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -1474,10 +1443,11 @@ export class ShortlinksStore {
       throw ApiError.notFound('Bundle not found')
     }
 
+    const settings = await this.getSettings()
     const links = await this.getBundleLinks(bundleId)
     const timeline = await this.getTimeline(undefined, bundleId, range)
 
-    let where = 'user_id = ? AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)'
+    let where = `user_id = ?${this.clickScope(settings)} AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)`
     const binds: (string | number)[] = [this.userId, bundleId, this.userId]
 
     const sinceTs = rangeToSinceTs(range)
@@ -1518,16 +1488,32 @@ export class ShortlinksStore {
 
     const totalClicks = totalRow?.cnt || 0
 
+    const linkIds = links.map((l) => l.id)
+    const rangeCounts = new Map<number, number>()
+    if (linkIds.length > 0) {
+      const placeholders = linkIds.map(() => '?').join(', ')
+      const counted = await this.db
+        .prepare(
+          `SELECT link_id, COUNT(*) as cnt FROM tools_shortlinks_clicks
+           WHERE ${where} AND link_id IN (${placeholders})
+           GROUP BY link_id`,
+        )
+        .bind(...binds, ...linkIds)
+        .all<{ link_id: number; cnt: number }>()
+      for (const row of counted.results ?? []) rangeCounts.set(row.link_id, row.cnt)
+    }
+
     // Per link breakdown
     const perLink: BundleStatsPerLink[] = links.map((l) => {
       const primarySlug = l.slugs.find((s) => s.is_primary)?.slug || l.slugs[0]?.slug || ''
-      const pct = totalClicks > 0 ? Math.round((l.total_clicks / totalClicks) * 100) : 0
+      const clicks = rangeCounts.get(l.id) ?? 0
+      const pct = totalClicks > 0 ? Math.round((clicks / totalClicks) * 100) : 0
       return {
         link_id: l.id,
         label: l.label,
         primary_slug: primarySlug,
         url: l.url,
-        click_count: l.total_clicks,
+        click_count: clicks,
         pct_of_bundle: pct,
       }
     })
@@ -1544,13 +1530,12 @@ export class ShortlinksStore {
       bundle,
       link_count: links.length,
       total_clicks: totalClicks,
-      clicked_links: links.filter((l) => l.total_clicks > 0).length,
+      clicked_links: perLink.filter((l) => l.click_count > 0).length,
       top_performer: topPerformer,
       countries_reached: numCountriesRow?.cnt || 0,
       timeline,
       countries: countries.results ?? [],
       devices: devices.results ?? [],
-      os: osList.results ?? [],
       operating_systems: osList.results ?? [],
       browsers: browsers.results ?? [],
       referrers: referrers.results ?? [],
