@@ -1,9 +1,9 @@
 import { Copy, Heart } from 'lucide-react'
 import type { TraditionalColorItem } from '@shared/tools/color/types'
-import { isDarkColor } from '@shared/tools/color/spaces'
+import { recommendedTextColor } from '@shared/tools/color/a11y'
 import { t } from '../../../../lib/i18n'
-import { Tooltip } from '../../../../components/overlay'
 import { useColorStudioStore } from '../store'
+import { SwatchActions } from './SwatchActions'
 
 export interface TraditionalColorCardProps {
   color: TraditionalColorItem
@@ -14,7 +14,6 @@ export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const addFavorite = useColorStudioStore((s) => s.addFavorite)
 
-  const isDark = isDarkColor(color.hex)
   const phonetic = color.pinyin || color.romaji || color.kana || ''
 
   return (
@@ -23,49 +22,37 @@ export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
     >
       <button
         type="button"
-        aria-label={`Select ${color.name} ${color.hex}`}
+        aria-label={t('tools.color.swatch.use', { hex: color.hex })}
         onClick={() => setCurrentColor(color.hex, 'traditional')}
         className="absolute inset-0 w-full h-full cursor-pointer rounded-[var(--r-lg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       />
       {/* Color Top Banner */}
       <div
         style={{ backgroundColor: color.hex }}
-        className="relative h-24 w-full rounded-[var(--r-md)] border border-black/5 overflow-hidden flex items-end p-2 pointer-events-none"
+        className="relative h-24 w-full rounded-[var(--r-md)] border border-black/5 overflow-hidden flex items-end p-2"
       >
-        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-auto">
-          <Tooltip label={color.hex}>
-            <button
-              type="button"
-              aria-label={`Copy ${color.name} ${color.hex}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                copyColor(color.hex, color.name)
-              }}
-              className="p-1 rounded bg-black/40 hover:bg-black/60 text-white transition-colors"
-            >
-              <Copy size={12} />
-            </button>
-          </Tooltip>
-          <Tooltip label={t('tools.color.studio.favorite')}>
-            <button
-              type="button"
-              aria-label={`Favorite ${color.name}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                addFavorite(color.hex, color.name)
-              }}
-              className="p-1 rounded bg-black/40 hover:bg-black/60 text-white transition-colors"
-            >
-              <Heart size={12} />
-            </button>
-          </Tooltip>
-        </div>
+        <SwatchActions
+          className="absolute top-2 right-2"
+          actions={[
+            {
+              key: 'copy',
+              label: t('tools.color.studio.copy'),
+              icon: <Copy size={12} />,
+              onSelect: () => copyColor(color.hex, color.name),
+            },
+            {
+              key: 'favorite',
+              label: t('tools.color.studio.favorite'),
+              icon: <Heart size={12} />,
+              onSelect: () => addFavorite(color.hex, color.name),
+            },
+          ]}
+        />
 
         {color.solarTerm && (
           <span
-            className={`text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded ${
-              isDark ? 'bg-white/20 text-white' : 'bg-black/20 text-zinc-900'
-            }`}
+            style={{ color: recommendedTextColor(color.hex) }}
+            className="text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded bg-black/10"
           >
             {color.solarTerm}
           </span>

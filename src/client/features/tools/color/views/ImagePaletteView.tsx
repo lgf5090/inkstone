@@ -407,7 +407,7 @@ export function ImagePaletteView() {
                         style={{ backgroundColor: hex }}
                         onClick={() => setCurrentHex(hex, 'image')}
                       >
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
                           <Pipette size={16} className="text-white drop-shadow-sm" />
                         </div>
                       </button>

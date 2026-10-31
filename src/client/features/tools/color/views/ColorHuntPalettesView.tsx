@@ -58,7 +58,7 @@ export function ColorHuntPalettesView() {
                 onClick={() => setTagFilter(tag)}
                 className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors whitespace-nowrap ${
                   isSelected
-                    ? 'bg-[var(--accent)] text-white shadow-xs'
+                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
                     : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'
                 }`}
               >

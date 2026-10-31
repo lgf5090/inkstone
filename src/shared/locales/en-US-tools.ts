@@ -613,6 +613,8 @@ export const EN_US_TOOLS = {
   'tools.color.image.subtitle': 'Extract dominant palettes using MMCQ, generate poetic interpretations and artistic poster cards',
   'tools.color.image.upload_prompt': 'Drag & drop image here or click to upload (PNG, JPG, WebP)',
   'tools.color.image.extract_count': 'Color Count',
+  'tools.color.swatch.use': 'Set {hex} as the seed color',
+  'tools.color.swatch.copy': 'Copy {hex}',
   'tools.color.image.ai_namer_fallback': 'No model was called; names come from the closest traditional color',
   'tools.color.image.dominant': 'Dominant Color',
   'tools.color.image.palette': 'Extracted Palette',

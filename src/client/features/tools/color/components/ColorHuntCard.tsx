@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Copy, Download, Heart, Palette, Pipette } from 'lucide-react'
 import type { ColorHuntPalette } from '@shared/tools/color/types'
+import { recommendedTextColor } from '@shared/tools/color/a11y'
 import { IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { SwatchActions } from './SwatchActions'
 
 export interface ColorHuntCardProps {
   palette: ColorHuntPalette
@@ -43,7 +45,7 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
   const heights = ['h-24', 'h-16', 'h-12', 'h-10']
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all duration-[var(--dur-base)] hover:shadow-md hover:border-[var(--accent)]">
+    <div className="flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all duration-[var(--dur-base)] hover:shadow-md hover:border-[var(--accent)]">
       {/* 4-Color Stacked Swatches */}
       <div className="flex flex-col w-full overflow-hidden">
         {palette.colors.map((hex, index) => {
@@ -51,48 +53,33 @@ export function ColorHuntCard({ palette }: ColorHuntCardProps) {
           return (
             <div
               key={`${palette.id}-${hex}-${index}`}
-              className={`relative ${heightClass} w-full flex items-center justify-between px-3 transition-opacity hover:opacity-95`}
-              style={{ backgroundColor: hex }}
+              style={{ backgroundColor: hex, color: recommendedTextColor(hex) }}
+              className={`group relative ${heightClass} w-full flex items-center justify-between px-3 transition-opacity hover:opacity-95`}
             >
               <button
                 type="button"
-                aria-label={`Copy color ${hex}`}
+                aria-label={t('tools.color.swatch.copy', { hex })}
                 onClick={() => copyColor(hex, palette.title)}
                 className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
               />
-              <div className="opacity-0 group-hover:opacity-100 flex items-center justify-between w-full transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto">
-                <span className="font-mono text-[length:var(--text-12)] font-bold text-white drop-shadow-sm uppercase">
-                  {hex}
-                </span>
-                <div className="flex items-center gap-1 bg-black/30 rounded-full px-1.5 py-0.5">
-                  <Tooltip label={t('tools.color.studio.seed_color')}>
-                    <button
-                      type="button"
-                      aria-label={t('tools.color.studio.seed_color')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setCurrentHex(hex, 'colorhunt')
-                      }}
-                      className="text-white hover:text-[var(--accent)] p-0.5"
-                    >
-                      <Pipette size={12} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t('tools.color.studio.copy')}>
-                    <button
-                      type="button"
-                      aria-label={t('tools.color.studio.copy')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        copyColor(hex, palette.title)
-                      }}
-                      className="text-white hover:text-[var(--accent)] p-0.5"
-                    >
-                      <Copy size={12} />
-                    </button>
-                  </Tooltip>
-                </div>
-              </div>
+              <span className="font-mono text-[length:var(--text-12)] font-bold uppercase">{hex}</span>
+              <SwatchActions
+                className="absolute top-1/2 right-2 -translate-y-1/2"
+                actions={[
+                  {
+                    key: 'seed',
+                    label: t('tools.color.studio.seed_color'),
+                    icon: <Pipette size={12} />,
+                    onSelect: () => setCurrentHex(hex, 'colorhunt'),
+                  },
+                  {
+                    key: 'copy',
+                    label: t('tools.color.studio.copy'),
+                    icon: <Copy size={12} />,
+                    onSelect: () => copyColor(hex, palette.title),
+                  },
+                ]}
+              />
             </div>
           )
         })}

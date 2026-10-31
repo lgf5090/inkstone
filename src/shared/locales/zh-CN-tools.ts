@@ -613,6 +613,8 @@ export const ZH_CN_TOOLS = {
   'tools.color.image.subtitle': '基于 MMCQ 算法提取画面主色调，AI 东方诗人赋予意境诗意色彩，一键生成艺术壁纸色卡',
   'tools.color.image.upload_prompt': '拖拽图片到此处，或点击上传 (PNG, JPG, WebP)',
   'tools.color.image.extract_count': '提取主色数量',
+  'tools.color.swatch.use': '把 {hex} 设为种子色',
+  'tools.color.swatch.copy': '复制 {hex}',
   'tools.color.image.ai_namer_fallback': '未调用模型，已按最接近的传统色命名',
   'tools.color.image.dominant': '画面主导色',
   'tools.color.image.palette': '提取调色板',

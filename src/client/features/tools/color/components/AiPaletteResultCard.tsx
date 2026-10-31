@@ -1,11 +1,11 @@
 import { Bookmark, Copy, Heart } from 'lucide-react'
 import type { AiPaletteResult } from '@shared/tools/color/types'
-import { isDarkColor } from '@shared/tools/color/spaces'
+import { recommendedTextColor } from '@shared/tools/color/a11y'
 import { t } from '../../../../lib/i18n'
-import { Tooltip } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
 import { AiDegradedNotice } from './AiDegradedNotice'
+import { SwatchActions } from './SwatchActions'
 
 export interface AiPaletteResultCardProps {
   result: AiPaletteResult
@@ -70,7 +70,6 @@ export function AiPaletteResultCard({ result }: AiPaletteResultCardProps) {
       {/* Colors Ribbon & Details */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-2">
         {result.colors.map((color, idx) => {
-          const dark = isDarkColor(color.hex)
           return (
             <div
               key={`${color.hex}-${idx}`}
@@ -78,49 +77,34 @@ export function AiPaletteResultCard({ result }: AiPaletteResultCardProps) {
             >
               <button
                 type="button"
-                aria-label={`Select ${color.name} ${color.hex}`}
+                aria-label={t('tools.color.swatch.use', { hex: color.hex })}
                 onClick={() => setCurrentColor(color.hex, 'palette')}
-                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
               />
               {/* Color Box */}
               <div
-                style={{ backgroundColor: color.hex }}
-                className="relative h-20 w-full flex items-end justify-between p-2 pointer-events-none"
+                style={{ backgroundColor: color.hex, color: recommendedTextColor(color.hex) }}
+                className="relative h-20 w-full flex items-end justify-between p-2"
               >
-                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-auto">
-                  <Tooltip label={color.hex}>
-                    <button
-                      type="button"
-                      aria-label={`Copy ${color.hex}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        copyColor(color.hex, color.name)
-                      }}
-                      className="p-1 rounded bg-black/40 hover:bg-black/60 text-white transition-colors"
-                    >
-                      <Copy size={11} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip label={t('tools.color.studio.favorite')}>
-                    <button
-                      type="button"
-                      aria-label={`Favorite ${color.hex}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        addFavorite(color.hex, color.name)
-                      }}
-                      className="p-1 rounded bg-black/40 hover:bg-black/60 text-white transition-colors"
-                    >
-                      <Heart size={11} />
-                    </button>
-                  </Tooltip>
-                </div>
+                <SwatchActions
+                  className="absolute top-1.5 right-1.5"
+                  actions={[
+                    {
+                      key: 'copy',
+                      label: t('tools.color.studio.copy'),
+                      icon: <Copy size={11} />,
+                      onSelect: () => copyColor(color.hex, color.name),
+                    },
+                    {
+                      key: 'favorite',
+                      label: t('tools.color.studio.favorite'),
+                      icon: <Heart size={11} />,
+                      onSelect: () => addFavorite(color.hex, color.name),
+                    },
+                  ]}
+                />
 
-                <span
-                  className={`font-mono text-[length:var(--text-10)] uppercase font-semibold ${
-                    dark ? 'text-white' : 'text-zinc-900'
-                  }`}
-                >
+                <span className="font-mono text-[length:var(--text-10)] uppercase font-semibold">
                   {color.hex}
                 </span>
               </div>

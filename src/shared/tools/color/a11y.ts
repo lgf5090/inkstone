@@ -70,6 +70,32 @@ export function evaluateWcagContrast(fgHex: string, bgHex: string): WcagContrast
 }
 
 /**
+ * The two inks a label drawn on top of an arbitrary color may use.
+ *
+ * Named because the module used to pick between `text-white` and `text-zinc-900` per component, and four of
+ * the six swatch surfaces picked one of them unconditionally — which put white on a near-white swatch.
+ * Pure black rather than a soft near-black is what keeps the worst case above AA: the two curves cross at
+ * a 4.58:1 mid-tone with black, and at 4.25:1 with anything lighter.
+ */
+export const TEXT_ON_LIGHT_SWATCH = '#000000' as const
+export const TEXT_ON_DARK_SWATCH = '#ffffff' as const
+
+/** One of the two swatch inks; named so a token scale can hold the same union. */
+export type SwatchTextColor = typeof TEXT_ON_LIGHT_SWATCH | typeof TEXT_ON_DARK_SWATCH
+
+/**
+ * The ink with the better contrast against `hex`.
+ *
+ * The choice is made by ratio rather than by a luminance cutoff so the same answer comes out of the token
+ * scale, the swatch labels and the color-blindness preview, which each used to carry their own rule.
+ */
+export function recommendedTextColor(hex: string): SwatchTextColor {
+  return getContrastRatio(TEXT_ON_LIGHT_SWATCH, hex) >= getContrastRatio(TEXT_ON_DARK_SWATCH, hex)
+    ? TEXT_ON_LIGHT_SWATCH
+    : TEXT_ON_DARK_SWATCH
+}
+
+/**
  * 3x3 Simulation matrices for Color Vision Deficiencies (Brettel/Viénot models)
  */
 const CVD_MATRICES: Record<Exclude<ColorBlindnessType, 'normal'>, number[][]> = {

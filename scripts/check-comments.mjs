@@ -17416,6 +17416,9 @@ const allowed = new Map([
     "/* Type & Angle */",
     "/* OKLab perceptual interpolation switch */",
   ]],
+  ["src/client/features/tools/color/components/SwatchActions.tsx", [
+    "/**\n * The small controls that sit on top of a color swatch.\n *\n * Every swatch surface used to write this markup itself, and the copies disagreed in ways only a pointer\n * could find: the harmony strip's overlay covered the whole swatch and answered the click with nothing, so\n * the swatch's own \"use this color\" button never fired; the UI palette grid lost its top strip the same\n * way; and because `group-hover` compiles inside `@media (hover: hover)`, a touch reader never saw the\n * controls at all. The wrapper therefore stays transparent to pointers and only the buttons answer, and\n * visibility is driven by hover, focus and a no-hover media query instead of hover alone.\n */",
+  ]],
   ["src/client/features/tools/color/components/TraditionalColorCard.tsx", [
     "/* Color Top Banner */",
     "/* Info Section */",
@@ -30982,6 +30985,8 @@ const allowed = new Map([
     "// Achromatopsia (Total color blindness / Monochromacy)",
     "/**\n * Simulates how a hex color appears to someone with a specific color vision deficiency\n */",
     "/**\n * SVG Color Matrix values for HTML SVG filter injection\n */",
+    "/**\n * The two inks a label drawn on top of an arbitrary color may use.\n *\n * Named because the module used to pick between `text-white` and `text-zinc-900` per component, and four of\n * the six swatch surfaces picked one of them unconditionally — which put white on a near-white swatch.\n * Pure black rather than a soft near-black is what keeps the worst case above AA: the two curves cross at\n * a 4.58:1 mid-tone with black, and at 4.25:1 with anything lighter.\n */",
+    "/**\n * The ink with the better contrast against `hex`.\n *\n * The choice is made by ratio rather than by a luminance cutoff so the same answer comes out of the token\n * scale, the swatch labels and the color-blindness preview, which each used to carry their own rule.\n */",
   ]],
   ["src/shared/tools/color/colorspace-algorithms.ts", [
     "/**\n * Algorithmic Palette Generation Engine (inspired by MyColorSpace - mycolor.space)\n * Generates 8-10 high-utility palettes purely through CIELAB, OKLab and HSL mathematics.\n */",
@@ -44454,6 +44459,9 @@ const allowed = new Map([
     "// Check luminance decrease from 50 to 950",
     "// Achromatopsia should have equal R, G, B",
     "// 100 pixels of red and 50 pixels of green",
+  ]],
+  ["tests/tools-color-swatch.test.tsx", [
+    "/**\n * The swatch overlay contract.\n *\n * jsdom has no layout and no pointer-event resolution, so it cannot show that a click lands; what it can\n * pin is the class contract that decides it, which is exactly what the four copies of this markup used to\n * get wrong in four different ways. The contrast half runs on the real preset corpus.\n */",
   ]],
   ["tests/tools-color-wheel.test.ts", [
     "/**\n * Geometry of the color wheel's field and blit.\n *\n * jsdom answers `getContext('2d')` with null here, so the blit itself is verified in a real browser (see\n * the ledger's round-2 record for the device-pixel readback); what these cases pin is the two decisions\n * that failure turned on: the disk is built centred in its own square, and the backing store is sized by\n * the device pixel ratio while the drawing stays in CSS units.\n */",

@@ -1,4 +1,4 @@
-import { simulateColorBlindness } from '@shared/tools/color/a11y'
+import { recommendedTextColor, simulateColorBlindness } from '@shared/tools/color/a11y'
 import type { ColorBlindnessType } from '@shared/tools/color/types'
 import { Modal } from '../../../../../components/overlay'
 import { Button } from '../../../../../components/primitives'
@@ -112,7 +112,7 @@ export function ColorBlindnessModal() {
                   className="rounded-[var(--radius-md)] p-2.5 text-center text-[length:var(--text-11)] font-semibold border border-black/5"
                   style={{
                     backgroundColor: simulatedHex,
-                    color: def.type === 'normal' || def.type === 'achromatopsia' ? '#ffffff' : '#000000',
+                    color: recommendedTextColor(simulatedHex),
                   }}
                 >
                   {t('tools.color.blindness.button_preview')}

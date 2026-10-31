@@ -63,7 +63,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('colors')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'colors'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -75,7 +75,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('palettes')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'palettes'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -87,7 +87,7 @@ export function FavoritesView() {
             onClick={() => setActiveTab('history')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
               activeTab === 'history'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
+                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
@@ -119,7 +119,7 @@ export function FavoritesView() {
                     style={{ backgroundColor: fav.hex }}
                     onClick={() => setCurrentHex(fav.hex, 'favorites')}
                   >
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
                       <Pipette size={16} className="text-white drop-shadow-sm" />
                     </div>
                   </button>

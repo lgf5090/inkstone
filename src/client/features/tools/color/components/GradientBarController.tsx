@@ -127,7 +127,7 @@ export function GradientBarController({
                 <span
                   className={`mt-1 font-mono text-[length:var(--text-10)] font-semibold px-1 rounded-sm ${
                     isSelected
-                      ? 'bg-[var(--accent)] text-white'
+                      ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                       : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
                   }`}
                 >
@@ -213,7 +213,7 @@ export function GradientBarController({
                 onClick={() => onChange({ ...config, type })}
                 className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-[var(--radius-sm)] transition-colors ${
                   config.type === type
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
