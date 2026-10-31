@@ -8,15 +8,7 @@ import { Input, Switch } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
 import { cn } from '../../../../lib/cn'
 import { useUi } from '../../../../store/ui'
-
-function validMirrorUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value)
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.username && !parsed.password
-  } catch {
-    return false
-  }
-}
+import { normalizeMirrorUrl } from '../lib/mirror'
 
 export function MirrorDialog({
   open,
@@ -40,16 +32,16 @@ export function MirrorDialog({
 
   const add = () => {
     const trimmedName = name.trim()
-    const trimmedUrl = url.trim().replace(/\/$/, '')
-    if (!trimmedName || !trimmedUrl) return
-    if (!validMirrorUrl(trimmedUrl)) {
+    if (!trimmedName) return
+    const normalizedUrl = normalizeMirrorUrl(url)
+    if (!normalizedUrl) {
       setError(t('development.github.mirrors.invalid_url'))
       return
     }
     onSave([...mirrors, {
       id: `gh-mirror-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       name: trimmedName,
-      url: trimmedUrl,
+      url: normalizedUrl,
       enabled: true,
       createdAt: Date.now(),
     }])
