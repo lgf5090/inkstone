@@ -3,7 +3,13 @@ import { Check, Cloud, Copy, Download } from 'lucide-react'
 import type { QrExportFormat } from '../../../../../shared/tools/qrcode/types'
 import { copyQrCodeToClipboard, downloadQrCode, exportQrToDataUrl } from '../engine/export-pipeline'
 import { QrEngine } from '../engine/qr-engine'
-import { useQrCodeStore, useQrPayload } from '../store'
+import {
+  EXPORT_SIZE_MAX,
+  EXPORT_SIZE_MIN,
+  EXPORT_SIZE_STEP,
+  useQrCodeStore,
+  useQrPayload,
+} from '../store'
 import { saveQrRecord } from '../api'
 import { Field, Slider } from '../../../../components/form'
 import { Button } from '../../../../components/primitives'
@@ -101,15 +107,14 @@ export function QrExportControls() {
       <Field label={`${t('tools.qrcode.export.size_label')}: ${exportSize}px`}>
         <Slider
           value={exportSize}
-          min={300}
-          max={2000}
-          step={100}
+          min={EXPORT_SIZE_MIN}
+          max={EXPORT_SIZE_MAX}
+          step={EXPORT_SIZE_STEP}
           onChange={(val) => setExportSize(val)}
         />
         <div className="flex justify-between text-[length:var(--text-10)] text-[var(--text-tertiary)] px-1 mt-1">
-          <span>{'500px'}</span>
-          <span>{'1000px'}</span>
-          <span>{'1500px'}</span>
+          <span>{`${EXPORT_SIZE_MIN}px`}</span>
+          <span>{`${EXPORT_SIZE_MAX}px`}</span>
         </div>
       </Field>
 

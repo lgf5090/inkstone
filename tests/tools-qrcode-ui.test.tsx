@@ -8,7 +8,12 @@ import {
   type RenderedElement,
 } from '../src/client/lib/test-render'
 import { QrCodeApp } from '../src/client/features/tools/qrcode/QrCodeApp'
-import { useQrCodeStore, encodeQrData } from '../src/client/features/tools/qrcode/store'
+import {
+  useQrCodeStore,
+  encodeQrData,
+  EXPORT_SIZE_MAX,
+  EXPORT_SIZE_MIN,
+} from '../src/client/features/tools/qrcode/store'
 import { useToolsStore } from '../src/client/features/tools/store'
 import { QrEngine, DEFAULT_QR_OPTIONS } from '../src/client/features/tools/qrcode/engine/qr-engine'
 
@@ -222,6 +227,22 @@ describe('QR Code Studio UI Integration Tests', () => {
       caption!.dispatchEvent(new Event('input', { bubbles: true }))
     })
     expect(useQrCodeStore.getState().options.frameOptions?.label).toBe('Scan for details')
+
+    view.unmount()
+  })
+
+  it('labels the export slider with the bounds it actually has', async () => {
+    const view = await renderElement(<QrCodeApp />)
+
+    const range = view.container.querySelector('input[type=range]')
+    expect(range, 'no export size slider').not.toBeNull()
+    const ticks = Array.from(view.container.querySelectorAll('span'))
+      .map((s) => s.textContent?.trim() ?? '')
+      .filter((text) => /^\d+px$/.test(text))
+    // A scale that names a value the handle cannot reach reads as a working control that lies.
+    expect(ticks).toEqual([`${EXPORT_SIZE_MIN}px`, `${EXPORT_SIZE_MAX}px`])
+    expect(range?.getAttribute('min')).toBe(String(EXPORT_SIZE_MIN))
+    expect(range?.getAttribute('max')).toBe(String(EXPORT_SIZE_MAX))
 
     view.unmount()
   })

@@ -44635,6 +44635,7 @@ const allowed = new Map([
     "// subscription on the shared store, so its renders would land inside whichever test runs next.",
     "// 'none' plus the eight styles frame-decorator's switch can render",
     "// Without a frame there is nothing to caption, so the field must not pretend to be usable.",
+    "// A scale that names a value the handle cannot reach reads as a working control that lies.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",
