@@ -1,17 +1,5 @@
 import type { GithubMirrorSource } from '@shared/development/github/types'
 
-export function isHttpUrl(value: string): boolean {
-  const trimmed = value.trim()
-  if (!trimmed || /[\s\u0000-\u001f\u007f]/.test(trimmed)) return false
-  try {
-    const url = new URL(trimmed)
-    if (url.username || url.password) return false
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
 export function normalizeMirrorUrl(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed || /[\s\u0000-\u001f\u007f]/.test(trimmed)) return null

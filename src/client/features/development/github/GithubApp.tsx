@@ -5,6 +5,7 @@ import { LoadingBlock, Empty } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
 import { useGithubStore } from './store'
 import { loadCurrentMirrorId, saveCurrentMirrorId } from './prefs'
+import { resolveMirror } from './lib/mirror'
 import { DEFAULT_GITHUB_MIRRORS } from '@shared/development/github/types'
 import type { GithubTab } from './components/ModuleTabs'
 import { AccountsDialog } from './components/AccountsView'
@@ -33,9 +34,7 @@ export function GithubApp() {
   }, [load])
 
   const normalizedMirrors = mirrors.length > 0 ? mirrors : DEFAULT_GITHUB_MIRRORS
-  const currentMirror = normalizedMirrors.find((mirror) => mirror.id === currentMirrorId && mirror.enabled)
-    ?? normalizedMirrors.find((mirror) => mirror.enabled)
-    ?? normalizedMirrors[0]
+  const currentMirror = resolveMirror(normalizedMirrors, currentMirrorId) ?? normalizedMirrors[0]
 
   const changeMirror = (id: string) => {
     setCurrentMirrorId(id)

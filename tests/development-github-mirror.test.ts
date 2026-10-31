@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GithubMirrorSource } from '@shared/development/github/types'
 import {
-  isHttpUrl,
   normalizeMirrorUrl,
   resolveMirror,
 } from '../src/client/features/development/github/lib/mirror'
@@ -11,15 +10,6 @@ function mirror(id: string, enabled = true): GithubMirrorSource {
 }
 
 describe('GitHub mirror helpers', () => {
-  it('accepts only http and https URLs', () => {
-    expect(isHttpUrl('https://gh-proxy.com')).toBe(true)
-    expect(isHttpUrl('http://gh-proxy.com')).toBe(true)
-    expect(isHttpUrl('javascript:alert(1)')).toBe(false)
-    expect(isHttpUrl('ftp://gh-proxy.com')).toBe(false)
-    expect(isHttpUrl('https://user:pass@gh-proxy.com')).toBe(false)
-    expect(isHttpUrl('not a url')).toBe(false)
-  })
-
   it('normalizes a mirror base URL without a trailing slash', () => {
     expect(normalizeMirrorUrl(' https://gh-proxy.com/ ')).toBe('https://gh-proxy.com')
     expect(normalizeMirrorUrl('https://gh-proxy.com/base///')).toBe('https://gh-proxy.com/base')
