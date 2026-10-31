@@ -32,9 +32,12 @@ function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
 }
 
+const searchRequests: string[] = []
+
 function mockFetch(): void {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
+    if (url.includes('/search')) searchRequests.push(url)
     if (url.includes('/bootstrap')) {
       return response({
         ok: true,
@@ -60,12 +63,21 @@ async function settle(): Promise<void> {
   })
 }
 
+function typeInto(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 describe('GitHub module shell', () => {
   let rendered: RenderedElement | null = null
 
   beforeEach(async () => {
     await initI18n()
     clearGithubCache()
+    searchRequests.length = 0
     useGithubStore.setState({
       status: 'idle',
       error: null,
@@ -105,5 +117,24 @@ describe('GitHub module shell', () => {
     await settle()
     expect(rendered.container.textContent ?? '').toContain(t('development.github.gists.empty'))
     expect(rendered.container.textContent ?? '').toContain(t('development.github.gists.create'))
+  })
+
+  it('commits the typed query when the time range changes', async () => {
+    rendered = renderElement(<GithubApp />)
+    await settle()
+    const input = rendered.container.querySelector<HTMLInputElement>(
+      `input[aria-label="${t('development.github.repos.search')}"]`,
+    )
+    expect(input).toBeTruthy()
+    typeInto(input!, 'react')
+    const week = Array.from(rendered.container.querySelectorAll('button')).find(
+      (button) => (button.textContent ?? '').trim() === t('development.github.repos.range.week'),
+    )
+    expect(week).toBeTruthy()
+    act(() => week!.click())
+    await settle()
+    const last = searchRequests.at(-1) ?? ''
+    expect(last).toContain('q=react')
+    expect(last).toContain('range=week')
   })
 })

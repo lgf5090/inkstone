@@ -83,8 +83,9 @@ export function ReposPane({
       saveRepoPrefs(next)
       return next
     })
+    setCommittedQuery(query.trim())
     setPage(1)
-  }, [])
+  }, [query])
 
   const selectView = (view: GithubViewId) => {
     setSelectedView(view)
