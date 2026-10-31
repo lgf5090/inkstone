@@ -5,6 +5,7 @@ import type {
   GithubAccountView,
   GithubBootstrap,
   GithubCapabilities,
+  GithubMirrorProbeResult,
   GithubMirrorSource,
   GithubTag,
   RepoBatchPatch,
@@ -48,6 +49,7 @@ export interface GithubStore {
   batchDeleteGists: (ids: string[]) => Promise<void>
   batchUpdateGists: (ids: string[], patch: GistBatchPatch) => Promise<void>
   saveMirrors: (mirrors: GithubMirrorSource[]) => Promise<void>
+  probeMirrors: (mirrors: readonly GithubMirrorSource[]) => Promise<GithubMirrorProbeResult[]>
   addAccount: (token: string) => Promise<GithubAccountView>
   deleteAccount: (id: string) => Promise<void>
   setActiveAccount: (id: string | null) => void
@@ -461,6 +463,10 @@ export const useGithubStore = create<GithubStore>((set, get) => {
           if (isCurrent('gists', revision)) await reconcile(['gists'])
         }
       })
+    },
+
+    probeMirrors: async (mirrors) => {
+      return await githubApi.probeMirrors(mirrors.map((mirror) => ({ id: mirror.id, url: mirror.url })))
     },
 
     saveMirrors: async (mirrors) => {

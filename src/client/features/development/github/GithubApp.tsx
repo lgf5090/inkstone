@@ -26,6 +26,7 @@ export function GithubApp() {
   const addAccount = useGithubStore((state) => state.addAccount)
   const deleteAccount = useGithubStore((state) => state.deleteAccount)
   const saveMirrors = useGithubStore((state) => state.saveMirrors)
+  const probeMirrors = useGithubStore((state) => state.probeMirrors)
   const pathname = usePathname()
   const route = parseGithubRoute(pathname)
   const tab = route.tab
@@ -94,6 +95,7 @@ export function GithubApp() {
         currentMirrorId={currentMirror?.id ?? ''}
         onSave={(next) => void saveMirrors(next)}
         onCurrentChange={changeMirror}
+        onProbe={probeMirrors}
       />
     </div>
   )

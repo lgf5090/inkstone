@@ -17,6 +17,7 @@ import {
   GithubExportSchema,
   GithubGistListQuerySchema,
   GithubMirrorListSchema,
+  GithubMirrorProbeSchema,
   GithubSearchQuerySchema,
   GithubTagInputSchema,
   SavedGistInputSchema,
@@ -51,7 +52,7 @@ import {
   updateGithubGist,
 } from '../development/github/github-gists'
 import { fetchRepoDetail, fetchRepository, fetchStarredRepos, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
-import { listMirrors, replaceMirrors } from '../development/github/mirrors'
+import { assertMirrorUrl, listMirrors, probeMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
   assertExportStorage,
   buildGistExport,
@@ -105,6 +106,7 @@ const detailBudget = createMinuteBudget(40, 'Too many GitHub detail requests. Tr
 const listBudget = createMinuteBudget(60, 'Too many GitHub list requests. Try again in a minute.')
 const writeBudget = createMinuteBudget(30, 'Too many GitHub write requests. Try again in a minute.')
 const imageBudget = createMinuteBudget(120, 'Too many GitHub image requests. Try again in a minute.')
+const probeBudget = createMinuteBudget(20, 'Too many mirror probes. Try again in a minute.')
 
 const SLUG_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 const REPO_ID_PATTERN = /^[0-9]{1,20}$/
@@ -639,6 +641,15 @@ developmentGithubRoutes.put('/mirrors', async (c) => {
   const saved = await replaceMirrors(c.env.DB, userId, body.mirrors)
   const mirrors = saved.length > 0 ? saved : await listMirrors(c.env.DB, userId)
   return c.json({ ok: true, data: { mirrors } })
+})
+
+developmentGithubRoutes.post('/mirrors/probe', async (c) => {
+  const userId = userIdOf(c)
+  probeBudget(userId)
+  const body = await parseBody(c, GithubMirrorProbeSchema, SMALL_BODY_LIMIT)
+  for (const mirror of body.mirrors) assertMirrorUrl(mirror.url)
+  const results = await probeMirrors(body.mirrors)
+  return c.json({ ok: true, data: { results } })
 })
 
 developmentGithubRoutes.get('/accounts', async (c) => {

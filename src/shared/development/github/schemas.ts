@@ -131,6 +131,13 @@ export const GithubMirrorListSchema = z.object({
   }
 })
 
+export const GithubMirrorProbeSchema = z.object({
+  mirrors: z.array(z.object({
+    id: z.string().min(1).max(100),
+    url: z.string().trim().min(1).max(2048),
+  })).min(1).max(MAX_MIRRORS),
+})
+
 export const GithubAccountTokenSchema = z.object({
   token: z.string().trim().min(1).max(4096),
 })

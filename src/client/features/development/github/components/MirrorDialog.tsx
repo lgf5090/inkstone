@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { Check, Globe, Plus, Trash2 } from 'lucide-react'
-import type { GithubMirrorSource } from '@shared/development/github/types'
+import { useEffect, useState } from 'react'
+import { Check, Gauge, Globe, Plus, Trash2 } from 'lucide-react'
+import type { GithubMirrorProbeResult, GithubMirrorSource } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
-import { Button, IconButton } from '../../../../components/primitives'
+import { Button, IconButton, Spinner } from '../../../../components/primitives'
 import { Input, Switch } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
 import { cn } from '../../../../lib/cn'
@@ -17,6 +17,7 @@ export function MirrorDialog({
   currentMirrorId,
   onSave,
   onCurrentChange,
+  onProbe,
 }: {
   open: boolean
   onClose: () => void
@@ -24,11 +25,43 @@ export function MirrorDialog({
   currentMirrorId: string
   onSave: (mirrors: GithubMirrorSource[]) => void
   onCurrentChange: (id: string) => void
+  onProbe: (mirrors: readonly GithubMirrorSource[]) => Promise<GithubMirrorProbeResult[]>
 }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [probing, setProbing] = useState(false)
+  const [probes, setProbes] = useState<Map<string, GithubMirrorProbeResult>>(new Map())
   const toast = useUi((state) => state.toast)
+
+  useEffect(() => {
+    setProbes(new Map())
+  }, [mirrors])
+
+  const runProbe = async () => {
+    if (probing || mirrors.length === 0) return
+    setProbing(true)
+    try {
+      const results = await onProbe(mirrors)
+      setProbes(new Map(results.map((result) => [result.id, result])))
+    } catch (cause) {
+      toast({
+        title: t('development.github.mirrors.probe_failed'),
+        description: cause instanceof Error ? cause.message : undefined,
+        tone: 'danger',
+      })
+    } finally {
+      setProbing(false)
+    }
+  }
+
+  const probeLabel = (result: GithubMirrorProbeResult): string => {
+    if (result.ok) return t('development.github.mirrors.probe_ok', { ms: result.latencyMs ?? 0 })
+    if (result.error === 'timeout') return t('development.github.mirrors.probe_timeout')
+    if (result.error === 'blocked') return t('development.github.mirrors.probe_blocked')
+    if (result.error === 'http') return t('development.github.mirrors.probe_http', { status: result.status })
+    return t('development.github.mirrors.probe_network')
+  }
 
   const add = () => {
     const trimmedName = name.trim()
@@ -82,19 +115,32 @@ export function MirrorDialog({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-[length:var(--text-12)] font-medium">{t('development.github.mirrors.existing')}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[length:var(--text-12)] font-medium">{t('development.github.mirrors.existing')}</p>
+            <Button variant="secondary" size="sm" onClick={() => void runProbe()} disabled={probing || mirrors.length === 0}>
+              {probing ? <Spinner size={12} /> : <Gauge size={12} />} {t('development.github.mirrors.probe')}
+            </Button>
+          </div>
           {mirrors.length === 0 ? (
             <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-3 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">
               {t('development.github.mirrors.empty')}
             </p>
           ) : mirrors.map((mirror) => {
             const current = mirror.id === currentMirrorId
+            const probe = probes.get(mirror.id)
             return (
               <div key={mirror.id} className={cn('flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2', current && 'border-[var(--accent)] bg-[var(--accent-soft)]')}>
                 <Globe size={14} className="shrink-0 text-[var(--text-tertiary)]" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[length:var(--text-12)] font-medium">{mirror.name}</div>
                   <div className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)]">{mirror.url}</div>
+                  <div role="status" className="text-[length:var(--text-11)] tabular-nums">
+                    {probing ? (
+                      <span className="text-[var(--text-quaternary)]">{t('development.github.mirrors.probing')}</span>
+                    ) : probe ? (
+                      <span className={probe.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>{probeLabel(probe)}</span>
+                    ) : null}
+                  </div>
                 </div>
                 <Switch checked={mirror.enabled} onChange={(enabled) => onSave(mirrors.map((entry) => entry.id === mirror.id ? { ...entry, enabled } : entry))} label={t('development.github.mirrors.toggle_enabled')} />
                 <Button

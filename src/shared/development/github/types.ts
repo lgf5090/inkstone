@@ -52,6 +52,14 @@ export interface GithubMirrorSource {
   createdAt: number
 }
 
+export interface GithubMirrorProbeResult {
+  id: string
+  ok: boolean
+  status: number
+  latencyMs: number | null
+  error: '' | 'timeout' | 'blocked' | 'http' | 'network'
+}
+
 export interface GithubAccountView {
   id: string
   username: string

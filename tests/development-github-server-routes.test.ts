@@ -7,7 +7,7 @@ import { CredentialVault } from '../src/worker/durable/credential-vault'
 import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { developmentGithubRoutes } from '../src/worker/routes/development-github'
-import type { GithubAccountView, GithubExportFile } from '../src/shared/development/github/types'
+import type { GithubAccountView, GithubExportFile, GithubMirrorProbeResult } from '../src/shared/development/github/types'
 import { EXPORT_TTL_MS } from '../src/shared/development/github/limits'
 import { makeD1 } from './doubles/d1-sqlite'
 import {
@@ -425,6 +425,42 @@ describe('development github mirrors and accounts', () => {
     expect((await bodyOf<{ mirrors: Array<{ id: string }> }>(empty)).data?.mirrors[0]?.id).toBe(
       'gh-proxy',
     )
+  })
+
+  it('probes mirror latency, falls back to a ranged GET and refuses private targets', async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = []
+    stubGithub((url, init) => {
+      requests.push({ url, init })
+      if (url.includes('broken')) return new Response(null, { status: 503 })
+      if (url.includes('headless') && init?.method === 'HEAD') return new Response(null, { status: 405 })
+      if (url.includes('headless')) return new Response('x', { status: 206 })
+      return new Response(null, { status: 200 })
+    })
+
+    const invalid = await call('POST', '/mirrors/probe', {
+      body: { mirrors: [{ id: 'bad', url: 'ftp://mirror.example' }] },
+    })
+    expect(invalid.status).toBe(400)
+
+    const response = await call('POST', '/mirrors/probe', {
+      body: {
+        mirrors: [
+          { id: 'fast', url: 'https://fast.example.com' },
+          { id: 'headless', url: 'https://headless.example.com' },
+          { id: 'broken', url: 'https://broken.example.com' },
+          { id: 'local', url: 'http://127.0.0.1:9000' },
+        ],
+      },
+    })
+    expect(response.status).toBe(200)
+    const results = (await bodyOf<{ results: GithubMirrorProbeResult[] }>(response)).data?.results ?? []
+    expect(results.find((result) => result.id === 'fast')).toMatchObject({ ok: true, status: 200 })
+    expect(results.find((result) => result.id === 'fast')?.latencyMs).toBeTypeOf('number')
+    expect(results.find((result) => result.id === 'headless')).toMatchObject({ ok: true, status: 206 })
+    expect(results.find((result) => result.id === 'broken')).toMatchObject({ ok: false, status: 503, error: 'http' })
+    expect(results.find((result) => result.id === 'local')).toMatchObject({ ok: false, error: 'blocked' })
+    expect(requests.some((request) => request.url.includes('127.0.0.1'))).toBe(false)
+    expect(requests.find((request) => request.url.includes('headless'))?.init?.method).toBe('HEAD')
   })
 
   it('adds, lists and deletes a sanitized account', async () => {

@@ -134,6 +134,18 @@ describe('GitHub API client', () => {
     expect(JSON.parse(String(requestInit(3).body))).toEqual({ ids: ['1'] })
   })
 
+  it('probes mirrors through the server', async () => {
+    fetchMock.mockResolvedValueOnce(envelope({
+      results: [{ id: 'm', ok: true, status: 200, latencyMs: 42, error: '' }],
+    }))
+    const results = await githubApi.probeMirrors([{ id: 'm', url: 'https://mirror.example' }])
+    expect(requestUrl(0).pathname).toBe('/api/development/github/mirrors/probe')
+    expect(JSON.parse(String(requestInit(0).body))).toEqual({
+      mirrors: [{ id: 'm', url: 'https://mirror.example' }],
+    })
+    expect(results).toEqual([{ id: 'm', ok: true, status: 200, latencyMs: 42, error: '' }])
+  })
+
   it('adds an account without requiring the token in the response', async () => {
     fetchMock.mockResolvedValueOnce(envelope({
       account: { id: 'a1', username: 'octo', avatarUrl: '', createdAt: 1, updatedAt: 1 },

@@ -1,7 +1,8 @@
 import { MAX_MIRRORS } from '@shared/development/github/limits'
 import { DEFAULT_GITHUB_MIRRORS } from '@shared/development/github/types'
-import type { GithubMirrorSource } from '@shared/development/github/types'
+import type { GithubMirrorProbeResult, GithubMirrorSource } from '@shared/development/github/types'
 import { ApiError } from '../../lib/errors'
+import { checkTarget } from '../../lib/outbound'
 
 export const MIRROR_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 
@@ -49,6 +50,74 @@ export interface MirrorInput {
   url: string
   enabled: boolean
   createdAt?: number
+}
+
+const PROBE_TIMEOUT_MS = 5000
+const PROBE_CONCURRENCY = 4
+
+export async function probeMirrors(
+  inputs: readonly { id: string; url: string }[],
+): Promise<GithubMirrorProbeResult[]> {
+  const results: GithubMirrorProbeResult[] = []
+  for (let start = 0; start < inputs.length; start += PROBE_CONCURRENCY) {
+    results.push(...await Promise.all(inputs.slice(start, start + PROBE_CONCURRENCY).map(probeMirror)))
+  }
+  return results
+}
+
+async function probeMirror(input: { id: string; url: string }): Promise<GithubMirrorProbeResult> {
+  const target = checkTarget(input.url)
+  if (!target.url) return { id: input.id, ok: false, status: 0, latencyMs: null, error: 'blocked' }
+  const startedAt = Date.now()
+  try {
+    const response = await fetch(target.url.toString(), {
+      method: 'HEAD',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    const latencyMs = Date.now() - startedAt
+    discardBody(response)
+    if (response.status === 405 || response.status === 501) {
+      return await probeWithRange(target.url, startedAt, input.id)
+    }
+    const ok = response.status < 500
+    return { id: input.id, ok, status: response.status, latencyMs, error: ok ? '' : 'http' }
+  } catch (error) {
+    return probeFailure(input.id, error)
+  }
+}
+
+async function probeWithRange(
+  url: URL,
+  startedAt: number,
+  id: string,
+): Promise<GithubMirrorProbeResult> {
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Range: 'bytes=0-0' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+    const latencyMs = Date.now() - startedAt
+    discardBody(response)
+    const ok = response.status < 500
+    return { id, ok, status: response.status, latencyMs, error: ok ? '' : 'http' }
+  } catch (error) {
+    return probeFailure(id, error)
+  }
+}
+
+function probeFailure(id: string, error: unknown): GithubMirrorProbeResult {
+  const name = error instanceof Error ? error.name : ''
+  const timedOut = name === 'TimeoutError' || name === 'AbortError'
+  return { id, ok: false, status: 0, latencyMs: null, error: timedOut ? 'timeout' : 'network' }
+}
+
+function discardBody(response: Response): void {
+  if (!response.body) return
+  void response.body.cancel().catch((error) => {
+    console.warn('[inkstone] GitHub mirror probe body cancel failed:', error)
+  })
 }
 
 export async function listMirrors(db: D1Database, userId: string): Promise<GithubMirrorSource[]> {

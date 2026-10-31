@@ -10,6 +10,7 @@ import {
   type GithubBootstrap,
   type GithubExportFile,
   type GithubExportFormat,
+  type GithubMirrorProbeResult,
   type GithubMirrorSource,
   type GithubRepo,
   type GithubRepoDetail,
@@ -208,6 +209,14 @@ export const githubApi = {
       body: { mirrors },
       signal,
     }).then((response) => response.mirrors)
+  },
+
+  probeMirrors(mirrors: readonly { id: string; url: string }[], signal?: AbortSignal): Promise<GithubMirrorProbeResult[]> {
+    return readData<{ results: GithubMirrorProbeResult[] }>('/mirrors/probe', {
+      method: 'POST',
+      body: { mirrors },
+      signal,
+    }).then((response) => response.results)
   },
 
   getAccounts(signal?: AbortSignal): Promise<GithubAccountView[]> {
