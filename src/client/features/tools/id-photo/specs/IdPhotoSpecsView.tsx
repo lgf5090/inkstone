@@ -156,6 +156,7 @@ export function IdPhotoSpecsView() {
                   <IconButton
                     size="sm"
                     variant="danger"
+                    className="relative z-[var(--z-menu)]"
                     label={t('tools.id_photo.common.delete')}
                     onClick={(e) => handleDeleteSpec(e, spec.id)}
                   >
