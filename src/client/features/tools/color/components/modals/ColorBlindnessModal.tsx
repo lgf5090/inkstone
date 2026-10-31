@@ -50,6 +50,9 @@ export function ColorBlindnessModal() {
   const onClose = useColorStudioStore((s) => s.closeColorBlindnessModal)
   const currentHex = useColorStudioStore((s) => s.currentHex)
 
+  // Five colour-blindness simulations ran on every colour change while this modal sat closed.
+  if (!isOpen) return null
+
   return (
     <Modal
       open={isOpen}

@@ -44,6 +44,14 @@ export const COLOR_HISTORY_WINDOW = 100
 export const COLOR_PALETTE_MAX_COLORS = 20
 
 /**
+ * Rows a list endpoint returns at most.
+ *
+ * The favorites and palette queries had no ceiling at all and selected every column, so the collection
+ * panels fetched the whole history of a long-lived account on each mount.
+ */
+export const COLOR_LIST_LIMIT = 200
+
+/**
  * The color the studio, the server defaults and the "we have nothing yet" fallbacks all start from.
  *
  * It was written out seven times across three layers, which meant a change of default had to find all of

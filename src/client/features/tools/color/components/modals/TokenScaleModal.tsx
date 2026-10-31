@@ -19,6 +19,9 @@ export function TokenScaleModal() {
 
   const [copiedType, setCopiedType] = useState<'tailwind' | 'css' | null>(null)
 
+  // Closed modals used to rebuild their whole derived surface on every color change the studio makes.
+  if (!isOpen) return null
+
   const scaleItems = generateTokenScale(currentHex)
 
   const handleCopyTailwind = async () => {

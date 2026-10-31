@@ -17347,6 +17347,13 @@ const allowed = new Map([
     "// AI",
     "// Assets (R2)",
   ]],
+  ["src/client/features/tools/color/collection-states.test.tsx", [
+    "/**\n * The three states the collection panels owe the reader.\n *\n * `FavoritesView` rendered its empty state from `list.length === 0` alone, so a request that failed and a\n * reader who has never saved a colour produced the same screen — a \"nothing saved yet\" line over a network\n * error reads as \"my colours are gone\", and the obvious next move is to save the same hex a second time.\n */",
+    "// A promise that never settles is the in-flight state: the panel must not fall through to \"nothing yet\".",
+    "// The shared \"no favorites yet\" line must not stand in for the palette tab any more.",
+    "// Single click must only open the question.",
+    "/** The short lines a panel offers when it has nothing to show — not the whole body text. */",
+  ]],
   ["src/client/features/tools/color/color-studio.test.tsx", [
     "// Reset Zustand store state to defaults",
     "// Clean up any stray modals in body",
@@ -17430,12 +17437,14 @@ const allowed = new Map([
   ["src/client/features/tools/color/components/modals/ColorBlindnessModal.tsx", [
     "/* Swatch & Simulated Hex */",
     "/* Mini Mockup Demo */",
+    "// Five colour-blindness simulations ran on every colour change while this modal sat closed.",
   ]],
   ["src/client/features/tools/color/components/modals/ContrastCheckerModal.tsx", [
     "/**\n * One of the two color slots.\n *\n * The box keeps what the reader typed rather than a normalized color, because the old version fed every\n * keystroke through `normalizeHex`, which answers an unreadable value with `#000000` — so a typo was\n * scored as a 21:1 pass and reported as WCAG AAA.\n */",
     "// The modal is mounted for the life of the app, so a value taken once at mount was the color the studio",
     "// booted with — opening the checker after picking something compared that earlier color instead.",
     "/** One WCAG band, with the thresholds quoted because they are notation rather than interface copy. */",
+    "// Every hook above still has to run, but the WCAG evaluation below is pure waste while closed.",
   ]],
   ["src/client/features/tools/color/components/modals/CreateCustomPaletteModal.tsx", [
     "/** Rows the editor starts with, and the ceiling it can grow to. */",
@@ -17449,14 +17458,33 @@ const allowed = new Map([
     "/* Swatches preview strip */",
     "/* Code Preview Box */",
     "/* Format Selector */",
+    "// A closed modal has no work to do: the preview box walks the whole palette and the swatch strip",
+    "// rebuilds, and all five modals used to do that on every step of a hue drag.",
   ]],
   ["src/client/features/tools/color/components/modals/TokenScaleModal.tsx", [
     "/* Step details table */",
     "/* 11-step scale grid: four columns on a phone, eleven once there is room for a hex to read */",
+    "// Closed modals used to rebuild their whole derived surface on every color change the studio makes.",
   ]],
   ["src/client/features/tools/color/history-write.test.tsx", [
     "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
     "// The algorithm view's refresh button re-selects the current color; that is not an exploration.",
+  ]],
+  ["src/client/features/tools/color/image-decode-cache.test.tsx", [
+    "/** Pixels read back from the fake canvas: every one transparent black, which the quantizer still accepts. */",
+    "/** Whether a picture of this size has to be shrunk before it reaches the quantizer. */",
+    "// The decode is handed back on a later turn, so a request started earlier can still answer last.",
+    "// The shared slider commits the draft on release, which is what a keyboard or pointer drag ends with.",
+    "// Three counts asked for, one decode paid for: each step used to reload the file, redraw the canvas",
+    "// and read its pixels back before throwing all of that away on the next step.",
+    "// The spinner is a promise the panel can no longer keep: leaving it spinning hides the message.",
+  ]],
+  ["src/client/features/tools/color/image-input-guards.test.tsx", [
+    "/**\n * The picker's two doors.\n *\n * `accept` only filters the file dialog: a picture dragged onto the panel reaches the handler with whatever\n * type the operating system felt like reporting, and used to be read whole into React state as a data URL.\n */",
+    "// jsdom will not accept a filename written by a test, and it fires `change` whether or not the value",
+    "// changed — so the recorder is the only way to see the reset the browser actually depends on.",
+    "// The browser compares values: leaving the rejected name in place means a second pick of the same file",
+    "// fires no change event, and the panel stays showing the picture the reader already replaced.",
   ]],
   ["src/client/features/tools/color/lib/color-format.ts", [
     "/**\n * The spaces the studio shows, in the order the panel lists them.\n *\n * The formatting used to live in the panel while `getColorSpaceValues` built the same strings again in a\n * different shape, so the value a reader copied was not the value the shared module had computed.\n */",
@@ -17508,9 +17536,20 @@ const allowed = new Map([
     "/**\n * Builds Tailwind CSS config format\n */",
     "/**\n * Builds JSON format\n */",
     "/**\n * Triggers browser download for text or binary Blob\n */",
+    "/**\n * A palette title turned into something that may stand inside an identifier, a variable name or a file name.\n *\n * Titles here are what the reader typed, and a third of them are written in characters this filter cannot\n * keep: such a title used to survive as a run of hyphens, exporting `--color-----1` and a Tailwind key of\n * `'-----'`. Whatever has no Latin letter or digit in it is named after the collection instead, after the\n * separators are folded — which also stops two words from becoming `my--palette`.\n */",
   ]],
   ["src/client/features/tools/color/lib/hex-input.ts", [
     "/**\n * Parses what a reader actually types into a hex field.\n *\n * `normalizeHex` is the module's internal normalizer and it never fails: anything it cannot read becomes\n * `#000000`. That is the right answer for a color already stored and the wrong one for a text box, where a\n * typo used to be evaluated as pure black — the contrast checker reported a mistyped value as a 21:1 pass.\n * This returns null so the caller can say \"that is not a color\" instead.\n */",
+  ]],
+  ["src/client/features/tools/color/modal-work.test.tsx", [
+    "/**\n * What the dialogs do while nobody is looking at them.\n *\n * `ColorApp` keeps all five modals mounted for the life of the tool and each one subscribes to\n * `currentHex`, so a single step of the hue slider re-ran `generateTokenScale`, five\n * `simulateColorBlindness` calls, a WCAG evaluation and the whole export preview. The measurements are\n * fractions of a millisecond each — the point of these tests is that the work happens on open and not\n * at all while closed, which a DOM assertion cannot see because `Modal` already renders nothing.\n */",
+    "// Opening seeds the background from the studio colour, so the first paint costs two evaluations.",
+    "// `tailwind.config.js` was the literal name for every palette: exporting a second one overwrote the file",
+    "// the first download had just placed in the reader's folder, next to the real project config.",
+    "// Carrying `_` through made `--color-Morning_Dew-1`, which no sheet in this app uses as a name.",
+    "// Every character used to fail the ASCII filter, leaving `----.css` and a `--color-----1` variable.",
+    "// The old copy reused the clipboard template with \"File Downloaded\" pasted into it, which told the",
+    "// reader their download had been a copy.",
   ]],
   ["src/client/features/tools/color/modals-state.test.tsx", [
     "/**\n * Types into a controlled input the way a keyboard does.\n *\n * Assigning `.value` directly leaves React's own tracker convinced nothing changed, so the synthetic event\n * never reaches the component and the assertions read a form that was never filled.\n */",
@@ -17535,6 +17574,9 @@ const allowed = new Map([
     "// silently remembered as already saved.",
     "// The trail is empty now, so the next color is worth recording even if it was the last one logged.",
     "// Modals controls",
+    "/** Which collection panel could not be read — an empty list and a failed one look the same otherwise. */",
+    "// Swallowing the reason silently showed \"nothing saved yet\" over a failed request, which reads as",
+    "// the collection being gone. The panel names the failure and offers the same fetch again.",
   ]],
   ["src/client/features/tools/color/views/AiPaletteView.tsx", [
     "/* Header */",
@@ -17587,6 +17629,8 @@ const allowed = new Map([
     "/* Swatch Strip */",
     "/* Palette details */",
     "/* Tab 3: History */",
+    "/**\n * A list the server refused, shown apart from a list that came back empty.\n *\n * Both used to render \"nothing saved yet\", which tells a reader on a flaky connection that their colors\n * are gone — and invites them to save the same hex a second time.\n */",
+    "// A favorite is the only copy: there is no trash and no export, so deletion asks first.",
   ]],
   ["src/client/features/tools/color/views/GradientStudioView.tsx", [
     "// Tags filter",
@@ -17611,6 +17655,15 @@ const allowed = new Map([
     "/* Dominant color hero card */",
     "/* Palette grid */",
     "/* Wallpaper Poster Modal */",
+    "// The quantizer samples a histogram, not every pixel, so a larger bitmap buys nothing but decode time.",
+    "// The preview is held as a data URL in component state, so the picker stops where the server's asset",
+    "// endpoint stops instead of inventing a second ceiling.",
+    "/** A refusal the panel can show: which message, and what it has to name to be useful. */",
+    "/**\n * Why a file cannot become an extraction source, or null when it can.\n *\n * `accept` is a filter the picker offers, not a check the app runs: a dragged-in file never passes through\n * it at all. An SVG stays allowed because the sample picture this panel ships is one, and a file handed to\n * `<img>` runs no scripts — the byte ceiling is what stops a pathological drawing.\n */",
+    "// The decoded picture, keyed by source: the count slider used to re-decode a multi-megabyte file once",
+    "// per step, and a slow decode of an earlier image could answer after a later one.",
+    "// A picture from another origin taints the canvas; the sample and every local file do not.",
+    "// The same file picked twice must re-run: without the reset the change event never fires.",
   ]],
   ["src/client/features/tools/color/views/TraditionalColorView.tsx", [
     "// Extract distinct series",
@@ -31038,6 +31091,7 @@ const allowed = new Map([
     "/**\n * The UI-palette tab a reader with no preference lands on.\n *\n * Both ends used to say `flat_ui`, which is not one of the tab keys — the setting was inert wherever it\n * was honored. Anything the stored value cannot match falls back to this.\n */",
     "/**\n * Largest poster the module will store, decoded.\n *\n * A 1080×1440 PNG is comfortably under this; the ceiling exists because the payload arrives as base64\n * inside a JSON body that the isolate has to hold whole, and an uncapped string turns a poster button into\n * a memory leak with no limit but the platform's request size.\n */",
     "/** The same ceiling on the wire, where base64 costs four bytes for every three. */",
+    "/**\n * Rows a list endpoint returns at most.\n *\n * The favorites and palette queries had no ceiling at all and selected every column, so the collection\n * panels fetched the whole history of a long-lived account on each mount.\n */",
   ]],
   ["src/shared/tools/color/harmonies.ts", [
     "/**\n * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)\n */",
@@ -39299,6 +39353,7 @@ const allowed = new Map([
     "// Truncate sliding window if user has more than the retained history",
     "// Re-picking the color that is already on top of the trail is not a new exploration. The client",
     "// debounces a drag, but this is what keeps a second tab or a re-read page from re-inserting.",
+    "// `preview_svg` is left out on purpose: it holds up to 50 KB per row and no list view renders it.",
   ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
@@ -44482,6 +44537,15 @@ const allowed = new Map([
     "// The slider's right-hand end used to send COLOR_EXTRACT_MAX + 1 colors to a schema capped at 12.",
     "// This harness configures no assistant model, so a truthful answer has to admit it computed the palette.",
     "// A second tab, or a page re-read, used to add a fresh row for the color already on top.",
+  ]],
+  ["tests/tools-color-list-limit.test.ts", [
+    "/**\n * The two collection lists the panel reads on every mount.\n *\n * `listFavorites` and `listPalettes` were `SELECT *` with no ceiling: a long-lived account handed the\n * browser its whole saved-colour history, including the 50 KB `preview_svg` column that no list view\n * renders, and the tag filter ran after that transfer in JavaScript.\n */",
+    "/** The rows each list query actually pulled out of the database, by table. */",
+    "/** Which columns a list query read for its first row. */",
+    "// `user_id` was carried into every row of the response only to be dropped again in the mapping.",
+    "// Newest first: the list is ordered by `sort`, then by the time each row was written.",
+    "// The stored JSON blobs are decoded, not handed over raw.",
+    "// The column is unread by the list, not unread by the account: a single read still returns it.",
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",

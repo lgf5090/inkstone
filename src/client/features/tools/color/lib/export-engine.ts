@@ -10,6 +10,22 @@ export interface PaletteExportData {
 }
 
 /**
+ * A palette title turned into something that may stand inside an identifier, a variable name or a file name.
+ *
+ * Titles here are what the reader typed, and a third of them are written in characters this filter cannot
+ * keep: such a title used to survive as a run of hyphens, exporting `--color-----1` and a Tailwind key of
+ * `'-----'`. Whatever has no Latin letter or digit in it is named after the collection instead, after the
+ * separators are folded — which also stops two words from becoming `my--palette`.
+ */
+export function slugFromTitle(title: string): string {
+  const folded = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return folded || 'palette'
+}
+
+/**
  * Builds binary Adobe Swatch Exchange (.ase) file
  */
 export function exportToAseBlob(palette: PaletteExportData): Blob {
@@ -121,7 +137,7 @@ export function exportToAseBlob(palette: PaletteExportData): Blob {
  * Builds CSS Variables format
  */
 export function exportToCssVariables(palette: PaletteExportData): string {
-  const prefix = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'palette'
+  const prefix = slugFromTitle(palette.title)
   const vars = palette.colors
     .map((hex, i) => `  --color-${prefix}-${i + 1}: ${hex.toLowerCase()};`)
     .join('\n')
@@ -132,7 +148,7 @@ export function exportToCssVariables(palette: PaletteExportData): string {
  * Builds SCSS Variables format
  */
 export function exportToScssVariables(palette: PaletteExportData): string {
-  const prefix = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'palette'
+  const prefix = slugFromTitle(palette.title)
   const vars = palette.colors
     .map((hex, i) => `$color-${prefix}-${i + 1}: ${hex.toLowerCase()};`)
     .join('\n')
@@ -143,7 +159,7 @@ export function exportToScssVariables(palette: PaletteExportData): string {
  * Builds Tailwind CSS config format
  */
 export function exportToTailwindConfig(palette: PaletteExportData): string {
-  const name = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'custom'
+  const name = slugFromTitle(palette.title)
   const entries = palette.colors
     .map((hex, i) => `        '${(i + 1) * 100}': '${hex.toLowerCase()}',`)
     .join('\n')

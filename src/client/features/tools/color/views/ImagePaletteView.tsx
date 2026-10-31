@@ -11,12 +11,16 @@ import {
   Upload,
 } from 'lucide-react'
 import { extractPaletteFromPixels } from '@shared/tools/color/quantize'
-import { COLOR_EXTRACT_MAX, COLOR_EXTRACT_MIN } from '@shared/tools/color/contract'
+import {
+  COLOR_ASSET_MAX_BYTES,
+  COLOR_EXTRACT_MAX,
+  COLOR_EXTRACT_MIN,
+} from '@shared/tools/color/contract'
 import type { PoeticColorInterpretation } from '@shared/tools/color/types'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Slider } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
-import { t } from '../../../../lib/i18n'
+import { t, type MessageKey } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
 import { colorApi } from '../api'
 import { useColorStudioStore } from '../store'
@@ -24,6 +28,37 @@ import { AiPosterModal } from '../components/AiPosterModal'
 
 // Pre-packaged SVG sample image for quick testing
 const SAMPLE_IMAGE_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23ff7e5f"/><stop offset="50%" stop-color="%23feb47b"/><stop offset="100%" stop-color="%2386a8e7"/></linearGradient><linearGradient id="g2" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="%232b5876"/><stop offset="100%" stop-color="%234e4376"/></linearGradient></defs><rect width="600" height="400" fill="url(%23g1)"/><circle cx="480" cy="120" r="80" fill="%23fbeeac" opacity="0.85"/><path d="M 0,280 Q 150,200 300,260 T 600,220 L 600,400 L 0,400 Z" fill="url(%23g2)"/><path d="M 0,330 Q 180,270 360,310 T 600,280 L 600,400 L 0,400 Z" fill="%231e3c72" opacity="0.9"/></svg>`
+
+// The quantizer samples a histogram, not every pixel, so a larger bitmap buys nothing but decode time.
+const EXTRACT_MAX_DIMENSION = 320
+
+// The preview is held as a data URL in component state, so the picker stops where the server's asset
+// endpoint stops instead of inventing a second ceiling.
+const MAX_IMAGE_BYTES = COLOR_ASSET_MAX_BYTES
+
+/** A refusal the panel can show: which message, and what it has to name to be useful. */
+export interface ImageFileRejection {
+  key: MessageKey
+  params?: Record<string, string | number>
+}
+
+/**
+ * Why a file cannot become an extraction source, or null when it can.
+ *
+ * `accept` is a filter the picker offers, not a check the app runs: a dragged-in file never passes through
+ * it at all. An SVG stays allowed because the sample picture this panel ships is one, and a file handed to
+ * `<img>` runs no scripts — the byte ceiling is what stops a pathological drawing.
+ */
+export function imageFileRejection(file: { type: string; size: number }): ImageFileRejection | null {
+  if (!file.type.startsWith('image/')) return { key: 'tools.color.image.reject_not_image' }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return {
+      key: 'tools.color.image.reject_too_large',
+      params: { max: Math.floor(MAX_IMAGE_BYTES / (1024 * 1024)) },
+    }
+  }
+  return null
+}
 
 export function ImagePaletteView() {
   const [imageSrc, setImageSrc] = useState<string>(SAMPLE_IMAGE_SVG)
@@ -38,6 +73,10 @@ export function ImagePaletteView() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // The decoded picture, keyed by source: the count slider used to re-decode a multi-megabyte file once
+  // per step, and a slow decode of an earlier image could answer after a later one.
+  const decodedRef = useRef<{ src: string; data: ImageData } | null>(null)
+  const requestIdRef = useRef(0)
 
   const setCurrentHex = useColorStudioStore((s) => s.setCurrentHex)
   const copyColor = useColorStudioStore((s) => s.copyColor)
@@ -45,65 +84,79 @@ export function ImagePaletteView() {
   const savePalette = useColorStudioStore((s) => s.savePalette)
   const openExportPaletteModal = useColorStudioStore((s) => s.openExportPaletteModal)
 
-  const processImage = (src: string, colorCount: number) => {
-    setIsExtracting(true)
+  const decodeToPixels = async (src: string): Promise<ImageData | null> => {
+    if (decodedRef.current?.src === src) return decodedRef.current.data
+
     const img = new Image()
     img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = canvasRef.current || document.createElement('canvas')
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (!ctx) {
+    const loaded = await new Promise<HTMLImageElement | null>((resolve) => {
+      img.onload = () => resolve(img)
+      img.onerror = () => resolve(null)
+      img.src = src
+    })
+    if (!loaded) return null
+
+    const canvas = canvasRef.current || document.createElement('canvas')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+
+    // Constrain processing dimensions for performance
+    const maxDim = EXTRACT_MAX_DIMENSION
+    let w = img.naturalWidth || img.width
+    let h = img.naturalHeight || img.height
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w)
+        w = maxDim
+      } else {
+        w = Math.round((w * maxDim) / h)
+        h = maxDim
+      }
+    }
+
+    canvas.width = w
+    canvas.height = h
+    ctx.drawImage(img, 0, 0, w, h)
+
+    let data: ImageData
+    try {
+      data = ctx.getImageData(0, 0, w, h)
+    } catch {
+      // A picture from another origin taints the canvas; the sample and every local file do not.
+      return null
+    }
+    decodedRef.current = { src, data }
+    return data
+  }
+
+  const runExtraction = (src: string, colorCount: number) => {
+    const requestId = ++requestIdRef.current
+    setIsExtracting(true)
+    void decodeToPixels(src).then((data) => {
+      if (requestId !== requestIdRef.current) return
+      if (!data) {
         setIsExtracting(false)
+        useUi.getState().toast({ title: t('tools.color.toast.extract_failed'), tone: 'danger' })
         return
       }
-
-      // Constrain processing dimensions for performance
-      const maxDim = 320
-      let w = img.naturalWidth || img.width
-      let h = img.naturalHeight || img.height
-      if (w > maxDim || h > maxDim) {
-        if (w > h) {
-          h = Math.round((h * maxDim) / w)
-          w = maxDim
-        } else {
-          w = Math.round((w * maxDim) / h)
-          h = maxDim
-        }
-      }
-
-      canvas.width = w
-      canvas.height = h
-      ctx.drawImage(img, 0, 0, w, h)
-
       try {
-        const imageData = ctx.getImageData(0, 0, w, h)
-        const result = extractPaletteFromPixels(imageData.data, colorCount)
+        const result = extractPaletteFromPixels(data.data, colorCount)
         setDominantColor(result.dominant)
         setExtractedPalette(result.palette)
       } catch {
-        useUi.getState().toast({
-          title: t('tools.color.toast.copy_failed'),
-          tone: 'danger',
-        })
+        useUi.getState().toast({ title: t('tools.color.toast.extract_failed'), tone: 'danger' })
       } finally {
         setIsExtracting(false)
       }
-    }
-    img.onerror = () => {
-      setIsExtracting(false)
-    }
-    img.src = src
+    })
   }
 
-  useEffect(() => {
-    if (imageSrc) {
-      processImage(imageSrc, maxColors)
+  const readImageFile = (file: File) => {
+    const rejection = imageFileRejection(file)
+    if (rejection) {
+      useUi.getState().toast({ title: t(rejection.key, rejection.params), tone: 'danger' })
+      return
     }
-  }, [imageSrc, maxColors])
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
     const reader = new FileReader()
     reader.onload = (event) => {
       const result = event.target?.result as string
@@ -112,7 +165,23 @@ export function ImagePaletteView() {
         setInterpretations([])
       }
     }
+    reader.onerror = () => {
+      useUi.getState().toast({ title: t('tools.color.toast.extract_failed'), tone: 'danger' })
+    }
     reader.readAsDataURL(file)
+  }
+
+  useEffect(() => {
+    if (imageSrc) {
+      runExtraction(imageSrc, maxColors)
+    }
+  }, [imageSrc, maxColors])
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) readImageFile(file)
+    // The same file picked twice must re-run: without the reset the change event never fires.
+    e.target.value = ''
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -129,17 +198,7 @@ export function ImagePaletteView() {
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files?.[0]
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const result = event.target?.result as string
-        if (result) {
-          setImageSrc(result)
-          setInterpretations([])
-        }
-      }
-      reader.readAsDataURL(file)
-    }
+    if (file) readImageFile(file)
   }
 
   const handleRequestInterpretations = async () => {

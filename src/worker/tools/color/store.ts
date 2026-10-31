@@ -4,7 +4,7 @@
  * multi-color palettes, history, settings, and assets.
  */
 
-import { COLOR_HISTORY_WINDOW, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
+import { COLOR_HISTORY_WINDOW, COLOR_LIST_LIMIT, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
 import { hexToRgb, normalizeHex, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
 import type {
   ColorHistoryItem,
@@ -95,13 +95,14 @@ export class ColorStore {
   async listFavorites(tag?: string): Promise<UserColorFavorite[]> {
     const results = await this.db
       .prepare(
-        `SELECT * FROM tools_color_favorites
+        `SELECT id, name, hex, rgb_json, cmyk_json, lab_json, tags_json, note, sort, created_at, updated_at
+         FROM tools_color_favorites
          WHERE user_id = ?
-         ORDER BY sort ASC, created_at DESC`,
+         ORDER BY sort ASC, created_at DESC
+         LIMIT ?`,
       )
-      .bind(this.userId)
+      .bind(this.userId, COLOR_LIST_LIMIT)
       .all<{
-        user_id: string
         id: string
         name: string
         hex: string
@@ -328,7 +329,9 @@ export class ColorStore {
     tag?: string
     onlyFavorites?: boolean
   }): Promise<UserColorPalette[]> {
-    let sql = `SELECT * FROM tools_color_palettes WHERE user_id = ?`
+    // `preview_svg` is left out on purpose: it holds up to 50 KB per row and no list view renders it.
+    let sql = `SELECT id, title, colors_json, source_type, description, tags_json, likes_count, is_favorite, sort, created_at, updated_at
+     FROM tools_color_palettes WHERE user_id = ?`
     const params: (string | number)[] = [this.userId]
 
     if (filter?.sourceType) {
@@ -340,13 +343,13 @@ export class ColorStore {
       sql += ` AND is_favorite = 1`
     }
 
-    sql += ` ORDER BY sort ASC, created_at DESC`
+    sql += ` ORDER BY sort ASC, created_at DESC LIMIT ?`
+    params.push(COLOR_LIST_LIMIT)
 
     const results = await this.db
       .prepare(sql)
       .bind(...params)
       .all<{
-        user_id: string
         id: string
         title: string
         colors_json: string
@@ -354,7 +357,6 @@ export class ColorStore {
         description: string
         tags_json: string
         likes_count: number
-        preview_svg: string
         is_favorite: number
         sort: number
         created_at: number
@@ -389,7 +391,7 @@ export class ColorStore {
         description: row.description,
         tags,
         likesCount: row.likes_count,
-        previewSvg: row.preview_svg,
+        previewSvg: '',
         isFavorite: Boolean(row.is_favorite),
         sort: row.sort,
         createdAt: row.created_at,

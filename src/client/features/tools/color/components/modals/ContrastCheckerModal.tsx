@@ -83,6 +83,9 @@ export function ContrastCheckerModal() {
     setBg(currentHex)
   }, [isOpen, currentHex])
 
+  // Every hook above still has to run, but the WCAG evaluation below is pure waste while closed.
+  if (!isOpen) return null
+
   const fgParsed = parseHexInput(fg)
   const bgParsed = parseHexInput(bg)
   const bothValid = fgParsed !== null && bgParsed !== null

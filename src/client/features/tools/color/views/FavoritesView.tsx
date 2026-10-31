@@ -11,11 +11,28 @@ import {
 } from 'lucide-react'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Segmented } from '../../../../components/form'
-import { Tooltip } from '../../../../components/overlay'
+import { Tooltip, confirm } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
 
 type FavoritesSubTab = 'colors' | 'palettes' | 'history'
+
+/**
+ * A list the server refused, shown apart from a list that came back empty.
+ *
+ * Both used to render "nothing saved yet", which tells a reader on a flaky connection that their colors
+ * are gone — and invites them to save the same hex a second time.
+ */
+function LoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-[var(--text-tertiary)]">
+      <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.load_failed')}</p>
+      <Button size="sm" variant="secondary" onClick={onRetry}>
+        {t('common.retry')}
+      </Button>
+    </div>
+  )
+}
 
 export function FavoritesView() {
   const [activeTab, setActiveTab] = useState<FavoritesSubTab>('colors')
@@ -23,15 +40,35 @@ export function FavoritesView() {
   const favorites = useColorStudioStore((s) => s.favorites)
   const palettes = useColorStudioStore((s) => s.palettes)
   const history = useColorStudioStore((s) => s.history)
+  const isLoadingFavorites = useColorStudioStore((s) => s.isLoadingFavorites)
+  const isLoadingPalettes = useColorStudioStore((s) => s.isLoadingPalettes)
+  const favoritesLoadFailed = useColorStudioStore((s) => s.favoritesLoadFailed)
+  const palettesLoadFailed = useColorStudioStore((s) => s.palettesLoadFailed)
 
   const fetchFavorites = useColorStudioStore((s) => s.fetchFavorites)
   const fetchPalettes = useColorStudioStore((s) => s.fetchPalettes)
   const fetchHistory = useColorStudioStore((s) => s.fetchHistory)
 
-  const removeFavorite = useColorStudioStore((s) => s.removeFavorite)
-  const removePalette = useColorStudioStore((s) => s.removePalette)
+  const storeRemoveFavorite = useColorStudioStore((s) => s.removeFavorite)
+  const storeRemovePalette = useColorStudioStore((s) => s.removePalette)
+  const storeClearHistory = useColorStudioStore((s) => s.clearHistory)
   const togglePaletteFavorite = useColorStudioStore((s) => s.togglePaletteFavorite)
-  const clearHistory = useColorStudioStore((s) => s.clearHistory)
+
+  const removeFavorite = async (id: string) => {
+    // A favorite is the only copy: there is no trash and no export, so deletion asks first.
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_delete_favorite_title'), description: t('tools.color.favorites.confirm_delete_favorite'), tone: 'danger', confirmLabel: t('tools.color.common.delete') }))) return
+    await storeRemoveFavorite(id)
+  }
+
+  const removePalette = async (id: string) => {
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_delete_palette_title'), description: t('tools.color.favorites.confirm_delete_palette'), tone: 'danger', confirmLabel: t('tools.color.common.delete') }))) return
+    await storeRemovePalette(id)
+  }
+
+  const clearHistory = async () => {
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_clear_history_title'), description: t('tools.color.favorites.confirm_clear_history'), tone: 'danger', confirmLabel: t('tools.color.favorites.clear_history') }))) return
+    await storeClearHistory()
+  }
 
   const setCurrentHex = useColorStudioStore((s) => s.setCurrentHex)
   const copyColor = useColorStudioStore((s) => s.copyColor)
@@ -74,7 +111,13 @@ export function FavoritesView() {
       {/* Tab 1: Colors */}
       {activeTab === 'colors' && (
         <div className="space-y-4">
-          {favorites.length === 0 ? (
+          {isLoadingFavorites ? (
+            <p className="py-16 text-center text-[length:var(--text-14)] text-[var(--text-tertiary)]">
+              {t('tools.color.favorites.loading')}
+            </p>
+          ) : favoritesLoadFailed ? (
+            <LoadFailed onRetry={fetchFavorites} />
+          ) : favorites.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--text-tertiary)]">
               <Heart size={32} className="mb-2 opacity-50" />
               <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty')}</p>
@@ -149,10 +192,20 @@ export function FavoritesView() {
             </Button>
           </div>
 
-          {palettes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--text-tertiary)]">
-              <Palette size={32} className="mb-2 opacity-50" />
-              <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty')}</p>
+          {isLoadingPalettes ? (
+            <p className="py-16 text-center text-[length:var(--text-14)] text-[var(--text-tertiary)]">
+              {t('tools.color.favorites.loading')}
+            </p>
+          ) : palettesLoadFailed ? (
+            <LoadFailed onRetry={fetchPalettes} />
+          ) : palettes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-[var(--text-tertiary)]">
+              <Palette size={32} className="opacity-50" />
+              <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty_palettes')}</p>
+              <Button size="sm" variant="secondary" onClick={openCreatePaletteModal}>
+                <Plus size={14} className="mr-1.5" />
+                {t('tools.color.create_palette.title')}
+              </Button>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -169,9 +222,9 @@ export function FavoritesView() {
                         <button
                           key={i}
                           type="button"
-                          aria-label={`Select color ${c.hex}`}
-                          className="flex-1 h-full cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
-                          style={{ backgroundColor: c.hex }}
+                          aria-label={t('tools.color.swatch.use', { hex: c.hex })}
+                          className="h-full min-w-4 cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
+                          style={{ backgroundColor: c.hex, flexGrow: c.ratio && c.ratio > 0 ? c.ratio : 1 }}
                           title={c.hex}
                           onClick={() => setCurrentHex(c.hex, 'palette')}
                         />

@@ -34,6 +34,9 @@ export interface ColorStudioState {
   history: ColorHistoryItem[]
   isLoadingFavorites: boolean
   isLoadingPalettes: boolean
+  /** Which collection panel could not be read — an empty list and a failed one look the same otherwise. */
+  favoritesLoadFailed: boolean
+  palettesLoadFailed: boolean
 
   // Modals visibility
   isContrastModalOpen: boolean
@@ -142,6 +145,8 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   history: [],
   isLoadingFavorites: false,
   isLoadingPalettes: false,
+  favoritesLoadFailed: false,
+  palettesLoadFailed: false,
 
   isContrastModalOpen: false,
   isTokenScaleModalOpen: false,
@@ -222,9 +227,11 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isLoadingFavorites: true })
     try {
       const favorites = await colorApi.listFavorites()
-      set({ favorites, isLoadingFavorites: false })
+      set({ favorites, isLoadingFavorites: false, favoritesLoadFailed: false })
     } catch {
-      set({ isLoadingFavorites: false })
+      // Swallowing the reason silently showed "nothing saved yet" over a failed request, which reads as
+      // the collection being gone. The panel names the failure and offers the same fetch again.
+      set({ isLoadingFavorites: false, favoritesLoadFailed: true })
     }
   },
 
@@ -265,9 +272,9 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isLoadingPalettes: true })
     try {
       const palettes = await colorApi.listPalettes()
-      set({ palettes, isLoadingPalettes: false })
+      set({ palettes, isLoadingPalettes: false, palettesLoadFailed: false })
     } catch {
-      set({ isLoadingPalettes: false })
+      set({ isLoadingPalettes: false, palettesLoadFailed: true })
     }
   },
 

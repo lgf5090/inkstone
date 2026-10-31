@@ -11,6 +11,7 @@ import {
   exportToJson,
   exportToScssVariables,
   exportToTailwindConfig,
+  slugFromTitle,
   triggerDownload,
 } from '../../lib/export-engine'
 import { useColorStudioStore } from '../../store'
@@ -25,6 +26,10 @@ export function ExportPaletteModal() {
 
   const [activeFormat, setActiveFormat] = useState<ExportFormat>('css')
   const [hasCopied, setHasCopied] = useState(false)
+
+  // A closed modal has no work to do: the preview box walks the whole palette and the swatch strip
+  // rebuilds, and all five modals used to do that on every step of a hue drag.
+  if (!isOpen) return null
 
   const paletteData = targetPalette || {
     title: 'Color Scheme',
@@ -71,32 +76,31 @@ export function ExportPaletteModal() {
   }
 
   const handleDownload = () => {
-    const slug = paletteData.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'palette'
+    const slug = slugFromTitle(paletteData.title)
+    const extension = activeFormat === 'tailwind' ? 'tailwind.js' : activeFormat
+    const fileName = `${slug}.${extension}`
     switch (activeFormat) {
       case 'ase': {
         const blob = exportToAseBlob(paletteData)
-        triggerDownload(blob, `${slug}.ase`, 'application/octet-stream')
+        triggerDownload(blob, fileName, 'application/octet-stream')
         break
       }
       case 'css':
-        triggerDownload(exportToCssVariables(paletteData), `${slug}.css`, 'text/css')
+        triggerDownload(exportToCssVariables(paletteData), fileName, 'text/css')
         break
       case 'scss':
-        triggerDownload(exportToScssVariables(paletteData), `${slug}.scss`, 'text/x-scss')
+        triggerDownload(exportToScssVariables(paletteData), fileName, 'text/x-scss')
         break
       case 'tailwind':
-        triggerDownload(exportToTailwindConfig(paletteData), `tailwind.config.js`, 'text/javascript')
+        triggerDownload(exportToTailwindConfig(paletteData), fileName, 'text/javascript')
         break
       case 'json':
-        triggerDownload(exportToJson(paletteData), `${slug}.json`, 'application/json')
+        triggerDownload(exportToJson(paletteData), fileName, 'application/json')
         break
     }
 
     useUi.getState().toast({
-      title: t('tools.color.toast.copied', {
-        label: 'File Downloaded',
-        value: `${slug}.${activeFormat}`,
-      }),
+      title: t('tools.color.toast.downloaded', { name: fileName }),
       tone: 'success',
     })
   }
