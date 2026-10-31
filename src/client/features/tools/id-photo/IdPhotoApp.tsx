@@ -19,14 +19,25 @@ import { IdPhotoSettingsView } from './settings/IdPhotoSettingsView'
 export function IdPhotoApp() {
   const activeIdPhotoView = useToolsStore((s) => s.activeIdPhotoView)
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
+  const loadPreferences = useIdPhotoStore((s) => s.loadPreferences)
   const customSpecModalOpen = useIdPhotoStore((s) => s.customSpecModalOpen)
   const setCustomSpecModalOpen = useIdPhotoStore((s) => s.setCustomSpecModalOpen)
 
   useEffect(() => {
-    loadCustomSpecs().catch(() => {
-      useUi.getState().toast({ title: t('tools.id_photo.specs.load_failed'), tone: 'danger' })
-    })
-  }, [loadCustomSpecs])
+    const boot = async () => {
+      try {
+        await loadCustomSpecs()
+      } catch {
+        useUi.getState().toast({ title: t('tools.id_photo.specs.load_failed'), tone: 'danger' })
+      }
+      try {
+        await loadPreferences()
+      } catch {
+        useUi.getState().toast({ title: t('tools.id_photo.settings.load_failed'), tone: 'danger' })
+      }
+    }
+    void boot()
+  }, [loadCustomSpecs, loadPreferences])
 
   return (
     <div

@@ -17696,13 +17696,6 @@ const allowed = new Map([
     "/* Download Button */",
     "/* Right Print Preview Canvas */",
   ]],
-  ["src/client/features/tools/id-photo/settings/IdPhotoSettingsView.tsx", [
-    "// fallback",
-    "/* Header */",
-    "/* Default Spec */",
-    "/* Default Background */",
-    "/* Toggles */",
-  ]],
   ["src/client/features/tools/id-photo/specs/IdPhotoSpecsView.tsx", [
     "/* Header */",
     "/* Filter and Search */",

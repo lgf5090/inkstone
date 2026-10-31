@@ -993,8 +993,9 @@ export const EN_US_TOOLS = {
   'tools.id_photo.settings.title': 'ID Photo Preferences',
   'tools.id_photo.settings.default_spec': 'Default Specification',
   'tools.id_photo.settings.default_bg': 'Default Background',
-  'tools.id_photo.settings.auto_save': 'Auto-save to cloud upon export',
-  'tools.id_photo.settings.auto_align': 'Auto center and frame upon upload',
+  'tools.id_photo.settings.hint': 'These preferences are applied when you open the ID photo studio; adjustments made on a loaded photo are not overwritten.',
+  'tools.id_photo.settings.load_failed': 'Failed to load preferences',
+  'tools.id_photo.settings.retry': 'Reload',
   'tools.id_photo.settings.save_btn': 'Save Preferences',
   'tools.id_photo.settings.save_success': 'Preferences saved successfully',
 

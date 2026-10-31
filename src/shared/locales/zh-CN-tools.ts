@@ -993,8 +993,9 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.settings.title': '证件照偏好设置',
   'tools.id_photo.settings.default_spec': '默认开启规格',
   'tools.id_photo.settings.default_bg': '默认背景色',
-  'tools.id_photo.settings.auto_save': '导出时自动归档到云端',
-  'tools.id_photo.settings.auto_align': '上传后自动人脸居中校准',
+  'tools.id_photo.settings.hint': '这些偏好在进入证件照工坊时套用；已上传照片时的临时调整不会被覆盖。',
+  'tools.id_photo.settings.load_failed': '偏好设置加载失败',
+  'tools.id_photo.settings.retry': '重新加载',
   'tools.id_photo.settings.save_btn': '保存偏好设置',
   'tools.id_photo.settings.save_success': '偏好设置已成功保存',
 

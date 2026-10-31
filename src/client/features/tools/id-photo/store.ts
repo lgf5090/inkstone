@@ -1,12 +1,14 @@
 import { create } from 'zustand'
+import { PRINT_SHEET_PRESETS } from '@shared/tools/id-photo/presets'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
 import type {
   IdPhotoAdjustOptions,
   IdPhotoExportFormat,
   IdPhotoSpec,
+  IdPhotoUserSettings,
   PrintSheetOptions,
 } from '@shared/tools/id-photo/types'
-import { listCustomSpecs } from './api'
+import { getIdPhotoSettings, listCustomSpecs } from './api'
 
 export type IdPhotoOptionsTab = 'spec' | 'color' | 'retouch' | 'attire' | 'print'
 
@@ -30,6 +32,11 @@ export const DEFAULT_ADJUST_OPTIONS: IdPhotoAdjustOptions = {
   cropHeight: undefined,
   rotation: 0,
 }
+
+const PAPER_SIZES = PRINT_SHEET_PRESETS.map((preset) => preset.id)
+
+const EXPORT_FORMATS: readonly IdPhotoExportFormat[] = ['jpg', 'jpeg', 'png', 'webp']
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
 export const DEFAULT_PRINT_OPTIONS: PrintSheetOptions = {
   paperSize: '6inch',
@@ -59,6 +66,8 @@ export interface IdPhotoState {
   setSelectedSpecId: (specId: string) => void
   getActiveSpec: () => IdPhotoSpec
   loadCustomSpecs: () => Promise<void>
+  loadPreferences: () => Promise<void>
+  applyUserSettings: (settings: IdPhotoUserSettings) => void
 
   // Adjust Options
   adjustOptions: IdPhotoAdjustOptions
@@ -144,6 +153,35 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   loadCustomSpecs: async () => {
     set({ customSpecs: await listCustomSpecs() })
   },
+
+  loadPreferences: async () => {
+    get().applyUserSettings(await getIdPhotoSettings())
+  },
+
+  applyUserSettings: (settings) =>
+    set((s) => {
+      if (s.imageSrc) return {}
+      const knownSpec = [
+        ...s.customSpecs,
+        ...BUILTIN_ID_PHOTO_SPECS,
+      ].some((spec) => spec.id === settings.defaultSpecId)
+      const selectedSpecId = knownSpec ? settings.defaultSpecId : s.selectedSpecId
+      const bgColor = HEX_COLOR.test(settings.defaultBgColor)
+        ? settings.defaultBgColor
+        : s.adjustOptions.bgColor
+      const defaultFormat = settings.defaultExportFormat as IdPhotoExportFormat
+      const exportFormat = EXPORT_FORMATS.includes(defaultFormat) ? defaultFormat : s.exportFormat
+      const paperSize = PAPER_SIZES.includes(settings.printPaperSize)
+        ? settings.printPaperSize
+        : s.printOptions.paperSize
+
+      return {
+        selectedSpecId,
+        adjustOptions: { ...s.adjustOptions, specId: selectedSpecId, bgColor },
+        exportFormat,
+        printOptions: { ...s.printOptions, paperSize },
+      }
+    }),
 
   adjustOptions: { ...DEFAULT_ADJUST_OPTIONS },
   setAdjustOptions: (patch) =>
