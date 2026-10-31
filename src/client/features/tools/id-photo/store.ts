@@ -12,6 +12,30 @@ import { getIdPhotoSettings, listCustomSpecs } from './api'
 
 export type IdPhotoOptionsTab = 'spec' | 'color' | 'retouch' | 'attire' | 'print'
 
+const MAX_WORKING_EDGE = 2048
+
+export function planSourceResize(width: number, height: number): { width: number; height: number } | null {
+  const longest = Math.max(width, height)
+  if (!(longest > MAX_WORKING_EDGE) || !(width > 0) || !(height > 0)) return null
+  const ratio = MAX_WORKING_EDGE / longest
+  return {
+    width: Math.max(1, Math.round(width * ratio)),
+    height: Math.max(1, Math.round(height * ratio)),
+  }
+}
+
+function downscale(image: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable while preparing the working image')
+  }
+  ctx.drawImage(image, 0, 0, width, height)
+  return canvas
+}
+
 export const DEFAULT_ADJUST_OPTIONS: IdPhotoAdjustOptions = {
   specId: 'cn_one_inch',
   bgColor: '#ffffff',
@@ -64,7 +88,8 @@ export interface IdPhotoState {
   // Image Source
   imageSrc: string | null
   originalImageSrc: string | null
-  imageElement: HTMLImageElement | null
+  imageElement: HTMLImageElement | HTMLCanvasElement | null
+  sourceSize: { width: number; height: number } | null
   setImageSrc: (src: string | null) => Promise<boolean>
 
   // Spec Selection
@@ -114,18 +139,28 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   imageSrc: null,
   originalImageSrc: null,
   imageElement: null,
+  sourceSize: null,
   setImageSrc: (src) => {
     if (!src) {
-      set({ imageSrc: null, originalImageSrc: null, imageElement: null, lastExport: null })
+      set({
+        imageSrc: null,
+        originalImageSrc: null,
+        imageElement: null,
+        sourceSize: null,
+        lastExport: null,
+      })
       return Promise.resolve(false)
     }
     return new Promise<boolean>((resolve) => {
       const img = new Image()
       img.onload = () => {
+        const plan = planSourceResize(img.naturalWidth, img.naturalHeight)
+        const working = plan ? downscale(img, plan.width, plan.height) : img
         set({
           imageSrc: src,
           originalImageSrc: src,
-          imageElement: img,
+          imageElement: working,
+          sourceSize: { width: img.naturalWidth, height: img.naturalHeight },
           lastExport: null,
         })
         resolve(true)
@@ -142,14 +177,12 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
       get().customSpecs.find((s) => s.id === selectedSpecId) ??
       BUILTIN_ID_PHOTO_SPECS.find((s) => s.id === selectedSpecId)
 
-    const defaultBg = spec?.recommendedBgColors?.[0] ?? '#ffffff'
     set((s) => ({
       selectedSpecId,
       ...(spec?.fileSizeMaxKb ? { targetMaxKb: spec.fileSizeMaxKb } : {}),
       adjustOptions: {
         ...s.adjustOptions,
         specId: selectedSpecId,
-        bgColor: defaultBg,
         cropX: undefined,
         cropY: undefined,
         cropWidth: undefined,

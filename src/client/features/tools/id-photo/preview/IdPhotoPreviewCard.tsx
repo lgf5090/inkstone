@@ -1,13 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { Eye, Grid, Maximize2, UserCheck } from 'lucide-react'
+import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
 import { useIdPhotoStore } from '../store'
+import { specLabel } from '../spec-label'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
 
+const GUIDE_BASE = 'absolute left-0 right-0 border-t border-dashed'
+
+const GUIDE_LINES = [
+  { top: '12%', tone: 'border-[var(--accent)]' },
+  { top: '42%', tone: 'border-[var(--warning)]' },
+  { top: '78%', tone: 'border-[var(--accent)]' },
+] as const
+
 export function IdPhotoPreviewCard() {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const renderGeneration = useRef(0)
+  const [renderFailed, setRenderFailed] = useState(false)
   const [comparingOriginal, setComparingOriginal] = useState(false)
 
   const imageSrc = useIdPhotoStore((s) => s.imageSrc)
@@ -22,26 +34,30 @@ export function IdPhotoPreviewCard() {
   const activeSpec = getActiveSpec()
 
   useEffect(() => {
-    if (!imageElement || !containerRef.current) return
-
-    const engine = new IdPhotoEngine(activeSpec, adjustOptions)
-    let isMounted = true
-
-    engine.renderCanvas(imageElement).then((canvas) => {
-      if (isMounted && containerRef.current) {
-        containerRef.current.innerHTML = ''
-        canvas.style.maxWidth = '100%'
-        canvas.style.maxHeight = '360px'
-        canvas.style.height = 'auto'
-        canvas.style.borderRadius = 'var(--r-md)'
-        canvas.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)'
-        containerRef.current.appendChild(canvas)
-      }
-    })
-
-    return () => {
-      isMounted = false
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (!imageElement) {
+      canvas.width = 0
+      canvas.height = 0
+      return
     }
+
+    const generation = ++renderGeneration.current
+    const engine = new IdPhotoEngine(activeSpec, adjustOptions)
+    engine
+      .renderCanvas(imageElement)
+      .then((rendered) => {
+        if (generation !== renderGeneration.current) return
+        canvas.width = rendered.width
+        canvas.height = rendered.height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(rendered, 0, 0)
+      })
+      .catch(() => {
+        if (generation !== renderGeneration.current) return
+        setRenderFailed(true)
+      })
   }, [imageElement, activeSpec, adjustOptions])
 
   return (
@@ -63,12 +79,15 @@ export function IdPhotoPreviewCard() {
           <Tooltip label={t('tools.id_photo.preview.compare_original')}>
             <IconButton
               size="sm"
+              active={comparingOriginal}
               label={t('tools.id_photo.preview.compare_original')}
+              aria-pressed={comparingOriginal}
               onMouseDown={() => setComparingOriginal(true)}
               onMouseUp={() => setComparingOriginal(false)}
               onMouseLeave={() => setComparingOriginal(false)}
               onTouchStart={() => setComparingOriginal(true)}
               onTouchEnd={() => setComparingOriginal(false)}
+              onClick={() => setComparingOriginal((current) => !current)}
             >
               <Eye size={15} />
             </IconButton>
@@ -111,28 +130,37 @@ export function IdPhotoPreviewCard() {
             />
           ) : (
             <div className="relative">
-              <div ref={containerRef} className="flex items-center justify-center" />
+              <canvas
+                ref={canvasRef}
+                role="img"
+                aria-label={t('tools.id_photo.common.thumbnail')}
+                className="max-h-[360px] w-auto max-w-full rounded-[var(--r-md)] shadow-[var(--shadow-pop)]"
+              />
+              {renderFailed && (
+                <p className="absolute inset-0 flex items-center justify-center text-center text-[length:var(--text-12)] font-medium text-[var(--danger)]">
+                  {t('tools.id_photo.preview.render_failed')}
+                </p>
+              )}
 
               {/* Standard Alignment Guides Overlay */}
               {guidesVisible && (
                 <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-2">
-                  {/* Top crown line */}
                   <div
-                    style={{ top: '12%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-cyan-400/80"
+                    style={{ top: GUIDE_LINES[0].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[0].tone)}
                   />
-                  {/* Eye horizontal center line */}
                   <div
-                    style={{ top: '42%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-amber-400/80"
+                    style={{ top: GUIDE_LINES[1].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[1].tone)}
                   />
-                  {/* Chin bottom line */}
                   <div
-                    style={{ top: '78%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-cyan-400/80"
+                    style={{ top: GUIDE_LINES[2].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[2].tone)}
                   />
-                  {/* Vertical Center line */}
-                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l border-dashed border-red-400/80" />
+                  <div
+                    style={{ left: '50%' }}
+                    className="absolute top-0 bottom-0 border-l border-dashed border-[var(--danger)]"
+                  />
                 </div>
               )}
             </div>
@@ -146,7 +174,7 @@ export function IdPhotoPreviewCard() {
           <span className="text-sm leading-none">{activeSpec.flagEmoji}</span>
         )}
         <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
-          {activeSpec.nameKey ? t(activeSpec.nameKey as any) : activeSpec.name}
+          {specLabel(activeSpec)}
         </span>
         <span className="text-[var(--text-tertiary)] text-[length:var(--text-11)] font-mono">
           {activeSpec.widthMm}×{activeSpec.heightMm}{t('tools.id_photo.unit.mm')} ({activeSpec.widthPx}×{activeSpec.heightPx}{t('tools.id_photo.unit.px')} @ {activeSpec.dpi}{t('tools.id_photo.unit.dpi')})

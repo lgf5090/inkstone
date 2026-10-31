@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { installTestGlobals, renderElement } from '../src/client/lib/test-render'
 import { IdPhotoSettingsView } from '../src/client/features/tools/id-photo/settings/IdPhotoSettingsView'
-import { useIdPhotoStore } from '../src/client/features/tools/id-photo/store'
+import { planSourceResize, useIdPhotoStore } from '../src/client/features/tools/id-photo/store'
 import type { IdPhotoUserSettings } from '../src/shared/tools/id-photo/types'
 
 const SETTINGS: IdPhotoUserSettings = {
@@ -115,5 +115,11 @@ describe('ID photo preferences', () => {
 
     useIdPhotoStore.getState().setSelectedSpecId('cn_one_inch')
     expect(useIdPhotoStore.getState().targetMaxKb).toBe(limited)
+  })
+
+  it('resizes an oversized photo into a working bitmap', () => {
+    expect(planSourceResize(4000, 3000)).toEqual({ width: 2048, height: 1536 })
+    expect(planSourceResize(1500, 1000)).toBeNull()
+    expect(planSourceResize(0, 0)).toBeNull()
   })
 })
