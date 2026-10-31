@@ -2,7 +2,10 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson, requestClientIp } from '../lib/request'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
+import { sha256Hex } from '../lib/encoding'
 import { publicBlogSite } from '@shared/blog/settings'
+import { normalizeLinkUrl } from '@shared/nav/model'
 import type { BlogPostDetail } from '@shared/blog/model'
 import { verifyPassword } from '../lib/password'
 import { requireBlogProxy } from './guard'
@@ -20,6 +23,8 @@ import {
   discussionSettings,
   listApprovedComments,
 } from './comments'
+import { applyFriend, listPublicFriends, resolveFriendIcon } from './friends'
+import { renderSVG } from 'uqr'
 import { getPublishedPage, listPublishedPages } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
 import { listPublicCollection } from './collections'
@@ -465,8 +470,67 @@ blogPublicRoutes.get('/collections/compass', async (c) => {
   }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' })
 })
 
+blogPublicRoutes.get('/friends', async (c) => {
+  const userId = await ownerId(c)
+  return c.json(await listPublicFriends(c.env.DB, userId), 200, {
+    'Cache-Control': 'no-store',
+  })
+})
+
+blogPublicRoutes.post('/friends/apply', async (c) => {
+  const userId = await ownerId(c)
+  const body = await readJson<Record<string, unknown>>(c, 16 * 1024)
+  if (typeof body.website === 'string' && body.website.trim()) {
+    throw ApiError.badRequest('Invalid friend application')
+  }
+  const ipKey = `blog-friend-apply:${await sha256Hex(`${requestClientIp(c)}|${userId}`)}`
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: ipKey, maxAttempts: 5, windowMs: 60 * 60 * 1000, lockMs: 60 * 60 * 1000 }]),
+    'Too many friend requests',
+  )
+  try {
+    return c.json(await applyFriend(c.env.DB, userId, body), 201)
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'Check the friend application fields')
+  }
+})
+
+blogPublicRoutes.post('/friends/icon', async (c) => {
+  const body = await readJson<Record<string, unknown>>(c, 4096)
+  const url = typeof body.url === 'string' ? body.url : ''
+  const ipKey = `blog-friend-icon:${await sha256Hex(`${requestClientIp(c)}|${url}`)}`
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: ipKey, maxAttempts: 20, windowMs: 60 * 60 * 1000, lockMs: 10 * 60 * 1000 }]),
+    'Too many icon requests',
+  )
+  try {
+    return c.json({ icon: await resolveFriendIcon(url) })
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw ApiError.badRequest('The icon could not be read')
+  }
+})
+
+blogPublicRoutes.get('/friends/qr', async (c) => {
+  const raw = (c.req.query('url') ?? '').trim().slice(0, 2048)
+  const url = normalizeLinkUrl(raw)
+  if (!url || !/^https?:\/\//i.test(url)) throw ApiError.badRequest('Enter a valid http(s) address')
+  const svg = renderSVG(url, { ecc: 'M', border: 2 })
+  return new Response(svg, {
+    status: 200,
+    headers: {
+      'content-type': 'image/svg+xml; charset=utf-8',
+      'cache-control': 'public, max-age=300',
+      'x-content-type-options': 'nosniff',
+    },
+  })
+})
+
 blogPublicRoutes.get('/collections/:kind', async (c) => {
   const userId = await ownerId(c)
+  // Friend links moved to the nav app; only its dedicated projection above may serve them.
+  if (c.req.param('kind') === 'friends') throw ApiError.notFound('Collection not found')
   return c.json({ items: await listPublicCollection(c.env.DB, userId, c.req.param('kind')) }, 200, {
     'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300',
   })

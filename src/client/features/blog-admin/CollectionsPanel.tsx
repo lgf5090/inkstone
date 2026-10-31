@@ -155,7 +155,9 @@ export function CollectionsPanel({ kind: rawKind }: { kind: string }) {
     return ''
   }
 
-  const tabs = BLOG_COLLECTION_KINDS.map((id) => ({ id, label: t(KIND_LABEL[id]) }))
+  const tabs = BLOG_COLLECTION_KINDS
+    .filter((id) => id !== 'friends')
+    .map((id) => ({ id, label: t(KIND_LABEL[id]) }))
 
   return (
     <div className="mx-auto max-w-[1140px]">

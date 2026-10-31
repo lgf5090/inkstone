@@ -46,6 +46,7 @@ export async function buildBackup(nav: NavStore): Promise<NavBackup> {
       createdAt: category.createdAt,
       hasPassword: category.hasPassword,
       passwordMode: category.passwordMode,
+      ...(category.kind ? { kind: category.kind } : {}),
     })),
     links: links.map((link) => ({
       id: link.id,

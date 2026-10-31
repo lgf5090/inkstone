@@ -15,6 +15,7 @@ export interface NavCategoryRow {
   sort_order: number
   created_at: number
   updated_at: number
+  kind?: string | null
 }
 
 export function passwordModeOf(row: Pick<NavCategoryRow, 'password_hash' | 'use_default_password'>): NavPasswordMode {
@@ -33,6 +34,7 @@ export function rowToCategory(row: NavCategoryRow): NavCategory {
     passwordMode: mode,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
+    ...(row.kind === 'friends' || row.kind === 'friend_applications' ? { kind: row.kind } : {}),
   }
 }
 

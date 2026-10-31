@@ -3017,6 +3017,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_blog_posts_user_published ON blog_posts(user_id, published_at DESC, id)`,
     ],
   },
+  {
+    version: 201,
+    statements: [
+      `ALTER TABLE nav_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'`,
+    ],
+    skipIfColumnExists: { table: 'nav_categories', column: 'kind' },
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

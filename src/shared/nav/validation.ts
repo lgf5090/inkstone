@@ -171,6 +171,7 @@ const backupCategory = z.object({
   createdAt: z.number().int().nonnegative(),
   hasPassword: z.boolean().optional(),
   passwordMode: z.enum(['none', 'custom', 'default']).optional(),
+  kind: z.enum(['normal', 'friends', 'friend_applications']).optional(),
 })
 const backupLink = z.object({
   id: navId,

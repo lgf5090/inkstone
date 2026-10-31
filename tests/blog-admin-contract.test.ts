@@ -2,6 +2,8 @@
 import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BLOG_SCHEMA_STATEMENTS } from '../src/worker/blog/schema'
+import { NAV_SCHEMA_STATEMENTS } from '../src/worker/nav/schema'
+import { applyFriend, ensureFriendConfig, friendAdminConfig, listPublicFriends } from '../src/worker/blog/friends'
 import { syncBlogPageFromNote } from '../src/worker/blog/pages'
 import { listPublicCollection, saveCollectionItem } from '../src/worker/blog/collections'
 import {
@@ -148,6 +150,7 @@ describe('blog admin projection', () => {
   beforeEach(() => {
     sqlite = new DatabaseSync(':memory:') as unknown as SqliteDatabase
     for (const statement of BLOG_SCHEMA_STATEMENTS) sqlite.exec(statement)
+    for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
     sqlite.exec(`CREATE TABLE notes (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, deleted_at INTEGER
     )`)
@@ -170,6 +173,34 @@ describe('blog admin projection', () => {
     const row = await syncBlogPageFromNote(db, USER, { id: NOTE, title: 'Page', content, deleted_at: null })
     expect(row?.body).toBe('\n# Page\n\nBody')
     expect(row?.body).not.toMatch(/blogType|isPublished/)
+  })
+
+  it('projects legacy blog friends through the nav friends category once', async () => {
+    sqlite.prepare(
+      `INSERT INTO blog_friends (id, user_id, name, url, avatar_asset_id, description, tags, position, enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('friend-1', USER, 'Old friend', 'https://friend.test', 'asset-1', 'Hello', '[]', 0, 1)
+    const config = await ensureFriendConfig(db, USER)
+    expect(config.friends.kind).toBe('friends')
+    const publicList = await listPublicFriends(db, USER)
+    expect(publicList.links.map((link) => link.url)).toEqual(['https://friend.test/'])
+    expect(publicList.links[0]?.icon).toBe('/api/blog/assets/asset-1')
+    expect(publicList.categories.some((category) => category.id === config.applications.id)).toBe(false)
+    expect((await listPublicFriends(db, USER)).links).toHaveLength(1)
+  })
+
+  it('keeps public applications out of the friends projection', async () => {
+    const first = await applyFriend(db, USER, {
+      title: 'New friend',
+      url: 'new.test',
+      description: 'Hi',
+      icon: 'https://new.test/icon.png',
+    })
+    expect(first.duplicate).toBe(false)
+    expect((await friendAdminConfig(db, USER)).applications.pending).toBe(1)
+    const publicList = await listPublicFriends(db, USER)
+    expect(publicList.links.some((link) => link.url === 'https://new.test/')).toBe(false)
+    expect((await applyFriend(db, USER, { title: 'Again', url: 'https://new.test/' })).duplicate).toBe(true)
   })
 
   it('holds a future publication out of every public read', async () => {

@@ -21,6 +21,7 @@ import {
   setCommentStatus,
 } from './comments'
 import { createTaxonomy, deleteTaxonomy, listTaxonomy, updateTaxonomy } from './taxonomy'
+import { friendAdminConfig } from './friends'
 import { deleteMedia, listMedia, MEDIA_MAX_BYTES, uploadMedia } from './media'
 import {
   deletePage,
@@ -179,6 +180,10 @@ function toAdminDetail(
     hideHomeContent: row.hide_home_content === 1,
   }
 }
+
+blogAdminRoutes.get('/friends/config', async (c) => {
+  return c.json(await friendAdminConfig(c.env.DB, userId(c)))
+})
 
 blogAdminRoutes.get('/overview', async (c) => {
   return c.json(await blogAdminOverview(c.env.DB, userId(c)))

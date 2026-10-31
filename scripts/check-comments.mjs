@@ -1283,6 +1283,9 @@ const allowed = new Map([
     "// can never send the browser somewhere else with an authenticated session.",
     "/**\n * The zone a brand-new account starts its day in.\n *\n * Every date the to-do app reasons about — a due label, a plan group, the close-out page — is cut in the\n * account's own scheduling zone, and an account with no zone written is read as UTC, so a reader east of\n * Greenwich spends the first eight hours of each day being shown yesterday. The server validates this\n * against its own zone table and refuses one nothing can resolve, so an unreadable value costs the\n * registration a 400 rather than silently landing an account on the wrong day.\n */",
   ]],
+  ["src/client/features/blog-admin/FriendsAdminPanel.tsx", [
+    "/**\n * The friend-link manager is the nav app, scoped by selecting the reserved category. Applications\n * arrive in their own reserved category; moving an edited link into the friends category approves it.\n */",
+  ]],
   ["src/client/features/blog/publish.ts", [
     "/**\n * Set the note's isPublished property, save it, then publish the rendered snapshot (or withdraw the\n * projection). The note remains the source of truth; a snapshot failure leaves the property set and\n * the post pending rather than pretending the publish succeeded.\n */",
   ]],
@@ -29810,6 +29813,7 @@ const allowed = new Map([
   ]],
   ["src/shared/nav/model.ts", [
     "/** A URL a bookmark may store, or null. Mail and phone links are kept but never fetched. */",
+    "/** Reserved categories the blog projects; every other category stays private to the nav app. */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -34219,11 +34223,21 @@ const allowed = new Map([
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
   ]],
+  ["src/worker/blog/friends.ts", [
+    "/**\n * Friend links are nav links, not a second table: the blog projects the `friends` category subtree\n * and public applications land in the `friend_applications` subtree, where the nav app can review\n * them with the same editor and categories as any other bookmark.\n */",
+    "// nav categories are one level deep (root + children); keep the walk explicit so a future",
+    "// deeper category cannot silently fall out of the public projection.",
+    "/** Reads the public site's icon link without storing it; only the returned URL is kept. */",
+    "// A malformed link must not hide the next candidate.",
+  ]],
   ["src/worker/blog/guard.ts", [
     "/**\n * Public blog reads are served to the blog Worker, not to browsers. A deployment must set\n * BLOG_PROXY_KEY; local development may omit it so the two dev servers can talk without secrets.\n */",
   ]],
   ["src/worker/blog/media.ts", [
     "// older rows have no variants; an empty list is the honest answer",
+  ]],
+  ["src/worker/blog/public-routes.ts", [
+    "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
   ]],
   ["src/worker/blog/runtime-routes.ts", [
     "/**\n * Serves the versioned reading runtime the blog loads for published articles.\n *\n * The files are ordinary build assets, but the path is claimed by the Worker for two reasons: a\n * version that no longer exists must answer 404 rather than the SPA's `index.html` (a module script\n * cannot recover from HTML), and the blog reads them through a proxy, so the response states the\n * immutable caching the content-hashed names already justify.\n */",

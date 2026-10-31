@@ -44,13 +44,14 @@ import { ToolsPanel } from './ToolsPanel'
 import { ImportExportPanel } from './ImportExportPanel'
 import { AccountPanel } from './AccountPanel'
 import { SettingsPanel } from './SettingsPanel'
+import { FriendsAdminPanel } from './FriendsAdminPanel'
 
 const PostEditor = lazy(() => import('./PostEditor').then((module) => ({ default: module.PostEditor })))
 const PageEditor = lazy(() => import('./PageEditor').then((module) => ({ default: module.PageEditor })))
 
 type NavId =
   | 'dashboard' | 'calendar' | 'posts' | 'pages' | 'media'
-  | 'comments' | 'categories' | 'tags' | 'series' | 'moments' | 'albums' | 'collections'
+  | 'comments' | 'categories' | 'tags' | 'series' | 'friends' | 'moments' | 'albums' | 'collections'
   | 'menus' | 'widgets' | 'redirects' | 'tools' | 'import' | 'account' | 'settings'
 
 interface NavItem {
@@ -71,9 +72,10 @@ const MANAGE_NAV: NavItem[] = [
   { id: 'categories', path: '/blog-admin/categories', label: 'blog.admin.categories', icon: Tags },
   { id: 'tags', path: '/blog-admin/tags', label: 'blog.admin.tags', icon: Tags },
   { id: 'series', path: '/blog-admin/series', label: 'blog.admin.series', icon: Layers },
+  { id: 'friends', path: '/blog-admin/friends', label: 'blog.admin.friends', icon: Link2 },
   { id: 'moments', path: '/blog-admin/moments', label: 'blog.admin.moments', icon: PanelsTopLeft },
   { id: 'albums', path: '/blog-admin/albums', label: 'blog.admin.albums', icon: ImageIcon },
-  { id: 'collections', path: '/blog-admin/collections/friends', label: 'blog.admin.collections', icon: Layers },
+  { id: 'collections', path: '/blog-admin/collections/moments', label: 'blog.admin.collections', icon: Layers },
   { id: 'menus', path: '/blog-admin/menus', label: 'blog.admin.menus', icon: MenuIcon },
   { id: 'widgets', path: '/blog-admin/widgets', label: 'blog.admin.widgets', icon: PanelsTopLeft },
   { id: 'redirects', path: '/blog-admin/redirects', label: 'blog.admin.redirects', icon: Link2 },
@@ -104,9 +106,10 @@ function activeNav(pathname: string): NavId {
   if (first === 'media') return 'media'
   if (first === 'comments') return 'comments'
   if (first === 'categories' || first === 'tags' || first === 'series') return first
+  if (first === 'friends') return 'friends'
   if (first === 'moments') return 'moments'
   if (first === 'albums') return 'albums'
-  if (first === 'collections') return 'collections'
+  if (first === 'collections') return rest[1] === 'friends' ? 'friends' : 'collections'
   if (first === 'menus') return 'menus'
   if (first === 'widgets') return 'widgets'
   if (first === 'redirects') return 'redirects'
@@ -367,6 +370,7 @@ function AdminRoute({
   if (pathname === '/blog-admin/categories') return <Scroll><TaxonomyPanel initialKind="categories" /></Scroll>
   if (pathname === '/blog-admin/tags') return <Scroll><TaxonomyPanel initialKind="tags" /></Scroll>
   if (pathname === '/blog-admin/series') return <Scroll><TaxonomyPanel initialKind="series" /></Scroll>
+  if (pathname === '/blog-admin/friends' || pathname === '/blog-admin/collections/friends') return <FriendsAdminPanel />
   if (pathname === '/blog-admin/moments') return <Scroll><CollectionsPanel kind="moments" /></Scroll>
   if (pathname === '/blog-admin/albums') return <Scroll><CollectionsPanel kind="albums" /></Scroll>
   if (pathname.startsWith('/blog-admin/collections/')) {

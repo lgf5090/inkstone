@@ -899,6 +899,10 @@ export const api = {
   blog: {
     site: () => request<BlogSitePublic>('/api/blog/site'),
     overview: () => request<BlogAdminOverview>('/api/blog/admin/overview'),
+    friendsConfig: () => request<{
+      friends: { id: string; name: string }
+      applications: { id: string; name: string; pending: number }
+    }>('/api/blog/admin/friends/config'),
     dashboard: () => request<BlogDashboard>('/api/blog/admin/dashboard'),
     health: () => request<BlogHealth>('/api/blog/admin/health'),
     audit: (limit = 50) => request<{ items: BlogAuditEntry[] }>(`/api/blog/admin/audit?limit=${limit}`),
