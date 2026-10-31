@@ -72,7 +72,7 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     postListPageSize: 10,
   },
   article: { showLastUpdated: true, lastUpdatedDays: 90, relatedCount: 3, randomCount: 2, share: true },
-  comment: { provider: 'none' },
+  comment: { provider: 'local' },
   music: {
     provider: 'none',
     tracks: [],

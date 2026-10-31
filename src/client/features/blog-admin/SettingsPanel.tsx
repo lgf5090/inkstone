@@ -163,6 +163,12 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                 {THEME_STYLES.map((style) => <option key={style} value={style}>{style}</option>)}
               </Select>
             </Field>
+            <Field label={t('blog.admin.theme_spec')}>
+              <Select value={text(themeColor.spec) === '2021' ? '2021' : '2025'} onChange={(event) => setSite({ ...site, themeColor: { ...themeColor, spec: event.target.value } })}>
+                <option value="2025">{t('blog.admin.theme_spec_2025')}</option>
+                <option value="2021">{t('blog.admin.theme_spec_2021')}</option>
+              </Select>
+            </Field>
           </Section>
         )}
 
@@ -196,6 +202,9 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                 <Field label={t('blog.admin.article_related_count')}><Input type="number" min={0} max={20} value={num(article.relatedCount, 3)} onChange={(event) => setArticle({ ...article, relatedCount: Number(event.target.value) })} /></Field>
                 <Field label={t('blog.admin.article_random_count')}><Input type="number" min={0} max={20} value={num(article.randomCount, 2)} onChange={(event) => setArticle({ ...article, randomCount: Number(event.target.value) })} /></Field>
               </div>
+              <Field label={t('blog.admin.article_last_updated_days')}>
+                <Input type="number" min={0} max={3650} value={num(article.lastUpdatedDays, 90)} onChange={(event) => setArticle({ ...article, lastUpdatedDays: Number(event.target.value) })} />
+              </Field>
             </Section>
           </>
         )}
@@ -251,6 +260,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
             </Section>
             <Section title={t('blog.admin.settings_announcement')} onSave={() => void saveDomain('announcement', announcement)} saving={saving}>
               <Checkbox checked={bool(announcement.enable)} onChange={(value) => setAnnouncement({ ...announcement, enable: value })} label={t('blog.admin.enable')} />
+              <Checkbox checked={bool(announcement.closable, true)} onChange={(value) => setAnnouncement({ ...announcement, closable: value })} label={t('blog.admin.announcement_closable')} />
               <Field label={t('blog.admin.announcement_text')}><Textarea rows={3} value={text(announcement.text)} onChange={(event) => setAnnouncement({ ...announcement, text: event.target.value })} /></Field>
             </Section>
             <Section title={t('blog.admin.settings_footer')} onSave={() => void saveDomain('footer', footer)} saving={saving}>

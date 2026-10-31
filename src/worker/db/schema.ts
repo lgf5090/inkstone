@@ -3044,6 +3044,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `UPDATE blog_settings SET value = '{"links":[{"label":"Home","href":"/"},{"label":"Archive","href":"/archive"},{"label":"Friends","href":"/friends"},{"label":"Moments","href":"/moments"},{"label":"Anime","href":"/anime"},{"label":"Compass","href":"/compass"},{"label":"Albums","href":"/albums"},{"label":"More","href":"/more","children":[{"label":"Timeline","href":"/timeline"},{"label":"Projects","href":"/projects"},{"label":"Devices","href":"/devices"},{"label":"Games","href":"/games"},{"label":"Skills","href":"/skills"},{"label":"About","href":"/about"}]}]}' WHERE key = 'nav' AND value LIKE '{"links":[{"label":"%","href":"/"}]}'`,
     ],
   },
+  {
+    version: 205,
+    statements: [
+      `UPDATE blog_settings SET value = json_set(value, '$.provider', 'local') WHERE key = 'comment' AND json_extract(value, '$.provider') = 'none'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

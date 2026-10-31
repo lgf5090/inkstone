@@ -214,10 +214,12 @@ blogPublicRoutes.get('/posts/:slug/comments', async (c) => {
       hint: row.password_hint,
     })
   }
-  const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
+  const blogSettings = await loadBlogSettings(c.env.DB, userId)
+  const provider = (blogSettings.comment as { provider?: string }).provider ?? 'local'
+  const settings = discussionSettings(blogSettings)
   const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
     && row.published_at < Date.now() - settings.autoCloseDays * 24 * 60 * 60 * 1000
-  const enabled = settings.enabled && row.comments_enabled === 1 && !closedByAge
+  const enabled = provider !== 'none' && settings.enabled && row.comments_enabled === 1 && !closedByAge
   return c.json({
     enabled,
     discussion: {
@@ -241,10 +243,12 @@ blogPublicRoutes.post('/posts/:slug/comments', async (c) => {
     })
   }
   if (row.encrypted === 1) throw new ApiError(403, 'forbidden', 'This post is protected')
-  const settings = discussionSettings(await loadBlogSettings(c.env.DB, userId))
+  const blogSettings = await loadBlogSettings(c.env.DB, userId)
+  const provider = (blogSettings.comment as { provider?: string }).provider ?? 'local'
+  const settings = discussionSettings(blogSettings)
   const closedByAge = settings.autoCloseDays > 0 && row.published_at !== null
     && row.published_at < Date.now() - settings.autoCloseDays * 24 * 60 * 60 * 1000
-  if (!settings.enabled || row.comments_enabled === 0 || closedByAge) {
+  if (provider === 'none' || !settings.enabled || row.comments_enabled === 0 || closedByAge) {
     throw ApiError.badRequest('Comments are closed on this post')
   }
   const body = await readJson<Record<string, unknown>>(c, 16 * 1024)

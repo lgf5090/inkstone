@@ -56,6 +56,7 @@ export function WidgetsPanel() {
   const [slot, setSlot] = useState<'default' | 'top' | 'sticky'>('default')
   const [pagesText, setPagesText] = useState('')
   const [collapseAfter, setCollapseAfter] = useState('')
+  const [announcementText, setAnnouncementText] = useState('')
 
   useEffect(() => {
     setItems(widgetItems(settings.data))
@@ -96,6 +97,7 @@ export function WidgetsPanel() {
     setSlot('default')
     setPagesText('')
     setCollapseAfter('')
+    setAnnouncementText('')
     setAdding(true)
   }
 
@@ -104,6 +106,7 @@ export function WidgetsPanel() {
     setType(widget.type as WidgetType)
     setTitle(widget.title)
     setHtml(String((widget.config as { html?: unknown }).html ?? ''))
+    setAnnouncementText(String((widget.config as { text?: unknown }).text ?? ''))
     setSlot(widget.slot === 'top' || widget.slot === 'sticky' ? widget.slot : 'default')
     setPagesText(Array.isArray(widget.pages) ? widget.pages.join(', ') : '')
     setCollapseAfter(typeof widget.collapseAfter === 'number' ? String(widget.collapseAfter) : '')
@@ -120,9 +123,9 @@ export function WidgetsPanel() {
     }
     const next = editingId
       ? items.map((item) => item.id === editingId
-        ? { ...item, type, title: title.trim(), config: type === 'custom' ? { html } : item.config, ...extra }
+        ? { ...item, type, title: title.trim(), config: type === 'custom' ? { html } : type === 'announcement' ? { text: announcementText } : item.config, ...extra }
         : item)
-      : [...items, { id: `widget-${Date.now().toString(36)}`, type, title: title.trim(), enabled: true, config: type === 'custom' ? { html } : {}, ...extra }]
+      : [...items, { id: `widget-${Date.now().toString(36)}`, type, title: title.trim(), enabled: true, config: type === 'custom' ? { html } : type === 'announcement' ? { text: announcementText } : {}, ...extra }]
     setAdding(false)
     setEditingId(null)
     setTitle('')
@@ -130,6 +133,7 @@ export function WidgetsPanel() {
     setSlot('default')
     setPagesText('')
     setCollapseAfter('')
+    setAnnouncementText('')
     void saveItems(next)
   }
 
@@ -249,6 +253,11 @@ export function WidgetsPanel() {
           <Field label={t('blog.admin.widget_pages')} hint={t('blog.admin.widget_pages_hint')}>
             <Input value={pagesText} onChange={(event) => setPagesText(event.target.value)} />
           </Field>
+          {type === 'announcement' && (
+            <Field label={t('blog.admin.widget_announcement_text')}>
+              <Textarea rows={3} value={announcementText} onChange={(event) => setAnnouncementText(event.target.value)} />
+            </Field>
+          )}
           {type === 'custom' && (
             <Field label={t('blog.admin.widget_html')} hint={t('blog.admin.widget_html_hint')}>
               <Textarea rows={6} value={html} onChange={(event) => setHtml(event.target.value)} className="font-mono" />

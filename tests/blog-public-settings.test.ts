@@ -1,5 +1,7 @@
 // @vitest-environment node
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
+import { SCHEMA_MIGRATIONS } from '../src/worker/db/schema'
 import { DEFAULT_BLOG_SETTINGS, publicBlogSite } from '../src/shared/blog/settings'
 import { sanitizeBlogHtml } from '../src/worker/blog/sanitize'
 import type { BlogSettings } from '../src/shared/blog/settings'
@@ -54,6 +56,20 @@ describe('the public site projection exposes the settings the frontend renders',
     })
     expect(site.announcement).toEqual({ enable: true, text: 'Server maintenance on Sunday', closable: false })
     expect(site.llms).toEqual({ enable: false, excludeTags: ['secret', 'private'] })
+  })
+
+  it('migrates the legacy native comment provider from none to local', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('CREATE TABLE blog_settings (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL)')
+    const insert = db.prepare('INSERT INTO blog_settings (user_id, key, value) VALUES (?, ?, ?)')
+    insert.run('legacy', 'comment', '{"provider":"none"}')
+    insert.run('giscus', 'comment', '{"provider":"giscus"}')
+    const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 205)
+    expect(migration).toBeTruthy()
+    for (const statement of migration!.statements) db.prepare(statement).run()
+    const values = db.prepare('SELECT user_id, value FROM blog_settings ORDER BY user_id').all() as Array<{ user_id: string; value: string }>
+    expect(JSON.parse(values.find((row) => row.user_id === 'legacy')!.value)).toEqual({ provider: 'local' })
+    expect(JSON.parse(values.find((row) => row.user_id === 'giscus')!.value)).toEqual({ provider: 'giscus' })
   })
 
   it('strips scripts from owner footer markup before it reaches the public page', () => {
