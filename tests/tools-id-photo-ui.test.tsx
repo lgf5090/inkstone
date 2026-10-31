@@ -190,6 +190,14 @@ describe('ID Photo Studio UI Integration Tests', () => {
 
     expect(view.container.textContent).toContain(t('tools.id_photo.compliance.title'))
     expect(view.container.textContent).toContain(t('tools.id_photo.compliance.score_label'))
+    expect(view.container.textContent).toContain(t('tools.id_photo.compliance.export_hint'))
+
+    const rows = Array.from(view.container.querySelectorAll('div')).filter((row) =>
+      (row.textContent ?? '').includes(t('tools.id_photo.compliance.check_face_ratio')),
+    )
+    const faceRow = rows[rows.length - 1]
+    expect(faceRow?.textContent).toContain(t('tools.id_photo.compliance.unknown'))
+    expect(faceRow?.textContent).not.toMatch(/%/)
 
     view.unmount()
   })

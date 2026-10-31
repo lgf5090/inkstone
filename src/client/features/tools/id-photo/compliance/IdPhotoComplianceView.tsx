@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  CircleHelp,
   ShieldCheck,
   XCircle,
 } from 'lucide-react'
@@ -14,32 +15,29 @@ export function IdPhotoComplianceView() {
   const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
   const imageElement = useIdPhotoStore((s) => s.imageElement)
   const adjustOptions = useIdPhotoStore((s) => s.adjustOptions)
+  const lastExport = useIdPhotoStore((s) => s.lastExport)
 
   const activeSpec = getActiveSpec()
 
-  const report = useMemo(() => {
-    return checkIdPhotoCompliance({
-      spec: activeSpec,
-      actualWidthPx: activeSpec.widthPx,
-      actualHeightPx: activeSpec.heightPx,
-      faceBox: imageElement
-        ? {
-            x: Math.round(activeSpec.widthPx * 0.2),
-            y: Math.round(activeSpec.heightPx * 0.15),
-            width: Math.round(activeSpec.widthPx * 0.6),
-            height: Math.round(activeSpec.heightPx * 0.6),
-          }
-        : undefined,
-      bgColorHex: adjustOptions.bgColor,
-    })
-  }, [activeSpec, imageElement, adjustOptions])
+  const report = useMemo(
+    () =>
+      checkIdPhotoCompliance({
+        spec: activeSpec,
+        actualWidthPx: activeSpec.widthPx,
+        actualHeightPx: activeSpec.heightPx,
+        sourceWidthPx: imageElement?.naturalWidth,
+        sourceHeightPx: imageElement?.naturalHeight,
+        fileSizeBytes: lastExport?.bytes,
+        bgColorHex: adjustOptions.bgColor,
+      }),
+    [activeSpec, imageElement, adjustOptions.bgColor, lastExport],
+  )
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto p-4 sm:p-6 max-w-4xl mx-auto gap-5">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border-subtle)]">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
             <ShieldCheck size={22} />
           </div>
           <div>
@@ -48,33 +46,31 @@ export function IdPhotoComplianceView() {
             </h2>
             <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
               {activeSpec.flagEmoji && <span className="mr-1">{activeSpec.flagEmoji}</span>}
-              {activeSpec.nameKey ? t(activeSpec.nameKey as any) : activeSpec.name} ({activeSpec.widthMm}×{activeSpec.heightMm} {t('tools.id_photo.unit.mm')})
+              {activeSpec.nameKey ? t(activeSpec.nameKey as never) : activeSpec.name} ({activeSpec.widthMm}×{activeSpec.heightMm} {t('tools.id_photo.unit.mm')})
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              'flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold text-[length:var(--text-13)]',
-              report.passed
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-            )}
-          >
-            {report.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-            <span>
-              {t('tools.id_photo.compliance.score_label')}: {report.score}
-            </span>
-          </div>
+        <div
+          className={cn(
+            'flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold text-[length:var(--text-13)]',
+            report.passed
+              ? 'bg-[var(--success-soft)] text-[var(--success)]'
+              : 'bg-[var(--warning-soft)] text-[var(--warning)]',
+          )}
+        >
+          {report.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          <span>
+            {t('tools.id_photo.compliance.score_label')}: {report.score}
+          </span>
         </div>
       </div>
 
-      {/* Checks Grid */}
       <div className="flex flex-col gap-3">
         {report.checks.map((check) => {
           const isPass = check.level === 'pass'
           const isWarn = check.level === 'warning'
+          const isUnknown = check.level === 'unknown'
           return (
             <div
               key={check.id}
@@ -82,28 +78,32 @@ export function IdPhotoComplianceView() {
                 'flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-[var(--r-md)] border p-3.5',
                 'transition-[background-color] duration-[var(--dur-fast)]',
                 isPass
-                  ? 'border-emerald-500/20 bg-emerald-500/5'
+                  ? 'border-[var(--border-subtle)] bg-[var(--success-soft)]'
                   : isWarn
-                    ? 'border-amber-500/20 bg-amber-500/5'
-                    : 'border-rose-500/20 bg-rose-500/5',
+                    ? 'border-[var(--border-subtle)] bg-[var(--warning-soft)]'
+                    : isUnknown
+                      ? 'border-[var(--border-subtle)] bg-[var(--bg-sunken)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--danger-soft)]',
               )}
             >
               <div className="flex items-start gap-3">
                 <div className="mt-0.5">
                   {isPass ? (
-                    <CheckCircle2 size={18} className="text-emerald-500" />
+                    <CheckCircle2 size={18} className="text-[var(--success)]" />
                   ) : isWarn ? (
-                    <AlertTriangle size={18} className="text-amber-500" />
+                    <AlertTriangle size={18} className="text-[var(--warning)]" />
+                  ) : isUnknown ? (
+                    <CircleHelp size={18} className="text-[var(--text-tertiary)]" />
                   ) : (
-                    <XCircle size={18} className="text-rose-500" />
+                    <XCircle size={18} className="text-[var(--danger)]" />
                   )}
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <h4 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-                    {t(check.titleKey as any)}
+                    {t(check.titleKey as never)}
                   </h4>
                   <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                    {check.message}
+                    {isUnknown ? t('tools.id_photo.compliance.unknown') : check.message}
                   </p>
                 </div>
               </div>
@@ -125,7 +125,12 @@ export function IdPhotoComplianceView() {
         })}
       </div>
 
-      {/* Suggestions Card */}
+      {!lastExport && (
+        <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+          {t('tools.id_photo.compliance.export_hint')}
+        </p>
+      )}
+
       <div className="flex flex-col gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
         <h4 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
           {t('tools.id_photo.compliance.tip_title')}

@@ -10,6 +10,7 @@ import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
+import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 
 export function IdPhotoUploadCard() {
@@ -26,12 +27,17 @@ export function IdPhotoUploadCard() {
     if (!file.type.startsWith('image/')) return
 
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const dataUrl = e.target?.result as string
-      if (dataUrl) {
-        setImageSrc(dataUrl)
+      if (!dataUrl) return
+      if (await setImageSrc(dataUrl)) {
         resetAdjustOptions()
+        return
       }
+      useUi.getState().toast({ title: t('tools.id_photo.content.decode_failed'), tone: 'danger' })
+    }
+    reader.onerror = () => {
+      useUi.getState().toast({ title: t('tools.id_photo.content.decode_failed'), tone: 'danger' })
     }
     reader.readAsDataURL(file)
   }

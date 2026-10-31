@@ -17597,11 +17597,6 @@ const allowed = new Map([
     "/* Header */",
     "/* Batch Cards Grid */",
   ]],
-  ["src/client/features/tools/id-photo/compliance/IdPhotoComplianceView.tsx", [
-    "/* Header */",
-    "/* Checks Grid */",
-    "/* Suggestions Card */",
-  ]],
   ["src/client/features/tools/id-photo/content/IdPhotoUploadCard.tsx", [
     "// Paste listener for Ctrl+V",
   ]],
@@ -17612,13 +17607,6 @@ const allowed = new Map([
     "// 0 to 100",
     "// Whitening / brightness boost",
     "// Contrast",
-  ]],
-  ["src/client/features/tools/id-photo/engine/compliance-engine.ts", [
-    "// 1. Resolution & Dimension check",
-    "// 2. File size constraint check (if specified by standard)",
-    "// 3. Head & Face Proportion check",
-    "// 4. Face horizontal centering check",
-    "// 5. Background color check",
   ]],
   ["src/client/features/tools/id-photo/engine/face-align.ts", [
     "/**\n * Calculates optimal crop rectangle based on image aspect ratio, face bounding box,\n * and standard passport/ID photo head ratio rules (head accounts for target ratio of total height).\n */",
@@ -17632,8 +17620,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/id-photo/engine/id-photo-engine.ts", [
     "/**\n   * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.\n   */",
-    "/**\n   * Exports rendered canvas as data URL with optional adaptive JPEG quality to meet KB limits.\n   */",
-    "// Adaptive compression for government portals requiring < MaxKB",
     "/**\n   * Exports rendered photo as a downloadable Blob.\n   */",
     "/**\n   * Copies the photo to system clipboard.\n   */",
   ]],
@@ -44420,7 +44406,6 @@ const allowed = new Map([
   ]],
   ["tests/tools-id-photo-engine.test.ts", [
     "// National standards should have flag emojis",
-    "// head ~ 71% of 413",
     "// 1:1 instead of 5:7",
     "// 250KB exceeds 100KB limit",
   ]],

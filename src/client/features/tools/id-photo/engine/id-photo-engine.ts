@@ -4,6 +4,23 @@ import { applyBackdropMatte, applyImageFilters, renderBackground } from './backg
 import { calculateOptimalCrop } from './face-align'
 import { applySharpening, applySkinSmoothing } from './retouch-pipeline'
 
+export interface ExportedPhoto {
+  dataUrl: string
+  bytes: number
+  targetMet: boolean
+}
+
+export function dataUrlByteLength(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',')
+  const payload = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
+}
+
+const MIN_JPEG_QUALITY = 0.3
+const MAX_JPEG_QUALITY = 0.95
+const QUALITY_SEARCH_STEPS = 4
+
 export class IdPhotoEngine {
   constructor(
     private readonly spec: IdPhotoSpec,
@@ -162,32 +179,29 @@ export class IdPhotoEngine {
     })
   }
 
-  /**
-   * Exports rendered canvas as data URL with optional adaptive JPEG quality to meet KB limits.
-   */
   async exportDataUrl(
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     format: IdPhotoExportFormat = 'jpg',
     targetMaxKb?: number,
-  ): Promise<string> {
+  ): Promise<ExportedPhoto> {
     const canvas = await this.renderCanvas(sourceImage)
     const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
 
     if (format === 'png' || !targetMaxKb) {
-      return canvas.toDataURL(mime, 0.92)
+      const dataUrl = canvas.toDataURL(mime, 0.92)
+      const bytes = dataUrlByteLength(dataUrl)
+      return { dataUrl, bytes, targetMet: !targetMaxKb || bytes <= targetMaxKb * 1024 }
     }
 
-    // Adaptive compression for government portals requiring < MaxKB
-    let minQ = 0.3
-    let maxQ = 0.95
+    const limitBytes = targetMaxKb * 1024
+    let minQ = MIN_JPEG_QUALITY
+    let maxQ = MAX_JPEG_QUALITY
     let bestUrl = canvas.toDataURL(mime, maxQ)
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < QUALITY_SEARCH_STEPS; i++) {
       const midQ = (minQ + maxQ) / 2
       const candidate = canvas.toDataURL(mime, midQ)
-      const approxKb = Math.round((candidate.length * 3) / 4 / 1024)
-
-      if (approxKb <= targetMaxKb) {
+      if (dataUrlByteLength(candidate) <= limitBytes) {
         bestUrl = candidate
         minQ = midQ
       } else {
@@ -195,7 +209,8 @@ export class IdPhotoEngine {
       }
     }
 
-    return bestUrl
+    const bytes = dataUrlByteLength(bestUrl)
+    return { dataUrl: bestUrl, bytes, targetMet: bytes <= limitBytes }
   }
 
   /**

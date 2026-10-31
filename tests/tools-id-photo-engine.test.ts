@@ -4,7 +4,8 @@ import { ID_PHOTO_BG_PRESETS, PRINT_SHEET_PRESETS } from '../src/shared/tools/id
 import { calculateOptimalCrop } from '../src/client/features/tools/id-photo/engine/face-align'
 import { parseHexColor } from '../src/client/features/tools/id-photo/engine/background-matting'
 import { calculatePrintLayout } from '../src/client/features/tools/id-photo/engine/print-layout-engine'
-import { checkIdPhotoCompliance } from '../src/client/features/tools/id-photo/engine/compliance-engine'
+import { checkIdPhotoCompliance, effectiveUpscale } from '../src/client/features/tools/id-photo/engine/compliance-engine'
+import { dataUrlByteLength } from '../src/client/features/tools/id-photo/engine/id-photo-engine'
 
 describe('ID Photo Built-in Specifications & Presets', () => {
   it('contains comprehensive specifications with valid flag emojis and aspect ratios', () => {
@@ -126,13 +127,58 @@ describe('ID Photo Compliance Analyzer', () => {
       actualWidthPx: 295,
       actualHeightPx: 413,
       fileSizeBytes: 80 * 1024,
-      faceBox: { x: 47, y: 80, width: 200, height: 235 }, // head ~ 71% of 413
+      sourceWidthPx: 1000,
+      sourceHeightPx: 1400,
+      faceBox: { x: 47, y: 80, width: 200, height: 235 },
       bgColorHex: '#ffffff',
     })
 
     expect(report.passed).toBe(true)
     expect(report.score).toBe(100)
     expect(report.checks.every((c) => c.passed)).toBe(true)
+  })
+
+  it('reports unmeasured checks instead of inventing them', () => {
+    const report = checkIdPhotoCompliance({
+      spec,
+      actualWidthPx: 295,
+      actualHeightPx: 413,
+      bgColorHex: '#ffffff',
+    })
+
+    const unknown = report.checks.filter((c) => c.level === 'unknown')
+    expect(unknown.map((c) => c.id).sort()).toEqual(['face_centering', 'face_ratio', 'file_size', 'source_scale'])
+    unknown.forEach((c) => expect(c.passed).toBe(false))
+    expect(report.score).toBe(100)
+    expect(report.passed).toBe(true)
+  })
+
+  it('warns when the source has to be upscaled to reach the spec', () => {
+    const report = checkIdPhotoCompliance({
+      spec,
+      actualWidthPx: 295,
+      actualHeightPx: 413,
+      sourceWidthPx: 100,
+      sourceHeightPx: 140,
+      bgColorHex: '#ffffff',
+    })
+
+    const scale = report.checks.find((c) => c.id === 'source_scale')
+    expect(scale?.level).toBe('warning')
+    expect(Number(String(scale?.currentValue).replace('×', ''))).toBeGreaterThan(2.9)
+    expect(report.score).toBeLessThan(100)
+  })
+
+  it('passes the upscale check once the source is large enough', () => {
+    const report = checkIdPhotoCompliance({
+      spec,
+      actualWidthPx: 295,
+      actualHeightPx: 413,
+      sourceWidthPx: 600,
+      sourceHeightPx: 840,
+      bgColorHex: '#ffffff',
+    })
+    expect(report.checks.find((c) => c.id === 'source_scale')?.level).toBe('pass')
   })
 
   it('detects dimension mismatches and deducts score', () => {
@@ -161,5 +207,18 @@ describe('ID Photo Compliance Analyzer', () => {
     const sizeCheck = report.checks.find((c) => c.id === 'file_size')
     expect(sizeCheck?.passed).toBe(false)
     expect(sizeCheck?.level).toBe('fail')
+  })
+})
+
+describe('Export size measurement', () => {
+  it('counts the bytes a data url carries', () => {
+    expect(dataUrlByteLength(`data:image/jpeg;base64,${btoa('a'.repeat(300))}`)).toBe(300)
+    expect(dataUrlByteLength(`data:image/jpeg;base64,${btoa('ab')}`)).toBe(2)
+  })
+
+  it('reports how much the crop has to be enlarged to reach the spec', () => {
+    expect(effectiveUpscale(295, 413, 295, 413)).toBeCloseTo(1, 5)
+    expect(effectiveUpscale(100, 140, 295, 413)).toBeGreaterThan(2.9)
+    expect(effectiveUpscale(600, 840, 295, 413)).toBeLessThan(1)
   })
 })

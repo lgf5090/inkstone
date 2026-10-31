@@ -49,7 +49,7 @@ export function IdPhotoHistoryView() {
     }
   }
 
-  const handleLoadEdit = (record: IdPhotoRecord) => {
+  const handleLoadEdit = async (record: IdPhotoRecord) => {
     try {
       setSelectedSpecId(record.specId)
       const parsedOptions = JSON.parse(record.optionsJson)
@@ -58,7 +58,11 @@ export function IdPhotoHistoryView() {
         specId: record.specId,
         bgColor: record.bgColor,
       })
-      setImageSrc(`/api/tools/id-photo/records/${record.id}/file`)
+      const loaded = await setImageSrc(`/api/tools/id-photo/records/${record.id}/file`)
+      if (!loaded) {
+        useUi.getState().toast({ title: t('tools.id_photo.content.decode_failed'), tone: 'danger' })
+        return
+      }
       setActiveIdPhotoView('studio')
     } catch {
       // fallback
@@ -125,7 +129,9 @@ export function IdPhotoHistoryView() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => handleLoadEdit(record)}
+                  onClick={() => {
+                    void handleLoadEdit(record)
+                  }}
                 >
                   <RotateCcw size={12} className="mr-1" />
                   <span>{t('tools.id_photo.history.load_edit')}</span>

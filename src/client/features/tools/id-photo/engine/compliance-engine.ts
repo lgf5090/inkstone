@@ -1,24 +1,57 @@
 import type { IdPhotoComplianceReport, IdPhotoSpec } from '@shared/tools/id-photo/types'
+import { calculateOptimalCrop } from './face-align'
 
 export interface ComplianceInput {
   spec: IdPhotoSpec
   actualWidthPx: number
   actualHeightPx: number
   fileSizeBytes?: number
+  sourceWidthPx?: number
+  sourceHeightPx?: number
   faceBox?: { x: number; y: number; width: number; height: number }
   bgColorHex?: string
 }
 
+const UPSCALE_TOLERANCE = 1.02
+const HEAD_CROWN_FACTOR = 1.25
+const CENTER_OFFSET_LIMIT = 0.05
+const ASPECT_TOLERANCE = 0.02
+const DEDUCT_DIMENSIONS = 25
+const DEDUCT_FILE_SIZE = 20
+const DEDUCT_FILE_SIZE_MIN = 10
+const DEDUCT_FACE_RATIO = 20
+const DEDUCT_CENTERING = 15
+const DEDUCT_BG_COLOR = 15
+const DEDUCT_UPSCALE = 10
+const PASS_THRESHOLD = 80
+
+type Check = IdPhotoComplianceReport['checks'][number]
+
+export function effectiveUpscale(
+  sourceWidthPx: number,
+  sourceHeightPx: number,
+  targetWidthPx: number,
+  targetHeightPx: number,
+): number {
+  const crop = calculateOptimalCrop(sourceWidthPx, sourceHeightPx, targetWidthPx, targetHeightPx)
+  if (!crop.cropWidth) return 1
+  return targetWidthPx / crop.cropWidth
+}
+
 export function checkIdPhotoCompliance(input: ComplianceInput): IdPhotoComplianceReport {
-  const { spec, actualWidthPx, actualHeightPx, fileSizeBytes, faceBox, bgColorHex } = input
+  const { spec, actualWidthPx, actualHeightPx, fileSizeBytes, sourceWidthPx, sourceHeightPx, faceBox, bgColorHex } =
+    input
 
-  const checks: IdPhotoComplianceReport['checks'] = []
+  const checks: Check[] = []
   let score = 100
+  const unknown = (id: string, titleKey: string, expectedValue: string): void => {
+    checks.push({ id, titleKey, passed: false, level: 'unknown', message: '', expectedValue })
+  }
 
-  // 1. Resolution & Dimension check
   const expectedAspect = spec.widthPx / spec.heightPx
   const actualAspect = actualWidthPx / actualHeightPx
   const aspectDiff = Math.abs(expectedAspect - actualAspect)
+  const pixels = `${actualWidthPx}×${actualHeightPx}`
 
   if (actualWidthPx === spec.widthPx && actualHeightPx === spec.heightPx) {
     checks.push({
@@ -26,158 +59,176 @@ export function checkIdPhotoCompliance(input: ComplianceInput): IdPhotoComplianc
       titleKey: 'tools.id_photo.compliance.check_dimensions',
       passed: true,
       level: 'pass',
-      message: `${actualWidthPx}×${actualHeightPx} px (100% matched)`,
-      currentValue: `${actualWidthPx}×${actualHeightPx}`,
+      message: pixels,
+      currentValue: pixels,
       expectedValue: `${spec.widthPx}×${spec.heightPx}`,
     })
-  } else if (aspectDiff < 0.02) {
+  } else if (aspectDiff < ASPECT_TOLERANCE) {
     checks.push({
       id: 'dimensions',
       titleKey: 'tools.id_photo.compliance.check_dimensions',
       passed: true,
       level: 'pass',
-      message: `Aspect ratio matched (${actualWidthPx}×${actualHeightPx} px)`,
-      currentValue: `${actualWidthPx}×${actualHeightPx}`,
+      message: pixels,
+      currentValue: pixels,
       expectedValue: `${spec.widthPx}×${spec.heightPx}`,
     })
   } else {
-    score -= 25
+    score -= DEDUCT_DIMENSIONS
     checks.push({
       id: 'dimensions',
       titleKey: 'tools.id_photo.compliance.check_dimensions',
       passed: false,
       level: 'fail',
-      message: `Dimension aspect ratio mismatch (${actualWidthPx}×${actualHeightPx} px)`,
-      currentValue: `${actualWidthPx}×${actualHeightPx}`,
+      message: pixels,
+      currentValue: pixels,
       expectedValue: `${spec.widthPx}×${spec.heightPx}`,
     })
   }
 
-  // 2. File size constraint check (if specified by standard)
-  if (fileSizeBytes !== undefined && spec.fileSizeMaxKb) {
+  if (fileSizeBytes === undefined) {
+    unknown('file_size', 'tools.id_photo.compliance.check_file_size', `${spec.fileSizeMaxKb ?? '—'} KB`)
+  } else {
     const sizeKb = Math.round(fileSizeBytes / 1024)
-    if (sizeKb <= spec.fileSizeMaxKb) {
-      if (spec.fileSizeMinKb && sizeKb < spec.fileSizeMinKb) {
-        score -= 10
-        checks.push({
-          id: 'file_size',
-          titleKey: 'tools.id_photo.compliance.check_file_size',
-          passed: false,
-          level: 'warning',
-          message: `${sizeKb} KB is below recommended minimum (${spec.fileSizeMinKb} KB)`,
-          currentValue: `${sizeKb} KB`,
-          expectedValue: `≥ ${spec.fileSizeMinKb} KB`,
-        })
-      } else {
-        checks.push({
-          id: 'file_size',
-          titleKey: 'tools.id_photo.compliance.check_file_size',
-          passed: true,
-          level: 'pass',
-          message: `${sizeKb} KB is within limit (< ${spec.fileSizeMaxKb} KB)`,
-          currentValue: `${sizeKb} KB`,
-          expectedValue: `≤ ${spec.fileSizeMaxKb} KB`,
-        })
-      }
-    } else {
-      score -= 20
+    if (spec.fileSizeMaxKb && sizeKb > spec.fileSizeMaxKb) {
+      score -= DEDUCT_FILE_SIZE
       checks.push({
         id: 'file_size',
         titleKey: 'tools.id_photo.compliance.check_file_size',
         passed: false,
         level: 'fail',
-        message: `${sizeKb} KB exceeds maximum allowed size (${spec.fileSizeMaxKb} KB)`,
+        message: `${sizeKb} KB`,
         currentValue: `${sizeKb} KB`,
         expectedValue: `≤ ${spec.fileSizeMaxKb} KB`,
+      })
+    } else if (spec.fileSizeMinKb && sizeKb < spec.fileSizeMinKb) {
+      score -= DEDUCT_FILE_SIZE_MIN
+      checks.push({
+        id: 'file_size',
+        titleKey: 'tools.id_photo.compliance.check_file_size',
+        passed: false,
+        level: 'warning',
+        message: `${sizeKb} KB`,
+        currentValue: `${sizeKb} KB`,
+        expectedValue: `≥ ${spec.fileSizeMinKb} KB`,
+      })
+    } else {
+      checks.push({
+        id: 'file_size',
+        titleKey: 'tools.id_photo.compliance.check_file_size',
+        passed: true,
+        level: 'pass',
+        message: `${sizeKb} KB`,
+        currentValue: `${sizeKb} KB`,
+        expectedValue: spec.fileSizeMaxKb ? `≤ ${spec.fileSizeMaxKb} KB` : `${sizeKb} KB`,
       })
     }
   }
 
-  // 3. Head & Face Proportion check
-  if (faceBox) {
-    const estimatedHeadHeight = faceBox.height * 1.25
-    const headRatio = estimatedHeadHeight / actualHeightPx
+  if (!sourceWidthPx || !sourceHeightPx) {
+    unknown('source_scale', 'tools.id_photo.compliance.check_source_scale', `${spec.widthPx}×${spec.heightPx} px`)
+  } else {
+    const scale = effectiveUpscale(sourceWidthPx, sourceHeightPx, spec.widthPx, spec.heightPx)
+    if (scale > UPSCALE_TOLERANCE) {
+      score -= DEDUCT_UPSCALE
+      checks.push({
+        id: 'source_scale',
+        titleKey: 'tools.id_photo.compliance.check_source_scale',
+        passed: false,
+        level: 'warning',
+        message: `×${scale.toFixed(2)}`,
+        currentValue: `×${scale.toFixed(2)}`,
+        expectedValue: `≤ ×${UPSCALE_TOLERANCE.toFixed(2)}`,
+      })
+    } else {
+      checks.push({
+        id: 'source_scale',
+        titleKey: 'tools.id_photo.compliance.check_source_scale',
+        passed: true,
+        level: 'pass',
+        message: `×${scale.toFixed(2)}`,
+        currentValue: `×${scale.toFixed(2)}`,
+        expectedValue: `≤ ×${UPSCALE_TOLERANCE.toFixed(2)}`,
+      })
+    }
+  }
 
+  if (!faceBox) {
+    unknown('face_ratio', 'tools.id_photo.compliance.check_face_ratio', `${Math.round(spec.faceRatioMin * 100)}% – ${Math.round(spec.faceRatioMax * 100)}%`)
+    unknown('face_centering', 'tools.id_photo.compliance.check_centering', `${Math.round(CENTER_OFFSET_LIMIT * 100)}%`)
+  } else {
+    const headRatio = (faceBox.height * HEAD_CROWN_FACTOR) / actualHeightPx
+    const percent = `${Math.round(headRatio * 100)}%`
     if (headRatio >= spec.faceRatioMin && headRatio <= spec.faceRatioMax) {
       checks.push({
         id: 'face_ratio',
         titleKey: 'tools.id_photo.compliance.check_face_ratio',
         passed: true,
         level: 'pass',
-        message: `Head occupies ${Math.round(headRatio * 100)}% of frame`,
-        currentValue: `${Math.round(headRatio * 100)}%`,
-        expectedValue: `${Math.round(spec.faceRatioMin * 100)}% - ${Math.round(spec.faceRatioMax * 100)}%`,
+        message: percent,
+        currentValue: percent,
+        expectedValue: `${Math.round(spec.faceRatioMin * 100)}% – ${Math.round(spec.faceRatioMax * 100)}%`,
       })
     } else {
-      score -= 20
-      const isTooSmall = headRatio < spec.faceRatioMin
+      score -= DEDUCT_FACE_RATIO
       checks.push({
         id: 'face_ratio',
         titleKey: 'tools.id_photo.compliance.check_face_ratio',
         passed: false,
-        level: isTooSmall ? 'fail' : 'warning',
-        message: isTooSmall
-          ? `Head proportion ${Math.round(headRatio * 100)}% is too small, zoom in`
-          : `Head proportion ${Math.round(headRatio * 100)}% is too large, zoom out`,
-        currentValue: `${Math.round(headRatio * 100)}%`,
-        expectedValue: `${Math.round(spec.faceRatioMin * 100)}% - ${Math.round(spec.faceRatioMax * 100)}%`,
+        level: headRatio < spec.faceRatioMin ? 'fail' : 'warning',
+        message: percent,
+        currentValue: percent,
+        expectedValue: `${Math.round(spec.faceRatioMin * 100)}% – ${Math.round(spec.faceRatioMax * 100)}%`,
       })
     }
 
-    // 4. Face horizontal centering check
-    const faceCenterX = faceBox.x + faceBox.width / 2
-    const imageCenterX = actualWidthPx / 2
-    const centerOffset = Math.abs(faceCenterX - imageCenterX) / actualWidthPx
-
-    if (centerOffset <= 0.05) {
+    const centerOffset = Math.abs(faceBox.x + faceBox.width / 2 - actualWidthPx / 2) / actualWidthPx
+    if (centerOffset <= CENTER_OFFSET_LIMIT) {
       checks.push({
         id: 'face_centering',
         titleKey: 'tools.id_photo.compliance.check_centering',
         passed: true,
         level: 'pass',
-        message: 'Face horizontally centered',
+        message: `${Math.round(centerOffset * 100)}%`,
+        currentValue: `${Math.round(centerOffset * 100)}%`,
+        expectedValue: `≤ ${Math.round(CENTER_OFFSET_LIMIT * 100)}%`,
       })
     } else {
-      score -= 15
+      score -= DEDUCT_CENTERING
       checks.push({
         id: 'face_centering',
         titleKey: 'tools.id_photo.compliance.check_centering',
         passed: false,
         level: 'warning',
-        message: 'Face offset from horizontal center',
+        message: `${Math.round(centerOffset * 100)}%`,
+        currentValue: `${Math.round(centerOffset * 100)}%`,
+        expectedValue: `≤ ${Math.round(CENTER_OFFSET_LIMIT * 100)}%`,
       })
     }
   }
 
-  // 5. Background color check
-  if (bgColorHex && spec.recommendedBgColors.length > 0) {
+  if (!bgColorHex || spec.recommendedBgColors.length === 0) {
+    unknown('bg_color', 'tools.id_photo.compliance.check_bg_color', spec.recommendedBgColors.join(' / ') || '—')
+  } else {
     const isRecommended = spec.recommendedBgColors.some(
-      (c) => c.toLowerCase() === bgColorHex.toLowerCase()
+      (color) => color.toLowerCase() === bgColorHex.toLowerCase(),
     )
-    if (isRecommended) {
-      checks.push({
-        id: 'bg_color',
-        titleKey: 'tools.id_photo.compliance.check_bg_color',
-        passed: true,
-        level: 'pass',
-        message: 'Background color matches standard recommendation',
-      })
-    } else {
-      score -= 15
-      checks.push({
-        id: 'bg_color',
-        titleKey: 'tools.id_photo.compliance.check_bg_color',
-        passed: false,
-        level: 'warning',
-        message: 'Background color differs from standard guidelines',
-      })
-    }
+    checks.push({
+      id: 'bg_color',
+      titleKey: 'tools.id_photo.compliance.check_bg_color',
+      passed: isRecommended,
+      level: isRecommended ? 'pass' : 'warning',
+      message: bgColorHex,
+      currentValue: bgColorHex,
+      expectedValue: spec.recommendedBgColors.join(' / '),
+    })
+    if (!isRecommended) score -= DEDUCT_BG_COLOR
   }
 
   const finalScore = Math.max(0, Math.min(100, score))
   return {
     score: finalScore,
-    passed: finalScore >= 80,
+    passed: finalScore >= PASS_THRESHOLD,
     checks,
   }
 }

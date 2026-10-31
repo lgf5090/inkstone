@@ -47,6 +47,13 @@ export const DEFAULT_PRINT_OPTIONS: PrintSheetOptions = {
   dpi: 300,
 }
 
+export interface IdPhotoExportResult {
+  bytes: number
+  format: IdPhotoExportFormat
+  targetKb?: number
+  exceededTarget: boolean
+}
+
 export interface IdPhotoState {
   // Navigation & Tabs
   activeOptionsTab: IdPhotoOptionsTab
@@ -58,7 +65,7 @@ export interface IdPhotoState {
   imageSrc: string | null
   originalImageSrc: string | null
   imageElement: HTMLImageElement | null
-  setImageSrc: (src: string | null) => void
+  setImageSrc: (src: string | null) => Promise<boolean>
 
   // Spec Selection
   selectedSpecId: string
@@ -86,6 +93,9 @@ export interface IdPhotoState {
   targetMaxKb: number | undefined
   setTargetMaxKb: (kb: number | undefined) => void
 
+  lastExport: IdPhotoExportResult | null
+  setLastExport: (result: IdPhotoExportResult | null) => void
+
   // View toggles
   guidesVisible: boolean
   toggleGuides: () => void
@@ -106,18 +116,23 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   imageElement: null,
   setImageSrc: (src) => {
     if (!src) {
-      set({ imageSrc: null, originalImageSrc: null, imageElement: null })
-      return
+      set({ imageSrc: null, originalImageSrc: null, imageElement: null, lastExport: null })
+      return Promise.resolve(false)
     }
-    const img = new Image()
-    img.onload = () => {
-      set({
-        imageSrc: src,
-        originalImageSrc: get().originalImageSrc ?? src,
-        imageElement: img,
-      })
-    }
-    img.src = src
+    return new Promise<boolean>((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        set({
+          imageSrc: src,
+          originalImageSrc: src,
+          imageElement: img,
+          lastExport: null,
+        })
+        resolve(true)
+      }
+      img.onerror = () => resolve(false)
+      img.src = src
+    })
   },
 
   selectedSpecId: 'cn_one_inch',
@@ -224,6 +239,9 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
     set((s) => ({
       printOptions: { ...s.printOptions, ...patch },
     })),
+
+  lastExport: null,
+  setLastExport: (lastExport) => set({ lastExport }),
 
   exportFormat: 'jpg',
   setExportFormat: (exportFormat) => set({ exportFormat }),

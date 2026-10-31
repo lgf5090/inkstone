@@ -94,7 +94,7 @@ export interface IdPhotoComplianceReport {
     id: string
     titleKey: string
     passed: boolean
-    level: 'pass' | 'warning' | 'fail'
+    level: 'pass' | 'warning' | 'fail' | 'unknown'
     message: string
     currentValue?: string | number
     expectedValue?: string | number
