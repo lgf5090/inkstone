@@ -737,6 +737,14 @@ developmentGithubRoutes.post('/gist/github-gists', async (c) => {
   return c.json({ ok: true, data: { gist } })
 })
 
+developmentGithubRoutes.get('/gist/github-gists/:id', async (c) => {
+  detailBudget(userIdOf(c))
+  const id = gistPathId(c)
+  const token = await resolveGistWriteToken(c, id)
+  const gist = await fetchGistDetail(id, token)
+  return c.json({ ok: true, data: { gist } })
+})
+
 developmentGithubRoutes.patch('/gist/github-gists/:id', async (c) => {
   writeBudget(userIdOf(c))
   const id = gistPathId(c)

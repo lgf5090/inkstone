@@ -241,6 +241,11 @@ export const githubApi = {
     return readData(`/gist/detail?${query.toString()}`, { signal })
   },
 
+  remoteGistDetail(id: string, signal?: AbortSignal): Promise<GistItem> {
+    return readData<{ gist: GistItem }>(`/gist/github-gists/${encodeURIComponent(id)}`, { signal })
+      .then((response) => response.gist)
+  },
+
   remoteGists(
     type: RemoteGistType,
     username: string | null,

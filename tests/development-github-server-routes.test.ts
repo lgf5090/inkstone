@@ -570,6 +570,7 @@ describe('development github proxies', () => {
     })
     expect(noAccount.status).toBe(400)
     expect((await bodyOf(noAccount)).error?.code).toBe('github_token_required')
+    expect((await call('GET', `/gist/github-gists/${GIST_ID}`)).status).toBe(400)
 
     await createAccount('octocat')
     stubGithub((url, init) => {
@@ -596,6 +597,8 @@ describe('development github proxies', () => {
         updated_at: '2024-01-02T00:00:00Z',
       })
     })
+    const owned = await call('GET', `/gist/github-gists/${GIST_ID}`)
+    expect(owned.status).toBe(200)
     const updated = await call('PATCH', `/gist/github-gists/${GIST_ID}`, {
       body: { description: 'Updated' },
     })

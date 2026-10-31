@@ -9,6 +9,7 @@ import { loadGistPrefs, loadGistViewMode, saveGistPrefs, saveGistViewMode } from
 import { useGistDetailRemote, useRemoteGists } from '../cache'
 import { githubApi } from '../api'
 import { sortGists } from '../lib/filters'
+import { buildGistFilesPatch } from '../lib/gist-files'
 import { GithubPanes } from '../GithubPanes'
 import { ModuleTabs, type GithubTab } from './ModuleTabs'
 import { GistSidebar } from './GistSidebar'
@@ -124,6 +125,7 @@ export function GistsPane({
   const detailGist = remote ? remoteDetail.data ?? selectedRemote?.data ?? null : localDetail
   const ownUsernames = useMemo(() => new Set(accounts.map((account) => account.username)), [accounts])
   const canEditRemote = Boolean(detailGist?.owner && ownUsernames.has(detailGist.owner.login))
+  const canPushLocal = Boolean(!remote && detailGist?.owner && ownUsernames.has(detailGist.owner.login))
   const savedRemoteIds = useMemo(() => new Set(gists.map((gist) => gist.id)), [gists])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null
@@ -296,6 +298,28 @@ export function GistsPane({
     if (!snapshotFits(gist)) throw new Error(snapshotTooLarge())
     return persist({ ...current, description: gist.description, url: gist.url || current.url, data: gist })
   }
+  const pushLocal = async () => {
+    if (!selectedLocal || !detailGist) return
+    const ok = await confirm({
+      title: t('development.github.gists.push_confirm_title'),
+      description: t('development.github.gists.push_confirm_desc', { name: detailGist.description || detailGist.id }),
+      confirmLabel: t('development.github.gists.push_to_github'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    try {
+      const remoteGist = await githubApi.remoteGistDetail(selectedLocal.id)
+      const patch = buildGistFilesPatch(remoteGist.files, detailGist.files)
+      const updated = await githubApi.updateRemoteGist(selectedLocal.id, {
+        description: detailGist.description,
+        ...(Object.keys(patch).length > 0 ? { files: patch } : {}),
+      })
+      persist({ ...selectedLocal, description: updated.description, url: updated.url, data: updated, updatedAt: Date.now() })
+      toast({ title: t('development.github.gists.push_done'), tone: 'success' })
+    } catch (cause) {
+      toast({ title: t('development.github.gists.push_failed'), description: causeText(cause), tone: 'danger' })
+    }
+  }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
   const editTag = (id: string, patch: { name: string; color: string; parentId: string | null }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
   const refreshLocal = async () => {
@@ -365,7 +389,7 @@ export function GistsPane({
           ? <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={15} />{t('development.github.common.loading')}</div>
           : detailError && !detailGist
             ? <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-12)] text-[var(--danger)]" role="alert">{detailError}</p><Button variant="secondary" size="sm" onClick={retryFull}>{t('development.github.common.retry')}</Button></div>
-            : <GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} />}
+            : <GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} onPushToGithub={canPushLocal ? pushLocal : undefined} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />

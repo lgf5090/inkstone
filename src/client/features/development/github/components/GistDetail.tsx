@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, History, Lock, Plus, Save, Trash2, X } from 'lucide-react'
+import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, History, Lock, Plus, Save, Trash2, Upload, X } from 'lucide-react'
 import type { GistFile, GistFilesPatch, GistItem } from '@shared/development/github/types'
 import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
@@ -24,6 +24,7 @@ export function GistDetail({
   onUpdateGist,
   onDeleteGist,
   onOpenExportHistory,
+  onPushToGithub,
 }: {
   gist: GistItem | null
   notes: string
@@ -34,6 +35,7 @@ export function GistDetail({
   onUpdateGist?: (gist: GistItem, files: GistFilesPatch) => void | Promise<void>
   onDeleteGist?: (id: string) => void
   onOpenExportHistory?: () => void
+  onPushToGithub?: () => Promise<void>
 }) {
   const toast = useUi((state) => state.toast)
   const [editing, setEditing] = useState(false)
@@ -44,6 +46,7 @@ export function GistDetail({
   const [notesDraft, setNotesDraft] = useState(notes)
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [pushing, setPushing] = useState(false)
   const exportAnchor = useRef<HTMLButtonElement>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -171,7 +174,7 @@ export function GistDetail({
       </div>
 
       {readOnly && <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.gists.read_only')}</div>}
-      {!readOnly && gist.owner && <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.gists.local_snapshot_desc')}</div>}
+      {!readOnly && gist.owner && <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><span className="min-w-0 flex-1">{t('development.github.gists.local_snapshot_desc')}</span>{onPushToGithub && <Button variant="secondary" size="sm" loading={pushing} disabled={pushing} onClick={() => { setPushing(true); void onPushToGithub().finally(() => setPushing(false)) }}><Upload size={12} />{t('development.github.gists.push_to_github')}</Button>}</div>}
       <div className="border-b border-[var(--border-subtle)] p-3">
         <div className="mb-2 flex items-center gap-2"><FileCode size={14} className="text-[var(--text-tertiary)]" /><span className="text-[length:var(--text-13)] font-semibold">{t('development.github.gists.files')}</span><span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">({files.length})</span>{editing && <Button variant="secondary" size="sm" className="ml-auto" onClick={addFile}><Plus size={11} />{t('development.github.gists.add_file')}</Button>}</div>
         <div className="flex flex-wrap gap-1.5">
