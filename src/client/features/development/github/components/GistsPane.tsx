@@ -193,7 +193,7 @@ export function GistsPane({
     return persist({ ...current, description: gist.description, url: gist.url || current.url, data: gist })
   }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
-  const editTag = (id: string, patch: { name: string; color: string }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
+  const editTag = (id: string, patch: { name: string; color: string; parentId: string | null }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
   const refreshLocal = async () => {
     setRefreshing(true)
     try {

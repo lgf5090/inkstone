@@ -209,6 +209,22 @@ async function assertTagParent(
   }
 }
 
+function assertTagNameAvailable(
+  tags: readonly GithubTag[],
+  id: string,
+  name: string,
+  parentId: string | null,
+): void {
+  const normalized = name.trim().toLowerCase()
+  const parent = parentId ?? null
+  if (tags.some((tag) =>
+    tag.id !== id
+    && (tag.parentId ?? null) === parent
+    && tag.name.trim().toLowerCase() === normalized)) {
+    throw ApiError.badRequest('A tag with this name already exists at this level')
+  }
+}
+
 async function assertRepoTags(
   c: Context<AppBindings>,
   userId: string,
@@ -340,6 +356,7 @@ developmentGithubRoutes.put('/tags/:id', async (c) => {
   const body = await parseBody(c, GithubTagInputSchema, SMALL_BODY_LIMIT)
   const tags = await listTags(c.env.DB, userId)
   await assertTagParent(tags, id, body.parentId)
+  assertTagNameAvailable(tags, id, body.name, body.parentId)
   const tag = await upsertTag(c.env.DB, userId, {
     id,
     name: body.name,
@@ -408,6 +425,7 @@ developmentGithubRoutes.put('/gist/tags/:id', async (c) => {
   const body = await parseBody(c, GithubTagInputSchema, SMALL_BODY_LIMIT)
   const tags = await listGistTags(c.env.DB, userId)
   await assertTagParent(tags, id, body.parentId)
+  assertTagNameAvailable(tags, id, body.name, body.parentId)
   const tag = await upsertGistTag(c.env.DB, userId, {
     id,
     name: body.name,

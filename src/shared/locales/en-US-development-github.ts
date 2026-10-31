@@ -245,6 +245,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.tags.delete_confirm": "Delete tag “{name}”? This cannot be undone.",
   "development.github.tags.delete_title": "Delete tag",
   "development.github.tags.delete_with_children": "Delete tag “{name}” and its {count} child tags? This cannot be undone.",
+  "development.github.tags.duplicate": "A tag with this name already exists at this level.",
   "development.github.tags.empty": "No custom tags yet",
   "development.github.tags.existing": "Existing tags ({count})",
   "development.github.tags.invalid_color": "Enter a six-digit hex colour.",

@@ -5,7 +5,7 @@ import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { Button, IconButton } from '../../../../components/primitives'
 import { GITHUB_ALL_VIEW, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
-import { buildTagTree, type TagTreeNode } from '../lib/tags'
+import { buildTagTree, tagCountsWithAncestors, type TagTreeNode } from '../lib/tags'
 
 function SidebarItem({ icon, label, count, active, onClick }: { icon: React.ReactNode; label: string; count?: number; active: boolean; onClick: () => void }) {
   return (
@@ -49,13 +49,7 @@ export const RepoSidebar = memo(function RepoSidebar({ tags, savedRepos, selecte
   const tree = useMemo(() => buildTagTree(tags), [tags])
   const pinned = useMemo(() => savedRepos.filter((repo) => repo.pinned).length, [savedRepos])
   const favorite = useMemo(() => savedRepos.filter((repo) => repo.favorited).length, [savedRepos])
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const repo of savedRepos) {
-      for (const tagId of repo.tagIds) counts.set(tagId, (counts.get(tagId) ?? 0) + 1)
-    }
-    return counts
-  }, [savedRepos])
+  const tagCounts = useMemo(() => tagCountsWithAncestors(tags, savedRepos), [tags, savedRepos])
   const countForTag = (id: string) => tagCounts.get(id) ?? 0
   return (
     <aside className="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--bg-sunken)]" data-slot="repo-sidebar">

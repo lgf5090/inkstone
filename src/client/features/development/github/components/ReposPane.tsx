@@ -135,7 +135,7 @@ export function ReposPane({
     void upsertTag({ id: tagId(), name, color, parentId, sortOrder: tags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now })
   }
 
-  const updateTag = (id: string, patch: { name: string; color: string }) => {
+  const updateTag = (id: string, patch: { name: string; color: string; parentId: string | null }) => {
     const existing = tags.find((tag) => tag.id === id)
     if (!existing) return
     void upsertTag({ ...existing, ...patch, updatedAt: Date.now() })

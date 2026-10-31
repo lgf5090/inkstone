@@ -3,7 +3,7 @@ import type { GithubTag } from '@shared/development/github/types'
 import {
   buildTagTree,
   collectTagDescendants,
-  tagCounts,
+  tagCountsWithAncestors,
   tagDepth,
 } from '../src/client/features/development/github/lib/tags'
 
@@ -49,15 +49,16 @@ describe('GitHub tag tree', () => {
     expect(tagDepth(tags, tags[3]!)).toBeLessThanOrEqual(10)
   })
 
-  it('counts direct tag assignments for every tag', () => {
+  it('counts assignments up through the tag ancestors', () => {
     const tags = [tag('a', null), tag('b', 'a'), tag('c', null)]
-    const counts = tagCounts(tags, [
+    const counts = tagCountsWithAncestors(tags, [
       { tagIds: ['b', 'c', 'missing'] },
       { tagIds: ['c'] },
+      { tagIds: ['a', 'b'] },
       { tagIds: [] },
     ])
-    expect(counts.get('a')).toBe(0)
-    expect(counts.get('b')).toBe(1)
+    expect(counts.get('a')).toBe(2)
+    expect(counts.get('b')).toBe(2)
     expect(counts.get('c')).toBe(2)
     expect(counts.get('missing')).toBeUndefined()
   })

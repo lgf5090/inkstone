@@ -248,6 +248,11 @@ describe('development github tags and repositories', () => {
     expect(
       (await call('PUT', '/tags/child', { body: { name: 'Child', parentId: 'missing' } })).status,
     ).toBe(400)
+    expect((await call('PUT', '/tags/root', { body: { name: 'Root' } })).status).toBe(200)
+    expect((await call('PUT', '/tags/root2', { body: { name: 'root' } })).status).toBe(400)
+    expect(
+      (await call('PUT', '/tags/child2', { body: { name: 'Root', parentId: 'root' } })).status,
+    ).toBe(200)
 
     const repo = await call('PUT', '/repos/1', { body: repoBody(1, ['child']) })
     expect(repo.status).toBe(200)

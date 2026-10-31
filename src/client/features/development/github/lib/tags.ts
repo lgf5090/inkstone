@@ -84,15 +84,25 @@ export function tagDepth<T extends TagLike>(tags: readonly T[], tag: T): number 
   return depth
 }
 
-export function tagCounts<T extends TagLike>(
+export function tagCountsWithAncestors<T extends TagLike>(
   tags: readonly T[],
   items: readonly { tagIds: readonly string[] }[],
 ): Map<string, number> {
+  const parentOf = new Map(tags.map((tag) => [tag.id, tag.parentId]))
   const counts = new Map<string, number>(tags.map((tag) => [tag.id, 0]))
   for (const item of items) {
+    const touched = new Set<string>()
     for (const tagId of item.tagIds) {
-      const current = counts.get(tagId)
-      if (current !== undefined) counts.set(tagId, current + 1)
+      const seen = new Set<string>()
+      let cursor: string | null = tagId
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor)
+        if (counts.has(cursor) && !touched.has(cursor)) {
+          counts.set(cursor, (counts.get(cursor) ?? 0) + 1)
+          touched.add(cursor)
+        }
+        cursor = parentOf.get(cursor) ?? null
+      }
     }
   }
   return counts

@@ -245,6 +245,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.tags.delete_confirm": "确定删除标签「{name}」？此操作不可撤销。",
   "development.github.tags.delete_title": "删除标签",
   "development.github.tags.delete_with_children": "确定删除标签「{name}」？该标签下有 {count} 个子标签，将一并删除。此操作不可撤销。",
+  "development.github.tags.duplicate": "同级已存在同名标签。",
   "development.github.tags.empty": "暂无自定义标签",
   "development.github.tags.existing": "已有标签（{count}）",
   "development.github.tags.invalid_color": "请输入六位十六进制颜色。",

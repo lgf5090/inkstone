@@ -5,7 +5,7 @@ import { GIST_ALL_VIEW, GIST_EXPLORE_VIEW, GIST_FAV_VIEW, GIST_MY_GITHUB_VIEW, G
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { Badge, Button, IconButton } from '../../../../components/primitives'
-import { buildTagTree, type TagTreeNode } from '../lib/tags'
+import { buildTagTree, tagCountsWithAncestors, type TagTreeNode } from '../lib/tags'
 import { GithubIcon } from './GithubIcon'
 import { GithubAvatar } from './GithubAvatar'
 
@@ -48,13 +48,7 @@ export const GistSidebar = memo(function GistSidebar({ tags, savedGists, selecte
   const tree = useMemo(() => buildTagTree(tags), [tags])
   const pinned = useMemo(() => savedGists.filter((gist) => gist.pinned).length, [savedGists])
   const favorite = useMemo(() => savedGists.filter((gist) => gist.favorited).length, [savedGists])
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const gist of savedGists) {
-      for (const tagId of gist.tagIds) counts.set(tagId, (counts.get(tagId) ?? 0) + 1)
-    }
-    return counts
-  }, [savedGists])
+  const tagCounts = useMemo(() => tagCountsWithAncestors(tags, savedGists), [tags, savedGists])
   const countForTag = (id: string) => tagCounts.get(id) ?? 0
   return (
     <aside className="flex h-full min-w-0 flex-col overflow-hidden bg-[var(--bg-sunken)]" data-slot="gist-sidebar">
