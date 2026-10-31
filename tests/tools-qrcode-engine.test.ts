@@ -678,4 +678,70 @@ describe('QR Code Engine & Beautification System', () => {
       expect(writeMock).toHaveBeenCalled()
     })
   })
+
+  describe('Quiet zone (margin) measured in modules', () => {
+    const ONE_CHAR_MODULES = 21
+
+    it('clamps a missing or absurd margin to the module range the slider offers', async () => {
+      const { resolveQuietZoneCells, MAX_QR_MARGIN_CELLS } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-engine'
+      )
+      expect(resolveQuietZoneCells(undefined)).toBe(4)
+      expect(resolveQuietZoneCells(-3)).toBe(0)
+      expect(resolveQuietZoneCells(99)).toBe(MAX_QR_MARGIN_CELLS)
+    })
+
+    it('reads the module count the encoder reports, not a guess from the canvas', async () => {
+      const { getQrModuleCount } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-toolkit-engine'
+      )
+      // Version 1 holds a single alphanumeric character, so the symbol is 21 modules wide.
+      expect(getQrModuleCount('a', 'L')).toBe(ONE_CHAR_MODULES)
+      expect(getQrModuleCount('a', 'H')).toBe(ONE_CHAR_MODULES)
+      expect(getQrModuleCount('https://inkstone.example/some/longer/path', 'H')).toBeGreaterThan(
+        ONE_CHAR_MODULES
+      )
+    })
+
+    it('grows the canvas by exactly the requested number of module rows on each side', async () => {
+      const { QrEngine, resolveQuietZoneCells } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-engine'
+      )
+      const { getQrModuleCount } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-toolkit-engine'
+      )
+      const data = 'a'
+      const modules = getQrModuleCount(data, 'Q')
+      const cells = resolveQuietZoneCells(4)
+      const engine = new QrEngine({ margin: 4 }, data)
+      const canvas = await engine.renderCanvas(420, 420)
+      const modulePx = Math.floor(420 / (modules + cells * 2))
+      expect(canvas.width).toBe((modules + cells * 2) * modulePx)
+      expect(canvas.height).toBe((modules + cells * 2) * modulePx)
+    })
+
+    it('gives the styled and toolkit paths the same quiet zone for one setting', async () => {
+      const { QrEngine } = await import('../src/client/features/tools/qrcode/engine/qr-engine')
+      const styled = await new QrEngine({ margin: 4 }, 'a').renderCanvas(420, 420)
+      const toolkit = await new QrEngine(
+        { margin: 4, toolkitOptions: { enabled: true, pixelStyle: 'square' } },
+        'a'
+      ).renderCanvas(420, 420)
+      // Before the unit was unified the styled path read 4 as pixels and the toolkit as modules, so
+      // the same configuration produced two different symbols.
+      expect(toolkit.width).toBe(styled.width)
+      expect(toolkit.height).toBe(styled.height)
+    })
+
+    it('wraps an SVG in the same module quiet zone the canvas path gets', async () => {
+      const { wrapSvgQuietZone } = await import('../src/client/features/tools/qrcode/engine/qr-engine')
+      const inner =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="84" height="84" viewBox="0 0 84 84"><rect width="84" height="84"/></svg>'
+      const wrapped = wrapSvgQuietZone(inner, 4, 4, '#ffffff')
+      expect(wrapped).toContain('width="116"')
+      expect(wrapped).toContain('transform="translate(16, 16)"')
+      expect(wrapped).toContain('<rect width="116" height="116" fill="#ffffff"/>')
+      expect(wrapSvgQuietZone(inner, 0, 4, '#ffffff')).toBe(inner)
+    })
+  })
 })

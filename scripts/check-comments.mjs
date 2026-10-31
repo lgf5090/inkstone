@@ -18059,6 +18059,11 @@ const allowed = new Map([
   ["src/client/features/tools/qrcode/engine/qr-engine.ts", [
     "// A blank canvas here would export a code nothing can scan, and the preview would look",
     "// healthy. Fail loudly instead so the surface can show it and offer a retry.",
+    "// Quiet zone in modules, the unit ISO/IEC 18004 specifies; 4 is the recommended minimum.",
+    "// The library takes pixels; the workbench speaks modules, so the caller renders at margin 0",
+    "// and the quiet zone is added back at a known module size.",
+    "/** Wraps a library-produced SVG in the same module-quiet zone the canvas path gets. */",
+    "// Pick the module size first so the padded result is still the requested output size.",
   ]],
   ["src/client/features/tools/qrcode/engine/qr-toolkit-engine.ts", [
     "// 3D Perspective Transformation",
@@ -18067,6 +18072,8 @@ const allowed = new Map([
     "// A per-pixel Array.find over the whole module grid is quadratic: at version 40 with a rounded,",
     "// row or column style it cost billions of comparisons and froze the tab mid-drag. The index keeps",
     "// find()'s semantics exactly - first match in the draw order the sort just produced.",
+    "/**\n * The side of the symbol in modules, which is what a quiet zone and a print size are measured\n * against. Asked of the encoder rather than derived from a canvas, because the styled path never\n * reports it and a reader choosing \"4 modules of white\" needs the number before drawing.\n */",
+    "// border 0: uqr adds a module of its own by default, and the quiet zone here is counted separately.",
   ]],
   ["src/client/features/tools/qrcode/engine/text-decorator.ts", [
     "// These land inside attribute values of a file someone else will open: escaping only the text nodes",
@@ -31219,6 +31226,10 @@ const allowed = new Map([
     "/**\n * Colours reach canvas `fillStyle` and SVG attributes. Anything carrying a quote, an angle bracket or\n * a backslash would let a saved config close an attribute and write one of its own into the exported\n * SVG, so accepted shapes are listed rather than dangerous characters excluded.\n */",
     "/** A logo is embedded or same-origin: a saved config must not make the reader fetch a third-party host. */",
     "/**\n * Styling as it arrives from an untrusted place: an imported file, a stored record, a saved template.\n * Every field is optional because these payloads are merged into the workbench rather than replacing\n * it whole, and unknown keys are refused so nothing outside the renderer's vocabulary survives.\n */",
+    "// Quiet zone measured in modules, so an imported config cannot ask for a 100-cell margin.",
+  ]],
+  ["src/shared/tools/qrcode/types.ts", [
+    "/** Quiet zone in modules (ISO/IEC 18004 recommends 4). */",
   ]],
   ["src/shared/tools/shortlinks/country.ts", [
     "/**\n * Country flag emoji and localized name helper.\n */",
@@ -44579,6 +44590,9 @@ const allowed = new Map([
   ["tests/tools-qrcode-engine.test.ts", [
     "// The release waits for the task after the click: revoking inside the same tick is what cut a",
     "// download short, so the anchor must go first and the URL still has to be freed afterwards.",
+    "// Version 1 holds a single alphanumeric character, so the symbol is 21 modules wide.",
+    "// Before the unit was unified the styled path read 4 as pixels and the toolkit as modules, so",
+    "// the same configuration produced two different symbols.",
   ]],
   ["tests/tools-qrcode-settings.test.tsx", [
     "// A second visit means the reader came back to a workbench they may have retuned, so the saved",

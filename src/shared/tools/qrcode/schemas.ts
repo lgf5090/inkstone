@@ -209,7 +209,8 @@ export const QrStylingOptionsSchema = z
   .object({
     width: z.number().min(1).max(4000).optional(),
     height: z.number().min(1).max(4000).optional(),
-    margin: z.number().int().min(0).max(100).optional(),
+    // Quiet zone measured in modules, so an imported config cannot ask for a 100-cell margin.
+    margin: z.number().int().min(0).max(16).optional(),
     errorCorrectionLevel: QrErrorCorrectionSchema.optional(),
     eyeShape: EYE_SHAPE.optional(),
     dotsOptions: PAINT(DOT_TYPE).optional(),

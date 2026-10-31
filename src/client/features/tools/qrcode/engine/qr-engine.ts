@@ -9,11 +9,21 @@ import type {
   QrStylingOptions,
 } from '../../../../../shared/tools/qrcode/types'
 import { applyFrame, drawRoundRect } from './frame-decorator'
-import { isToolkitRenderingNeeded, renderToolkitQRCode } from './qr-toolkit-engine'
+import { getQrModuleCount, isToolkitRenderingNeeded, renderToolkitQRCode } from './qr-toolkit-engine'
 import { applyTextCaption, applyTextCaptionToSvg } from './text-decorator'
+
+// Quiet zone in modules, the unit ISO/IEC 18004 specifies; 4 is the recommended minimum.
+export const DEFAULT_QR_MARGIN_CELLS = 4
+export const MAX_QR_MARGIN_CELLS = 8
+
+export function resolveQuietZoneCells(margin?: number): number {
+  const cells = Math.floor(margin ?? DEFAULT_QR_MARGIN_CELLS)
+  return Math.max(0, Math.min(MAX_QR_MARGIN_CELLS, cells))
+}
 
 export const DEFAULT_QR_OPTIONS: QrStylingOptions = {
   errorCorrectionLevel: 'Q',
+  margin: DEFAULT_QR_MARGIN_CELLS,
   dotsOptions: {
     type: 'square',
     color: '#000000',
@@ -296,7 +306,9 @@ export function buildQrCodeStylingOptions(
     type: drawType,
     data: data || ' ',
     image: finalLogo,
-    margin: options.margin ?? 10,
+    // The library takes pixels; the workbench speaks modules, so the caller renders at margin 0
+    // and the quiet zone is added back at a known module size.
+    margin: 0,
     qrOptions: {
       errorCorrectionLevel: options.errorCorrectionLevel || 'Q',
     },
@@ -306,6 +318,46 @@ export function buildQrCodeStylingOptions(
     cornersDotOptions,
     backgroundOptions,
   }
+}
+
+function padCanvasQuietZone(
+  source: HTMLCanvasElement,
+  cells: number,
+  modulePx: number,
+  backgroundColor: string
+): HTMLCanvasElement {
+  if (cells <= 0) return source
+  const pad = cells * modulePx
+  const canvas = document.createElement('canvas')
+  canvas.width = source.width + pad * 2
+  canvas.height = source.height + pad * 2
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return source
+  ctx.fillStyle = backgroundColor
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(source, pad, pad)
+  return canvas
+}
+
+/** Wraps a library-produced SVG in the same module-quiet zone the canvas path gets. */
+export function wrapSvgQuietZone(svg: string, cells: number, modulePx: number, backgroundColor: string): string {
+  if (cells <= 0) return svg
+  const widthMatch = svg.match(/width="([0-9.]+)(?:px)?"/)
+  const heightMatch = svg.match(/height="([0-9.]+)(?:px)?"/)
+  const innerWidth = widthMatch ? parseFloat(widthMatch[1]) : modulePx * 0
+  const innerHeight = heightMatch ? parseFloat(heightMatch[1]) : innerWidth
+  if (!innerWidth || !innerHeight) return svg
+  const pad = cells * modulePx
+  const openTagEnd = svg.indexOf('>')
+  const closeTagStart = svg.lastIndexOf('</svg>')
+  if (openTagEnd < 0 || closeTagStart < 0) return svg
+  const inner = svg.slice(openTagEnd + 1, closeTagStart)
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${innerWidth + pad * 2}" height="${innerHeight + pad * 2}"` +
+    ` viewBox="0 0 ${innerWidth + pad * 2} ${innerHeight + pad * 2}">` +
+    `<rect width="${innerWidth + pad * 2}" height="${innerHeight + pad * 2}" fill="${backgroundColor}"/>` +
+    `<g transform="translate(${pad}, ${pad})">${inner}</g></svg>`
+  )
 }
 
 export class QrEngine {
@@ -431,11 +483,15 @@ export class QrEngine {
       })
       baseCanvas = tkCanvas
     } else {
+      const cells = resolveQuietZoneCells(this._options.margin)
+      const modules = getQrModuleCount(this._data, this._options.errorCorrectionLevel || 'Q')
+      // Pick the module size first so the padded result is still the requested output size.
+      const modulePx = Math.max(1, Math.floor(Math.min(width, height) / (modules + cells * 2)))
       const stylingOpts = buildQrCodeStylingOptions(
         this._options,
         this._data,
-        width,
-        height,
+        modulePx * modules,
+        modulePx * modules,
         'canvas',
         processedLogo
       )
@@ -473,7 +529,18 @@ export class QrEngine {
 
     const bgColor = this._options.backgroundOptions?.color || '#ffffff'
 
-    let composited = baseCanvas
+    const quietCells = resolveQuietZoneCells(this._options.margin)
+    const padded =
+      !isToolkitRenderingNeeded(this._options) && baseCanvas
+        ? padCanvasQuietZone(
+            baseCanvas,
+            quietCells,
+            Math.max(1, Math.round(baseCanvas.width / getQrModuleCount(this._data, this._options.errorCorrectionLevel || 'Q'))),
+            bgColor
+          )
+        : baseCanvas
+
+    let composited = padded
     if (this._options.frameOptions && this._options.frameOptions.type !== 'none') {
       composited = applyFrame(composited, this._options.frameOptions, bgColor)
     }
@@ -495,11 +562,14 @@ export class QrEngine {
       (logoOpts?.logoId ? getOnlineLogoDataUrl(logoOpts.logoId) : undefined)
     const processedLogo = await prepareStyledLogo(rawLogoSrc, logoOpts)
 
+    const svgCells = resolveQuietZoneCells(this._options.margin)
+    const svgModules = getQrModuleCount(this._data, this._options.errorCorrectionLevel || 'Q')
+    const svgModulePx = Math.max(1, Math.floor(Math.min(width, height) / (svgModules + svgCells * 2)))
     const stylingOpts = buildQrCodeStylingOptions(
       this._options,
       this._data,
-      width,
-      height,
+      svgModulePx * svgModules,
+      svgModulePx * svgModules,
       'svg',
       processedLogo
     )
@@ -537,6 +607,7 @@ export class QrEngine {
     }
 
     const bgColor = this._options.backgroundOptions?.color || '#ffffff'
+    svgString = wrapSvgQuietZone(svgString, svgCells, svgModulePx, bgColor)
 
     if (this._options.frameOptions && this._options.frameOptions.type !== 'none') {
       const canvas = await this.renderCanvas(width, height)

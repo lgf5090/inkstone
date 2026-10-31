@@ -287,6 +287,8 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.presets.meme_bubble': '恶搞表情',
   'tools.qrcode.presets.mushroom_meme': '蘑菇头表情',
   'tools.qrcode.shape.error_correction': '容错率',
+  'tools.qrcode.shape.quiet_zone': '静区（模块）',
+  'tools.qrcode.shape.quiet_zone_hint': '二维码四周的留白，低于 4 模块会让部分扫码器无法定位',
   'tools.qrcode.shape.element_shape': '元素形状',
   'tools.qrcode.shape.eye_shape': '码眼形状',
   'tools.qrcode.shape.square': '标准方块',

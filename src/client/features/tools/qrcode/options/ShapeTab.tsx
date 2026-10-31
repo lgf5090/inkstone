@@ -8,9 +8,13 @@ import type {
   QrToolkitMarkerSubShape,
   QrToolkitPixelStyle,
 } from '../../../../../shared/tools/qrcode/types'
-import { mapEyeShapeToCornerOptions } from '../engine/qr-engine'
+import {
+  MAX_QR_MARGIN_CELLS,
+  mapEyeShapeToCornerOptions,
+  resolveQuietZoneCells,
+} from '../engine/qr-engine'
 import { useQrCodeStore } from '../store'
-import { Field, Segmented } from '../../../../components/form'
+import { Field, Segmented, Slider } from '../../../../components/form'
 import { cn } from '../../../../lib/cn'
 import { t, type MessageKey } from '../../../../lib/i18n'
 
@@ -308,6 +312,18 @@ export function ShapeTab() {
           value={options.errorCorrectionLevel}
           onChange={(level) => setOptions({ errorCorrectionLevel: level })}
           options={[...ERROR_LEVELS]}
+        />
+      </Field>
+
+      <Field
+        label={`${t('tools.qrcode.shape.quiet_zone')}: ${resolveQuietZoneCells(options.margin)}`}
+        hint={t('tools.qrcode.shape.quiet_zone_hint')}
+      >
+        <Slider
+          value={resolveQuietZoneCells(options.margin)}
+          min={0}
+          max={MAX_QR_MARGIN_CELLS}
+          onChange={(cells) => setOptions({ margin: cells })}
         />
       </Field>
 

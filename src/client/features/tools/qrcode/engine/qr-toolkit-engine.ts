@@ -71,6 +71,16 @@ export function isToolkitRenderingNeeded(options: QrStylingOptions): boolean {
   return false
 }
 
+/**
+ * The side of the symbol in modules, which is what a quiet zone and a print size are measured
+ * against. Asked of the encoder rather than derived from a canvas, because the styled path never
+ * reports it and a reader choosing "4 modules of white" needs the number before drawing.
+ */
+export function getQrModuleCount(text: string, ecc: QrErrorCorrectionLevel): number {
+  // border 0: uqr adds a module of its own by default, and the quiet zone here is counted separately.
+  return encode(text || ' ', { ecc, minVersion: 1, maxVersion: 40, border: 0 }).size
+}
+
 export async function renderToolkitQRCode(
   outCanvas: HTMLCanvasElement,
   text: string,

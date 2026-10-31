@@ -287,6 +287,8 @@ export const EN_US_TOOLS = {
   'tools.qrcode.presets.meme_bubble': 'Meme Bubble',
   'tools.qrcode.presets.mushroom_meme': 'Mushroom Meme',
   'tools.qrcode.shape.error_correction': 'Error Correction',
+  'tools.qrcode.shape.quiet_zone': 'Quiet zone (modules)',
+  'tools.qrcode.shape.quiet_zone_hint': 'White space around the code; below 4 modules some readers cannot lock on',
   'tools.qrcode.shape.element_shape': 'Module Shape',
   'tools.qrcode.shape.eye_shape': 'Eye Shape',
   'tools.qrcode.shape.square': 'Standard Square',

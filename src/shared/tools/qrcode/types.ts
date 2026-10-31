@@ -238,6 +238,7 @@ export interface QrToolkitOptions {
 export interface QrStylingOptions {
   width?: number
   height?: number
+  /** Quiet zone in modules (ISO/IEC 18004 recommends 4). */
   margin?: number
   errorCorrectionLevel: QrErrorCorrectionLevel
   dotsOptions: QrDotsOptions
