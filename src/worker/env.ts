@@ -39,8 +39,6 @@ export interface Env {
   WEBDAV_HEADERS?: string
   WEBDAV_CREATE_DIRECTORY?: string
 
-  SHORTLINKS_KV?: KVNamespace
-
   OAUTH_KV: KVNamespace
 
   OAUTH_PROVIDER?: OAuthHelpers

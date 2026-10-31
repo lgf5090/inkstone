@@ -118,6 +118,15 @@ toolsShortlinksRoutes.post('/links', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateLinkSchema)
   const link = await store.createLink(body)
+  if (!link.label) {
+    // The title sniff is a second network hop; creating a link must not wait on the target site.
+    const fill = store.fillMissingLabel(link.id).catch(() => {})
+    try {
+      c.executionCtx.waitUntil(fill)
+    } catch {
+      void fill
+    }
+  }
   return c.json({ ok: true, data: link })
 })
 
@@ -135,14 +144,14 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
   const body = await parseBody(c, UpdateLinkSchema)
-  const link = await store.updateLink(id, body, c.env.SHORTLINKS_KV)
+  const link = await store.updateLink(id, body)
   return c.json({ ok: true, data: link })
 })
 
 toolsShortlinksRoutes.delete('/links/:id', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
-  await store.deleteLink(id, c.env.SHORTLINKS_KV)
+  await store.deleteLink(id)
   return c.json({ ok: true })
 })
 
@@ -151,7 +160,7 @@ toolsShortlinksRoutes.post('/links/:id/slugs', async (c) => {
   const store = getStore(c)
   const id = idParam(c)
   const body = await parseBody(c, AddSlugSchema)
-  const slug = await store.addSlug(id, body.slug, c.env.SHORTLINKS_KV)
+  const slug = await store.addSlug(id, body.slug)
   return c.json({ ok: true, data: slug })
 })
 
@@ -159,7 +168,7 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/primary', asy
   const store = getStore(c)
   const id = idParam(c)
   const slug = slugParam(c)
-  await store.setPrimarySlug(id, slug, c.env.SHORTLINKS_KV)
+  await store.setPrimarySlug(id, slug)
   return c.json({ ok: true })
 })
 
@@ -169,9 +178,9 @@ toolsShortlinksRoutes.on(['PUT', 'PATCH'], '/links/:id/slugs/:slug/status', asyn
   const slug = slugParam(c)
   const body = await parseBody(c, SlugStatusSchema)
   if (body.is_active) {
-    await store.enableSlug(slug, c.env.SHORTLINKS_KV)
+    await store.enableSlug(slug)
   } else {
-    await store.disableSlug(slug, c.env.SHORTLINKS_KV)
+    await store.disableSlug(slug)
   }
   return c.json({ ok: true })
 })
@@ -180,7 +189,7 @@ toolsShortlinksRoutes.delete('/links/:id/slugs/:slug', async (c) => {
   const store = getStore(c)
   idParam(c)
   const slug = slugParam(c)
-  await store.deleteSlug(slug, c.env.SHORTLINKS_KV)
+  await store.deleteSlug(slug)
   return c.json({ ok: true })
 })
 

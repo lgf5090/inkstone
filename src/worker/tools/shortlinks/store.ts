@@ -33,7 +33,6 @@ import {
   formatAvgPerDay,
   rangeToSinceTs,
 } from './analytics'
-import { deleteCachedSlug } from './cache'
 import {
   getShortlinksBackupR2Key,
   getShortlinksExportCsvR2Key,
@@ -173,17 +172,13 @@ export class ShortlinksStore {
       .run()
   }
 
-  async upgradePasswordHash(linkId: number, password: string, kv?: KVNamespace): Promise<string> {
+  async upgradePasswordHash(linkId: number, password: string): Promise<string> {
     const hash = await hashPassword(password)
     await this.db
       .prepare('UPDATE tools_shortlinks_links SET password_hash = ? WHERE id = ? AND user_id = ?')
       .bind(hash, linkId, this.userId)
       .run()
 
-    const link = await this.getLinkById(linkId)
-    if (link) {
-      for (const s of link.slugs) await deleteCachedSlug(kv, s.slug)
-    }
     return hash
   }
 
@@ -303,22 +298,23 @@ export class ShortlinksStore {
     }
     linkId = inserted.link_id
 
-    // Title sniffing if label was not provided
-    if (!params.label) {
-      try {
-        const sniffed = await fetchPageTitle(url, 3000)
-        if (sniffed) {
-          await this.db
-            .prepare('UPDATE tools_shortlinks_links SET label = ? WHERE id = ? AND user_id = ?')
-            .bind(sniffed, linkId, this.userId)
-            .run()
-        }
-      } catch {
-        // Non-fatal
-      }
-    }
-
     return (await this.getLinkById(linkId))!
+  }
+
+  /** Best-effort title backfill, run after the response so creating a link never waits on the target. */
+  async fillMissingLabel(linkId: number): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT url, label FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
+      .bind(linkId, this.userId)
+      .first<{ url: string; label: string | null }>()
+    if (!row || row.label) return
+
+    const sniffed = await fetchPageTitle(row.url, 3000)
+    if (!sniffed) return
+    await this.db
+      .prepare('UPDATE tools_shortlinks_links SET label = ? WHERE id = ? AND user_id = ? AND label IS NULL')
+      .bind(sniffed, linkId, this.userId)
+      .run()
   }
 
   async getLinkById(id: number): Promise<ShortLink | null> {
@@ -531,7 +527,6 @@ export class ShortlinksStore {
       password?: string | null
       expires_at?: number | null
     },
-    kv?: KVNamespace,
   ): Promise<ShortLink> {
     const existing = await this.getLinkById(id)
     if (!existing) {
@@ -567,17 +562,12 @@ export class ShortlinksStore {
       binds.push(id, this.userId)
       const sql = `UPDATE tools_shortlinks_links SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
       await this.db.prepare(sql).bind(...binds).run()
-
-      // Invalidate KV for all attached slugs
-      for (const s of existing.slugs) {
-        await deleteCachedSlug(kv, s.slug)
-      }
     }
 
     return (await this.getLinkById(id))!
   }
 
-  async deleteLink(id: number, kv?: KVNamespace): Promise<void> {
+  async deleteLink(id: number): Promise<void> {
     const link = await this.getLinkById(id)
     if (!link) {
       throw ApiError.notFound('Link not found')
@@ -593,10 +583,6 @@ export class ShortlinksStore {
       throw ApiError.badRequest('Cannot delete a short link with click history. Please disable it instead to preserve analytics.')
     }
 
-    for (const s of link.slugs) {
-      await deleteCachedSlug(kv, s.slug)
-    }
-
     await this.db
       .prepare('DELETE FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
       .bind(id, this.userId)
@@ -607,7 +593,7 @@ export class ShortlinksStore {
   // Slugs Management
   // -------------------------------------------------------------------------
 
-  async addSlug(linkId: number, rawSlug: string, kv?: KVNamespace): Promise<ShortLinkSlug> {
+  async addSlug(linkId: number, rawSlug: string): Promise<ShortLinkSlug> {
     const owned = await this.db
       .prepare('SELECT id FROM tools_shortlinks_links WHERE id = ? AND user_id = ?')
       .bind(linkId, this.userId)
@@ -639,8 +625,6 @@ export class ShortlinksStore {
       .bind(slug, this.userId, linkId, now)
       .run()
 
-    await deleteCachedSlug(kv, slug)
-
     return {
       slug,
       link_id: linkId,
@@ -652,7 +636,7 @@ export class ShortlinksStore {
     }
   }
 
-  async setPrimarySlug(linkId: number, slug: string, kv?: KVNamespace): Promise<void> {
+  async setPrimarySlug(linkId: number, slug: string): Promise<void> {
     const row = await this.db
       .prepare('SELECT slug FROM tools_shortlinks_slugs WHERE link_id = ? AND slug = ? AND user_id = ?')
       .bind(linkId, slug, this.userId)
@@ -670,30 +654,24 @@ export class ShortlinksStore {
         .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 1 WHERE slug = ? AND link_id = ? AND user_id = ?')
         .bind(slug, linkId, this.userId),
     ])
-
-    await deleteCachedSlug(kv, slug)
   }
 
-  async disableSlug(slug: string, kv?: KVNamespace): Promise<void> {
+  async disableSlug(slug: string): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
     await this.db
       .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE slug = ? AND user_id = ?')
       .bind(now, slug, this.userId)
       .run()
-
-    await deleteCachedSlug(kv, slug)
   }
 
-  async enableSlug(slug: string, kv?: KVNamespace): Promise<void> {
+  async enableSlug(slug: string): Promise<void> {
     await this.db
       .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE slug = ? AND user_id = ?')
       .bind(slug, this.userId)
       .run()
-
-    await deleteCachedSlug(kv, slug)
   }
 
-  async deleteSlug(slug: string, kv?: KVNamespace): Promise<void> {
+  async deleteSlug(slug: string): Promise<void> {
     const slugRow = await this.db
       .prepare('SELECT * FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
       .bind(slug, this.userId)
@@ -742,8 +720,6 @@ export class ShortlinksStore {
       }
     }
     await this.db.batch(statements)
-
-    await deleteCachedSlug(kv, slug)
   }
 
   // -------------------------------------------------------------------------
@@ -1112,68 +1088,68 @@ export class ShortlinksStore {
   // -------------------------------------------------------------------------
 
   async listBundles(): Promise<ShortLinkBundle[]> {
-    const rows = await this.db
-      .prepare(
-        `SELECT b.*,
-           (SELECT COUNT(*) FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) as link_count,
-           (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id IN (SELECT bl.link_id FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) AND c.user_id = ?) as total_clicks
-         FROM tools_shortlinks_bundles b
-         WHERE b.user_id = ?
-         ORDER BY b.archived_at ASC, b.created_at DESC`,
-      )
-      .bind(this.userId, this.userId, this.userId, this.userId)
-      .all<{
-        id: number
-        user_id: string
-        name: string
-        description: string | null
-        icon: string | null
-        accent: BundleAccent
-        archived_at: number | null
-        created_via: string | null
-        created_by: string
-        created_at: number
-        updated_at: number
-        link_count: number
-        total_clicks: number
-      }>()
+    const now = Math.floor(Date.now() / 1000)
+    const t7d = now - 7 * 86400
 
-    const bundles: ShortLinkBundle[] = []
-    for (const r of rows.results ?? []) {
-      const now = Math.floor(Date.now() / 1000)
-      const t7d = now - 7 * 86400
-      const sparkRows = await this.db
+    const [rows, sparkRows] = await Promise.all([
+      this.db
         .prepare(
-          `SELECT date(clicked_at, 'unixepoch') as label, COUNT(*) as count
-           FROM tools_shortlinks_clicks
-           WHERE user_id = ?
-             AND link_id IN (SELECT link_id FROM tools_shortlinks_bundle_links WHERE bundle_id = ? AND user_id = ?)
-             AND clicked_at >= ?
-           GROUP BY label ORDER BY label ASC`,
+          `SELECT b.*,
+             (SELECT COUNT(*) FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) as link_count,
+             (SELECT COUNT(*) FROM tools_shortlinks_clicks c WHERE c.link_id IN (SELECT bl.link_id FROM tools_shortlinks_bundle_links bl WHERE bl.bundle_id = b.id AND bl.user_id = ?) AND c.user_id = ?) as total_clicks
+           FROM tools_shortlinks_bundles b
+           WHERE b.user_id = ?
+           ORDER BY b.archived_at ASC, b.created_at DESC`,
         )
-        .bind(this.userId, r.id, this.userId, t7d)
-        .all<{ label: string; count: number }>()
+        .bind(this.userId, this.userId, this.userId, this.userId)
+        .all<{
+          id: number
+          user_id: string
+          name: string
+          description: string | null
+          icon: string | null
+          accent: BundleAccent
+          archived_at: number | null
+          created_via: string | null
+          created_by: string
+          created_at: number
+          updated_at: number
+          link_count: number
+          total_clicks: number
+        }>(),
+      this.db
+        .prepare(
+          `SELECT bl.bundle_id as bundle_id, date(c.clicked_at, 'unixepoch') as label, COUNT(*) as count
+           FROM tools_shortlinks_clicks c
+           JOIN tools_shortlinks_bundle_links bl ON bl.link_id = c.link_id AND bl.user_id = c.user_id
+           WHERE c.user_id = ? AND c.clicked_at >= ?
+           GROUP BY bl.bundle_id, label`,
+        )
+        .bind(this.userId, t7d)
+        .all<{ bundle_id: number; label: string; count: number }>(),
+    ])
 
-      const dataMap = new Map((sparkRows.results ?? []).map((s) => [s.label, s.count]))
-      const buckets = fillBuckets('7d', dataMap, now)
-
-      bundles.push({
-        id: r.id,
-        user_id: r.user_id,
-        name: r.name,
-        description: r.description,
-        icon: r.icon,
-        accent: r.accent,
-        link_count: r.link_count || 0,
-        total_clicks: r.total_clicks || 0,
-        sparkline: buckets.map((b) => b.count),
-        archived_at: r.archived_at,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-      })
+    const sparkByBundle = new Map<number, Map<string, number>>()
+    for (const row of sparkRows.results ?? []) {
+      const dataMap = sparkByBundle.get(row.bundle_id) ?? new Map<string, number>()
+      dataMap.set(row.label, row.count)
+      sparkByBundle.set(row.bundle_id, dataMap)
     }
 
-    return bundles
+    return (rows.results ?? []).map((r) => ({
+      id: r.id,
+      user_id: r.user_id,
+      name: r.name,
+      description: r.description,
+      icon: r.icon,
+      accent: r.accent,
+      link_count: r.link_count || 0,
+      total_clicks: r.total_clicks || 0,
+      sparkline: fillBuckets('7d', sparkByBundle.get(r.id) ?? new Map(), now).map((b) => b.count),
+      archived_at: r.archived_at,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }))
   }
 
   async createBundle(data: {
@@ -1334,13 +1310,17 @@ export class ShortlinksStore {
     }
 
     const now = Math.floor(Date.now() / 1000)
-    for (const linkId of unique) {
+    // Four bound values per row; D1 rejects statements past roughly a hundred parameters.
+    const chunkSize = 20
+    for (let offset = 0; offset < unique.length; offset += chunkSize) {
+      const chunk = unique.slice(offset, offset + chunkSize)
+      const values = chunk.map(() => '(?, ?, ?, ?)').join(', ')
       await this.db
         .prepare(
           `INSERT OR IGNORE INTO tools_shortlinks_bundle_links (user_id, bundle_id, link_id, added_at)
-           VALUES (?, ?, ?, ?)`,
+           VALUES ${values}`,
         )
-        .bind(this.userId, bundleId, linkId, now)
+        .bind(...chunk.flatMap((linkId) => [this.userId, bundleId, linkId, now]))
         .run()
     }
   }

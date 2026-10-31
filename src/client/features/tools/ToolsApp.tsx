@@ -1,4 +1,6 @@
+import { Suspense, lazy } from 'react'
 import { PanelLeft, Wrench } from 'lucide-react'
+import { LoadingBlock } from '../../components/feedback'
 import { t } from '../../lib/i18n'
 import { useBreakpoint } from '../../lib/hooks'
 import { Drawer } from '../../components/overlay'
@@ -6,12 +8,13 @@ import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { Resizer } from '../shell/Resizer'
 import { ToolsSidebar } from './ToolsSidebar'
-import { PasswordApp } from './password/PasswordApp'
-import { QrCodeApp } from './qrcode/QrCodeApp'
-import { IdPhotoApp } from './id-photo/IdPhotoApp'
-import { ColorApp } from './color/ColorApp'
-import { ShortlinksApp } from './shortlinks/ShortlinksApp'
 import { TOOLS_NAV_WIDTH, useToolsStore } from './store'
+
+const PasswordApp = lazy(() => import('./password/PasswordApp').then((m) => ({ default: m.PasswordApp })))
+const QrCodeApp = lazy(() => import('./qrcode/QrCodeApp').then((m) => ({ default: m.QrCodeApp })))
+const IdPhotoApp = lazy(() => import('./id-photo/IdPhotoApp').then((m) => ({ default: m.IdPhotoApp })))
+const ColorApp = lazy(() => import('./color/ColorApp').then((m) => ({ default: m.ColorApp })))
+const ShortlinksApp = lazy(() => import('./shortlinks/ShortlinksApp').then((m) => ({ default: m.ShortlinksApp })))
 
 export function ToolsApp() {
   const breakpoint = useBreakpoint()
@@ -89,11 +92,13 @@ export function ToolsApp() {
         )}
 
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-base)]">
-          {activeSubmodule === 'password' && <PasswordApp />}
-          {activeSubmodule === 'qrcode' && <QrCodeApp />}
-          {activeSubmodule === 'id_photo' && <IdPhotoApp />}
-          {activeSubmodule === 'color' && <ColorApp />}
-          {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
+          <Suspense fallback={<LoadingBlock />}>
+            {activeSubmodule === 'password' && <PasswordApp />}
+            {activeSubmodule === 'qrcode' && <QrCodeApp />}
+            {activeSubmodule === 'id_photo' && <IdPhotoApp />}
+            {activeSubmodule === 'color' && <ColorApp />}
+            {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
+          </Suspense>
         </main>
       </div>
 

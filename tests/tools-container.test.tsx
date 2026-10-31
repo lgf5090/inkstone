@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../src/client/lib/i18n'
-import { installTestGlobals, renderElement } from '../src/client/lib/test-render'
+import { flushLazyModules, installTestGlobals, renderElement } from '../src/client/lib/test-render'
 import { tabIdForPath } from '../src/client/features/shell/app-tabs'
 import { ToolsApp } from '../src/client/features/tools/ToolsApp'
 import { ToolsSidebar } from '../src/client/features/tools/ToolsSidebar'
@@ -178,6 +178,7 @@ describe('Tools container architecture and collapsible sidebar', () => {
     it('renders on desktop with sidebar, resizer, and PasswordApp root', async () => {
       window.innerWidth = 1280
       const view = await renderElement(<ToolsApp />)
+      await flushLazyModules(() => Boolean(view.container.querySelector('[data-testid="password-app-root"]')))
 
       const root = view.container.querySelector('[data-testid="tools-app-root"]')
       expect(root).not.toBeNull()

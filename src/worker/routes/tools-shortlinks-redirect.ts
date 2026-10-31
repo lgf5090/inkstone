@@ -7,7 +7,6 @@ import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
 import { escapeHtml } from '../lib/encoding'
 import { verifyPassword } from '../lib/password'
-import { getCachedSlug, putCachedSlug } from '../tools/shortlinks/cache'
 import { computeVisitorFingerprint } from '../tools/shortlinks/fingerprint'
 import {
   AUTH_TOKEN_TTL_SECONDS,
@@ -212,31 +211,23 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     return renderNotFoundPage()
   }
 
-  // 1. Check KV cache
-  let entry = await getCachedSlug(c.env.SHORTLINKS_KV, slug)
-
-  // 2. Read-through to D1 if missed
-  if (!entry) {
-    const lookup = new ShortlinksStore(c.env.DB, '')
-    const dbRecord = await lookup.findSlugForRedirect(slug)
-    if (!dbRecord) {
-      return renderNotFoundPage()
-    }
-
-    entry = {
-      url: dbRecord.url,
-      link_id: dbRecord.link_id,
-      user_id: dbRecord.user_id,
-      disabled_at: dbRecord.disabled_at,
-      expires_at: dbRecord.expires_at,
-      password_hash: dbRecord.password_hash,
-    }
-
-    // Populate KV
-    await putCachedSlug(c.env.SHORTLINKS_KV, slug, entry)
+  // 1. Resolve the slug from D1
+  const lookup = new ShortlinksStore(c.env.DB, '')
+  const dbRecord = await lookup.findSlugForRedirect(slug)
+  if (!dbRecord) {
+    return renderNotFoundPage()
   }
 
-  // 3. Status checks; `!= null` keeps a cache entry written before the field existed from reading as disabled.
+  let entry = {
+    url: dbRecord.url,
+    link_id: dbRecord.link_id,
+    user_id: dbRecord.user_id,
+    disabled_at: dbRecord.disabled_at,
+    expires_at: dbRecord.expires_at,
+    password_hash: dbRecord.password_hash,
+  }
+
+  // 2. Status checks
   if (entry.disabled_at != null) {
     return renderNotFoundPage('\u94fe\u63a5\u5df2\u505c\u7528', '\u8be5\u77ed\u94fe\u63a5\u5df2\u88ab\u521b\u5efa\u8005\u6682\u65f6\u505c\u7528\u3002')
   }
@@ -251,7 +242,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
   const ip = (c.req.header('cf-connecting-ip') || '').trim()
   let issuedCookie: string | null = null
 
-  // 4. Password Gate
+  // 3. Password Gate
   if (entry.password_hash) {
     let authKey: string = entry.password_hash
     const submittedPassword = (providedPassword ?? '').trim()
@@ -276,13 +267,8 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
         // One-way upgrade for a link still holding the module's original unsalted SHA-256 digest.
         if ((await legacyDigest(submittedPassword)) === authKey) {
           verified = true
-          authKey = await store.upgradePasswordHash(
-            entry.link_id,
-            submittedPassword,
-            c.env.SHORTLINKS_KV,
-          )
+          authKey = await store.upgradePasswordHash(entry.link_id, submittedPassword)
           entry = { ...entry, password_hash: authKey }
-          await putCachedSlug(c.env.SHORTLINKS_KV, slug, entry)
         }
       }
       if (!verified) {
@@ -301,7 +287,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     }
   }
 
-  // 5. Async Click Tracking via ctx.waitUntil
+  // 4. Async Click Tracking via ctx.waitUntil
   const ua = c.req.header('user-agent') || ''
   const referer = c.req.header('referer') || null
   const country = c.req.header('cf-ipcountry') || null

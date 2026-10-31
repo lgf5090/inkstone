@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../src/client/lib/i18n'
-import { installTestGlobals, renderElement } from '../src/client/lib/test-render'
+import { flushLazyModules, installTestGlobals, renderElement } from '../src/client/lib/test-render'
 import { ToolsApp } from '../src/client/features/tools/ToolsApp'
 import { ToolsSidebar } from '../src/client/features/tools/ToolsSidebar'
 import { useToolsStore } from '../src/client/features/tools/store'
@@ -146,6 +146,7 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
   describe('ToolsApp Top-level Rendering', () => {
     it('mounts ShortlinksApp when activeSubmodule is shortlinks', async () => {
       const view = await renderElement(<ToolsApp />)
+      await flushLazyModules(() => Boolean(view.container.querySelector('[data-testid="tools-shortlinks-root"]')))
       expect(view.container.textContent).toContain(t('tools.shortlinks.dashboard.quick_shorten'))
       expect(view.container.textContent).toContain(t('tools.shortlinks.dashboard.total_clicks'))
       view.unmount()

@@ -124,6 +124,15 @@ export interface RenderedElement {
 }
 
 /** Render a React node into a fresh container appended to document.body (portals land on body as usual). */
+export async function flushLazyModules(ready: () => boolean, tries = 100): Promise<void> {
+  for (let attempt = 0; attempt < tries; attempt++) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+    if (ready()) return
+  }
+}
+
 export function renderElement(node: ReactNode): RenderedElement {
   installTestGlobals()
   const container = document.createElement('div')
