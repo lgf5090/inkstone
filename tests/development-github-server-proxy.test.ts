@@ -535,3 +535,22 @@ describe('development github http errors', () => {
     await expect(githubJson('/user')).rejects.toMatchObject({ status: 502 })
   })
 })
+
+describe('development github repo detail cache', () => {
+  it('serves an anonymous detail from the short-lived cache', async () => {
+    stubFetch((url) => {
+      if (url.endsWith('/branches?per_page=100')) return jsonResponse([])
+      if (url.endsWith('/tags?per_page=100')) return jsonResponse([])
+      if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 1000 })
+      if (url.includes('/releases?per_page=30')) return jsonResponse([])
+      if (url.endsWith('/readme')) return new Response('# hi', { status: 200 })
+      return jsonResponse({}, 404)
+    })
+    const first = await fetchRepoDetail('cache/demo', 'main')
+    expect(calls).toHaveLength(5)
+    const second = await fetchRepoDetail('cache/demo', 'main')
+    expect(calls).toHaveLength(5)
+    expect(second).toEqual(first)
+    expect(second.readme).toBe('# hi')
+  })
+})

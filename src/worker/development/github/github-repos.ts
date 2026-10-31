@@ -19,6 +19,48 @@ import { githubJson, githubText } from './github-http'
 import { readHttpUrl, readNullableHttpUrl } from '@shared/development/github/url'
 
 const REPO_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
+const DETAIL_CACHE_TTL_MS = 5 * 60_000
+const DETAIL_CACHE_MAX_ENTRIES = 30
+const DETAIL_CACHE_MAX_BYTES = 12 * 1024 * 1024
+
+interface DetailCacheEntry {
+  detail: GithubRepoDetail
+  expiresAt: number
+  bytes: number
+}
+
+const detailCache = new Map<string, DetailCacheEntry>()
+let detailCacheBytes = 0
+
+function dropDetailEntry(key: string): void {
+  const entry = detailCache.get(key)
+  if (!entry) return
+  detailCache.delete(key)
+  detailCacheBytes -= entry.bytes
+}
+
+function readDetailCache(key: string): GithubRepoDetail | null {
+  const entry = detailCache.get(key)
+  if (!entry) return null
+  if (entry.expiresAt <= Date.now()) {
+    dropDetailEntry(key)
+    return null
+  }
+  return entry.detail
+}
+
+function writeDetailCache(key: string, detail: GithubRepoDetail): void {
+  if (detail.warnings.length > 0) return
+  const bytes = 4096 + (detail.readme?.length ?? 0) * 2
+  while (detailCache.size >= DETAIL_CACHE_MAX_ENTRIES || detailCacheBytes + bytes > DETAIL_CACHE_MAX_BYTES) {
+    const oldest = detailCache.keys().next().value
+    if (oldest === undefined) break
+    dropDetailEntry(oldest)
+  }
+  dropDetailEntry(key)
+  detailCache.set(key, { detail, expiresAt: Date.now() + DETAIL_CACHE_TTL_MS, bytes })
+  detailCacheBytes += bytes
+}
 
 const RANGE_DAYS: Record<Exclude<GithubSearchParams['range'], 'all'>, number> = {
   today: 0,
@@ -210,6 +252,11 @@ export async function fetchRepoDetail(
 ): Promise<GithubRepoDetail> {
   const parsed = parseRepoFullName(fullName)
   if (!parsed) throw ApiError.badRequest('A repository must be named owner/name')
+  const cacheKey = `${parsed.owner.toLowerCase()}/${parsed.name.toLowerCase()}|${defaultBranch ?? ''}`
+  if (!token) {
+    const cached = readDetailCache(cacheKey)
+    if (cached) return cached
+  }
   const base = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}`
   const request = { token, timeoutMs: GITHUB_DETAIL_TIMEOUT_MS }
   const [branches, tags, languages, releases, readme] = await Promise.all([
@@ -249,7 +296,7 @@ export async function fetchRepoDetail(
   const branchList = Array.isArray(branches.data) ? branches.data : []
   const tagList = Array.isArray(tags.data) ? tags.data : []
   const releaseList = Array.isArray(releases.data) ? releases.data : []
-  return {
+  const detail: GithubRepoDetail = {
     fullName: `${parsed.owner}/${parsed.name}`,
     branchesCount: branchList.length,
     branchesTruncated: branchList.length >= 100,
@@ -264,4 +311,6 @@ export async function fetchRepoDetail(
     warnings,
     rateLimited: warnings.some((warning) => warning.code === 'rate_limited'),
   }
+  if (!token) writeDetailCache(cacheKey, detail)
+  return detail
 }
