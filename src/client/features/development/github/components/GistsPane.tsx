@@ -143,7 +143,7 @@ export function GistsPane({
   const selectAll = () => setSelectedIds((previous) => { const all = items.length > 0 && items.every((gist) => previous.has(gist.id)); const next = new Set(previous); items.forEach((gist) => { if (all) next.delete(gist.id); else next.add(gist.id) }); return next })
   const batchPin = (pinned: boolean) => { if (selectedIds.size > 0) void batchUpdate(Array.from(selectedIds), { pinned }) }
   const batchFav = (favorited: boolean) => { if (selectedIds.size > 0) void batchUpdate(Array.from(selectedIds), { favorited }) }
-  const batchTag = (tag: string) => { if (selectedIds.size > 0) void batchUpdate(Array.from(selectedIds), { addTagIds: [tag] }) }
+  const batchTag = (tag: string, action: 'add' | 'remove') => { if (selectedIds.size > 0) void batchUpdate(Array.from(selectedIds), action === 'add' ? { addTagIds: [tag] } : { removeTagIds: [tag] }) }
   const batchRemove = async () => {
     if (selectedIds.size === 0) return
     const ok = await confirm({ title: t('development.github.gists.delete_title'), description: t('development.github.gists.delete_batch_desc', { count: selectedIds.size }), confirmLabel: t('development.github.gists.confirm_delete'), tone: 'danger' })

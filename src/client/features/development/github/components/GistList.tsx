@@ -139,7 +139,7 @@ export function GistList({
   onBatchDelete: () => void
   onBatchPin: (pinned: boolean) => void
   onBatchFav: (favorited: boolean) => void
-  onBatchTag: (tagId: string) => void
+  onBatchTag: (tagId: string, action: 'add' | 'remove') => void
   onCreate: () => void
   onImport: () => void
   loading: boolean
@@ -163,6 +163,9 @@ export function GistList({
   const savedOnPage = remote && savedRemoteIds
     ? items.reduce((count, gist) => count + (savedRemoteIds.has(gist.id) ? 1 : 0), 0)
     : 0
+  const selectedGists = items.filter((gist) => selectedIds.has(gist.id))
+  const allSelectedPinned = selectedGists.length > 0 && selectedGists.every((gist) => gist.pinned)
+  const allSelectedFavorited = selectedGists.length > 0 && selectedGists.every((gist) => gist.favorited)
   const sortItems: MenuItem[] = [
     ...(remote ? [] : [{ id: 'select-all', label: t('development.github.gists.select_all'), checked: allSelected, onSelect: onSelectAll }]),
     { id: 'view-mode', label: viewMode === 'list' ? t('development.github.gists.card_view') : t('development.github.gists.list_view'), icon: viewMode === 'list' ? <LayoutGrid size={13} /> : <List size={13} />, onSelect: () => onViewModeChange(viewMode === 'list' ? 'card' : 'list') },
@@ -170,7 +173,12 @@ export function GistList({
     { id: 'order', label: prefs.order === 'desc' ? t('development.github.gists.current_desc') : t('development.github.gists.current_asc'), separatorBefore: true, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }) },
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} />, separatorBefore: true, onSelect: onRefresh },
   ]
-  const tagItems: MenuItem[] = tags.length > 0 ? tags.map((tag) => ({ id: tag.id, label: tag.name, icon: <span className="size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />, onSelect: () => onBatchTag(tag.id) })) : [{ id: 'none', label: t('development.github.tags.no_tags'), disabled: true }]
+  const tagItems: MenuItem[] = tags.length > 0 ? [
+    { id: 'tag-add-header', label: t('development.github.tags.assign'), disabled: true },
+    ...tags.map((tag) => ({ id: `tag-add-${tag.id}`, label: tag.name, icon: <span className="size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />, onSelect: () => onBatchTag(tag.id, 'add') })),
+    { id: 'tag-remove-header', label: t('development.github.tags.remove_tag'), disabled: true, separatorBefore: true },
+    ...tags.map((tag) => ({ id: `tag-remove-${tag.id}`, label: tag.name, icon: <span className="size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />, onSelect: () => onBatchTag(tag.id, 'remove') })),
+  ] : [{ id: 'none', label: t('development.github.tags.no_tags'), disabled: true }]
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="gist-list">
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
@@ -190,8 +198,8 @@ export function GistList({
           <span>{t('development.github.gists.count', { count: totalCount })}</span>
           {!remote && selectedIds.size > 0 && <>
             <span className="font-medium text-[var(--accent)]">{t('development.github.gists.selected', { count: selectedIds.size })}</span>
-            <Button variant="ghost" size="sm" onClick={() => onBatchPin(true)}><Pin size={11} />{t('development.github.repos.pinned')}</Button>
-            <Button variant="ghost" size="sm" onClick={() => onBatchFav(true)}><Star size={11} />{t('development.github.repos.favorited')}</Button>
+            <Button variant="ghost" size="sm" onClick={() => onBatchPin(!allSelectedPinned)}><Pin size={11} />{allSelectedPinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')}</Button>
+            <Button variant="ghost" size="sm" onClick={() => onBatchFav(!allSelectedFavorited)}><Star size={11} />{allSelectedFavorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')}</Button>
             <Button ref={tagAnchor} variant="ghost" size="sm" onClick={() => setTagOpen(true)}><TagIcon size={11} />{t('development.github.tags.section')}</Button>
             <Button variant="ghost" size="sm" onClick={onBatchDelete}><Trash2 size={11} />{t('common.delete')}</Button>
           </>}
