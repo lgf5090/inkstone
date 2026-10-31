@@ -54,6 +54,7 @@ const FIELD_LABEL: Record<string, MessageKey> = {
   technologies: 'blog.admin.field_technologies',
   icon: 'blog.admin.field_icon',
   featured: 'blog.admin.field_featured',
+  website: 'blog.admin.field_url',
   repository: 'blog.admin.field_repository',
   year: 'blog.admin.field_year',
   level: 'blog.admin.field_level',

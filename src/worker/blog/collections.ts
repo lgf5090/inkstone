@@ -306,12 +306,13 @@ export async function listPublicCollection(
   const visible = kind === 'moments'
     ? items.filter((item) => item.status === 'published')
     : kind === 'albums'
-      ? items.filter((item) => item.status === 'published' && item.data.hasPassword === false)
+      ? items.filter((item) => item.status === 'published')
       : kind === 'friends'
         ? items.filter((item) => item.status === 'published')
         : items
   return visible.map((item) => {
     const data = { ...item.data }
+    if (kind === 'albums') data.locked = data.hasPassword === true
     delete data.password_hint
     delete data.password
     delete data.hasPassword

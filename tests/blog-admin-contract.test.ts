@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { BLOG_SCHEMA_STATEMENTS } from '../src/worker/blog/schema'
 import { NAV_SCHEMA_STATEMENTS } from '../src/worker/nav/schema'
-import { applyFriend, ensureFriendConfig, friendAdminConfig, listPublicFriends } from '../src/worker/blog/friends'
+import { applyFriend, ensureFriendConfig, friendAdminConfig, listPublicFriends, parseFriendIconHtml } from '../src/worker/blog/friends'
 import { syncBlogPageFromNote } from '../src/worker/blog/pages'
 import { listPublicCollection, saveCollectionItem } from '../src/worker/blog/collections'
 import {
@@ -187,6 +187,11 @@ describe('blog admin projection', () => {
     expect(publicList.links[0]?.icon).toBe('/api/blog/assets/asset-1')
     expect(publicList.categories.some((category) => category.id === config.applications.id)).toBe(false)
     expect((await listPublicFriends(db, USER)).links).toHaveLength(1)
+  })
+
+  it('reads the declared icon link from a public page', () => {
+    expect(parseFriendIconHtml('<link rel="shortcut icon" href="/assets/icon.png">', 'https://friend.test/blog/')).toBe('https://friend.test/assets/icon.png')
+    expect(parseFriendIconHtml('<html></html>', 'https://friend.test/blog/')).toBe('https://friend.test/favicon.ico')
   })
 
   it('keeps public applications out of the friends projection', async () => {
@@ -408,18 +413,24 @@ describe('blog admin projection', () => {
     expect(raw).toHaveLength(1)
   })
 
-  it('keeps protected albums out of the public collection and strips their hint', async () => {
+  it('keeps protected albums visible as locked and strips their password fields', async () => {
     const open = await saveCollectionItem(db, USER, 'albums', null, { title: 'Open album', published_at: Date.now() })
-    await saveCollectionItem(db, USER, 'albums', null, {
+    const locked = await saveCollectionItem(db, USER, 'albums', null, {
       title: 'Locked album',
       published_at: Date.now(),
       password: 'secret-pass',
       password_hint: 'the usual one',
     })
     const items = await listPublicCollection(db, USER, 'albums')
-    expect(items.map((item) => item.id)).toEqual([open.id])
-    expect(items[0].data.password_hint).toBeUndefined()
-    expect(items[0].data.hasPassword).toBeUndefined()
+    const byId = new Map(items.map((item) => [item.id, item]))
+    expect(byId.size).toBe(2)
+    expect(byId.get(open.id)?.data.locked).toBe(false)
+    expect(byId.get(locked.id)?.data.locked).toBe(true)
+    for (const item of items) {
+      expect(item.data.password_hint).toBeUndefined()
+      expect(item.data.password).toBeUndefined()
+      expect(item.data.hasPassword).toBeUndefined()
+    }
   })
 
   it('fills a cleared album column count instead of failing its NOT NULL column', async () => {

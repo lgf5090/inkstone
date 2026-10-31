@@ -3024,6 +3024,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
     skipIfColumnExists: { table: 'nav_categories', column: 'kind' },
   },
+  {
+    version: 202,
+    statements: [
+      `ALTER TABLE blog_timeline ADD COLUMN location TEXT NOT NULL DEFAULT ''`,
+    ],
+    skipIfColumnExists: { table: 'blog_timeline', column: 'location' },
+  },
+  {
+    version: 203,
+    statements: [
+      `ALTER TABLE blog_projects ADD COLUMN website TEXT NOT NULL DEFAULT ''`,
+    ],
+    skipIfColumnExists: { table: 'blog_projects', column: 'website' },
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

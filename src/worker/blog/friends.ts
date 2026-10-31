@@ -231,18 +231,8 @@ const ICON_TAG = /<link\b[^>]*>/gi
 const ICON_REL = /\brel\s*=\s*["']?([^"'>]+)/i
 const ICON_HREF = /\bhref\s*=\s*["']([^"']+)["']/i
 
-/** Reads the public site's icon link without storing it; only the returned URL is kept. */
-export async function resolveFriendIcon(raw: string): Promise<string> {
-  const url = normalizeLinkUrl(raw)
-  if (!url || !/^https?:\/\//i.test(url)) throw ApiError.badRequest('Enter a valid http(s) address')
-  const result = await guardedFetch(url, { timeoutMs: 6000, maxRedirects: 3, headers: { Accept: 'text/html,application/xhtml+xml' } })
-  if (result.error || !result.response.ok) throw ApiError.badRequest('The site did not return a readable page')
-  const type = result.response.headers.get('content-type') ?? ''
-  if (/^image\//i.test(type)) return result.finalUrl
-  const bytes = await readGuardedBytes(result.response, 256 * 1024, 6000)
-  if (!bytes) throw ApiError.badRequest('The site did not return a readable page')
-  const html = new TextDecoder().decode(bytes)
-  const base = new URL(result.finalUrl)
+export function parseFriendIconHtml(html: string, baseUrl: string): string {
+  const base = new URL(baseUrl)
   for (const tag of html.match(ICON_TAG) ?? []) {
     const rel = ICON_REL.exec(tag)?.[1] ?? ''
     const href = ICON_HREF.exec(tag)?.[1] ?? ''
@@ -257,6 +247,19 @@ export async function resolveFriendIcon(raw: string): Promise<string> {
   return new URL('/favicon.ico', base).toString()
 }
 
+/** Reads the public site's icon link without storing it; only the returned URL is kept. */
+export async function resolveFriendIcon(raw: string): Promise<string> {
+  const url = normalizeLinkUrl(raw)
+  if (!url || !/^https?:\/\//i.test(url)) throw ApiError.badRequest('Enter a valid http(s) address')
+  const result = await guardedFetch(url, { timeoutMs: 6000, maxRedirects: 3, headers: { Accept: 'text/html,application/xhtml+xml' } })
+  if (result.error || !result.response.ok) throw ApiError.badRequest('The site did not return a readable page')
+  const type = result.response.headers.get('content-type') ?? ''
+  if (/^image\//i.test(type)) return result.finalUrl
+  const bytes = await readGuardedBytes(result.response, 256 * 1024, 6000)
+  if (!bytes) throw ApiError.badRequest('The site did not return a readable page')
+  return parseFriendIconHtml(new TextDecoder().decode(bytes), result.finalUrl)
+}
+
 export async function applyFriend(db: D1Database, userId: string, input: FriendApplicationInput): Promise<{ duplicate: boolean }> {
   const { store, friends, applications } = await ensureFriendConfig(db, userId)
   const title = typeof input.title === 'string' ? input.title.trim().slice(0, 200) : ''
@@ -266,7 +269,7 @@ export async function applyFriend(db: D1Database, userId: string, input: FriendA
   if (!url || !/^https?:\/\//i.test(url)) throw ApiError.badRequest('Enter a valid http(s) address')
   const description = typeof input.description === 'string' ? input.description.trim().slice(0, 500) : ''
   const rawIcon = typeof input.icon === 'string' ? input.icon.trim().slice(0, 2048) : ''
-  const icon = rawIcon && /^https?:\/\//i.test(rawIcon) ? rawIcon : null
+  const icon = rawIcon && (/^https?:\/\//i.test(rawIcon) || /^\/api\/blog\/assets\/[A-Za-z0-9_-]+$/.test(rawIcon)) ? rawIcon : null
   const rows = await store.categoryRows()
   const targets = new Set([...subtree(friends, rows), ...subtree(applications, rows)].map((row) => row.id))
   const links = (await store.links()).filter((link) => targets.has(link.categoryId))

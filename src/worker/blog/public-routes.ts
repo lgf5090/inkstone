@@ -24,6 +24,7 @@ import {
   listApprovedComments,
 } from './comments'
 import { applyFriend, listPublicFriends, resolveFriendIcon } from './friends'
+import { uploadMedia } from './media'
 import { renderSVG } from 'uqr'
 import { getPublishedPage, listPublishedPages } from './pages'
 import { sanitizeBlogHtml } from './sanitize'
@@ -420,13 +421,33 @@ blogPublicRoutes.get('/redirect', async (c) => {
   return c.json({ found: true, to: row.to_slug, status: row.status }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60' })
 })
 
+blogPublicRoutes.post('/collections/albums/:slug/unlock', async (c) => {
+  const userId = await ownerId(c)
+  const album = await c.env.DB.prepare(
+    `SELECT id, password_hash, password_hint FROM blog_albums WHERE user_id = ?1 AND slug = ?2 AND published_at IS NOT NULL AND published_at <= ?3`,
+  ).bind(userId, c.req.param('slug'), Date.now()).first<{ id: string; password_hash: string | null; password_hint: string }>()
+  if (!album) throw ApiError.notFound('Album not found')
+  if (!album.password_hash) return c.json({ token: null, notProtected: true }, 200, { 'Cache-Control': 'no-store' })
+  const body = await readJson<{ password?: unknown }>(c, 4096)
+  const password = typeof body.password === 'string' ? body.password : ''
+  const target = `album:${album.id}`
+  const ip = requestClientIp(c)
+  await guardUnlockAttempt(c.env.DB, target, ip)
+  if (!(await verifyPassword(password, album.password_hash))) throw new ApiError(403, 'wrong_password', 'Incorrect password')
+  await clearUnlockAttempts(c.env.DB, target, ip)
+  const token = await issueUnlockToken(c.env, target)
+  if (!token) throw unlockNotConfigured()
+  return c.json({ token, expiresAt: unlockExpiry() }, 200, { 'Cache-Control': 'no-store' })
+})
+
 blogPublicRoutes.get('/collections/albums/:slug', async (c) => {
   const userId = await ownerId(c)
   const album = await c.env.DB.prepare(
     `SELECT * FROM blog_albums WHERE user_id = ?1 AND slug = ?2 AND published_at IS NOT NULL AND published_at <= ?3`,
   ).bind(userId, c.req.param('slug'), Date.now()).first<Record<string, unknown>>()
   if (!album) throw ApiError.notFound('Album not found')
-  if (typeof album.password_hash === 'string' && album.password_hash) {
+  if (typeof album.password_hash === 'string' && album.password_hash
+    && !(await verifyUnlockToken(c.env, `album:${album.id}`, c.req.header('x-blog-album-unlock')))) {
     throw new ApiError(403, 'forbidden', 'This album is protected', { protected: true, hint: album.password_hint })
   }
   const { results: photos } = await c.env.DB.prepare(
@@ -446,7 +467,7 @@ blogPublicRoutes.get('/collections/albums/:slug', async (c) => {
       id: photo.id, assetId: photo.asset_id, url: `/api/blog/assets/${photo.asset_id}`,
       caption: photo.caption, alt: photo.alt, takenAt: photo.taken_at, position: photo.position,
     })),
-  }, 200, { 'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=300' })
+  }, 200, { 'Cache-Control': 'no-store' })
 })
 
 blogPublicRoutes.get('/collections/compass', async (c) => {
@@ -509,6 +530,26 @@ blogPublicRoutes.post('/friends/icon', async (c) => {
   } catch (error) {
     if (error instanceof ApiError) throw error
     throw ApiError.badRequest('The icon could not be read')
+  }
+})
+
+blogPublicRoutes.post('/friends/icon-upload', async (c) => {
+  const userId = await ownerId(c)
+  const ipKey = `blog-friend-icon-upload:${await sha256Hex(`${requestClientIp(c)}|${userId}`)}`
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{ key: ipKey, maxAttempts: 10, windowMs: 60 * 60 * 1000, lockMs: 30 * 60 * 1000 }]),
+    'Too many icon uploads',
+  )
+  const form = await c.req.formData().catch(() => null)
+  const file = form?.get('file')
+  if (!(file instanceof File)) throw ApiError.badRequest('Choose an image file')
+  if (file.size <= 0 || file.size > 256 * 1024) throw ApiError.badRequest('The icon must be at most 256 KB')
+  if (!/^image\/(png|jpeg|gif|webp|avif)$/i.test(file.type)) throw ApiError.badRequest('Choose a PNG, JPEG, GIF, WebP or AVIF image')
+  try {
+    const item = await uploadMedia({ FILES: c.env.FILES }, c.env.DB, userId, file)
+    return c.json({ icon: item.url }, 201)
+  } catch (error) {
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'The icon could not be stored')
   }
 })
 
