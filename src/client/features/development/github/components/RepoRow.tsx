@@ -11,6 +11,8 @@ import { getLanguageColor } from '../lib/languages'
 import { AssignedTagChips, TagAssign } from './TagAssign'
 import { GithubAvatar } from './GithubAvatar'
 
+const VISIBLE_TOPICS = 5
+
 export interface RepoRowProps {
   repo: GithubRepo
   rank: number
@@ -79,8 +81,8 @@ export const RepoRow = memo(function RepoRow({
               {repo.description && <p className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{repo.description}</p>}
               {repo.topics.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
-                  {repo.topics.slice(0, 5).map((topic) => <span key={topic} className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]">{topic}</span>)}
-                  {repo.topics.length > 5 && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{repo.topics.length - 5}</span>}
+                  {repo.topics.slice(0, VISIBLE_TOPICS).map((topic) => <span key={topic} className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]">{topic}</span>)}
+                  {repo.topics.length > VISIBLE_TOPICS && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{repo.topics.length - VISIBLE_TOPICS}</span>}
                 </div>
               )}
               {assigned.length > 0 && <div className="mt-1.5 flex flex-wrap items-center gap-1">

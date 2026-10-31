@@ -13,6 +13,11 @@ import { Menu, type MenuItem } from '../../../../components/overlay'
 import { formatDate } from '../lib/format'
 import { AssignedTagChips, TagAssign } from './TagAssign'
 
+const ROW_VISIBLE_FILES = 4
+const CARD_PREVIEW_CHARS = 200
+const CARD_VISIBLE_FILES = 3
+const CARD_VISIBLE_TAGS = 3
+
 function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, onSelect, onTogglePin, onToggleFav, onToggleTag, onSaveToLocal }: { gist: SavedGist; tags: GithubTag[]; selected: boolean; checked: boolean; remote: boolean; savedRemote: boolean; onCheck: (id: string, checked: boolean) => void; onSelect: () => void; onTogglePin: () => void; onToggleFav: () => void; onToggleTag: (tagId: string) => void; onSaveToLocal: () => void }) {
   const toast = useUi((state) => state.toast)
   const assigned = tags.filter((tag) => gist.tagIds.includes(tag.id))
@@ -46,7 +51,7 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
               )}
             </div>
           </div>
-          {gist.data.files.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{gist.data.files.slice(0, 4).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-1 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}{gist.data.files.length > 4 && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{gist.data.files.length - 4}</span>}</div>}
+          {gist.data.files.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{gist.data.files.slice(0, ROW_VISIBLE_FILES).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-1 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}{gist.data.files.length > ROW_VISIBLE_FILES && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{gist.data.files.length - ROW_VISIBLE_FILES}</span>}</div>}
           {!remote && assigned.length > 0 && <div className="mt-1.5 flex flex-wrap items-center gap-1"><AssignedTagChips tags={assigned} /></div>}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             <span className="inline-flex items-center gap-0.5"><FileCode size={10} />{t('development.github.gists.file_count', { count: gist.data.fileCount })}</span>
@@ -86,9 +91,9 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
           </>
         )}
       </div>
-      {first && <pre className="mt-2 max-h-24 overflow-hidden rounded bg-[var(--bg-inset)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]"><code className="line-clamp-4 font-mono">{first.content.slice(0, 200) || t('development.github.gists.empty_file')}</code></pre>}
-      <div className="mt-2 flex flex-wrap gap-1">{gist.data.files.slice(0, 3).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-0.5 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}</div>
-      {!remote && <div className="mt-2 flex items-center gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-1"><AssignedTagChips tags={assigned.slice(0, 3)} /></div><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</span></div>}
+      {first && <pre className="mt-2 max-h-24 overflow-hidden rounded bg-[var(--bg-inset)] p-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]"><code className="line-clamp-4 font-mono">{first.content.slice(0, CARD_PREVIEW_CHARS) || t('development.github.gists.empty_file')}</code></pre>}
+      <div className="mt-2 flex flex-wrap gap-1">{gist.data.files.slice(0, CARD_VISIBLE_FILES).map((file, index) => <span key={`${file.filename}-${index}`} className="inline-flex items-center gap-0.5 rounded bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><FileCode size={9} />{file.filename}</span>)}</div>
+      {!remote && <div className="mt-2 flex items-center gap-2"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-1"><AssignedTagChips tags={assigned.slice(0, CARD_VISIBLE_TAGS)} /></div><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</span></div>}
       {remote && <div className="mt-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{gist.data.fileCount} · {formatDate(gist.data.updatedAt)}</div>}
     </div>
   )

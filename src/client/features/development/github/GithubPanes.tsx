@@ -5,6 +5,9 @@ import { Drawer } from '../../../components/overlay'
 import { Resizer, SplitResizer } from '../../shell/Resizer'
 import { loadLayoutPrefs, saveLayoutPrefs, type GithubLayoutPrefs } from './prefs'
 
+const WIDE_QUERY = '(min-width: 1280px)'
+const TWO_PANE_QUERY = '(min-width: 1024px)'
+
 export interface ListPaneControls {
   toggleSidebar: () => void
   toggleDetail: () => void
@@ -30,8 +33,8 @@ export function GithubPanes({
   detail,
   detailDisabled = false,
 }: GithubPanesProps) {
-  const wide = useMediaQuery('(min-width: 1280px)')
-  const twoPane = useMediaQuery('(min-width: 1024px)')
+  const wide = useMediaQuery(WIDE_QUERY)
+  const twoPane = useMediaQuery(TWO_PANE_QUERY)
   const [initial] = useState(loadLayoutPrefs)
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(300, Math.max(200, initial.sidebarWidth)))
   const [sidebarHidden, setSidebarHidden] = useState(false)
