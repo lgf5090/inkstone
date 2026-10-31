@@ -110,6 +110,7 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
   const release = detail.releases[releaseIndex]
   const currentAsset = release?.assets.find((asset) => asset.name === assetName) ?? release?.assets[0]
   const mirrorBase = mirror?.url ?? ''
+  const readmeFailed = detail.warnings.some((warning) => warning.source === 'readme')
 
   return (
     <div className="h-full min-w-0 overflow-y-auto overscroll-contain" data-slot="repo-detail">
@@ -158,7 +159,7 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
 
       <div className="p-4">
         <div className="mb-2 flex items-center gap-2"><FileText size={15} className="text-[var(--text-tertiary)]" /><h3 className="text-[length:var(--text-13)] font-semibold">{t('development.github.repos.readme')}</h3>{detail.readmeHtmlUrl && <a href={detail.readmeHtmlUrl} target="_blank" rel="noopener noreferrer" className="ml-auto inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{t('development.github.repos.view_on_github')}</a>}</div>
-        {readmeHtml ? <div className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.repos.no_readme')}</p>}
+        {readmeHtml ? <div className={cn('github-readme ink-prose max-w-none', 'overflow-x-auto')} dangerouslySetInnerHTML={{ __html: readmeHtml }} /> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{readmeFailed ? t('development.github.repos.readme_failed') : t('development.github.repos.no_readme')}</p>}
       </div>
     </div>
   )
