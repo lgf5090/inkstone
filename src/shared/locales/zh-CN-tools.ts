@@ -940,6 +940,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.preview.show_guides': '标准参考辅助线',
   'tools.id_photo.preview.compare_original': '对比原图',
   'tools.id_photo.preview.fullscreen': '全屏检查',
+  'tools.id_photo.preview.render_failed': '预览渲染失败，请关闭后重试',
   'tools.id_photo.preview.empty_title': '尚未选择或上传人像',
   'tools.id_photo.preview.empty_desc': '请在左侧上传半身照，系统将自动适配国家标准证件照',
 

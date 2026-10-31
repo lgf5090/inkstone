@@ -86,6 +86,58 @@ describe('ID Photo Studio UI Integration Tests', () => {
     view.unmount()
   })
 
+  it('opens the fullscreen review dialog from the preview toolbar', async () => {
+    const view = await renderElement(<IdPhotoApp />)
+
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    const trigger = view.container.querySelector(
+      `button[aria-label="${t('tools.id_photo.preview.fullscreen')}"]`,
+    ) as HTMLButtonElement | null
+    expect(trigger).not.toBeNull()
+
+    act(() => {
+      trigger?.click()
+    })
+
+    expect(useIdPhotoStore.getState().fullscreenModalOpen).toBe(true)
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain(t('tools.id_photo.preview.fullscreen'))
+
+    act(() => {
+      useIdPhotoStore.getState().setFullscreenModalOpen(false)
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    view.unmount()
+  })
+
+  it('opens the custom spec dialog from the studio spec tab', async () => {
+    const view = await renderElement(<IdPhotoApp />)
+
+    const addButton = Array.from(view.container.querySelectorAll('button')).find((button) =>
+      (button.textContent ?? '').includes(t('tools.id_photo.spec.add_custom')),
+    )
+    expect(addButton).toBeDefined()
+
+    act(() => {
+      addButton?.click()
+    })
+
+    expect(useIdPhotoStore.getState().customSpecModalOpen).toBe(true)
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain(t('tools.id_photo.spec.add_custom'))
+
+    act(() => {
+      useIdPhotoStore.getState().setCustomSpecModalOpen(false)
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+
+    view.unmount()
+  })
+
   it('loads saved custom specs on mount so they stay selectable', async () => {
     const customSpec = {
       id: 'spec_custom_1',
@@ -110,8 +162,10 @@ describe('ID Photo Studio UI Integration Tests', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const view = await renderElement(<IdPhotoApp />)
-    await vi.waitFor(() => {
-      expect(useIdPhotoStore.getState().customSpecs.map((s) => s.id)).toContain('spec_custom_1')
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(useIdPhotoStore.getState().customSpecs.map((s) => s.id)).toContain('spec_custom_1')
+      })
     })
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/api/tools/id-photo/specs'))).toBe(true)
 

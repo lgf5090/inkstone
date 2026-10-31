@@ -940,6 +940,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.preview.show_guides': 'Standard Guide Lines',
   'tools.id_photo.preview.compare_original': 'Compare Original',
   'tools.id_photo.preview.fullscreen': 'Fullscreen Inspect',
+  'tools.id_photo.preview.render_failed': 'Preview rendering failed, close and try again',
   'tools.id_photo.preview.empty_title': 'No Photo Selected',
   'tools.id_photo.preview.empty_desc': 'Upload a portrait on the left panel to auto-frame official ID photo',
 

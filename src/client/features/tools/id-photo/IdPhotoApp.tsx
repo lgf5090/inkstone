@@ -6,6 +6,7 @@ import { useIdPhotoStore } from './store'
 import { IdPhotoUploadCard } from './content/IdPhotoUploadCard'
 import { IdPhotoOptionsPanel } from './options/IdPhotoOptionsPanel'
 import { IdPhotoPreviewCard } from './preview/IdPhotoPreviewCard'
+import { IdPhotoFullscreenModal } from './preview/IdPhotoFullscreenModal'
 import { IdPhotoExportControls } from './export/IdPhotoExportControls'
 import { IdPhotoComplianceView } from './compliance/IdPhotoComplianceView'
 import { IdPhotoPrintView } from './print/IdPhotoPrintView'
@@ -59,6 +60,8 @@ export function IdPhotoApp() {
       {activeIdPhotoView === 'specs' && <IdPhotoSpecsView />}
       {activeIdPhotoView === 'history' && <IdPhotoHistoryView />}
       {activeIdPhotoView === 'settings' && <IdPhotoSettingsView />}
+
+      <IdPhotoFullscreenModal />
     </div>
   )
 }
