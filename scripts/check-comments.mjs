@@ -37968,6 +37968,7 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- Backups & Import/Export",
     "// ---------------------------------------------------------------- API Keys",
     "// The title sniff is a second network hop; creating a link must not wait on the target site.",
+    "// Best-effort backfill: a failed sniff must not surface to the person who just created the link.",
   ]],
   ["src/worker/routes/transfer.ts", [
     "// sha256/size were computed at persist time; re-downloading every matching",

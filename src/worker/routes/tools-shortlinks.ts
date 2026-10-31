@@ -145,7 +145,9 @@ toolsShortlinksRoutes.post('/links', async (c) => {
   const link = await store.createLink(body)
   if (!link.label) {
     // The title sniff is a second network hop; creating a link must not wait on the target site.
-    const fill = store.fillMissingLabel(link.id).catch(() => {})
+    const fill = store.fillMissingLabel(link.id).catch(() => {
+      // Best-effort backfill: a failed sniff must not surface to the person who just created the link.
+    })
     try {
       c.executionCtx.waitUntil(fill)
     } catch {
