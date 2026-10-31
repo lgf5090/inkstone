@@ -12,13 +12,13 @@ function SidebarItem({ icon, label, count, active, onClick }: { icon: React.Reac
     <button type="button" onClick={onClick} data-active={active || undefined} className={cn('flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
       <span className="shrink-0">{icon}</span>
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      {count !== undefined && <span className="shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-10)] tabular text-[var(--text-tertiary)]">{count}</span>}
+      {count !== undefined && <span className="shrink-0 rounded-full bg-[var(--bg-raised)] px-1.5 py-0.5 text-[length:var(--text-11)] tabular text-[var(--text-tertiary)]">{count}</span>}
     </button>
   )
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="px-2 pb-1 text-[length:var(--text-10)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{children}</p>
+  return <p className="px-2 pb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{children}</p>
 }
 
 function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, countForTag, depth }: { node: TagTreeNode<GithubTag>; selectedView: GithubViewId; onSelect: (view: string) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; countForTag: (id: string) => number; depth: number }) {
@@ -37,7 +37,7 @@ function TagTreeItem({ node, selectedView, onSelect, expanded, onToggleExpand, c
         <button type="button" onClick={() => onSelect(viewId)} data-active={active || undefined} className={cn('flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--r-md)] px-1.5 py-1.5 text-[length:var(--text-12)] transition-colors', active ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')}>
           <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: node.color }} />
           <span className="min-w-0 flex-1 truncate text-left">{node.name}</span>
-          <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{countForTag(node.id)}</span>
+          <span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{countForTag(node.id)}</span>
         </button>
       </div>
       {hasChildren && open && node.children.map((child) => <TagTreeItem key={child.id} node={child} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} countForTag={countForTag} depth={depth + 1} />)}

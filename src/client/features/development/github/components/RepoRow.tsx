@@ -74,7 +74,7 @@ export const RepoRow = memo(function RepoRow({
                 <a href={repo.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline" title={repo.fullName}>
                   {repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span>
                 </a>
-                {repo.isArchived && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--warning)]"><Archive size={10} /> {t('development.github.repos.archived')}</span>}
+                {repo.isArchived && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--warning)]"><Archive size={10} /> {t('development.github.repos.archived')}</span>}
                 <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                   <IconButton label={saved?.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onTogglePin(repo) }}><Pin size={13} className={cn(saved?.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={saved?.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFav(repo) }}><Star size={13} className={cn(saved?.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
@@ -86,14 +86,14 @@ export const RepoRow = memo(function RepoRow({
               {repo.description && <p className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{repo.description}</p>}
               {repo.topics.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
-                  {repo.topics.slice(0, 5).map((topic) => <span key={topic} className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-10)] font-medium text-[var(--accent-on-soft)]">{topic}</span>)}
-                  {repo.topics.length > 5 && <span className="text-[length:var(--text-10)] text-[var(--text-quaternary)]">+{repo.topics.length - 5}</span>}
+                  {repo.topics.slice(0, 5).map((topic) => <span key={topic} className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]">{topic}</span>)}
+                  {repo.topics.length > 5 && <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">+{repo.topics.length - 5}</span>}
                 </div>
               )}
               {assigned.length > 0 && <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <AssignedTagChips tags={assigned} />
               </div>}
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
                 {repo.language && <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-full" style={{ backgroundColor: getLanguageColor(repo.language) }} />{repo.language}</span>}
                 <span className="inline-flex items-center gap-1" title={t('development.github.repos.stars')}><Star size={10} />{formatNumber(repo.stargazersCount)}</span>
                 <span className="inline-flex items-center gap-1" title={t('development.github.repos.forks')}><GitFork size={10} />{formatNumber(repo.forksCount)}</span>

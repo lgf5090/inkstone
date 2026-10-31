@@ -54,7 +54,7 @@ export function TagColorPicker({ value, onChange }: { value: string; onChange: (
           {t('common.clear')}
         </Button>
       </div>
-      {error && <p role="alert" className="text-[length:var(--text-10-5)] text-[var(--danger)]">{t('development.github.tags.invalid_color')}</p>}
+      {error && <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('development.github.tags.invalid_color')}</p>}
     </div>
   )
 }

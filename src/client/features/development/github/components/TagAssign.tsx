@@ -61,7 +61,7 @@ export function TagAssign({
         ref={anchor}
         variant="secondary"
         size="sm"
-        className="h-6 gap-1 border-dashed px-2 text-[length:var(--text-10-5)]"
+        className="h-6 gap-1 border-dashed px-2 text-[length:var(--text-11)]"
         onClick={(event) => {
           event.preventDefault()
           event.stopPropagation()

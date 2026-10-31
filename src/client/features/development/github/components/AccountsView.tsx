@@ -87,7 +87,7 @@ export function AccountsView({
                   : <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-inset)]"><UserRound size={15} className="text-[var(--text-tertiary)]" /></span>}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[length:var(--text-13)] font-medium">{account.username}</p>
-                  <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                  <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
                     {t('development.github.accounts.added_at', { date: new Date(account.createdAt).toLocaleDateString(localeTag()) })}
                   </p>
                 </div>
@@ -121,7 +121,7 @@ export function AccountsView({
             {t('development.github.accounts.add')}
           </Button>
         </div>
-        <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+        <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
           {t('development.github.accounts.token_hint')} <code className="rounded bg-[var(--bg-inset)] px-1">{t('development.github.accounts.token_scope')}</code>{t('development.github.accounts.token_hint2')}
         </p>
         <a href="https://github.com/settings/tokens/new?scopes=gist" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline">
