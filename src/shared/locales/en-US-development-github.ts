@@ -194,6 +194,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.repos.my_repos": "My repos",
   "development.github.repos.no_assets": "This release has no assets (source archive only)",
   "development.github.repos.no_readme": "This repo has no README",
+  "development.github.repos.readme_too_large": "This README is too large to render here. Open it on GitHub.",
   "development.github.repos.readme_failed": "The README could not be loaded. Try again later.",
   "development.github.repos.no_release": "No releases available",
   "development.github.repos.no_releases": "This repo has no releases",
