@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GistItem, GistPrefs, GistViewId, SavedGist } from '@shared/development/github/types'
 import { GIST_ALL_VIEW, GIST_FAV_VIEW, GIST_MY_GITHUB_VIEW, GIST_PINNED_VIEW, GIST_EXPLORE_VIEW, extractUsernameFromView, isRemoteView } from '@shared/development/github/types'
+import { MAX_GIST_DATA_BYTES } from '@shared/development/github/limits'
+import { utf8ByteLength } from '@shared/text-utils'
 import { t } from '../../../../lib/i18n'
 import { useGithubStore } from '../store'
 import { loadGistPrefs, loadGistViewMode, saveGistPrefs, saveGistViewMode } from '../prefs'
@@ -125,6 +127,12 @@ export function GistsPane({
   const toggleFav = (gist: SavedGist) => { const current = currentGist(gist); void persist({ ...current, favorited: !current.favorited }) }
   const toggleTag = (gist: SavedGist, tag: string) => { const current = currentGist(gist); void persist({ ...current, tagIds: current.tagIds.includes(tag) ? current.tagIds.filter((id) => id !== tag) : [...current.tagIds, tag] }) }
   const updateNotes = (notes: string) => { const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId); if (current) void persist({ ...current, notes }) }
+  const snapshotFits = (data: GistItem): boolean =>
+    utf8ByteLength(JSON.stringify(data)) <= MAX_GIST_DATA_BYTES
+  const snapshotTooLarge = (): string =>
+    t('development.github.gists.snapshot_too_large', {
+      limit: Math.round(MAX_GIST_DATA_BYTES / (1024 * 1024)),
+    })
   const saveLocal = async (gist: SavedGist) => {
     let data = gist.data
     if (data.files.some((file) => !file.content && file.size > 0)) {
@@ -134,6 +142,10 @@ export function GistsPane({
         toast({ title: cause instanceof Error ? cause.message : t('development.github.common.load_failed'), tone: 'danger' })
         return
       }
+    }
+    if (!snapshotFits(data)) {
+      toast({ title: snapshotTooLarge(), tone: 'danger' })
+      return
     }
     const now = Date.now()
     persist({ id: gist.id, description: data.description, url: data.url, data, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now })
@@ -177,6 +189,7 @@ export function GistsPane({
   const updateLocal = (gist: GistItem) => {
     const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId)
     if (!current) return undefined
+    if (!snapshotFits(gist)) throw new Error(snapshotTooLarge())
     return persist({ ...current, description: gist.description, url: gist.url || current.url, data: gist })
   }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
@@ -244,7 +257,7 @@ export function GistsPane({
         detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
-      <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
+      <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
       <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
     </>
   )

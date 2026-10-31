@@ -11,6 +11,7 @@ export const MAX_GIST_DATA_BYTES = 1024 * 1024
 export const MAX_GIST_FILES = 50
 export const MAX_GIST_FILENAME = 200
 export const MAX_GIST_FILE_BYTES = 512 * 1024
+export const MAX_GIST_TOTAL_CONTENT_BYTES = 768 * 1024
 export const MAX_BATCH_IDS = 500
 export const MAX_EXPORT_BYTES = 8 * 1024 * 1024
 export const EXPORT_TTL_MS = 24 * 60 * 60 * 1000

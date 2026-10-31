@@ -2,8 +2,11 @@ import {
   MAX_GIST_FILES,
   MAX_GIST_FILENAME,
   MAX_GIST_FILE_BYTES,
+  MAX_GIST_TOTAL_CONTENT_BYTES,
 } from '@shared/development/github/limits'
+import type { MessageKey } from '@shared/locales/en-US'
 import type { GistFile } from '@shared/development/github/types'
+import { utf8ByteLength } from '@shared/text-utils'
 import { inferLanguage } from './format'
 
 export type GistFileIssue =
@@ -13,6 +16,26 @@ export type GistFileIssue =
   | 'duplicate_filename'
   | 'filename_too_long'
   | 'file_too_large'
+  | 'total_too_large'
+
+export function gistFileIssueKey(issue: GistFileIssue): MessageKey {
+  switch (issue) {
+    case 'empty_files':
+      return 'development.github.gists.filename_required'
+    case 'too_many_files':
+      return 'development.github.gists.files_too_many'
+    case 'empty_filename':
+      return 'development.github.gists.filename_required'
+    case 'duplicate_filename':
+      return 'development.github.gists.filename_duplicate'
+    case 'filename_too_long':
+      return 'development.github.gists.filename_too_long'
+    case 'file_too_large':
+      return 'development.github.gists.file_too_large'
+    case 'total_too_large':
+      return 'development.github.gists.content_too_large'
+  }
+}
 
 export class GistFileError extends Error {
   constructor(
@@ -32,20 +55,25 @@ export function normalizeGistFiles(files: readonly GistFile[]): GistFile[] {
   if (files.length === 0) throw new GistFileError('empty_files', 0)
   if (files.length > MAX_GIST_FILES) throw new GistFileError('too_many_files', MAX_GIST_FILES)
   const seen = new Set<string>()
-  return files.map((file, index) => {
+  let total = 0
+  const normalized = files.map((file, index) => {
     const filename = file.filename.trim()
     if (!filename) throw new GistFileError('empty_filename', index)
     if (filename.length > MAX_GIST_FILENAME) throw new GistFileError('filename_too_long', index)
     if (seen.has(filename)) throw new GistFileError('duplicate_filename', index)
     seen.add(filename)
-    if (file.content.length > MAX_GIST_FILE_BYTES) throw new GistFileError('file_too_large', index)
+    const size = utf8ByteLength(file.content)
+    if (size > MAX_GIST_FILE_BYTES) throw new GistFileError('file_too_large', index)
+    total += size
+    if (total > MAX_GIST_TOTAL_CONTENT_BYTES) throw new GistFileError('total_too_large', index)
     return {
       filename,
       language: file.language?.trim() || inferGistLanguage(filename),
       content: file.content,
-      size: file.content.length,
+      size,
     }
   })
+  return normalized
 }
 
 function availableFilename(files: readonly GistFile[], baseName: string): string {
@@ -89,7 +117,7 @@ export function updateGistFile(
           ? inferGistLanguage(filename)
           : null,
       content,
-      size: content.length,
+      size: utf8ByteLength(content),
     }
   })
 }

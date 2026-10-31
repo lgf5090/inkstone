@@ -385,6 +385,14 @@ describe('development github gist proxy', () => {
       () => gistFilesPayload([{ filename: 'a.txt', content: 'é'.repeat(MAX_GIST_FILE_BYTES) }]),
       413,
     )
+    expectThrows(
+      () =>
+        gistFilesPayload([
+          { filename: 'a.txt', content: 'x'.repeat(400 * 1024) },
+          { filename: 'b.txt', content: 'x'.repeat(400 * 1024) },
+        ]),
+      413,
+    )
   })
 
   it('updates only the named fields and deletes by id', async () => {

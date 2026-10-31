@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Download, Eye, EyeOff, FileCode, KeyRound, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import type { GistFile, GistItem } from '@shared/development/github/types'
+import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
 import { githubApi } from '../api'
-import { extractGistId, inferLanguage } from '../lib/format'
+import { extractGistId } from '../lib/format'
+import { addGistFile, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input, Switch, Textarea } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
@@ -48,20 +50,30 @@ export function GistCreateDialog({ open, onClose, onCreate, accountCount, onOpen
   const [files, setFiles] = useState<GistFile[]>([{ filename: 'snippet.txt', language: 'Text', content: '', size: 0 }])
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-  const updateFile = (index: number, patch: Partial<GistFile>) => {
-    setFiles((previous) => previous.map((file, fileIndex) => {
-      if (fileIndex !== index) return file
-      const next = { ...file, ...patch }
-      if (patch.filename !== undefined) next.language = inferLanguage(patch.filename)
-      if (patch.content !== undefined) next.size = patch.content.length
-      return next
-    }))
+  const issueMessage = (issue: GistFileError): string =>
+    t(gistFileIssueKey(issue.issue), { limit: Math.round(MAX_GIST_TOTAL_CONTENT_BYTES / 1024) })
+  const updateFile = (index: number, patch: Partial<Pick<GistFile, 'filename' | 'content'>>) => {
+    setFiles((previous) => updateGistFile(previous, index, patch))
   }
-  const addFile = () => setFiles((previous) => [...previous, { filename: `file${previous.length + 1}.txt`, language: 'Text', content: '', size: 0 }])
-  const removeFile = (index: number) => setFiles((previous) => previous.length > 1 ? previous.filter((_, fileIndex) => fileIndex !== index) : previous)
+  const addFile = () => {
+    try {
+      setFiles(addGistFile(files))
+    } catch (cause) {
+      if (cause instanceof GistFileError) setError(issueMessage(cause))
+    }
+  }
+  const removeFile = (index: number) => setFiles(removeGistFile(files, index))
   const create = async () => {
-    const valid = files.filter((file) => file.filename.trim() && file.content.trim())
-    if (valid.length === 0) return
+    const drafts = files.filter((file) => file.filename.trim() && file.content.trim())
+    if (drafts.length === 0) return
+    let normalized: GistFile[]
+    try {
+      normalized = normalizeGistFiles(drafts)
+    } catch (cause) {
+      if (cause instanceof GistFileError) setError(issueMessage(cause))
+      else setError(t('development.github.gists.create_failed'))
+      return
+    }
     if (accountCount === 0) {
       setError(t('development.github.gists.token_required'))
       return
@@ -69,7 +81,7 @@ export function GistCreateDialog({ open, onClose, onCreate, accountCount, onOpen
     setPending(true)
     setError(null)
     try {
-      const gist = await githubApi.createRemoteGist({ description: description.trim(), isPublic, files: valid })
+      const gist = await githubApi.createRemoteGist({ description: description.trim(), isPublic, files: normalized })
       onCreate(gist)
       onClose()
     } catch (cause) {

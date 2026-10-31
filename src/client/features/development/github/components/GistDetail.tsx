@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, Lock, Plus, Save, Trash2, X } from 'lucide-react'
 import type { GistFile, GistItem } from '@shared/development/github/types'
+import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
@@ -10,7 +11,8 @@ import { Empty } from '../../../../components/feedback'
 import { Menu, type MenuItem } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
 import { githubApi } from '../api'
-import { formatDate, formatNumber, inferLanguage } from '../lib/format'
+import { formatDate, formatNumber } from '../lib/format'
+import { addGistFile, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
 
 export function GistDetail({
   gist,
@@ -64,43 +66,45 @@ export function GistDetail({
     setEditDescription(gist.description)
     setEditing(true)
   }
-  const updateFile = (index: number, patch: Partial<GistFile>) => {
-    setEditFiles((previous) => previous.map((file, fileIndex) => {
-      if (fileIndex !== index) return file
-      const next = { ...file, ...patch }
-      if (patch.filename !== undefined) next.language = inferLanguage(patch.filename)
-      if (patch.content !== undefined) next.size = patch.content.length
-      return next
-    }))
+  const updateFile = (index: number, patch: Partial<Pick<GistFile, 'filename' | 'content'>>) => {
+    setEditFiles((previous) => updateGistFile(previous, index, patch))
   }
+  const issueMessage = (issue: GistFileError): string =>
+    t(gistFileIssueKey(issue.issue), { limit: Math.round(MAX_GIST_TOTAL_CONTENT_BYTES / 1024) })
   const addFile = () => {
-    setEditFiles((previous) => [...previous, { filename: `file${previous.length + 1}.txt`, language: 'Text', content: '', size: 0 }])
-    setSelectedFile(editFiles.length)
+    try {
+      const next = addGistFile(editFiles)
+      setEditFiles(next)
+      setSelectedFile(next.length - 1)
+    } catch (cause) {
+      if (cause instanceof GistFileError) toast({ title: issueMessage(cause), tone: 'danger' })
+    }
   }
   const removeFile = (index: number) => {
-    setEditFiles((previous) => {
-      if (previous.length <= 1) return previous
-      const next = previous.filter((_, fileIndex) => fileIndex !== index)
-      setSelectedFile(Math.min(selectedFile, next.length - 1))
-      return next
-    })
+    const next = removeGistFile(editFiles, index)
+    setEditFiles(next)
+    setSelectedFile(Math.min(selectedFile, next.length - 1))
   }
   const save = async () => {
     if (!onUpdateGist) return
-    const valid = editFiles.filter((file) => file.filename.trim())
-    if (valid.length === 0) {
+    const drafts = editFiles.filter((file) => file.filename.trim())
+    if (drafts.length === 0) {
       toast({ title: t('development.github.gists.filename_required'), tone: 'danger' })
       return
     }
-    if (new Set(valid.map((file) => file.filename.trim())).size !== valid.length) {
-      toast({ title: t('development.github.gists.filename_duplicate'), tone: 'danger' })
+    let normalized: GistFile[]
+    try {
+      normalized = normalizeGistFiles(drafts)
+    } catch (cause) {
+      if (cause instanceof GistFileError) toast({ title: issueMessage(cause), tone: 'danger' })
+      else toast({ title: t('development.github.gists.update_failed'), tone: 'danger' })
       return
     }
     setSaving(true)
     try {
-      await onUpdateGist({ ...gist, description: editDescription.trim(), files: valid, fileCount: valid.length, updatedAt: new Date().toISOString() })
+      await onUpdateGist({ ...gist, description: editDescription.trim(), files: normalized, fileCount: normalized.length, updatedAt: new Date().toISOString() })
       setEditing(false)
-      if (selectedFile >= valid.length) setSelectedFile(0)
+      if (selectedFile >= normalized.length) setSelectedFile(0)
     } catch (cause) {
       toast({
         title: t('development.github.gists.update_failed'),

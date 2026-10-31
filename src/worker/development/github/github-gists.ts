@@ -5,6 +5,7 @@ import {
   MAX_GIST_FILES,
   MAX_GIST_FILENAME,
   MAX_GIST_FILE_BYTES,
+  MAX_GIST_TOTAL_CONTENT_BYTES,
 } from '@shared/development/github/limits'
 import type { GistFile, GistItem, GistListResult } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
@@ -156,6 +157,7 @@ export function gistFilesPayload(
     string,
     { content: string }
   >
+  let total = 0
   for (const file of files) {
     const filename = file.filename.trim()
     if (!filename) throw ApiError.badRequest('A gist file name cannot be blank')
@@ -168,8 +170,15 @@ export function gistFilesPayload(
     if (Object.prototype.hasOwnProperty.call(payload, filename)) {
       throw ApiError.badRequest('Gist file names must be unique')
     }
-    if (utf8ByteLength(file.content) > MAX_GIST_FILE_BYTES) {
+    const size = utf8ByteLength(file.content)
+    if (size > MAX_GIST_FILE_BYTES) {
       throw ApiError.tooLarge(`A gist file is limited to ${MAX_GIST_FILE_BYTES} bytes`)
+    }
+    total += size
+    if (total > MAX_GIST_TOTAL_CONTENT_BYTES) {
+      throw ApiError.tooLarge(
+        `Gist content is limited to ${MAX_GIST_TOTAL_CONTENT_BYTES} bytes in total`,
+      )
     }
     payload[filename] = { content: file.content }
   }

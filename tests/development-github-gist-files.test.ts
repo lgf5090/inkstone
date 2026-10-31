@@ -40,6 +40,13 @@ describe('gist file drafts', () => {
     expect(() => normalizeGistFiles(many)).toThrow(/too_many_files/)
   })
 
+  it('rejects a batch whose contents exceed the total limit', () => {
+    expect(() => normalizeGistFiles([
+      file('a.txt', 'x'.repeat(400 * 1024)),
+      file('b.txt', 'x'.repeat(400 * 1024)),
+    ])).toThrow(/total_too_large/)
+  })
+
   it('adds a uniquely named file and refuses past the limit', () => {
     const added = addGistFile([file('file.txt')])
     expect(added).toHaveLength(2)
