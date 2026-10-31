@@ -242,6 +242,16 @@ describe('GitHub store optimistic writes', () => {
     await pending
   })
 
+  it('removes a saved repository optimistically', async () => {
+    useGithubStore.setState({ status: 'ready', repos: [repo('r1')] })
+    fetchMock.mockResolvedValueOnce(envelope({ ok: true }))
+    const pending = useGithubStore.getState().deleteRepo('r1')
+    expect(useGithubStore.getState().repos).toEqual([])
+    await pending
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/api/development/github/repos/r1')
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe('DELETE')
+  })
+
   it('saves mirrors and accounts in the store', async () => {
     useGithubStore.setState({ status: 'ready' })
     fetchMock.mockResolvedValueOnce(envelope({

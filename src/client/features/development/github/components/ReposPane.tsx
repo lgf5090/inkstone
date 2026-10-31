@@ -2,6 +2,8 @@ import { useCallback, useMemo, useState } from 'react'
 import type { GithubPrefs, GithubRepo, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_EXPLORE_VIEW, GITHUB_PER_PAGE } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { confirm } from '../../../../components/overlay'
+import { useUi } from '../../../../store/ui'
 import { useGithubSearch } from '../cache'
 import { useGithubStore } from '../store'
 import { loadRepoPrefs, saveRepoPrefs } from '../prefs'
@@ -39,6 +41,8 @@ export function ReposPane({
   const upsertRepo = useGithubStore((state) => state.upsertRepo)
   const upsertTag = useGithubStore((state) => state.upsertTag)
   const deleteTag = useGithubStore((state) => state.deleteTag)
+  const deleteRepo = useGithubStore((state) => state.deleteRepo)
+  const toast = useUi((state) => state.toast)
   const refresh = useGithubStore((state) => state.refresh)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
   const [refreshing, setRefreshing] = useState(false)
@@ -130,6 +134,21 @@ export function ReposPane({
     saveRepo(repo, { tagIds: tagIds.includes(tag) ? tagIds.filter((id) => id !== tag) : [...tagIds, tag] })
   }
 
+  const removeRepo = async (repo: GithubRepo) => {
+    const saved = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
+    if (!saved) return
+    const ok = await confirm({
+      title: t('development.github.repos.remove_saved_title'),
+      description: t('development.github.repos.remove_saved_desc', { name: repo.fullName }),
+      confirmLabel: t('development.github.repos.remove_saved'),
+      tone: 'danger',
+    })
+    if (!ok) return
+    void deleteRepo(saved.id)
+    if (selectedRepoId === saved.id) setSelectedRepoId(null)
+    toast({ title: t('development.github.repos.removed'), tone: 'success' })
+  }
+
   const addTag = (name: string, color: string, parentId: string | null) => {
     const now = Date.now()
     void upsertTag({ id: tagId(), name, color, parentId, sortOrder: tags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now })
@@ -190,6 +209,7 @@ export function ReposPane({
             onTogglePin={togglePin}
             onToggleFav={toggleFav}
             onToggleTag={toggleTag}
+            onRemoveRepo={(repo) => void removeRepo(repo)}
             toggleSidebar={toggleSidebar}
             toggleDetail={toggleDetail}
             detailDisabled={detailDisabled}

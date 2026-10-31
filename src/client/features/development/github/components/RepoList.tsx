@@ -62,6 +62,7 @@ export function RepoList({
   onTogglePin,
   onToggleFav,
   onToggleTag,
+  onRemoveRepo,
   toggleSidebar,
   toggleDetail,
   detailDisabled,
@@ -92,6 +93,7 @@ export function RepoList({
   onTogglePin: (repo: GithubRepo) => void
   onToggleFav: (repo: GithubRepo) => void
   onToggleTag: (repo: GithubRepo, tagId: string) => void
+  onRemoveRepo: (repo: GithubRepo) => void
   toggleSidebar: () => void
   toggleDetail: () => void
   detailDisabled: boolean
@@ -185,7 +187,7 @@ export function RepoList({
           <div className="absolute inset-0 overflow-y-auto overscroll-contain">
             <ul role="listbox" aria-label={t('development.github.repos.title')} className="divide-y divide-[var(--border-subtle)]">
               {items.map((repo, index) => (
-                <RepoRow key={repo.id} repo={repo} rank={isExplore ? (page - 1) * GITHUB_PER_PAGE + index + 1 : index + 1} saved={repoMap.get(String(repo.id))} tags={tags} selected={selectedRepoId === String(repo.id)} mirrorUrl={currentMirror ? `${currentMirror.url.replace(/\/$/, '')}/${repo.url}` : repo.url} onSelect={onSelectRepo} onTogglePin={onTogglePin} onToggleFav={onToggleFav} onToggleTag={onToggleTag} />
+                <RepoRow key={repo.id} repo={repo} rank={isExplore ? (page - 1) * GITHUB_PER_PAGE + index + 1 : index + 1} saved={repoMap.get(String(repo.id))} tags={tags} selected={selectedRepoId === String(repo.id)} mirrorUrl={currentMirror ? `${currentMirror.url.replace(/\/$/, '')}/${repo.url}` : repo.url} onSelect={onSelectRepo} onTogglePin={onTogglePin} onToggleFav={onToggleFav} onToggleTag={onToggleTag} onRemove={onRemoveRepo} />
               ))}
               {loading && <li className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={14} />{t('development.github.common.loading')}</li>}
             </ul>

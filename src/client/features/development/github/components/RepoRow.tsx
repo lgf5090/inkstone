@@ -1,5 +1,5 @@
 import { memo, useMemo, type KeyboardEvent } from 'react'
-import { Archive, Calendar, CircleDot, Copy, ExternalLink, GitFork, Globe, Pin, Scale, Star } from 'lucide-react'
+import { Archive, BookmarkX, Calendar, CircleDot, Copy, ExternalLink, GitFork, Globe, Pin, Scale, Star } from 'lucide-react'
 import type { GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
@@ -23,6 +23,7 @@ export interface RepoRowProps {
   onTogglePin: (repo: GithubRepo) => void
   onToggleFav: (repo: GithubRepo) => void
   onToggleTag: (repo: GithubRepo, tagId: string) => void
+  onRemove: (repo: GithubRepo) => void
 }
 
 export const RepoRow = memo(function RepoRow({
@@ -36,6 +37,7 @@ export const RepoRow = memo(function RepoRow({
   onTogglePin,
   onToggleFav,
   onToggleTag,
+  onRemove,
 }: RepoRowProps) {
   const toast = useUi((state) => state.toast)
   const assigned = useMemo(() => tags.filter((tag) => (saved?.tagIds ?? []).includes(tag.id)), [tags, saved])
@@ -82,6 +84,7 @@ export const RepoRow = memo(function RepoRow({
                   <IconButton label={t('development.github.repos.copy_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(repo.url, t('development.github.repos.url_copied')) }}><Copy size={13} /></IconButton>
                   <IconButton label={t('development.github.repos.copy_mirror_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(mirrorUrl, t('development.github.repos.mirror_url_copied')) }}><Globe size={13} /></IconButton>
                   <TagAssign assignedTags={assigned} allTags={tags} onToggle={(tagId) => onToggleTag(repo, tagId)} />
+                  {saved && <IconButton label={t('development.github.repos.remove_saved')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onRemove(repo) }}><BookmarkX size={13} /></IconButton>}
                 </div>
               </div>
               {repo.description && <p className="mt-1 line-clamp-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{repo.description}</p>}
