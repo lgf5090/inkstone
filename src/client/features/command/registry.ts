@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -92,13 +92,56 @@ export function appCommands(): AppCommand[] {
   const quickAddOn = quickAdd.settings.enabled
   const linterOn = session.settings.linter.enabled
   const isDark = document.documentElement.dataset.theme === 'dark';
+
+  // The vault is loaded on demand: importing its store here would pull the strength evaluator (and
+  // its dictionary) into the palette's own chunk, which every reader downloads to open the palette.
+  const openVault = (view: 'all' | 'generator' | 'health') => {
+    navigateToPath('/tools')
+    void import('../tools/store').then(({ useToolsStore }) => {
+      useToolsStore.getState().setActiveSubmodule('password')
+      useToolsStore.getState().setActivePasswordView(view)
+    })
+  }
+  const lockVault = () => {
+    void import('../tools/password/store').then(({ usePasswordVaultStore }) => {
+      usePasswordVaultStore.getState().lock()
+      toast({ title: t('command.password_locked'), tone: 'success' })
+    })
+  }
+
   return [
+    {
+      id: 'cmd-password-open',
+      kind: 'command',
+      label: t('command.password_open'),
+      detail: t('command.password_open_detail'),
+      group: t("common.navigation"),
+      icon: KeyRound,
+      run: () => openVault('all'),
+    },
+    {
+      id: 'cmd-password-generator',
+      kind: 'command',
+      label: t('command.password_generator'),
+      detail: t('command.password_generator_detail'),
+      group: t("common.navigation"),
+      icon: Sparkles,
+      run: () => openVault('generator'),
+    },
+    {
+      id: 'cmd-password-lock',
+      kind: 'command',
+      label: t('command.password_lock'),
+      detail: t('command.password_lock_detail'),
+      group: t("common.navigation"),
+      icon: Lock,
+      run: lockVault,
+    },
     {
         id: 'cmd-new',
         kind: 'command',
         label: t("common.new_note"),
-        icon: Plus,
-        combo: APP_SHORTCUTS.newNote,
+        icon: Plus,        combo: APP_SHORTCUTS.newNote,
         group: t("command.commands"),
         run: () => void createContextualNote(),
     },
