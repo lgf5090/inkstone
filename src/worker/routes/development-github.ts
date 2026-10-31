@@ -6,6 +6,7 @@ import {
   MAX_GIST_FILENAME,
   MAX_GIST_FILE_BYTES,
   MAX_REPO_DATA_BYTES,
+  EXPORT_TTL_MS,
 } from '@shared/development/github/limits'
 import {
   GithubAccountTokenSchema,
@@ -717,6 +718,11 @@ developmentGithubRoutes.get('/exports/:id', async (c) => {
   assertExportStorage(c.env)
   const record = await findExport(c.env.DB, userId, id)
   if (!record) throw githubNotFound('Export not found')
+  if (record.createdAt + EXPORT_TTL_MS < Date.now()) {
+    await deleteExportObjectBestEffort(c.env, record.r2Key)
+    await deleteExport(c.env.DB, userId, id)
+    throw githubNotFound('Export not found')
+  }
   const object = await readExportObject(c.env, record.r2Key)
   return new Response(object.body, {
     status: 200,

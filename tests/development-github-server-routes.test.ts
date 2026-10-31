@@ -8,6 +8,7 @@ import type { AppBindings, Env } from '../src/worker/env'
 import { errorResponse } from '../src/worker/lib/errors'
 import { developmentGithubRoutes } from '../src/worker/routes/development-github'
 import type { GithubAccountView, GithubExportFile } from '../src/shared/development/github/types'
+import { EXPORT_TTL_MS } from '../src/shared/development/github/limits'
 import { makeD1 } from './doubles/d1-sqlite'
 import {
   testBindings,
@@ -659,5 +660,19 @@ describe('development github exports', () => {
     })
     expect(response.status).toBe(503)
     expect((await bodyOf(response)).error?.code).toBe('storage_unavailable')
+  })
+
+  it('refuses and removes an expired export', async () => {
+    await createLocalGist()
+    const created = await call('POST', `/gists/${GIST_ID}/exports`, { body: { format: 'md' } })
+    const exported = (await bodyOf<{ export: GithubExportFile }>(created)).data!.export
+    sqlite
+      .prepare('UPDATE development_github_exports SET created_at = ? WHERE user_id = ? AND id = ?')
+      .run(Date.now() - EXPORT_TTL_MS - 1000, USER_A, exported.id)
+    expect((await call('GET', `/exports/${exported.id}`)).status).toBe(404)
+    const row = sqlite
+      .prepare('SELECT COUNT(*) AS count FROM development_github_exports WHERE user_id = ?')
+      .get(USER_A) as { count: number }
+    expect(row.count).toBe(0)
   })
 })
