@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import type {
+  QrCodeSettings,
   QrContentType,
   QrEmailContent,
+  QrErrorCorrectionLevel,
   QrExportFormat,
   QrEyeShape,
   QrPhoneContent,
@@ -15,6 +17,14 @@ import type {
 import { DEFAULT_QR_OPTIONS } from './engine/qr-engine'
 
 export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color' | 'ai'
+
+// The export size the slider offers and the workbench accepts; server defaults are clamped into it.
+export const EXPORT_SIZE_MIN = 300
+export const EXPORT_SIZE_MAX = 2000
+export const EXPORT_SIZE_STEP = 100
+export const EXPORT_SIZE_DEFAULT = 1000
+
+export const QR_ECC_LEVELS: QrErrorCorrectionLevel[] = ['L', 'M', 'Q', 'H']
 export interface QrCodeState {
   contentAccordionOpen: boolean
   beautifyAccordionOpen: boolean
@@ -33,6 +43,7 @@ export interface QrCodeState {
 
   exportSize: number
   exportFormat: QrExportFormat
+  defaultsApplied: boolean
 
   infoModalOpen: boolean
   fullscreenModalOpen: boolean
@@ -60,6 +71,7 @@ export interface QrCodeState {
 
   setExportSize: (size: number) => void
   setExportFormat: (format: QrExportFormat) => void
+  applyServerDefaults: (settings: QrCodeSettings) => void
 
   setInfoModalOpen: (open: boolean) => void
   setFullscreenModalOpen: (open: boolean) => void
@@ -146,7 +158,7 @@ export function encodeQrData(
   }
 }
 
-export const useQrCodeStore = create<QrCodeState>((set) => ({
+export const useQrCodeStore = create<QrCodeState>((set, get) => ({
   contentAccordionOpen: true,
   beautifyAccordionOpen: true,
   activeBeautifyTab: 'template',
@@ -184,8 +196,9 @@ export const useQrCodeStore = create<QrCodeState>((set) => ({
   options: { ...DEFAULT_QR_OPTIONS },
   currentEyeShape: 'square',
 
-  exportSize: 1000,
+  exportSize: EXPORT_SIZE_DEFAULT,
   exportFormat: 'png',
+  defaultsApplied: false,
 
   infoModalOpen: false,
   fullscreenModalOpen: false,
@@ -258,8 +271,23 @@ export const useQrCodeStore = create<QrCodeState>((set) => ({
 
   resetOptions: () => set({ options: { ...DEFAULT_QR_OPTIONS }, currentEyeShape: 'square' }),
 
-  setExportSize: (size) => set({ exportSize: size }),
+  setExportSize: (size) =>
+    set({ exportSize: Math.min(EXPORT_SIZE_MAX, Math.max(EXPORT_SIZE_MIN, Math.round(size))) }),
   setExportFormat: (format) => set({ exportFormat: format }),
+
+  applyServerDefaults: (settings) => {
+    // Starting values land once per session: re-applying them on every visit to the tools tab would
+    // overwrite styling the reader already changed in this workbench.
+    if (get().defaultsApplied) return
+    const size = Math.min(EXPORT_SIZE_MAX, Math.max(EXPORT_SIZE_MIN, Math.round(settings.defaultSize)))
+    const eccKnown = QR_ECC_LEVELS.includes(settings.defaultErrorCorrection)
+    set((s) => ({
+      defaultsApplied: true,
+      exportSize: size,
+      exportFormat: settings.defaultFormat,
+      options: eccKnown ? { ...s.options, errorCorrectionLevel: settings.defaultErrorCorrection } : s.options,
+    }))
+  },
 
   setInfoModalOpen: (open) => set({ infoModalOpen: open }),
   setFullscreenModalOpen: (open) => set({ fullscreenModalOpen: open }),

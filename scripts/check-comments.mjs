@@ -18002,6 +18002,10 @@ const allowed = new Map([
     "// Ensure at least one character from each selected charset when length allows",
     "// Fisher-Yates shuffle",
   ]],
+  ["src/client/features/tools/qrcode/QrCodeApp.tsx", [
+    "// Unreachable preferences leave the workbench on its built-in starting values, and the flag",
+    "// stays clear so the next visit asks again.",
+  ]],
   ["src/client/features/tools/qrcode/batch/QrBatchView.tsx", [
     "// safe fallback",
     "/* Header */",
@@ -18078,6 +18082,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/qrcode/store.ts", [
     "/**\n * The encoded payload as a render-time value. A component that read it through a store getter during\n * render stayed stale: the getter is a stable function reference, so editing the content never\n * re-rendered the panel and it kept drawing — and exporting — the previous payload.\n */",
+    "// The export size the slider offers and the workbench accepts; server defaults are clamped into it.",
+    "// Starting values land once per session: re-applying them on every visit to the tools tab would",
+    "// overwrite styling the reader already changed in this workbench.",
   ]],
   ["src/client/features/tools/shortlinks/BundlesView.tsx", [
     "/* Header */",
@@ -44513,6 +44520,10 @@ const allowed = new Map([
     "// 9. When R2 is unavailable, returns 503",
     "// A truncated upload used to be caught and defaulted, so the caller that meant \"back up this subset\"",
     "// got a full snapshot instead. The route cannot honour a body it cannot read, so it says so.",
+  ]],
+  ["tests/tools-qrcode-settings.test.tsx", [
+    "// A second visit means the reader came back to a workbench they may have retuned, so the saved",
+    "// starting values must not stomp on it and the request itself is not repeated.",
   ]],
   ["tests/tools-qrcode-toolkit.test.tsx", [
     "// Mock jsQR",

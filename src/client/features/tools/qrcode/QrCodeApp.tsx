@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { useToolsStore } from '../store'
 import { useMediaQuery } from '../../../lib/hooks'
+import { fetchQrSettings } from './api'
+import { useQrCodeStore } from './store'
 import { QrContentEditor } from './content/QrContentEditor'
 import { QrBeautifyPanel } from './options/QrBeautifyPanel'
 import { QrPreviewPanel } from './preview/QrPreviewPanel'
@@ -18,6 +21,16 @@ const WIDE_LAYOUT_QUERY = '(min-width: 1024px)'
 export function QrCodeApp() {
   const activeQrCodeView = useToolsStore((s) => s.activeQrCodeView)
   const isWide = useMediaQuery(WIDE_LAYOUT_QUERY)
+
+  useEffect(() => {
+    if (useQrCodeStore.getState().defaultsApplied) return
+    fetchQrSettings()
+      .then((settings) => useQrCodeStore.getState().applyServerDefaults(settings))
+      .catch(() => {
+        // Unreachable preferences leave the workbench on its built-in starting values, and the flag
+        // stays clear so the next visit asks again.
+      })
+  }, [])
 
   return (
     <div
