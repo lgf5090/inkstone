@@ -1,4 +1,5 @@
-import type { BlogSitePublic } from './model'
+import type { BlogMusicConfig, BlogMusicMeting, BlogMusicTrack, BlogSitePublic } from './model'
+import { BLOG_RENDERER_VERSION } from './renderer'
 
 export const BLOG_SETTING_KEYS = [
   'site',
@@ -50,7 +51,13 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   },
   article: { showLastUpdated: true, relatedCount: 3, randomCount: 2, share: true },
   comment: { provider: 'none' },
-  music: { provider: 'none' },
+  music: {
+    provider: 'none',
+    tracks: [],
+    meting: { server: 'netease', type: 'playlist', id: '', api: '' },
+    defaultVolume: 0.7,
+    defaultMode: 'sequence',
+  },
   umami: { enable: false, websiteId: '' },
   llms: { enable: true, excludeTags: [] },
   permalink: { enable: false },
@@ -151,6 +158,67 @@ function publicProfileLinks(value: unknown): BlogSitePublic['profile']['links'] 
   })
 }
 
+const MUSIC_PROVIDERS = new Set(['none', 'local', 'meting', 'custom', 'mixed'])
+const METING_SERVERS = new Set(['netease', 'tencent', 'kugou', 'xiami', 'baidu'])
+const METING_TYPES = new Set(['playlist', 'song', 'album', 'artist'])
+const PLAYBACK_MODES = new Set(['sequence', 'repeat-one', 'shuffle'])
+
+function publicUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const url = value.trim()
+  if (!url || url.length > 2000) return null
+  if (url.startsWith('/') && !url.startsWith('//')) return url
+  return /^https?:\/\//i.test(url) ? url : null
+}
+
+function publicMusic(value: unknown): BlogMusicConfig {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  const provider = typeof raw.provider === 'string' && MUSIC_PROVIDERS.has(raw.provider)
+    ? raw.provider as BlogMusicConfig['provider']
+    : 'none'
+  const tracks: BlogMusicTrack[] = []
+  if (Array.isArray(raw.tracks)) {
+    for (const entry of raw.tracks.slice(0, 100)) {
+      if (!entry || typeof entry !== 'object') continue
+      const track = entry as Record<string, unknown>
+      const id = typeof track.id === 'string' ? track.id.trim().slice(0, 120) : ''
+      const title = typeof track.title === 'string' ? track.title.trim().slice(0, 200) : ''
+      const source = publicUrl(track.source)
+      if (!id || !title || !source) continue
+      tracks.push({
+        id,
+        title,
+        source,
+        ...(typeof track.artist === 'string' && track.artist.trim() ? { artist: track.artist.trim().slice(0, 200) } : {}),
+        ...(publicUrl(track.cover) ? { cover: publicUrl(track.cover)! } : {}),
+        ...(typeof track.duration === 'number' && Number.isFinite(track.duration) && track.duration > 0
+          ? { duration: Math.floor(track.duration) }
+          : {}),
+      })
+    }
+  }
+  const metingRaw = raw.meting && typeof raw.meting === 'object' ? raw.meting as Record<string, unknown> : {}
+  const metingId = typeof metingRaw.id === 'string' ? metingRaw.id.trim().slice(0, 120) : ''
+  const meting: BlogMusicMeting | undefined = metingId ? {
+    server: typeof metingRaw.server === 'string' && METING_SERVERS.has(metingRaw.server)
+      ? metingRaw.server as BlogMusicMeting['server']
+      : 'netease',
+    type: typeof metingRaw.type === 'string' && METING_TYPES.has(metingRaw.type)
+      ? metingRaw.type as BlogMusicMeting['type']
+      : 'playlist',
+    id: metingId,
+    ...(publicUrl(metingRaw.api) ? { api: publicUrl(metingRaw.api)! } : {}),
+  } : undefined
+  const volume = typeof raw.defaultVolume === 'number' && Number.isFinite(raw.defaultVolume)
+    ? Math.min(1, Math.max(0, raw.defaultVolume))
+    : 0.7
+  const mode = typeof raw.defaultMode === 'string' && PLAYBACK_MODES.has(raw.defaultMode)
+    ? raw.defaultMode as BlogMusicConfig['defaultMode']
+    : 'sequence'
+  const enabled = provider !== 'none' && (tracks.length > 0 || Boolean(meting))
+  return { enabled, provider, tracks, ...(meting ? { meting } : {}), defaultVolume: volume, defaultMode: mode }
+}
+
 export function publicBlogSite(
   settings: BlogSettings,
   counts: BlogSitePublic['counts'],
@@ -162,8 +230,8 @@ export function publicBlogSite(
   const nav = settings.nav as { links?: BlogSitePublic['nav'] }
   const sidebar = settings.sidebar as Partial<BlogSitePublic['sidebar']>
   const comment = settings.comment as { provider?: string }
-  const music = settings.music as { provider?: string }
   const umami = settings.umami as { enable?: boolean; websiteId?: unknown }
+  const musicValue = publicMusic(settings.music)
   const discussion = settings.discussion as {
     enabled?: boolean
     requireNameEmail?: boolean
@@ -210,12 +278,13 @@ export function publicBlogSite(
     display: settings.display,
     integrations: {
       comments: typeof comment.provider === 'string' ? comment.provider : 'none',
-      music: typeof music.provider === 'string' ? music.provider : 'none',
+      music: musicValue,
       umami: {
         enabled: umami.enable === true,
         websiteId: typeof umami.websiteId === 'string' ? umami.websiteId.slice(0, 80) : '',
       },
     },
     counts,
+    runtimeVersion: BLOG_RENDERER_VERSION,
   }
 }

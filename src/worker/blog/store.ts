@@ -10,6 +10,7 @@ import type {
 import { sha256Hex } from '../lib/encoding'
 import { newId } from '../lib/id'
 import { hashPassword } from '../lib/password'
+import { BLOG_RENDERER_VERSION } from '@shared/blog/renderer'
 
 const POST_COLUMNS = `p.id, p.user_id, p.note_id, p.slug, p.title, p.excerpt, p.description,
   p.cover_asset_id, p.category_id, p.series_id, p.series_order, p.status, p.pinned,
@@ -847,7 +848,8 @@ export async function blogAdminOverview(
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NOT NULL) AS trash,
          (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL
             AND (status = 'scheduled' OR (status = 'published' AND published_at > ?2))) AS scheduled,
-         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'stale' AND status = 'published' AND deleted_at IS NULL) AS stale,
+         (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL
+            AND (render_status = 'stale' OR renderer_version <> ?3)) AS stale,
          (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1) AS views,
          (SELECT COUNT(*) FROM blog_moments WHERE user_id = ?1 AND deleted_at IS NULL) AS moments,
          (SELECT COUNT(*) FROM blog_albums WHERE user_id = ?1) AS albums,
@@ -856,7 +858,7 @@ export async function blogAdminOverview(
          (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'approved' AND deleted_at IS NULL) AS commentsApproved,
          (SELECT COUNT(*) FROM blog_comments WHERE user_id = ?1 AND status = 'spam' AND deleted_at IS NULL) AS commentsSpam`,
     )
-    .bind(userId, now)
+    .bind(userId, now, BLOG_RENDERER_VERSION)
     .first<{
       posts: number
       published: number
@@ -958,14 +960,15 @@ export async function blogHealth(
        (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND status = 'published' AND deleted_at IS NULL) AS published,
        (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL
           AND (status = 'scheduled' OR (status = 'published' AND published_at > ?2))) AS scheduled,
-       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'stale' AND deleted_at IS NULL) AS stale,
+       (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NULL
+          AND (render_status = 'stale' OR renderer_version <> ?3)) AS stale,
        (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'missing' AND deleted_at IS NULL
           AND status IN ('published','scheduled','pending_snapshot')) AS missing,
        (SELECT COUNT(*) FROM blog_posts WHERE user_id = ?1 AND render_status = 'failed' AND deleted_at IS NULL
           AND status IN ('published','scheduled','pending_snapshot')) AS failed,
        (SELECT COALESCE(SUM(size), 0) FROM blog_assets WHERE user_id = ?1) AS storage_bytes,
        (SELECT MAX(published_at) FROM blog_posts WHERE user_id = ?1 AND status = 'published') AS last_published`,
-  ).bind(userId, now).first<{
+  ).bind(userId, now, BLOG_RENDERER_VERSION).first<{
     published: number; scheduled: number; stale: number; missing: number; failed: number;
     storage_bytes: number; last_published: number | null;
   }>()
@@ -1174,9 +1177,10 @@ export async function listPostsNeedingRender(
 ): Promise<{ noteId: string; title: string; renderStatus: string }[]> {
   const { results } = await db.prepare(
     `SELECT note_id, title, render_status FROM blog_posts
-     WHERE user_id = ?1 AND deleted_at IS NULL AND render_status IN ('stale','missing','failed')
+     WHERE user_id = ?1 AND deleted_at IS NULL
+       AND (render_status IN ('stale','missing','failed') OR renderer_version <> ?2)
        AND status IN ('published','scheduled','pending_snapshot')
      ORDER BY updated_at DESC LIMIT 100`,
-  ).bind(userId).all<{ note_id: string; title: string; render_status: string }>()
+  ).bind(userId, BLOG_RENDERER_VERSION).all<{ note_id: string; title: string; render_status: string }>()
   return results.map((row) => ({ noteId: row.note_id, title: row.title, renderStatus: row.render_status }))
 }

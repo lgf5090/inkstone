@@ -15,6 +15,7 @@ import {
   syncBlogPostFromNote,
   updateAdminPostMeta,
   toBlogSummary,
+  listPostsNeedingRender,
 } from '../src/worker/blog/store'
 import { sha256Hex } from '../src/worker/lib/encoding'
 import { DEFAULT_BLOG_SETTINGS, publicBlogSite } from '@shared/blog/settings'
@@ -204,10 +205,18 @@ describe('blog admin projection', () => {
   it('never exposes a protected article excerpt or description', async () => {
     const content = '---\nblogType: post\nisPublished: true\n---\n\nSecret body'
     const row = await syncBlogPostFromNote(db, USER, note(content))
-    const summary = toBlogSummary({ ...row!, excerpt: 'secret first line', description: 'secret summary', encrypted: 1 }, [])
+    const summary = toBlogSummary({ ...row!, excerpt: 'secret first line', description: 'secret summary', encrypted: 1, category_name: null, series_title: null }, [])
     expect(summary.excerpt).toBe('')
     expect(summary.description).toBe('')
     expect(summary.encrypted).toBe(true)
+  })
+
+  it('queues a snapshot from an older renderer even when its content has not changed', async () => {
+    const content = '---\nblogType: post\nisPublished: true\n---\n\nBody'
+    const row = await syncBlogPostFromNote(db, USER, note(content))
+    sqlite.prepare("UPDATE blog_posts SET renderer_version = 'inkstone-blog-v1', render_status = 'ready' WHERE id = ?").run(row!.id)
+    const queue = await listPostsNeedingRender(db, USER)
+    expect(queue.map((item) => item.noteId)).toContain(NOTE)
   })
 
   it('records the media library assets a published article uses and clears stale links', async () => {
@@ -276,6 +285,26 @@ describe('blog admin projection', () => {
     const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0 })
     expect(site.nav.map((link) => link.href)).toEqual(['/posts'])
     expect(site.profile.links.map((link) => link.url)).toEqual(['https://example.com'])
+  })
+
+  it('keeps javascript: out of public music tracks and only exposes usable sources', () => {
+    const settings = {
+      ...DEFAULT_BLOG_SETTINGS,
+      music: {
+        provider: 'custom',
+        tracks: [
+          { id: 'bad', title: 'Bad', source: 'javascript:alert(1)' },
+          { id: 'ok', title: 'Ok', source: '/audio/ok.mp3', artist: 'A' },
+          { id: 'remote', title: 'Remote', source: 'https://example.com/a.mp3' },
+        ],
+        meting: { server: 'netease', type: 'playlist', id: '', api: '' },
+        defaultVolume: 0.7,
+        defaultMode: 'sequence',
+      },
+    }
+    const site = publicBlogSite(settings, { posts: 0, categories: 0, tags: 0, series: 0 })
+    expect(site.integrations.music.enabled).toBe(true)
+    expect(site.integrations.music.tracks.map((track) => track.id)).toEqual(['ok', 'remote'])
   })
 
   it('filters published posts by category, series, tag, year and pinned', async () => {

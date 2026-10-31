@@ -7,7 +7,9 @@
  * stored snapshot as its no-JS and first-paint surface and replaces it with this runtime when it is
  * available; a failed load leaves the still standing.
  */
+import { useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { createPortal } from 'react-dom'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { NoteSummary } from '@shared/types'
 import type { BlogAssetRef, BlogEmbeddedNote, BlogReadingSettings } from '@shared/blog/model'
@@ -27,6 +29,18 @@ export interface BlogWikiHref {
   href: string
 }
 
+export interface BlogReadingLabels {
+  copyTable: string
+  copied: string
+  copyFailed: string
+  copySelection: string
+  copyLink: string
+  openImage: string
+  copyImage: string
+  backToTop: string
+  article: string
+}
+
 export interface BlogReadingMountOptions {
   container: HTMLElement
   content: string
@@ -42,6 +56,7 @@ export interface BlogReadingMountOptions {
   wikiLinks?: BlogWikiHref[]
   /** Where a tag press goes. Without a resolver the tag stays inert. */
   tagHref?: (name: string) => string | null
+  labels: BlogReadingLabels
   onHeadings?: (headings: Heading[]) => void
   onRendered?: () => void
 }
@@ -160,37 +175,157 @@ function hideWriteActions(root: HTMLElement): void {
   }
 }
 
-function attachmentIndex(assets: BlogAssetRef[] | undefined): {
-  byName: Map<string, BlogAssetRef>
-  byId: Map<string, BlogAssetRef>
-} {
-  const byName = new Map<string, BlogAssetRef>()
-  const byId = new Map<string, BlogAssetRef>()
-  for (const asset of assets ?? []) {
-    if (asset.filename) byName.set(normalizeTarget(asset.filename), asset)
-    if (asset.attachmentId) byId.set(asset.attachmentId, asset)
+interface HoverState {
+  x: number
+  y: number
+  title: string
+  detail: string
+  anchor: HTMLElement
+}
+
+interface CopyTableState {
+  x: number
+  y: number
+  table: HTMLTableElement
+}
+
+interface MenuState {
+  x: number
+  y: number
+  target: HTMLElement
+  selection: string
+  href: string | null
+  image: HTMLImageElement | null
+}
+
+function tableText(table: HTMLTableElement): string {
+  return [...table.rows].map((row) => [...row.cells].map((cell) => cell.textContent?.trim() ?? '').join('\t')).join('\n')
+}
+
+function copyToClipboard(text: string): Promise<void> {
+  if (!navigator.clipboard?.writeText) return Promise.reject(new Error('clipboard unavailable'))
+  return navigator.clipboard.writeText(text)
+}
+
+function ReadingSurface({ options }: { options: BlogReadingMountOptions }) {
+  const [hover, setHover] = useState<HoverState | null>(null)
+  const [tableCopy, setTableCopy] = useState<CopyTableState | null>(null)
+  const [menu, setMenu] = useState<MenuState | null>(null)
+  const [copied, setCopied] = useState('')
+
+  useEffect(() => {
+    const root = options.container
+    const hide = () => {
+      setHover(null)
+      setTableCopy(null)
+    }
+    const onPointerOver = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const wiki = target.closest<HTMLElement>('[data-wikilink]')
+      if (wiki) {
+        const targetName = wiki.dataset.wikilink ?? ''
+        const href = currentHref(options.wikiLinks, targetName)
+        const rect = wiki.getBoundingClientRect()
+        setHover({ x: rect.left, y: rect.bottom + 6, title: wiki.textContent?.trim() || targetName, detail: href ? options.labels.article : '', anchor: wiki })
+        setTableCopy(null)
+        return
+      }
+      const anchor = target.closest<HTMLAnchorElement>('a[href^="http"]')
+      if (anchor) {
+        const rect = anchor.getBoundingClientRect()
+        setHover({ x: rect.left, y: rect.bottom + 6, title: anchor.textContent?.trim() || anchor.href, detail: anchor.href, anchor })
+        setTableCopy(null)
+        return
+      }
+      const table = target.closest<HTMLTableElement>('table')
+      if (table && !table.closest('.kanban-block')) {
+        const rect = table.getBoundingClientRect()
+        setTableCopy({ x: rect.right - 20, y: rect.top + 6, table })
+        setHover(null)
+        return
+      }
+      if (!target.closest('.blog-hover-card') && !target.closest('.blog-table-copy')) {
+        hide()
+      }
+    }
+    const onPointerOut = (event: PointerEvent) => {
+      const related = event.relatedTarget
+      if (related instanceof Element && (related.closest('.blog-hover-card') || related.closest('.blog-table-copy'))) return
+      hide()
+    }
+    const onContextMenu = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const host = target.closest('[data-preview-content]')
+      if (!host) return
+      event.preventDefault()
+      const selection = window.getSelection()?.toString().trim() ?? ''
+      const anchor = target.closest<HTMLAnchorElement>('a[href]')
+      const image = target.closest<HTMLImageElement>('img')
+      setMenu({ x: event.clientX, y: event.clientY, target: target as HTMLElement, selection, href: anchor?.href ?? null, image: image ?? null })
+      setHover(null)
+      setTableCopy(null)
+    }
+    const onScroll = () => {
+      setMenu(null)
+      setHover((current) => {
+        if (!current || !document.contains(current.anchor)) return null
+        const rect = current.anchor.getBoundingClientRect()
+        return { ...current, x: rect.left, y: rect.bottom + 6 }
+      })
+      setTableCopy((current) => {
+        if (!current || !document.contains(current.table)) return null
+        const rect = current.table.getBoundingClientRect()
+        return { ...current, x: rect.right - 20, y: rect.top + 6 }
+      })
+    }
+    root.addEventListener('pointerover', onPointerOver)
+    root.addEventListener('pointerout', onPointerOut)
+    root.addEventListener('contextmenu', onContextMenu)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      root.removeEventListener('pointerover', onPointerOver)
+      root.removeEventListener('pointerout', onPointerOut)
+      root.removeEventListener('contextmenu', onContextMenu)
+      window.removeEventListener('scroll', onScroll)
+    }
+  }, [options])
+
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  useEffect(() => {
+    if (!menu) return
+    const first = document.querySelector<HTMLButtonElement>('.blog-context-menu button')
+    first?.focus()
+  }, [menu])
+
+  const run = (action: () => Promise<void> | void) => {
+    setMenu(null)
+    try {
+      void Promise.resolve(action()).then(() => {
+        setCopied(options.labels.copied)
+        window.setTimeout(() => setCopied(''), 1200)
+      }).catch(() => setCopied(options.labels.copyFailed))
+    } catch {
+      setCopied(options.labels.copyFailed)
+    }
   }
-  return { byName, byId }
-}
 
-function currentHref(links: BlogWikiHref[] | undefined, target: string): string | null {
-  if (!links?.length) return null
-  const key = normalizeTarget(target)
-  return links.find((link) => normalizeTarget(link.target) === key)?.href ?? null
-}
-
-async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandle> {
-  await import('./runtime.css')
-  setAssetBase(options.assetBase ?? '')
-  await initI18nForReading(readingLocale(options.locale ?? options.settings?.locale))
-  hydrateNotes(options)
-  applyReadingSettings(options.settings)
-
-  const attachments = attachmentIndex(options.assets)
-  const root: Root = createRoot(options.container)
-  let hideObserver: MutationObserver | null = null
-  root.render(
-    <div className="blog-reading-runtime" data-blog-reading>
+  return (
+    <>
       <Preview
         content={options.content}
         noteTitle={options.noteTitle}
@@ -214,7 +349,7 @@ async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandl
           return true
         }}
         resolveAttachment={(name) => {
-          const asset = attachments.byName.get(normalizeTarget(name))
+          const asset = options.assets?.find((item) => item.filename && normalizeTarget(item.filename) === normalizeTarget(name))
           if (!asset) return null
           return {
             filename: asset.filename ?? name,
@@ -227,12 +362,84 @@ async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandl
         }}
         rewriteAssetUrl={(url) => {
           const match = /\/api\/files\/([A-Za-z0-9_-]{1,64})(?:[?#]|$)/.exec(url)
-          const asset = match ? attachments.byId.get(match[1]!) : undefined
+          const asset = match ? options.assets?.find((item) => item.attachmentId === match[1]) : undefined
           return asset?.url ?? null
         }}
       />
       <Lightbox />
       <Toaster />
+      {hover && createPortal(
+        <div className="blog-hover-card" role="tooltip" style={{ left: hover.x, top: hover.y }}>
+          <strong>{hover.title}</strong>
+          {hover.detail && <span>{hover.detail}</span>}
+        </div>,
+        document.body,
+      )}
+      {tableCopy && createPortal(
+        <button
+          type="button"
+          className="blog-table-copy"
+          style={{ left: tableCopy.x, top: tableCopy.y }}
+          onPointerEnter={() => setTableCopy(tableCopy)}
+          onPointerLeave={() => setTableCopy(null)}
+          onClick={() => run(() => copyToClipboard(tableText(tableCopy.table)))}
+        >
+          {copied || options.labels.copyTable}
+        </button>,
+        document.body,
+      )}
+      {menu && createPortal(
+        <div
+          className="blog-context-menu"
+          role="menu"
+          aria-label={options.labels.article}
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              setMenu(null)
+              return
+            }
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+            event.preventDefault()
+            const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]
+            const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+            const next = event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index - 1 + buttons.length) % buttons.length
+            buttons[next]?.focus()
+          }}
+        >
+          {menu.selection && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.selection))}>{options.labels.copySelection}</button>}
+          {menu.href && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.href!))}>{options.labels.copyLink}</button>}
+          {menu.image && <button type="button" role="menuitem" onClick={() => { setMenu(null); menu.image!.click() }}>{options.labels.openImage}</button>}
+          {menu.image && <button type="button" role="menuitem" onClick={() => run(() => copyToClipboard(menu.image!.src))}>{options.labels.copyImage}</button>}
+          <button type="button" role="menuitem" onClick={() => { setMenu(null); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>{options.labels.backToTop}</button>
+        </div>,
+        document.body,
+      )}
+      <span className="sr-only" aria-live="polite">{copied}</span>
+    </>
+  )
+}
+
+function currentHref(links: BlogWikiHref[] | undefined, target: string): string | null {
+  if (!links?.length) return null
+  const key = normalizeTarget(target)
+  return links.find((link) => normalizeTarget(link.target) === key)?.href ?? null
+}
+
+async function mount(options: BlogReadingMountOptions): Promise<BlogReadingHandle> {
+  await import('./runtime.css')
+  setAssetBase(options.assetBase ?? '')
+  await initI18nForReading(readingLocale(options.locale ?? options.settings?.locale))
+  hydrateNotes(options)
+  applyReadingSettings(options.settings)
+
+  const root: Root = createRoot(options.container)
+  let hideObserver: MutationObserver | null = null
+  root.render(
+    <div className="blog-reading-runtime" data-blog-reading>
+      <ReadingSurface options={options} />
     </div>,
   )
   // Views are mounted asynchronously after the first paint, so a one-shot sweep would run before

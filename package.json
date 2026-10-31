@@ -24,7 +24,7 @@
     "build": "npm run build:types && vite build && npm run build:runtime",
     "build:kv": "npm run build:types && vite build --mode kv && npm run build:runtime",
     "build:demo": "npm run build:types && vite build --mode demo && npm run build:runtime",
-    "build:runtime": "vite build --config vite.blog-runtime.config.ts",
+    "build:runtime": "vite build --config vite.blog-runtime.config.ts && vite build --config vite.blog-music.config.ts",
     "build:types": "node --max-old-space-size=3072 node_modules/typescript/bin/tsc -b tsconfig.client.json tsconfig.worker.json tsconfig.node.json",
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && npx wrangler deploy --config dist/inkstone/wrangler.json",

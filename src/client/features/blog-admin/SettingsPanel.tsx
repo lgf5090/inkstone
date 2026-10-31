@@ -52,6 +52,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
   const [footer, setFooter] = useState<Record<string, unknown>>({})
   const [license, setLicense] = useState<Record<string, unknown>>({})
   const [music, setMusic] = useState<Record<string, unknown>>({})
+  const [musicTracksText, setMusicTracksText] = useState('[]')
   const [umami, setUmami] = useState<Record<string, unknown>>({})
   const [fab, setFab] = useState<Record<string, unknown>>({})
   const [llms, setLlms] = useState<Record<string, unknown>>({})
@@ -71,6 +72,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
     setFooter(settings.footer)
     setLicense(settings.license)
     setMusic(settings.music)
+    setMusicTracksText(JSON.stringify(settings.music.tracks ?? [], null, 2))
     setUmami(settings.umami)
     setFab(settings.fab)
     setLlms(settings.llms)
@@ -89,6 +91,24 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
     } finally {
       setSaving(false)
     }
+  }
+
+  const saveMusic = async () => {
+    let tracks: unknown
+    try {
+      tracks = JSON.parse(musicTracksText || '[]')
+    } catch {
+      toast({ title: t('blog.admin.music_tracks_invalid'), tone: 'danger' })
+      return
+    }
+    if (!Array.isArray(tracks)) {
+      toast({ title: t('blog.admin.music_tracks_invalid'), tone: 'danger' })
+      return
+    }
+    const next = { ...music, tracks }
+    setMusic(next)
+    await saveDomain('music', next)
+    await saveDomain('umami', umami)
   }
 
   const saveAdvanced = async () => {
@@ -232,7 +252,7 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                 <Field label={t('blog.admin.license_url')}><Input value={text(license.url)} onChange={(event) => setLicense({ ...license, url: event.target.value })} /></Field>
               </div>
             </Section>
-            <Section title={t('blog.admin.settings_integrations')} onSave={() => void saveDomain('music', music).then(() => saveDomain('umami', umami))} saving={saving}>
+            <Section title={t('blog.admin.settings_integrations')} onSave={() => void saveMusic()} saving={saving}>
               <Field label={t('blog.admin.music_provider')}>
                 <Select value={text(music.provider) || 'none'} onChange={(event) => setMusic({ ...music, provider: event.target.value })}>
                   <option value="none">{t('blog.admin.comment_none')}</option>
@@ -242,6 +262,51 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                   <option value="mixed">{t('blog.admin.music_mixed')}</option>
                 </Select>
               </Field>
+              {text(music.provider) !== 'none' && (
+                <>
+                  <Field label={t('blog.admin.music_tracks')} hint={t('blog.admin.music_tracks_hint')}>
+                    <Textarea rows={6} className="font-mono" value={musicTracksText} onChange={(event) => setMusicTracksText(event.target.value)} />
+                  </Field>
+                  {(text(music.provider) === 'meting' || text(music.provider) === 'mixed') && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label={t('blog.admin.music_meting_server')}>
+                        <Select
+                          value={text((music.meting as Record<string, unknown> | undefined)?.server) || 'netease'}
+                          onChange={(event) => setMusic({ ...music, meting: { ...(music.meting as Record<string, unknown> ?? {}), server: event.target.value } })}
+                        >
+                          {['netease', 'tencent', 'kugou', 'xiami', 'baidu'].map((server) => <option key={server} value={server}>{server}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label={t('blog.admin.music_meting_type')}>
+                        <Select
+                          value={text((music.meting as Record<string, unknown> | undefined)?.type) || 'playlist'}
+                          onChange={(event) => setMusic({ ...music, meting: { ...(music.meting as Record<string, unknown> ?? {}), type: event.target.value } })}
+                        >
+                          {['playlist', 'song', 'album', 'artist'].map((type) => <option key={type} value={type}>{t(`blog.admin.music_meting_type_${type}` as MessageKey)}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label={t('blog.admin.music_meting_id')}>
+                        <Input value={text((music.meting as Record<string, unknown> | undefined)?.id)} onChange={(event) => setMusic({ ...music, meting: { ...(music.meting as Record<string, unknown> ?? {}), id: event.target.value } })} />
+                      </Field>
+                      <Field label={t('blog.admin.music_meting_api')} hint={t('blog.admin.music_meting_api_hint')}>
+                        <Input value={text((music.meting as Record<string, unknown> | undefined)?.api)} onChange={(event) => setMusic({ ...music, meting: { ...(music.meting as Record<string, unknown> ?? {}), api: event.target.value } })} placeholder="https://…?server=:server&type=:type&id=:id&r=:r" />
+                      </Field>
+                    </div>
+                  )}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label={t('blog.admin.music_default_volume')}>
+                      <Input type="number" min={0} max={1} step={0.05} value={num(music.defaultVolume, 0.7)} onChange={(event) => setMusic({ ...music, defaultVolume: Number(event.target.value) })} />
+                    </Field>
+                    <Field label={t('blog.admin.music_default_mode')}>
+                      <Select value={text(music.defaultMode) || 'sequence'} onChange={(event) => setMusic({ ...music, defaultMode: event.target.value })}>
+                        <option value="sequence">{t('blog.admin.music_mode_sequence')}</option>
+                        <option value="repeat-one">{t('blog.admin.music_mode_repeat_one')}</option>
+                        <option value="shuffle">{t('blog.admin.music_mode_shuffle')}</option>
+                      </Select>
+                    </Field>
+                  </div>
+                </>
+              )}
               <Checkbox checked={bool(umami.enable)} onChange={(value) => setUmami({ ...umami, enable: value })} label={t('blog.admin.umami_enable')} />
               {bool(umami.enable) && <Field label={t('blog.admin.umami_website_id')}><Input value={text(umami.websiteId)} onChange={(event) => setUmami({ ...umami, websiteId: event.target.value })} /></Field>}
             </Section>

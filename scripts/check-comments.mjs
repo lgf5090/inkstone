@@ -184,10 +184,15 @@ const allowed = new Map([
     "// the board has buttons to sweep.",
     "/** Vault attachments published alongside the article, keyed by their original names and ids. */",
   ]],
+  ["src/blog-runtime/music.tsx", [
+    "/**\n * The blog's music card.\n *\n * Playback is the music app's own queue store and audio engine; this file only turns the blog's public\n * track list into that model, points the stream resolver at the published URLs, and draws the small\n * transport the sidebar has room for.\n */",
+    "// Navigation replaces the card but must not stop the station; the engine and queue outlive it.",
+  ]],
   ["src/blog-runtime/runtime.css", [
     "/*\n * Styles for the reading runtime only.\n *\n * The app's own `app.css` scans every feature and ships the styles of screens this runtime never\n * mounts (editor, mail, music, ink tools, …), which on a public article is a megabyte of CSS paid for\n * nothing. This entry keeps the shared tokens and the block styles, and limits Tailwind's source scan\n * to the components the reading surface can actually put on the page.\n */",
     "/* The host page supplies the token sheet (both apps ship the same `tokens.css`); importing it here\n   would re-declare `:root` fonts and widths over the blog's own shell. */",
     "/*\n * A public board keeps its reading controls — view switching, search, filters, export — and drops the\n * affordances that would write to a note. The labelled buttons are removed by the runtime after the\n * board mounts (their labels come from the locale catalog); these two carry stable attributes.\n */",
+    "/* Public reading overlays: hover, table copy and the read-only context menu. */",
   ]],
   ["src/client/App.test.ts", [
     "/**\n * The update card where a reader actually looks at it.\n *\n * `pwa.test.ts` proves the store raises `updateAvailable` when a build finishes installing. A flag is not\n * an entry: the failure this file guards is exactly the one the intercepted install banner would have\n * been — a state that exists with nothing on screen to spend it. So the card is rendered from `App`, the\n * real host, and pressed through the real button, because the two halves that have to stay true are the\n * mount and the wiring, not the styling.\n */",
@@ -7585,6 +7590,10 @@ const allowed = new Map([
     "/**\n * Read a persisted queue back, keeping only entries that still look like a track.\n *\n * A record written by a newer build, a hand-edited one, or one half-overwritten by a full quota is\n * not a reason to refuse to start: the readable tracks survive and everything else falls back to the\n * caller's mode. The stored order is already the play order, so shuffle is not applied a second time.\n */",
     "/** Put a track at the end, keeping the queue as it was when the track is already present. */",
   ]],
+  ["src/client/features/music/player/source-overrides.ts", [
+    "/**\n * Public playback sources for tracks that do not live in this app's music library.\n *\n * The blog reuses the music app's player, queue and audio engine, but its tracks are public files\n * served by the blog rather than library rows behind the authenticated stream route. The override is\n * keyed by track id and read where the player resolves a URL; an app session never installs one.\n */",
+    "/** A public surface has no music library; history and favourites must not be written there. */",
+  ]],
   ["src/client/features/music/player/theme-color.ts", [
     "/**\n * A cover's own tint, published as three CSS variables on the music surface.\n *\n * The colour is read from pixels the browser already has: a 32 px canvas copy of the same-origin\n * cover route. CSS colour functions are never parsed back out of computed styles, because the design\n * tokens use oklch and the canvas path is both cheaper and exact.\n *\n * Everything here is best-effort. A tainted canvas, an unreadable image or a cross-origin URL leaves\n * the variables unset, and the stylesheet's fallback (the app accent) stays in charge.\n */",
     "/** The pixels are sampled small: a cover's average is a mood, not a poster. */",
@@ -14520,7 +14529,8 @@ const allowed = new Map([
     "// `Ctrl-Space` asks for a list at the caret, which is the request that does not depend on the reader",
     "// having typed a trigger character — and the caret is inside the `<% tp.` the template was saved with.",
     "// A completion source is asked, then its answer is put into the state on a later frame; waiting once",
-    "// only ever catches the request itself.",
+    "// only ever catches the request itself. Each turn carries a real millisecond budget because a loaded",
+    "// machine can take longer than a run of zero-delay turns to reach that frame.",
   ]],
   ["src/client/features/templater/template-code-editor.tsx", [
     "/**\n * The template library's body editor: a code editor for Templater text.\n *\n * A template body is code the reader is writing, and the `<textarea>` it lived in could not say where the\n * prose stops and the command starts, could not offer the `tp.` names the registry already documents, and\n * had no line numbers to navigate a parse error by. This is CodeMirror with the two extensions the note\n * editor was given today — `editor/templater.ts` for the marks and `editor/templater-completion.ts` for the\n * suggestions, both reused rather than re-implemented — mounted as its own small view.\n *\n * It is deliberately not `editor/CodeEditor`. That component is a *note* editor, and both halves of that\n * are load-bearing here: it registers its view as the app's active editor, which is exactly what\n * `features/templater/editor-surface.ts` reads to decide where a run's text and caret go — a dialog open\n * over a note would move those to the dialog; and it is built around a note's own `onChange`, paste\n * handlers, dragger, outliner, hover cards and wiki-link/tag/emoji completion sources, none of which a\n * template body has. A body is text the reader is writing, not a note they are in.\n *\n * What the surface owes the dialog it sits in, all of it pinned by `template-code-editor.test.ts`:\n *\n * - Escape closes the dialog. The dialog answers Escape first, because `useEscape` listens on the window in\n *   the capture phase, so the editor's job is to stay out of the way — except while a suggestion list is\n *   open, where Escape means \"put that away\" and closing the dialog would throw away the draft with it.\n * - Tab leaves the editor. It takes a suggestion when one is offered, and is left alone otherwise, which is\n *   why `indentWithTab` is not installed.\n * - An input method keeps its keystrokes: no React key handler here, and the one command binding asks\n *   `view.composing` first, because CodeMirror's keymap does not.\n * - The editable element carries the name and description the dialog's `Field` gives it.\n * - Undo works, as it did in the textarea.\n *\n * Focus is not taken on purpose: the dialog puts it in the template's name, and that is where it stays.\n */",

@@ -295,10 +295,11 @@ describe('the template dialog with the editor in it', () => {
       press({ key: ' ', code: 'Space', ctrlKey: true })
     })
     // A completion source is asked, then its answer is put into the state on a later frame; waiting once
-    // only ever catches the request itself.
+    // only ever catches the request itself. Each turn carries a real millisecond budget because a loaded
+    // machine can take longer than a run of zero-delay turns to reach that frame.
     await act(async () => {
-      for (let attempt = 0; attempt < 20 && completionStatus(editor().state) !== 'active'; attempt++) {
-        await new Promise((resolve) => { setTimeout(resolve, 0) })
+      for (let attempt = 0; attempt < 100 && completionStatus(editor().state) !== 'active'; attempt++) {
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
       }
     })
     expect(completionStatus(editor().state)).toBe('active')
