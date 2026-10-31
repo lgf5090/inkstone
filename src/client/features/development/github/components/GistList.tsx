@@ -28,13 +28,13 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
     toast({ title: ok ? t('development.github.gists.url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
   return (
-    <li data-slot="github-gist-row" onClick={onSelect} className={cn('group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
+    <li data-slot="github-gist-row" className={cn('group border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
       <div className="flex gap-2">
         {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_item', { name: title })} className="mt-1 shrink-0" />}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {gist.data.isPublic ? <Globe size={13} className="shrink-0 text-[var(--success)]" /> : <Lock size={13} className="shrink-0 text-[var(--warning)]" />}
-            <button type="button" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={title}>{title}</button>
+            <button type="button" data-slot="gist-select" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={title}>{title}</button>
             <div className="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
               {remote ? (
                 <>
@@ -73,11 +73,11 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
     toast({ title: ok ? t('development.github.gists.url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
   return (
-    <div data-slot="github-gist-card" onClick={onSelect} className={cn('group flex cursor-pointer flex-col rounded-[var(--r-lg)] border p-3 transition-all', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
+    <div data-slot="github-gist-card" className={cn('group flex flex-col rounded-[var(--r-lg)] border p-3 transition-all', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
       <div className="flex items-center gap-2">
         {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_item', { name: gist.description || first?.filename || gist.id })} className="shrink-0" />}
         {gist.data.isPublic ? <Globe size={13} className="shrink-0 text-[var(--success)]" /> : <Lock size={13} className="shrink-0 text-[var(--warning)]" />}
-        <button type="button" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none">{gist.description || first?.filename || gist.id}</button>
+        <button type="button" data-slot="gist-select" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none">{gist.description || first?.filename || gist.id}</button>
         {remote ? (
           <>
             <IconButton label={savedRemote ? t('development.github.gists.saved_local') : t('development.github.gists.save_local')} size="sm" onClick={(event) => { event.stopPropagation(); if (!savedRemote) onSaveToLocal() }}>{savedRemote ? <Check size={13} className="text-[var(--success)]" /> : <Download size={13} />}</IconButton>

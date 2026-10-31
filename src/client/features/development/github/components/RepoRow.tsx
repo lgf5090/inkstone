@@ -49,9 +49,8 @@ export const RepoRow = memo(function RepoRow({
   return (
     <li
       data-slot="github-repo-row"
-      onClick={() => onSelect(repo)}
       className={cn(
-        'group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]',
+        'group border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]',
         selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent',
       )}
     >
@@ -64,7 +63,7 @@ export const RepoRow = memo(function RepoRow({
             <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={24} className="mt-0.5" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <button type="button" onClick={(event) => { event.stopPropagation(); onSelect(repo) }} aria-current={selected ? 'true' : undefined} className="min-w-0 truncate bg-transparent text-left text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={repo.fullName}>
+                <button type="button" data-slot="repo-select" onClick={(event) => { event.stopPropagation(); onSelect(repo) }} aria-current={selected ? 'true' : undefined} className="min-w-0 truncate bg-transparent text-left text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={repo.fullName}>
                   {repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span>
                 </button>
                 {repo.isArchived && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--warning)]"><Archive size={10} /> {t('development.github.repos.archived')}</span>}
