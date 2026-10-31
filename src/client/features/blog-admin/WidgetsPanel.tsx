@@ -246,9 +246,11 @@ export function WidgetsPanel() {
                 <option value="sticky">{t('blog.admin.widget_slot_sticky')}</option>
               </Select>
             </Field>
-            <Field label={t('blog.admin.widget_collapse')} hint={t('blog.admin.widget_collapse_hint')}>
-              <Input type="number" min={0} value={collapseAfter} onChange={(event) => setCollapseAfter(event.target.value)} />
-            </Field>
+            {(type === 'categories' || type === 'tags' || type === 'series') && (
+              <Field label={t('blog.admin.widget_collapse')} hint={t('blog.admin.widget_collapse_hint')}>
+                <Input type="number" min={0} value={collapseAfter} onChange={(event) => setCollapseAfter(event.target.value)} />
+              </Field>
+            )}
           </div>
           <Field label={t('blog.admin.widget_pages')} hint={t('blog.admin.widget_pages_hint')}>
             <Input value={pagesText} onChange={(event) => setPagesText(event.target.value)} />
