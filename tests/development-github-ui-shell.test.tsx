@@ -97,6 +97,7 @@ describe('GitHub module shell', () => {
   beforeEach(async () => {
     await initI18n()
     clearGithubCache()
+    window.history.replaceState(null, '', '/')
     searchRequests.length = 0
     useGithubStore.setState({
       status: 'idle',

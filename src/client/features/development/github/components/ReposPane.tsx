@@ -1,9 +1,12 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GithubPrefs, GithubRepo, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
-import { GITHUB_EXPLORE_VIEW, GITHUB_PER_PAGE } from '@shared/development/github/types'
+import { GITHUB_ALL_VIEW, GITHUB_EXPLORE_VIEW, GITHUB_PER_PAGE } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { navigateToAddress } from '../../../../lib/app-history'
 import { confirm } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
+import { githubApi } from '../api'
+import { repoAddress } from '../routes'
 import { useGithubSearch } from '../cache'
 import { useGithubStore } from '../store'
 import { loadRepoPrefs, saveRepoPrefs } from '../prefs'
@@ -27,6 +30,7 @@ export function ReposPane({
   onOpenMirrors,
   currentMirrorId,
   onCurrentMirrorChange,
+  deepLinkRepo,
 }: {
   tab: GithubTab
   onTabChange: (tab: GithubTab) => void
@@ -34,6 +38,7 @@ export function ReposPane({
   onOpenMirrors: () => void
   currentMirrorId: string
   onCurrentMirrorChange: (id: string) => void
+  deepLinkRepo: string | null
 }) {
   const tags = useGithubStore((state) => state.tags)
   const repos = useGithubStore((state) => state.repos)
@@ -53,6 +58,8 @@ export function ReposPane({
   const [committedQuery, setCommittedQuery] = useState('')
   const [page, setPage] = useState(1)
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
+  const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
+  const lookupRef = useRef<string | null>(null)
 
   const isExplore = selectedView === GITHUB_EXPLORE_VIEW
   const searchParams = useMemo(() => ({
@@ -70,8 +77,11 @@ export function ReposPane({
     if (!selectedRepoId) return null
     const fromSearch = search.data?.items.find((repo) => String(repo.id) === selectedRepoId)
     if (fromSearch) return fromSearch
-    return repos.find((repo) => repo.id === selectedRepoId)?.data ?? null
-  }, [selectedRepoId, search.data, repos])
+    const saved = repos.find((repo) => repo.id === selectedRepoId)?.data
+    if (saved) return saved
+    if (extraRepo && String(extraRepo.id) === selectedRepoId) return extraRepo
+    return null
+  }, [selectedRepoId, search.data, repos, extraRepo])
 
   const listItems = useMemo<GithubRepo[]>(() => {
     if (isExplore) return search.data?.items ?? []
@@ -150,7 +160,31 @@ export function ReposPane({
 
   const selectRepo = useCallback((repo: GithubRepo) => {
     setSelectedRepoId(String(repo.id))
+    navigateToAddress(repoAddress(repo.fullName))
   }, [])
+
+  const selectedFullName = selectedRepo?.fullName ?? null
+  useEffect(() => {
+    if (!deepLinkRepo) return
+    const normalized = deepLinkRepo.toLowerCase()
+    if (selectedFullName?.toLowerCase() === normalized) return
+    const saved = repos.find((repo) => repo.fullName.toLowerCase() === normalized)
+    if (saved) {
+      setSelectedView(GITHUB_ALL_VIEW)
+      setSelectedRepoId(saved.id)
+      return
+    }
+    if (lookupRef.current === normalized) return
+    lookupRef.current = normalized
+    void githubApi.repoLookup(deepLinkRepo)
+      .then((repo) => {
+        setExtraRepo(repo)
+        setSelectedRepoId(String(repo.id))
+      })
+      .catch((error) => {
+        toast({ title: t('development.github.repos.deep_link_missing'), description: error instanceof Error ? error.message : undefined, tone: 'danger' })
+      })
+  }, [deepLinkRepo, repos, selectedFullName, toast])
 
   const addTag = useCallback((name: string, color: string, parentId: string | null) => {
     const now = Date.now()

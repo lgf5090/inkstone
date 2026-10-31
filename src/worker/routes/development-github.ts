@@ -50,7 +50,7 @@ import {
   listGithubGists,
   updateGithubGist,
 } from '../development/github/github-gists'
-import { fetchRepoDetail, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
+import { fetchRepoDetail, fetchRepository, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
 import { listMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
   assertExportStorage,
@@ -158,6 +158,10 @@ const RepoDetailQuerySchema = z.object({
   repo: z.string().min(3).max(300),
   defaultBranch: z.string().max(200).optional(),
   parts: z.string().max(200).optional(),
+})
+
+const RepoLookupQuerySchema = z.object({
+  repo: z.string().min(3).max(300),
 })
 
 const GistDetailQuerySchema = z.object({
@@ -640,6 +644,15 @@ developmentGithubRoutes.get('/search', async (c) => {
     token,
   )
   return c.json({ ok: true, data: result })
+})
+
+developmentGithubRoutes.get('/repo-lookup', async (c) => {
+  const userId = userIdOf(c)
+  detailBudget(userId)
+  const query = parseQuery(c, RepoLookupQuerySchema)
+  if (!parseRepoFullName(query.repo)) throw ApiError.badRequest('A repository must be named owner/name')
+  const token = await effectiveGithubToken(c.env, c.env.DB, userId)
+  return c.json({ ok: true, data: { repo: await fetchRepository(query.repo, token) } })
 })
 
 developmentGithubRoutes.get('/repo-detail', async (c) => {

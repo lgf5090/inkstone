@@ -246,6 +246,20 @@ function normalizeLanguages(value: unknown): GithubRepoDetail['languages'] {
     .sort((left, right) => right.bytes - left.bytes)
 }
 
+export async function fetchRepository(
+  fullName: string,
+  token?: string | null,
+): Promise<GithubRepo> {
+  const parsed = parseRepoFullName(fullName)
+  if (!parsed) throw ApiError.badRequest('A repository must be named owner/name')
+  const path = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}`
+  const { data } = await githubJson<unknown>(path, {
+    token,
+    timeoutMs: GITHUB_DETAIL_TIMEOUT_MS,
+  })
+  return normalizeRepo(data)
+}
+
 export const REPO_DETAIL_PARTS: readonly GithubRepoDetailPart[] = [
   'branches',
   'tags',

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './styles/github.css'
 import { t } from '../../../lib/i18n'
+import { navigateToPath, usePathname } from '../../../lib/app-history'
 import { LoadingBlock, Empty } from '../../../components/feedback'
 import { Button } from '../../../components/primitives'
 import { useGithubStore } from './store'
@@ -8,6 +9,7 @@ import { loadCurrentMirrorId, saveCurrentMirrorId } from './prefs'
 import { resolveMirror } from './lib/mirror'
 import { DEFAULT_GITHUB_MIRRORS } from '@shared/development/github/types'
 import type { GithubTab } from './components/ModuleTabs'
+import { parseGithubRoute, tabAddress } from './routes'
 import { AccountsDialog } from './components/AccountsView'
 import { MirrorDialog } from './components/MirrorDialog'
 import { ReposPane } from './components/ReposPane'
@@ -24,7 +26,10 @@ export function GithubApp() {
   const addAccount = useGithubStore((state) => state.addAccount)
   const deleteAccount = useGithubStore((state) => state.deleteAccount)
   const saveMirrors = useGithubStore((state) => state.saveMirrors)
-  const [tab, setTab] = useState<GithubTab>('repos')
+  const pathname = usePathname()
+  const route = parseGithubRoute(pathname)
+  const tab = route.tab
+  const changeTab = (next: GithubTab) => navigateToPath(tabAddress(next))
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [mirrorsOpen, setMirrorsOpen] = useState(false)
   const [currentMirrorId, setCurrentMirrorId] = useState(loadCurrentMirrorId)
@@ -58,7 +63,7 @@ export function GithubApp() {
 
   const shared = {
     tab,
-    onTabChange: setTab,
+    onTabChange: changeTab,
     onOpenAccounts: () => setAccountsOpen(true),
     onOpenMirrors: () => setMirrorsOpen(true),
     currentMirrorId: currentMirror?.id ?? '',
@@ -68,10 +73,10 @@ export function GithubApp() {
   return (
     <div data-testid="github-app-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]">
       <div data-testid="github-tab-repos" className={tab === 'repos' ? 'contents' : 'hidden'}>
-        <ReposPane {...shared} />
+        <ReposPane {...shared} deepLinkRepo={route.repoFullName} />
       </div>
       <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
-        <GistsPane tab={tab} onTabChange={setTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} />
+        <GistsPane tab={tab} onTabChange={changeTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} deepLinkGistId={route.gistId} />
       </div>
       <AccountsDialog
         open={accountsOpen}

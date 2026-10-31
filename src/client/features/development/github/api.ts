@@ -11,6 +11,7 @@ import {
   type GithubExportFile,
   type GithubExportFormat,
   type GithubMirrorSource,
+  type GithubRepo,
   type GithubRepoDetail,
   type GithubRepoDetailPart,
   type GithubSearchParams,
@@ -234,6 +235,12 @@ export const githubApi = {
     if (defaultBranch) query.set('defaultBranch', defaultBranch)
     if (parts && parts.length > 0) query.set('parts', parts.join(','))
     return readData(`/repo-detail?${query.toString()}`, { signal })
+  },
+
+  repoLookup(fullName: string, signal?: AbortSignal): Promise<GithubRepo> {
+    const query = new URLSearchParams({ repo: fullName })
+    return readData<{ repo: GithubRepo }>(`/repo-lookup?${query.toString()}`, { signal })
+      .then((response) => response.repo)
   },
 
   gistDetail(id: string, signal?: AbortSignal): Promise<GistItem> {

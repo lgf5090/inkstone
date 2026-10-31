@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GistFilesPatch, GistItem, GistPrefs, GistViewId, SavedGist } from '@shared/development/github/types'
 import { GIST_ALL_VIEW, GIST_FAV_VIEW, GIST_MY_GITHUB_VIEW, GIST_PINNED_VIEW, GIST_EXPLORE_VIEW, extractUsernameFromView, isRemoteView } from '@shared/development/github/types'
 import { MAX_GIST_DATA_BYTES } from '@shared/development/github/limits'
 import { utf8ByteLength } from '@shared/text-utils'
 import { t } from '../../../../lib/i18n'
+import { navigateToAddress } from '../../../../lib/app-history'
 import { useGithubStore } from '../store'
 import { loadGistPrefs, loadGistViewMode, saveGistPrefs, saveGistViewMode } from '../prefs'
 import { useGistDetailRemote, useRemoteGists } from '../cache'
 import { githubApi } from '../api'
+import { gistAddress } from '../routes'
 import { sortGists } from '../lib/filters'
 import { buildGistFilesPatch } from '../lib/gist-files'
 import { GithubPanes } from '../GithubPanes'
@@ -42,12 +44,14 @@ export function GistsPane({
   onOpenAccounts,
   onOpenMirrors,
   currentMirrorId,
+  deepLinkGistId,
 }: {
   tab: GithubTab
   onTabChange: (tab: GithubTab) => void
   onOpenAccounts: () => void
   onOpenMirrors: () => void
   currentMirrorId: string
+  deepLinkGistId: string | null
 }) {
   const gistTags = useGithubStore((state) => state.gistTags)
   const gists = useGithubStore((state) => state.gists)
@@ -83,6 +87,8 @@ export function GistsPane({
   const [fullGists, setFullGists] = useState<Map<string, SavedGist>>(new Map())
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [deepLinkGist, setDeepLinkGist] = useState<GistItem | null>(null)
+  const lookupRef = useRef<string | null>(null)
 
   const remote = isRemoteView(selectedView)
   const remoteUsername = extractUsernameFromView(selectedView)
@@ -122,15 +128,39 @@ export function GistsPane({
       ? fullGists.get(selectedLocal.id)?.data ?? null
       : selectedLocal.data
     : null
-  const detailGist = remote ? remoteDetail.data ?? selectedRemote?.data ?? null : localDetail
+  const linkedGist = !remote && deepLinkGist?.id === selectedGistId ? deepLinkGist : null
+  const detailGist = remote ? remoteDetail.data ?? selectedRemote?.data ?? null : linkedGist ?? localDetail
   const ownUsernames = useMemo(() => new Set(accounts.map((account) => account.username)), [accounts])
   const canEditRemote = Boolean(detailGist?.owner && ownUsernames.has(detailGist.owner.login))
-  const canPushLocal = Boolean(!remote && detailGist?.owner && ownUsernames.has(detailGist.owner.login))
+  const canPushLocal = Boolean(!remote && selectedLocal && detailGist?.owner && ownUsernames.has(detailGist.owner.login))
   const savedRemoteIds = useMemo(() => new Set(gists.map((gist) => gist.id)), [gists])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null
 
   useEffect(() => { setRemotePage(1) }, [selectedView])
+
+  useEffect(() => {
+    if (!deepLinkGistId) return
+    const local = gists.find((gist) => gist.id === deepLinkGistId)
+    if (local) {
+      if (selectedGistId !== local.id) {
+        setSelectedView(GIST_ALL_VIEW)
+        setSelectedGistId(local.id)
+      }
+      return
+    }
+    if (deepLinkGist?.id === deepLinkGistId) return
+    if (lookupRef.current === deepLinkGistId) return
+    lookupRef.current = deepLinkGistId
+    void githubApi.gistDetail(deepLinkGistId)
+      .then((gist) => {
+        setDeepLinkGist(gist)
+        setSelectedGistId(gist.id)
+      })
+      .catch((error) => {
+        toast({ title: t('development.github.gists.deep_link_missing'), description: causeText(error), tone: 'danger' })
+      })
+  }, [deepLinkGistId, gists, selectedGistId, deepLinkGist?.id, toast])
 
   const needle = query.trim()
   useEffect(() => {
@@ -356,7 +386,14 @@ export function GistsPane({
             items={items}
             tags={gistTags}
             selectedGistId={remote ? selectedRemoteId : selectedGistId}
-            onSelectGist={(gist) => remote ? setSelectedRemoteId(gist.id) : setSelectedGistId(gist.id)}
+            onSelectGist={(gist) => {
+              if (remote) {
+                setSelectedRemoteId(gist.id)
+                return
+              }
+              setSelectedGistId(gist.id)
+              navigateToAddress(gistAddress(gist.id))
+            }}
             onTogglePin={togglePin}
             onToggleFav={toggleFav}
             onToggleTag={toggleTag}
@@ -389,7 +426,7 @@ export function GistsPane({
           ? <div className="flex h-full items-center justify-center gap-2 text-[length:var(--text-12)] text-[var(--text-tertiary)]"><Spinner size={15} />{t('development.github.common.loading')}</div>
           : detailError && !detailGist
             ? <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-12)] text-[var(--danger)]" role="alert">{detailError}</p><Button variant="secondary" size="sm" onClick={retryFull}>{t('development.github.common.retry')}</Button></div>
-            : <GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} onPushToGithub={canPushLocal ? pushLocal : undefined} />}
+            : <GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : !selectedLocal} exportsEnabled={exportsEnabled} exportable={!remote && Boolean(selectedLocal)} onUpdateNotes={remote || !selectedLocal ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : selectedLocal ? updateLocal : undefined} onDeleteGist={remote || selectedLocal ? (id) => void deleteOne(id) : undefined} onOpenExportHistory={exportsEnabled ? () => setExportHistoryOpen(true) : undefined} onPushToGithub={canPushLocal ? pushLocal : undefined} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
