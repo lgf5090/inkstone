@@ -20,7 +20,11 @@ import { useAutoLock } from './useAutoLock'
 import { GroupTree } from './GroupTree'
 import { GroupTreeNode, MAX_GROUP_TREE_DEPTH } from './GroupTreeNode'
 import { ToolsSidebar } from '../ToolsSidebar'
-import type { PasswordAccount, PasswordGroup } from '@shared/tools/password/types'
+import type {
+  PasswordAccount,
+  PasswordGroup,
+} from '@shared/tools/password/types'
+import { MASTER_PASSWORD_MAX_LENGTH } from '@shared/tools/password/types'
 
 let view: RenderedElement | null = null
 
@@ -52,7 +56,7 @@ function renderWithHosts(node: React.ReactNode) {
 }
 
 describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
-  const masterPassword = 'MyPass' // 6 chars
+  const masterPassword = 'MyPass' // a vault created before the length rule: still opens
   const VAULT_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
   const keyiv = deriveVaultKey(masterPassword, VAULT_SALT)
 
@@ -101,7 +105,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
 
       const input = document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')
       expect(input).toBeTruthy()
-      expect(input?.maxLength).toBe(6)
+      expect(input?.maxLength).toBe(MASTER_PASSWORD_MAX_LENGTH)
 
       expect(document.querySelector('[data-testid="password-door-forgot"]')).toBeTruthy()
       expect(document.querySelector('[data-testid="password-door-modify"]')).toBeTruthy()
@@ -160,14 +164,12 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(document.querySelector('[data-testid="password-door-ime-warn"]')).toBeNull()
     })
 
-    it('rejects passwords shorter than 6 characters and applies shake animation', async () => {
+    it('refuses an empty submission without asking the server', async () => {
+      // There is no length floor on unlocking any more (a vault created before the rule may hold a
+      // short password), but an empty box still must not spend an attempt.
+      const unlockSpy = vi.spyOn(passwordApi, 'unlock')
       renderWithHosts(createElement(Door))
-      const input = document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')!
       const card = document.querySelector('[data-testid="password-door-card"]')!
-
-      act(() => {
-        setInputValue(input, '123')
-      })
 
       const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-door-submit"]')!
       await act(async () => {
@@ -175,7 +177,24 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       })
 
       expect(card.classList.contains('door-fail')).toBe(true)
+      expect(unlockSpy).not.toHaveBeenCalled()
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(false)
+    })
+
+    it('accepts a short legacy password and lets the server decide', async () => {
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true, salt: VAULT_SALT })
+      vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
+      vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([])
+
+      renderWithHosts(createElement(Door))
+      act(() => {
+        setInputValue(document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')!, 'abc')
+      })
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="password-door-submit"]')!.click()
+      })
+
+      expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
     })
 
     it('shakes and shows fail error when wrong password is submitted', async () => {
@@ -296,8 +315,8 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const input2 = document.querySelector<HTMLInputElement>('[data-testid="password-setting-confirm"]')!
 
       act(() => {
-        setInputValue(input1, 'Pass01')
-        setInputValue(input2, 'Pass02')
+        setInputValue(input1, 'Pass01234')
+        setInputValue(input2, 'Pass01235')
       })
 
       const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-setting-submit"]')!
@@ -344,8 +363,8 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const input2 = document.querySelector<HTMLInputElement>('[data-testid="password-setting-confirm"]')!
 
       act(() => {
-        setInputValue(input1, 'Init01')
-        setInputValue(input2, 'Init01')
+        setInputValue(input1, 'Init0123')
+        setInputValue(input2, 'Init0123')
       })
 
       const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-setting-submit"]')!
@@ -365,7 +384,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       // The welcome card must not carry the master password: that made every vault an offline oracle.
       const welcomePayload = createAccountSpy.mock.calls[0]![0] as { password: string }
       const initSalt = initSpy.mock.calls[0]![1] as string
-      expect(decryptValue(deriveVaultKey('Init01', initSalt), welcomePayload.password)).not.toBe('Init01')
+      expect(decryptValue(deriveVaultKey('Init0123', initSalt), welcomePayload.password)).not.toBe('Init0123')
       expect(usePasswordVaultStore.getState().isSettingOpen).toBe(false)
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
     })
@@ -406,9 +425,9 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const confirmInput = document.querySelector<HTMLInputElement>('[data-testid="password-reset-confirm"]')!
 
       act(() => {
-        setInputValue(oldInput, 'WrongP')
-        setInputValue(newInput, 'NewP26')
-        setInputValue(confirmInput, 'NewP26')
+        setInputValue(oldInput, 'WrongPass1')
+        setInputValue(newInput, 'NewPass26')
+        setInputValue(confirmInput, 'NewPass26')
       })
 
       const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-reset-submit"]')!
@@ -453,7 +472,7 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const newInput = document.querySelector<HTMLInputElement>('[data-testid="password-reset-new"]')!
       const confirmInput = document.querySelector<HTMLInputElement>('[data-testid="password-reset-confirm"]')!
 
-      const newPass = 'FreshP'
+      const newPass = 'FreshP99'
       act(() => {
         setInputValue(oldInput, masterPassword)
         setInputValue(newInput, newPass)
@@ -512,11 +531,11 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         )
         setInputValue(
           document.querySelector<HTMLInputElement>('[data-testid="password-reset-new"]')!,
-          'FreshP',
+          'FreshP99',
         )
         setInputValue(
           document.querySelector<HTMLInputElement>('[data-testid="password-reset-confirm"]')!,
-          'FreshP',
+          'FreshP99',
         )
       })
 

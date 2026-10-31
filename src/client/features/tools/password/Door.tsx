@@ -6,6 +6,7 @@ import { isImeComposing } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
+import { MASTER_PASSWORD_MAX_LENGTH } from '@shared/tools/password/types'
 import { PasswordApiError, passwordApi } from './api'
 import { deriveVaultKey, getKeyIv } from './crypto'
 
@@ -48,7 +49,7 @@ export function Door({ className }: DoorProps) {
   const handleSubmit = async () => {
     if (loading) return
 
-    if (!password || password.length !== 6) {
+    if (!password) {
       triggerFail(t('tools.password.door.placeholder'))
       return
     }
@@ -145,10 +146,10 @@ export function Door({ className }: DoorProps) {
               autoCapitalize="off"
               autoCorrect="off"
               inputMode="text"
-              maxLength={6}
+              maxLength={MASTER_PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(e) => {
-                setPassword(e.target.value.slice(0, 6))
+                setPassword(e.target.value)
                 if (error) setError(null)
               }}
               onKeyDown={handleKeyDown}

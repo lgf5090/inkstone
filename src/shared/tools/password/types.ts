@@ -2,6 +2,14 @@
  * Shared types for the Password Manager submodule under Tools (`tools/password`).
  */
 
+/**
+ * A new master password must be long enough to be worth a scrypt round; nothing caps it at six any
+ * more. Unlocking is deliberately not held to the minimum: vaults created before this rule still
+ * have a shorter password and their owners must be able to open them.
+ */
+export const MASTER_PASSWORD_MIN_LENGTH = 8
+export const MASTER_PASSWORD_MAX_LENGTH = 128
+
 export interface KeyIV {
   key: string
   iv: string

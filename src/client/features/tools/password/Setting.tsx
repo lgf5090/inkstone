@@ -6,6 +6,7 @@ import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
+import { MASTER_PASSWORD_MAX_LENGTH, MASTER_PASSWORD_MIN_LENGTH } from '@shared/tools/password/types'
 import { passwordApi } from './api'
 import {
   createVaultSalt,
@@ -40,8 +41,8 @@ export function Setting({ open, onClose }: SettingProps) {
     e?.preventDefault()
     if (submitting) return
 
-    if (!password || password.length !== 6) {
-      setError(t('tools.password.door.placeholder'))
+    if (!password || password.length < MASTER_PASSWORD_MIN_LENGTH) {
+      setError(t('tools.password.setting.too_short', { min: String(MASTER_PASSWORD_MIN_LENGTH) }))
       return
     }
 
@@ -117,10 +118,10 @@ export function Setting({ open, onClose }: SettingProps) {
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            maxLength={6}
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={password}
             onChange={(e) => {
-              setPassword(e.target.value.slice(0, 6))
+              setPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.door.placeholder')}
@@ -187,10 +188,10 @@ export function Setting({ open, onClose }: SettingProps) {
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            maxLength={6}
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={confirmPassword}
             onChange={(e) => {
-              setConfirmPassword(e.target.value.slice(0, 6))
+              setConfirmPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.setting.confirm_label')}
