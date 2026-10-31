@@ -32,11 +32,6 @@ export interface CmykColor {
   k: number // 0 - 100 (%)
 }
 
-export interface HsiColor {
-  h: number // 0 - 360
-  s: number // 0 - 100 (%)
-  i: number // 0 - 100 (%)
-}
 
 export interface LabColor {
   l: number // 0 - 100 (Lightness)
@@ -52,23 +47,23 @@ export interface OklabColor {
 
 export type SupportedColorFormat = 'hex' | 'rgb' | 'hsv' | 'hsl' | 'cmyk' | 'hsi' | 'lab'
 
+/**
+ * The color spaces a hex resolves to.
+ *
+ * Only the values the interface reads. This used to carry eight pre-formatted CSS strings plus an HSI
+ * triple that nothing consumed, while the panel that shows the spaces built the same strings again — in a
+ * slightly different format, so the copied value and the computed one disagreed.
+ */
 export interface ColorSpaceValues {
   hex: string // with leading #
-  hexClean: string // without leading #
   rgb: RgbColor
-  rgbString: string // e.g. rgb(255, 120, 0)
   hsv: HsvColor
-  hsvString: string // e.g. hsv(28°, 100%, 100%)
   hsl: HslColor
-  hslString: string // e.g. hsl(28°, 100%, 50%)
+  /** Unrounded HSL: what the studio's sliders rotate on, so a hue change cannot move the other channels. */
+  hslExact: HslColor
   cmyk: CmykColor
-  cmykString: string // e.g. cmyk(0%, 53%, 100%, 0%)
-  hsi: HsiColor
-  hsiString: string // e.g. hsi(28°, 100%, 49%)
   lab: LabColor
-  labString: string // e.g. lab(64, 48, 67)
   oklab: OklabColor
-  oklabString: string
 }
 
 export type ColorHarmonyType =

@@ -93,16 +93,22 @@ describe('Color Assistant: Spaces Math & Conversions', () => {
     expect(dist).toBeLessThan(10)
   })
 
-  it('returns all color space values', () => {
+  it('returns the color spaces the interface reads', () => {
     const values = getColorSpaceValues('#627486')
     expect(values.hex).toBe('#627486')
-    expect(values.hexClean).toBe('627486')
-    expect(values.rgbString).toBe('rgb(98, 116, 134)')
-    expect(values.hsvString).toContain('hsv(')
-    expect(values.hslString).toContain('hsl(')
-    expect(values.cmykString).toContain('cmyk(')
-    expect(values.hsiString).toContain('hsi(')
-    expect(values.labString).toContain('lab(')
+    expect(values.rgb).toEqual({ r: 98, g: 116, b: 134 })
+    expect(values.hsl.h).toBe(210)
+    expect(values.hsl.s).toBe(16)
+    expect(values.hsl.l).toBe(45)
+    expect(Number.isInteger(values.hsv.h)).toBe(true)
+    expect(values.cmyk).toBeDefined()
+    expect(values.lab).toBeDefined()
+    expect(values.oklab).toBeDefined()
+    // The pre-formatted strings and the HSI triple used to be computed on every color change and read by
+    // nobody; the panel builds its own CSS text. Deleting them is only safe while nothing asks for them.
+    expect(values).not.toHaveProperty('hexClean')
+    expect(values).not.toHaveProperty('hslString')
+    expect(values).not.toHaveProperty('hsi')
   })
 })
 
@@ -256,5 +262,37 @@ describe('Color Assistant: Quantize (MMCQ) & Schemas', () => {
       defaultFormat: 'hex',
     })
     expect(validSettings.success).toBe(true)
+  })
+})
+
+describe('HSL round trip (studio sliders)', () => {
+  it('keeps a zero-degree hue rotation lossless', () => {
+    // The studio rebuilds the hex from the slider triple on every step. With the rounded triple this
+    // round trip moved 89.5% of colors by up to 3 units in a channel the reader never touched.
+    let drift = 0
+    for (let i = 0; i < 5000; i++) {
+      const hex = rgbToHex(
+        { r: (i * 7919) % 256, g: (i * 104729) % 256, b: (i * 15485863) % 256 },
+        true,
+      )
+      const { h, s, l } = getColorSpaceValues(hex).hslExact
+      if (rgbToHex(hslToRgb({ h, s, l }), true) !== hex) drift++
+    }
+    expect(drift).toBe(0)
+  })
+
+  it('preserves saturation and lightness when the hue moves', () => {
+    const before = getColorSpaceValues('#c2703d').hslExact
+    const rotated = rgbToHex(hslToRgb({ ...before, h: (before.h + 30) % 360 }), true)
+    const after = getColorSpaceValues(rotated).hslExact
+    expect(after.s).toBeCloseTo(before.s, 6)
+    expect(after.l).toBeCloseTo(before.l, 6)
+  })
+
+  it('reports the rounded triple for display and the exact one for math', () => {
+    const values = getColorSpaceValues('#c2703d')
+    expect(Number.isInteger(values.hsl.h)).toBe(true)
+    expect(Number.isInteger(values.hsl.s)).toBe(true)
+    expect(values.hslExact.h).not.toBe(values.hsl.h)
   })
 })

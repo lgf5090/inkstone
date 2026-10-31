@@ -67,7 +67,7 @@ export interface ColorStudioState {
     sourceType?: UserColorPalette['sourceType'],
     tags?: string[],
     description?: string,
-  ) => Promise<void>
+  ) => Promise<boolean>
   togglePaletteFavorite: (id: string) => Promise<void>
   removePalette: (id: string) => Promise<void>
 
@@ -299,12 +299,14 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
         title: t('tools.color.toast.palette_saved', { title }),
         tone: 'success',
       })
+      return true
     } catch (e: unknown) {
       const err = e as Error
       useUi.getState().toast({
         title: err.message || t('tools.color.toast.palette_save_failed'),
         tone: 'danger',
       })
+      return false
     }
   },
 

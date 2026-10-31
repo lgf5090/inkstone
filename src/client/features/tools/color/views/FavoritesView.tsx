@@ -133,7 +133,7 @@ export function FavoritesView() {
                           <IconButton
                             size="xs"
                             label={t('tools.color.studio.copy')}
-                            onClick={() => copyColor(fav.hex, fav.name)}
+                            onClick={() => copyColor(fav.hex, fav.name || t('tools.color.favorites.title'))}
                           >
                             <Copy size={12} />
                           </IconButton>

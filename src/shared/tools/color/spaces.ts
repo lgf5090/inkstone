@@ -6,7 +6,6 @@
 import type {
   CmykColor,
   ColorSpaceValues,
-  HsiColor,
   HslColor,
   HsvColor,
   LabColor,
@@ -170,6 +169,45 @@ export function hsvToRgb(hsv: HsvColor): RgbColor {
 }
 
 /**
+ * Converts RGB to HSL without rounding.
+ *
+ * The studio's sliders rebuild a hex from the HSL triple on every step. With a rounded triple that
+ * round trip is lossy — 89.5% of colors come back a few units away in another channel, so nudging the hue
+ * quietly changes the saturation and lightness the reader had set.
+ */
+export function rgbToHslExact(rgb: RgbColor): HslColor {
+  const r = clamp(rgb.r, 0, 255) / 255
+  const g = clamp(rgb.g, 0, 255) / 255
+  const b = clamp(rgb.b, 0, 255) / 255
+
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const d = max - min
+
+  let h = 0
+  let s = 0
+
+  if (d !== 0) {
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0)
+        break
+      case g:
+        h = (b - r) / d + 2
+        break
+      default:
+        h = (r - g) / d + 4
+        break
+    }
+    h /= 6
+  }
+
+  return { h: h * 360, s: s * 100, l: l * 100, a: rgb.a }
+}
+
+/**
  * Converts RGB to HSL (0-360, 0-100%, 0-100%)
  */
 export function rgbToHsl(rgb: RgbColor): HslColor {
@@ -282,41 +320,6 @@ export function cmykToRgb(cmyk: CmykColor): RgbColor {
   const b = Math.round(255 * (1 - y) * (1 - k))
 
   return { r, g, b }
-}
-
-/**
- * Converts RGB to HSI (Hue: 0-360, Saturation: 0-100%, Intensity: 0-100%)
- */
-export function rgbToHsi(rgb: RgbColor): HsiColor {
-  const r = clamp(rgb.r, 0, 255) / 255
-  const g = clamp(rgb.g, 0, 255) / 255
-  const b = clamp(rgb.b, 0, 255) / 255
-
-  const intensity = (r + g + b) / 3
-  if (intensity === 0) {
-    return { h: 0, s: 0, i: 0 }
-  }
-
-  const min = Math.min(r, g, b)
-  const saturation = 1 - min / intensity
-
-  if (saturation === 0) {
-    return { h: 0, s: 0, i: Math.round(intensity * 100) }
-  }
-
-  const num = 0.5 * (r - g + (r - b))
-  const den = Math.sqrt((r - g) * (r - g) + (r - b) * (g - b))
-
-  let theta = den === 0 ? 0 : Math.acos(clamp(num / den, -1, 1)) * (180 / Math.PI)
-  if (b > g) {
-    theta = 360 - theta
-  }
-
-  return {
-    h: Math.round(theta),
-    s: Math.round(saturation * 100),
-    i: Math.round(intensity * 100),
-  }
 }
 
 /**
@@ -463,31 +466,16 @@ export function isDarkColor(hex: string): boolean {
  */
 export function getColorSpaceValues(inputHex: string): ColorSpaceValues {
   const hex = normalizeHex(inputHex, true)
-  const hexClean = normalizeHex(inputHex, false)
   const rgb = hexToRgb(hex)
-  const hsv = rgbToHsv(rgb)
-  const hsl = rgbToHsl(rgb)
-  const cmyk = rgbToCmyk(rgb)
-  const hsi = rgbToHsi(rgb)
-  const lab = rgbToLab(rgb)
-  const oklab = rgbToOklab(rgb)
 
   return {
     hex,
-    hexClean,
     rgb,
-    rgbString: `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`,
-    hsv,
-    hsvString: `hsv(${hsv.h}°, ${hsv.s}%, ${hsv.v}%)`,
-    hsl,
-    hslString: `hsl(${hsl.h}°, ${hsl.s}%, ${hsl.l}%)`,
-    cmyk,
-    cmykString: `cmyk(${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`,
-    hsi,
-    hsiString: `hsi(${hsi.h}°, ${hsi.s}%, ${hsi.i}%)`,
-    lab,
-    labString: `lab(${lab.l}, ${lab.a}, ${lab.b})`,
-    oklab,
-    oklabString: `oklab(${oklab.l.toFixed(3)} ${oklab.a.toFixed(3)} ${oklab.b.toFixed(3)})`,
+    hsv: rgbToHsv(rgb),
+    hsl: rgbToHsl(rgb),
+    hslExact: rgbToHslExact(rgb),
+    cmyk: rgbToCmyk(rgb),
+    lab: rgbToLab(rgb),
+    oklab: rgbToOklab(rgb),
   }
 }

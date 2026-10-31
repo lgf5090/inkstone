@@ -30,7 +30,9 @@ export function ColorStudioView() {
   const openColorBlindnessModal = useColorStudioStore((s) => s.openColorBlindnessModal)
   const openExportPaletteModal = useColorStudioStore((s) => s.openExportPaletteModal)
 
-  const { h, s, l } = colorSpaceValues.hsl
+  // The sliders rotate on the unrounded triple: rebuilding a hex from rounded HSL moved the channels the
+  // reader did not touch, so a hue nudge changed the saturation and lightness too.
+  const { h, s, l } = colorSpaceValues.hslExact
 
   const handleWheelChange = (newHue: number, newSat: number) => {
     const rgb = hslToRgb({ h: newHue, s: newSat, l })

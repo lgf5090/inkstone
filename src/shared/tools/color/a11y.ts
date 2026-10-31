@@ -146,14 +146,3 @@ export function simulateColorBlindness(hex: string, type: ColorBlindnessType): s
 
   return rgbToHex({ r: simR, g: simG, b: simB }, true)
 }
-
-/**
- * SVG Color Matrix values for HTML SVG filter injection
- */
-export function getSvgColorMatrix(type: ColorBlindnessType): string {
-  if (type === 'normal') {
-    return '1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0'
-  }
-  const m = CVD_MATRICES[type]
-  return `${m[0][0]} ${m[0][1]} ${m[0][2]} 0 0  ${m[1][0]} ${m[1][1]} ${m[1][2]} 0 0  ${m[2][0]} ${m[2][1]} ${m[2][2]} 0 0  0 0 0 1 0`
-}
