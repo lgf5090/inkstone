@@ -106,9 +106,6 @@ export function GistsPane({
   const activeAccount = accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null
 
   useEffect(() => { setRemotePage(1) }, [selectedView])
-  useEffect(() => {
-    if (selectedView === GIST_ALL_VIEW && !remote && selectedGistId === null && gists.length > 0) return
-  }, [selectedView, remote, selectedGistId, gists.length])
 
   const updatePrefs = (patch: Partial<GistPrefs>) => {
     setPrefs((previous) => {

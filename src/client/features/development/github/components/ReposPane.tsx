@@ -81,7 +81,6 @@ export function ReposPane({
   const totalCount = isExplore ? (search.data?.total ?? 0) : listItems.length
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
-  const tagManager = useMemo(() => tags, [tags])
 
   const updatePrefs = useCallback((patch: Partial<GithubPrefs>, nextQuery?: string) => {
     setPrefs((previous) => {
@@ -224,7 +223,7 @@ export function ReposPane({
       <TagManager
         open={tagManagerOpen}
         onClose={() => setTagManagerOpen(false)}
-        tags={tagManager}
+        tags={tags}
         title={t('development.github.tags.manage_title')}
         description={t('development.github.tags.manage_desc')}
         onAdd={addTag}
