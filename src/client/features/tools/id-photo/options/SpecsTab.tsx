@@ -9,6 +9,7 @@ import { Button } from '../../../../components/primitives'
 import { useIdPhotoStore } from '../store'
 import { specLabel } from '../spec-label'
 import { filterSpecs, SPEC_CATEGORIES, type SpecCategoryFilter } from '../specs/filter-specs'
+import { describeSizeLimit } from '../specs/size-limit'
 
 export function SpecsTab() {
   const [search, setSearch] = useState('')
@@ -142,6 +143,20 @@ export function SpecsTab() {
                     </div>
                   </div>
                 )}
+                <div className="flex items-center justify-between pt-0.5">
+                  <span>{t('tools.id_photo.spec.size_limit')}:</span>
+                  <span
+                    data-spec-size-limit={spec.id}
+                    className={cn(
+                      'font-mono',
+                      describeSizeLimit(spec)
+                        ? 'text-[var(--text-secondary)] font-medium'
+                        : 'font-sans text-[var(--text-tertiary)]',
+                    )}
+                  >
+                    {describeSizeLimit(spec) ?? t('tools.id_photo.spec.size_unpublished')}
+                  </span>
+                </div>
               </div>
             </div>
           )

@@ -927,6 +927,9 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.spec.physical_size': '物理尺寸',
   'tools.id_photo.spec.pixel_size': '像素尺寸',
   'tools.id_photo.spec.recommended_bg': '官方底色',
+  'tools.id_photo.spec.size_limit': '文件体积',
+  'tools.id_photo.spec.size_unpublished': '官方未公布',
+  'tools.id_photo.specs.kb_hint': '按报名系统的要求填写，1–{max} KB，留空表示没有公布上限',
 
   // Background colour tab
   'tools.id_photo.color.preset_title': '官方标准底色预设',
@@ -983,6 +986,8 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.export.title': '保存与导出证件照',
   'tools.id_photo.export.target_size_label': '目标存储大小限制 (KB)',
   'tools.id_photo.export.target_size_placeholder': '不限（默认高保真质量）',
+  'tools.id_photo.export.spec_limit': '「{spec}」要求 {limit}',
+  'tools.id_photo.export.spec_limit_unknown': '「{spec}」未公布体积上限，请按报名系统要求自行填写',
   'tools.id_photo.export.actual_size': '实际大小 {size} KB',
   'tools.id_photo.export.size_limit': '目标上限 {target} KB',
   'tools.id_photo.export.over_target': '压不到 {target} KB，当前最小 {size} KB',

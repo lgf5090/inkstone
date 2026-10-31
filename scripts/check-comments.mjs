@@ -17662,10 +17662,16 @@ const allowed = new Map([
     "/* Download Button */",
     "/* Right Print Preview Canvas */",
   ]],
+  ["src/client/features/tools/id-photo/specs/CustomSpecModal.tsx", [
+    "// Empty means \"no published ceiling\", which is a different answer from an unreadable one.",
+  ]],
   ["src/client/features/tools/id-photo/specs/IdPhotoSpecsView.tsx", [
     "/* Header */",
     "/* Filter and Search */",
     "/* Specifications Grid */",
+  ]],
+  ["src/client/features/tools/id-photo/specs/size-limit.ts", [
+    "/** A locale-neutral description of the file-size window a specification publishes, or null. */",
   ]],
   ["src/client/features/tools/id-photo/store.ts", [
     "// Navigation & Tabs",
@@ -44414,6 +44420,13 @@ const allowed = new Map([
   ["tests/tools-id-photo-head.test.ts", [
     "/** The face is an ellipse, so the rasterised bounds the estimator should recover are known to the pixel. */",
     "// The ellipse runs to y=90 and the neck to y=150; the estimate must stop near the chin.",
+  ]],
+  ["tests/tools-id-photo-sizelimit.test.tsx", [
+    "// Every other call is a list (specs, records, settings) and the store iterates what comes back.",
+    "// The modal renders through a portal, so its fields live outside the mounted container.",
+    "// The studio's own \"Add Custom\" button carries the same caption, so the submit is the form's own.",
+    "// A ceiling outside the accepted range blocks the submit instead of silently dropping it.",
+    "// Leaving the field empty is a different answer from an unreadable one: no key is sent at all.",
   ]],
   ["tests/tools-id-photo-ui.test.tsx", [
     "// Upload & Options panel headers",

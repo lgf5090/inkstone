@@ -927,6 +927,9 @@ export const EN_US_TOOLS = {
   'tools.id_photo.spec.physical_size': 'Physical Size',
   'tools.id_photo.spec.pixel_size': 'Pixel Size',
   'tools.id_photo.spec.recommended_bg': 'Official Backgrounds',
+  'tools.id_photo.spec.size_limit': 'File size',
+  'tools.id_photo.spec.size_unpublished': 'Not published',
+  'tools.id_photo.specs.kb_hint': 'Enter what the portal requires, 1–{max} KB. Leave empty when no ceiling is published.',
 
   // Color tab
   'tools.id_photo.color.preset_title': 'Official Background Presets',
@@ -983,6 +986,8 @@ export const EN_US_TOOLS = {
   'tools.id_photo.export.title': 'Save & Export ID Photo',
   'tools.id_photo.export.target_size_label': 'Target File Size Limit (KB)',
   'tools.id_photo.export.target_size_placeholder': 'Unlimited (High fidelity)',
+  'tools.id_photo.export.spec_limit': '“{spec}” requires {limit}',
+  'tools.id_photo.export.spec_limit_unknown': 'No published size ceiling for “{spec}” — enter what the portal asks for',
   'tools.id_photo.export.actual_size': 'Actual size {size} KB',
   'tools.id_photo.export.size_limit': 'Target limit {target} KB',
   'tools.id_photo.export.over_target': 'Cannot compress to {target} KB; smallest is {size} KB',

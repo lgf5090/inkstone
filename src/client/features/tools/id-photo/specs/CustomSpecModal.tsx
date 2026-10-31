@@ -12,6 +12,7 @@ const SPEC_MAX_MM = 400
 const SPEC_MIN_DPI = 72
 const SPEC_MAX_DPI = 1200
 const SPEC_MAX_NAME = 50
+const SPEC_MAX_KB = 20_480
 
 export interface CustomSpecModalProps {
   open: boolean
@@ -23,6 +24,7 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
   const [widthMm, setWidthMm] = useState('35')
   const [heightMm, setHeightMm] = useState('45')
   const [dpi, setDpi] = useState('300')
+  const [maxKb, setMaxKb] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const parseDimension = (raw: string) => {
@@ -35,11 +37,19 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
     if (!Number.isInteger(value) || value < SPEC_MIN_DPI || value > SPEC_MAX_DPI) return null
     return value
   }
+  // Empty means "no published ceiling", which is a different answer from an unreadable one.
+  const parseMaxKb = (raw: string) => {
+    if (!raw.trim()) return undefined
+    const value = Number(raw)
+    if (!Number.isInteger(value) || value < 1 || value > SPEC_MAX_KB) return null
+    return value
+  }
   const widthValue = parseDimension(widthMm)
   const heightValue = parseDimension(heightMm)
   const dpiValue = parseDpi(dpi)
+  const maxKbValue = parseMaxKb(maxKb)
   const invalid =
-    !name.trim() || widthValue === null || heightValue === null || dpiValue === null
+    !name.trim() || widthValue === null || heightValue === null || dpiValue === null || maxKbValue === null
 
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
@@ -57,6 +67,7 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
         dpi: dpiValue,
         recommendedBgColors: ['#ffffff', '#438EDB'],
         category: 'custom',
+        ...(maxKbValue ? { fileSizeMaxKb: maxKbValue } : {}),
       })
 
       await loadCustomSpecs()
@@ -130,6 +141,22 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
             value={dpi}
             onChange={(e) => setDpi(e.target.value)}
             required
+          />
+        </Field>
+
+        <Field
+          label={t('tools.id_photo.spec.size_limit')}
+          hint={t('tools.id_photo.specs.kb_hint', { max: SPEC_MAX_KB })}
+        >
+          <Input
+            type="number"
+            min="1"
+            max={String(SPEC_MAX_KB)}
+            value={maxKb}
+            onChange={(e) => setMaxKb(e.target.value)}
+            placeholder={t('tools.id_photo.spec.size_unpublished')}
+            aria-invalid={maxKbValue === null || undefined}
+            invalid={maxKbValue === null || undefined}
           />
         </Field>
 

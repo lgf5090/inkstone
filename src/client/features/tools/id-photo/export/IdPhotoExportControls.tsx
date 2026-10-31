@@ -9,6 +9,7 @@ import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
 import { specLabel } from '../spec-label'
+import { describeSizeLimit } from '../specs/size-limit'
 import { renderPrintSheet } from '../engine/print-layout-engine'
 import { createIdPhotoRecord } from '../api'
 
@@ -219,6 +220,11 @@ export function IdPhotoExportControls() {
             placeholder={t('tools.id_photo.export.target_size_placeholder')}
             aria-label={t('tools.id_photo.export.target_size_label')}
           />
+          <p data-export-spec-limit className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {describeSizeLimit(activeSpec)
+              ? t('tools.id_photo.export.spec_limit', { spec: specLabel(activeSpec), limit: describeSizeLimit(activeSpec)! })
+              : t('tools.id_photo.export.spec_limit_unknown', { spec: specLabel(activeSpec) })}
+          </p>
         </div>
 
         <div className="flex flex-col gap-1">
