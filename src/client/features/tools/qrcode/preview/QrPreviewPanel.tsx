@@ -182,7 +182,7 @@ export function QrPreviewPanel() {
           )}
 
           {mayNotScannable && (
-            <div className="flex w-full items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            <div className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-warning/30 bg-warning/10 px-3 py-2 text-[length:var(--text-12)] text-warning">
               <AlertTriangle size={14} className="shrink-0" />
               <span>{t('tools.qrcode.preview.scannable_warning')}</span>
             </div>

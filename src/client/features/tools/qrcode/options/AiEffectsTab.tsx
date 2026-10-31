@@ -1,374 +1,227 @@
-import React from 'react'
 import { Dices, RotateCcw, Sparkles } from 'lucide-react'
-import { t } from '../../../../lib/i18n'
+import { t, type MessageKey } from '../../../../lib/i18n'
 import { useQrCodeStore } from '../store'
+import { Field, Segmented, Select, SettingRow, Slider, Switch } from '../../../../components/form'
+import { IconButton, SectionLabel } from '../../../../components/primitives'
+import { Tooltip } from '../../../../components/overlay'
 import type {
   QrCanvasEffect,
-  QrEffectTiming,
   QrMarginNoiseSpace,
   QrRenderPointsType,
 } from '../../../../../shared/tools/qrcode/types'
 
-export const AiEffectsTab: React.FC = () => {
+const EFFECT_OPTIONS: ReadonlyArray<{ value: QrCanvasEffect; labelKey: MessageKey }> = [
+  { value: 'none', labelKey: 'tools.qrcode.ai.effect_none' },
+  { value: 'crystalize', labelKey: 'tools.qrcode.ai.effect_crystalize' },
+  { value: 'liquidify', labelKey: 'tools.qrcode.ai.effect_liquidify' },
+]
+
+const NOISE_SPACE_OPTIONS: ReadonlyArray<{ value: QrMarginNoiseSpace; labelKey: MessageKey }> = [
+  { value: 'marker', labelKey: 'tools.qrcode.ai.space_marker' },
+  { value: 'full', labelKey: 'tools.qrcode.ai.space_full' },
+  { value: 'minimal', labelKey: 'tools.qrcode.ai.space_minimal' },
+  { value: 'extreme', labelKey: 'tools.qrcode.ai.space_extreme' },
+  { value: 'none', labelKey: 'tools.qrcode.ai.space_none' },
+]
+
+const RENDER_TYPE_OPTIONS: ReadonlyArray<{ value: QrRenderPointsType; labelKey: MessageKey }> = [
+  { value: 'all', labelKey: 'tools.qrcode.ai.render_all' },
+  { value: 'data', labelKey: 'tools.qrcode.ai.render_data' },
+  { value: 'function', labelKey: 'tools.qrcode.ai.render_function' },
+  { value: 'guide', labelKey: 'tools.qrcode.ai.render_guide' },
+  { value: 'marker', labelKey: 'tools.qrcode.ai.render_marker' },
+]
+
+const ROTATE_DEGREES = [0, 90, 180, 270] as const
+
+const ROTATE_OPTIONS = ROTATE_DEGREES.map((deg) => ({ value: String(deg), label: `${deg}°` }))
+
+export function AiEffectsTab() {
   const tk = useQrCodeStore((s) => s.options.toolkitOptions) ?? {}
   const setToolkitOptions = useQrCodeStore((s) => s.setToolkitOptions)
 
-  const effect = tk.effect ?? 'none'
-  const effectTiming = tk.effectTiming ?? 'before'
+  const effect: QrCanvasEffect = tk.effect ?? 'none'
   const crystalizeRadius = tk.effectCrystalizeRadius ?? 8
-  const liquidifyDistortRadius = tk.effectLiquidifyDistortRadius ?? 0
   const liquidifyRadius = tk.effectLiquidifyRadius ?? 6
   const liquidifyThreshold = tk.effectLiquidifyThreshold ?? 128
-
   const pX = tk.transformPerspectiveX ?? 0
   const pY = tk.transformPerspectiveY ?? 0
   const scale = tk.transformScale ?? 1
   const rotate = tk.rotate ?? 0
-
   const marginNoise = Boolean(tk.marginNoise)
   const marginNoiseRate = tk.marginNoiseRate ?? 0.5
   const marginNoiseSpace: QrMarginNoiseSpace = tk.marginNoiseSpace ?? 'marker'
-
   const maskPattern = tk.maskPattern ?? -1
   const boostECC = Boolean(tk.boostECC)
   const renderPointsType: QrRenderPointsType = tk.renderPointsType ?? 'all'
   const seed = tk.seed ?? 12345
 
-  const randomizeSeed = () => {
-    setToolkitOptions({ seed: Math.floor(Math.random() * 1000000) })
-  }
+  const setEffect = (next: QrCanvasEffect) =>
+    setToolkitOptions({ effect: next, enabled: next !== 'none' || Boolean(tk.marginNoise) })
+
+  const setNoise = (checked: boolean) => setToolkitOptions({ marginNoise: checked, enabled: checked })
+
+  /** One affordance per knob that has a non-default value, rather than a reset per row. */
+  const ResetButton = ({ onReset }: { onReset: () => void }) => (
+    <Tooltip label={t('tools.qrcode.ai.reset_val')}>
+      <IconButton size="sm" label={t('tools.qrcode.ai.reset_val')} onClick={onReset}>
+        <RotateCcw size={12} />
+      </IconButton>
+    </Tooltip>
+  )
 
   return (
-    <div className="space-y-6">
-      {/* 1. Organic Canvas Effects */}
-      <div className="space-y-3">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Sparkles size={16} className="text-primary-500" />
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-            {t('tools.qrcode.ai.effects_title')}
-          </h4>
+          <Sparkles size={16} className="text-[var(--accent)]" />
+          <SectionLabel className="px-0">{t('tools.qrcode.ai.effects_title')}</SectionLabel>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { id: 'none', labelKey: 'tools.qrcode.ai.effect_none' },
-            { id: 'crystalize', labelKey: 'tools.qrcode.ai.effect_crystalize' },
-            { id: 'liquidify', labelKey: 'tools.qrcode.ai.effect_liquidify' },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() =>
-                setToolkitOptions({
-                  effect: item.id as QrCanvasEffect,
-                  enabled: item.id !== 'none' || Boolean(tk.marginNoise),
-                })
-              }
-              className={`flex items-center justify-center rounded-lg border py-2 text-xs font-medium transition-colors ${
-                effect === item.id
-                  ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-950/40 dark:text-primary-300'
-                  : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300'
-              }`}
-            >
-              {t(item.labelKey as any)}
-            </button>
-          ))}
-        </div>
+        <Segmented<QrCanvasEffect>
+          value={effect}
+          onChange={setEffect}
+          size="sm"
+          options={EFFECT_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+        />
 
         {effect === 'crystalize' && (
-          <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50/50 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-neutral-600 dark:text-neutral-400">
-                {t('tools.qrcode.ai.crystalize_radius')}
-              </span>
-              <span className="font-mono text-neutral-800 dark:text-neutral-200">{`${crystalizeRadius}px`}</span>
-            </div>
-            <input
-              type="range"
+          <Field label={t('tools.qrcode.ai.crystalize_radius')}>
+            <Slider
+              value={crystalizeRadius}
               min={1}
               max={25}
               step={0.5}
-              value={crystalizeRadius}
-              onChange={(e) => setToolkitOptions({ effectCrystalizeRadius: Number(e.target.value) })}
-              className="h-1.5 w-full cursor-pointer accent-primary-600"
+              suffix="px"
+              onChange={(val) => setToolkitOptions({ effectCrystalizeRadius: val })}
             />
-          </div>
+          </Field>
         )}
 
         {effect === 'liquidify' && (
-          <div className="space-y-3 rounded-lg border border-neutral-200 bg-neutral-50/50 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-600 dark:text-neutral-400">
-                  {t('tools.qrcode.ai.liquidify_blur')}
-                </span>
-                <span className="font-mono text-neutral-800 dark:text-neutral-200">{`${liquidifyRadius}px`}</span>
-              </div>
-              <input
-                type="range"
+          <div className="flex flex-col gap-3">
+            <Field label={t('tools.qrcode.ai.liquidify_blur')}>
+              <Slider
+                value={liquidifyRadius}
                 min={1}
                 max={30}
-                step={1}
-                value={liquidifyRadius}
-                onChange={(e) => setToolkitOptions({ effectLiquidifyRadius: Number(e.target.value) })}
-                className="h-1.5 w-full cursor-pointer accent-primary-600"
+                suffix="px"
+                onChange={(val) => setToolkitOptions({ effectLiquidifyRadius: val })}
               />
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-600 dark:text-neutral-400">
-                  {t('tools.qrcode.ai.liquidify_distort')}
-                </span>
-                <span className="font-mono text-neutral-800 dark:text-neutral-200">{`${liquidifyDistortRadius}px`}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={30}
-                step={1}
-                value={liquidifyDistortRadius}
-                onChange={(e) => setToolkitOptions({ effectLiquidifyDistortRadius: Number(e.target.value) })}
-                className="h-1.5 w-full cursor-pointer accent-primary-600"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-600 dark:text-neutral-400">
-                  {t('tools.qrcode.ai.liquidify_threshold')}
-                </span>
-                <span className="font-mono text-neutral-800 dark:text-neutral-200">{`${liquidifyThreshold} / 255`}</span>
-              </div>
-              <input
-                type="range"
+            </Field>
+            <Field label={t('tools.qrcode.ai.liquidify_threshold')}>
+              <Slider
+                value={liquidifyThreshold}
                 min={10}
                 max={240}
                 step={2}
-                value={liquidifyThreshold}
-                onChange={(e) => setToolkitOptions({ effectLiquidifyThreshold: Number(e.target.value) })}
-                className="h-1.5 w-full cursor-pointer accent-primary-600"
+                onChange={(val) => setToolkitOptions({ effectLiquidifyThreshold: val })}
               />
-            </div>
-          </div>
-        )}
-
-        {effect !== 'none' && (
-          <div className="flex items-center justify-between pt-1 text-xs">
-            <span className="text-neutral-600 dark:text-neutral-400">
-              {t('tools.qrcode.ai.effect_timing')}
-            </span>
-            <div className="flex gap-1.5">
-              {(['before', 'after'] as QrEffectTiming[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setToolkitOptions({ effectTiming: mode })}
-                  className={`rounded px-2.5 py-1 text-xs ${
-                    effectTiming === mode
-                      ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400'
-                  }`}
-                >
-                  {t(`tools.qrcode.ai.timing_${mode}` as any)}
-                </button>
-              ))}
-            </div>
+            </Field>
           </div>
         )}
       </div>
 
-      {/* 2. 3D Perspective & Rotation */}
-      <div className="space-y-3 pt-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-          {t('tools.qrcode.ai.transform_title')}
-        </h4>
+      <div className="flex flex-col gap-3">
+        <SectionLabel className="px-0">{t('tools.qrcode.ai.transform_title')}</SectionLabel>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.perspective_x')}</span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-neutral-800 dark:text-neutral-200">{pX.toFixed(2)}</span>
-              {pX !== 0 && (
-                <button
-                  type="button"
-                  onClick={() => setToolkitOptions({ transformPerspectiveX: 0 })}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                  title={t('tools.qrcode.ai.reset_val')}
-                >
-                  <RotateCcw size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min={-0.45}
-            max={0.45}
-            step={0.01}
-            value={pX}
-            onChange={(e) => setToolkitOptions({ transformPerspectiveX: Number(e.target.value) })}
-            className="h-1.5 w-full cursor-pointer accent-primary-600"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.perspective_y')}</span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-neutral-800 dark:text-neutral-200">{pY.toFixed(2)}</span>
-              {pY !== 0 && (
-                <button
-                  type="button"
-                  onClick={() => setToolkitOptions({ transformPerspectiveY: 0 })}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                  title={t('tools.qrcode.ai.reset_val')}
-                >
-                  <RotateCcw size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min={-0.45}
-            max={0.45}
-            step={0.01}
-            value={pY}
-            onChange={(e) => setToolkitOptions({ transformPerspectiveY: Number(e.target.value) })}
-            className="h-1.5 w-full cursor-pointer accent-primary-600"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.scale')}</span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-neutral-800 dark:text-neutral-200">{`${scale.toFixed(2)}x`}</span>
-              {scale !== 1 && (
-                <button
-                  type="button"
-                  onClick={() => setToolkitOptions({ transformScale: 1 })}
-                  className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                  title={t('tools.qrcode.ai.reset_val')}
-                >
-                  <RotateCcw size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-          <input
-            type="range"
-            min={0.5}
-            max={1.8}
-            step={0.02}
-            value={scale}
-            onChange={(e) => setToolkitOptions({ transformScale: Number(e.target.value) })}
-            className="h-1.5 w-full cursor-pointer accent-primary-600"
-          />
-        </div>
-
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-xs text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.rotate')}</span>
-          <div className="flex gap-1.5">
-            {([0, 90, 180, 270] as const).map((deg) => (
-              <button
-                key={deg}
-                type="button"
-                onClick={() => setToolkitOptions({ rotate: deg })}
-                className={`rounded px-2.5 py-1 text-xs font-mono ${
-                  rotate === deg
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300'
-                }`}
-              >
-                {`${deg}°`}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Margin Noise for AI QR */}
-      <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-            {t('tools.qrcode.ai.noise_title')}
-          </h4>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-700 dark:text-neutral-300">
-            <input
-              type="checkbox"
-              checked={marginNoise}
-              onChange={(e) => setToolkitOptions({ marginNoise: e.target.checked, enabled: true })}
-              className="rounded accent-primary-600"
+        <div className="flex items-end gap-2">
+          <Field label={t('tools.qrcode.ai.perspective_x')} className="min-w-0 flex-1">
+            <Slider
+              value={pX}
+              min={-0.45}
+              max={0.45}
+              step={0.01}
+              onChange={(val) => setToolkitOptions({ transformPerspectiveX: val })}
             />
-            <span>{t('tools.qrcode.ai.noise_enable')}</span>
-          </label>
+          </Field>
+          {pX !== 0 && (
+            <ResetButton onReset={() => setToolkitOptions({ transformPerspectiveX: 0 })} />
+          )}
         </div>
+
+        <div className="flex items-end gap-2">
+          <Field label={t('tools.qrcode.ai.perspective_y')} className="min-w-0 flex-1">
+            <Slider
+              value={pY}
+              min={-0.45}
+              max={0.45}
+              step={0.01}
+              onChange={(val) => setToolkitOptions({ transformPerspectiveY: val })}
+            />
+          </Field>
+          {pY !== 0 && (
+            <ResetButton onReset={() => setToolkitOptions({ transformPerspectiveY: 0 })} />
+          )}
+        </div>
+
+        <div className="flex items-end gap-2">
+          <Field label={t('tools.qrcode.ai.scale')} className="min-w-0 flex-1">
+            <Slider
+              value={scale}
+              min={0.5}
+              max={1.8}
+              step={0.02}
+              suffix="x"
+              onChange={(val) => setToolkitOptions({ transformScale: val })}
+            />
+          </Field>
+          {scale !== 1 && <ResetButton onReset={() => setToolkitOptions({ transformScale: 1 })} />}
+        </div>
+
+        <Field label={t('tools.qrcode.ai.rotate')}>
+          <Segmented
+            value={String(rotate)}
+            size="sm"
+            onChange={(val) => setToolkitOptions({ rotate: Number(val) as 0 | 90 | 180 | 270 })}
+            options={ROTATE_OPTIONS}
+          />
+        </Field>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <SectionLabel className="px-0">{t('tools.qrcode.ai.noise_title')}</SectionLabel>
+        <SettingRow title={t('tools.qrcode.ai.noise_enable')} controlId="qr-noise-enable">
+          <Switch
+            id="qr-noise-enable"
+            checked={marginNoise}
+            onChange={setNoise}
+          />
+        </SettingRow>
 
         {marginNoise && (
-          <div className="space-y-3 rounded-lg border border-neutral-200 bg-neutral-50/50 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.noise_rate')}</span>
-                <span className="font-mono text-neutral-800 dark:text-neutral-200">
-                  {`${Math.round(marginNoiseRate * 100)}%`}
-                </span>
-              </div>
-              <input
-                type="range"
+          <div className="flex flex-col gap-3">
+            <Field label={t('tools.qrcode.ai.noise_rate')}>
+              <Slider
+                value={Math.round(marginNoiseRate * 100)}
                 min={0}
-                max={1}
-                step={0.02}
-                value={marginNoiseRate}
-                onChange={(e) => setToolkitOptions({ marginNoiseRate: Number(e.target.value) })}
-                className="h-1.5 w-full cursor-pointer accent-primary-600"
+                max={100}
+                suffix="%"
+                onChange={(val) => setToolkitOptions({ marginNoiseRate: val / 100 })}
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                {t('tools.qrcode.ai.noise_space')}
-              </span>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: 'marker', label: 'Marker' },
-                  { id: 'full', label: 'Full' },
-                  { id: 'minimal', label: 'Minimal' },
-                  { id: 'extreme', label: 'Extreme' },
-                  { id: 'none', label: 'None' },
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setToolkitOptions({ marginNoiseSpace: s.id as QrMarginNoiseSpace })}
-                    className={`rounded py-1 text-xs ${
-                      marginNoiseSpace === s.id
-                        ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                        : 'bg-white text-neutral-600 border border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-300'
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            </Field>
+            <Field label={t('tools.qrcode.ai.noise_space')}>
+              <Segmented<QrMarginNoiseSpace>
+                value={marginNoiseSpace}
+                size="sm"
+                onChange={(space) => setToolkitOptions({ marginNoiseSpace: space })}
+                options={NOISE_SPACE_OPTIONS.map((o) => ({
+                  value: o.value,
+                  label: t(o.labelKey),
+                }))}
+              />
+            </Field>
           </div>
         )}
       </div>
 
-      {/* 4. Advanced Parameters & Seed */}
-      <div className="space-y-3 pt-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
-          {t('tools.qrcode.ai.advanced_params')}
-        </h4>
+      <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-3">
+        <SectionLabel className="px-0">{t('tools.qrcode.ai.advanced_params')}</SectionLabel>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <span className="text-xs text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.mask_pattern')}</span>
-            <select
-              value={maskPattern}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label={t('tools.qrcode.ai.mask_pattern')}>
+            <Select
+              value={String(maskPattern)}
               onChange={(e) => setToolkitOptions({ maskPattern: Number(e.target.value) })}
-              className="w-full rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
             >
               <option value={-1}>{t('tools.qrcode.ai.mask_auto')}</option>
               {[0, 1, 2, 3, 4, 5, 6, 7].map((num) => (
@@ -376,48 +229,46 @@ export const AiEffectsTab: React.FC = () => {
                   {`${t('tools.qrcode.ai.pattern_label')} ${num}`}
                 </option>
               ))}
-            </select>
-          </div>
+            </Select>
+          </Field>
 
-          <div className="space-y-1">
-            <span className="text-xs text-neutral-600 dark:text-neutral-400">{t('tools.qrcode.ai.render_type')}</span>
-            <select
+          <Field label={t('tools.qrcode.ai.render_type')}>
+            <Select
               value={renderPointsType}
-              onChange={(e) => setToolkitOptions({ renderPointsType: e.target.value as QrRenderPointsType })}
-              className="w-full rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs text-neutral-800 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-200"
+              onChange={(e) =>
+                setToolkitOptions({ renderPointsType: e.target.value as QrRenderPointsType })
+              }
             >
-              <option value="all">{t('tools.qrcode.ai.render_all')}</option>
-              <option value="data">{t('tools.qrcode.ai.render_data')}</option>
-              <option value="function">{t('tools.qrcode.ai.render_function')}</option>
-              <option value="guide">{t('tools.qrcode.ai.render_guide')}</option>
-              <option value="marker">{t('tools.qrcode.ai.render_marker')}</option>
-            </select>
-          </div>
+              {RENDER_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {t(o.labelKey)}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
 
-        <div className="flex items-center justify-between pt-1">
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-700 dark:text-neutral-300">
-            <input
-              type="checkbox"
-              checked={boostECC}
-              onChange={(e) => setToolkitOptions({ boostECC: e.target.checked })}
-              className="rounded accent-primary-600"
-            />
-            <span>{t('tools.qrcode.ai.boost_ecc')}</span>
-          </label>
+        <SettingRow title={t('tools.qrcode.ai.boost_ecc')} controlId="qr-boost-ecc">
+          <Switch
+            id="qr-boost-ecc"
+            checked={boostECC}
+            onChange={(checked) => setToolkitOptions({ boostECC: checked })}
+          />
+        </SettingRow>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-neutral-500 font-mono">{`${t('tools.qrcode.ai.seed_label')}: ${seed}`}</span>
-            <button
-              type="button"
-              onClick={randomizeSeed}
-              className="flex items-center gap-1 rounded border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
-              title={t('tools.qrcode.ai.randomize_seed')}
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {`${t('tools.qrcode.ai.seed_label')}: ${seed}`}
+          </span>
+          <Tooltip label={t('tools.qrcode.ai.randomize_seed')}>
+            <IconButton
+              size="sm"
+              label={t('tools.qrcode.ai.randomize')}
+              onClick={() => setToolkitOptions({ seed: Math.floor(Math.random() * 1_000_000) })}
             >
-              <Dices size={12} />
-              <span>{t('tools.qrcode.ai.randomize')}</span>
-            </button>
-          </div>
+              <Dices size={13} />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
     </div>

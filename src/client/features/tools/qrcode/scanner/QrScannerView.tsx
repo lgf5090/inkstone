@@ -255,7 +255,7 @@ export const QrScannerView: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setUploadedImageUrl(null)}
-                      className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
+                      className="flex items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-[length:var(--text-12)] font-medium text-[var(--danger)] hover:bg-[var(--bg-hover)]"
                     >
                       <span>{t('tools.qrcode.scanner.clear_image')}</span>
                     </button>
@@ -364,7 +364,7 @@ export const QrScannerView: React.FC = () => {
                     </h3>
                   </div>
                   {scanResult && (
-                    <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[length:var(--text-11)] font-mono text-green-600 dark:text-green-400">
+                    <span className="rounded-full bg-success/10 px-2 py-0.5 text-[length:var(--text-11)] font-mono text-success">
                       {`${scanResult.durationMs}ms`}
                     </span>
                   )}
@@ -389,7 +389,7 @@ export const QrScannerView: React.FC = () => {
                         onClick={handleCopy}
                         className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                       >
-                        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                        {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
                         <span>{copied ? t('tools.qrcode.export.copied') : t('tools.qrcode.scanner.copy_result')}</span>
                       </button>
 

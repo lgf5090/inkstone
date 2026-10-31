@@ -138,15 +138,15 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
 
         {isScanning && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="relative h-60 w-60 rounded-xl border-2 border-primary-500/80 shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary-400 animate-pulse shadow-md" />
+            <div className="relative h-60 w-60 rounded-[var(--r-xl)] border-2 border-[var(--accent)]">
+              <div className="absolute inset-x-0 top-0 h-[2px] bg-[var(--accent)] animate-pulse" />
             </div>
           </div>
         )}
 
         {errorMessage && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-4 text-center text-xs text-red-300">
-            <CameraOff size={32} className="mb-2 text-red-400" />
+            <CameraOff size={32} className="mb-2 text-danger" />
             <p>{errorMessage}</p>
           </div>
         )}

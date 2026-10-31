@@ -369,9 +369,9 @@ export const QrCompareView: React.FC = () => {
                         </span>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {diffResult.scanabilityScore >= 75 ? (
-                            <CheckCircle2 size={16} className="text-green-500" />
+                            <CheckCircle2 size={16} className="text-success" />
                           ) : (
-                            <AlertCircle size={16} className="text-amber-500" />
+                            <AlertCircle size={16} className="text-warning" />
                           )}
                           <span className="font-bold text-sm text-[var(--text-primary)]">
                             {diffResult.scanabilityScore}%
@@ -383,7 +383,7 @@ export const QrCompareView: React.FC = () => {
                         <span className="text-xs text-[var(--text-tertiary)]">
                           {t('tools.qrcode.compare.mismatch_count')}
                         </span>
-                        <p className="font-mono text-sm font-bold text-red-500 mt-0.5">
+                        <p className="font-mono text-[length:var(--text-14)] font-bold text-danger mt-0.5">
                           {diffResult.mismatchCount}
                         </p>
                       </div>
@@ -394,7 +394,7 @@ export const QrCompareView: React.FC = () => {
                         <span className="text-[var(--text-tertiary)]">
                           {t('tools.qrcode.compare.mismatch_dark')}
                         </span>
-                        <p className="font-mono font-medium text-red-400 mt-0.5">
+                        <p className="font-mono font-medium text-danger mt-0.5">
                           {diffResult.mismatchDark.length}
                         </p>
                       </div>

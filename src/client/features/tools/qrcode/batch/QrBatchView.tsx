@@ -300,7 +300,7 @@ export const QrBatchView: React.FC = () => {
               </button>
 
               {downloadReady && (
-                <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                <div className="flex items-center gap-1.5 text-[length:var(--text-12)] text-success">
                   <CheckCircle2 size={14} />
                   <span>{t('tools.qrcode.batch.download_finished')}</span>
                 </div>
