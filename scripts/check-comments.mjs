@@ -18044,7 +18044,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/shortlinks/LinksView.tsx", [
     "/* Search and Filters Header */",
-    "/* Status Filter Pills */",
     "/* Links Table Card */",
     "/* Pagination Footer */",
   ]],
@@ -31084,6 +31083,7 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
+    "/** `RANDOM_CHARSET` in the worker's slugs.ts omits l/o/0/1, so one character has 32 values, not 62. */",
   ]],
   ["src/shared/types.ts", [
     "/** Only computed on the first page of a listing; later keyset pages return null. */",

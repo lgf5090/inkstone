@@ -14,18 +14,11 @@ import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { useUiStore } from '../../../lib/ui-store'
 import { Sparkline } from '../../todos/stats-charts'
-import type { BundleAccent, ShortLinkBundle } from '@shared/tools/shortlinks/types'
+import type { ShortLinkBundle } from '@shared/tools/shortlinks/types'
+import { ACCENT_DOT } from './accents'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
 import { copyShortlinkText } from './copy'
-
-const ACCENT_COLORS: Record<BundleAccent, { dot: string }> = {
-  orange: { dot: 'var(--kanban-tag-orange-fg)' },
-  red: { dot: 'var(--danger, #ef4444)' },
-  green: { dot: 'var(--success, #10b981)' },
-  blue: { dot: 'var(--accent, #3b82f6)' },
-  purple: { dot: 'var(--kanban-tag-purple-fg)' },
-}
 
 export function BundlesView() {
   const bundles = useShortlinksStore((s) => s.bundles)
@@ -55,7 +48,7 @@ export function BundlesView() {
 
     try {
       await shortlinksApi.deleteBundle(bundle.id)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.bundles.deleted'), 'success')
       void fetchBundles()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -98,7 +91,7 @@ export function BundlesView() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {bundles.map((bundle) => {
-            const colors = ACCENT_COLORS[bundle.accent] || ACCENT_COLORS.blue
+            const dot = ACCENT_DOT[bundle.accent]
             return (
               <div
                 key={bundle.id}
@@ -113,13 +106,13 @@ export function BundlesView() {
                     >
                       <span
                         className="size-3 rounded-full shrink-0"
-                        style={{ backgroundColor: colors.dot }}
+                        style={{ backgroundColor: dot }}
                       />
                       <h3 className="font-semibold text-[length:var(--text-14)] text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors truncate">
                         {bundle.name}
                       </h3>
                     </button>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity relative z-10 shrink-0">
+                    <div className="flex items-center gap-1 opacity-100 transition-opacity relative z-10 shrink-0">
                       <IconButton
                         label={t('tools.shortlinks.bundles.edit')}
                         size="sm"
@@ -155,7 +148,7 @@ export function BundlesView() {
 
                 {bundle.sparkline && bundle.sparkline.length > 1 && (
                   <div className="mt-2 flex justify-end">
-                    <Sparkline values={bundle.sparkline} tone={colors.dot} />
+                    <Sparkline values={bundle.sparkline} tone={dot} />
                   </div>
                 )}
               </div>
@@ -192,7 +185,7 @@ function BundleDetailView() {
     )
   }
 
-  const colors = ACCENT_COLORS[bundle.accent] || ACCENT_COLORS.blue
+  const dot = ACCENT_DOT[bundle.accent]
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
   const handleCopy = async (slug: string) => {
@@ -202,7 +195,7 @@ function BundleDetailView() {
   const handleRemoveLink = async (linkId: number) => {
     try {
       await shortlinksApi.removeLinkFromBundle(bundle.id, linkId)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.bundles.link_removed'), 'success')
       void selectBundle(bundle.id)
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -230,7 +223,7 @@ function BundleDetailView() {
           <div className="flex items-center gap-3">
             <span
               className="size-4 rounded-full shrink-0"
-              style={{ backgroundColor: colors.dot }}
+              style={{ backgroundColor: dot }}
             />
             <div>
               <h2 className="text-xl font-bold text-[var(--text-primary)]">{bundle.name}</h2>

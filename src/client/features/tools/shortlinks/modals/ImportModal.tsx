@@ -61,7 +61,7 @@ export function ImportModal() {
         }
       }
       if (items.length === 0) {
-        throw new Error('No valid URLs found to import (must start with http:// or https://)')
+        throw new Error(t('tools.shortlinks.modal.import_no_urls'))
       }
       const res = await shortlinksApi.importData({ items })
       useUiStore.getState().toast(

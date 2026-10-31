@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Copy, Download, Image as ImageIcon } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
+import { Segmented } from '../../../../components/form'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { t } from '../../../../lib/i18n'
@@ -26,16 +27,22 @@ export function QrCodeModal() {
 
   const primarySlug = link.slugs.find((s) => s.is_primary)?.slug || link.slugs[0]?.slug || ''
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const shortUrl = `${origin}/l/${primarySlug}`
+  const shortUrl = `${origin}/l/${primarySlug}?utm_medium=qr`
 
   const svgOf = () => plateRef.current?.querySelector('svg') ?? null
+
+  const requireSvg = (): SVGSVGElement | null => {
+    const svg = svgOf()
+    if (!svg) useUiStore.getState().toast(t('common.action_failed'), 'error')
+    return svg
+  }
 
   const handleCopyUrl = async () => {
     await copyShortlinkText(shortUrl)
   }
 
   const handleCopyImage = async () => {
-    const svg = svgOf()
+    const svg = requireSvg()
     if (!svg) return
     const success = await copyQrImageToClipboard(svg, 800)
     if (success) {
@@ -46,14 +53,14 @@ export function QrCodeModal() {
   }
 
   const handleDownloadPng = async () => {
-    const svg = svgOf()
+    const svg = requireSvg()
     if (!svg) return
     const name = qrFileName(link.label || primarySlug, 'png')
-    await downloadQrPng(svg, name, 800)
+    await downloadQrPng(svg, name, size * 4)
   }
 
   const handleDownloadSvg = () => {
-    const svg = svgOf()
+    const svg = requireSvg()
     if (!svg) return
     const name = qrFileName(link.label || primarySlug, 'svg')
     downloadQrSvg(svg, name)
@@ -67,25 +74,17 @@ export function QrCodeModal() {
       width={440}
       footer={
         <div className="flex w-full items-center justify-between">
-          <div className="flex items-center gap-1">
-            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-              {t('tools.shortlinks.modal.qr_size')}:
-            </span>
-            {[200, 240, 300].map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSize(s)}
-                className={`rounded px-1.5 py-0.5 text-[length:var(--text-11)] font-medium ${
-                  size === s
-                    ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            size="sm"
+            value={String(size) as '200' | '240' | '300'}
+            label={t('tools.shortlinks.modal.qr_size')}
+            onChange={(next) => setSize(Number(next))}
+            options={[
+              { value: '200', label: '200' },
+              { value: '240', label: '240' },
+              { value: '300', label: '300' },
+            ]}
+          />
           <Button variant="ghost" onClick={closeQrModal}>
             {t('common.close')}
           </Button>
@@ -96,7 +95,7 @@ export function QrCodeModal() {
         {/* QR Plate with white background for readability */}
         <div
           ref={plateRef}
-          className="rounded-xl p-4 bg-white shadow-sm border border-[var(--border-subtle)] flex items-center justify-center"
+          className="rounded-[var(--r-lg)] p-4 bg-white shadow-sm border border-[var(--border-subtle)] flex items-center justify-center"
         >
           <QRCodeSVG
             value={shortUrl}
@@ -104,7 +103,7 @@ export function QrCodeModal() {
             level="M"
             bgColor="#ffffff"
             fgColor="#000000"
-            includeMargin
+            marginSize={2}
           />
         </div>
 

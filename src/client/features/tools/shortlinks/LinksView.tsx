@@ -13,7 +13,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
-import { Input } from '../../../components/form'
+import { Input, Segmented } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { useUiStore } from '../../../lib/ui-store'
@@ -52,7 +52,7 @@ export function LinksView() {
     const isCurrentlyActive = primarySlug.disabled_at === null
     try {
       await shortlinksApi.setSlugStatus(link.id, primarySlug.slug, !isCurrentlyActive)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
       void fetchLinks()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -74,7 +74,7 @@ export function LinksView() {
 
     try {
       await shortlinksApi.deleteLink(link.id)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.deleted'), 'success')
       void fetchLinks()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -101,27 +101,17 @@ export function LinksView() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Status Filter Pills */}
-          <div className="flex items-center bg-[var(--bg-sunken)] p-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-12)]">
-            {(['all', 'active', 'disabled'] as const).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setFilter({ status: st, page: 1 })}
-                className={`px-2.5 py-1 rounded-[var(--r-sm)] font-medium transition-colors ${
-                  filter.status === st
-                    ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {st === 'all'
-                  ? t('tools.shortlinks.links.filter_all')
-                  : st === 'active'
-                    ? t('tools.shortlinks.links.filter_active')
-                    : t('tools.shortlinks.links.filter_disabled')}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            size="sm"
+            value={filter.status}
+            label={t('tools.shortlinks.links.status')}
+            onChange={(status) => setFilter({ status, page: 1 })}
+            options={[
+              { value: 'all', label: t('tools.shortlinks.links.filter_all') },
+              { value: 'active', label: t('tools.shortlinks.links.filter_active') },
+              { value: 'disabled', label: t('tools.shortlinks.links.filter_disabled') },
+            ]}
+          />
 
           <Button
             variant="primary"
@@ -156,12 +146,12 @@ export function LinksView() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
-                  <th className="py-2.5 px-4">{t('tools.shortlinks.links.primary_slug')}</th>
-                  <th className="py-2.5 px-4">{t('tools.shortlinks.links.target_url')}</th>
-                  <th className="py-2.5 px-4 text-center">{t('tools.shortlinks.links.status')}</th>
-                  <th className="py-2.5 px-4 text-right">{t('tools.shortlinks.links.clicks')}</th>
-                  <th className="py-2.5 px-4 text-right">{t('tools.shortlinks.links.created_at')}</th>
-                  <th className="py-2.5 px-4 text-right"></th>
+                  <th scope="col" className="py-2.5 px-4">{t('tools.shortlinks.links.primary_slug')}</th>
+                  <th scope="col" className="py-2.5 px-4">{t('tools.shortlinks.links.target_url')}</th>
+                  <th scope="col" className="py-2.5 px-4 text-center">{t('tools.shortlinks.links.status')}</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">{t('tools.shortlinks.links.clicks')}</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">{t('tools.shortlinks.links.created_at')}</th>
+                  <th scope="col" className="py-2.5 px-4 text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)] text-[length:var(--text-13)]">
@@ -185,14 +175,14 @@ export function LinksView() {
                             /{primarySlug}
                           </span>
                           {link.slugs.length > 1 && (
-                            <span className="rounded-full bg-[var(--bg-sunken)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                            <span className="rounded-full bg-[var(--bg-inset)] px-1.5 py-0.2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                               +{link.slugs.length - 1}
                             </span>
                           )}
                           {link.password_protected ? (
                             <span
                               title={t('tools.shortlinks.links.password_protected')}
-                              className="text-[var(--warning,#eab308)]"
+                              className="text-[var(--warning)]"
                             >
                               <Lock size={12} />
                             </span>
@@ -213,16 +203,16 @@ export function LinksView() {
 
                       <td className="py-3 px-4 text-center">
                         {isExpired ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--danger-soft,#fee2e2)] text-[var(--danger,#ef4444)]">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--danger-soft)] text-[var(--danger)]">
                             <Clock size={11} />
-                            {t('tools.shortlinks.links.expires_at')}
+                            {t('tools.shortlinks.links.expired')}
                           </span>
                         ) : isSlugActive ? (
-                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--success-soft,#dcfce7)] text-[var(--success,#10b981)]">
+                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--success-soft)] text-[var(--success)]">
                             {t('tools.shortlinks.links.filter_active')}
                           </span>
                         ) : (
-                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--bg-sunken)] text-[var(--text-tertiary)]">
+                          <span className="inline-block px-2 py-0.5 rounded text-[length:var(--text-11)] bg-[var(--bg-inset)] text-[var(--text-tertiary)]">
                             {t('tools.shortlinks.links.filter_disabled')}
                           </span>
                         )}

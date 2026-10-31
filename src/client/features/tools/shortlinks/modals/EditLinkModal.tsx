@@ -53,7 +53,7 @@ export function EditLinkModal() {
         expires_at: expTs,
       })
 
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
       closeEditModal()
       void fetchLinks()
       void refreshActiveLink()

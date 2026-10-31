@@ -7,6 +7,7 @@ import { ToolsApp } from '../src/client/features/tools/ToolsApp'
 import { ToolsSidebar } from '../src/client/features/tools/ToolsSidebar'
 import { useToolsStore } from '../src/client/features/tools/store'
 import { useShortlinksStore } from '../src/client/features/tools/shortlinks/store'
+import { SLUG_ALPHABET_SIZE } from '../src/shared/tools/shortlinks/types'
 import { DashboardView } from '../src/client/features/tools/shortlinks/DashboardView'
 import { LinksView } from '../src/client/features/tools/shortlinks/LinksView'
 import { BundlesView } from '../src/client/features/tools/shortlinks/BundlesView'
@@ -217,7 +218,7 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
     it('renders slug length slider and combinations text', async () => {
       const view = await renderElement(<SettingsView />)
       expect(view.container.textContent).toContain(t('tools.shortlinks.settings.slug_length'))
-      expect(view.container.textContent).toContain('62^')
+      expect(view.container.textContent).toContain((SLUG_ALPHABET_SIZE ** 6).toLocaleString())
       expect(view.container.textContent).toContain(t('tools.shortlinks.settings.api_keys'))
       expect(view.container.textContent).toContain(t('tools.shortlinks.settings.data_management'))
       view.unmount()

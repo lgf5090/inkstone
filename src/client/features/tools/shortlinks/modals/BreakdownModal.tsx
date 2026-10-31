@@ -63,7 +63,7 @@ export function BreakdownModal() {
               const pct = totalClicks > 0 ? ((item.count / totalClicks) * 100).toFixed(1) : '0.0'
               const displayName = isCountry
                 ? `${countryFlag(item.name)} ${countryName(item.name)}`
-                : item.name || 'Direct / None'
+                : item.name || t('tools.shortlinks.detail.direct')
 
               return (
                 <div

@@ -4,7 +4,9 @@
 
 export const MIN_SLUG_LENGTH = 3
 export const MAX_SLUG_LENGTH = 128
-export const DEFAULT_SLUG_LENGTH = 3
+export const DEFAULT_SLUG_LENGTH = 6
+/** `RANDOM_CHARSET` in the worker's slugs.ts omits l/o/0/1, so one character has 32 values, not 62. */
+export const SLUG_ALPHABET_SIZE = 32
 
 export const TIMELINE_RANGES = ['24h', '7d', '30d', '90d', '1y', 'all'] as const
 export type TimelineRange = (typeof TIMELINE_RANGES)[number]

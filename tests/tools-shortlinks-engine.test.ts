@@ -24,10 +24,15 @@ import {
   validateRandomSlug,
   validateSlugLength,
 } from '../src/worker/tools/shortlinks/slugs'
+import { SLUG_ALPHABET_SIZE } from '../src/shared/tools/shortlinks/types'
 import { extractTitle, isPrivateHost } from '../src/worker/tools/shortlinks/title-fetch'
 import { isBot, parseBrowser, parseDeviceType, parseOS, parseUserAgentInfo } from '../src/worker/tools/shortlinks/ua'
 
 describe('Shortlinks Slugs Engine', () => {
+  it('uses exactly the advertised alphabet size', () => {
+    expect(RANDOM_CHARSET).toHaveLength(SLUG_ALPHABET_SIZE)
+  })
+
   it('generates random slug with valid characters and length', () => {
     const slug = generateRandomSlug(6)
     expect(slug).toHaveLength(6)

@@ -15,6 +15,7 @@ import {
 import type { ChartConfiguration } from 'chart.js'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
 import { LoadingBlock } from '../../../components/feedback'
+import { Segmented } from '../../../components/form'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
@@ -67,8 +68,8 @@ export function LinkDetailView() {
           {
             label: t('tools.shortlinks.links.clicks'),
             data: values,
-            borderColor: colors.palette[0] || 'var(--accent)',
-            backgroundColor: withAlpha(colors.palette[0] || '#3b82f6', 0.15),
+            borderColor: colors.palette[0] ?? colors.text,
+            backgroundColor: withAlpha(colors.palette[0] ?? colors.text, 0.15),
             fill: true,
             tension: 0.35,
             borderWidth: 2,
@@ -169,12 +170,12 @@ export function LinkDetailView() {
 
   const handleDeleteSlug = async (slug: string) => {
     if (link.slugs.length <= 1) {
-      useUiStore.getState().toast('Cannot delete the last slug', 'error')
+      useUiStore.getState().toast(t('tools.shortlinks.detail.last_slug'), 'error')
       return
     }
     const ok = await confirm({
       title: t('tools.shortlinks.links.delete'),
-      description: `Delete slug /${slug}?`,
+      description: t('tools.shortlinks.detail.delete_slug_confirm', { slug }),
       tone: 'danger',
       confirmLabel: t('tools.shortlinks.links.delete'),
       cancelLabel: t('common.cancel'),
@@ -237,7 +238,7 @@ export function LinkDetailView() {
               {link.password_protected ? (
                 <span
                   title={t('tools.shortlinks.links.password_protected')}
-                  className="rounded-full bg-[var(--warning-soft,#fef9c3)] p-1 text-[var(--warning,#ca8a04)]"
+                  className="rounded-full bg-[var(--warning-soft)] p-1 text-[var(--warning)]"
                 >
                   <Lock size={14} />
                 </span>
@@ -308,22 +309,13 @@ export function LinkDetailView() {
           <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.shortlinks.detail.title')}
           </span>
-          <div className="flex items-center bg-[var(--bg-sunken)] p-0.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] text-[length:var(--text-11)] font-medium">
-            {RANGES.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setTimelineRange(r.id)}
-                className={`px-2.5 py-1 rounded-[var(--r-sm)] transition-colors ${
-                  range === r.id
-                    ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {t(r.labelKey)}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            size="sm"
+            value={range}
+            label={t('tools.shortlinks.detail.title')}
+            onChange={(next) => setTimelineRange(next)}
+            options={RANGES.map((r) => ({ value: r.id, label: t(r.labelKey) }))}
+          />
         </div>
       </div>
 
@@ -420,6 +412,9 @@ export function LinkDetailView() {
                 <div className="flex items-center gap-3">
                   <span className="font-mono font-semibold text-[var(--text-primary)]">
                     /{s.slug}
+                  </span>
+                  <span className="font-mono text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {(s.click_count ?? 0).toLocaleString()} {t('tools.shortlinks.links.clicks')}
                   </span>
                   {s.is_primary ? (
                     <span className="inline-flex items-center gap-1 rounded bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]">
@@ -548,7 +543,7 @@ export function LinkDetailView() {
                 return (
                   <div key={r.name} className="flex items-center justify-between text-[length:var(--text-12)]">
                     <span className="truncate font-medium text-[var(--text-primary)] max-w-[70%]">
-                      {r.name || 'Direct / None'}
+                      {r.name || t('tools.shortlinks.detail.direct')}
                     </span>
                     <span className="font-mono text-[var(--text-secondary)] text-[length:var(--text-11)]">
                       {r.count.toLocaleString()} ({pct}%)

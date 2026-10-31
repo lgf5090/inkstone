@@ -59,7 +59,7 @@ export function CreateLinkModal() {
         }
       }
 
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.created'), 'success')
       handleClose()
       void fetchLinks()
       void fetchDashboard()

@@ -50,7 +50,7 @@ export function DashboardView() {
         allow_duplicate: true,
       })
       setQuickUrl('')
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.created'), 'success')
       void fetchDashboard()
       void fetchLinks()
 
@@ -84,8 +84,8 @@ export function DashboardView() {
           {
             label: t('tools.shortlinks.dashboard.total_clicks'),
             data: values,
-            borderColor: colors.palette[0] || 'var(--accent)',
-            backgroundColor: withAlpha(colors.palette[0] || '#3b82f6', 0.15),
+            borderColor: colors.palette[0] ?? colors.text,
+            backgroundColor: withAlpha(colors.palette[0] ?? colors.text, 0.15),
             fill: true,
             tension: 0.35,
             borderWidth: 2,
@@ -184,11 +184,11 @@ export function DashboardView() {
           <div className="mt-1 flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
             {stats && typeof stats.delta_clicks === 'number' ? (
               stats.delta_clicks >= 0 ? (
-                <span className="flex items-center text-[var(--success,#10b981)] font-medium">
+                <span className="flex items-center text-[var(--success)] font-medium">
                   <TrendingUp size={13} className="mr-0.5" />+{stats.delta_clicks}%
                 </span>
               ) : (
-                <span className="flex items-center text-[var(--danger,#ef4444)] font-medium">
+                <span className="flex items-center text-[var(--danger)] font-medium">
                   <TrendingDown size={13} className="mr-0.5" />
                   {stats.delta_clicks}%
                 </span>
@@ -304,7 +304,7 @@ export function DashboardView() {
                         {c.count.toLocaleString()} ({pct}%)
                       </span>
                     </div>
-                    <div className="h-1.5 w-full bg-[var(--bg-sunken)] rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-[var(--bg-inset)] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
                         style={{ width: `${pct}%` }}
@@ -341,13 +341,13 @@ export function DashboardView() {
                   <div key={r.name} className="space-y-1">
                     <div className="flex items-center justify-between text-[length:var(--text-12)]">
                       <span className="truncate font-medium text-[var(--text-primary)] max-w-[70%]">
-                        {r.name || 'Direct / None'}
+                        {r.name || t('tools.shortlinks.detail.direct')}
                       </span>
                       <span className="font-mono text-[var(--text-secondary)] text-[length:var(--text-11)]">
                         {r.count.toLocaleString()} ({pct}%)
                       </span>
                     </div>
-                    <div className="h-1.5 w-full bg-[var(--bg-sunken)] rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-[var(--bg-inset)] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
                         style={{ width: `${pct}%` }}

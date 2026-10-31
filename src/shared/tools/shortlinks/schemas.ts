@@ -61,7 +61,7 @@ export const AddBundleLinksSchema = z.object({
 })
 
 export const UpdateSettingsSchema = z.object({
-  slug_default_length: z.number().int().min(3).max(12).optional(),
+  slug_default_length: z.number().int().min(4).max(12).optional(),
   default_range: z.enum(TIMELINE_RANGES).optional(),
   filter_bots: z.boolean().optional(),
   filter_self_referrers: z.boolean().optional(),

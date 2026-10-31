@@ -5,15 +5,16 @@ import { Input } from '../../../../components/form'
 import { type MessageKey, t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import type { BundleAccent } from '@shared/tools/shortlinks/types'
+import { ACCENT_DOT } from '../accents'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 
-const ACCENT_COLORS: { id: BundleAccent; labelKey: MessageKey; bg: string }[] = [
-  { id: 'orange', labelKey: 'tools.shortlinks.modal.color_orange', bg: '#f97316' },
-  { id: 'red', labelKey: 'tools.shortlinks.modal.color_red', bg: '#ef4444' },
-  { id: 'green', labelKey: 'tools.shortlinks.modal.color_green', bg: '#10b981' },
-  { id: 'blue', labelKey: 'tools.shortlinks.modal.color_blue', bg: '#3b82f6' },
-  { id: 'purple', labelKey: 'tools.shortlinks.modal.color_purple', bg: '#a855f7' },
+const ACCENT_COLORS: { id: BundleAccent; labelKey: MessageKey }[] = [
+  { id: 'orange', labelKey: 'tools.shortlinks.modal.color_orange' },
+  { id: 'red', labelKey: 'tools.shortlinks.modal.color_red' },
+  { id: 'green', labelKey: 'tools.shortlinks.modal.color_green' },
+  { id: 'blue', labelKey: 'tools.shortlinks.modal.color_blue' },
+  { id: 'purple', labelKey: 'tools.shortlinks.modal.color_purple' },
 ]
 
 export function CreateBundleModal() {
@@ -60,7 +61,7 @@ export function CreateBundleModal() {
         })
       }
 
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.bundles.saved'), 'success')
       closeBundleModal()
       void fetchBundles()
     } catch (err) {
@@ -126,7 +127,7 @@ export function CreateBundleModal() {
                   key={c.id}
                   type="button"
                   onClick={() => setAccent(c.id)}
-                  style={{ backgroundColor: c.bg }}
+                  style={{ backgroundColor: ACCENT_DOT[c.id] }}
                   className={`size-7 rounded-full transition-transform ${
                     isSelected ? 'scale-110 ring-2 ring-offset-2 ring-[var(--accent)]' : 'opacity-80 hover:opacity-100'
                   }`}

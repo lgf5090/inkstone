@@ -13,23 +13,17 @@ import {
   Upload,
 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
-import { FIELD_BASE, Input } from '../../../components/form'
+import { Field, Input, Select, SettingRow, Slider, Switch } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { useUiStore } from '../../../lib/ui-store'
-import type { TimelineRange } from '@shared/tools/shortlinks/types'
+import { SLUG_ALPHABET_SIZE, type TimelineRange } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
 import { copyShortlinkText } from './copy'
 
 function formatCombinations(length: number): string {
-  const combos = Math.pow(62, length)
-  if (combos >= 1e18) return `${(combos / 1e18).toFixed(1)} quintillion`
-  if (combos >= 1e15) return `${(combos / 1e15).toFixed(1)} quadrillion`
-  if (combos >= 1e12) return `${(combos / 1e12).toFixed(1)} trillion`
-  if (combos >= 1e9) return `${(combos / 1e9).toFixed(1)} billion`
-  if (combos >= 1e6) return `${(combos / 1e6).toFixed(1)} million`
-  return combos.toLocaleString()
+  return (SLUG_ALPHABET_SIZE ** length).toLocaleString()
 }
 
 export function SettingsView() {
@@ -106,7 +100,7 @@ export function SettingsView() {
       setKeyName('')
       const returnedKey = res.api_key || null
       setGeneratedKey(returnedKey)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.settings.key_created'), 'success')
       void fetchApiKeys()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -127,7 +121,7 @@ export function SettingsView() {
 
     try {
       await shortlinksApi.deleteApiKey(id)
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.settings.key_revoked'), 'success')
       void fetchApiKeys()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -137,11 +131,7 @@ export function SettingsView() {
   const handleExportTxt = async () => {
     try {
       const res = await shortlinksApi.exportTxt()
-      if (res.url) {
-        window.open(res.url, '_blank')
-      } else {
-        useUiStore.getState().toast('Exported: ' + (res.r2_key || 'success'), 'success')
-      }
+      window.open(res.url, '_blank', 'noopener')
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
@@ -150,11 +140,7 @@ export function SettingsView() {
   const handleExportCsv = async () => {
     try {
       const res = await shortlinksApi.exportCsv()
-      if (res.url) {
-        window.open(res.url, '_blank')
-      } else {
-        useUiStore.getState().toast('Exported: ' + (res.r2_key || 'success'), 'success')
-      }
+      window.open(res.url, '_blank', 'noopener')
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
@@ -228,84 +214,59 @@ export function SettingsView() {
         </div>
 
         {/* Slug length */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-              {t('tools.shortlinks.settings.slug_length')}:{' '}
-              <span className="font-mono font-bold text-[var(--accent)]">{slugLength}</span>
-            </label>
-            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)] font-mono">
-              {'62^'}{slugLength}{' = '}{formatCombinations(slugLength)}
-            </span>
-          </div>
-          <input
-            type="range"
-            min={3}
+        <Field
+          label={`${t('tools.shortlinks.settings.slug_length')} · ${slugLength} · ${formatCombinations(slugLength)}`}
+          hint={t('tools.shortlinks.settings.slug_length_desc', {
+            combos: formatCombinations(slugLength),
+          })}
+        >
+          <Slider
+            min={4}
             max={12}
             value={slugLength}
-            onChange={(e) => setSlugLength(Number(e.target.value))}
-            className="w-full accent-[var(--accent)] cursor-pointer"
+            onChange={setSlugLength}
+            label={t('tools.shortlinks.settings.slug_length')}
           />
-          <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-            {t('tools.shortlinks.settings.slug_length_desc', {
-              combos: formatCombinations(slugLength),
-            })}
-          </p>
-        </div>
+        </Field>
 
         {/* Default range */}
-        <div className="space-y-1.5 pt-2">
-          <label className="block text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-            {t('tools.shortlinks.settings.default_range')}
-          </label>
-          <select
+        <Field label={t('tools.shortlinks.settings.default_range')}>
+          <Select
             value={defaultRange}
             onChange={(e) => setDefaultRange(e.target.value as TimelineRange)}
-            className={`${FIELD_BASE} h-9 max-w-xs`}
+            className="max-w-xs"
           >
             <option value="24h">{t('tools.shortlinks.detail.range_24h')}</option>
             <option value="7d">{t('tools.shortlinks.detail.range_7d')}</option>
             <option value="30d">{t('tools.shortlinks.detail.range_30d')}</option>
             <option value="90d">{t('tools.shortlinks.detail.range_90d')}</option>
             <option value="all">{t('tools.shortlinks.detail.range_all')}</option>
-          </select>
-        </div>
+          </Select>
+        </Field>
 
         {/* Bot filter toggle */}
-        <div className="pt-2 flex items-center justify-between">
-          <div>
-            <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-              {t('tools.shortlinks.settings.ignore_bots')}
-            </div>
-            <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-              {t('tools.shortlinks.settings.ignore_bots_desc')}
-            </div>
-          </div>
-          <input
-            type="checkbox"
+        <SettingRow
+          title={t('tools.shortlinks.settings.ignore_bots')}
+          description={t('tools.shortlinks.settings.ignore_bots_desc')}
+        >
+          <Switch
             checked={ignoreBots}
-            onChange={(e) => setIgnoreBots(e.target.checked)}
-            className="size-4 rounded accent-[var(--accent)] cursor-pointer"
+            onChange={setIgnoreBots}
+            label={t('tools.shortlinks.settings.ignore_bots')}
           />
-        </div>
+        </SettingRow>
 
         {/* Self-referrer filter toggle */}
-        <div className="pt-2 flex items-center justify-between">
-          <div>
-            <div className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-              {t('tools.shortlinks.settings.ignore_self')}
-            </div>
-            <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
-              {t('tools.shortlinks.settings.ignore_self_desc')}
-            </div>
-          </div>
-          <input
-            type="checkbox"
+        <SettingRow
+          title={t('tools.shortlinks.settings.ignore_self')}
+          description={t('tools.shortlinks.settings.ignore_self_desc')}
+        >
+          <Switch
             checked={ignoreSelf}
-            onChange={(e) => setIgnoreSelf(e.target.checked)}
-            className="size-4 rounded accent-[var(--accent)] cursor-pointer"
+            onChange={setIgnoreSelf}
+            label={t('tools.shortlinks.settings.ignore_self')}
           />
-        </div>
+        </SettingRow>
 
         <div className="pt-3">
           <Button
@@ -329,32 +290,25 @@ export function SettingsView() {
 
         {/* Create Key Form */}
         <form onSubmit={handleCreateApiKey} className="flex flex-col sm:flex-row items-end gap-3">
-          <div className="flex-1 w-full space-y-1">
-            <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
-              {t('tools.shortlinks.settings.key_name')}
-            </label>
+          <Field className="flex-1 w-full" label={t('tools.shortlinks.settings.key_name')}>
             <Input
               value={keyName}
               onChange={(e) => setKeyName(e.target.value)}
               placeholder={t('tools.shortlinks.settings.key_name_placeholder')}
               required
             />
-          </div>
+          </Field>
 
-          <div className="w-full sm:w-44 space-y-1">
-            <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
-              {t('tools.shortlinks.settings.key_scope')}
-            </label>
-            <select
+          <Field className="w-full sm:w-44" label={t('tools.shortlinks.settings.key_scope')}>
+            <Select
               value={keyScope}
-              onChange={(e) => setKeyScope(e.target.value as any)}
-              className={`${FIELD_BASE} h-9`}
+              onChange={(e) => setKeyScope(e.target.value as 'read' | 'write' | 'admin')}
             >
               <option value="read">{t('tools.shortlinks.settings.scope_read')}</option>
               <option value="write">{t('tools.shortlinks.settings.scope_write')}</option>
               <option value="admin">{t('tools.shortlinks.settings.scope_admin')}</option>
-            </select>
-          </div>
+            </Select>
+          </Field>
 
           <Button
             type="submit"
@@ -369,15 +323,15 @@ export function SettingsView() {
 
         {/* Generated Key Alert Box */}
         {generatedKey && (
-          <div className="rounded-[var(--r-md)] border border-[var(--warning,#ca8a04)] bg-[var(--warning-soft,#fef9c3)] p-4 space-y-2">
-            <div className="text-[length:var(--text-12)] font-semibold text-[var(--warning,#a16207)]">
+          <div className="rounded-[var(--r-md)] border border-[var(--warning)] bg-[var(--warning-soft)] p-4 space-y-2">
+            <div className="text-[length:var(--text-12)] font-semibold text-[var(--warning)]">
               {t('tools.shortlinks.settings.copy_key_warn')}
             </div>
             <div className="flex items-center gap-2">
               <input
                 readOnly
                 value={generatedKey}
-                className={`${FIELD_BASE} h-9 font-mono text-[length:var(--text-12)] bg-white`}
+                className="h-9 font-mono text-[length:var(--text-12)]"
               />
               <Button
                 variant="secondary"

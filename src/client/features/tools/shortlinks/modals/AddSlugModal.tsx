@@ -31,7 +31,7 @@ export function AddSlugModal() {
     setSubmitting(true)
     try {
       await shortlinksApi.addSlug(linkId, { slug: trimmed })
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      useUiStore.getState().toast(t('tools.shortlinks.links.status_updated'), 'success')
       handleClose()
       void refreshActiveLink()
       void fetchLinks()
