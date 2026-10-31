@@ -27,6 +27,7 @@ import { ApiError } from '../lib/errors'
 import { contentDisposition } from '../lib/http-range'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
+import { createMinuteBudget } from '../lib/rate-limit'
 import { requireAuth } from '../middleware/auth'
 import {
   addGithubAccount,
@@ -90,6 +91,11 @@ import {
 export const developmentGithubRoutes = new Hono<AppBindings>()
 
 developmentGithubRoutes.use('*', requireAuth)
+
+const searchBudget = createMinuteBudget(20, 'Too many GitHub searches. Try again in a minute.')
+const detailBudget = createMinuteBudget(40, 'Too many GitHub detail requests. Try again in a minute.')
+const listBudget = createMinuteBudget(60, 'Too many GitHub list requests. Try again in a minute.')
+const writeBudget = createMinuteBudget(30, 'Too many GitHub write requests. Try again in a minute.')
 
 const SLUG_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 const REPO_ID_PATTERN = /^[0-9]{1,20}$/
@@ -547,6 +553,7 @@ developmentGithubRoutes.delete('/accounts/:id', async (c) => {
 
 developmentGithubRoutes.get('/search', async (c) => {
   const userId = userIdOf(c)
+  searchBudget(userId)
   const query = parseQuery(c, GithubSearchQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const result = await searchRepositories(
@@ -566,6 +573,7 @@ developmentGithubRoutes.get('/search', async (c) => {
 
 developmentGithubRoutes.get('/repo-detail', async (c) => {
   const userId = userIdOf(c)
+  detailBudget(userId)
   const query = parseQuery(c, RepoDetailQuerySchema)
   if (!parseRepoFullName(query.repo)) throw ApiError.badRequest('A repository must be named owner/name')
   const defaultBranch = query.defaultBranch?.trim() || undefined
@@ -576,6 +584,7 @@ developmentGithubRoutes.get('/repo-detail', async (c) => {
 
 developmentGithubRoutes.get('/gist/detail', async (c) => {
   const userId = userIdOf(c)
+  detailBudget(userId)
   const query = parseQuery(c, GistDetailQuerySchema)
   if (!isGistId(query.gist)) throw ApiError.badRequest('Invalid gist id')
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
@@ -585,6 +594,7 @@ developmentGithubRoutes.get('/gist/detail', async (c) => {
 
 developmentGithubRoutes.get('/gist/public', async (c) => {
   const userId = userIdOf(c)
+  listBudget(userId)
   const query = parseQuery(c, GithubGistListQuerySchema)
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
   const result = await listGithubGists('public', {
@@ -597,6 +607,7 @@ developmentGithubRoutes.get('/gist/public', async (c) => {
 
 developmentGithubRoutes.get('/gist/mine', async (c) => {
   const userId = userIdOf(c)
+  listBudget(userId)
   const query = parseQuery(c, GithubGistListQuerySchema)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId, query.account),
@@ -612,6 +623,7 @@ developmentGithubRoutes.get('/gist/mine', async (c) => {
 
 developmentGithubRoutes.get('/gist/users/:username/gists', async (c) => {
   const userId = userIdOf(c)
+  listBudget(userId)
   const username = c.req.param('username')
   if (!username || !isGithubUsername(username)) throw ApiError.badRequest('Invalid GitHub username')
   const query = parseQuery(c, GithubGistListQuerySchema)
@@ -629,6 +641,7 @@ developmentGithubRoutes.get('/gist/users/:username/gists', async (c) => {
 
 developmentGithubRoutes.post('/gist/github-gists', async (c) => {
   const userId = userIdOf(c)
+  writeBudget(userId)
   const body = await parseBody(c, GithubGistCreateSchema, GIST_BODY_LIMIT)
   const token = requireToken(
     await effectiveGithubToken(c.env, c.env.DB, userId, body.account),
@@ -642,6 +655,7 @@ developmentGithubRoutes.post('/gist/github-gists', async (c) => {
 })
 
 developmentGithubRoutes.patch('/gist/github-gists/:id', async (c) => {
+  writeBudget(userIdOf(c))
   const id = gistPathId(c)
   const body = await parseBody(c, GithubGistUpdateSchema, GIST_BODY_LIMIT)
   const token = await resolveGistWriteToken(c, id)
@@ -650,6 +664,7 @@ developmentGithubRoutes.patch('/gist/github-gists/:id', async (c) => {
 })
 
 developmentGithubRoutes.delete('/gist/github-gists/:id', async (c) => {
+  writeBudget(userIdOf(c))
   const id = gistPathId(c)
   const token = await resolveGistWriteToken(c, id)
   await deleteGithubGist(id, token)

@@ -455,6 +455,16 @@ describe('development github proxies', () => {
     expect(url.searchParams.get('order')).toBe('asc')
   })
 
+  it('limits runaway searches per user', async () => {
+    stubGithub(() => jsonResponse({ total_count: 0, items: [] }))
+    const user = 'limited-user'
+    let last = 0
+    for (let index = 0; index < 21; index += 1) {
+      last = (await call('GET', '/search?q=x', { user })).status
+    }
+    expect(last).toBe(429)
+  })
+
   it('maps upstream failures to the github error codes', async () => {
     stubGithub(() => jsonResponse({ message: 'bad credentials' }, 401))
     const invalid = await call('GET', '/search')
