@@ -77,6 +77,25 @@ export interface QrCodeState {
   setFullscreenModalOpen: (open: boolean) => void
 }
 
+/** vCard TEXT values escape backslash, comma, semicolon and colon before they join a line. */
+function escapeVCardText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+    .replace(/:/g, '\\:')
+    .replace(/\r?\n/g, '\\n')
+}
+
+/** Payload fields are line-oriented, so a break typed into a value would forge extra fields. */
+function toSingleLine(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ')
+}
+
+function isHanText(value: string): boolean {
+  return /[\p{Script=Han}]/u.test(value)
+}
+
 export function encodeQrData(
   type: QrContentType,
   state: {
@@ -94,63 +113,77 @@ export function encodeQrData(
     case 'url': {
       const url = state.urlContent.trim()
       if (!url) return ''
-      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return url
-      return `https://${url}`
+      const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url) ? url : `https://${url}`
+      try {
+        // Parsing percent-encodes spaces and punycodes international hosts; a bare space truncates the
+        // payload on several readers, so the encoded form is the one that survives the round trip.
+        return new URL(withScheme).toString()
+      } catch {
+        return withScheme
+      }
     }
     case 'wifi': {
       const { ssid, password, encryption, hidden } = state.wifiContent
       if (!ssid.trim()) return ''
       const enc = encryption === 'none' ? 'nopass' : encryption.toUpperCase()
-      const esc = (val: string) => val.replace(/([\\;,:"])/g, '\\$1')
+      const esc = (val: string) => toSingleLine(val).replace(/([\\;,:"])/g, '\\$1')
       return `WIFI:S:${esc(ssid)};T:${enc};P:${esc(password || '')};H:${hidden ? 'true' : 'false'};;`
     }
     case 'vcard': {
       const vcard = state.vcardContent || {}
-      const firstName = (vcard.firstName || '').trim()
-      const lastName = (vcard.lastName || '').trim()
-      const phone = (vcard.phone || '').trim()
-      const mobile = (vcard.mobile || '').trim()
-      const email = (vcard.email || '').trim()
-      const organization = (vcard.organization || '').trim()
-      const title = (vcard.title || '').trim()
-      const url = (vcard.url || '').trim()
-      const address = (vcard.address || '').trim()
-      const fullName = `${lastName}${firstName}`.trim() || firstName || lastName
+      const firstName = toSingleLine(vcard.firstName || '').trim()
+      const lastName = toSingleLine(vcard.lastName || '').trim()
+      const phone = toSingleLine(vcard.phone || '').trim()
+      const mobile = toSingleLine(vcard.mobile || '').trim()
+      const email = toSingleLine(vcard.email || '').trim()
+      const organization = toSingleLine(vcard.organization || '').trim()
+      const title = toSingleLine(vcard.title || '').trim()
+      const url = toSingleLine(vcard.url || '').trim()
+      const address = toSingleLine(vcard.address || '').trim()
+      // Surname-then-given with no space is how a Han reader signs a card; everyone else expects the
+      // two parts separated, which blind concatenation never gives them.
+      const nameParts = [lastName, firstName].filter(Boolean)
+      const fullName = !nameParts.length
+        ? ''
+        : isHanText(lastName + firstName)
+          ? lastName + firstName
+          : nameParts.join(' ')
       if (!fullName && !phone && !email && !mobile) return ''
       const lines = [
         'BEGIN:VCARD',
         'VERSION:3.0',
-        fullName ? `FN:${fullName}` : '',
-        `N:${lastName};${firstName};;;`,
-        organization ? `ORG:${organization}` : '',
-        title ? `TITLE:${title}` : '',
-        phone ? `TEL;TYPE=WORK,VOICE:${phone}` : '',
-        mobile ? `TEL;TYPE=CELL,VOICE:${mobile}` : '',
-        email ? `EMAIL;TYPE=PREF,INTERNET:${email}` : '',
+        fullName ? `FN:${escapeVCardText(fullName)}` : '',
+        `N:${escapeVCardText(lastName)};${escapeVCardText(firstName)};;;`,
+        organization ? `ORG:${escapeVCardText(organization)}` : '',
+        title ? `TITLE:${escapeVCardText(title)}` : '',
+        phone ? `TEL;TYPE=WORK,VOICE:${escapeVCardText(phone)}` : '',
+        mobile ? `TEL;TYPE=CELL,VOICE:${escapeVCardText(mobile)}` : '',
+        email ? `EMAIL;TYPE=PREF,INTERNET:${escapeVCardText(email)}` : '',
         url ? `URL:${url}` : '',
-        address ? `ADR;TYPE=WORK:;;${address};;;;` : '',
+        address ? `ADR;TYPE=WORK:;;${escapeVCardText(address)};;;;` : '',
         'END:VCARD',
       ].filter(Boolean)
       return lines.join('\n')
     }
     case 'email': {
       const email = state.emailContent || {}
-      const to = (email.to || '').trim()
+      const to = toSingleLine(email.to || '').trim().replace(/\s+/g, '')
       if (!to) return ''
-      const params = new URLSearchParams()
-      if (email.subject?.trim()) params.set('subject', email.subject.trim())
-      if (email.body?.trim()) params.set('body', email.body.trim())
-      const query = params.toString()
-      return `mailto:${encodeURIComponent(to)}${query ? `?${query}` : ''}`
+      // RFC 6068 keeps the addr-spec literal and writes a space as %20; URLSearchParams percent-encodes
+      // the @ and spells spaces '+', which several readers hand to the mail app as typed.
+      const params: string[] = []
+      const subject = email.subject?.trim()
+      const body = email.body?.trim()
+      if (subject) params.push(`subject=${encodeURIComponent(subject)}`)
+      if (body) params.push(`body=${encodeURIComponent(body)}`)
+      return `mailto:${to}${params.length ? `?${params.join('&')}` : ''}`
     }
     case 'phone': {
-      const phoneContent = state.phoneContent || {}
-      const phone = (phoneContent.phone || (phoneContent as any).number || '').trim()
+      const content = state.phoneContent || {}
+      const phone = toSingleLine(content.phone || '').trim()
       if (!phone) return ''
-      const message = (phoneContent.message || '').trim()
-      if (message) {
-        return `smsto:${phone}:${message}`
-      }
+      const message = toSingleLine(content.message || '').trim()
+      if (message) return `smsto:${phone}:${message}`
       return `tel:${phone}`
     }
     default:

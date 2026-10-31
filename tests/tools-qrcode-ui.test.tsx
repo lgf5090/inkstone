@@ -249,7 +249,7 @@ describe('QR generator preview encodes what is typed, not what was there first',
 
     useQrCodeStore.setState({
       contentType: 'url',
-      urlContent: 'https://first.example',
+      urlContent: 'https://first.example/base',
       textContent: '',
       options: { ...DEFAULT_QR_OPTIONS },
       contentAccordionOpen: true,
@@ -325,17 +325,17 @@ describe('QR generator preview encodes what is typed, not what was there first',
     const rendered = recordRenders()
     const view = mount(<QrCodeApp />)
     await settle()
-    expect(rendered[rendered.length - 1]).toBe('https://first.example')
+    expect(rendered[rendered.length - 1]).toBe('https://first.example/base')
 
     act(() => {
-      useQrCodeStore.getState().setUrlContent('https://second.example')
+      useQrCodeStore.getState().setUrlContent('https://second.example/next')
     })
     await settle()
 
-    expect(rendered[rendered.length - 1]).toBe('https://second.example')
+    expect(rendered[rendered.length - 1]).toBe('https://second.example/next')
     expect(
       previewOf(view.container)[0].querySelector('canvas')?.dataset.renderedPayload
-    ).toBe('https://second.example')
+    ).toBe('https://second.example/next')
   })
 
   it('exports the content in the field rather than the one present at mount', async () => {
@@ -344,7 +344,7 @@ describe('QR generator preview encodes what is typed, not what was there first',
     await settle()
 
     act(() => {
-      useQrCodeStore.getState().setUrlContent('https://to-export.example')
+      useQrCodeStore.getState().setUrlContent('https://to-export.example/file')
     })
     await settle()
 
@@ -357,7 +357,7 @@ describe('QR generator preview encodes what is typed, not what was there first',
       await Promise.resolve()
     })
 
-    expect(rendered[rendered.length - 1]).toBe('https://to-export.example')
+    expect(rendered[rendered.length - 1]).toBe('https://to-export.example/file')
   })
 
   it('returns the preview to its empty state when the content is cleared', async () => {
@@ -400,7 +400,7 @@ describe('QR generator preview encodes what is typed, not what was there first',
     expect(view.container.querySelector('[role="alert"]')).toBeNull()
     expect(
       previewOf(view.container)[0].querySelector('canvas')?.dataset.renderedPayload
-    ).toBe('https://first.example')
+    ).toBe('https://first.example/base')
   })
 
   it('refuses to let a superseded render paint over the newer one', async () => {
@@ -414,11 +414,11 @@ describe('QR generator preview encodes what is typed, not what was there first',
 
     const view = mount(<QrCodeApp />)
     act(() => {
-      useQrCodeStore.getState().setUrlContent('https://newer.example')
+      useQrCodeStore.getState().setUrlContent('https://newer.example/new')
     })
 
-    const older = pending.find((p) => p.payload === 'https://first.example')
-    const newer = pending.find((p) => p.payload === 'https://newer.example')
+    const older = pending.find((p) => p.payload === 'https://first.example/base')
+    const newer = pending.find((p) => p.payload === 'https://newer.example/new')
     expect(older).toBeDefined()
     expect(newer).toBeDefined()
 
@@ -433,6 +433,6 @@ describe('QR generator preview encodes what is typed, not what was there first',
 
     expect(
       previewOf(view.container)[0].querySelector('canvas')?.dataset.renderedPayload
-    ).toBe('https://newer.example')
+    ).toBe('https://newer.example/new')
   })
 })
