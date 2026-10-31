@@ -44430,6 +44430,7 @@ const allowed = new Map([
     "// React tracks the node's value itself, so a plain assignment reads as \"nothing changed\" and",
     "// the change event is dropped. The prototype setter is what a real keystroke goes through.",
     "// The shared slider coalesces a drag into one write per frame, so the frame is the handoff.",
+    "// The row shows one number, in the unit the user thinks in: 100% means no crop at all.",
   ]],
   ["tests/tools-id-photo-head-ui.test.tsx", [
     "// A preview with no image to draw reports back \"no head\", so the case that keeps a box needs a",

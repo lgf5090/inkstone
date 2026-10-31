@@ -98,6 +98,21 @@ describe('ID photo published file size', () => {
     view.unmount()
   })
 
+  it('labels the specification library the same way as the studio tab', async () => {
+    const withLimit = BUILTIN_ID_PHOTO_SPECS.find((s) => s.fileSizeMaxKb)!
+    const without = BUILTIN_ID_PHOTO_SPECS.find((s) => !s.fileSizeMaxKb && !s.fileSizeMinKb)!
+    useToolsStore.setState({ activeIdPhotoView: 'specs' })
+
+    const view = await renderElement(<IdPhotoApp />)
+    await settle()
+
+    const published = view.container.querySelector(`[data-spec-size-limit="${withLimit.id}"]`)
+    const blank = view.container.querySelector(`[data-spec-size-limit="${without.id}"]`)
+    expect(published?.textContent).toBe(describeSizeLimit(withLimit))
+    expect(blank?.textContent).toBe(t('tools.id_photo.spec.size_unpublished'))
+    view.unmount()
+  })
+
   it('tells the exporter which ceiling the chosen specification asks for', async () => {
     const withLimit = BUILTIN_ID_PHOTO_SPECS.find((s) => s.fileSizeMaxKb)!
     const without = BUILTIN_ID_PHOTO_SPECS.find((s) => !s.fileSizeMaxKb && !s.fileSizeMinKb)!

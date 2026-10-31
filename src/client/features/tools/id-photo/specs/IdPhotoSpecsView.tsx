@@ -11,6 +11,7 @@ import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { deleteCustomSpec, updateCustomSpec } from '../api'
 import { specLabel } from '../spec-label'
+import { describeSizeLimit } from './size-limit'
 import { filterSpecs, SPEC_CATEGORIES, type SpecCategoryFilter } from './filter-specs'
 
 export function IdPhotoSpecsView() {
@@ -193,6 +194,19 @@ export function IdPhotoSpecsView() {
                   <span>{t('tools.id_photo.spec.pixel_size')}:</span>
                   <span className="font-mono text-[var(--text-secondary)]">
                     {spec.widthPx} × {spec.heightPx} {t('tools.id_photo.unit.px')} @ {spec.dpi} {t('tools.id_photo.unit.dpi')}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-0.5">
+                  <span>{t('tools.id_photo.spec.size_limit')}:</span>
+                  <span
+                    data-spec-size-limit={spec.id}
+                    className={
+                      describeSizeLimit(spec)
+                        ? 'font-mono text-[var(--text-secondary)]'
+                        : 'text-[var(--text-tertiary)]'
+                    }
+                  >
+                    {describeSizeLimit(spec) ?? t('tools.id_photo.spec.size_unpublished')}
                   </span>
                 </div>
                 {spec.recommendedBgColors.length > 0 && (
