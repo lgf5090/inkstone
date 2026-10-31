@@ -1,6 +1,6 @@
 import { ATTIRE_PRESETS } from '@shared/tools/id-photo/presets'
 import type { IdPhotoAdjustOptions, IdPhotoExportFormat, IdPhotoSpec } from '@shared/tools/id-photo/types'
-import { applyImageFilters, renderBackground } from './background-matting'
+import { applyBackdropMatte, applyImageFilters, renderBackground } from './background-matting'
 import { calculateOptimalCrop } from './face-align'
 
 export class IdPhotoEngine {
@@ -8,6 +8,38 @@ export class IdPhotoEngine {
     private readonly spec: IdPhotoSpec,
     private readonly options: IdPhotoAdjustOptions,
   ) {}
+
+  private requireContext(canvas: HTMLCanvasElement, what: string): CanvasRenderingContext2D {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) {
+      throw new Error(`Canvas 2D context unavailable while rendering ${what}`)
+    }
+    return ctx
+  }
+
+  private rotateSourceLayer(
+    sourceImage: HTMLImageElement | HTMLCanvasElement,
+  ): HTMLImageElement | HTMLCanvasElement {
+    const rotation = this.options.rotation ?? 0
+    if (!rotation) return sourceImage
+
+    const sourceWidth = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width
+    const sourceHeight =
+      'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height
+
+    const radians = (rotation * Math.PI) / 180
+    const cos = Math.abs(Math.cos(radians))
+    const sin = Math.abs(Math.sin(radians))
+    const layer = document.createElement('canvas')
+    layer.width = Math.max(1, Math.round(sourceWidth * cos + sourceHeight * sin))
+    layer.height = Math.max(1, Math.round(sourceWidth * sin + sourceHeight * cos))
+
+    const ctx = this.requireContext(layer, 'the rotated source layer')
+    ctx.translate(layer.width / 2, layer.height / 2)
+    ctx.rotate(radians)
+    ctx.drawImage(sourceImage, -sourceWidth / 2, -sourceHeight / 2)
+    return layer
+  }
 
   /**
    * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.
@@ -20,27 +52,9 @@ export class IdPhotoEngine {
     const targetWidth = overrideWidth ?? this.spec.widthPx
     const targetHeight = overrideHeight ?? this.spec.heightPx
 
-    const canvas = document.createElement('canvas')
-    canvas.width = targetWidth
-    canvas.height = targetHeight
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return canvas
-
-    // 1. Draw Background
-    renderBackground(
-      ctx,
-      targetWidth,
-      targetHeight,
-      this.options.bgColor,
-      this.options.bgType === 'gradient',
-      this.options.bgGradientEndColor,
-    )
-
-    // 2. Compute Crop Frame
-    const sourceWidth = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width
-    const sourceHeight =
-      'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height
+    const layer = this.rotateSourceLayer(sourceImage)
+    const layerWidth = 'naturalWidth' in layer ? layer.naturalWidth : layer.width
+    const layerHeight = 'naturalHeight' in layer ? layer.naturalHeight : layer.height
 
     let cropX = this.options.cropX
     let cropY = this.options.cropY
@@ -49,8 +63,8 @@ export class IdPhotoEngine {
 
     if (cropX === undefined || cropY === undefined || !cropW || !cropH) {
       const optimal = calculateOptimalCrop(
-        sourceWidth,
-        sourceHeight,
+        layerWidth,
+        layerHeight,
         targetWidth,
         targetHeight,
         undefined,
@@ -62,25 +76,47 @@ export class IdPhotoEngine {
       cropH = optimal.cropHeight
     }
 
-    // 3. Draw Portrait
-    ctx.save()
-    if (this.options.rotation) {
-      ctx.translate(targetWidth / 2, targetHeight / 2)
-      ctx.rotate((this.options.rotation * Math.PI) / 180)
-      ctx.translate(-targetWidth / 2, -targetHeight / 2)
-    }
+    const portrait = document.createElement('canvas')
+    portrait.width = targetWidth
+    portrait.height = targetHeight
+    const portraitCtx = this.requireContext(portrait, 'the portrait layer')
 
-    ctx.drawImage(sourceImage, cropX, cropY, cropW, cropH, 0, 0, targetWidth, targetHeight)
-    ctx.restore()
+    portraitCtx.drawImage(layer, cropX, cropY, cropW, cropH, 0, 0, targetWidth, targetHeight)
 
-    // 4. Pixel Filters (brightness, contrast, whitening)
-    applyImageFilters(ctx, targetWidth, targetHeight, {
+    applyImageFilters(portraitCtx, targetWidth, targetHeight, {
       brightness: this.options.brightness,
       contrast: this.options.contrast,
       whitening: this.options.whitening,
     })
 
-    // 5. Attire Overlay (if selected)
+    const matte = portraitCtx.getImageData(0, 0, targetWidth, targetHeight)
+    applyBackdropMatte({
+      data: matte.data,
+      width: targetWidth,
+      height: targetHeight,
+      feather: this.options.feathering,
+    })
+    portraitCtx.putImageData(matte, 0, 0)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('Canvas 2D context unavailable while compositing the ID photo')
+    }
+
+    renderBackground(
+      ctx,
+      targetWidth,
+      targetHeight,
+      this.options.bgColor,
+      this.options.bgType === 'gradient',
+      this.options.bgGradientEndColor,
+    )
+
+    ctx.drawImage(portrait, 0, 0)
+
     if (this.options.attireId) {
       await this.drawAttire(ctx, targetWidth, targetHeight)
     }

@@ -17636,11 +17636,6 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/id-photo/engine/id-photo-engine.ts", [
     "/**\n   * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.\n   */",
-    "// 1. Draw Background",
-    "// 2. Compute Crop Frame",
-    "// 3. Draw Portrait",
-    "// 4. Pixel Filters (brightness, contrast, whitening)",
-    "// 5. Attire Overlay (if selected)",
     "/**\n   * Exports rendered canvas as data URL with optional adaptive JPEG quality to meet KB limits.\n   */",
     "// Adaptive compression for government portals requiring < MaxKB",
     "/**\n   * Exports rendered photo as a downloadable Blob.\n   */",
