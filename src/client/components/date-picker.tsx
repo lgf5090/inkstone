@@ -361,6 +361,7 @@ function useCalendarCursor(value?: string) {
 interface Nudge {
   x: number
   up: boolean
+  maxHeight: number
 }
 
 /**
@@ -382,9 +383,17 @@ export function nudgeFor({ anchor, panel, viewport, gap = 4, margin = 8 }: {
   const preferred = anchor.left + panel.width
   let x = preferred > viewport.right - margin ? viewport.right - margin - panel.width - anchor.left : 0
   x = Math.max(x, viewport.left + margin - anchor.left)
-  const belowFits = anchor.bottom + gap + panel.height <= viewport.bottom - margin
-  const aboveFits = anchor.top - gap - panel.height >= viewport.top + margin
-  return { x, up: !belowFits && aboveFits }
+
+  const spaceBelow = viewport.bottom - margin - anchor.bottom - gap
+  const spaceAbove = anchor.top - gap - (viewport.top + margin)
+  const belowFits = panel.height <= spaceBelow
+  const aboveFits = panel.height <= spaceAbove
+  // A panel that fits on neither side keeps its natural height only up to the room it has, and scrolls
+  // inside: showing 390px in a 260px gap means the first rows are cut off by the container, not scrolled.
+  const up = !belowFits && (aboveFits || spaceAbove > spaceBelow)
+  const available = up ? spaceAbove : spaceBelow
+  const maxHeight = panel.height <= available ? panel.height : Math.max(0, available)
+  return { x, up, maxHeight }
 }
 
 /**
@@ -394,16 +403,21 @@ export function nudgeFor({ anchor, panel, viewport, gap = 4, margin = 8 }: {
  * reader sees a horizontal scrollbar appear under the form. The vertical axis is left to the viewport
  * because a scroll container is expected to scroll there; sideways it is only ever an accident.
  */
-function horizontalClip(start: HTMLElement | null): { left: number, right: number } | null {
-  let clip: { left: number, right: number } | null = null
+function scrollClip(start: HTMLElement | null): { left: number, right: number, top: number, bottom: number } | null {
+  let clip: { left: number, right: number, top: number, bottom: number } | null = null
   for (let node = start?.parentElement ?? null; node && node !== document.body; node = node.parentElement) {
     const style = getComputedStyle(node)
     if (!/auto|scroll|hidden/.test(`${style.overflowX}${style.overflowY}`)) continue
     const rect = node.getBoundingClientRect()
-    if (rect.width <= 0) continue
+    if (rect.width <= 0 || rect.height <= 0) continue
     clip = clip
-      ? { left: Math.max(clip.left, rect.left), right: Math.min(clip.right, rect.right) }
-      : { left: rect.left, right: rect.right }
+      ? {
+          left: Math.max(clip.left, rect.left),
+          right: Math.min(clip.right, rect.right),
+          top: Math.max(clip.top, rect.top),
+          bottom: Math.min(clip.bottom, rect.bottom),
+        }
+      : { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
   }
   return clip
 }
@@ -413,7 +427,7 @@ function useNudge(
   popoverRef: React.RefObject<HTMLDivElement | null>,
   open: boolean,
 ): Nudge {
-  const [nudge, setNudge] = useState<Nudge>({ x: 0, up: false })
+  const [nudge, setNudge] = useState<Nudge>({ x: 0, up: false, maxHeight: Number.POSITIVE_INFINITY })
 
   useEffect(() => {
     if (!open) return
@@ -422,16 +436,22 @@ function useNudge(
     if (!container || !popover) return
     const rect = container.getBoundingClientRect()
     const viewport = getVisibleViewport()
-    const clip = horizontalClip(container)
+    const clip = scrollClip(container)
     const next = nudgeFor({
       anchor: { left: rect.left, bottom: rect.bottom, top: rect.top },
       panel: { width: popover.offsetWidth, height: popover.offsetHeight },
       viewport: clip
-        ? { ...viewport, left: Math.max(viewport.left, clip.left), right: Math.min(viewport.right, clip.right) }
+        ? {
+            ...viewport,
+            left: Math.max(viewport.left, clip.left),
+            right: Math.min(viewport.right, clip.right),
+            top: Math.max(viewport.top, clip.top),
+            bottom: Math.min(viewport.bottom, clip.bottom),
+          }
         : viewport,
     })
     // Comparing by value keeps a stable result from re-rendering, which would re-measure forever.
-    setNudge((prev) => (prev.x === next.x && prev.up === next.up ? prev : next))
+    setNudge((prev) => (prev.x === next.x && prev.up === next.up && prev.maxHeight === next.maxHeight ? prev : next))
   }, [open, containerRef, popoverRef])
 
   return nudge
@@ -481,9 +501,12 @@ function DatePickerPopover({
       ref={popoverRef}
       role='dialog'
       aria-label={t('preview.kanban_select_date')}
-      style={{ ...(nudge.x ? { transform: `translateX(${nudge.x}px)` } : {}) }}
+      style={{
+        ...(nudge.x ? { transform: `translateX(${nudge.x}px)` } : {}),
+        ...(Number.isFinite(nudge.maxHeight) ? { maxHeight: nudge.maxHeight, overflowY: 'auto' as const } : {}),
+      }}
       className={cn(
-        'absolute left-0 z-[var(--z-popover)] w-64 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
+        'absolute left-0 z-[var(--z-popover)] w-64 overscroll-contain rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
         nudge.up ? 'bottom-full mb-1' : 'top-full mt-1',
       )}
     >
@@ -629,9 +652,12 @@ export function TimeField({
           ref={popoverRef}
           role='dialog'
           aria-label={t('common.time_select')}
-          style={{ ...(nudge.x ? { transform: `translateX(${nudge.x}px)` } : {}) }}
+          style={{
+            ...(nudge.x ? { transform: `translateX(${nudge.x}px)` } : {}),
+            ...(Number.isFinite(nudge.maxHeight) ? { maxHeight: nudge.maxHeight, overflowY: 'auto' as const } : {}),
+          }}
           className={cn(
-            'absolute left-0 z-[var(--z-popover)] w-64 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
+            'absolute left-0 z-[var(--z-popover)] w-64 overscroll-contain rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-3 shadow-[var(--shadow-pop)]',
             nudge.up ? 'bottom-full mb-1' : 'top-full mt-1',
           )}
         >

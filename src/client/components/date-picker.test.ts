@@ -231,6 +231,27 @@ describe('nudgeFor', () => {
     const cramped = nudgeFor({ anchor: { left: 8, bottom: 170, top: 138 }, panel: { width: 256, height: 600 }, viewport: PHONE })
     expect(cramped.up).toBe(false)
   })
+
+  it('never asks for more height than the side it opens on has', () => {
+    // The reported defect: a 390px calendar flipped above a field 260px below the panel's clip edge,
+    // so its header and first week were cut off by the scroll container instead of scrollable.
+    const tight = nudgeFor({ anchor: { left: 150, bottom: 634, top: 602 }, panel: { width: 256, height: 390 }, viewport: { left: 0, right: 1600, top: 331, bottom: 663 } })
+    expect(tight.up).toBe(true)
+    expect(tight.maxHeight).toBe(259)
+    const roomy = nudgeFor({ anchor: { left: 150, bottom: 300, top: 268 }, panel: { width: 256, height: 390 }, viewport: PHONE })
+    expect(roomy.up).toBe(false)
+    expect(roomy.maxHeight).toBe(390)
+  })
+
+  it('opens on the roomier side when neither side fits', () => {
+    const short = { left: 0, right: 420, top: 0, bottom: 400 }
+    const upSide = nudgeFor({ anchor: { left: 8, bottom: 332, top: 300 }, panel: { width: 256, height: 500 }, viewport: short })
+    expect(upSide.up).toBe(true)
+    expect(upSide.maxHeight).toBe(288)
+    const downSide = nudgeFor({ anchor: { left: 8, bottom: 100, top: 68 }, panel: { width: 256, height: 500 }, viewport: short })
+    expect(downSide.up).toBe(false)
+    expect(downSide.maxHeight).toBe(288)
+  })
 })
 
 /**
