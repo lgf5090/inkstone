@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Download, Info, Maximize2, QrCode, Upload } from 'lucide-react'
 import { useQrCodeStore, useQrPayload } from '../store'
 import { QrEngine } from '../engine/qr-engine'
+import { assessScannability, decodeRenderedCode, type DecodeCheck } from '../engine/scannability'
 import { saveBlobAsFile } from '../engine/export-pipeline'
 import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { Button, IconButton } from '../../../../components/primitives'
@@ -23,6 +24,8 @@ export function QrPreviewPanel() {
   const [renderError, setRenderError] = useState<string | null>(null)
   const [rendering, setRendering] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
+  const [decode, setDecode] = useState<DecodeCheck>('unknown')
+  const exportSize = useQrCodeStore((s) => s.exportSize)
 
   const payload = useQrPayload()
   const hasContent = Boolean(payload.trim())
@@ -94,6 +97,9 @@ export function QrPreviewPanel() {
       canvas.setAttribute('role', 'img')
       canvas.setAttribute('aria-label', t('tools.qrcode.preview.canvas_label'))
       container.replaceChildren(canvas)
+      // The verdict is measured on what was actually drawn; where pixels cannot be read the
+      // helper answers unknown and the strip stays quiet rather than guessing.
+      setDecode(decodeRenderedCode(canvas))
       setRenderError(null)
     }).catch((err: unknown) => {
       if (stale) return
@@ -107,6 +113,11 @@ export function QrPreviewPanel() {
       stale = true
     }
   }, [hasContent, payload, options, retryToken])
+
+  const report = useMemo(
+    () => assessScannability(options, payload, exportSize),
+    [options, payload, exportSize]
+  )
 
   return (
     <div className="relative flex flex-col items-center justify-center rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4 shadow-sm min-h-[360px]">
@@ -181,10 +192,22 @@ export function QrPreviewPanel() {
             </div>
           )}
 
-          {mayNotScannable && (
-            <div className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-warning/30 bg-warning/10 px-3 py-2 text-[length:var(--text-12)] text-warning">
+          {(decode === 'unreadable' || mayNotScannable || report.issues.length > 0) && (
+            <div
+              role="status"
+              className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-warning/30 bg-warning/10 px-3 py-2 text-[length:var(--text-12)] text-warning"
+            >
               <AlertTriangle size={14} className="shrink-0" />
-              <span>{t('tools.qrcode.preview.scannable_warning')}</span>
+              <span className="flex-1">
+                {decode === 'unreadable'
+                  ? t('tools.qrcode.check.unreadable')
+                  : mayNotScannable
+                    ? t('tools.qrcode.preview.scannable_warning')
+                    : t('tools.qrcode.preview.has_issues')}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => setInfoModalOpen(true)}>
+                {t('tools.qrcode.preview.view_checks')}
+              </Button>
             </div>
           )}
         </div>

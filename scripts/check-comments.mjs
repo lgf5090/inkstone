@@ -18075,6 +18075,16 @@ const allowed = new Map([
     "/**\n * The side of the symbol in modules, which is what a quiet zone and a print size are measured\n * against. Asked of the encoder rather than derived from a canvas, because the styled path never\n * reports it and a reader choosing \"4 modules of white\" needs the number before drawing.\n */",
     "// border 0: uqr adds a module of its own by default, and the quiet zone here is counted separately.",
   ]],
+  ["src/client/features/tools/qrcode/engine/scannability.ts", [
+    "/** ECC levels restore roughly this fraction of codewords; a logo larger than it breaks the code. */",
+    "/** WCAG contrast under this value is where QR readers start failing on coloured codes. */",
+    "/** ISO/IEC 18004's recommended minimum quiet zone. */",
+    "/** A printed module smaller than this stops being resolvable by typical phone cameras. */",
+    "/** Null means the pair is not two plain colours, which is unknown rather than a pass. */",
+    "/**\n * Measures the code the way a reader will meet it: the contrast it has to resolve, the white border\n * around it, how much of the symbol the logo covers relative to what the chosen error correction can\n * afford, and how big one module ends up at the export size and in print.\n */",
+    "// A gradient can hide an unreadable stop, so the weakest pair of stops is the one that counts.",
+    "/**\n * Decodes the rendered code with the same library the scanner uses. Returns 'unknown' rather than a\n * verdict when the pixel data cannot be read, so a surface never claims more than it measured.\n */",
+  ]],
   ["src/client/features/tools/qrcode/engine/text-decorator.ts", [
     "// These land inside attribute values of a file someone else will open: escaping only the text nodes",
     "// would let a saved font family or colour close the attribute and add one of its own.",
@@ -18088,10 +18098,15 @@ const allowed = new Map([
     "/* Inner Marker Shapes */",
     "/* Alignment Sub Marker */",
   ]],
+  ["src/client/features/tools/qrcode/preview/QrInfoModal.tsx", [
+    "/** Each message carries the measurement it is complaining about, so the number is never guessed at. */",
+  ]],
   ["src/client/features/tools/qrcode/preview/QrPreviewPanel.tsx", [
     "// Past 2× the extra backing-store pixels are not visible, and a 4K canvas per keystroke is not free.",
     "// A superseded render must not paint over a newer one: the cleanup below marks every in-flight",
     "// promise stale, which is what keeps a slow 2000px effect from resurrecting an old payload.",
+    "// The verdict is measured on what was actually drawn; where pixels cannot be read the",
+    "// helper answers unknown and the strip stays quiet rather than guessing.",
   ]],
   ["src/client/features/tools/qrcode/scanner/CameraScanner.tsx", [
     "// Ignore frame decode errors",
