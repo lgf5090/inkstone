@@ -63,7 +63,6 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     enable: true,
     arrangement: 'single',
     side: 'left',
-    widgets: ['profile', 'categories', 'tags', 'series'],
   },
   display: {
     tocDepth: 2,
@@ -319,7 +318,6 @@ export function publicBlogSite(
       enable: sidebar.enable !== false,
       arrangement: sidebar.arrangement === 'dual' ? 'dual' : 'single',
       side: sidebar.side === 'right' ? 'right' : 'left',
-      widgets: Array.isArray(sidebar.widgets) ? sidebar.widgets : [],
     },
     widgets: Array.isArray(widgets.items)
       ? widgets.items.filter((item) => item && typeof item === 'object' && typeof item.id === 'string')
