@@ -177,7 +177,7 @@ export function GistsPane({
   const updateLocal = (gist: GistItem) => {
     const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId)
     if (!current) return undefined
-    return persist({ ...current, description: gist.description || current.description, url: gist.url || current.url, data: gist })
+    return persist({ ...current, description: gist.description, url: gist.url || current.url, data: gist })
   }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
   const editTag = (id: string, patch: { name: string; color: string }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
