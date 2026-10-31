@@ -281,7 +281,7 @@ export function GistsPane({
       return
     }
     const now = Date.now()
-    persist({ id: gist.id, description: data.description, url: data.url, data, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now })
+    await persist({ id: gist.id, description: data.description, url: data.url, data, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now })
     setSelectedGistId(gist.id)
   }
   const check = (id: string, next: boolean) => setSelectedIds((previous) => { const set = new Set(previous); if (next) set.add(id); else set.delete(id); return set })
@@ -430,7 +430,7 @@ export function GistsPane({
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { if (!snapshotFits(gist)) { toast({ title: snapshotTooLarge(), tone: 'danger' }); return } const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
-      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} accounts={accounts} activeAccountId={activeAccountId} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={(gist) => { void saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
+      <GistCreateDialog open={createOpen} onClose={() => setCreateOpen(false)} accountCount={accounts.length} accounts={accounts} activeAccountId={activeAccountId} onOpenAccounts={() => { setCreateOpen(false); onOpenAccounts() }} onCreate={async (gist) => { await saveLocal(wrapRemote(gist, undefined)); setSelectedView(GIST_ALL_VIEW) }} />
       <ExportHistoryDialog open={exportHistoryOpen} onClose={() => setExportHistoryOpen(false)} />
     </>
   )

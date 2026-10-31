@@ -45,7 +45,7 @@ export function GistImportDialog({ open, onClose, onImport }: { open: boolean; o
   )
 }
 
-export function GistCreateDialog({ open, onClose, onCreate, accountCount, accounts, activeAccountId, onOpenAccounts }: { open: boolean; onClose: () => void; onCreate: (gist: GistItem) => void; accountCount: number; accounts: GithubAccountView[]; activeAccountId: string | null; onOpenAccounts: () => void }) {
+export function GistCreateDialog({ open, onClose, onCreate, accountCount, accounts, activeAccountId, onOpenAccounts }: { open: boolean; onClose: () => void; onCreate: (gist: GistItem) => void | Promise<void>; accountCount: number; accounts: GithubAccountView[]; activeAccountId: string | null; onOpenAccounts: () => void }) {
   const [description, setDescription] = useState('')
   const [isPublic, setIsPublic] = useState(false)
   const [accountId, setAccountId] = useState(activeAccountId ?? accounts[0]?.id ?? '')
@@ -79,11 +79,11 @@ export function GistCreateDialog({ open, onClose, onCreate, accountCount, accoun
       return null
     }
   }
-  const createLocal = () => {
+  const createLocal = async () => {
     const normalized = normalizeForSave()
     if (!normalized) return
     const now = new Date().toISOString()
-    onCreate({
+    const gist: GistItem = {
       id: crypto.randomUUID().replace(/-/g, ''),
       description: description.trim(),
       url: '',
@@ -93,8 +93,17 @@ export function GistCreateDialog({ open, onClose, onCreate, accountCount, accoun
       fileCount: normalized.length,
       createdAt: now,
       updatedAt: now,
-    })
-    onClose()
+    }
+    setPending(true)
+    setError(null)
+    try {
+      await onCreate(gist)
+      onClose()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('development.github.gists.create_failed'))
+    } finally {
+      setPending(false)
+    }
   }
   const create = async () => {
     const normalized = normalizeForSave()
@@ -116,7 +125,7 @@ export function GistCreateDialog({ open, onClose, onCreate, accountCount, accoun
     }
   }
   return (
-    <Modal open={open} onClose={onClose} title={<span className="inline-flex items-center gap-2"><Plus size={15} />{t('development.github.gists.create_title')}</span>} description={t('development.github.gists.create_desc')} width={720} footer={<><Button variant="secondary" onClick={() => createLocal()} disabled={pending || !files.some((file) => file.filename.trim() && file.content.trim())}>{t('development.github.gists.save_local_only')}</Button><Button variant="secondary" onClick={onClose} disabled={pending}>{t('common.cancel')}</Button><Button onClick={() => void create()} disabled={pending || accountCount === 0 || !files.some((file) => file.filename.trim() && file.content.trim())} loading={pending}><Plus size={13} />{pending ? t('development.github.gists.creating') : t('development.github.gists.create_to_github')}</Button></>}>
+    <Modal open={open} onClose={onClose} title={<span className="inline-flex items-center gap-2"><Plus size={15} />{t('development.github.gists.create_title')}</span>} description={t('development.github.gists.create_desc')} width={720} footer={<><Button variant="secondary" onClick={() => void createLocal()} disabled={pending || !files.some((file) => file.filename.trim() && file.content.trim())}>{t('development.github.gists.save_local_only')}</Button><Button variant="secondary" onClick={onClose} disabled={pending}>{t('common.cancel')}</Button><Button onClick={() => void create()} disabled={pending || accountCount === 0 || !files.some((file) => file.filename.trim() && file.content.trim())} loading={pending}><Plus size={13} />{pending ? t('development.github.gists.creating') : t('development.github.gists.create_to_github')}</Button></>}>
       <div className="space-y-3">
         {accountCount === 0 && <div className="flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_8%,transparent)] p-2.5 text-[length:var(--text-11)]"><ShieldAlert size={15} className="mt-0.5 shrink-0 text-[var(--warning)]" /><div className="min-w-0 flex-1"><p className="font-medium text-[var(--warning)]">{t('development.github.gists.token_missing')}</p><p className="mt-0.5 text-[var(--text-tertiary)]">{t('development.github.gists.token_missing_desc')}</p></div><Button variant="secondary" size="sm" onClick={onOpenAccounts}><KeyRound size={12} />{t('development.github.accounts.configure')}</Button></div>}
         {accounts.length > 1 && <SelectMenu value={accountId} options={accounts.map((account) => ({ value: account.id, label: account.username }))} onChange={setAccountId} label={t('development.github.gists.account')} searchable />}
