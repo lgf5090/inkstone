@@ -982,6 +982,10 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.batch.desc': '多张照片一键批量套用所选规格与背景，支持打包导出为 ZIP',
   'tools.id_photo.batch.upload_btn': '批量上传多张人像',
   'tools.id_photo.batch.export_zip': '一键打包下载 (ZIP)',
+  'tools.id_photo.batch.rejected': '已跳过 {count} 个不支持的文件（仅支持 JPG、PNG、WebP）',
+  'tools.id_photo.batch.limit': '批量最多 {max} 张，其余未加入',
+  'tools.id_photo.batch.processing': '正在导出 {done}/{total}…',
+  'tools.id_photo.batch.failed': '{count} 张无法解码，已跳过',
   'tools.id_photo.batch.items_count': '已就绪 {count} 张证件照',
 
   // History view

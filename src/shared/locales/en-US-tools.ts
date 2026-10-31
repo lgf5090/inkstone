@@ -982,6 +982,10 @@ export const EN_US_TOOLS = {
   'tools.id_photo.batch.desc': 'Batch process multiple portraits with chosen specification and background, export as ZIP',
   'tools.id_photo.batch.upload_btn': 'Batch Upload Portraits',
   'tools.id_photo.batch.export_zip': 'Download All as ZIP',
+  'tools.id_photo.batch.rejected': 'Skipped {count} unsupported file(s) (JPG, PNG and WebP only)',
+  'tools.id_photo.batch.limit': 'A batch holds at most {max} photos; the rest were not added',
+  'tools.id_photo.batch.processing': 'Exporting {done}/{total}…',
+  'tools.id_photo.batch.failed': '{count} photo(s) could not be decoded and were skipped',
   'tools.id_photo.batch.items_count': '{count} photos ready',
 
   // History view

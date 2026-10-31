@@ -17593,13 +17593,6 @@ const allowed = new Map([
   ["src/client/features/tools/id-photo/api.ts", [
     "// fallback",
   ]],
-  ["src/client/features/tools/id-photo/batch/IdPhotoBatchView.tsx", [
-    "/* Header */",
-    "/* Batch Cards Grid */",
-  ]],
-  ["src/client/features/tools/id-photo/content/IdPhotoUploadCard.tsx", [
-    "// Paste listener for Ctrl+V",
-  ]],
   ["src/client/features/tools/id-photo/engine/background-matting.ts", [
     "/**\n * Renders ID photo background (solid or smooth vertical gradient) onto a 2D Canvas context.\n */",
     "/**\n * Applies color tint adjustments and smoothing to canvas pixel buffer.\n */",

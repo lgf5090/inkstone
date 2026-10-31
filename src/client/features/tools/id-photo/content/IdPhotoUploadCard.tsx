@@ -42,18 +42,17 @@ export function IdPhotoUploadCard() {
     reader.readAsDataURL(file)
   }
 
-  // Paste listener for Ctrl+V
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile()
-          if (file) handleFile(file)
-          break
-        }
-      }
+      const target = e.target as HTMLElement | null
+      if (target && (target.isContentEditable || /input|textarea|select/i.test(target.tagName))) return
+      if (document.querySelector('[role="dialog"]')) return
+      const image = Array.from(e.clipboardData?.items ?? []).find((item) => item.type.startsWith('image/'))
+      if (!image) return
+      const file = image.getAsFile()
+      if (!file) return
+      e.preventDefault()
+      handleFile(file)
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
@@ -74,7 +73,7 @@ export function IdPhotoUploadCard() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/jpg"
+        accept="image/png,image/jpeg,image/webp"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
@@ -140,7 +139,10 @@ export function IdPhotoUploadCard() {
             e.preventDefault()
             setIsDragging(true)
           }}
-          onDragLeave={() => setIsDragging(false)}
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+            setIsDragging(false)
+          }}
           onDrop={handleDrop}
           className={cn(
             'relative flex flex-col items-center justify-center gap-2.5 rounded-[var(--r-md)] border-2 border-dashed p-6 text-center cursor-pointer select-none',
