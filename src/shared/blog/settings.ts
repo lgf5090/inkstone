@@ -99,7 +99,6 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   widgets: {
     items: [
       { id: 'profile', type: 'profile', title: '', enabled: true, column: 'primary', slot: 'top', config: {} },
-      { id: 'music', type: 'music', title: '', enabled: true, column: 'primary', slot: 'top', config: {} },
       { id: 'announcement', type: 'announcement', title: '', enabled: false, column: 'primary', slot: 'top', config: {} },
       { id: 'categories', type: 'categories', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
       { id: 'series', type: 'series', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
@@ -312,6 +311,8 @@ export function publicBlogSite(
       name: typeof profile.name === 'string' ? profile.name : '',
       bio: typeof profile.bio === 'string' ? profile.bio : '',
       avatar: typeof profile.avatar === 'string' ? profile.avatar : '',
+      email: typeof profile.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email.trim()) ? profile.email.trim().slice(0, 200) : '',
+      location: typeof profile.location === 'string' ? profile.location.trim().slice(0, 120) : '',
       links: publicProfileLinks(profile.links),
     },
     nav: publicNavLinks(nav.links),

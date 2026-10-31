@@ -940,6 +940,8 @@ blogAdminRoutes.patch('/account', async (c) => {
   const settings = await loadBlogSettings(c.env.DB, id)
   const profile = { ...(settings.profile as Record<string, unknown>) }
   if (typeof payload.bio === 'string') profile.bio = payload.bio.slice(0, 2_000)
+  if (typeof payload.email === 'string') profile.email = payload.email.trim().slice(0, 200)
+  if (typeof payload.location === 'string') profile.location = payload.location.trim().slice(0, 120)
   if (Array.isArray(payload.links)) {
     profile.links = payload.links
       .slice(0, 12)

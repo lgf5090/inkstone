@@ -400,7 +400,7 @@ export interface BlogSitePublic {
     themeColor: { hue: number; style: string; spec: string }
     banner: { desktopLight: string; desktopDark: string; mobileLight: string; mobileDark: string }
   }
-  profile: { name: string; bio: string; avatar: string; links: { label: string; url: string }[] }
+  profile: { name: string; bio: string; avatar: string; email: string; location: string; links: { label: string; url: string }[] }
   nav: { label: string; href: string; children?: { label: string; href: string }[] }[]
   sidebar: { enable: boolean; arrangement: 'single' | 'dual'; side: 'left' | 'right' }
   widgets: BlogWidget[]

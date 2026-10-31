@@ -11,12 +11,11 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { AdminCard, AdminLoading, AdminError, PageHeader, useAdminResource } from './shared'
 
-const WIDGET_TYPES = ['profile', 'music', 'search', 'categories', 'tags', 'series', 'recent', 'stats', 'calendar', 'announcement', 'custom'] as const
+const WIDGET_TYPES = ['profile', 'search', 'categories', 'tags', 'series', 'recent', 'stats', 'calendar', 'announcement', 'custom'] as const
 type WidgetType = (typeof WIDGET_TYPES)[number]
 
 const TYPE_LABEL: Record<WidgetType, MessageKey> = {
   profile: 'blog.admin.widget_profile',
-  music: 'blog.admin.widget_music',
   search: 'blog.admin.widget_search',
   categories: 'blog.admin.widget_categories',
   tags: 'blog.admin.widget_tags',

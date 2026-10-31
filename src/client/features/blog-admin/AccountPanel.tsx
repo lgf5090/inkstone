@@ -19,6 +19,8 @@ export function AccountPanel() {
   const [name, setName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
   const [bio, setBio] = useState('')
+  const [email, setEmail] = useState('')
+  const [location, setLocation] = useState('')
   const [links, setLinks] = useState<AccountLink[]>([])
   const [busy, setBusy] = useState(false)
 
@@ -26,8 +28,10 @@ export function AccountPanel() {
     if (!account.data) return
     setName(account.data.name)
     setAvatarUrl(account.data.avatarUrl)
-    const profile = account.data.profile as { bio?: unknown; links?: unknown }
+    const profile = account.data.profile as { bio?: unknown; links?: unknown; email?: unknown; location?: unknown }
     setBio(typeof profile.bio === 'string' ? profile.bio : '')
+    setEmail(typeof profile.email === 'string' ? profile.email : '')
+    setLocation(typeof profile.location === 'string' ? profile.location : '')
     setLinks(Array.isArray(profile.links)
       ? profile.links.filter((link): link is AccountLink => Boolean(link) && typeof link === 'object' && typeof (link as AccountLink).label === 'string')
       : [])
@@ -36,7 +40,7 @@ export function AccountPanel() {
   const save = async () => {
     setBusy(true)
     try {
-      await api.blog.account.update({ name, avatarUrl, bio, links: links.filter((link) => link.label.trim() && link.url.trim()) })
+      await api.blog.account.update({ name, avatarUrl, bio, email, location, links: links.filter((link) => link.label.trim() && link.url.trim()) })
       await useSession.getState().refresh()
       toast({ title: t('blog.admin.saved'), tone: 'success' })
       await account.reload()
@@ -73,6 +77,10 @@ export function AccountPanel() {
           <Field label={t('blog.admin.account_name')}><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
           <Field label={t('blog.admin.account_avatar')} hint={t('blog.admin.account_avatar_hint')}><Input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} /></Field>
           <Field label={t('blog.admin.account_bio')}><Textarea rows={4} value={bio} onChange={(event) => setBio(event.target.value)} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('blog.admin.account_email')}><Input value={email} onChange={(event) => setEmail(event.target.value)} /></Field>
+            <Field label={t('blog.admin.account_location')}><Input value={location} onChange={(event) => setLocation(event.target.value)} /></Field>
+          </div>
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{t('blog.admin.account_links')}</span>

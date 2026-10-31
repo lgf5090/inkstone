@@ -1098,7 +1098,7 @@ export const api = {
         id: string; username: string; name: string; avatarUrl: string; role: string;
         createdAt: number; lastSeenAt: number; profile: Record<string, unknown>;
       }>('/api/blog/admin/account'),
-      update: (input: { name?: string; avatarUrl?: string; bio?: string; links?: { label: string; url: string }[] }) =>
+      update: (input: { name?: string; avatarUrl?: string; bio?: string; email?: string; location?: string; links?: { label: string; url: string }[] }) =>
         request<{ ok: true }>('/api/blog/admin/account', { method: 'PATCH', body: input }),
     },
   },

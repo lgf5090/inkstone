@@ -6,6 +6,7 @@
  * transport the sidebar has room for.
  */
 import './music.css'
+import '../client/features/music/music.css'
 import { useEffect, useMemo, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createElement } from 'react'
@@ -15,6 +16,10 @@ import type { BlogMusicConfig, BlogMusicTrack } from '@shared/blog/model'
 import { BLOG_RENDERER_VERSION } from '@shared/blog/renderer'
 import { useMusicPlayer, selectCurrentTrack } from '../client/features/music/store/player'
 import { setMusicLibraryIntegration, setMusicSourceOverrides } from '../client/features/music/player/source-overrides'
+import { FloatingMusicPlayer } from '../client/features/music/components/FloatingMusicPlayer'
+import { useMusicSettings } from '../client/features/music/store/settings'
+import { useMusicLibrary } from '../client/features/music/store/library'
+import { initI18nForReading } from '../client/lib/i18n'
 
 export interface BlogMusicLabels {
   title: string
@@ -41,6 +46,7 @@ export interface BlogMusicMountOptions {
   container: HTMLElement
   music: BlogMusicConfig
   labels: BlogMusicLabels
+  locale?: string
 }
 
 export interface BlogMusicHandle {
@@ -105,7 +111,7 @@ function toMusicTrack(track: BlogMusicTrack): MusicTrack {
     id: `blog:${track.id}`,
     provider: 'custom',
     providerId: track.id,
-    kind: 'song',
+    kind: 'podcast',
     title: track.title,
     artists: track.artist ? [{ id: `blog:${track.id}:artist`, name: track.artist }] : [],
     album: '',
@@ -273,6 +279,49 @@ async function mount(options: BlogMusicMountOptions): Promise<BlogMusicHandle> {
   return { unmount: () => root.unmount() }
 }
 
+async function mountFloating(options: BlogMusicMountOptions): Promise<BlogMusicHandle> {
+  await initI18nForReading(options.locale?.startsWith('zh') ? 'zh-CN' : 'en-US')
+  const tracks = options.music.tracks.map(toMusicTrack)
+  const sources = Object.fromEntries(tracks.map((track, index) => [track.id, options.music.tracks[index]!.source]))
+  setMusicSourceOverrides(sources)
+  setMusicLibraryIntegration(false)
+  useMusicSettings.setState({ serverStatus: 'error' })
+  useMusicLibrary.setState({ status: 'ready' })
+  if (!initialized) {
+    const player = useMusicPlayer.getState()
+    player.setVolume(options.music.defaultVolume)
+    player.setMuted(false)
+    player.setMode(playMode(options.music.defaultMode))
+    player.setQueue(tracks, { autoplay: false, mode: playMode(options.music.defaultMode) })
+    initialized = true
+    const metingKey = `${options.music.provider}:${options.music.meting?.server ?? ''}:${options.music.meting?.type ?? ''}:${options.music.meting?.id ?? ''}:${options.music.meting?.api ?? ''}`
+    if ((options.music.provider === 'meting' || options.music.provider === 'mixed') && metingLoadedFor !== metingKey) {
+      metingLoadedFor = metingKey
+      void fetchMeting(options.music).then((remote) => {
+        if (remote.length === 0) return
+        const merged = [...options.music.tracks, ...remote].map(toMusicTrack)
+        const mergedSources = { ...sources, ...Object.fromEntries(merged.map((track, index) => [track.id, (index < options.music.tracks.length ? options.music.tracks[index] : remote[index - options.music.tracks.length])!.source])) }
+        setMusicSourceOverrides(mergedSources)
+        useMusicPlayer.getState().setQueue(merged, { autoplay: false, mode: playMode(options.music.defaultMode) })
+      }).catch((error) => {
+        metingLoadedFor = ''
+        console.warn('[blog] meting load failed', error)
+      })
+    }
+  }
+  const host = document.createElement('div')
+  host.dataset.blogFloatingMusic = ''
+  document.body.appendChild(host)
+  const root: Root = createRoot(host)
+  root.render(createElement(FloatingMusicPlayer))
+  return {
+    unmount: () => {
+      root.unmount()
+      host.remove()
+    },
+  }
+}
+
 ;(globalThis as typeof globalThis & {
-  InkstoneBlogMusic?: { version: string; mount: (options: BlogMusicMountOptions) => Promise<BlogMusicHandle> }
-}).InkstoneBlogMusic = { version: BLOG_RENDERER_VERSION, mount }
+  InkstoneBlogMusic?: { version: string; mount: (options: BlogMusicMountOptions) => Promise<BlogMusicHandle>; mountFloating: (options: BlogMusicMountOptions) => Promise<BlogMusicHandle> }
+}).InkstoneBlogMusic = { version: BLOG_RENDERER_VERSION, mount, mountFloating }
