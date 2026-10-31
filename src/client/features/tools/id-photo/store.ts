@@ -9,6 +9,7 @@ import type {
   PrintSheetOptions,
 } from '@shared/tools/id-photo/types'
 import { getIdPhotoSettings, listCustomSpecs } from './api'
+import { defaultCompareIds, toggleCompareId } from './compare/compare-model'
 import {
   panCrop,
   panPercent,
@@ -135,6 +136,9 @@ export interface IdPhotoState {
   // Spec Selection
   selectedSpecId: string
   customSpecs: IdPhotoSpec[]
+  compareSpecIds: string[] | null
+  toggleCompareSpec: (specId: string) => 'none' | 'min' | 'max'
+  resetCompareSpecs: () => void
   setSelectedSpecId: (specId: string) => void
   getActiveSpec: () => IdPhotoSpec
   loadCustomSpecs: () => Promise<void>
@@ -304,6 +308,19 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
         cropHeight: undefined,
       },
     })),
+
+  compareSpecIds: null,
+
+  toggleCompareSpec: (specId) => {
+    const { compareSpecIds, selectedSpecId, customSpecs } = get()
+    const current = compareSpecIds ?? defaultCompareIds(selectedSpecId, [...customSpecs, ...BUILTIN_ID_PHOTO_SPECS])
+    const next = toggleCompareId(current, specId)
+    if (next.refused !== 'none') return next.refused
+    set({ compareSpecIds: next.ids })
+    return 'none'
+  },
+
+  resetCompareSpecs: () => set({ compareSpecIds: null }),
 
   loadCustomSpecs: async () => {
     set({ customSpecs: await listCustomSpecs() })

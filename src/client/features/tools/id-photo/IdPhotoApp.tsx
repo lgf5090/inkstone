@@ -11,6 +11,7 @@ import { IdPhotoFullscreenModal } from './preview/IdPhotoFullscreenModal'
 import { CustomSpecModal } from './specs/CustomSpecModal'
 import { IdPhotoExportControls } from './export/IdPhotoExportControls'
 import { IdPhotoComplianceView } from './compliance/IdPhotoComplianceView'
+import { IdPhotoCompareView } from './compare/IdPhotoCompareView'
 import { IdPhotoPrintView } from './print/IdPhotoPrintView'
 import { IdPhotoBatchView } from './batch/IdPhotoBatchView'
 import { IdPhotoSpecsView } from './specs/IdPhotoSpecsView'
@@ -71,6 +72,7 @@ export function IdPhotoApp() {
       )}
 
       {activeIdPhotoView === 'compliance' && <IdPhotoComplianceView />}
+      {activeIdPhotoView === 'compare' && <IdPhotoCompareView />}
       {activeIdPhotoView === 'print' && <IdPhotoPrintView />}
       {activeIdPhotoView === 'batch' && <IdPhotoBatchView />}
       {activeIdPhotoView === 'specs' && <IdPhotoSpecsView />}

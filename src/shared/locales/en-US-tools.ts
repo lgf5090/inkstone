@@ -760,6 +760,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.module_name': 'ID Photo Studio',
   'tools.id_photo.nav.studio': 'Photo Maker',
   'tools.id_photo.nav.compliance': 'Compliance Audit',
+  'tools.id_photo.nav.compare': 'Compare Specs',
   'tools.id_photo.nav.print': 'Print Sheet',
   'tools.id_photo.nav.batch': 'Batch Process',
   'tools.id_photo.nav.specs': 'Specifications',
@@ -950,6 +951,19 @@ export const EN_US_TOOLS = {
   'tools.id_photo.framing.auto_align': 'Reset Framing',
   'tools.id_photo.framing.drag_hint': 'Drag the preview to pan. 100% means no crop.',
   'tools.id_photo.framing.need_photo': 'Upload a portrait to adjust framing',
+
+  // Compare strip
+  'tools.id_photo.compare.title': 'Side-by-side specifications',
+  'tools.id_photo.compare.desc': 'The same photo framed for each specification. Set one as the working spec to keep editing it in the studio.',
+  'tools.id_photo.compare.need_photo': 'Upload a portrait in the studio and each specification gets its own framing here',
+  'tools.id_photo.compare.count': '{count} of {max} specifications side by side',
+  'tools.id_photo.compare.reset': 'Reset the comparison',
+  'tools.id_photo.compare.main': 'Working spec',
+  'tools.id_photo.compare.use_as_main': 'Set as working spec',
+  'tools.id_photo.compare.remove': 'Remove from comparison',
+  'tools.id_photo.compare.pick_title': 'Specifications to compare',
+  'tools.id_photo.compare.max': 'Up to 4 specifications side by side — remove one to add another',
+  'tools.id_photo.compare.min_hint': 'Keep at least 2 specifications',
 
   // Attire tab
   'tools.id_photo.attire.none': 'Original Clothes',

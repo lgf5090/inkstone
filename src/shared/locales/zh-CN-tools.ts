@@ -760,6 +760,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.module_name': '证件照工坊',
   'tools.id_photo.nav.studio': '证件照制作',
   'tools.id_photo.nav.compliance': '合规诊断',
+  'tools.id_photo.nav.compare': '多规格对比',
   'tools.id_photo.nav.print': '冲印排版',
   'tools.id_photo.nav.batch': '批量生成',
   'tools.id_photo.nav.specs': '规格库',
@@ -950,6 +951,19 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.framing.auto_align': '恢复自动取景',
   'tools.id_photo.framing.drag_hint': '也可直接拖动预览画面来平移，缩放 100% 表示不裁切',
   'tools.id_photo.framing.need_photo': '上传人像后才能调整取景',
+
+  // Compare strip
+  'tools.id_photo.compare.title': '多规格并排预览',
+  'tools.id_photo.compare.desc': '同一张照片按每个规格各自取景，点「设为主规格」即可切回工作台继续修。',
+  'tools.id_photo.compare.need_photo': '在工作台上传人像后，这里才会给出并排的取景结果',
+  'tools.id_photo.compare.count': '并排 {count}/{max} 个规格',
+  'tools.id_photo.compare.reset': '恢复默认对比',
+  'tools.id_photo.compare.main': '当前规格',
+  'tools.id_photo.compare.use_as_main': '设为主规格',
+  'tools.id_photo.compare.remove': '移出对比',
+  'tools.id_photo.compare.pick_title': '加入对比的规格',
+  'tools.id_photo.compare.max': '最多并排 4 个规格，先移出一个再加',
+  'tools.id_photo.compare.min_hint': '至少保留 2 个规格',
 
   // Formal-wear tab
   'tools.id_photo.attire.none': '保持原着',

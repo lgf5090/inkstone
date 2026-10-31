@@ -17588,6 +17588,9 @@ const allowed = new Map([
   ["src/client/features/tools/id-photo/api.ts", [
     "// fallback",
   ]],
+  ["src/client/features/tools/id-photo/compare/compare-model.ts", [
+    "/** The strip always holds at least two frames, so the active spec is joined by its neighbours. */",
+  ]],
   ["src/client/features/tools/id-photo/engine/background-matting.ts", [
     "/**\n * Renders ID photo background (solid or smooth vertical gradient) onto a 2D Canvas context.\n */",
     "/**\n * Applies color tint adjustments and smoothing to canvas pixel buffer.\n */",
@@ -29552,6 +29555,7 @@ const allowed = new Map([
     "// Settings view",
     "// Shortlinks Module (tools/shortlinks)",
     "// Framing tab",
+    "// Compare strip",
   ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
@@ -29636,6 +29640,7 @@ const allowed = new Map([
     "// Spec library view",
     "// Preferences view",
     "// Framing tab",
+    "// Compare strip",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",
@@ -44382,6 +44387,9 @@ const allowed = new Map([
     "// Settings API",
     "// User B's settings remain untouched",
     "// Delete custom spec",
+  ]],
+  ["tests/tools-id-photo-compare-ui.test.tsx", [
+    "// At two frames the strip has nothing left to give up.",
   ]],
   ["tests/tools-id-photo-engine.test.ts", [
     "// National standards should have flag emojis",
