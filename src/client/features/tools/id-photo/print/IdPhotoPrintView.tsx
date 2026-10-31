@@ -185,35 +185,25 @@ export function IdPhotoPrintView() {
 
         {/* Spacing & Margin Sliders */}
         <Field label={t('tools.id_photo.print.gap_label')}>
-          <div className="flex items-center gap-3 pt-1">
-            <Slider
-              min={0}
-              max={8}
-              step={1}
-              value={printOptions.gapMm}
-              onChange={(val) => setPrintOptions({ gapMm: val })}
-              className="flex-1"
-            />
-            <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-              {printOptions.gapMm}{t('tools.id_photo.unit.mm')}
-            </span>
-          </div>
+          <Slider
+            min={0}
+            max={8}
+            step={1}
+            suffix={t('tools.id_photo.unit.mm')}
+            value={printOptions.gapMm}
+            onChange={(val) => setPrintOptions({ gapMm: val })}
+          />
         </Field>
 
         <Field label={t('tools.id_photo.print.margin_label')}>
-          <div className="flex items-center gap-3 pt-1">
-            <Slider
-              min={2}
-              max={15}
-              step={1}
-              value={printOptions.marginMm}
-              onChange={(val) => setPrintOptions({ marginMm: val })}
-              className="flex-1"
-            />
-            <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-              {printOptions.marginMm}{t('tools.id_photo.unit.mm')}
-            </span>
-          </div>
+          <Slider
+            min={2}
+            max={15}
+            step={1}
+            suffix={t('tools.id_photo.unit.mm')}
+            value={printOptions.marginMm}
+            onChange={(val) => setPrintOptions({ marginMm: val })}
+          />
         </Field>
 
         {/* Download Button */}

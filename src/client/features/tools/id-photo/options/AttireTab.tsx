@@ -89,35 +89,25 @@ export function AttireTab() {
       {selectedAttireId && (
         <div className="flex flex-col gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
           <Field label={t('tools.id_photo.attire.scale')}>
-            <div className="flex items-center gap-3 pt-1">
-              <Slider
-                min={0.8}
-                max={1.4}
-                step={0.02}
-                value={adjustOptions.attireScale ?? 1.0}
-                onChange={(val) => setAdjustOptions({ attireScale: val })}
-                className="flex-1"
-              />
-              <span className="w-10 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                {Math.round((adjustOptions.attireScale ?? 1.0) * 100)}%
-              </span>
-            </div>
+            <Slider
+              min={80}
+              max={140}
+              step={2}
+              suffix="%"
+              value={Math.round((adjustOptions.attireScale ?? 1) * 100)}
+              onChange={(val) => setAdjustOptions({ attireScale: val / 100 })}
+            />
           </Field>
 
           <Field label={t('tools.id_photo.attire.offset_y')}>
-            <div className="flex items-center gap-3 pt-1">
-              <Slider
-                min={-40}
-                max={40}
-                step={1}
-                value={adjustOptions.attireOffsetY ?? 0}
-                onChange={(val) => setAdjustOptions({ attireOffsetY: val })}
-                className="flex-1"
-              />
-              <span className="w-10 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                {adjustOptions.attireOffsetY ?? 0} {t('tools.id_photo.unit.px')}
-              </span>
-            </div>
+            <Slider
+              min={-40}
+              max={40}
+              step={1}
+              suffix={` ${t('tools.id_photo.unit.px')}`}
+              value={adjustOptions.attireOffsetY ?? 0}
+              onChange={(val) => setAdjustOptions({ attireOffsetY: val })}
+            />
           </Field>
         </div>
       )}

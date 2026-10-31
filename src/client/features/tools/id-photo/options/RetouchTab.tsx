@@ -31,83 +31,53 @@ export function RetouchTab() {
       </div>
 
       <Field label={t('tools.id_photo.retouch.brightness')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={-50}
-            max={50}
-            step={1}
-            value={adjustOptions.brightness}
-            onChange={(val) => setAdjustOptions({ brightness: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.brightness > 0 ? `+${adjustOptions.brightness}` : adjustOptions.brightness}
-          </span>
-        </div>
+        <Slider
+          min={-50}
+          max={50}
+          step={1}
+          value={adjustOptions.brightness}
+          onChange={(val) => setAdjustOptions({ brightness: val })}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.retouch.contrast')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={-50}
-            max={50}
-            step={1}
-            value={adjustOptions.contrast}
-            onChange={(val) => setAdjustOptions({ contrast: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.contrast > 0 ? `+${adjustOptions.contrast}` : adjustOptions.contrast}
-          </span>
-        </div>
+        <Slider
+          min={-50}
+          max={50}
+          step={1}
+          value={adjustOptions.contrast}
+          onChange={(val) => setAdjustOptions({ contrast: val })}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.retouch.whitening')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={adjustOptions.whitening}
-            onChange={(val) => setAdjustOptions({ whitening: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.whitening}
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={1}
+          value={adjustOptions.whitening}
+          onChange={(val) => setAdjustOptions({ whitening: val })}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.retouch.smoothness')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={adjustOptions.smoothness}
-            onChange={(val) => setAdjustOptions({ smoothness: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.smoothness}
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={1}
+          value={adjustOptions.smoothness}
+          onChange={(val) => setAdjustOptions({ smoothness: val })}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.retouch.sharpness')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={adjustOptions.sharpness}
-            onChange={(val) => setAdjustOptions({ sharpness: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.sharpness}
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={1}
+          value={adjustOptions.sharpness}
+          onChange={(val) => setAdjustOptions({ sharpness: val })}
+        />
       </Field>
     </div>
   )

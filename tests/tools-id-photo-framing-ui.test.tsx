@@ -80,6 +80,9 @@ describe('ID photo manual framing', () => {
   beforeEach(async () => {
     installTestGlobals()
     await initI18n()
+    // The attire swatches are SVG blobs, so jsdom needs the object-URL pair to exist.
+    Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:framing-stub', configurable: true, writable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: () => undefined, configurable: true, writable: true })
     window.innerWidth = 1280
     window.innerHeight = 800
     useToolsStore.setState({ activeSubmodule: 'id_photo', idPhotoModuleExpanded: true, activeIdPhotoView: 'studio' })
@@ -198,6 +201,39 @@ describe('ID photo manual framing', () => {
     expect(useIdPhotoStore.getState().cropPercents()).toEqual({ zoom: 0, x: 50, y: 50 })
     expect(useIdPhotoStore.getState().workingSize).toEqual({ width: 900, height: 1200 })
     vi.unstubAllGlobals()
+  })
+
+  it('gives every adjustment slider exactly one readout in its row', async () => {
+    seedPhoto()
+    const view = await renderElement(<IdPhotoApp />)
+    await settle()
+
+    const tabs = [
+      t('tools.id_photo.options.tab_color'),
+      t('tools.id_photo.options.tab_framing'),
+      t('tools.id_photo.options.tab_retouch'),
+      t('tools.id_photo.options.tab_attire'),
+    ]
+    for (const tab of tabs) {
+      const button = [...view.container.querySelectorAll('button')].find((el) => el.textContent?.trim() === tab)
+      expect(button, `tab ${tab}`).toBeDefined()
+      if (tab === t('tools.id_photo.options.tab_attire')) {
+        // The positioning sliders only exist once an outfit is on the portrait.
+        useIdPhotoStore.getState().setAdjustOptions({ attireId: 'male_suit_navy' })
+      }
+      act(() => {
+        button!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      })
+      const rows = [...view.container.querySelectorAll<HTMLInputElement>('input[type="range"]')].map((input) => ({
+        name: input.getAttribute('aria-labelledby') ? document.getElementById(input.getAttribute('aria-labelledby')!)?.textContent?.trim() : input.getAttribute('aria-label'),
+        readouts: [...input.parentElement!.querySelectorAll('span')].length,
+      }))
+      expect(rows.length, `tab ${tab} has no sliders`).toBeGreaterThan(0)
+      for (const row of rows) {
+        expect(row.readouts, `${tab} / ${row.name} shows ${row.readouts} numbers`).toBe(1)
+      }
+    }
+    view.unmount()
   })
 
   it('exposes zoom and position sliders that write the framing back to the store', async () => {

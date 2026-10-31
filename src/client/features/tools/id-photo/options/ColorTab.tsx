@@ -140,19 +140,13 @@ export function ColorTab() {
         label={t('tools.id_photo.color.feathering_label')}
         hint={t('tools.id_photo.color.feathering_hint')}
       >
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={50}
-            step={1}
-            value={adjustOptions.feathering}
-            onChange={(val) => setAdjustOptions({ feathering: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.feathering}
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={50}
+          step={1}
+          value={adjustOptions.feathering}
+          onChange={(val) => setAdjustOptions({ feathering: val })}
+        />
       </Field>
     </div>
   )

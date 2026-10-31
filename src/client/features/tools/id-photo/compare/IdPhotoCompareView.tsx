@@ -100,11 +100,13 @@ function CompareCard({ spec, isMain, removable }: CardProps) {
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        {!isMain && (
-          <Button size="sm" variant="ghost" onClick={() => setSelectedSpecId(spec.id)}>
-            <span>{t('tools.id_photo.compare.use_as_main')}</span>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {!isMain && (
+            <Button size="sm" variant="ghost" onClick={() => setSelectedSpecId(spec.id)}>
+              <span>{t('tools.id_photo.compare.use_as_main')}</span>
+            </Button>
+          )}
+        </div>
         {removable && (
           <Tooltip label={t('tools.id_photo.compare.remove')}>
             <IconButton
