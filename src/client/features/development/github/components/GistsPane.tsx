@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { GistItem, GistPrefs, GistViewId, SavedGist } from '@shared/development/github/types'
+import type { GistFilesPatch, GistItem, GistPrefs, GistViewId, SavedGist } from '@shared/development/github/types'
 import { GIST_ALL_VIEW, GIST_FAV_VIEW, GIST_MY_GITHUB_VIEW, GIST_PINNED_VIEW, GIST_EXPLORE_VIEW, extractUsernameFromView, isRemoteView } from '@shared/development/github/types'
 import { MAX_GIST_DATA_BYTES } from '@shared/development/github/limits'
 import { utf8ByteLength } from '@shared/text-utils'
@@ -178,8 +178,11 @@ export function GistsPane({
     void deleteGist(id)
     setSelectedGistId(null)
   }
-  const updateRemote = async (gist: GistItem) => {
-    const updated = await githubApi.updateRemoteGist(gist.id, { description: gist.description, files: gist.files })
+  const updateRemote = async (gist: GistItem, files: GistFilesPatch) => {
+    const updated = await githubApi.updateRemoteGist(gist.id, {
+      description: gist.description,
+      ...(Object.keys(files).length > 0 ? { files } : {}),
+    })
     setSelectedRemoteId(updated.id)
     const local = gists.find((entry) => entry.id === gist.id)
     if (local) persist({ ...local, data: updated, updatedAt: Date.now() })

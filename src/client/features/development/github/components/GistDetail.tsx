@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, Lock, Plus, Save, Trash2, X } from 'lucide-react'
-import type { GistFile, GistItem } from '@shared/development/github/types'
+import type { GistFile, GistFilesPatch, GistItem } from '@shared/development/github/types'
 import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
@@ -12,7 +12,7 @@ import { Menu, type MenuItem } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
 import { githubApi } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
-import { addGistFile, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
+import { addGistFile, buildGistFilesPatch, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
 
 export function GistDetail({
   gist,
@@ -30,7 +30,7 @@ export function GistDetail({
   exportsEnabled: boolean
   exportable?: boolean
   onUpdateNotes?: (notes: string) => void
-  onUpdateGist?: (gist: GistItem) => void | Promise<void>
+  onUpdateGist?: (gist: GistItem, files: GistFilesPatch) => void | Promise<void>
   onDeleteGist?: (id: string) => void
 }) {
   const toast = useUi((state) => state.toast)
@@ -102,7 +102,8 @@ export function GistDetail({
     }
     setSaving(true)
     try {
-      await onUpdateGist({ ...gist, description: editDescription.trim(), files: normalized, fileCount: normalized.length, updatedAt: new Date().toISOString() })
+      const filesPatch = buildGistFilesPatch(gist.files, normalized)
+      await onUpdateGist({ ...gist, description: editDescription.trim(), files: normalized, fileCount: normalized.length, updatedAt: new Date().toISOString() }, filesPatch)
       setEditing(false)
       if (selectedFile >= normalized.length) setSelectedFile(0)
     } catch (cause) {

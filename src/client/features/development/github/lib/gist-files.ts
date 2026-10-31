@@ -5,7 +5,7 @@ import {
   MAX_GIST_TOTAL_CONTENT_BYTES,
 } from '@shared/development/github/limits'
 import type { MessageKey } from '@shared/locales/en-US'
-import type { GistFile } from '@shared/development/github/types'
+import type { GistFile, GistFilesPatch } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
 import { inferLanguage } from './format'
 
@@ -126,4 +126,23 @@ export function chooseFence(content: string): string {
   const runs = content.match(/`+/g) ?? []
   const longest = runs.reduce((length, run) => Math.max(length, run.length), 0)
   return '`'.repeat(Math.max(3, longest + 1))
+}
+
+export function buildGistFilesPatch(
+  original: readonly GistFile[],
+  edited: readonly GistFile[],
+): GistFilesPatch {
+  const patch: GistFilesPatch = {}
+  const originalByName = new Map(original.map((file) => [file.filename, file]))
+  const editedNames = new Set(edited.map((file) => file.filename.trim()))
+  for (const file of edited) {
+    const filename = file.filename.trim()
+    if (!filename) continue
+    const previous = originalByName.get(filename)
+    if (!previous || previous.content !== file.content) patch[filename] = { content: file.content }
+  }
+  for (const file of original) {
+    if (!editedNames.has(file.filename)) patch[file.filename] = null
+  }
+  return patch
 }

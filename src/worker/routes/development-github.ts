@@ -108,10 +108,15 @@ const GithubGistCreateSchema = z.object({
   files: z.array(GistFileUploadSchema).min(1).max(MAX_GIST_FILES),
 })
 
+const GistFilePatchSchema = z.object({
+  content: z.string().max(MAX_GIST_FILE_BYTES),
+  filename: z.string().trim().min(1).max(MAX_GIST_FILENAME).optional(),
+}).nullable()
+
 const GithubGistUpdateSchema = z
   .object({
     description: z.string().max(8000).optional(),
-    files: z.array(GistFileUploadSchema).min(1).max(MAX_GIST_FILES).optional(),
+    files: z.record(z.string(), GistFilePatchSchema).optional(),
   })
   .refine((value) => value.description !== undefined || value.files !== undefined, {
     message: 'Provide a description or files to update',

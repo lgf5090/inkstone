@@ -3,6 +3,7 @@ import type { GistFile } from '@shared/development/github/types'
 import {
   GistFileError,
   addGistFile,
+  buildGistFilesPatch,
   chooseFence,
   inferGistLanguage,
   normalizeGistFiles,
@@ -78,5 +79,22 @@ describe('gist file drafts', () => {
     expect(chooseFence('plain')).toBe('```')
     expect(chooseFence('a ``` b')).toBe('````')
     expect(chooseFence('``````')).toBe('```````')
+  })
+
+  it('builds a patch that deletes omitted files and only sends changes', () => {
+    const original = [file('a.txt', 'keep'), file('b.txt', 'old'), file('c.txt', 'gone')]
+    const edited = [file('a.txt', 'keep'), file('b.txt', 'new'), file('d.txt', 'added')]
+    expect(buildGistFilesPatch(original, edited)).toEqual({
+      'b.txt': { content: 'new' },
+      'd.txt': { content: 'added' },
+      'c.txt': null,
+    })
+  })
+
+  it('builds a delete-and-add patch for renames', () => {
+    expect(buildGistFilesPatch([file('old.ts', 'x')], [file('new.ts', 'x')])).toEqual({
+      'old.ts': null,
+      'new.ts': { content: 'x' },
+    })
   })
 })

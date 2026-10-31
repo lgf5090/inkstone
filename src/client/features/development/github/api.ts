@@ -2,6 +2,7 @@ import {
   GIST_REMOTE_PER_PAGE,
   type GistBatchPatch,
   type GistFile,
+  type GistFilesPatch,
   type GistItem,
   type GistListResult,
   type GithubAccountView,
@@ -82,7 +83,7 @@ export interface CreateRemoteGistInput {
 
 export interface UpdateRemoteGistInput {
   description?: string
-  files: GistFile[]
+  files?: GistFilesPatch
 }
 
 export type RemoteGistType = 'public' | 'mine' | 'user'

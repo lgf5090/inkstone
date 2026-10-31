@@ -7,7 +7,7 @@ import {
   MAX_GIST_FILE_BYTES,
   MAX_GIST_TOTAL_CONTENT_BYTES,
 } from '@shared/development/github/limits'
-import type { GistFile, GistItem, GistListResult } from '@shared/development/github/types'
+import type { GistFile, GistFilesPatch, GistItem, GistListResult } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from '../../lib/errors'
 import { githubJson } from './github-http'
@@ -146,6 +146,16 @@ export async function fetchGistDetail(
   return normalizeGist(data)
 }
 
+function assertGistFilename(filename: string): void {
+  if (!filename) throw ApiError.badRequest('A gist file name cannot be blank')
+  if (filename.length > MAX_GIST_FILENAME) {
+    throw ApiError.badRequest(`A gist file name is limited to ${MAX_GIST_FILENAME} characters`)
+  }
+  if (filename === '.' || filename === '..' || /[/\\\u0000-\u001f\u007f]/.test(filename)) {
+    throw ApiError.badRequest('A gist file name cannot contain slashes or control characters')
+  }
+}
+
 export function gistFilesPayload(
   files: readonly GistUploadFile[],
 ): Record<string, { content: string }> {
@@ -160,13 +170,7 @@ export function gistFilesPayload(
   let total = 0
   for (const file of files) {
     const filename = file.filename.trim()
-    if (!filename) throw ApiError.badRequest('A gist file name cannot be blank')
-    if (filename.length > MAX_GIST_FILENAME) {
-      throw ApiError.badRequest(`A gist file name is limited to ${MAX_GIST_FILENAME} characters`)
-    }
-    if (filename === '.' || filename === '..' || /[/\\\u0000-\u001f\u007f]/.test(filename)) {
-      throw ApiError.badRequest('A gist file name cannot contain slashes or control characters')
-    }
+    assertGistFilename(filename)
     if (Object.prototype.hasOwnProperty.call(payload, filename)) {
       throw ApiError.badRequest('Gist file names must be unique')
     }
@@ -183,6 +187,42 @@ export function gistFilesPayload(
     payload[filename] = { content: file.content }
   }
   return payload
+}
+
+export function normalizeGistFilesPatch(files: GistFilesPatch): GistFilesPatch {
+  const entries = Object.entries(files)
+  if (entries.length === 0) throw ApiError.badRequest('At least one file change is required')
+  if (entries.length > MAX_GIST_FILES * 2) {
+    throw ApiError.badRequest(`A gist is limited to ${MAX_GIST_FILES} files`)
+  }
+  const patch: GistFilesPatch = Object.create(null) as GistFilesPatch
+  let total = 0
+  for (const [rawName, value] of entries) {
+    const filename = rawName.trim()
+    assertGistFilename(filename)
+    if (Object.prototype.hasOwnProperty.call(patch, filename)) {
+      throw ApiError.badRequest('Gist file names must be unique')
+    }
+    if (value === null) {
+      patch[filename] = null
+      continue
+    }
+    if (value.filename !== undefined) assertGistFilename(value.filename.trim())
+    const size = utf8ByteLength(value.content)
+    if (size > MAX_GIST_FILE_BYTES) {
+      throw ApiError.tooLarge(`A gist file is limited to ${MAX_GIST_FILE_BYTES} bytes`)
+    }
+    total += size
+    if (total > MAX_GIST_TOTAL_CONTENT_BYTES) {
+      throw ApiError.tooLarge(
+        `Gist content is limited to ${MAX_GIST_TOTAL_CONTENT_BYTES} bytes in total`,
+      )
+    }
+    patch[filename] = value.filename === undefined
+      ? { content: value.content }
+      : { filename: value.filename.trim(), content: value.content }
+  }
+  return patch
 }
 
 export async function createGithubGist(
@@ -205,7 +245,7 @@ export async function createGithubGist(
 
 export async function updateGithubGist(
   gistId: string,
-  input: { description?: string; files?: readonly GistUploadFile[] },
+  input: { description?: string; files?: GistFilesPatch },
   token: string,
 ): Promise<GistItem> {
   if (!isGistId(gistId)) throw ApiError.badRequest('A GitHub gist id must be hexadecimal')
@@ -214,7 +254,7 @@ export async function updateGithubGist(
   }
   const body: Record<string, unknown> = {}
   if (input.description !== undefined) body.description = input.description
-  if (input.files !== undefined) body.files = gistFilesPayload(input.files)
+  if (input.files !== undefined) body.files = normalizeGistFilesPatch(input.files)
   const { data } = await githubJson<unknown>(`/gists/${encodeURIComponent(gistId)}`, {
     token,
     method: 'PATCH',

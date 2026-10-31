@@ -173,6 +173,9 @@ export interface GistFile {
   size: number
 }
 
+export type GistFilePatch = { content: string; filename?: string } | null
+export type GistFilesPatch = Record<string, GistFilePatch>
+
 export interface GistItem {
   id: string
   description: string

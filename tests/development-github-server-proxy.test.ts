@@ -7,6 +7,7 @@ import {
   gistFilesPayload,
   listGithubGists,
   normalizeGist,
+  normalizeGistFilesPatch,
   updateGithubGist,
 } from '../src/worker/development/github/github-gists'
 import { githubJson } from '../src/worker/development/github/github-http'
@@ -409,6 +410,33 @@ describe('development github gist proxy', () => {
     expect(calls[1]!.init?.method).toBe('DELETE')
 
     await expect(updateGithubGist('abcdef12', {}, 'tok')).rejects.toMatchObject({ status: 400 })
+
+    expect(normalizeGistFilesPatch({ 'a.txt': null, 'b.txt': { content: 'hi' } })).toEqual({
+      'a.txt': null,
+      'b.txt': { content: 'hi' },
+    })
+    expectThrows(() => normalizeGistFilesPatch({}), 400)
+    expectThrows(() => normalizeGistFilesPatch({ 'a/b.txt': { content: 'x' } }), 400)
+    expectThrows(
+      () =>
+        normalizeGistFilesPatch({
+          'a.txt': { content: 'x'.repeat(400 * 1024) },
+          'b.txt': { content: 'x'.repeat(400 * 1024) },
+        }),
+      413,
+    )
+  })
+
+  it('sends file deletions as null in the patch body', async () => {
+    stubFetch(() => jsonResponse(gistRaw({})))
+    await updateGithubGist(
+      'abcdef12',
+      { files: { 'a.txt': null, 'b.txt': { content: 'hi' } } },
+      'tok',
+    )
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({
+      files: { 'a.txt': null, 'b.txt': { content: 'hi' } },
+    })
   })
 })
 
