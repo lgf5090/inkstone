@@ -405,6 +405,18 @@ export interface BlogSitePublic {
     maxLength: number
     autoCloseDays: number
   }
+  article: {
+    share: boolean
+    showLastUpdated: boolean
+    lastUpdatedDays: number
+    relatedCount: number
+    randomCount: number
+  }
+  license: { enable: boolean; name: string; url: string }
+  footer: { enable: boolean; html: string }
+  fab: { enable: boolean; items: string[] }
+  announcement: { enable: boolean; text: string; closable: boolean }
+  llms: { enable: boolean; excludeTags: string[] }
   display: Record<string, unknown>
   integrations: { comments: string; music: BlogMusicConfig; umami: { enabled: boolean; websiteId: string } }
   runtimeVersion?: string

@@ -416,6 +416,8 @@ export const EN_US_BLOG_ADMIN = {
   "blog.admin.widget_tags": "Tags",
   "blog.admin.widget_series": "Series",
   "blog.admin.widget_recent": "Recent posts",
+  "blog.admin.widget_stats": "Site stats",
+  "blog.admin.widget_calendar": "Calendar",
   "blog.admin.widget_announcement": "Announcement",
   "blog.admin.widget_custom": "Custom HTML",
   "blog.admin.path_placeholder": "/",

@@ -58,6 +58,7 @@ function publicSite(settings: Parameters<typeof publicBlogSite>[0], counts: Para
   site.widgets = site.widgets.map((widget) => widget.type === 'custom'
     ? { ...widget, config: { ...widget.config, html: sanitizeBlogHtml(String(widget.config.html ?? '')) } }
     : widget)
+  site.footer = { ...site.footer, html: sanitizeBlogHtml(site.footer.html) }
   return site
 }
 
@@ -387,6 +388,22 @@ blogPublicRoutes.get('/series', async (c) => {
       count: number
     }>()
   return c.json({ items: results.map((row) => ({ ...row, name: row.title })) })
+})
+
+blogPublicRoutes.get('/calendar', async (c) => {
+  const userId = await ownerId(c)
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT p.slug, p.title, p.published_at AS publishedAt
+       FROM blog_posts p
+       WHERE p.user_id = ?1 AND p.status IN ('published','scheduled') AND p.deleted_at IS NULL
+         AND p.published_at IS NOT NULL AND p.published_at <= (strftime('%s','now') * 1000)
+       ORDER BY p.published_at ASC
+       LIMIT 2000`,
+    )
+    .bind(userId)
+    .all<{ slug: string; title: string; publishedAt: number }>()
+  return c.json({ items: results })
 })
 
 blogPublicRoutes.get('/assets/:id', async (c) => {

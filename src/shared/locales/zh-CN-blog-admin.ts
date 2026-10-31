@@ -416,6 +416,8 @@ export const ZH_CN_BLOG_ADMIN = {
   "blog.admin.widget_tags": "标签",
   "blog.admin.widget_series": "系列",
   "blog.admin.widget_recent": "最近文章",
+  "blog.admin.widget_stats": "站点概览",
+  "blog.admin.widget_calendar": "日历",
   "blog.admin.widget_announcement": "公告",
   "blog.admin.widget_custom": "自定义 HTML",
   "blog.admin.path_placeholder": "/",

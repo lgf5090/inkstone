@@ -11,7 +11,7 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { AdminCard, AdminLoading, AdminError, PageHeader, useAdminResource } from './shared'
 
-const WIDGET_TYPES = ['profile', 'search', 'categories', 'tags', 'series', 'recent', 'announcement', 'custom'] as const
+const WIDGET_TYPES = ['profile', 'search', 'categories', 'tags', 'series', 'recent', 'stats', 'calendar', 'announcement', 'custom'] as const
 type WidgetType = (typeof WIDGET_TYPES)[number]
 
 const TYPE_LABEL: Record<WidgetType, MessageKey> = {
@@ -21,6 +21,8 @@ const TYPE_LABEL: Record<WidgetType, MessageKey> = {
   tags: 'blog.admin.widget_tags',
   series: 'blog.admin.widget_series',
   recent: 'blog.admin.widget_recent',
+  stats: 'blog.admin.widget_stats',
+  calendar: 'blog.admin.widget_calendar',
   announcement: 'blog.admin.widget_announcement',
   custom: 'blog.admin.widget_custom',
 }

@@ -71,7 +71,7 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     postListMode: 'list',
     postListPageSize: 10,
   },
-  article: { showLastUpdated: true, relatedCount: 3, randomCount: 2, share: true },
+  article: { showLastUpdated: true, lastUpdatedDays: 90, relatedCount: 3, randomCount: 2, share: true },
   comment: { provider: 'none' },
   music: {
     provider: 'none',
@@ -84,9 +84,9 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   llms: { enable: true, excludeTags: [] },
   permalink: { enable: false },
   license: { enable: false, name: '', url: '' },
-  footer: { enable: false, html: '' },
+  footer: { enable: true, html: '' },
   announcement: { enable: false, text: '' },
-  fab: { enable: false, items: [] },
+  fab: { enable: true, items: ['home', 'toc', 'comment', 'top'] },
   contextMenu: { enable: true, actions: ['copySelection', 'backToTop', 'sharePageLink'] },
   discussion: {
     enabled: true,
@@ -180,10 +180,17 @@ function publicProfileLinks(value: unknown): BlogSitePublic['profile']['links'] 
   })
 }
 
+const FAB_ITEMS = new Set(['home', 'toc', 'comment', 'top'])
 const MUSIC_PROVIDERS = new Set(['none', 'local', 'meting', 'custom', 'mixed'])
 const METING_SERVERS = new Set(['netease', 'tencent', 'kugou', 'xiami', 'baidu'])
 const METING_TYPES = new Set(['playlist', 'song', 'album', 'artist'])
 const PLAYBACK_MODES = new Set(['sequence', 'repeat-one', 'shuffle'])
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value)
+  if (value === undefined || value === null || !Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(Math.trunc(parsed), min), max)
+}
 
 function publicUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -263,6 +270,15 @@ export function publicBlogSite(
     autoCloseDays?: number
   }
   const widgets = settings.widgets as { items?: BlogSitePublic['widgets'] }
+  const article = settings.article as Partial<BlogSitePublic['article']>
+  const license = settings.license as Partial<BlogSitePublic['license']>
+  const footer = settings.footer as Partial<BlogSitePublic['footer']>
+  const fab = settings.fab as Partial<BlogSitePublic['fab']>
+  const announcement = settings.announcement as Partial<BlogSitePublic['announcement']>
+  const llms = settings.llms as Partial<BlogSitePublic['llms']>
+  const fabItems = Array.isArray(fab.items)
+    ? [...new Set(fab.items.filter((item): item is string => FAB_ITEMS.has(item as string)))]
+    : [...FAB_ITEMS]
   return {
     site: {
       title: typeof site.title === 'string' ? site.title : 'Inkstone Blog',
@@ -296,6 +312,37 @@ export function publicBlogSite(
       allowReplies: discussion.allowReplies !== false,
       maxLength: Math.min(Math.max(Number(discussion.maxLength) || 4000, 200), 10000),
       autoCloseDays: Math.max(Number(discussion.autoCloseDays) || 0, 0),
+    },
+    article: {
+      share: article.share !== false,
+      showLastUpdated: article.showLastUpdated !== false,
+      lastUpdatedDays: clampInt(article.lastUpdatedDays, 90, 0, 3650),
+      relatedCount: clampInt(article.relatedCount, 3, 0, 20),
+      randomCount: clampInt(article.randomCount, 2, 0, 20),
+    },
+    license: {
+      enable: license.enable === true,
+      name: typeof license.name === 'string' ? license.name.trim().slice(0, 120) : '',
+      url: publicUrl(license.url) ?? '',
+    },
+    footer: {
+      enable: footer.enable !== false,
+      html: typeof footer.html === 'string' ? footer.html.slice(0, 20000) : '',
+    },
+    fab: {
+      enable: fab.enable !== false,
+      items: fabItems,
+    },
+    announcement: {
+      enable: announcement.enable === true,
+      text: typeof announcement.text === 'string' ? announcement.text.trim().slice(0, 2000) : '',
+      closable: announcement.closable !== false,
+    },
+    llms: {
+      enable: llms.enable !== false,
+      excludeTags: Array.isArray(llms.excludeTags)
+        ? [...new Set(llms.excludeTags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0).map((tag) => tag.trim().slice(0, 80)))].slice(0, 50)
+        : [],
     },
     display: settings.display,
     integrations: {
