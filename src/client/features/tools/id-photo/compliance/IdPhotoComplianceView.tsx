@@ -17,6 +17,7 @@ export function IdPhotoComplianceView() {
   const sourceSize = useIdPhotoStore((s) => s.sourceSize)
   const adjustOptions = useIdPhotoStore((s) => s.adjustOptions)
   const lastExport = useIdPhotoStore((s) => s.lastExport)
+  const headBox = useIdPhotoStore((s) => s.headBox)
 
   const activeSpec = getActiveSpec()
 
@@ -30,8 +31,16 @@ export function IdPhotoComplianceView() {
         sourceHeightPx: sourceSize?.height,
         fileSizeBytes: lastExport?.bytes,
         bgColorHex: adjustOptions.bgColor,
+        faceBox: headBox
+          ? {
+              x: headBox.x * activeSpec.widthPx,
+              y: headBox.y * activeSpec.heightPx,
+              width: headBox.width * activeSpec.widthPx,
+              height: headBox.height * activeSpec.heightPx,
+            }
+          : undefined,
       }),
-    [activeSpec, sourceSize, adjustOptions.bgColor, lastExport],
+    [activeSpec, sourceSize, adjustOptions.bgColor, lastExport, headBox],
   )
 
   return (
@@ -125,6 +134,12 @@ export function IdPhotoComplianceView() {
           )
         })}
       </div>
+
+      {headBox && (
+        <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('tools.id_photo.compliance.head_estimate')}
+        </p>
+      )}
 
       {!lastExport && (
         <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">

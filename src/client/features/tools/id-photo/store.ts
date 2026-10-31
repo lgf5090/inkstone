@@ -21,6 +21,13 @@ import {
 
 export type IdPhotoOptionsTab = 'spec' | 'color' | 'framing' | 'retouch' | 'attire'
 
+export interface HeadBoxRatios {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const MAX_WORKING_EDGE = 2048
 
 export function planSourceResize(width: number, height: number): { width: number; height: number } | null {
@@ -117,6 +124,8 @@ export interface IdPhotoState {
   workingSize: Size | null
   framingLayer: () => Size | null
   cropRect: () => CropRect | null
+  headBox: HeadBoxRatios | null
+  setHeadBox: (box: HeadBoxRatios | null) => void
   cropPercents: () => { zoom: number; x: number; y: number } | null
   setCropPercents: (zoom: number, x: number, y: number) => void
   panByRatio: (dx: number, dy: number) => void
@@ -187,6 +196,7 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
         sourceSize: null,
         workingSize: null,
         lastExport: null,
+        headBox: null,
         adjustOptions: uncrop(s.adjustOptions),
       }))
       return Promise.resolve(false)
@@ -242,6 +252,9 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   },
 
   workingSize: null,
+
+  headBox: null,
+  setHeadBox: (headBox) => set({ headBox }),
 
   framingLayer: () => {
     const { workingSize, adjustOptions } = get()

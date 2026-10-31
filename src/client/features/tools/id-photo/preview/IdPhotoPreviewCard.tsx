@@ -7,6 +7,7 @@ import { Tooltip } from '../../../../components/overlay'
 import { useIdPhotoStore } from '../store'
 import { specLabel } from '../spec-label'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
+import { estimateHeadBox, toHeadBoxRatios } from '../engine/head-estimate'
 
 const GUIDE_BASE = 'absolute left-0 right-0 border-t border-dashed'
 
@@ -29,6 +30,8 @@ export function IdPhotoPreviewCard() {
   const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
   const guidesVisible = useIdPhotoStore((s) => s.guidesVisible)
   const toggleGuides = useIdPhotoStore((s) => s.toggleGuides)
+  const headBox = useIdPhotoStore((s) => s.headBox)
+  const setHeadBox = useIdPhotoStore((s) => s.setHeadBox)
   const setFullscreenModalOpen = useIdPhotoStore((s) => s.setFullscreenModalOpen)
   const panByRatio = useIdPhotoStore((s) => s.panByRatio)
 
@@ -64,6 +67,7 @@ export function IdPhotoPreviewCard() {
     if (!imageElement) {
       canvas.width = 0
       canvas.height = 0
+      setHeadBox(null)
       return
     }
 
@@ -78,12 +82,14 @@ export function IdPhotoPreviewCard() {
         const ctx = canvas.getContext('2d')
         if (!ctx) return
         ctx.drawImage(rendered, 0, 0)
+        const sample = ctx.getImageData(0, 0, rendered.width, rendered.height)
+        setHeadBox(toHeadBoxRatios(estimateHeadBox(sample.data, rendered.width, rendered.height), rendered.width, rendered.height))
       })
       .catch(() => {
         if (generation !== renderGeneration.current) return
         setRenderFailed(true)
       })
-  }, [imageElement, activeSpec, adjustOptions])
+  }, [imageElement, activeSpec, adjustOptions, setHeadBox])
 
   return (
     <div className="relative flex flex-col items-center justify-center rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4 shadow-sm min-h-[380px]">
@@ -196,6 +202,24 @@ export function IdPhotoPreviewCard() {
                     style={{ left: '50%' }}
                     className="absolute top-0 bottom-0 border-l border-dashed border-[var(--danger)]"
                   />
+                </div>
+              )}
+
+              {guidesVisible && headBox && (
+                <div
+                  aria-hidden
+                  data-head-box
+                  className="pointer-events-none absolute rounded-[2px] border border-[var(--success)]"
+                  style={{
+                    left: `${headBox.x * 100}%`,
+                    top: `${headBox.y * 100}%`,
+                    width: `${headBox.width * 100}%`,
+                    height: `${headBox.height * 100}%`,
+                  }}
+                >
+                  <span className="absolute -top-4 left-0 rounded-[2px] bg-[var(--success)] px-1 text-[length:var(--text-10)] leading-[14px] text-[var(--bg-base)]">
+                    {t('tools.id_photo.preview.head_box_estimate')}
+                  </span>
                 </div>
               )}
             </div>

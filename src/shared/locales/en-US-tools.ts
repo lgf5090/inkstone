@@ -884,7 +884,8 @@ export const EN_US_TOOLS = {
   'tools.id_photo.compliance.check_bg_color': 'Background Color Compliance',
   'tools.id_photo.compliance.title': 'Intelligent Compliance & Quality Audit',
   'tools.id_photo.compliance.score_label': 'Compliance Score',
-  'tools.id_photo.compliance.export_hint': 'Export once to verify the real file size and the upscale factor here; the head ratio needs face detection first.',
+  'tools.id_photo.compliance.export_hint': 'Export once to verify the real file size and the upscale factor here.',
+  'tools.id_photo.compliance.head_estimate': 'The head box is estimated from skin-toned areas, not a face model, so read it as a guide.',
   'tools.id_photo.compliance.tip_title': 'Optimization Suggestions',
   'tools.id_photo.compliance.tip_1': 'Please look straight into the camera, ensure eyebrows and ears are visible, and avoid reflective glasses.',
   'tools.id_photo.compliance.tip_2': 'Ensure head height occupies standard proportion with proper margin above the crown.',
@@ -960,6 +961,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.preview.compare_original': 'Compare Original',
   'tools.id_photo.preview.fullscreen': 'Fullscreen Inspect',
   'tools.id_photo.preview.render_failed': 'Preview rendering failed, close and try again',
+  'tools.id_photo.preview.head_box_estimate': 'estimated head',
   'tools.id_photo.preview.empty_title': 'No Photo Selected',
   'tools.id_photo.preview.empty_desc': 'Upload a portrait on the left panel to auto-frame official ID photo',
 

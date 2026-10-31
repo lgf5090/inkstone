@@ -18,7 +18,7 @@ function chromaRed(r: number, g: number, b: number): number {
  * without dragging the backdrop colour across the shoulder line, and a plain wall or a white
  * shirt falls out of this range while lit skin stays inside it.
  */
-function isSkinTone(r: number, g: number, b: number): boolean {
+export function isSkinTone(r: number, g: number, b: number): boolean {
   const cb = chromaBlue(r, g, b)
   const cr = chromaRed(r, g, b)
   return cb >= SKIN_CB_MIN && cb <= SKIN_CB_MAX && cr >= SKIN_CR_MIN && cr <= SKIN_CR_MAX

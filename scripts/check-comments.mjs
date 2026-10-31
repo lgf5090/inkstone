@@ -17606,6 +17606,10 @@ const allowed = new Map([
     "// Position: top margin typically 10-15% of crop height above crown",
     "// Bounds checks",
   ]],
+  ["src/client/features/tools/id-photo/engine/head-estimate.ts", [
+    "// The full row extent, not just the widest run: an ear sits beside it.",
+    "/** Normalises a pixel box to the frame it came from, so any later size can redraw it. */",
+  ]],
   ["src/client/features/tools/id-photo/engine/id-photo-engine.ts", [
     "/**\n   * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.\n   */",
     "/**\n   * Exports rendered photo as a downloadable Blob.\n   */",
@@ -44392,6 +44396,16 @@ const allowed = new Map([
     "// React tracks the node's value itself, so a plain assignment reads as \"nothing changed\" and",
     "// the change event is dropped. The prototype setter is what a real keystroke goes through.",
     "// The shared slider coalesces a drag into one write per frame, so the frame is the handoff.",
+  ]],
+  ["tests/tools-id-photo-head-ui.test.tsx", [
+    "// A preview with no image to draw reports back \"no head\", so the case that keeps a box needs a",
+    "// source element mounted; jsdom answers its 2D context as null, which stops before the estimate.",
+    "// 0.4 of the frame height times the crown factor is exactly 50% for a 413px tall spec.",
+    "// Only the file size stays unknown before an export; the two head rows now carry numbers.",
+  ]],
+  ["tests/tools-id-photo-head.test.ts", [
+    "/** The face is an ellipse, so the rasterised bounds the estimator should recover are known to the pixel. */",
+    "// The ellipse runs to y=90 and the neck to y=150; the estimate must stop near the chin.",
   ]],
   ["tests/tools-id-photo-ui.test.tsx", [
     "// Upload & Options panel headers",

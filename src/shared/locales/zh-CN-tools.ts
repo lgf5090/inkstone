@@ -884,7 +884,8 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.compliance.check_bg_color': '背景底色规范',
   'tools.id_photo.compliance.title': '智能合规诊断与人像质检',
   'tools.id_photo.compliance.score_label': '综合合规评分',
-  'tools.id_photo.compliance.export_hint': '导出一次后即可在此核对真实文件大小与放大倍率；人脸比例需要先开启人脸检测。',
+  'tools.id_photo.compliance.export_hint': '导出一次后即可在此核对真实文件大小与放大倍率。',
+  'tools.id_photo.compliance.head_estimate': '头部位置由画面中的肤色区域估计，未接入人脸检测模型，结论仅供参考。',
   'tools.id_photo.compliance.tip_title': '诊断优化建议',
   'tools.id_photo.compliance.tip_1': '请保持双眼正视镜头，眉毛与耳朵清晰可见，不可佩戴反光眼镜或浓妆。',
   'tools.id_photo.compliance.tip_2': '根据标准规范，头部在画面纵向需占合理比例，头顶留出适当空间。',
@@ -960,6 +961,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.preview.compare_original': '对比原图',
   'tools.id_photo.preview.fullscreen': '全屏检查',
   'tools.id_photo.preview.render_failed': '预览渲染失败，请关闭后重试',
+  'tools.id_photo.preview.head_box_estimate': '估计头部',
   'tools.id_photo.preview.empty_title': '尚未选择或上传人像',
   'tools.id_photo.preview.empty_desc': '请在左侧上传半身照，系统将自动适配国家标准证件照',
 
