@@ -18,8 +18,10 @@ export function pad2(n: number): string {
 
 export function rangeToSinceTs(range: TimelineRange | undefined, now?: number): number | undefined {
   if (!range || range === 'all') return undefined
+  const seconds = RANGE_SECONDS[range]
+  if (!seconds) return undefined
   const ts = now ?? Math.floor(Date.now() / 1000)
-  return ts - RANGE_SECONDS[range]
+  return ts - seconds
 }
 
 export function computeDelta(current: number, previous: number): number | undefined {

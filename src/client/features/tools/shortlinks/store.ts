@@ -157,8 +157,7 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
         sort_order: filter.sortOrder,
         bundle_id: filter.bundleId,
       })
-      const list = res.links ?? (res as any).items ?? []
-      set({ links: list, totalLinks: res.total ?? list.length })
+      set({ links: res.items, totalLinks: res.total })
     } catch (e) {
       useUiStore.getState().toast((e as Error).message, 'error')
     } finally {

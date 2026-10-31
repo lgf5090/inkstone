@@ -29,7 +29,7 @@ export function ManageBundleLinksModal() {
       shortlinksApi
         .getLinks({ limit: 100 })
         .then((res) => {
-          setAllUserLinks(res.links || (res as any).items || [])
+          setAllUserLinks(res.items)
           setSelectedIds(new Set(activeBundleLinks.map((l) => l.id)))
         })
         .finally(() => setLoading(false))

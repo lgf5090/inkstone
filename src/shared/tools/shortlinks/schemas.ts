@@ -9,13 +9,13 @@ import {
   TIMELINE_RANGES,
 } from './types'
 
-export const CustomSlugRegex = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i
+export const CustomSlugRegex = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
 
 export const CustomSlugSchema = z
   .string()
   .min(1)
   .max(MAX_SLUG_LENGTH)
-  .regex(CustomSlugRegex, 'Slug must contain only alphanumeric characters and hyphens, and cannot start or end with a hyphen')
+  .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen')
 
 export const CreateLinkSchema = z.object({
   url: z.string().url('Invalid URL format').max(2048, 'URL exceeds maximum length of 2048 characters'),
@@ -38,8 +38,8 @@ export const AddSlugSchema = z.object({
   slug: CustomSlugSchema,
 })
 
-export const VerifyPasswordSchema = z.object({
-  password: z.string().min(1, 'Password is required').max(128),
+export const SlugStatusSchema = z.object({
+  is_active: z.boolean(),
 })
 
 export const CreateBundleSchema = z.object({
@@ -82,8 +82,59 @@ export const BatchImportSchema = z.object({
   ).min(1).max(500),
 })
 
-export const ExportOptionsSchema = z.object({
-  format: z.enum(['txt', 'csv', 'json', 'passwords']),
+export const RestoreBackupSchema = z.object({
+  backup_id: z.string().min(1, 'Backup id is required').max(200),
+})
+
+export const TimelineRangeSchema = z.enum(TIMELINE_RANGES)
+export const LinkStatusSchema = z.enum(['all', 'active', 'disabled'])
+
+/**
+ * Query shape for `GET /links`. `range` stays optional: when absent the clicks column counts
+ * every click ever recorded, which is what the list labels it as.
+ */
+export const ListLinksQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  status: LinkStatusSchema.default('all'),
+  sort_by: z.enum(['created_at', 'clicks']).default('created_at'),
+  sort_order: z.enum(['asc', 'desc']).default('desc'),
+  search: z.string().max(200).optional(),
+  bundle_id: z.coerce.number().int().positive().optional(),
+  range: TimelineRangeSchema.optional(),
+})
+
+export const BREAKDOWN_DIMENSIONS = [
+  'country',
+  'countries',
+  'referrer',
+  'referrers',
+  'referrer_host',
+  'referrer_hosts',
+  'domain',
+  'device_type',
+  'devices',
+  'os',
+  'operating_system',
+  'operating_systems',
+  'browser',
+  'browsers',
+  'channel',
+  'channels',
+  'link_mode',
+  'link_modes',
+] as const
+
+export const BreakdownQuerySchema = z.object({
+  dimension: z.enum(BREAKDOWN_DIMENSIONS).default('country'),
+  range: TimelineRangeSchema.default('30d'),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  search: z.string().max(200).optional(),
+})
+
+export const AnalyticsRangeQuerySchema = z.object({
+  range: TimelineRangeSchema.default('30d'),
 })
 
 export type CreateLinkInput = z.infer<typeof CreateLinkSchema>
@@ -95,5 +146,7 @@ export type AddBundleLinksInput = z.infer<typeof AddBundleLinksSchema>
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>
 export type CreateApiKeyInput = z.infer<typeof CreateApiKeySchema>
 export type BatchImportInput = z.infer<typeof BatchImportSchema>
-export type ExportOptionsInput = z.infer<typeof ExportOptionsSchema>
 export type ImportDataInput = BatchImportInput
+export type ListLinksQuery = z.infer<typeof ListLinksQuerySchema>
+export type BreakdownQuery = z.infer<typeof BreakdownQuerySchema>
+export type AnalyticsRangeQuery = z.infer<typeof AnalyticsRangeQuerySchema>

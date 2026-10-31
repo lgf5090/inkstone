@@ -248,9 +248,8 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     expect(addSlugRes.status).toBe(200)
 
-    const setPrimaryRes = await call('PUT', `/api/tools/shortlinks/links/${link.id}/slugs/primary`, {
+    const setPrimaryRes = await call('PATCH', `/api/tools/shortlinks/links/${link.id}/slugs/hn-alias/primary`, {
       user: USER_A,
-      body: { slug: 'hn-alias' },
     })
     expect(setPrimaryRes.status).toBe(200)
 
@@ -274,11 +273,17 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect(red1.status).toBe(302)
     expect(red1.headers.get('Location')).toBe('https://example.com/disable-test')
 
-    await call('POST', `/api/tools/shortlinks/links/${link.id}/disable`)
+    const disableRes = await call('PATCH', `/api/tools/shortlinks/links/${link.id}/slugs/disable-me/status`, {
+      body: { is_active: false },
+    })
+    expect(disableRes.status).toBe(200)
     const red2 = await call('GET', '/l/disable-me', { user: null })
     expect(red2.status).toBe(404)
 
-    await call('POST', `/api/tools/shortlinks/links/${link.id}/enable`)
+    const enableRes = await call('PATCH', `/api/tools/shortlinks/links/${link.id}/slugs/disable-me/status`, {
+      body: { is_active: true },
+    })
+    expect(enableRes.status).toBe(200)
     const red3 = await call('GET', '/l/disable-me', { user: null })
     expect(red3.status).toBe(302)
 
@@ -287,6 +292,41 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     const red4 = await call('GET', '/l/disable-me', { user: null })
     expect(red4.status).toBe(404)
+  })
+
+  it('rejects malformed ids, ranges, offsets and slug-status bodies with 4xx', async () => {
+    const badId = await call('GET', '/api/tools/shortlinks/links/abc')
+    expect(badId.status).toBe(400)
+
+    const badRange = await call('GET', '/api/tools/shortlinks/links?range=bogus')
+    expect(badRange.status).toBe(400)
+
+    const fractionalOffset = await call('GET', '/api/tools/shortlinks/links?offset=1.5')
+    expect(fractionalOffset.status).toBe(400)
+
+    const hugeLimit = await call('GET', '/api/tools/shortlinks/links?limit=100000')
+    expect(hugeLimit.status).toBe(400)
+
+    const badDimension = await call('GET', '/api/tools/shortlinks/links/1/breakdown?dimension=hax')
+    expect(badDimension.status).toBe(400)
+
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/status-body', custom_slug: 'status-body' },
+      }),
+    )).data
+    const emptyStatus = await call('PATCH', `/api/tools/shortlinks/links/${created.id}/slugs/status-body/status`, {
+      body: {},
+    })
+    expect(emptyStatus.status).toBe(400)
+
+    const badRestore = await call('POST', '/api/tools/shortlinks/backups/restore', { body: {} })
+    expect(badRestore.status).toBe(400)
+
+    const badBackupId = await call('POST', '/api/tools/shortlinks/backups/restore', {
+      body: { backup_id: 'nope' },
+    })
+    expect(badBackupId.status).toBe(404)
   })
 
   it('protects link with password, signs the cookie and refuses a query-string secret', async () => {
@@ -419,14 +459,12 @@ describe('Shortlinks Bundles and Analytics', () => {
     })
     expect(addRes.status).toBe(200)
 
-    const aRes = await call('GET', `/api/tools/shortlinks/bundles/${bundle.id}/analytics`)
-    expect(aRes.status).toBe(200)
-    const analytics = (await json<any>(aRes)).data
-    expect(analytics.link_count).toBe(2)
-
-    // Verify bundle stats alias and PATCH update
     const statsRes = await call('GET', `/api/tools/shortlinks/bundles/${bundle.id}/stats`)
     expect(statsRes.status).toBe(200)
+    const analytics = (await json<any>(statsRes)).data
+    expect(analytics.link_count).toBe(2)
+    expect(analytics.per_link).toHaveLength(2)
+    expect(analytics.per_link.every((row: any) => row.click_count === 0)).toBe(true)
     const patchBundleRes = await call('PATCH', `/api/tools/shortlinks/bundles/${bundle.id}`, {
       body: { name: 'Campaign 2026 Renamed' },
     })
@@ -480,14 +518,14 @@ describe('Shortlinks Bundles and Analytics', () => {
   })
 
   it('creates API key and lists keys', async () => {
-    const keyRes = await call('POST', '/api/tools/shortlinks/keys', {
+    const keyRes = await call('POST', '/api/tools/shortlinks/api-keys', {
       body: { title: 'CI Deployer', scope: 'write' },
     })
     expect(keyRes.status).toBe(200)
     const keyData = (await json<any>(keyRes)).data
     expect(keyData.apiKey).toMatch(/^sl_/)
 
-    const listRes = await call('GET', '/api/tools/shortlinks/keys')
+    const listRes = await call('GET', '/api/tools/shortlinks/api-keys')
     const keys = (await json<any>(listRes)).data
     expect(keys).toHaveLength(1)
     expect(keys[0].title).toBe('CI Deployer')

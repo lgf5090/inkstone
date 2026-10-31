@@ -31075,6 +31075,7 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
+    "/**\n * Query shape for `GET /links`. `range` stays optional: when absent the clicks column counts\n * every click ever recorded, which is what the list labels it as.\n */",
   ]],
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
@@ -44360,9 +44361,6 @@ const allowed = new Map([
     "// Flip luminance on inner modules (not margin) to trigger mismatches",
     "// Index 22: x=2, y=2 (inner), expected 1 (light), flip to dark (20)",
     "// Index 23: x=3, y=2 (inner), expected 0 (dark), flip to light (240)",
-  ]],
-  ["tests/tools-shortlinks-api.test.ts", [
-    "// Verify bundle stats alias and PATCH update",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

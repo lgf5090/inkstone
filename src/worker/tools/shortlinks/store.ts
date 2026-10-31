@@ -382,8 +382,8 @@ export class ShortlinksStore {
     const filter = params.status || params.filter || 'all'
     const sort = params.sort_by === 'clicks' || params.sort === 'clicks' ? 'clicks' : 'created_at'
     const sortOrder = params.sort_order?.toLowerCase() === 'asc' ? 'ASC' : 'DESC'
-    const offset = Math.max(0, params.offset || 0)
-    const limit = Math.min(100, Math.max(1, params.limit || 20))
+    const offset = Math.min(1_000_000, Math.max(0, Math.floor(params.offset || 0)))
+    const limit = Math.min(100, Math.max(1, Math.floor(params.limit || 20)))
     const now = Math.floor(Date.now() / 1000)
 
     let whereClause = 'WHERE l.user_id = ?'
@@ -554,35 +554,6 @@ export class ShortlinksStore {
     }
 
     return (await this.getLinkById(id))!
-  }
-
-  async disableLink(id: number, kv?: KVNamespace): Promise<void> {
-    const now = Math.floor(Date.now() / 1000)
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = ? WHERE link_id = ? AND user_id = ?')
-      .bind(now, id, this.userId)
-      .run()
-
-    const link = await this.getLinkById(id)
-    if (link) {
-      for (const s of link.slugs) {
-        await deleteCachedSlug(kv, s.slug)
-      }
-    }
-  }
-
-  async enableLink(id: number, kv?: KVNamespace): Promise<void> {
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET disabled_at = NULL WHERE link_id = ? AND user_id = ?')
-      .bind(id, this.userId)
-      .run()
-
-    const link = await this.getLinkById(id)
-    if (link) {
-      for (const s of link.slugs) {
-        await deleteCachedSlug(kv, s.slug)
-      }
-    }
   }
 
   async deleteLink(id: number, kv?: KVNamespace): Promise<void> {
@@ -984,8 +955,8 @@ export class ShortlinksStore {
     limit?: number
   }): Promise<BreakdownPage> {
     const dimension = params.dimension
-    const offset = Math.max(0, params.offset || 0)
-    const limit = Math.min(100, Math.max(1, params.limit || 10))
+    const offset = Math.min(1_000_000, Math.max(0, Math.floor(params.offset || 0)))
+    const limit = Math.min(100, Math.max(1, Math.floor(params.limit || 10)))
     const range = params.range || '30d'
 
     let col = 'country'
