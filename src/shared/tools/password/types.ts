@@ -46,6 +46,8 @@ export interface PasswordAccount {
   link: string
   /** AES-256-CBC ciphertext hex string */
   remark: string
+  /** Sealed TOTP secret (base32) or '' when the account has none. */
+  totpSecret?: string
   favicon: string
   isFavorite: boolean
   sort: number
@@ -61,6 +63,7 @@ export interface DecryptedAccount {
   password: string
   link: string
   remark: string
+  totpSecret?: string
   favicon: string
   isFavorite: boolean
   sort: number

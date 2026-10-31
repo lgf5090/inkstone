@@ -31,6 +31,7 @@ export const ResetMasterPasswordSchema = z.object({
         password: z.string().max(CIPHER_MAX),
         link: z.string().max(CIPHER_MAX).default(''),
         remark: z.string().max(CIPHER_MAX).default(''),
+  totpSecret: z.string().max(CIPHER_MAX).default(''),
       }),
     )
     .max(MAX_IMPORT),
@@ -69,6 +70,7 @@ export const CreateAccountSchema = z.object({
   password: z.string().max(CIPHER_MAX).default(''),
   link: z.string().max(CIPHER_MAX).default(''),
   remark: z.string().max(CIPHER_MAX).default(''),
+  totpSecret: z.string().max(CIPHER_MAX).default(''),
   favicon: z.string().max(2048).default(''),
   isFavorite: z.boolean().default(false),
   sort: z.number().int().default(0),
@@ -81,6 +83,7 @@ export const UpdateAccountSchema = z.object({
   password: z.string().max(CIPHER_MAX).optional(),
   link: z.string().max(CIPHER_MAX).optional(),
   remark: z.string().max(CIPHER_MAX).optional(),
+  totpSecret: z.string().max(CIPHER_MAX).optional(),
   favicon: z.string().max(2048).optional(),
   isFavorite: z.boolean().optional(),
   sort: z.number().int().optional(),
@@ -117,6 +120,7 @@ export const BatchImportAccountsSchema = z.object({
         password: z.string().max(CIPHER_MAX).default(''),
         link: z.string().max(CIPHER_MAX).default(''),
         remark: z.string().max(CIPHER_MAX).default(''),
+  totpSecret: z.string().max(CIPHER_MAX).default(''),
         favicon: z.string().max(2048).default(''),
       }),
     )

@@ -22,6 +22,7 @@ import { IconButton, Spinner } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
 import { Tooltip, confirm } from '../../../components/overlay'
 import { evaluatePasswordStrength } from './crypto/strength'
+import { TotpCodeLine } from './TotpCodeLine'
 import { usePasswordVaultStore } from './store'
 import { copySecret } from './utils/clipboard'
 import { FaviconAvatar } from './FaviconAvatar'
@@ -114,6 +115,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
       link: pending.link,
       remark: pending.remark,
       favicon: pending.favicon,
+      totpSecret: pending.totpSecret,
     }).catch(() => {
       useUi.getState().toast({ title: t('common.save_failed'), tone: 'danger' })
     })
@@ -166,6 +168,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
           link: dataToSave.link,
           remark: dataToSave.remark,
           favicon: dataToSave.favicon,
+          totpSecret: dataToSave.totpSecret,
         })
         setSaveStatus('saved')
       } catch {
@@ -589,6 +592,26 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
 
             {/* Password Strength Indicator */}
             <PasswordStrengthIndicator password={formData.password} />
+          </div>
+
+          {/* TOTP secret and its live code */}
+          <div>
+            <label className="block text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] mb-1">
+              {t('tools.password.account.totp')}
+            </label>
+            <Input
+              value={formData.totpSecret ?? ''}
+              disabled={isLocked}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                handleFieldChange('totpSecret', e.target.value)
+              }
+              placeholder={t('tools.password.account.totp_placeholder')}
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={t('tools.password.account.totp')}
+              data-testid="input-totp"
+            />
+            <TotpCodeLine secret={formData.totpSecret ?? ''} />
           </div>
 
           {/* Website Link */}

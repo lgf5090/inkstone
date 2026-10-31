@@ -152,6 +152,7 @@ function decryptAccount(acc: PasswordAccount, keyiv: KeyIV): DecryptedAccount {
     password: tryDecrypt(acc.password),
     link: tryDecrypt(acc.link),
     remark: tryDecrypt(acc.remark),
+    totpSecret: tryDecrypt(acc.totpSecret ?? ''),
     favicon: acc.favicon || '',
     isFavorite: acc.isFavorite,
     sort: acc.sort,
@@ -365,6 +366,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       password: data.password ? encryptValue(keyIV, data.password) : '',
       link: data.link ? encryptValue(keyIV, data.link) : '',
       remark: data.remark ? encryptValue(keyIV, data.remark) : '',
+      totpSecret: data.totpSecret ? encryptValue(keyIV, data.totpSecret) : '',
       favicon: data.favicon || '',
       isFavorite: Boolean(data.isFavorite),
       sort: data.sort ?? accounts.length,
@@ -393,6 +395,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     if (data.password !== undefined) encryptedUpdates.password = encryptValue(keyIV, data.password)
     if (data.link !== undefined) encryptedUpdates.link = encryptValue(keyIV, data.link)
     if (data.remark !== undefined) encryptedUpdates.remark = encryptValue(keyIV, data.remark)
+    if (data.totpSecret !== undefined) encryptedUpdates.totpSecret = encryptValue(keyIV, data.totpSecret)
     if (data.favicon !== undefined) encryptedUpdates.favicon = data.favicon
     if (data.isFavorite !== undefined) encryptedUpdates.isFavorite = data.isFavorite
     if (data.sort !== undefined) encryptedUpdates.sort = data.sort

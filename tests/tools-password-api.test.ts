@@ -31,6 +31,11 @@ vi.mock('webdav', () => ({
 const USER_A = 'user-alice'
 const USER_B = 'user-bob'
 
+// Rounds 4 keeps the fixture fast; the routes only compare, they never re-hash at cost 10.
+const OLD_PASSWORD = 'old-pass'
+const KDF_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+const OLD_HASH = hashSync(OLD_PASSWORD, 4)
+
 interface CallOptions {
   user?: string | null
   body?: unknown
@@ -236,11 +241,6 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
 })
 
 describe('Password Manager Vault Routes', () => {
-  // Rounds 4 keeps the fixture fast; the route only compares, it never re-hashes at cost 10.
-  const OLD_PASSWORD = 'old-pass'
-  const KDF_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
-  const OLD_HASH = hashSync(OLD_PASSWORD, 4)
-
   it('handles /vault GET and POST /init, and no longer hands back a recovery hint', async () => {
     const getRes = await call('GET', '/api/tools/password/vault')
     expect(getRes.status).toBe(200)
@@ -529,6 +529,48 @@ describe('Password Manager Accounts Routes', () => {
     // Delete single account
     const delRes = await call('DELETE', `/api/tools/password/accounts/${a3.id}`)
     expect(delRes.status).toBe(200)
+  })
+
+  it('persists the TOTP secret and keeps it through a re-seal', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+
+    const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: {
+        groupId: group.id,
+        title: 'sealed-title',
+        totpSecret: 'sealed-totp',
+      },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string; totpSecret: string } }>(aRes)).data
+    expect(account.totpSecret).toBe('sealed-totp')
+
+    // The reset path re-writes every column; a field it does not know about would be dropped.
+    const reset = await call('POST', '/api/tools/password/vault/reset', {
+      body: {
+        oldPassword: OLD_PASSWORD,
+        newMasterHash: hashSync('next-key', 4),
+        newKdfSalt: KDF_SALT,
+        accounts: [
+          {
+            id: account.id,
+            title: 're-sealed-title',
+            username: '',
+            password: '',
+            totpSecret: 'resealed-totp',
+          },
+        ],
+      },
+    })
+    expect(reset.status).toBe(200)
+
+    const rows = (
+      await json<{ ok: boolean; data: Array<{ totpSecret: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(rows[0]!.totpSecret).toBe('resealed-totp')
   })
 
   it('refuses an account whose group does not exist', async () => {

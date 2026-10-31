@@ -3115,6 +3115,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON tools_password_accounts(user_id, sort ASC, id)`,
     ],
   },
+  {
+    // Sealed TOTP secret per account. '' means the account has no second factor stored.
+    version: 214,
+    skipIfColumnExists: { table: 'tools_password_accounts', column: 'totp_secret' },
+    statements: [`ALTER TABLE tools_password_accounts ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

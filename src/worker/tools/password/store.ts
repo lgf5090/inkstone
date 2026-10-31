@@ -57,6 +57,7 @@ interface AccountRow {
   password: string
   link: string
   remark: string
+  totp_secret: string
   favicon: string
   is_favorite: number
   sort: number
@@ -107,6 +108,7 @@ function toAccount(row: AccountRow): PasswordAccount {
     password: row.password,
     link: row.link,
     remark: row.remark,
+    totpSecret: row.totp_secret,
     favicon: row.favicon,
     isFavorite: Boolean(row.is_favorite),
     sort: row.sort,
@@ -191,6 +193,7 @@ export class PasswordStore {
       password: string
       link?: string
       remark?: string
+      totpSecret?: string
     }>,
   ): Promise<void> {
     const existing = await this.getVaultState()
@@ -213,10 +216,20 @@ export class PasswordStore {
         this.db
           .prepare(
             `UPDATE tools_password_accounts
-             SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, updated_at = ?6
-             WHERE user_id = ?7 AND id = ?8`,
+             SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, totp_secret = ?6, updated_at = ?7
+             WHERE user_id = ?8 AND id = ?9`,
           )
-          .bind(acc.title, acc.username, acc.password, acc.link ?? '', acc.remark ?? '', now, this.userId, acc.id),
+          .bind(
+            acc.title,
+            acc.username,
+            acc.password,
+            acc.link ?? '',
+            acc.remark ?? '',
+            acc.totpSecret ?? '',
+            now,
+            this.userId,
+            acc.id,
+          ),
       )
     }
 
@@ -377,7 +390,7 @@ export class PasswordStore {
     if (groupId) {
       const { results } = await this.db
         .prepare(
-          `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+          `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
            FROM tools_password_accounts
            WHERE user_id = ?1 AND group_id = ?2
            ORDER BY sort ASC, id ASC`,
@@ -389,7 +402,7 @@ export class PasswordStore {
 
     const { results } = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1
          ORDER BY sort ASC, id ASC`,
@@ -403,7 +416,7 @@ export class PasswordStore {
   async getAccount(id: string): Promise<PasswordAccount | null> {
     const row = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1 AND id = ?2`,
       )
@@ -421,6 +434,7 @@ export class PasswordStore {
     password?: string
     link?: string
     remark?: string
+    totpSecret?: string
     favicon?: string
     isFavorite?: boolean
     sort?: number
@@ -439,6 +453,7 @@ export class PasswordStore {
     const password = data.password ?? ''
     const link = data.link ?? ''
     const remark = data.remark ?? ''
+    const totpSecret = data.totpSecret ?? ''
     const favicon = data.favicon ?? ''
     const isFavorite = data.isFavorite ? 1 : 0
     const sort = data.sort ?? 0
@@ -447,8 +462,8 @@ export class PasswordStore {
     await this.db
       .prepare(
         `INSERT INTO tools_password_accounts (
-           user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+           user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       )
       .bind(
         this.userId,
@@ -459,6 +474,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite,
         sort,
@@ -476,6 +492,7 @@ export class PasswordStore {
       password,
       link,
       remark,
+      totpSecret,
       favicon,
       isFavorite: Boolean(isFavorite),
       sort,
@@ -493,6 +510,7 @@ export class PasswordStore {
       password?: string
       link?: string
       remark?: string
+      totpSecret?: string
       favicon?: string
       isFavorite?: boolean
       sort?: number
@@ -516,6 +534,7 @@ export class PasswordStore {
     const password = data.password !== undefined ? data.password : existing.password
     const link = data.link !== undefined ? data.link : existing.link
     const remark = data.remark !== undefined ? data.remark : existing.remark
+    const totpSecret = data.totpSecret !== undefined ? data.totpSecret : existing.totpSecret
     const favicon = data.favicon !== undefined ? data.favicon : existing.favicon
     const isFavorite = data.isFavorite !== undefined ? (data.isFavorite ? 1 : 0) : (existing.isFavorite ? 1 : 0)
     const sort = data.sort !== undefined ? data.sort : existing.sort
@@ -525,8 +544,8 @@ export class PasswordStore {
       .prepare(
         `UPDATE tools_password_accounts
          SET group_id = ?1, title = ?2, username = ?3, password = ?4, link = ?5, remark = ?6,
-             favicon = ?7, is_favorite = ?8, sort = ?9, updated_at = ?10
-         WHERE user_id = ?11 AND id = ?12`,
+             totp_secret = ?7, favicon = ?8, is_favorite = ?9, sort = ?10, updated_at = ?11
+         WHERE user_id = ?12 AND id = ?13`,
       )
       .bind(
         groupId,
@@ -535,6 +554,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite,
         sort,
@@ -552,6 +572,7 @@ export class PasswordStore {
       password,
       link,
       remark,
+      totpSecret,
       favicon,
       isFavorite: Boolean(isFavorite),
       sort,
@@ -620,6 +641,7 @@ export class PasswordStore {
       password?: string
       link?: string
       remark?: string
+      totpSecret?: string
       favicon?: string
       sort?: number
     }>,
@@ -641,6 +663,7 @@ export class PasswordStore {
       const password = item.password ?? ''
       const link = item.link ?? ''
       const remark = item.remark ?? ''
+      const totpSecret = item.totpSecret ?? ''
       const favicon = item.favicon ?? ''
       const sort = item.sort ?? i
 
@@ -648,8 +671,8 @@ export class PasswordStore {
         this.db
           .prepare(
             `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
           )
           .bind(
             this.userId,
@@ -660,6 +683,7 @@ export class PasswordStore {
             password,
             link,
             remark,
+            totpSecret,
             favicon,
             0,
             sort,
@@ -677,6 +701,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite: false,
         sort,
@@ -960,8 +985,8 @@ export class PasswordStore {
         this.db
           .prepare(
             `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
           )
           .bind(
             this.userId,
@@ -972,6 +997,7 @@ export class PasswordStore {
             a.password ?? '',
             a.link ?? '',
             a.remark ?? '',
+            a.totpSecret ?? '',
             a.favicon ?? '',
             a.isFavorite ? 1 : 0,
             a.sort ?? 0,
