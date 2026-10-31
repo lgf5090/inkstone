@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2 } from 'lucide-react'
 import type { GithubAccountView } from '@shared/development/github/types'
 import { localeTag, t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
@@ -8,6 +8,7 @@ import { Input } from '../../../../components/form'
 import { Empty } from '../../../../components/feedback'
 import { Modal, confirm } from '../../../../components/overlay'
 import { GithubIcon } from './GithubIcon'
+import { GithubAvatar } from './GithubAvatar'
 
 export function AccountsView({
   accounts,
@@ -82,9 +83,7 @@ export function AccountsView({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {accounts.map((account) => (
               <div key={account.id} className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] p-3">
-                {account.avatarUrl
-                  ? <img src={account.avatarUrl} alt={account.username} loading="lazy" referrerPolicy="no-referrer" className="size-9 shrink-0 rounded-full bg-[var(--bg-inset)]" />
-                  : <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-inset)]"><UserRound size={15} className="text-[var(--text-tertiary)]" /></span>}
+                <GithubAvatar src={account.avatarUrl} name={account.username} size={36} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[length:var(--text-13)] font-medium">{account.username}</p>
                   <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">

@@ -12,6 +12,7 @@ import { useRepoDetail } from '../cache'
 import { buildMirrorDownloadUrl, formatNumber, formatDate, formatFileSize } from '../lib/format'
 import { getLanguageColor } from '../lib/languages'
 import { renderGithubReadme } from '../lib/readme'
+import { GithubAvatar } from './GithubAvatar'
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -119,7 +120,7 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
 
       <div className="border-b border-[var(--border-subtle)] p-4">
         <div className="flex items-start gap-3">
-          <img src={repo.owner.avatarUrl} alt={repo.owner.login} loading="lazy" referrerPolicy="no-referrer" className="size-10 shrink-0 rounded-full bg-[var(--bg-inset)]" />
+          <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={40} />
           <div className="min-w-0 flex-1">
             <a href={repo.url} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-[length:var(--text-15)] font-semibold hover:text-[var(--accent)] hover:underline">{repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span></a>
             {repo.description && <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}

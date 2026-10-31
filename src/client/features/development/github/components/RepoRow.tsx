@@ -10,6 +10,7 @@ import { IconButton } from '../../../../components/primitives'
 import { formatNumber, formatDate } from '../lib/format'
 import { getLanguageColor } from '../lib/languages'
 import { AssignedTagChips, TagAssign } from './TagAssign'
+import { GithubAvatar } from './GithubAvatar'
 
 export interface RepoRowProps {
   repo: GithubRepo
@@ -68,7 +69,7 @@ export const RepoRow = memo(function RepoRow({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
-            <img src={repo.owner.avatarUrl} alt={repo.owner.login} loading="lazy" referrerPolicy="no-referrer" className="mt-0.5 size-6 shrink-0 rounded-full bg-[var(--bg-inset)]" />
+            <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={24} className="mt-0.5" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <a href={repo.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline" title={repo.fullName}>

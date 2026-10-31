@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react'
-import { ChevronDown, ChevronRight, FileText, Globe, Pin, Plus, Settings2, Star, Tag as TagIcon, User as UserIcon } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Globe, Pin, Plus, Settings2, Star, Tag as TagIcon } from 'lucide-react'
 import type { GithubAccountView, GithubTag, GistViewId, SavedGist } from '@shared/development/github/types'
 import { GIST_ALL_VIEW, GIST_EXPLORE_VIEW, GIST_FAV_VIEW, GIST_MY_GITHUB_VIEW, GIST_PINNED_VIEW } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
@@ -7,6 +7,7 @@ import { cn } from '../../../../lib/cn'
 import { Badge, Button, IconButton } from '../../../../components/primitives'
 import { buildTagTree, type TagTreeNode } from '../lib/tags'
 import { GithubIcon } from './GithubIcon'
+import { GithubAvatar } from './GithubAvatar'
 
 function SidebarItem({ icon, label, count, active, onClick, badge }: { icon: React.ReactNode; label: string; count?: number; active: boolean; onClick: () => void; badge?: React.ReactNode }) {
   return (
@@ -66,7 +67,7 @@ export const GistSidebar = memo(function GistSidebar({ tags, savedGists, selecte
           <SectionLabel>{t('development.github.gists.explore_github')}</SectionLabel>
           <SidebarItem icon={<Globe size={14} className="text-[var(--accent)]" />} label={t('development.github.gists.public_gists')} active={selectedView === GIST_EXPLORE_VIEW} onClick={() => onSelect(GIST_EXPLORE_VIEW)} />
           <SidebarItem icon={<GithubIcon className="size-3.5" />} label={t('development.github.gists.my_github')} active={selectedView === GIST_MY_GITHUB_VIEW} onClick={() => onSelect(GIST_MY_GITHUB_VIEW)} badge={accounts.length === 0 ? <Badge tone="warning">{t('development.github.accounts.not_configured')}</Badge> : <Badge tone="success">{accounts.length}</Badge>} />
-          {accounts.map((account) => <SidebarItem key={account.id} icon={account.avatarUrl ? <img src={account.avatarUrl} alt={account.username} className="size-3.5 rounded-full" /> : <UserIcon size={12} />} label={account.username} active={selectedView === `user:${account.username}`} onClick={() => onSelect(`user:${account.username}`)} />)}
+          {accounts.map((account) => <SidebarItem key={account.id} icon={<GithubAvatar src={account.avatarUrl} name={account.username} size={14} />} label={account.username} active={selectedView === `user:${account.username}`} onClick={() => onSelect(`user:${account.username}`)} />)}
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <SectionLabel>{t('development.github.gists.my_gists')}</SectionLabel>
           <SidebarItem icon={<FileText size={14} />} label={t('development.github.repos.all')} count={savedGists.length} active={selectedView === GIST_ALL_VIEW} onClick={() => onSelect(GIST_ALL_VIEW)} />
