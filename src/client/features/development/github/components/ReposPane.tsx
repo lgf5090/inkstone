@@ -18,6 +18,7 @@ import { RepoList } from './RepoList'
 import { RepoDetail } from './RepoDetail'
 import { TagManager } from './TagManager'
 import { SidebarFooter } from './SidebarFooter'
+import { RepoImportDialog } from './RepoImportDialog'
 
 function tagId(): string {
   return `gtag-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -58,6 +59,7 @@ export function ReposPane({
   const [committedQuery, setCommittedQuery] = useState('')
   const [page, setPage] = useState(1)
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
   const lookupRef = useRef<string | null>(null)
 
@@ -207,7 +209,7 @@ export function ReposPane({
   }, [refresh])
 
   const sidebar = (
-    <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} />
+    <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
   )
 
   return (
@@ -264,6 +266,17 @@ export function ReposPane({
         onAdd={addTag}
         onUpdate={updateTag}
         onDelete={(id) => void deleteTag(id)}
+      />
+      <RepoImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={(repo) => {
+          saveRepo(repo, {})
+          setSelectedView(GITHUB_ALL_VIEW)
+          setSelectedRepoId(String(repo.id))
+          navigateToAddress(repoAddress(repo.fullName))
+          toast({ title: t('development.github.repos.import_done', { name: repo.fullName }), tone: 'success' })
+        }}
       />
     </>
   )

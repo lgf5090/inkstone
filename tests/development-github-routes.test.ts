@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gistAddress, parseGithubRoute, repoAddress, tabAddress } from '../src/client/features/development/github/routes'
+import { gistAddress, parseGithubRoute, parseRepoInput, repoAddress, tabAddress } from '../src/client/features/development/github/routes'
 
 describe('GitHub addresses', () => {
   it('parses tab, repository and gist routes', () => {
@@ -19,5 +19,14 @@ describe('GitHub addresses', () => {
     expect(gistAddress('abcdef12')).toBe('/development/github/gists/abcdef12')
     expect(tabAddress('repos')).toBe('/development/github')
     expect(tabAddress('gists')).toBe('/development/github/gists')
+  })
+
+  it('accepts repository URLs and owner/name input', () => {
+    expect(parseRepoInput('https://github.com/Octo/Repo.git')).toBe('Octo/Repo')
+    expect(parseRepoInput('http://github.com/Octo/Repo/')).toBe('Octo/Repo')
+    expect(parseRepoInput('git@github.com:Octo/Repo.git')).toBe('Octo/Repo')
+    expect(parseRepoInput(' Octo/Repo ')).toBe('Octo/Repo')
+    expect(parseRepoInput('https://gitlab.com/octo/repo')).toBeNull()
+    expect(parseRepoInput('octo')).toBeNull()
   })
 })

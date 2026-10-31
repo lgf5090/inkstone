@@ -40,3 +40,16 @@ export function gistAddress(id: string): string {
 export function tabAddress(tab: GithubTab): string {
   return tab === 'gists' ? '/development/github/gists' : '/development/github'
 }
+
+export function parseRepoInput(value: string): string | null {
+  let trimmed = value.trim()
+  if (!trimmed) return null
+  trimmed = trimmed.replace(/^https?:\/\/github\.com\//i, '').replace(/^git@github\.com:/i, '')
+  trimmed = trimmed.replace(/\.git$/i, '').replace(/\/+$/, '')
+  const parts = trimmed.split('/')
+  if (parts.length !== 2) return null
+  const owner = parts[0]!
+  const name = parts[1]!
+  if (!REPO_SEGMENT.test(owner) || !REPO_SEGMENT.test(name)) return null
+  return `${owner}/${name}`
+}
