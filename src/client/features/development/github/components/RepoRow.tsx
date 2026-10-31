@@ -56,8 +56,9 @@ export const RepoRow = memo(function RepoRow({
   return (
     <li
       data-slot="github-repo-row"
+      onClick={() => onSelect(repo)}
       className={cn(
-        'group border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]',
+        'group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]',
         selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent',
       )}
     >

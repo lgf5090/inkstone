@@ -182,6 +182,17 @@ describe('GitHub module shell', () => {
     expect(rendered.container.querySelector('[data-slot="repo-detail"]')).not.toBeNull()
   })
 
+  it('selects a repository when the row body is clicked', async () => {
+    rendered = renderElement(<GithubApp />)
+    await settle()
+    const row = rendered.container.querySelector<HTMLElement>('[data-slot="github-repo-row"]')
+    expect(row).toBeTruthy()
+    act(() => row!.click())
+    await settle()
+    expect(rendered.container.querySelector('[data-slot="repo-detail"]')).not.toBeNull()
+    expect(rendered.container.textContent ?? '').toContain('octo/demo')
+  })
+
   it('exposes the open repository as a button instead of a listbox option', async () => {
     rendered = renderElement(<GithubApp />)
     await settle()

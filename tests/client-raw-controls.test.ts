@@ -358,6 +358,20 @@ const CLICK_CONTAINER_EXCEPTIONS = new Map<string, { sites: number; reason: stri
     },
   ],
   [
+    'src/client/features/development/github/components/RepoRow.tsx',
+    {
+      sites: 1,
+      reason: 'A repository row selects on click the way the file list does; its title is a real button for the keyboard path and every nested action stops propagation, so the row is a pointer shortcut rather than the control container.',
+    },
+  ],
+  [
+    'src/client/features/development/github/components/GistList.tsx',
+    {
+      sites: 2,
+      reason: 'The gist row and card select on click for the pointer path while their titles are real buttons for the keyboard path; the checkbox wrapper and every action stop propagation so selecting and checking do not fight.',
+    },
+  ],
+  [
     'src/client/features/excalidraw/library/ExcalidrawLibraryTree.tsx',
     {
       sites: 1,
