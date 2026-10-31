@@ -261,6 +261,17 @@ describe('GitHub store optimistic writes', () => {
     await pending
   })
 
+  it('patches gist metadata without sending file content', async () => {
+    useGithubStore.setState({ status: 'ready', gists: [gist('a')] })
+    fetchMock.mockResolvedValueOnce(envelope({ gist: { ...gist('a'), pinned: true } }))
+    const pending = useGithubStore.getState().patchGist('a', { pinned: true })
+    expect(useGithubStore.getState().gists[0]!.pinned).toBe(true)
+    await pending
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe('PATCH')
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/api/development/github/gist/gists/a')
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({ pinned: true })
+  })
+
   it('removes a saved repository optimistically', async () => {
     useGithubStore.setState({ status: 'ready', repos: [repo('r1')] })
     fetchMock.mockResolvedValueOnce(envelope({ ok: true }))

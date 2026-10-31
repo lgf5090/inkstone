@@ -5,7 +5,9 @@ import {
   MAX_GIST_FILES,
   MAX_GIST_FILENAME,
   MAX_GIST_FILE_BYTES,
+  MAX_NOTES,
   MAX_REPO_DATA_BYTES,
+  MAX_TAG_IDS,
   EXPORT_TTL_MS,
 } from '@shared/development/github/limits'
 import {
@@ -82,6 +84,8 @@ import {
   listGistTags,
   listRepos,
   listTags,
+  patchGist,
+  toGistSummary,
   unbindGistTags,
   unbindRepoTags,
   upsertGist,
@@ -132,6 +136,18 @@ const GithubGistUpdateSchema = z
   .refine((value) => value.description !== undefined || value.files !== undefined, {
     message: 'Provide a description or files to update',
     path: ['files'],
+  })
+
+const SavedGistPatchSchema = z
+  .object({
+    description: z.string().max(8000).optional(),
+    tagIds: z.array(z.string().min(1).max(100)).max(MAX_TAG_IDS).optional(),
+    pinned: z.boolean().optional(),
+    favorited: z.boolean().optional(),
+    notes: z.string().max(MAX_NOTES).optional(),
+  })
+  .refine((value) => Object.values(value).some((entry) => entry !== undefined), {
+    message: 'Nothing to update',
   })
 
 const RepoDetailQuerySchema = z.object({
@@ -496,6 +512,17 @@ developmentGithubRoutes.get('/gist/gists/:id', async (c) => {
   const gist = await findGist(c.env.DB, userId, id)
   if (!gist) throw githubNotFound('Gist not found')
   return c.json({ ok: true, data: { gist } })
+})
+
+developmentGithubRoutes.patch('/gist/gists/:id', async (c) => {
+  const userId = userIdOf(c)
+  writeBudget(userId)
+  const id = gistPathId(c)
+  const body = await parseBody(c, SavedGistPatchSchema, SMALL_BODY_LIMIT)
+  if (body.tagIds) await assertGistTags(c, userId, body.tagIds)
+  const gist = await patchGist(c.env.DB, userId, id, body)
+  if (!gist) throw githubNotFound('Gist not found')
+  return c.json({ ok: true, data: { gist: toGistSummary(gist) } })
 })
 
 developmentGithubRoutes.put('/gist/gists/:id', async (c) => {

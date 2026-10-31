@@ -182,6 +182,14 @@ export interface GistFile {
 export type GistFilePatch = { content: string; filename?: string } | null
 export type GistFilesPatch = Record<string, GistFilePatch>
 
+export interface GistMetaPatch {
+  description?: string
+  tagIds?: string[]
+  pinned?: boolean
+  favorited?: boolean
+  notes?: string
+}
+
 export interface GistItem {
   id: string
   description: string

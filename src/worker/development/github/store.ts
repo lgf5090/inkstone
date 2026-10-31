@@ -1,5 +1,6 @@
 import { GIST_PREVIEW_CHARS, MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
 import type {
+  GistMetaPatch,
   GithubExportFormat,
   GithubTag,
   SavedGist,
@@ -591,6 +592,55 @@ export async function deleteGist(db: D1Database, userId: string, id: string): Pr
     .bind(userId, id)
     .run()
   return (result.meta.changes ?? 0) > 0
+}
+
+export async function patchGist(
+  db: D1Database,
+  userId: string,
+  id: string,
+  patch: GistMetaPatch,
+): Promise<SavedGist | null> {
+  const existing = await findGist(db, userId, id)
+  if (!existing) return null
+  const sets: string[] = []
+  const values: unknown[] = []
+  if (patch.description !== undefined) {
+    sets.push('description = ?')
+    values.push(patch.description)
+  }
+  if (patch.tagIds !== undefined) {
+    sets.push('tag_ids = ?')
+    values.push(JSON.stringify(patch.tagIds))
+  }
+  if (patch.pinned !== undefined) {
+    sets.push('pinned = ?')
+    values.push(patch.pinned ? 1 : 0)
+  }
+  if (patch.favorited !== undefined) {
+    sets.push('favorited = ?')
+    values.push(patch.favorited ? 1 : 0)
+  }
+  if (patch.notes !== undefined) {
+    sets.push('notes = ?')
+    values.push(patch.notes)
+  }
+  if (sets.length === 0) return existing
+  const now = Date.now()
+  sets.push('updated_at = ?')
+  values.push(now, userId, id)
+  await db
+    .prepare(`UPDATE development_github_gists SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`)
+    .bind(...values)
+    .run()
+  return {
+    ...existing,
+    description: patch.description ?? existing.description,
+    tagIds: patch.tagIds ?? existing.tagIds,
+    pinned: patch.pinned ?? existing.pinned,
+    favorited: patch.favorited ?? existing.favorited,
+    notes: patch.notes ?? existing.notes,
+    updatedAt: now,
+  }
 }
 
 export async function deleteGists(

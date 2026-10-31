@@ -5,6 +5,7 @@ import {
   type GistFilesPatch,
   type GistItem,
   type GistListResult,
+  type GistMetaPatch,
   type GithubAccountView,
   type GithubBootstrap,
   type GithubExportFile,
@@ -157,6 +158,14 @@ export const githubApi = {
   deleteGist(id: string, signal?: AbortSignal): Promise<void> {
     return request<{ ok: true }>(`${BASE}/gist/gists/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
       .then(() => undefined)
+  },
+
+  patchSavedGist(id: string, patch: GistMetaPatch, signal?: AbortSignal): Promise<SavedGist> {
+    return readData<{ gist: SavedGist }>(`/gist/gists/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: patch,
+      signal,
+    }).then((response) => response.gist)
   },
 
   batchDeleteGists(ids: string[], signal?: AbortSignal): Promise<{ count: number }> {

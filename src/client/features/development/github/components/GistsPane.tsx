@@ -50,6 +50,7 @@ export function GistsPane({
   const exportsEnabled = useGithubStore((state) => state.capabilities.exports)
   const mirrors = useGithubStore((state) => state.mirrors)
   const upsertGist = useGithubStore((state) => state.upsertGist)
+  const patchGist = useGithubStore((state) => state.patchGist)
   const deleteGist = useGithubStore((state) => state.deleteGist)
   const batchDelete = useGithubStore((state) => state.batchDeleteGists)
   const batchUpdate = useGithubStore((state) => state.batchUpdateGists)
@@ -130,10 +131,10 @@ export function GistsPane({
   const toggleExpand = (id: string) => setExpanded((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next })
   const persist = (gist: SavedGist) => upsertGist({ ...gist, updatedAt: Date.now() })
   const currentGist = (gist: SavedGist) => useGithubStore.getState().gists.find((entry) => entry.id === gist.id) ?? gist
-  const togglePin = (gist: SavedGist) => { const current = currentGist(gist); void persist({ ...current, pinned: !current.pinned }) }
-  const toggleFav = (gist: SavedGist) => { const current = currentGist(gist); void persist({ ...current, favorited: !current.favorited }) }
-  const toggleTag = (gist: SavedGist, tag: string) => { const current = currentGist(gist); void persist({ ...current, tagIds: current.tagIds.includes(tag) ? current.tagIds.filter((id) => id !== tag) : [...current.tagIds, tag] }) }
-  const updateNotes = (notes: string) => { const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId); if (current) void persist({ ...current, notes }) }
+  const togglePin = (gist: SavedGist) => { const current = currentGist(gist); void patchGist(current.id, { pinned: !current.pinned }) }
+  const toggleFav = (gist: SavedGist) => { const current = currentGist(gist); void patchGist(current.id, { favorited: !current.favorited }) }
+  const toggleTag = (gist: SavedGist, tag: string) => { const current = currentGist(gist); void patchGist(current.id, { tagIds: current.tagIds.includes(tag) ? current.tagIds.filter((id) => id !== tag) : [...current.tagIds, tag] }) }
+  const updateNotes = (notes: string) => { if (selectedGistId) void patchGist(selectedGistId, { notes }) }
   const snapshotFits = (data: GistItem): boolean =>
     utf8ByteLength(JSON.stringify(data)) <= MAX_GIST_DATA_BYTES
   const snapshotTooLarge = (): string =>

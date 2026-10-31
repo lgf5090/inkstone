@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   GistBatchPatch,
+  GistMetaPatch,
   GithubAccountView,
   GithubBootstrap,
   GithubCapabilities,
@@ -39,6 +40,7 @@ export interface GithubStore {
   upsertRepo: (repo: SavedGithubRepo) => Promise<void>
   deleteRepo: (id: string) => Promise<void>
   upsertGist: (gist: SavedGist) => Promise<void>
+  patchGist: (id: string, patch: GistMetaPatch) => Promise<void>
   deleteGist: (id: string) => Promise<void>
   batchDeleteGists: (ids: string[]) => Promise<void>
   batchUpdateGists: (ids: string[], patch: GistBatchPatch) => Promise<void>
@@ -110,6 +112,17 @@ function applyBatchPatch(gist: SavedGist, patch: GistBatchPatch): SavedGist {
     const removed = new Set(patch.removeTagIds)
     next.tagIds = next.tagIds.filter((tagId) => !removed.has(tagId))
   }
+  next.updatedAt = Date.now()
+  return next
+}
+
+function applyGistMeta(gist: SavedGist, patch: GistMetaPatch): SavedGist {
+  const next = { ...gist }
+  if (patch.description !== undefined) next.description = patch.description
+  if (patch.tagIds !== undefined) next.tagIds = patch.tagIds
+  if (patch.pinned !== undefined) next.pinned = patch.pinned
+  if (patch.favorited !== undefined) next.favorited = patch.favorited
+  if (patch.notes !== undefined) next.notes = patch.notes
   next.updatedAt = Date.now()
   return next
 }
@@ -353,6 +366,26 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       await enqueue(`gist:${id}`, async () => {
         try {
           await githubApi.deleteGist(id)
+        } catch (error) {
+          notifyFailure(error)
+          if (isCurrent('gists', revision)) await reconcile(['gists'])
+        }
+      })
+    },
+
+    patchGist: async (id, patch) => {
+      const revision = bump('gists')
+      set((state) => ({ gists: state.gists.map((gist) => (gist.id === id ? applyGistMeta(gist, patch) : gist)) }))
+      await enqueue(`gist:${id}`, async () => {
+        try {
+          const saved = await githubApi.patchSavedGist(id, patch)
+          if (isCurrent('gists', revision)) {
+            set((state) => ({
+              gists: state.gists.map((gist) =>
+                gist.id === id ? { ...applyGistMeta(gist, patch), updatedAt: saved.updatedAt } : gist,
+              ),
+            }))
+          }
         } catch (error) {
           notifyFailure(error)
           if (isCurrent('gists', revision)) await reconcile(['gists'])

@@ -676,6 +676,15 @@ describe('development github gist summaries', () => {
     const full = await call('GET', `/gist/gists/${GIST_ID}`)
     const detail = (await bodyOf<{ gist: { data: { files: Array<{ content: string }> } } }>(full)).data!.gist
     expect(detail.data.files[0]!.content).toHaveLength(300)
+
+    const patched = await call('PATCH', `/gist/gists/${GIST_ID}`, { body: { pinned: true, notes: 'note' } })
+    expect(patched.status).toBe(200)
+    const patchedGist = (await bodyOf<{ gist: { pinned: boolean; notes: string } }>(patched)).data!.gist
+    expect(patchedGist.pinned).toBe(true)
+    expect(patchedGist.notes).toBe('note')
+    const reread = await call('GET', `/gist/gists/${GIST_ID}`)
+    const rereadGist = (await bodyOf<{ gist: { data: { files: Array<{ content: string }> } } }>(reread)).data!.gist
+    expect(rereadGist.data.files[0]!.content).toHaveLength(300)
   })
 })
 
