@@ -170,8 +170,11 @@ export function applyTextCaptionToSvg(
   const fontWeight = options.bold ? 'bold' : 'normal'
   const fontStyle = options.italic ? 'italic' : 'normal'
   const textDecoration = options.underline ? 'underline' : 'none'
-  const fontFamily = options.fontFamily || 'sans-serif'
-  const textColor = options.color || '#000000'
+  // These land inside attribute values of a file someone else will open: escaping only the text nodes
+  // would let a saved font family or colour close the attribute and add one of its own.
+  const fontFamily = escapeXml(options.fontFamily || 'sans-serif')
+  const textColor = escapeXml(options.color || '#000000')
+  const background = escapeXml(backgroundColor)
 
   const textNodes = lines
     .map((line, idx) => {
@@ -188,7 +191,7 @@ export function applyTextCaptionToSvg(
       : svgString
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${origWidth}" height="${newHeight}" viewBox="0 0 ${origWidth} ${newHeight}">
-    <rect width="${origWidth}" height="${newHeight}" fill="${backgroundColor}"/>
+    <rect width="${origWidth}" height="${newHeight}" fill="${background}"/>
     <g transform="translate(0, ${qrY})">
       ${innerContent}
     </g>

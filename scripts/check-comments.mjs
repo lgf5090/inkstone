@@ -18047,6 +18047,10 @@ const allowed = new Map([
     "// Apply Organic Effects (crystalize or liquidify)",
     "// Output to final canvas with scale",
   ]],
+  ["src/client/features/tools/qrcode/engine/text-decorator.ts", [
+    "// These land inside attribute values of a file someone else will open: escaping only the text nodes",
+    "// would let a saved font family or colour close the attribute and add one of its own.",
+  ]],
   ["src/client/features/tools/qrcode/options/AiEffectsTab.tsx", [
     "/* 1. Organic Canvas Effects */",
     "/* 2. 3D Perspective & Rotation */",
@@ -31187,6 +31191,11 @@ const allowed = new Map([
   ["src/shared/tools/password/types.ts", [
     "/**\n * Shared types for the Password Manager submodule under Tools (`tools/password`).\n */",
     "/** AES-256-CBC ciphertext hex string */",
+  ]],
+  ["src/shared/tools/qrcode/schemas.ts", [
+    "/**\n * Colours reach canvas `fillStyle` and SVG attributes. Anything carrying a quote, an angle bracket or\n * a backslash would let a saved config close an attribute and write one of its own into the exported\n * SVG, so accepted shapes are listed rather than dangerous characters excluded.\n */",
+    "/** A logo is embedded or same-origin: a saved config must not make the reader fetch a third-party host. */",
+    "/**\n * Styling as it arrives from an untrusted place: an imported file, a stored record, a saved template.\n * Every field is optional because these payloads are merged into the workbench rather than replacing\n * it whole, and unknown keys are refused so nothing outside the renderer's vocabulary survives.\n */",
   ]],
   ["src/shared/tools/shortlinks/country.ts", [
     "/**\n * Country flag emoji and localized name helper.\n */",

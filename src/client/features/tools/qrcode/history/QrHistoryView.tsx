@@ -6,6 +6,7 @@ import { useQrCodeStore } from '../store'
 import { useToolsStore } from '../../store'
 import { Button, IconButton } from '../../../../components/primitives'
 import { confirm } from '../../../../components/overlay'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { useUi } from '../../../../store/ui'
 import { t } from '../../../../lib/i18n'
 
@@ -43,9 +44,11 @@ export function QrHistoryView() {
       setTextContent(record.contentRaw)
     }
     try {
-      const parsedOptions = JSON.parse(record.optionsJson)
-      setOptions(parsedOptions)
+      const validated = parseQrStylingOptions(JSON.parse(record.optionsJson))
+      if (validated) setOptions(validated)
+      else useUi.getState().toast({ title: t('tools.qrcode.history.options_invalid'), tone: 'danger' })
     } catch {
+      useUi.getState().toast({ title: t('tools.qrcode.history.options_invalid'), tone: 'danger' })
     }
     setActiveQrCodeView('generator')
     useUi.getState().toast({ title: t('tools.qrcode.history.restored'), tone: 'success' })

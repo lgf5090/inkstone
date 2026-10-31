@@ -378,6 +378,7 @@ export const EN_US_TOOLS = {
   'tools.qrcode.history.delete_confirm_button': 'Confirm Delete',
   'tools.qrcode.history.delete_success': 'Record deleted successfully',
   'tools.qrcode.history.delete_error': 'Failed to delete record',
+  'tools.qrcode.history.options_invalid': 'The styling saved with this record could not be read; only its content was restored.',
   'tools.qrcode.history.load_error': 'Failed to load QR history',
   'tools.qrcode.history.restored': 'QR options restored to workbench',
   'tools.qrcode.templates.library_title': 'QR Templates Library',

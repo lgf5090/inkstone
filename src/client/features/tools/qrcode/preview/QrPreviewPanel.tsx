@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Download, Info, Maximize2, QrCode, Upload } from 'lucide-react'
 import { useQrCodeStore, useQrPayload } from '../store'
 import { QrEngine } from '../engine/qr-engine'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
@@ -57,11 +58,12 @@ export function QrPreviewPanel() {
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target?.result as string)
-        if (parsed.options) {
-          setOptions(parsed.options)
-        } else {
-          setOptions(parsed)
+        const validated = parseQrStylingOptions(parsed && parsed.options ? parsed.options : parsed)
+        if (!validated) {
+          useUi.getState().toast({ title: t('tools.qrcode.preview.import_error'), tone: 'danger' })
+          return
         }
+        setOptions(validated)
       } catch {
         useUi.getState().toast({ title: t('tools.qrcode.preview.import_error'), tone: 'danger' })
       }

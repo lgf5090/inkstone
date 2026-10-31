@@ -378,6 +378,7 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.history.delete_confirm_button': '确认删除',
   'tools.qrcode.history.delete_success': '已删除历史记录',
   'tools.qrcode.history.delete_error': '删除失败，请稍后重试',
+  'tools.qrcode.history.options_invalid': '这条记录的样式配置无法识别，已只恢复内容',
   'tools.qrcode.history.load_error': '加载历史记录失败',
   'tools.qrcode.history.restored': '已将二维码参数回填至工作台',
   'tools.qrcode.templates.library_title': '二维码模板库',

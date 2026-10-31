@@ -11,6 +11,7 @@ import { useUi } from '../../../../store/ui'
 import { t, type MessageKey } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { TemplateThumbnail } from './TemplateThumbnail'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 
 const CATEGORIES: readonly { id: 'all' | QrTemplateCategory | 'custom'; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'tools.qrcode.templates.cat_all' },
@@ -55,8 +56,9 @@ export function QrTemplatesView() {
 
   const handleApplyCustom = (tpl: QrCodeTemplate) => {
     try {
-      const parsed = JSON.parse(tpl.optionsJson)
-      setOptions(parsed)
+      const validated = parseQrStylingOptions(JSON.parse(tpl.optionsJson))
+      if (!validated) throw new Error('template options rejected')
+      setOptions(validated)
       setActiveQrCodeView('generator')
       useUi.getState().toast({ title: t('tools.qrcode.templates.applied'), tone: 'success' })
     } catch {
@@ -103,7 +105,8 @@ export function QrTemplatesView() {
 
   const parseCustomOptions = (json: string): QrStylingOptions => {
     try {
-      return JSON.parse(json)
+      const validated = parseQrStylingOptions(JSON.parse(json))
+      return validated ? { ...currentOptions, ...validated } : currentOptions
     } catch {
       return currentOptions
     }
