@@ -91,7 +91,7 @@ export function PasswordGeneratorForm({
       case 0:
         return 'bg-[var(--danger)]'
       case 1:
-        return 'bg-orange-500'
+        return 'bg-[var(--warning)]'
       case 2:
         return 'bg-[var(--warning)]'
       case 3:
@@ -99,7 +99,7 @@ export function PasswordGeneratorForm({
       case 4:
         return 'bg-[var(--success)]'
       default:
-        return 'bg-zinc-300 dark:bg-zinc-700'
+        return 'bg-[var(--border-subtle)]'
     }
   }
 
