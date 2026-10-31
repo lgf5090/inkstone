@@ -64,7 +64,7 @@ export function BundlesView() {
             {t('tools.shortlinks.bundles.title')}
           </h2>
           <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-            {bundles.length} {t('tools.shortlinks.bundles.title')}
+            {t('tools.shortlinks.bundles.count', { count: bundles.length })}
           </p>
         </div>
         <Button variant="primary" size="sm" onClick={() => openBundleModal(null)}>
