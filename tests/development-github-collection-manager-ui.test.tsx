@@ -73,4 +73,27 @@ describe('collection manager', () => {
     expect(onUpdate).toHaveBeenCalledWith('c1', { name: 'Renamed', description: 'Picked' })
     view.unmount()
   })
+
+  it('refuses a rename onto an existing name instead of silently dropping it', () => {
+    const onUpdate = vi.fn()
+    const second: GithubCollection = { ...existing, id: 'c2', name: 'Other' }
+    const view = renderElement(
+      <CollectionManager open onClose={() => undefined} collections={[existing, second]} onAdd={() => undefined} onUpdate={onUpdate} onDelete={() => undefined} />,
+    )
+    const edits = Array.from(document.body.querySelectorAll('button'))
+      .filter((button) => button.getAttribute('aria-label') === t('common.edit'))
+    act(() => edits[1]!.click())
+    const nameInput = document.body.querySelectorAll<HTMLInputElement>('[role="dialog"] input')[2]!
+    act(() => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+      setValue.call(nameInput, 'Curated')
+      nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const save = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === t('common.save'))
+    act(() => save!.click())
+    expect(document.body.textContent).toContain(t('development.github.collections.duplicate'))
+    expect(onUpdate).not.toHaveBeenCalled()
+    view.unmount()
+  })
 })

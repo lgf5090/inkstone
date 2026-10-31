@@ -27,6 +27,7 @@ export function CollectionManager({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editError, setEditError] = useState<string | null>(null)
 
   const normalizedName = name.trim().toLowerCase()
   const duplicate = useMemo(
@@ -45,6 +46,7 @@ export function CollectionManager({
     setEditingId(collection.id)
     setEditName(collection.name)
     setEditDescription(collection.description)
+    setEditError(null)
   }
 
   const saveEdit = () => {
@@ -53,7 +55,10 @@ export function CollectionManager({
     if (!trimmed) return
     const clash = collections.some((collection) =>
       collection.id !== editingId && collection.name.trim().toLowerCase() === trimmed.toLowerCase())
-    if (clash) return
+    if (clash) {
+      setEditError(t('development.github.collections.duplicate'))
+      return
+    }
     onUpdate(editingId, { name: trimmed, description: editDescription.trim() })
     setEditingId(null)
   }
@@ -92,11 +97,12 @@ export function CollectionManager({
                     {editing ? (
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <div className="flex items-center gap-2">
-                          <Input autoFocus value={editName} onChange={(event) => setEditName(event.target.value)} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
-                          <IconButton label={t('common.save')} size="sm" onClick={saveEdit}><Check size={14} /></IconButton>
-                          <IconButton label={t('common.cancel')} size="sm" onClick={() => setEditingId(null)}><X size={14} /></IconButton>
+                          <Input autoFocus value={editName} onChange={(event) => { setEditName(event.target.value); setEditError(null) }} className="h-7 flex-1" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditingId(null) }} />
+                          <IconButton label={t('common.save')} size="sm" disabled={!editName.trim()} onClick={saveEdit}><Check size={14} /></IconButton>
+                          <IconButton label={t('common.cancel')} size="sm" onClick={() => { setEditingId(null); setEditError(null) }}><X size={14} /></IconButton>
                         </div>
                         <Input value={editDescription} onChange={(event) => setEditDescription(event.target.value)} placeholder={t('development.github.collections.description_placeholder')} className="h-7" />
+                        {editError && <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{editError}</p>}
                       </div>
                     ) : (
                       <>
