@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { renderGithubReadme } from '../src/client/features/development/github/lib/readme'
 
 const OPTIONS = { fullName: 'acme/repo', defaultBranch: 'main' }
+const proxied = (url: string): string => `/api/development/github/image?url=${encodeURIComponent(url)}`
 
 describe('GitHub README rendering', () => {
   it('rewrites relative images to raw and relative links to blob', () => {
@@ -12,10 +13,10 @@ describe('GitHub README rendering', () => {
       '[anchor](#install)',
       '[site](https://example.com)',
     ].join('\n\n'), OPTIONS)
-    expect(html).toContain('src="https://github.com/acme/repo/raw/main/images/shot.png"')
+    expect(html).toContain(`src="${proxied('https://github.com/acme/repo/raw/main/images/shot.png')}"`)
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/docs/guide.md"')
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/LICENSE"')
-    expect(html).toContain('href="#install"')
+    expect(html).toContain('href="#readme-install"')
     expect(html).toContain('href="https://example.com"')
     expect(html).toContain('target="_blank"')
     expect(html).toContain('rel="noopener noreferrer"')
@@ -28,7 +29,7 @@ describe('GitHub README rendering', () => {
 
   it('adds safe image attributes and upgrades protocol-relative URLs', () => {
     const html = renderGithubReadme('![logo](//cdn.example.com/logo.png)', OPTIONS)
-    expect(html).toContain('src="https://cdn.example.com/logo.png"')
+    expect(html).toContain(`src="${proxied('https://cdn.example.com/logo.png')}"`)
     expect(html).toContain('loading="lazy"')
     expect(html).toContain('referrerpolicy="no-referrer"')
   })
@@ -63,7 +64,7 @@ describe('GitHub README rendering', () => {
       '</p>',
       '<table><tr><td width="33%" valign="top"><h3>Feature</h3></td></tr></table>',
     ].join('\n'), OPTIONS)
-    expect(html).toContain('src="https://github.com/acme/repo/raw/main/assets/hero.svg"')
+    expect(html).toContain(`src="${proxied('https://github.com/acme/repo/raw/main/assets/hero.svg')}"`)
     expect(html).toContain('href="https://github.com/acme/repo/blob/main/docs/guide.md"')
     expect(html).toContain('align="center"')
     expect(html).toContain('width="100%"')
@@ -73,11 +74,17 @@ describe('GitHub README rendering', () => {
 
   it('adds GitHub-style heading ids so README anchors resolve', () => {
     const html = renderGithubReadme('## Quick start\n\n[Jump](#quick-start)', OPTIONS)
-    expect(html).toContain('<h2 id="quick-start">Quick start</h2>')
-    expect(html).toContain('href="#quick-start"')
+    expect(html).toContain('<h2 id="readme-quick-start">Quick start</h2>')
+    expect(html).toContain('href="#readme-quick-start"')
     const duplicate = renderGithubReadme('## Same\n\n## Same', OPTIONS)
-    expect(duplicate).toContain('<h2 id="same">')
-    expect(duplicate).toContain('<h2 id="same-1">')
+    expect(duplicate).toContain('<h2 id="readme-same">')
+    expect(duplicate).toContain('<h2 id="readme-same-1">')
+  })
+
+  it('prefixes author-supplied ids so they cannot collide with the app', () => {
+    const html = renderGithubReadme('<a id="root"></a>\n\n[Top](#root)', OPTIONS)
+    expect(html).toContain('id="readme-root"')
+    expect(html).toContain('href="#readme-root"')
   })
 
   it('drops arbitrary classes that could borrow app styles but keeps code and table classes', () => {
@@ -111,7 +118,14 @@ describe('GitHub README rendering', () => {
     ].join('\n\n'), OPTIONS)
     expect(html).toContain('href="https://example.com/a"')
     expect(html).toContain('rel="noopener noreferrer"')
-    expect(html).toContain('src="https://example.com/a.png"')
+    expect(html).toContain(`src="${proxied('https://example.com/a.png')}"`)
     expect(html).toContain('loading="lazy"')
+  })
+
+  it('does not wrap an already proxied image twice', () => {
+    const url = proxied('https://example.com/a.png')
+    const html = renderGithubReadme(`![remote](${url})`, OPTIONS)
+    expect(html).toContain(`src="${url}"`)
+    expect(html).not.toContain('url=%2Fapi%2F')
   })
 })

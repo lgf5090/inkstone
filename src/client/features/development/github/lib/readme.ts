@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
+import { proxiedImageUrl } from './image'
 
 export interface ReadmeRenderOptions {
   fullName: string
@@ -26,6 +27,7 @@ const FORBID_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'in
 const FORBID_ATTR = ['style', 'srcset', 'sizes', 'formaction']
 const EXTERNAL_URL = /^(?:https?:|mailto:|tel:)/i
 const SAFE_CLASS = /^(?:language-[A-Za-z0-9+#._-]+|github-md-table)$/
+const README_ID_PREFIX = 'readme-'
 
 function isExternalUrl(value: string): boolean {
   return EXTERNAL_URL.test(value.trim())
@@ -47,6 +49,7 @@ function normalizeRelativePath(path: string): string {
 function resolveUrl(rawUrl: string, options: ReadmeRenderOptions, kind: UrlKind): string | null {
   const url = rawUrl.trim()
   if (!url) return ''
+  if (url.startsWith('/api/development/github/image?')) return url
   if (url.startsWith('#')) return url
   if (url.startsWith('//')) return `https:${url}`
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)
@@ -131,7 +134,7 @@ function renderMarkdown(md: string, options: ReadmeRenderOptions): string {
     const token = tokens[index]!
     const resolved = resolveUrl(token.attrGet('src') ?? '', options, 'image')
     if (resolved === null) token.attrSet('src', '')
-    else token.attrSet('src', resolved)
+    else token.attrSet('src', proxiedImageUrl(resolved))
     token.attrSet('loading', 'lazy')
     token.attrSet('referrerpolicy', 'no-referrer')
     return self.renderToken(tokens, index, renderOptions)
@@ -162,6 +165,7 @@ function resolveHtmlUrls(html: string, options: ReadmeRenderOptions): string {
     if (tag === 'img') {
       element.setAttribute('loading', 'lazy')
       element.setAttribute('referrerpolicy', 'no-referrer')
+      element.setAttribute('src', proxiedImageUrl(resolved))
     }
   }
   return template.innerHTML
@@ -217,6 +221,15 @@ function sanitizeHtml(html: string, options: ReadmeRenderOptions): string {
   }
 
   assignHeadingIds(template)
+  for (const element of Array.from(template.content.querySelectorAll('[id]'))) {
+    const id = element.getAttribute('id')
+    if (id) element.setAttribute('id', `${README_ID_PREFIX}${id}`)
+  }
+  for (const link of Array.from(template.content.querySelectorAll('a[href^="#"]'))) {
+    const href = link.getAttribute('href') ?? ''
+    if (href.length <= 1) continue
+    link.setAttribute('href', `#${README_ID_PREFIX}${href.slice(1)}`)
+  }
   return template.innerHTML
 }
 

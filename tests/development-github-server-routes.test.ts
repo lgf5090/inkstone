@@ -465,6 +465,23 @@ describe('development github proxies', () => {
     expect(last).toBe(429)
   })
 
+  it('proxies README images and rejects non-images', async () => {
+    stubGithub(() => new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    }))
+    const image = await call('GET', `/image?url=${encodeURIComponent('https://cdn.example.com/a.png')}`)
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/png')
+    expect((await image.arrayBuffer()).byteLength).toBe(3)
+
+    stubGithub(() => jsonResponse({ not: 'an image' }))
+    const rejected = await call('GET', `/image?url=${encodeURIComponent('https://cdn.example.com/a.txt')}`)
+    expect(rejected.status).toBe(502)
+    expect((await bodyOf(rejected)).error?.code).toBe('github_upstream')
+    expect((await call('GET', '/image')).status).toBe(400)
+  })
+
   it('maps upstream failures to the github error codes', async () => {
     stubGithub(() => jsonResponse({ message: 'bad credentials' }, 401))
     const invalid = await call('GET', '/search')

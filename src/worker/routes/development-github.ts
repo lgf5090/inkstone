@@ -28,6 +28,7 @@ import { contentDisposition } from '../lib/http-range'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { createMinuteBudget } from '../lib/rate-limit'
+import { downloadReadmeImage } from '../cloudflare/catalog'
 import { requireAuth } from '../middleware/auth'
 import {
   addGithubAccount,
@@ -96,6 +97,7 @@ const searchBudget = createMinuteBudget(20, 'Too many GitHub searches. Try again
 const detailBudget = createMinuteBudget(40, 'Too many GitHub detail requests. Try again in a minute.')
 const listBudget = createMinuteBudget(60, 'Too many GitHub list requests. Try again in a minute.')
 const writeBudget = createMinuteBudget(30, 'Too many GitHub write requests. Try again in a minute.')
+const imageBudget = createMinuteBudget(120, 'Too many GitHub image requests. Try again in a minute.')
 
 const SLUG_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 const REPO_ID_PATTERN = /^[0-9]{1,20}$/
@@ -341,6 +343,27 @@ async function resolveGistWriteToken(c: Context<AppBindings>, gistId: string): P
 }
 
 developmentGithubRoutes.get('/health', (c) => c.json({ ok: true, data: { ready: true } }))
+
+developmentGithubRoutes.get('/image', async (c) => {
+  imageBudget(userIdOf(c))
+  const raw = c.req.query('url')
+  if (!raw || raw.length > 2048) throw ApiError.badRequest('An image URL is required')
+  try {
+    const { bytes, type } = await downloadReadmeImage(raw)
+    return new Response(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': type,
+        'Cache-Control': 'private, max-age=86400',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'none'; sandbox; img-src 'none'; form-action 'none'; base-uri 'none'",
+      },
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 400) throw error
+    throw new ApiError(502, 'github_upstream', 'The image could not be loaded')
+  }
+})
 
 developmentGithubRoutes.get('/bootstrap', async (c) => {
   const userId = userIdOf(c)
