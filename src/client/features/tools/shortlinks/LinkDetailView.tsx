@@ -305,13 +305,14 @@ export function LinkDetailView() {
         </div>
 
         {/* Range picker bar */}
-        <div className="flex items-center justify-between border-t border-[var(--border-subtle)] pt-4">
+        <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-secondary)]">
             {t('tools.shortlinks.detail.title')}
           </span>
           <Segmented
             size="sm"
             value={range}
+            className="w-full sm:w-auto"
             label={t('tools.shortlinks.detail.title')}
             onChange={(next) => setTimelineRange(next)}
             options={RANGES.map((r) => ({ value: r.id, label: t(r.labelKey) }))}
