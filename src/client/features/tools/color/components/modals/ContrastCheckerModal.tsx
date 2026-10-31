@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeftRight, CheckCircle2, XCircle } from 'lucide-react'
 import { evaluateWcagContrast } from '@shared/tools/color/a11y'
+import { DEFAULT_SEED_HEX } from '@shared/tools/color/contract'
 import { Modal } from '../../../../../components/overlay'
 import { Button } from '../../../../../components/primitives'
 import { Field, Input } from '../../../../../components/form'
@@ -78,7 +79,7 @@ export function ContrastCheckerModal() {
   const currentHex = useColorStudioStore((s) => s.currentHex)
 
   const [fg, setFg] = useState('#ffffff')
-  const [bg, setBg] = useState('#627486')
+  const [bg, setBg] = useState(DEFAULT_SEED_HEX)
 
   // The modal is mounted for the life of the app, so a value taken once at mount was the color the studio
   // booted with — opening the checker after picking something compared that earlier color instead.

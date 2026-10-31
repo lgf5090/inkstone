@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
 import { compileQuery } from '../../../../lib/query-match'
 import {
@@ -13,6 +13,7 @@ import {
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { PaletteSwatchGrid } from '../components/PaletteSwatchGrid'
+import { useColorStudioStore } from '../store'
 
 type TabKey = 'tailwind' | 'antd' | 'fluent' | 'flat' | 'open_color' | 'material'
 
@@ -26,8 +27,17 @@ const TABS: Array<{ key: TabKey; label: string; count: number }> = [
 ]
 
 export function UiPaletteView() {
+  const defaultUiTab = useColorStudioStore((s) => s.settings.defaultUiTab)
   const [activeTab, setActiveTab] = useState<TabKey>('tailwind')
+  const [tabChosen, setTabChosen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // The setting arrives after mount, so it is adopted until the reader picks a tab of their own; after
+  // that a late response must not move the ground under them.
+  useEffect(() => {
+    if (tabChosen) return
+    if (TABS.some((tab) => tab.key === defaultUiTab)) setActiveTab(defaultUiTab as TabKey)
+  }, [defaultUiTab, tabChosen])
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
@@ -94,7 +104,10 @@ export function UiPaletteView() {
                 type="button"
                 role="tab"
                 aria-selected={isActive}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setTabChosen(true)
+                  setActiveTab(tab.key)
+                }}
                 className={cn(
                   'px-3 py-1.5 rounded-[var(--r-sm)] text-[length:var(--text-12)] font-medium transition-colors select-none',
                   isActive

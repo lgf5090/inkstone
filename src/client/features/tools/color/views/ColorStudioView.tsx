@@ -18,10 +18,12 @@ import { EyedropperButton } from '../components/EyedropperButton'
 import { HarmoniesPanel } from '../components/HarmoniesPanel'
 import { ColorSpaceDisplay } from '../components/ColorSpaceDisplay'
 import { useColorStudioStore } from '../store'
+import { formatColorValues } from '../lib/color-format'
 
 export function ColorStudioView() {
   const currentHex = useColorStudioStore((s) => s.currentHex)
   const colorSpaceValues = useColorStudioStore((s) => s.colorSpaceValues)
+  const settings = useColorStudioStore((s) => s.settings)
   const setCurrentColor = useColorStudioStore((s) => s.setCurrentColor)
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const addFavorite = useColorStudioStore((s) => s.addFavorite)
@@ -183,7 +185,10 @@ export function ColorStudioView() {
                   <IconButton
                     label={t('tools.color.studio.copy_all')}
                     size="sm"
-                    onClick={() => copyColor(currentHex, 'HEX')}
+                    onClick={() => {
+                      const item = formatColorValues(colorSpaceValues, settings.defaultFormat)
+                      copyColor(item.value, item.label)
+                    }}
                   >
                     <Copy size={13} />
                   </IconButton>

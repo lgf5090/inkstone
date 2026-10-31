@@ -17450,12 +17450,6 @@ const allowed = new Map([
     "/* Format Selector Tabs */",
     "/* Code Preview Box */",
   ]],
-  ["src/client/features/tools/color/components/modals/RealtimeColorsModal.tsx", [
-    "// Determine text color on brand button",
-    "/* Mock Navigation Bar */",
-    "/* Hero Section */",
-    "/* Feature Cards Grid */",
-  ]],
   ["src/client/features/tools/color/components/modals/TokenScaleModal.tsx", [
     "/* 11-step scale grid */",
     "/* Step details table */",
@@ -17463,6 +17457,10 @@ const allowed = new Map([
   ["src/client/features/tools/color/history-write.test.tsx", [
     "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
     "// The algorithm view's refresh button re-selects the current color; that is not an exploration.",
+  ]],
+  ["src/client/features/tools/color/lib/color-format.ts", [
+    "/**\n * The spaces the studio shows, in the order the panel lists them.\n *\n * The formatting used to live in the panel while `getColorSpaceValues` built the same strings again in a\n * different shape, so the value a reader copied was not the value the shared module had computed.\n */",
+    "/** The item a copy action should produce for the reader's chosen default format. */",
   ]],
   ["src/client/features/tools/color/lib/color-wheel.ts", [
     "/**\n * The color wheel's pixel field and its blit, kept apart from the component.\n *\n * The disk used to be written with `putImageData` after `ctx.scale(dpr, dpr)`, on the assumption that the\n * scale would enlarge it. `putImageData` copies device pixels and ignores the context transform, so on any\n * display that is not exactly 1× the wheel landed in the top-left corner at 1/dpr of its box while the\n * pointer math kept answering for the full CSS size. Splitting the field (pure) from the blit (canvas) is\n * what lets the geometry be tested at all: jsdom has no 2D context.\n */",
@@ -17520,12 +17518,14 @@ const allowed = new Map([
     "// Several seeds on purpose: a color whose rounded HSL happens to survive the round trip would pass",
     "// either implementation, and the rounded one is the bug this pins.",
   ]],
+  ["src/client/features/tools/color/settings-view.test.tsx", [
+    "// ColorApp refetches settings on mount, so the value under test has to come from the server.",
+  ]],
   ["src/client/features/tools/color/store.ts", [
     "/**\n * Reactive state machine for Color Assistant (`tools/color`).\n */",
     "/**\n * Family helper for dynamic translation key resolution.\n */",
     "// Modals visibility",
     "// Actions",
-    "// Modal controls",
     "// Best effort",
     "// If copying hex and stripHash is enabled, remove leading #",
     "/** How long the pointer has to rest before the color lands in the history. */",
@@ -17534,6 +17534,7 @@ const allowed = new Map([
     "// colors. The hex is released so the next change over that color retries rather than being",
     "// silently remembered as already saved.",
     "// The trail is empty now, so the next color is worth recording even if it was the last one logged.",
+    "// Modals controls",
   ]],
   ["src/client/features/tools/color/views/AiPaletteView.tsx", [
     "/* Header */",
@@ -17553,6 +17554,11 @@ const allowed = new Map([
     "/* Tag chips */",
     "/* Search */",
     "/* Palettes Grid */",
+  ]],
+  ["src/client/features/tools/color/views/ColorSettingsView.tsx", [
+    "/** The tabs `UiPaletteView` can open on; a stored value outside this list falls back to the first. */",
+    "// The server answers the settings fetch after mount, so the form follows it until the reader touches a",
+    "// control; from then on their edits win, otherwise a slow response would overwrite what they just set.",
   ]],
   ["src/client/features/tools/color/views/ColorSpaceAlgorithmView.tsx", [
     "/* Header Banner */",
@@ -17617,6 +17623,8 @@ const allowed = new Map([
     "/* Header */",
     "/* Tabs and Search Bar */",
     "/* Swatch Grids */",
+    "// The setting arrives after mount, so it is adopted until the reader picks a tab of their own; after",
+    "// that a late response must not move the ground under them.",
   ]],
   ["src/client/features/tools/id-photo/IdPhotoApp.tsx", [
     "/* Mobile Top Preview */",
@@ -31023,6 +31031,8 @@ const allowed = new Map([
     "/** Rows the history keeps, and the page size that shows them. */",
     "/** A saved palette is capped here, so a gradient editor cannot outgrow what the API will accept. */",
     "/**\n * Why a model-backed answer fell back to the algorithm.\n *\n * The reader needs this to know whether the palette on screen was designed or computed: a fallback that\n * arrives without a label is a feature reporting success while not running.\n */",
+    "/**\n * The color the studio, the server defaults and the \"we have nothing yet\" fallbacks all start from.\n *\n * It was written out seven times across three layers, which meant a change of default had to find all of\n * them — and the settings row had already drifted (the server answered `flat_ui` where the client kept\n * `flat`).\n */",
+    "/**\n * The UI-palette tab a reader with no preference lands on.\n *\n * Both ends used to say `flat_ui`, which is not one of the tab keys — the setting was inert wherever it\n * was honored. Anything the stored value cannot match falls back to this.\n */",
   ]],
   ["src/shared/tools/color/harmonies.ts", [
     "/**\n * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)\n */",

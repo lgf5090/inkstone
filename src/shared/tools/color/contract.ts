@@ -44,6 +44,23 @@ export const COLOR_HISTORY_WINDOW = 100
 export const COLOR_PALETTE_MAX_COLORS = 20
 
 /**
+ * The color the studio, the server defaults and the "we have nothing yet" fallbacks all start from.
+ *
+ * It was written out seven times across three layers, which meant a change of default had to find all of
+ * them — and the settings row had already drifted (the server answered `flat_ui` where the client kept
+ * `flat`).
+ */
+export const DEFAULT_SEED_HEX = '#627486'
+
+/**
+ * The UI-palette tab a reader with no preference lands on.
+ *
+ * Both ends used to say `flat_ui`, which is not one of the tab keys — the setting was inert wherever it
+ * was honored. Anything the stored value cannot match falls back to this.
+ */
+export const DEFAULT_UI_TAB = 'tailwind'
+
+/**
  * Why a model-backed answer fell back to the algorithm.
  *
  * The reader needs this to know whether the palette on screen was designed or computed: a fallback that

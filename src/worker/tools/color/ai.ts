@@ -4,6 +4,7 @@
  */
 
 import { generateAlgorithmicPalettes } from '@shared/tools/color/colorspace-algorithms'
+import { DEFAULT_SEED_HEX } from '@shared/tools/color/contract'
 import { TRADITIONAL_CHINESE_COLORS } from '@shared/tools/color/presets/traditional-chinese'
 import { deltaE76, hexToRgb, normalizeHex } from '@shared/tools/color/spaces'
 import type {
@@ -64,7 +65,7 @@ export async function generateAiPalette(
   userId: string,
   request: AiPaletteRequest,
 ): Promise<AiPaletteResult> {
-  const seed = normalizeHex(request.seedHex || '#627486', true)
+  const seed = normalizeHex(request.seedHex || DEFAULT_SEED_HEX, true)
   const count = Math.min(8, Math.max(3, request.count || 5))
   const style = request.style || 'modern'
   const tone = request.tone || 'all'

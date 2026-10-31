@@ -10,11 +10,11 @@ import { TraditionalColorView } from './views/TraditionalColorView'
 import { GradientStudioView } from './views/GradientStudioView'
 import { ColorHuntPalettesView } from './views/ColorHuntPalettesView'
 import { FavoritesView } from './views/FavoritesView'
+import { ColorSettingsView } from './views/ColorSettingsView'
 
 // Global Modals
 import { ContrastCheckerModal } from './components/modals/ContrastCheckerModal'
 import { TokenScaleModal } from './components/modals/TokenScaleModal'
-import { RealtimeColorsModal } from './components/modals/RealtimeColorsModal'
 import { ColorBlindnessModal } from './components/modals/ColorBlindnessModal'
 import { CreateCustomPaletteModal } from './components/modals/CreateCustomPaletteModal'
 import { ExportPaletteModal } from './components/modals/ExportPaletteModal'
@@ -54,6 +54,8 @@ export function ColorApp() {
         return <ColorHuntPalettesView />
       case 'favorites':
         return <FavoritesView />
+      case 'settings':
+        return <ColorSettingsView />
       default:
         return <ColorStudioView />
     }
@@ -72,7 +74,6 @@ export function ColorApp() {
       {/* Global Modals */}
       <ContrastCheckerModal />
       <TokenScaleModal />
-      <RealtimeColorsModal />
       <ColorBlindnessModal />
       <CreateCustomPaletteModal />
       <ExportPaletteModal />

@@ -4,7 +4,7 @@
  * multi-color palettes, history, settings, and assets.
  */
 
-import { COLOR_HISTORY_WINDOW, type ColorHistorySource } from '@shared/tools/color/contract'
+import { COLOR_HISTORY_WINDOW, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
 import { hexToRgb, normalizeHex, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
 import type {
   ColorHistoryItem,
@@ -41,7 +41,7 @@ export class ColorStore {
       return {
         stripHash: false,
         defaultFormat: 'hex',
-        defaultUiTab: 'flat_ui',
+        defaultUiTab: DEFAULT_UI_TAB,
         autoSaveHistory: true,
         updatedAt: Date.now(),
       }
@@ -50,7 +50,7 @@ export class ColorStore {
     return {
       stripHash: Boolean(row.strip_hash),
       defaultFormat: (row.default_format as ColorSettings['defaultFormat']) || 'hex',
-      defaultUiTab: row.default_ui_tab || 'flat_ui',
+      defaultUiTab: row.default_ui_tab || DEFAULT_UI_TAB,
       autoSaveHistory: Boolean(row.auto_save_history),
       updatedAt: row.updated_at,
     }

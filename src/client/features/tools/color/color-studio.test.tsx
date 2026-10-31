@@ -80,7 +80,6 @@ describe('ColorStudio UI & State Suite', () => {
     // Reset Zustand store state to defaults
     useColorStudioStore.setState({
       currentHex: '#3b82f6',
-      activeUiTab: 'flat',
       traditionalTab: 'chinese',
       colorHuntTagFilter: 'all',
       favorites: [],

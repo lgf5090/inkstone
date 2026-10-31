@@ -94,6 +94,7 @@ const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
   { id: 'gradient', labelKey: 'tools.color.nav.gradient', icon: Blend },
   { id: 'color_hunt', labelKey: 'tools.color.nav.color_hunt', icon: Heart },
   { id: 'favorites', labelKey: 'tools.color.nav.favorites', icon: Star },
+  { id: 'settings', labelKey: 'tools.color.nav.settings', icon: Settings },
 ]
 
 const QRCODE_NAV_SLOTS: readonly QrNavSlot[] = [

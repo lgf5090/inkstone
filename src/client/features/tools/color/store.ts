@@ -4,7 +4,7 @@
 
 import { create } from 'zustand'
 import { getColorSpaceValues, normalizeHex } from '@shared/tools/color/spaces'
-import { COLOR_HISTORY_WINDOW, type ColorHistorySource } from '@shared/tools/color/contract'
+import { COLOR_HISTORY_WINDOW, DEFAULT_SEED_HEX, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
 import type {
   ColorHistoryItem,
   ColorSettings,
@@ -26,7 +26,6 @@ export interface ColorStudioState {
   currentHex: string
   colorSpaceValues: ColorSpaceValues
   settings: ColorSettings
-  activeUiTab: string
   traditionalTab: 'chinese' | 'nippon'
   colorHuntTagFilter: string
 
@@ -39,7 +38,6 @@ export interface ColorStudioState {
   // Modals visibility
   isContrastModalOpen: boolean
   isTokenScaleModalOpen: boolean
-  isRealtimeColorsModalOpen: boolean
   isColorBlindnessModalOpen: boolean
   isCreatePaletteModalOpen: boolean
   isExportPaletteModalOpen: boolean
@@ -49,7 +47,6 @@ export interface ColorStudioState {
   setCurrentHex: (hex: string, source?: ColorHistorySource) => void
   setCurrentColor: (hex: string, source?: ColorHistorySource) => void
   copyColor: (value: string, label?: string) => Promise<void>
-  setActiveUiTab: (tab: string) => void
   setTraditionalTab: (tab: 'chinese' | 'nippon') => void
   setColorHuntTagFilter: (tag: string) => void
 
@@ -74,13 +71,11 @@ export interface ColorStudioState {
   fetchHistory: () => Promise<void>
   clearHistory: () => Promise<void>
 
-  // Modal controls
+  // Modals controls
   openContrastModal: () => void
   closeContrastModal: () => void
   openTokenScaleModal: () => void
   closeTokenScaleModal: () => void
-  openRealtimeColorsModal: () => void
-  closeRealtimeColorsModal: () => void
   openColorBlindnessModal: () => void
   closeColorBlindnessModal: () => void
   openCreatePaletteModal: () => void
@@ -89,7 +84,7 @@ export interface ColorStudioState {
   closeExportPaletteModal: () => void
 }
 
-const DEFAULT_HEX = '#627486'
+const DEFAULT_HEX = DEFAULT_SEED_HEX
 
 /** How long the pointer has to rest before the color lands in the history. */
 const HISTORY_IDLE_MS = 600
@@ -135,11 +130,10 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   settings: {
     stripHash: false,
     defaultFormat: 'hex',
-    defaultUiTab: 'flat_ui',
+    defaultUiTab: DEFAULT_UI_TAB,
     autoSaveHistory: true,
     updatedAt: Date.now(),
   },
-  activeUiTab: 'flat',
   traditionalTab: 'chinese',
   colorHuntTagFilter: 'all',
 
@@ -151,8 +145,8 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
 
   isContrastModalOpen: false,
   isTokenScaleModalOpen: false,
-  isRealtimeColorsModalOpen: false,
   isColorBlindnessModalOpen: false,
+
   isCreatePaletteModalOpen: false,
   isExportPaletteModalOpen: false,
   exportTargetPalette: null,
@@ -195,7 +189,6 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     }
   },
 
-  setActiveUiTab: (tab: string) => set({ activeUiTab: tab }),
   setTraditionalTab: (tab: 'chinese' | 'nippon') => set({ traditionalTab: tab }),
   setColorHuntTagFilter: (tag: string) => set({ colorHuntTagFilter: tag }),
 
@@ -374,8 +367,6 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   closeContrastModal: () => set({ isContrastModalOpen: false }),
   openTokenScaleModal: () => set({ isTokenScaleModalOpen: true }),
   closeTokenScaleModal: () => set({ isTokenScaleModalOpen: false }),
-  openRealtimeColorsModal: () => set({ isRealtimeColorsModalOpen: true }),
-  closeRealtimeColorsModal: () => set({ isRealtimeColorsModalOpen: false }),
   openColorBlindnessModal: () => set({ isColorBlindnessModalOpen: true }),
   closeColorBlindnessModal: () => set({ isColorBlindnessModalOpen: false }),
   openCreatePaletteModal: () => set({ isCreatePaletteModalOpen: true }),
