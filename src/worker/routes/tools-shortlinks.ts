@@ -28,7 +28,32 @@ import { ShortlinksStore } from '../tools/shortlinks/store'
 
 export const toolsShortlinksRoutes = new Hono<AppBindings>()
 
-toolsShortlinksRoutes.use('*', requireAuth)
+const WRITE_SCOPE_DENIED = /\/(settings|backups|api-keys|export|import)(\/|$)/
+
+function scopeAllows(scope: string, method: string, path: string): boolean {
+  if (scope === 'admin') return true
+  if (scope === 'read') return method === 'GET'
+  if (method === 'GET') return true
+  return !WRITE_SCOPE_DENIED.test(path)
+}
+
+toolsShortlinksRoutes.use('*', async (c, next) => {
+  const authorization = c.req.header('authorization') ?? ''
+  if (!authorization.startsWith('Bearer sl_')) {
+    return requireAuth(c, next)
+  }
+
+  const store = new ShortlinksStore(c.env.DB, '')
+  const resolved = await store.resolveApiKey(authorization.slice('Bearer '.length).trim())
+  if (!resolved) {
+    throw ApiError.unauthenticated('Invalid API key')
+  }
+  if (!scopeAllows(resolved.scope, c.req.method, c.req.path)) {
+    throw ApiError.forbidden('This API key is not allowed to call this endpoint')
+  }
+  c.set('userId', resolved.userId)
+  await next()
+})
 
 function getUserId(c: Context<AppBindings>): string {
   const user = c.get('user')

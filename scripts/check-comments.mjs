@@ -35581,6 +35581,7 @@ const allowed = new Map([
     "/** The deployment's own daily unit budget, which may be below Google's own 10,000. */",
     "/** A proxy base for video thumbnails; https, or loopback http for a local adapter. */",
     "/** Optional default password for navigation categories that choose \"use default\". Set as a secret. */",
+    "/** Signs the daily visitor-fingerprint salt; without it no fingerprint is recorded. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -39123,6 +39124,8 @@ const allowed = new Map([
   ]],
   ["src/worker/tools/shortlinks/fingerprint.ts", [
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
+    "// Without a server secret the salt would be a public constant, so a visitor id it produced could be",
+    "// reversed by enumerating addresses; no secret means no visitor id at all.",
   ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
@@ -39171,6 +39174,8 @@ const allowed = new Map([
     "// After the delete, so the one-primary index never sees two rows at once.",
     "/** Best-effort title backfill, run after the response so creating a link never waits on the target. */",
     "// Four bound values per row; D1 rejects statements past roughly a hundred parameters.",
+    "// A 48-hex-character random key needs no password KDF; a plain digest keeps per-request lookup an",
+    "// indexed equality match instead of a scrypt call.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

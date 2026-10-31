@@ -25,6 +25,7 @@ import {
   DEFAULT_TIMELINE_RANGE,
 } from '@shared/tools/shortlinks/types'
 import { ApiError } from '../../lib/errors'
+import { sha256Hex } from '../../lib/encoding'
 import { hashPassword } from '../../lib/password'
 import {
   computeDelta,
@@ -45,6 +46,11 @@ import { fetchPageTitle } from './title-fetch'
 
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[?#]+$/, '')
+}
+
+function clip(value: string | null | undefined, max: number): string | null {
+  if (!value) return null
+  return value.length > max ? value.slice(0, max) : value
 }
 
 function csvCell(value: string): string {
@@ -790,23 +796,23 @@ export class ShortlinksStore {
         linkId,
         slug,
         now,
-        click.referrer || null,
-        click.referrerHost || null,
-        click.country || null,
-        click.region || null,
-        click.city || null,
+        clip(click.referrer, 512),
+        clip(click.referrerHost, 255),
+        clip(click.country, 8),
+        clip(click.region, 128),
+        clip(click.city, 128),
         click.deviceType || 'desktop',
         click.os || 'other',
         click.browser || 'Other',
         click.language || null,
         click.linkMode || 'link',
         click.channel || null,
-        click.utmSource || null,
-        click.utmMedium || null,
-        click.utmCampaign || null,
-        click.utmTerm || null,
-        click.utmContent || null,
-        click.userAgent || null,
+        clip(click.utmSource, 64),
+        clip(click.utmMedium, 64),
+        clip(click.utmCampaign, 128),
+        clip(click.utmTerm, 64),
+        clip(click.utmContent, 64),
+        clip(click.userAgent, 256),
         click.isBot || 0,
         click.visitorFp || null,
         click.isSelfReferrer || 0,
@@ -1554,7 +1560,9 @@ export class ShortlinksStore {
     const rawKey = Array.from(rawBytes, (b) => b.toString(16).padStart(2, '0')).join('')
     const apiKey = `sl_${rawKey}`
     const keyPrefix = `${apiKey.slice(0, 7)}...`
-    const keyHash = await hashPassword(apiKey)
+    // A 48-hex-character random key needs no password KDF; a plain digest keeps per-request lookup an
+    // indexed equality match instead of a scrypt call.
+    const keyHash = await sha256Hex(`inkstone-shortlinks-key:${apiKey}`)
     const now = Math.floor(Date.now() / 1000)
 
     const res = await this.db
@@ -1579,6 +1587,24 @@ export class ShortlinksStore {
         last_used_at: null,
       },
     }
+  }
+
+  async resolveApiKey(rawKey: string): Promise<{ userId: string; scope: string } | null> {
+    const hash = await sha256Hex(`inkstone-shortlinks-key:${rawKey}`)
+    const row = await this.db
+      .prepare('SELECT id, user_id, scope, last_used_at FROM tools_shortlinks_api_keys WHERE key_hash = ?')
+      .bind(hash)
+      .first<{ id: number; user_id: string; scope: string; last_used_at: number | null }>()
+    if (!row) return null
+
+    const now = Math.floor(Date.now() / 1000)
+    if (!row.last_used_at || now - row.last_used_at > 60) {
+      await this.db
+        .prepare('UPDATE tools_shortlinks_api_keys SET last_used_at = ? WHERE id = ?')
+        .bind(now, row.id)
+        .run()
+    }
+    return { userId: row.user_id, scope: row.scope }
   }
 
   async deleteApiKey(id: number): Promise<void> {

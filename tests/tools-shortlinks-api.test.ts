@@ -540,6 +540,45 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(dash).not.toHaveProperty('top_links')
   })
 
+  it('authenticates with a scoped API key', async () => {
+    const created = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/api-keys', {
+        body: { title: 'CI read', scope: 'read' },
+      }),
+    )).data
+
+    const withKey = await call('GET', '/api/tools/shortlinks/links', {
+      user: null,
+      headers: { authorization: `Bearer ${created.api_key}` },
+    })
+    expect(withKey.status).toBe(200)
+
+    const writeWithRead = await call('POST', '/api/tools/shortlinks/links', {
+      user: null,
+      headers: { authorization: `Bearer ${created.api_key}` },
+      body: { url: 'https://example.com/from-key' },
+    })
+    expect(writeWithRead.status).toBe(403)
+
+    const writeKey = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/api-keys', {
+        body: { title: 'CI write', scope: 'write' },
+      }),
+    )).data
+    const settingsWithWrite = await call('PATCH', '/api/tools/shortlinks/settings', {
+      user: null,
+      headers: { authorization: `Bearer ${writeKey.api_key}` },
+      body: { filter_bots: false },
+    })
+    expect(settingsWithWrite.status).toBe(403)
+
+    const unknownKey = await call('GET', '/api/tools/shortlinks/links', {
+      user: null,
+      headers: { authorization: 'Bearer sl_deadbeef' },
+    })
+    expect(unknownKey.status).toBe(401)
+  })
+
   it('creates API key and lists keys', async () => {
     const keyRes = await call('POST', '/api/tools/shortlinks/api-keys', {
       body: { title: 'CI Deployer', scope: 'write' },

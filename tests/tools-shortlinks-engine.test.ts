@@ -142,6 +142,9 @@ describe('Shortlinks Fingerprint Engine', () => {
 
     const fpEmpty = await computeVisitorFingerprint('', '', 'secret')
     expect(fpEmpty).toBeNull()
+
+    const noSecret = await computeVisitorFingerprint('1.2.3.4', 'Mozilla/5.0', null, d)
+    expect(noSecret).toBeNull()
   })
 })
 

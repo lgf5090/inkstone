@@ -43,6 +43,9 @@ export interface Env {
 
   OAUTH_PROVIDER?: OAuthHelpers
 
+  /** Signs the daily visitor-fingerprint salt; without it no fingerprint is recorded. */
+  SHORTLINKS_SECRET?: string
+
   SYNC_HUB?: DurableObjectNamespace
 
   CREDENTIAL_VAULT?: DurableObjectNamespace

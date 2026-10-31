@@ -49,8 +49,11 @@ export async function computeVisitorFingerprint(
   const ipStr = (ip ?? '').trim()
   const uaStr = (userAgent ?? '').trim()
   if (ipStr.length === 0 && uaStr.length === 0) return null
+  // Without a server secret the salt would be a public constant, so a visitor id it produced could be
+  // reversed by enumerating addresses; no secret means no visitor id at all.
+  if (!serverSecret) return null
 
-  const salt = await dailySaltFor(now, serverSecret ?? null)
+  const salt = await dailySaltFor(now, serverSecret)
   const digest = await crypto.subtle.digest(
     'SHA-256',
     encoder.encode(`${ipStr}|${uaStr}|${salt}`),

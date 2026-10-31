@@ -311,7 +311,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
 
   const recordPromise = (async () => {
     try {
-      const visitorFp = await computeVisitorFingerprint(ip, ua)
+      const visitorFp = await computeVisitorFingerprint(ip, ua, c.env.SHORTLINKS_SECRET)
       await store.recordClick(slug, entry.link_id, entry.user_id, {
         referrer: referer,
         referrerHost,
