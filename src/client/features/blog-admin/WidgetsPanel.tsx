@@ -11,11 +11,12 @@ import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
 import { AdminCard, AdminLoading, AdminError, PageHeader, useAdminResource } from './shared'
 
-const WIDGET_TYPES = ['profile', 'search', 'categories', 'tags', 'series', 'recent', 'stats', 'calendar', 'announcement', 'custom'] as const
+const WIDGET_TYPES = ['profile', 'music', 'search', 'categories', 'tags', 'series', 'recent', 'stats', 'calendar', 'announcement', 'custom'] as const
 type WidgetType = (typeof WIDGET_TYPES)[number]
 
 const TYPE_LABEL: Record<WidgetType, MessageKey> = {
   profile: 'blog.admin.widget_profile',
+  music: 'blog.admin.widget_music',
   search: 'blog.admin.widget_search',
   categories: 'blog.admin.widget_categories',
   tags: 'blog.admin.widget_tags',
@@ -56,6 +57,7 @@ export function WidgetsPanel() {
   const [slot, setSlot] = useState<'default' | 'top' | 'sticky'>('default')
   const [pagesText, setPagesText] = useState('')
   const [collapseAfter, setCollapseAfter] = useState('')
+  const [column, setColumn] = useState<'auto' | 'primary' | 'secondary'>('auto')
   const [announcementText, setAnnouncementText] = useState('')
 
   useEffect(() => {
@@ -97,6 +99,7 @@ export function WidgetsPanel() {
     setSlot('default')
     setPagesText('')
     setCollapseAfter('')
+    setColumn('auto')
     setAnnouncementText('')
     setAdding(true)
   }
@@ -110,6 +113,7 @@ export function WidgetsPanel() {
     setSlot(widget.slot === 'top' || widget.slot === 'sticky' ? widget.slot : 'default')
     setPagesText(Array.isArray(widget.pages) ? widget.pages.join(', ') : '')
     setCollapseAfter(typeof widget.collapseAfter === 'number' ? String(widget.collapseAfter) : '')
+    setColumn(widget.column === 'primary' || widget.column === 'secondary' ? widget.column : 'auto')
     setAdding(true)
   }
 
@@ -119,6 +123,7 @@ export function WidgetsPanel() {
     const extra = {
       ...(slot === 'default' ? {} : { slot }),
       ...(pages.length ? { pages } : {}),
+      ...(column === 'auto' ? {} : { column }),
       ...(Number.isFinite(collapse) && collapse > 0 ? { collapseAfter: Math.trunc(collapse) } : {}),
     }
     const next = editingId
@@ -133,6 +138,7 @@ export function WidgetsPanel() {
     setSlot('default')
     setPagesText('')
     setCollapseAfter('')
+    setColumn('auto')
     setAnnouncementText('')
     void saveItems(next)
   }
@@ -244,6 +250,13 @@ export function WidgetsPanel() {
                 <option value="default">{t('blog.admin.widget_slot_default')}</option>
                 <option value="top">{t('blog.admin.widget_slot_top')}</option>
                 <option value="sticky">{t('blog.admin.widget_slot_sticky')}</option>
+              </Select>
+            </Field>
+            <Field label={t('blog.admin.widget_column')}>
+              <Select value={column} onChange={(event) => setColumn(event.target.value as 'auto' | 'primary' | 'secondary')}>
+                <option value="auto">{t('blog.admin.widget_column_auto')}</option>
+                <option value="primary">{t('blog.admin.widget_column_primary')}</option>
+                <option value="secondary">{t('blog.admin.widget_column_secondary')}</option>
               </Select>
             </Field>
             {(type === 'categories' || type === 'tags' || type === 'series') && (

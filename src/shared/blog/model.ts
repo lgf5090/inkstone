@@ -299,6 +299,7 @@ export interface BlogAlbumPhoto {
 
 export interface BlogWidget {
   slot?: 'top' | 'sticky'
+  column?: 'primary' | 'secondary'
   pages?: string[]
   collapseAfter?: number
   id: string
@@ -421,7 +422,7 @@ export interface BlogSitePublic {
   license: { enable: boolean; name: string; url: string }
   footer: { enable: boolean; html: string }
   fab: { enable: boolean; items: string[] }
-  announcement: { enable: boolean; text: string; closable: boolean }
+  announcement: { enable: boolean; text: string; closable: boolean; linkText: string; linkUrl: string }
   llms: { enable: boolean; excludeTags: string[] }
   comment: {
     provider: 'none' | 'local' | 'twikoo' | 'giscus' | 'waline'

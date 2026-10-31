@@ -61,7 +61,7 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   },
   sidebar: {
     enable: true,
-    arrangement: 'single',
+    arrangement: 'dual',
     side: 'left',
   },
   display: {
@@ -86,7 +86,7 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   footer: { enable: true, html: '' },
   announcement: { enable: false, text: '' },
   fab: { enable: true, items: ['home', 'toc', 'comment', 'top'] },
-  contextMenu: { enable: true, actions: ['copySelection', 'backToTop', 'sharePageLink'] },
+  contextMenu: { enable: true, actions: ['copySelection', 'copyLink', 'openImage', 'copyImage', 'backToTop'] },
   discussion: {
     enabled: true,
     requireNameEmail: true,
@@ -98,13 +98,14 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   },
   widgets: {
     items: [
-      { id: 'profile', type: 'profile', title: '', enabled: true, config: {} },
-      { id: 'search', type: 'search', title: '', enabled: true, config: {} },
-      { id: 'categories', type: 'categories', title: '', enabled: true, config: {} },
-      { id: 'tags', type: 'tags', title: '', enabled: true, config: {} },
-      { id: 'series', type: 'series', title: '', enabled: true, config: {} },
-      { id: 'recent', type: 'recent', title: '', enabled: true, config: {} },
-      { id: 'announcement', type: 'announcement', title: '', enabled: false, config: {} },
+      { id: 'profile', type: 'profile', title: '', enabled: true, column: 'primary', slot: 'top', config: {} },
+      { id: 'music', type: 'music', title: '', enabled: true, column: 'primary', slot: 'top', config: {} },
+      { id: 'announcement', type: 'announcement', title: '', enabled: false, column: 'primary', slot: 'top', config: {} },
+      { id: 'categories', type: 'categories', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
+      { id: 'series', type: 'series', title: '', enabled: true, column: 'primary', collapseAfter: 5, config: {} },
+      { id: 'tags', type: 'tags', title: '', enabled: true, column: 'primary', collapseAfter: 6, config: {} },
+      { id: 'stats', type: 'stats', title: '', enabled: true, column: 'secondary', slot: 'top', config: {} },
+      { id: 'calendar', type: 'calendar', title: '', enabled: true, column: 'secondary', slot: 'top', config: {} },
     ],
   },
 }
@@ -354,6 +355,8 @@ export function publicBlogSite(
       enable: announcement.enable === true,
       text: typeof announcement.text === 'string' ? announcement.text.trim().slice(0, 2000) : '',
       closable: announcement.closable !== false,
+      linkText: typeof announcement.linkText === 'string' ? announcement.linkText.trim().slice(0, 80) : '',
+      linkUrl: publicUrl(announcement.linkUrl) ?? '',
     },
     llms: {
       enable: llms.enable !== false,

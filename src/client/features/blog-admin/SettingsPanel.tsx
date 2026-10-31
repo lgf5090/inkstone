@@ -262,6 +262,10 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
               <Checkbox checked={bool(announcement.enable)} onChange={(value) => setAnnouncement({ ...announcement, enable: value })} label={t('blog.admin.enable')} />
               <Checkbox checked={bool(announcement.closable, true)} onChange={(value) => setAnnouncement({ ...announcement, closable: value })} label={t('blog.admin.announcement_closable')} />
               <Field label={t('blog.admin.announcement_text')}><Textarea rows={3} value={text(announcement.text)} onChange={(event) => setAnnouncement({ ...announcement, text: event.target.value })} /></Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={t('blog.admin.announcement_link_text')}><Input value={text(announcement.linkText)} onChange={(event) => setAnnouncement({ ...announcement, linkText: event.target.value })} /></Field>
+                <Field label={t('blog.admin.announcement_link_url')}><Input value={text(announcement.linkUrl)} onChange={(event) => setAnnouncement({ ...announcement, linkUrl: event.target.value })} placeholder="https://" /></Field>
+              </div>
             </Section>
             <Section title={t('blog.admin.settings_footer')} onSave={() => void saveDomain('footer', footer)} saving={saving}>
               <Checkbox checked={bool(footer.enable)} onChange={(value) => setFooter({ ...footer, enable: value })} label={t('blog.admin.enable')} />
