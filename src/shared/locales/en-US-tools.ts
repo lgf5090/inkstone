@@ -809,6 +809,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.unit.px': 'px',
   'tools.id_photo.unit.dpi': 'DPI',
   'tools.id_photo.common.cancel': 'Cancel',
+  'tools.id_photo.common.save': 'Save',
   'tools.id_photo.common.delete': 'Delete',
   'tools.id_photo.common.standard': 'Standard',
   'tools.id_photo.common.current': 'Current',
@@ -1051,6 +1052,12 @@ export const EN_US_TOOLS = {
   'tools.id_photo.history.delete_desc': 'The stored portrait and its print sheet are removed together and cannot be recovered.',
   'tools.id_photo.history.storage_pending': 'Record deleted; cloud copies will be cleaned up shortly',
   'tools.id_photo.history.delete_success': 'ID photo record deleted',
+  'tools.id_photo.history.rename': 'Rename',
+  'tools.id_photo.history.rename_title': 'Name this archived photo',
+  'tools.id_photo.history.rename_hint': 'Use it to tell photos of the same specification apart',
+  'tools.id_photo.history.rename_invalid': 'The name cannot be empty',
+  'tools.id_photo.history.rename_failed': 'Failed to rename the record',
+  'tools.id_photo.history.renamed': 'Renamed to “{title}”',
   'tools.id_photo.history.delete_failed': 'Failed to delete record',
 
   // Specs library view

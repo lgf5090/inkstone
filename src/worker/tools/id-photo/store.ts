@@ -276,6 +276,18 @@ export class IdPhotoStore {
     return { r2Key: rec.r2Key, printR2Key: rec.printR2Key || '' }
   }
 
+  async updateRecordTitle(id: string, title: string): Promise<IdPhotoRecord | null> {
+    const current = await this.getRecord(id)
+    if (!current) return null
+
+    await this.db
+      .prepare(`UPDATE tools_id_photo_records SET title = ?, updated_at = ? WHERE user_id = ? AND id = ?`)
+      .bind(title, Date.now(), this.userId, id)
+      .run()
+
+    return { ...current, title }
+  }
+
   async listSpecs(): Promise<IdPhotoSpec[]> {
     const rows = await this.db
       .prepare(

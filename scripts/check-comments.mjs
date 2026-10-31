@@ -44400,6 +44400,7 @@ const allowed = new Map([
     "// Settings API",
     "// User B's settings remain untouched",
     "// Delete custom spec",
+    "// The server trims, so what the client sends and what the list later shows agree.",
   ]],
   ["tests/tools-id-photo-compare-ui.test.tsx", [
     "// At two frames the strip has nothing left to give up.",
@@ -44431,6 +44432,11 @@ const allowed = new Map([
   ["tests/tools-id-photo-head.test.ts", [
     "/** The face is an ellipse, so the rasterised bounds the estimator should recover are known to the pixel. */",
     "// The ellipse runs to y=90 and the neck to y=150; the estimate must stop near the chin.",
+  ]],
+  ["tests/tools-id-photo-rename-ui.test.tsx", [
+    "// A dialog lives in a portal, so an unmounted view would leave it in the document for the next case.",
+    "// The field starts from what the archive already says.",
+    "// The list shows the new name without a reload, and the dialog is gone.",
   ]],
   ["tests/tools-id-photo-sizelimit.test.tsx", [
     "// Every other call is a list (specs, records, settings) and the store iterates what comes back.",

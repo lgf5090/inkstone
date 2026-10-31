@@ -809,6 +809,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.unit.px': 'px',
   'tools.id_photo.unit.dpi': 'DPI',
   'tools.id_photo.common.cancel': '取消',
+  'tools.id_photo.common.save': '保存',
   'tools.id_photo.common.delete': '删除',
   'tools.id_photo.common.standard': '标准规范',
   'tools.id_photo.common.current': '当前指标',
@@ -1051,6 +1052,12 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.history.delete_desc': '云端保存的原图与打印版会一起删除，且无法恢复。',
   'tools.id_photo.history.storage_pending': '档案已删除，云端副本稍后自动清理',
   'tools.id_photo.history.delete_success': '证件照记录已删除',
+  'tools.id_photo.history.rename': '重命名',
+  'tools.id_photo.history.rename_title': '给这张档案命名',
+  'tools.id_photo.history.rename_hint': '用来区分同一规格的不同证件照',
+  'tools.id_photo.history.rename_invalid': '名字不能是空的',
+  'tools.id_photo.history.rename_failed': '重命名失败',
+  'tools.id_photo.history.renamed': '已改名为「{title}」',
   'tools.id_photo.history.delete_failed': '删除记录失败',
 
   // Spec library view

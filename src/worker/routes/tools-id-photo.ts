@@ -4,6 +4,7 @@ import {
   CreateCustomSpecSchema,
   UpdateCustomSpecSchema,
   CreateIdPhotoRecordSchema,
+  RenameIdPhotoRecordSchema,
   MAX_RECORDS_PER_USER,
   QueryIdPhotoRecordsSchema,
   UpdateIdPhotoSettingsSchema,
@@ -206,6 +207,17 @@ toolsIdPhotoRoutes.delete('/records/:id', async (c) => {
     ok: true,
     data: { deleted: true, storageCleaned: storage.every((result) => result.status === 'fulfilled') },
   })
+})
+
+toolsIdPhotoRoutes.patch('/records/:id', async (c) => {
+  const store = getStore(c)
+  recordsWriteBudget(getUserId(c))
+  const body = await parseBody(c, RenameIdPhotoRecordSchema)
+  const record = await store.updateRecordTitle(c.req.param('id'), body.title)
+  if (!record) {
+    throw ApiError.notFound('Record not found')
+  }
+  return c.json({ ok: true, data: record })
 })
 
 toolsIdPhotoRoutes.get('/records/:id/file', async (c) => {

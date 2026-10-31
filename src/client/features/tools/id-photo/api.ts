@@ -76,6 +76,13 @@ export async function deleteIdPhotoRecord(
   })
 }
 
+export async function renameIdPhotoRecord(id: string, title: string): Promise<IdPhotoRecord> {
+  return request<IdPhotoRecord>(`/api/tools/id-photo/records/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  })
+}
+
 export async function listCustomSpecs(): Promise<IdPhotoSpec[]> {
   return request<IdPhotoSpec[]>('/api/tools/id-photo/specs')
 }

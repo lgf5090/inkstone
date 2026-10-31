@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, History, Printer, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { Download, History, Pencil, Printer, RotateCcw, Search, Trash2 } from 'lucide-react'
 import type { IdPhotoRecord } from '@shared/tools/id-photo/types'
 import type { IdPhotoExportFormat } from '@shared/tools/id-photo/types'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
-import { Input } from '../../../../components/form'
-import { confirm } from '../../../../components/overlay'
+import { Field, Input } from '../../../../components/form'
+import { confirm, Modal } from '../../../../components/overlay'
 import { useUi } from '../../../../store/ui'
 import { useToolsStore } from '../../store'
 import { useIdPhotoStore } from '../store'
-import { deleteIdPhotoRecord, listIdPhotoRecords } from '../api'
-import { IdPhotoOptionsPatchSchema } from '@shared/tools/id-photo/schemas'
+import { deleteIdPhotoRecord, listIdPhotoRecords, renameIdPhotoRecord } from '../api'
+import { IdPhotoOptionsPatchSchema, RenameIdPhotoRecordSchema } from '@shared/tools/id-photo/schemas'
+
+const RECORD_TITLE_MAX = 120
 
 const EXPORT_FORMATS = ['jpg', 'jpeg', 'png', 'webp'] as const
 
@@ -39,6 +41,10 @@ export function IdPhotoHistoryView() {
   const [failed, setFailed] = useState(false)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
+  const [renaming, setRenaming] = useState<IdPhotoRecord | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const [renameBusy, setRenameBusy] = useState(false)
   const requestId = useRef(0)
 
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
@@ -124,6 +130,27 @@ export function IdPhotoHistoryView() {
       })
     } catch {
       useUi.getState().toast({ title: t('tools.id_photo.history.delete_failed'), tone: 'danger' })
+    }
+  }
+
+  const handleRename = async () => {
+    if (!renaming) return
+    const parsed = RenameIdPhotoRecordSchema.safeParse({ title: renameValue })
+    if (!parsed.success) {
+      setRenameError(t('tools.id_photo.history.rename_invalid'))
+      return
+    }
+    setRenameBusy(true)
+    try {
+      const updated = await renameIdPhotoRecord(renaming.id, parsed.data.title)
+      setRecords((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setRenaming(null)
+      setRenameError(null)
+      useUi.getState().toast({ title: t('tools.id_photo.history.renamed', { title: updated.title }), tone: 'default' })
+    } catch {
+      setRenameError(t('tools.id_photo.history.rename_failed'))
+    } finally {
+      setRenameBusy(false)
     }
   }
 
@@ -268,6 +295,17 @@ export function IdPhotoHistoryView() {
                     )}
                     <IconButton
                       size="sm"
+                      label={t('tools.id_photo.history.rename')}
+                      onClick={() => {
+                        setRenaming(record)
+                        setRenameValue(record.title)
+                        setRenameError(null)
+                      }}
+                    >
+                      <Pencil size={13} />
+                    </IconButton>
+                    <IconButton
+                      size="sm"
                       variant="danger"
                       label={t('tools.id_photo.common.delete')}
                       onClick={() => {
@@ -297,6 +335,54 @@ export function IdPhotoHistoryView() {
           )}
         </>
       )}
+
+      <Modal
+        open={renaming !== null}
+        onClose={() => {
+          setRenaming(null)
+          setRenameError(null)
+        }}
+        title={t('tools.id_photo.history.rename_title')}
+        width={420}
+      >
+        <form
+          className="flex flex-col gap-4 p-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void handleRename()
+          }}
+        >
+          <Field
+            label={t('tools.id_photo.history.rename')}
+            hint={renameError ?? t('tools.id_photo.history.rename_hint')}
+          >
+            <Input
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              maxLength={RECORD_TITLE_MAX}
+              invalid={renameError !== null || undefined}
+              aria-invalid={renameError !== null || undefined}
+              data-testid="id-photo-rename-input"
+            />
+          </Field>
+
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setRenaming(null)
+                setRenameError(null)
+              }}
+            >
+              {t('tools.id_photo.common.cancel')}
+            </Button>
+            <Button type="submit" variant="primary" disabled={renameBusy || !renameValue.trim()}>
+              {t('tools.id_photo.common.save')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

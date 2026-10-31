@@ -114,3 +114,7 @@ export const UpdateCustomSpecSchema = z.object({
   isFavorite: z.boolean().optional(),
 })
 
+export const RenameIdPhotoRecordSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+})
+

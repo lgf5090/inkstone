@@ -142,6 +142,78 @@ describe('ID Photo Routes, Tenant Isolation & R2 Storage', () => {
     expect(res.status).toBe(401)
   })
 
+  async function createRecord(user: string, title: string): Promise<string> {
+    const jpegBytes = [0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode('fake-jpeg-photo-bytes')]
+    const jpeg = 'data:image/jpeg;base64,' + btoa(String.fromCharCode(...jpegBytes))
+    const res = await call('POST', '/api/tools/id-photo/records', {
+      user,
+      body: {
+        title,
+        specId: 'cn_one_inch',
+        specName: '标准一寸',
+        widthPx: 295,
+        heightPx: 413,
+        widthMm: 25,
+        heightMm: 35,
+        dpi: 300,
+        bgColor: '#ffffff',
+        options: { brightness: 10 },
+        fileData: jpeg,
+        fileType: 'jpg',
+      },
+    })
+    expect(res.status).toBe(201)
+    const json = (await res.json()) as { data: { id: string } }
+    return json.data.id
+  }
+
+  describe('renaming a record', () => {
+    it('renames the record and keeps every other field', async () => {
+      const id = await createRecord(USER_A, 'before')
+      const res = await call('PATCH', `/api/tools/id-photo/records/${id}`, { body: { title: '  报名照 · 一寸  ' } })
+      expect(res.status).toBe(200)
+      const json = (await res.json()) as { data: { id: string; title: string; specId: string; r2Key: string; updatedAt: number } }
+      expect(json.data.id).toBe(id)
+      // The server trims, so what the client sends and what the list later shows agree.
+      expect(json.data.title).toBe('报名照 · 一寸')
+      expect(json.data.specId).toBe('cn_one_inch')
+      expect(json.data.r2Key).toContain(`${USER_A}/${id}.jpg`)
+
+      const read = await call('GET', `/api/tools/id-photo/records/${id}`)
+      expect(((await read.json()) as { data: { title: string } }).data.title).toBe('报名照 · 一寸')
+    })
+
+    it('refuses a title that is empty, blank or over the cap', async () => {
+      const id = await createRecord(USER_A, 'before')
+      for (const title of ['', '   ', 'x'.repeat(121)]) {
+        const res = await call('PATCH', `/api/tools/id-photo/records/${id}`, { body: { title } })
+        expect(res.status, JSON.stringify(title.slice(0, 6))).toBe(400)
+      }
+      const still = await call('GET', `/api/tools/id-photo/records/${id}`)
+      expect(((await still.json()) as { data: { title: string } }).data.title).toBe('before')
+    })
+
+    it('does not let another user rename the record', async () => {
+      const id = await createRecord(USER_A, 'alice photo')
+      const res = await call('PATCH', `/api/tools/id-photo/records/${id}`, { user: USER_B, body: { title: 'bob photo' } })
+      expect(res.status).toBe(404)
+      const still = await call('GET', `/api/tools/id-photo/records/${id}`)
+      expect(((await still.json()) as { data: { title: string } }).data.title).toBe('alice photo')
+    })
+
+    it('rejects an unauthenticated rename and an unknown record id', async () => {
+      const id = await createRecord(USER_A, 'before')
+      expect((await call('PATCH', `/api/tools/id-photo/records/${id}`, { user: null, body: { title: 'x' } })).status).toBe(401)
+      expect((await call('PATCH', '/api/tools/id-photo/records/nope_no_id', { body: { title: 'x' } })).status).toBe(404)
+    })
+
+    it('requires a title rather than failing open on a missing key', async () => {
+      const id = await createRecord(USER_A, 'before')
+      expect((await call('PATCH', `/api/tools/id-photo/records/${id}`, { body: {} })).status).toBe(400)
+      expect((await call('PATCH', `/api/tools/id-photo/records/${id}`, { body: { title: 42 } })).status).toBe(400)
+    })
+  })
+
   it('creates, lists, reads, downloads and deletes ID photo record with R2 files', async () => {
     const jpegBytes = [0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode('fake-jpeg-photo-bytes')]
     const fakeImageBase64 = 'data:image/jpeg;base64,' + btoa(String.fromCharCode(...jpegBytes))
