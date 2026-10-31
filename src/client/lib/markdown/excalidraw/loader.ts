@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import * as ReactJSXRuntime from 'react/jsx-runtime';
 import type { ExcalidrawLib } from './types';
+import { assetUrl } from '../../asset-base';
 
 let libPromise: Promise<ExcalidrawLib> | null = null;
 
@@ -108,19 +109,20 @@ export async function loadExcalidrawLib(): Promise<ExcalidrawLib> {
     }
 
     libPromise = (async () => {
-        (window as any).EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/';
+        const vendorBase = assetUrl('/vendor/excalidraw/');
+        (window as any).EXCALIDRAW_ASSET_PATH = vendorBase;
         (window as any).React = React;
         (window as any).ReactDOM = ReactDOM;
         (window as any).ReactJSXRuntime = ReactJSXRuntime;
         if (typeof globalThis !== 'undefined') {
-            (globalThis as any).EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/';
+            (globalThis as any).EXCALIDRAW_ASSET_PATH = vendorBase;
             (globalThis as any).React = React;
             (globalThis as any).ReactDOM = ReactDOM;
             (globalThis as any).ReactJSXRuntime = ReactJSXRuntime;
         }
 
-        loadStylesheet('/vendor/excalidraw/excalidraw.production.min.css');
-        await loadScript('/vendor/excalidraw/excalidraw.production.min.js');
+        loadStylesheet(assetUrl('/vendor/excalidraw/excalidraw.production.min.css'));
+        await loadScript(assetUrl('/vendor/excalidraw/excalidraw.production.min.js'));
 
         const lib = (window as any).ExcalidrawLib;
         if (typeof lib.configureObsidianCommonHost === 'function') {

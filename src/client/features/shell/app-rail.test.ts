@@ -1,6 +1,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { initI18n, t } from '../../lib/i18n'
+import { useSession } from '../../store/session'
 import { navigateToPath } from '../../lib/app-history'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { APP_TABS } from './app-tabs'
@@ -25,6 +26,9 @@ function click(anchor: HTMLAnchorElement, modifiers: Partial<MouseEventInit> = {
 beforeEach(async () => {
   localStorage.clear()
   await initI18n()
+  useSession.setState({
+    user: { id: 'u', login: 'owner', username: 'owner', name: 'Owner', avatarUrl: '', role: 'owner', createdAt: 0 },
+  })
   act(() => { window.history.replaceState(null, '', '/') })
   view = renderElement(createElement(AppRail))
 })

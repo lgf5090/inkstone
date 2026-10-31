@@ -78,6 +78,13 @@ describe('renderMarkdownBlocks matches the whole-document preview', () => {
     })
   }
 
+  it('keeps the document headings when a callout title is rendered with footnotes in the environment', () => {
+    const source = '# Title\n\n> [!note] Title label\n> Body[^1]\n\n## Tail\n\n[^1]: foot\n'
+    const headings = renderMarkdown(source).headings.map((heading) => heading.text)
+    expect(headings).toEqual(['Title', 'Tail'])
+    expect(renderMarkdownBlocks(source).headings.map((heading) => heading.text)).toEqual(['Title', 'Tail'])
+  })
+
   it('renders the footnote tail that the token stream synthesises without a map', () => {
     const source = 'Statement[^1]\n\n[^1]: the note\n'
     const blocks = renderMarkdownBlocks(source).blocks

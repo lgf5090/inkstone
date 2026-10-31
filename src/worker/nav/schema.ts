@@ -8,6 +8,7 @@ export const NAV_SCHEMA_STATEMENTS: readonly string[] = [
     password_hash TEXT,
     use_default_password INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'normal',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -112,7 +113,7 @@ export const NAV_REQUIRED_TABLES = [
 ] as const
 
 export const NAV_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  nav_categories: ['id', 'user_id', 'name', 'icon', 'parent_id', 'password_hash', 'use_default_password', 'sort_order', 'created_at', 'updated_at'],
+  nav_categories: ['id', 'user_id', 'name', 'icon', 'parent_id', 'password_hash', 'use_default_password', 'sort_order', 'kind', 'created_at', 'updated_at'],
   nav_links: ['id', 'user_id', 'title', 'url', 'icon', 'description', 'category_id', 'pinned', 'pinned_order', 'sort_order', 'created_at', 'updated_at'],
   nav_link_visits: ['user_id', 'link_id', 'last_visited_at', 'visit_count'],
   nav_settings: ['user_id', 'key', 'value', 'updated_at'],

@@ -7,6 +7,7 @@ import {
   type NavBackupState,
   type NavBootstrap,
   type NavCategory,
+  type NavCategoryKind,
   type NavCounts,
   type NavDisplaySettings,
   type NavImportCategory,
@@ -57,6 +58,7 @@ export interface NavCategoryInput {
   passwordHash: string | null
   useDefaultPassword: boolean
   sortOrder?: number
+  kind?: NavCategoryKind
 }
 
 export interface NavLinkInput {
@@ -281,9 +283,9 @@ export class NavStore {
     if (existing) throw ApiError.conflict('Category already exists')
     const sortOrder = input.sortOrder ?? await this.nextCategorySort(input.parentId)
     await this.db
-      .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
-      .bind(id, this.userId, input.name, input.icon, input.parentId, input.passwordHash, input.useDefaultPassword ? 1 : 0, sortOrder, Date.now(), Date.now())
+      .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+      .bind(id, this.userId, input.name, input.icon, input.parentId, input.passwordHash, input.useDefaultPassword ? 1 : 0, sortOrder, Date.now(), Date.now(), input.kind ?? 'normal')
       .run()
     return rowToCategory((await this.category(id))!)
   }
@@ -520,11 +522,11 @@ export class NavStore {
     for (let index = 0; index < insertableCategories.length; index += 100) {
       const chunk = insertableCategories.slice(index, index + 100)
       await this.db.batch(chunk.map((category) => this.db
-        .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at)
-          VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6, ?7, ?7)
-          ON CONFLICT(user_id, id) DO UPDATE SET name = excluded.name, icon = excluded.icon, parent_id = excluded.parent_id, sort_order = excluded.sort_order, updated_at = excluded.updated_at
+        .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
+          VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6, ?7, ?7, ?8)
+          ON CONFLICT(user_id, id) DO UPDATE SET name = excluded.name, icon = excluded.icon, parent_id = excluded.parent_id, sort_order = excluded.sort_order, kind = excluded.kind, updated_at = excluded.updated_at
           WHERE nav_categories.user_id = excluded.user_id`)
-        .bind(category.id, this.userId, category.name, category.icon, category.parentId, category.sortOrder, category.createdAt)))
+        .bind(category.id, this.userId, category.name, category.icon, category.parentId, category.sortOrder, category.createdAt, category.kind ?? 'normal')))
     }
     const keep = links.filter((link) => {
       if (foreignLinks.has(link.id) || foreignCategories.has(link.categoryId)) {

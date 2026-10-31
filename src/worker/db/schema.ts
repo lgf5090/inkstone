@@ -60,6 +60,13 @@ import {
   NAV_SCHEMA_STATEMENTS,
 } from '../nav/schema'
 import {
+  BLOG_ALL_SCHEMA_STATEMENTS,
+  BLOG_COMMENT_SCHEMA_STATEMENTS,
+  BLOG_REQUIRED_COLUMNS,
+  BLOG_REQUIRED_INDEXES,
+  BLOG_REQUIRED_TABLES,
+} from '../blog/schema'
+import {
   IMGBED_REQUIRED_COLUMNS,
   IMGBED_REQUIRED_INDEXES,
   IMGBED_REQUIRED_TABLES,
@@ -709,6 +716,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...INKNOTE_SCHEMA_STATEMENTS,
   ...IMGBED_SCHEMA_STATEMENTS,
   ...NAV_SCHEMA_STATEMENTS,
+  ...BLOG_ALL_SCHEMA_STATEMENTS,
   ...TOOLS_PASSWORD_SCHEMA_STATEMENTS,
   ...TOOLS_QRCODE_SCHEMA_STATEMENTS,
   ...TOOLS_COLOR_SCHEMA_STATEMENTS,
@@ -3042,6 +3050,54 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON tools_shortlinks_slugs(link_id) WHERE is_primary = 1`,
     ],
   },
+  {
+    version: 204,
+    statements: BLOG_ALL_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 205,
+    statements: BLOG_COMMENT_SCHEMA_STATEMENTS,
+  },
+  {
+    version: 206,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_blog_pages_user_note ON blog_pages(user_id, note_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_blog_posts_user_published ON blog_posts(user_id, published_at DESC, id)`,
+    ],
+  },
+  {
+    version: 207,
+    statements: [
+      `ALTER TABLE nav_categories ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'`,
+    ],
+    skipIfColumnExists: { table: 'nav_categories', column: 'kind' },
+  },
+  {
+    version: 208,
+    statements: [
+      `ALTER TABLE blog_timeline ADD COLUMN location TEXT NOT NULL DEFAULT ''`,
+    ],
+    skipIfColumnExists: { table: 'blog_timeline', column: 'location' },
+  },
+  {
+    version: 209,
+    statements: [
+      `ALTER TABLE blog_projects ADD COLUMN website TEXT NOT NULL DEFAULT ''`,
+    ],
+    skipIfColumnExists: { table: 'blog_projects', column: 'website' },
+  },
+  {
+    version: 210,
+    statements: [
+      `UPDATE blog_settings SET value = '{"links":[{"label":"Home","href":"/"},{"label":"Archive","href":"/archive"},{"label":"Friends","href":"/friends"},{"label":"Moments","href":"/moments"},{"label":"Anime","href":"/anime"},{"label":"Compass","href":"/compass"},{"label":"Albums","href":"/albums"},{"label":"More","href":"/more","children":[{"label":"Timeline","href":"/timeline"},{"label":"Projects","href":"/projects"},{"label":"Devices","href":"/devices"},{"label":"Games","href":"/games"},{"label":"Skills","href":"/skills"},{"label":"About","href":"/about"}]}]}' WHERE key = 'nav' AND value LIKE '{"links":[{"label":"%","href":"/"}]}'`,
+    ],
+  },
+  {
+    version: 211,
+    statements: [
+      `UPDATE blog_settings SET value = json_set(value, '$.provider', 'local') WHERE key = 'comment' AND json_extract(value, '$.provider') = 'none'`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -3110,6 +3166,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...INKNOTE_REQUIRED_COLUMNS,
   ...IMGBED_REQUIRED_COLUMNS,
   ...NAV_REQUIRED_COLUMNS,
+  ...BLOG_REQUIRED_COLUMNS,
   ...TOOLS_PASSWORD_REQUIRED_COLUMNS,
   ...TOOLS_QRCODE_REQUIRED_COLUMNS,
   ...TOOLS_COLOR_REQUIRED_COLUMNS,
@@ -3182,6 +3239,7 @@ export const REQUIRED_TABLES = [
   ...INKNOTE_REQUIRED_TABLES,
   ...IMGBED_REQUIRED_TABLES,
   ...NAV_REQUIRED_TABLES,
+  ...BLOG_REQUIRED_TABLES,
   ...TOOLS_PASSWORD_REQUIRED_TABLES,
   ...TOOLS_QRCODE_REQUIRED_TABLES,
   ...TOOLS_COLOR_REQUIRED_TABLES,
@@ -3270,6 +3328,7 @@ export const REQUIRED_INDEXES = [
   ...INKNOTE_REQUIRED_INDEXES,
   ...IMGBED_REQUIRED_INDEXES,
   ...NAV_REQUIRED_INDEXES,
+  ...BLOG_REQUIRED_INDEXES,
   ...TOOLS_PASSWORD_REQUIRED_INDEXES,
   ...TOOLS_QRCODE_REQUIRED_INDEXES,
   ...TOOLS_COLOR_REQUIRED_INDEXES,

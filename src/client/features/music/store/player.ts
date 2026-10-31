@@ -59,6 +59,7 @@ import {
 } from '../radio/radio-feed'
 import { MUSIC_RATE_RANGE, MUSIC_VOLUME_RANGE, useMusicSettings } from './settings'
 import { useMusicLibrary } from './library'
+import { musicLibraryIntegrationEnabled, musicSourceOverride } from '../player/source-overrides'
 
 const STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.music.player' : 'inkstone.music.player'
 
@@ -181,10 +182,11 @@ export function selectCurrentTrack(state: Pick<MusicPlayerState, 'queue'>): Musi
 }
 
 function streamUrlFor(track: MusicTrack): string {
-  return `/api/music/media/stream/${encodeURIComponent(track.id)}`
+  return musicSourceOverride(track.id) ?? `/api/music/media/stream/${encodeURIComponent(track.id)}`
 }
 
 function coverUrlFor(track: MusicTrack): string {
+  if (track.coverUrl && /^(?:https?:|\/|data:)/i.test(track.coverUrl)) return track.coverUrl
   return `/api/music/media/cover/${encodeURIComponent(track.id)}`
 }
 
@@ -449,7 +451,7 @@ export const useMusicPlayer = create<MusicPlayerState>((set, get) => {
       set({ status: 'playing', consecutiveFailures: 0, error: null, errorDetail: null })
       // One place records a play, so leaving and re-entering the music tab (or the floating player
       // remounting) cannot append the same listen again. The library still deduplicates within 30s.
-      void useMusicLibrary.getState().recordHistory({ track, contextType: 'player' })
+      if (musicLibraryIntegrationEnabled()) void useMusicLibrary.getState().recordHistory({ track, contextType: 'player' })
       syncMediaSession(get())
       return true
     } catch (error) {

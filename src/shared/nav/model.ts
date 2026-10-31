@@ -24,6 +24,8 @@ export const NAV_LIMITS = {
 export type NavCardStyle = 'detailed' | 'simple'
 export type NavSearchMode = 'internal' | 'external'
 export type NavPasswordMode = 'none' | 'custom' | 'default'
+/** Reserved categories the blog projects; every other category stays private to the nav app. */
+export type NavCategoryKind = 'normal' | 'friends' | 'friend_applications'
 
 export interface NavCategory {
   id: string
@@ -34,6 +36,7 @@ export interface NavCategory {
   passwordMode: NavPasswordMode
   sortOrder: number
   createdAt: number
+  kind?: NavCategoryKind
 }
 
 export interface NavLink {
@@ -140,6 +143,7 @@ export interface NavImportCategory {
   parentId: string | null
   sortOrder: number
   createdAt: number
+  kind?: NavCategoryKind
 }
 
 export interface NavImportLink {

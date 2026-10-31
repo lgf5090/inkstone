@@ -1073,7 +1073,10 @@ md.core.ruler.push('source_lines', (state) => {
 });
 md.core.ruler.push('collect_headings', (state) => {
     const env = renderEnv(state.env);
-    if (state.tokens.length <= 1) return true;
+    // `md.renderInline` runs the core chain too (a callout title, a tab label). That pass has no
+    // block tokens, and with a footnote anywhere in the environment `footnote_tail` gives it some —
+    // so without this guard it would reset the headings the document pass had just collected.
+    if (state.inlineMode || state.tokens.length <= 1) return true;
     env.headings = [];
     for (let index = 0; index < state.tokens.length; index++) {
         const token = state.tokens[index]!;

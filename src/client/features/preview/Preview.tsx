@@ -16,7 +16,9 @@ import { useDebounced } from '../../lib/hooks'
 import { decodeDataValue } from '../../lib/markdown/data-attr'
 import { parseWikiTarget, renderMarkdown, type Heading } from '../../lib/markdown/renderer'
 import { useEmojiUnicodeVersion } from '../../lib/emoji-unicode'
-import { resolveNoteEmbeds } from '../../lib/markdown/embeds'
+import { resolveNoteEmbeds, type EmbedAttachment } from '../../lib/markdown/embeds'
+import { isAttachmentTarget } from '../../lib/markdown/attachments'
+import { chatEmbedId } from '../../lib/markdown/chat-embed'
 import { hasDynamicCommand } from '../../lib/templater/detection'
 import { t, useLocale } from '../../lib/i18n'
 import { slugifyHeading } from '@shared/markdown-utils'
@@ -76,6 +78,20 @@ export interface PreviewProps {
   className?: string
   /** The note's context menu, which only an editing host can supply. */
   contextMenu?: ContextMenuHost
+  /**
+   * A public reading surface. The body is the same renderer and the same live blocks, but nothing
+   * here may write to a note or open a vault-only panel: properties are hidden, task boxes stay
+   * read-only, and links are handed to the host's resolver instead of the note store.
+   */
+  readOnly?: boolean
+  /** Where a wiki link goes on a public surface. Returning false leaves the link inert. */
+  onWikiLink?: (target: ReturnType<typeof parseWikiTarget>) => boolean
+  /** Where a tag goes on a public surface. Returning false leaves the tag inert. */
+  onTagClick?: (name: string) => boolean
+  /** The public page's copy of an attachment, when the host published one. */
+  resolveAttachment?: (name: string) => EmbedAttachment | null
+  /** Rewrites a vault file URL in the rendered body to the host's public asset URL. */
+  rewriteAssetUrl?: (url: string) => string | null
 }
 
 export const Preview = memo(function Preview({
@@ -89,6 +105,11 @@ export const Preview = memo(function Preview({
   onScroll,
   className,
   contextMenu,
+  readOnly = false,
+  onWikiLink,
+  onTagClick,
+  resolveAttachment,
+  rewriteAssetUrl,
 }: PreviewProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const internalScrollerRef = useRef<HTMLDivElement>(null)
@@ -108,7 +129,7 @@ export const Preview = memo(function Preview({
   const fallbackTitle = useNotes((s) => (activeNoteId ? s.notes[activeNoteId]?.title ?? '' : ''))
   const sourceNoteId = noteId ?? activeNoteId
   const currentTitle = noteTitle ?? fallbackTitle
-  const { hover, handlePin, onMouseLeave, onFocus, onBlur } = useLinkHoverHost(sourceNoteId ?? null)
+  const { hover, handlePin, onMouseLeave, onFocus, onBlur } = useLinkHoverHost(sourceNoteId ?? null, { enabled: !readOnly })
 
   // A tab block's remembered choice belongs to this account's reading of this note, so a shared
   // browser does not carry one person's open tab over to the next.
@@ -147,6 +168,9 @@ export const Preview = memo(function Preview({
     }
   }, [])
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme ?? 'dark')
+  // Charts draw their colours from the accent, which is not a markup input: a theme pass redraws them
+  // through its own effect, and the accent needs the same trigger or a switched palette stays on screen.
+  const [paletteEpoch, setPaletteEpoch] = useState(0)
   // One scope per preview instance: two panes showing the same note must not claim each other's map.
   const instanceScope = useId()
   const mindmap = useMindmapBlocks({
@@ -155,6 +179,7 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
+    editable: !readOnly,
   })
 
   useJsonBlocks({
@@ -169,6 +194,7 @@ export const Preview = memo(function Preview({
     hostRef,
     epoch: mermaidEpoch,
     dark: theme === 'dark',
+    editable: !readOnly,
   })
 
   const kanban = useKanbanBlocks({
@@ -177,6 +203,7 @@ export const Preview = memo(function Preview({
     hostRef,
     committedHtml: kanbanCommit?.html ?? '',
     fences: kanbanCommit?.fences ?? null,
+    editable: !readOnly,
   })
 
   useEffect(() => {
@@ -193,11 +220,14 @@ export const Preview = memo(function Preview({
 
 
   useEffect(() => {
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((records) => {
       const next = document.documentElement.dataset.theme ?? 'dark'
       setTheme((current) => (current === next ? current : next))
+      if (records.some((record) => record.attributeName === 'data-accent')) {
+        setPaletteEpoch((current) => current + 1)
+      }
     })
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent'] })
     return () => observer.disconnect()
   }, [])
 
@@ -260,8 +290,17 @@ export const Preview = memo(function Preview({
           currentContent: debounced,
           currentTitle: embedContextTitle,
           isCurrent: () => !cancelled && revision === preparationRef.current,
+          allowTarget: readOnly
+            ? (target) => {
+                if (chatEmbedId(target.noteTitle)) return false
+                if (isAttachmentTarget(target.noteTitle)) return Boolean(resolveAttachment)
+                return true
+              }
+            : undefined,
+          resolveAttachment: readOnly ? resolveAttachment : undefined,
         })
       }
+      if (readOnly && rewriteAssetUrl) rewriteAssetUrls(staging, rewriteAssetUrl)
       await enhancePreview(staging, {
         math: preview.math,
         mermaid: preview.mermaid,
@@ -278,7 +317,8 @@ export const Preview = memo(function Preview({
         excalidraw: 'live',
         // A query block is filled by `renderDataviewBlocks` on this host after the diff, because its
         // answer depends on note bodies that may still be on their way — which staging cannot wait for.
-        dataview: 'live',
+        // A public surface has no vault index to answer from, so it shows the query itself.
+        dataview: readOnly ? 'source' : 'live',
         dark: theme === 'dark',
         codeBlockCollapseLines: preview.codeBlockCollapse
           ? preview.codeBlockCollapseLines
@@ -288,16 +328,16 @@ export const Preview = memo(function Preview({
       // preview diffs against; a toolbar added after the swap would be wiped by the next keystroke.
       enhanceBlockToolbars(staging, {
         chart: preview.chart,
-        mediaToolbar: preview.mediaToolbar,
+        mediaToolbar: preview.mediaToolbar && !readOnly,
         codeFormat: {
-          enabled: preview.codeFormatButton,
+          enabled: preview.codeFormatButton && !readOnly,
           tabSize: editorSettings.tabSize,
           keywordCase: editorSettings.codeFormatKeywordCase,
         },
         tabScope,
         jsonView: preview.jsonView,
         jsonFold: preview.jsonFold,
-        jsonEditable: preview.jsonEditable,
+        jsonEditable: preview.jsonEditable && !readOnly,
         jsonTolerant: preview.jsonTolerant,
       })
       if (cancelled || revision !== preparationRef.current) return
@@ -347,10 +387,17 @@ export const Preview = memo(function Preview({
       // still re-walked the host and re-mounted every mind map. Both halves are compared above because the
       // markup string is blind to a fence-body edit.
       if (markupMoved || fencesMoved) setMermaidEpoch((current) => current + 1)
+      // A public page has no note to write a tick to. Disabling the boxes says so before the reader
+      // clicks; the click guard above is the second half.
+      if (readOnly && hostRef.current) {
+        for (const input of hostRef.current.querySelectorAll<HTMLInputElement>('input.task-list-item-checkbox')) {
+          input.disabled = true
+        }
+      }
       // Query blocks and inline fields are filled on the live host after the swap, because their answer
       // is a store read that may still be arriving; the guard in `patchChildren` above is what lets the
       // next keystroke keep whatever was already drawn.
-      if (hostRef.current) mountDataview(hostRef.current, { originNoteId: sourceNoteId ?? null, editable: false })
+      if (hostRef.current && !readOnly) mountDataview(hostRef.current, { originNoteId: sourceNoteId ?? null, editable: false })
       // `<%+ … %>` is the one syntax a note can ask its own preview to run, and this is the only surface that
       // lets it: the share page, an export, a hover card and a chat answer never reach here, so the same text
       // stays source there. Gated on the markup having moved, because the answers already in the DOM are the
@@ -391,6 +438,9 @@ export const Preview = memo(function Preview({
     editorSettings.tabSize,
     editorSettings.codeFormatKeywordCase,
     theme,
+    readOnly,
+    resolveAttachment,
+    rewriteAssetUrl,
   ])
 
 
@@ -407,7 +457,7 @@ export const Preview = memo(function Preview({
     if (!mermaidEpoch) return
     const timer = window.setTimeout(startChartRender, 60)
     return () => window.clearTimeout(timer)
-  }, [mermaidEpoch, startChartRender])
+  }, [mermaidEpoch, paletteEpoch, startChartRender])
 
 
   const blockActionContext = (): BlockActionContext => ({
@@ -524,7 +574,7 @@ export const Preview = memo(function Preview({
   }
 
   const longPress = useLongPress((point, target) => {
-    if (!contextMenu) return
+    if (!contextMenu || readOnly) return
     const tag = tagMenuRequestFrom(target, point.x, point.y)
     if (tag) {
       setTagMenu(tag)
@@ -590,7 +640,11 @@ export const Preview = memo(function Preview({
     const checkbox = target.closest<HTMLInputElement>('input[type="checkbox"]')
     if (checkbox) {
       if (checkbox.disabled || checkbox.closest('.note-embed-body')) return
-
+      // A published article has no note to write a tick back to, so the box keeps its state.
+      if (readOnly) {
+        event.preventDefault()
+        return
+      }
 
       const checked = checkbox.checked
       const line = Number(checkbox.dataset.taskLine)
@@ -627,9 +681,16 @@ export const Preview = memo(function Preview({
     const wikilink = target.closest<HTMLElement>('[data-wikilink]')
     if (wikilink) {
       event.preventDefault()
+      const parsed = parseWikiTarget(decodeDataValue(wikilink.dataset.wikilink))
+      if (readOnly) {
+        // A public page resolves note links through its host; a heading or block target points
+        // inside this very article, so it scrolls exactly as it does in the note app.
+        if (parsed.noteTitle) onWikiLink?.(parsed)
+        else wikiScrollCleanupRef.current = scrollToWikiTarget(hostRef, parsed, () => true)
+        return
+      }
       wikiScrollCleanupRef.current()
       const navigation = ++wikiNavigationRef.current
-      const parsed = parseWikiTarget(decodeDataValue(wikilink.dataset.wikilink))
       const note = parsed.noteTitle ? findNoteByTitle(parsed.noteTitle) : sourceNoteId ? useNotes.getState().notes[sourceNoteId] : undefined
       if (note) {
         void openNote(note.id).then(() => {
@@ -665,6 +726,10 @@ export const Preview = memo(function Preview({
     if (tag) {
       event.preventDefault()
       const name = decodeDataValue(tag.dataset.tag)
+      if (readOnly) {
+        onTagClick?.(name)
+        return
+      }
       // Alt/opt or cmd/ctrl turns a tag in the reading view into its tag page, the way the
       // reference plugin does; a plain click still just filters.
       if (wantsTagPage(event)) {
@@ -732,13 +797,14 @@ export const Preview = memo(function Preview({
       onScroll={(event) => onScroll?.(event.currentTarget)}
     >
       <div className="pp-prose-column" onMouseMove={hover.handleMouseMove} onMouseLeave={onMouseLeave}>
-        <NoteProperties noteId={sourceNoteId ?? null}/>
+        {!readOnly && <NoteProperties noteId={sourceNoteId ?? null}/>}
       </div>
       <div
         ref={hostRef}
         onClick={onClick}
         onKeyDown={onKeyDown}
         onContextMenu={(event) => {
+          if (readOnly) return
           const request = tagMenuRequestFrom(event.target, event.clientX, event.clientY)
           if (request) {
             event.preventDefault()
@@ -829,6 +895,17 @@ export const Preview = memo(function Preview({
     </div>
   )
 })
+
+function rewriteAssetUrls(root: HTMLElement, rewrite: (url: string) => string | null): void {
+  for (const element of root.querySelectorAll<HTMLElement>('[src], [href]')) {
+    for (const attribute of ['src', 'href']) {
+      const value = element.getAttribute(attribute)
+      if (!value) continue
+      const next = rewrite(value)
+      if (next) element.setAttribute(attribute, next)
+    }
+  }
+}
 
 function scrollToWikiTarget(
   hostRef: RefObject<HTMLDivElement | null>,

@@ -148,6 +148,20 @@ export async function initI18n(): Promise<void> {
     })();
     return initPromise;
 }
+/**
+ * Locale boot for a surface that renders one language and no switcher.
+ *
+ * The app's own `initI18n` also preloads the other shipped locale for an instant switch; a public
+ * reading surface has no switch, so that background chunk is traffic nobody asked for.
+ */
+export async function initI18nForReading(target: AppLocale): Promise<void> {
+    await ensureLocaleLoaded('en-US');
+    if (target !== 'en-US') await ensureLocaleLoaded(target);
+    locale = target;
+    applyLocaleToDom();
+    listeners.forEach((listener) => listener());
+}
+
 export type { MessageKey };
 export function t(key: MessageKey, params?: Params): string {
     const template = messages[locale][key] ?? enMessagesCache?.[key] ?? key;

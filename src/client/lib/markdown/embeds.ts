@@ -12,10 +12,28 @@ import { registerFenceBodies } from './fence-bodies'
 import { isMindmapDocumentBody, isMindmapDocumentTitle, mindmapDocumentAsFence } from './mindmap/document'
 import type { FenceBodies } from './fence-bodies'
 
+export interface EmbedAttachment {
+  filename: string
+  mime: string
+  url: string
+  size: number
+  width: number | null
+  height: number | null
+}
+
 interface ResolveOptions {
   currentContent: string
   currentTitle: string
   isCurrent?: () => boolean
+  /**
+   * Which targets a surface may expand. A public page names the notes it is allowed to show — the
+   * published ones — so an embed of a private note becomes the ordinary "not found" notice instead of
+   * being painted into markup that leaves the owner's workspace. It runs before the chat and attachment
+   * branches, because those are also external reads a public surface must name.
+   */
+  allowTarget?: (target: ReturnType<typeof parseWikiTarget>) => boolean
+  /** Where a public page gets an attachment: a mapped blog asset instead of the owner's file API. */
+  resolveAttachment?: (name: string) => EmbedAttachment | null
 }
 
 interface ResolveContext extends ResolveOptions {
@@ -103,9 +121,27 @@ async function fetchAttachmentByName(name: string): Promise<Attachment | null> {
   return await request
 }
 
-async function resolveAttachmentEmbed(embed: HTMLElement, target: WikiTarget): Promise<void> {
+async function resolveAttachmentEmbed(
+  embed: HTMLElement,
+  target: WikiTarget,
+  context: ResolveContext,
+): Promise<void> {
   try {
-    const file = await fetchAttachmentByName(attachmentFileName(target.noteTitle))
+    const name = attachmentFileName(target.noteTitle)
+    const mapped = context.resolveAttachment?.(name) ?? null
+    const file: Attachment | null = mapped
+      ? {
+          id: `blog:${name}`,
+          noteId: null,
+          filename: mapped.filename,
+          mime: mapped.mime,
+          url: mapped.url,
+          size: mapped.size,
+          width: mapped.width,
+          height: mapped.height,
+          createdAt: 0,
+        }
+      : await fetchAttachmentByName(name)
     if (!file) {
       showError(embed, t("markdown.embedded_note_not_found"))
       return
@@ -135,6 +171,10 @@ async function resolveWithin(
 
     const raw = decodeDataValue(embed.dataset.embedTarget)
     const target = parseWikiTarget(raw)
+    if (context.allowTarget && !context.allowTarget(target)) {
+      showError(embed, t("markdown.embedded_note_not_found"))
+      continue
+    }
     // A conversation is not a note: it has no body to embed, and the box is filled from the API.
     const conversationId = chatEmbedId(target.noteTitle)
     if (conversationId) {
@@ -147,7 +187,7 @@ async function resolveWithin(
       continue
     }
     if (isAttachmentTarget(target.noteTitle)) {
-      await resolveAttachmentEmbed(embed, target)
+      await resolveAttachmentEmbed(embed, target, context)
       continue
     }
     const example = embed.closest<HTMLElement>('[data-markdown-example]')

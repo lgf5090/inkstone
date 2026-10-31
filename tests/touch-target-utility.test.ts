@@ -21,9 +21,10 @@ function sheets(): Array<{ name: string, text: string }> {
 }
 
 describe('the touch floor utility', () => {
-  it('is declared once, in the stylesheet every surface loads', () => {
+  it('is declared once, in the shared primitive sheet every surface imports', () => {
     const declared = sheets().filter((sheet) => /\.ink-tap-pad::after\s*\{/.test(sheet.text))
-    expect(declared.map((sheet) => sheet.name)).toEqual(['app.css'])
+    expect(declared.map((sheet) => sheet.name)).toEqual(['ui-primitives.css'])
     expect(declared[0]!.text).toMatch(/\.ink-tap-pad::after\s*\{[^}]*var\(--tap-min\)/)
+    expect(fs.readFileSync(path.join(STYLES_DIR, 'app.css'), 'utf8')).toContain("@import './ui-primitives.css';")
   })
 })

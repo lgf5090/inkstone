@@ -20,5 +20,5 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "pwa.config.ts", "src/shared/ai-proxy-guard.ts", "scripts/excalidraw-patch.mjs"]
+  "include": ["vite.config.ts", "vite.blog-runtime.config.ts", "vite.blog-music.config.ts", "vitest.config.ts", "pwa.config.ts", "src/shared/ai-proxy-guard.ts", "src/shared/blog/renderer.ts", "scripts/excalidraw-patch.mjs"]
 }

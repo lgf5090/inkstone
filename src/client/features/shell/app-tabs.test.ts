@@ -8,6 +8,7 @@ const EVERY_TAB_ID: Record<AppTabId, true> = {
   notes: true,
   inknote: true,
   memos: true,
+  "blog-admin": true,
   clouddrive: true,
   calendar: true,
   todo: true,
@@ -35,6 +36,12 @@ describe('the app tab registry', () => {
     const ids = APP_TABS.map((tab) => tab.id)
     expect(ids[ids.indexOf('notes') + 1]).toBe('inknote')
     expect(ids[ids.indexOf('inknote') + 1]).toBe('memos')
+  })
+
+  it('places the blog admin above the navigator', () => {
+    const ids = APP_TABS.map((tab) => tab.id)
+    expect(ids.indexOf('blog-admin')).toBeLessThan(ids.indexOf('nav'))
+    expect(tabIdForPath('/blog-admin/posts')).toBe('blog-admin')
   })
 
   it('gives each container an address of its own', () => {

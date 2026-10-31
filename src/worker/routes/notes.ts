@@ -36,6 +36,9 @@ import { broadcastCursor, scheduleFtsDrain } from '../lib/notify'
 import { assertContentSize, clampInt, JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { scheduleAiDrainForNote } from '../mcp/ai-search'
+import { blogOwnerUserId, findPostByNoteId, recordBlogAudit, syncBlogPostFromNote, unpublishPost } from '../blog/store'
+import { syncBlogPageFromNote } from '../blog/pages'
+import type { BlogNoteInput } from '../blog/store'
 
 /**
  * The link and trash panels' shared SQL helpers, kept addressable from this module because
@@ -61,6 +64,30 @@ const TRASH_EMPTY_BATCH = 500
  */
 function store(c: Context<AppBindings>): NotesStore {
   return new NotesStore(c.env.DB, c.get('userId'), c.get('database').ftsEnabled)
+}
+
+/**
+ * Keep the blog projection in step with the note that owns it. A failure here must not fail the
+ * note write: the note is the source of truth, and the admin can retry the projection. It is still
+ * recorded as an audit row so the failure is visible rather than silently swallowed.
+ */
+async function syncBlogForNote(c: Context<AppBindings>, note: BlogNoteInput): Promise<void> {
+  const userId = c.get('userId')
+  try {
+    if (await blogOwnerUserId(c.env.DB) !== userId) return
+    const page = await syncBlogPageFromNote(c.env.DB, userId, note)
+    if (page) {
+      const post = await findPostByNoteId(c.env.DB, userId, note.id)
+      if (post && post.status !== 'withdrawn') await unpublishPost(c.env.DB, userId, post.id)
+    } else {
+      await syncBlogPostFromNote(c.env.DB, userId, note)
+    }
+  } catch (error) {
+    console.warn('[inkstone] blog projection failed:', error)
+    await recordBlogAudit(c.env.DB, userId, 'post.sync_failed', 'note', note.id, {
+      message: error instanceof Error ? error.message : String(error),
+    }).catch((auditError) => console.warn('[inkstone] blog sync audit failed:', auditError))
+  }
 }
 
 
@@ -196,6 +223,7 @@ notesRoutes.post('/', async (c) => {
     scheduleAiDrainForNote(c, userId)
   }
   const note = toNote(row)
+  await syncBlogForNote(c, row)
   return c.json(note, created ? 201 : 200)
 })
 
@@ -332,6 +360,7 @@ notesRoutes.patch('/:id', async (c) => {
   if (contentChanged || titleChanged) {
     scheduleFtsDrain(c)
     scheduleAiDrainForNote(c, userId)
+    await syncBlogForNote(c, patch.next)
   }
   return c.json(toNote(patch.next))
 })
@@ -350,6 +379,7 @@ notesRoutes.delete('/:id', async (c) => {
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   const note = toNote({ ...row, deleted_at: now, updated_at: now, rev: nextRev })
+  await syncBlogForNote(c, { id: row.id, title: row.title, content: row.content, deleted_at: now })
   return c.json(note)
 })
 
@@ -370,6 +400,7 @@ notesRoutes.post('/:id/restore', async (c) => {
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
+  await syncBlogForNote(c, restored!)
   return c.json(toNote(restored!))
 })
 
@@ -383,6 +414,7 @@ notesRoutes.delete('/:id/purge', async (c) => {
   const broadcastedCursor = await broadcastCursor(c, changeSeq)
   const deletionCursor = changeSeq
   scheduleFtsDrain(c)
+  await syncBlogForNote(c, { id: row.id, title: row.title, content: row.content, deleted_at: row.deleted_at })
   return c.json({
     ok: true,
     cursor: Number.isSafeInteger(deletionCursor) ? deletionCursor! : broadcastedCursor,
@@ -502,6 +534,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   await broadcastCursor(c, changeSeq)
   scheduleFtsDrain(c)
   scheduleAiDrainForNote(c, userId)
+  await syncBlogForNote(c, row!)
   return c.json(toNote(row!))
 })
 

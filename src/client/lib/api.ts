@@ -33,11 +33,30 @@ import type {
 } from '@shared/subscriptions/model'
 import type { ConversationShareInfo, PublicConversation } from '@shared/assistant'
 import type { ProviderBalanceAnswer } from '@shared/provider-balance'
+import type { PublicSharePresence, SharePresencePosition, SharePresenceSession } from '@shared/share-presence'
 import type {
-  PublicSharePresence,
-  SharePresencePosition,
-  SharePresenceSession,
-} from '@shared/share-presence'
+  AdminBlogComment,
+  BlogAdminOverview,
+  BlogCommentStatus,
+  BlogAlbumPhoto,
+  BlogAuditEntry,
+  BlogCalendarItem,
+  BlogCollectionItem,
+  BlogCollectionKind,
+  BlogDashboard,
+  BlogHealth,
+  BlogMediaItem,
+  BlogPageItem,
+  BlogPostAdminDetail,
+  BlogPostAdminItem,
+  BlogPostRow,
+  BlogRedirectItem,
+  BlogRenderSnapshot,
+  BlogSitePublic,
+  TaxonomyItem,
+  TaxonomyKind,
+} from '@shared/blog/model'
+import type { BlogSettingKey, BlogSettings } from '@shared/blog/settings'
 import type {
   AppLocale,
   Attachment,
@@ -875,6 +894,215 @@ export const api = {
         publishBroadcast({ type: 'site-changed', clientId: CLIENT_ID })
         return result
       }),
+  },
+
+  blog: {
+    site: () => request<BlogSitePublic>('/api/blog/site'),
+    overview: () => request<BlogAdminOverview>('/api/blog/admin/overview'),
+    friendsConfig: () => request<{
+      friends: { id: string; name: string }
+      applications: { id: string; name: string; pending: number }
+    }>('/api/blog/admin/friends/config'),
+    dashboard: () => request<BlogDashboard>('/api/blog/admin/dashboard'),
+    health: () => request<BlogHealth>('/api/blog/admin/health'),
+    audit: (limit = 50) => request<{ items: BlogAuditEntry[] }>(`/api/blog/admin/audit?limit=${limit}`),
+    calendar: (from: number, to: number) =>
+      request<{ items: BlogCalendarItem[] }>(`/api/blog/admin/calendar?from=${from}&to=${to}`),
+    posts: (params: {
+      page?: number
+      limit?: number
+      status?: string
+      q?: string
+      category?: string
+      tag?: string
+      series?: string
+      sort?: string
+    } = {}) =>
+      request<{ items: BlogPostAdminItem[]; page: number; limit: number; total: number }>(
+        `/api/blog/admin/posts${toQuery(params)}`,
+      ),
+    post: (id: string) =>
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/${encodeURIComponent(id)}`),
+    noteStatus: () =>
+      request<{ items: { noteId: string; status: string }[] }>('/api/blog/admin/note-status'),
+    postByNote: (noteId: string) =>
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/by-note/${encodeURIComponent(noteId)}`),
+    syncNote: (noteId: string) =>
+      request<Record<string, unknown> | null>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/sync`, {
+        method: 'POST',
+        body: {},
+      }),
+    patchPost: (id: string, patch: Record<string, unknown>) =>
+      request<BlogPostAdminDetail>(`/api/blog/admin/posts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: patch,
+      }),
+    trashPost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    restorePost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}/restore`, {
+        method: 'POST',
+        body: {},
+      }),
+    deletePost: (id: string) =>
+      request<{ ok: true; updated: number }>(`/api/blog/admin/posts/${encodeURIComponent(id)}/permanent`, {
+        method: 'DELETE',
+      }),
+    bulkPosts: (noteIds: string[], action: 'unpublish' | 'trash' | 'restore' | 'pin' | 'unpin') =>
+      request<{ ok: true; updated: number }>('/api/blog/admin/posts/bulk', {
+        method: 'POST',
+        body: { noteIds, action },
+      }),
+    publish: (noteId: string, snapshot: BlogRenderSnapshot) =>
+      request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(noteId)}/publish`, {
+        method: 'POST',
+        body: { snapshot },
+        timeoutMs: 60_000,
+      }),
+    unpublish: (postId: string) =>
+      request<BlogPostRow>(`/api/blog/admin/posts/${encodeURIComponent(postId)}/unpublish`, {
+        method: 'POST',
+        body: {},
+      }),
+    settings: {
+      get: () => request<BlogSettings>('/api/blog/admin/settings'),
+      patch: (key: BlogSettingKey, value: unknown) =>
+        request<BlogSettings>('/api/blog/admin/settings', { method: 'PATCH', body: { key, value } }),
+    },
+    comments: {
+      list: (params: { status?: string; q?: string; postId?: string; page?: number; limit?: number } = {}) =>
+        request<{ items: AdminBlogComment[]; total: number; counts: Record<BlogCommentStatus, number> }>(
+          `/api/blog/admin/comments${toQuery(params)}`,
+        ),
+      status: (id: string, status: BlogCommentStatus) =>
+        request<{ ok: true; status: BlogCommentStatus }>(
+          `/api/blog/admin/comments/${encodeURIComponent(id)}/status`,
+          { method: 'POST', body: { status } },
+        ),
+      bulk: (ids: string[], status: BlogCommentStatus) =>
+        request<{ ok: true; updated: number }>('/api/blog/admin/comments/bulk', {
+          method: 'POST',
+          body: { ids, status },
+        }),
+      reply: (id: string, content: string) =>
+        request<{ ok: true; id: string }>(`/api/blog/admin/comments/${encodeURIComponent(id)}/reply`, {
+          method: 'POST',
+          body: { content },
+        }),
+      stats: () => request<Record<BlogCommentStatus, number>>('/api/blog/admin/comments/stats'),
+    },
+    taxonomy: {
+      list: () => request<{ categories: TaxonomyItem[]; tags: TaxonomyItem[]; series: TaxonomyItem[] }>('/api/blog/admin/taxonomy'),
+      create: (kind: TaxonomyKind, input: { name: string; slug?: string; description?: string; color?: string | null; status?: string }) =>
+        request<TaxonomyItem>(`/api/blog/admin/taxonomy/${kind}`, { method: 'POST', body: input }),
+      update: (kind: TaxonomyKind, id: string, input: { name: string; slug?: string; description?: string; color?: string | null; status?: string }) =>
+        request<{ ok: true }>(`/api/blog/admin/taxonomy/${kind}/${encodeURIComponent(id)}`, { method: 'PATCH', body: input }),
+      remove: (kind: TaxonomyKind, id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/taxonomy/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
+    media: {
+      list: (params: { page?: number; limit?: number; kind?: string; q?: string } = {}) =>
+        request<{ items: BlogMediaItem[]; total: number }>(`/api/blog/admin/media${toQuery(params)}`),
+      upload: (file: File) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        return request<BlogMediaItem>('/api/blog/admin/media', { method: 'POST', formData, timeoutMs: 60_000 })
+      },
+      remove: (id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    },
+    pages: {
+      list: () => request<{ items: BlogPageItem[] }>('/api/blog/admin/pages'),
+      get: (id: string) => request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`),
+      byNote: (noteId: string) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/by-note/${encodeURIComponent(noteId)}`),
+      create: (input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
+        request<BlogPageItem>('/api/blog/admin/pages', { method: 'POST', body: input }),
+      update: (id: string, input: { title: string; slug?: string; kind?: string; body: string; publish: boolean }) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'PATCH', body: input }),
+      remove: (id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/pages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      bindNote: (id: string, noteId: string | null) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}/note`, {
+          method: 'POST',
+          body: { noteId },
+        }),
+      publish: (id: string, published: boolean) =>
+        request<BlogPageItem>(`/api/blog/admin/pages/${encodeURIComponent(id)}/publish`, {
+          method: 'POST',
+          body: { published },
+        }),
+    },
+    collections: {
+      list: (kind: BlogCollectionKind) =>
+        request<{ items: BlogCollectionItem[] }>(`/api/blog/admin/collections/${kind}`),
+      create: (kind: BlogCollectionKind, input: Record<string, unknown>) =>
+        request<BlogCollectionItem>(`/api/blog/admin/collections/${kind}`, { method: 'POST', body: input }),
+      update: (kind: BlogCollectionKind, id: string, input: Record<string, unknown>) =>
+        request<BlogCollectionItem>(`/api/blog/admin/collections/${kind}/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          body: input,
+        }),
+      remove: (kind: BlogCollectionKind, id: string) =>
+        request<{ ok: true }>(`/api/blog/admin/collections/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+      photos: (albumId: string) =>
+        request<{ items: BlogAlbumPhoto[] }>(`/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos`),
+      addPhoto: (albumId: string, input: { assetId: string; caption?: string; alt?: string; takenAt?: string }) =>
+        request<BlogAlbumPhoto>(`/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos`, {
+          method: 'POST',
+          body: input,
+        }),
+      updatePhoto: (albumId: string, photoId: string, input: { caption?: string; alt?: string; takenAt?: string }) =>
+        request<BlogAlbumPhoto>(
+          `/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos/${encodeURIComponent(photoId)}`,
+          { method: 'PATCH', body: input },
+        ),
+      removePhoto: (albumId: string, photoId: string) =>
+        request<{ ok: true }>(
+          `/api/blog/admin/collections/albums/${encodeURIComponent(albumId)}/photos/${encodeURIComponent(photoId)}`,
+          { method: 'DELETE' },
+        ),
+      compassEntries: (shelfId: string) =>
+        request<{ items: Record<string, unknown>[] }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries`,
+        ),
+      saveCompassEntry: (shelfId: string, input: Record<string, unknown>, entryId?: string) =>
+        request<{ items: Record<string, unknown>[] }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries${entryId ? `/${encodeURIComponent(entryId)}` : ''}`,
+          { method: entryId ? 'PATCH' : 'POST', body: input },
+        ),
+      removeCompassEntry: (shelfId: string, entryId: string) =>
+        request<{ ok: true }>(
+          `/api/blog/admin/collections/compass/${encodeURIComponent(shelfId)}/entries/${encodeURIComponent(entryId)}`,
+          { method: 'DELETE' },
+        ),
+    },
+    redirects: {
+      list: () => request<{ items: BlogRedirectItem[] }>('/api/blog/admin/redirects'),
+      save: (input: { from: string; to: string; status: number }) =>
+        request<BlogRedirectItem>('/api/blog/admin/redirects', { method: 'POST', body: input }),
+      remove: (from: string) =>
+        request<{ ok: true }>(`/api/blog/admin/redirects/${encodeURIComponent(from)}`, { method: 'DELETE' }),
+    },
+    tools: {
+      renderQueue: () => request<{ items: { noteId: string; title: string; renderStatus: string }[] }>('/api/blog/admin/tools/render-queue'),
+      purge: () => request<{ configured: boolean; purged: boolean; message?: string }>('/api/blog/admin/tools/purge', { method: 'POST', body: {} }),
+      exportData: () => request<Record<string, unknown>>('/api/blog/admin/export'),
+      importData: (data: Record<string, unknown>) =>
+        request<{ ok: true; settings: number; redirects: number }>('/api/blog/admin/import', {
+          method: 'POST',
+          body: data,
+          timeoutMs: 60_000,
+        }),
+    },
+    account: {
+      get: () => request<{
+        id: string; username: string; name: string; avatarUrl: string; role: string;
+        createdAt: number; lastSeenAt: number; profile: Record<string, unknown>;
+      }>('/api/blog/admin/account'),
+      update: (input: { name?: string; avatarUrl?: string; bio?: string; email?: string; location?: string; links?: { label: string; url: string }[] }) =>
+        request<{ ok: true }>('/api/blog/admin/account', { method: 'PATCH', body: input }),
+    },
   },
 
   notes: {

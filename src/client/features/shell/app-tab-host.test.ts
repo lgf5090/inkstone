@@ -22,6 +22,7 @@ vi.mock('../calendar/CalendarApp', () => ({
 }))
 
 import { initI18n } from '../../lib/i18n'
+import { useSession } from '../../store/session'
 import { navigateToPath } from '../../lib/app-history'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { APP_TABS } from './app-tabs'
@@ -58,6 +59,9 @@ beforeEach(async () => {
   stubs.mounts = 0
   stubs.unmounts = 0
   await initI18n()
+  useSession.setState({
+    user: { id: 'u', login: 'owner', username: 'owner', name: 'Owner', avatarUrl: '', role: 'owner', createdAt: 0 },
+  })
   act(() => { window.history.replaceState(null, '', '/') })
 })
 

@@ -320,9 +320,47 @@ const watcherErrorsAreNotFatal = (): Plugin => ({
   },
 })
 
+/**
+ * Serves the built reading runtime during dev.
+ *
+ * The blog loads the versioned bundle exactly as it does in production; without this the dev app's SPA
+ * fallback answers `/blog-runtime/*` with `index.html`, which a module script cannot execute. Rebuild
+ * with `npm run build:runtime` after changing the surface.
+ */
+const blogRuntimeAssets = (): Plugin => ({
+  name: 'inkstone:blog-runtime-assets',
+  configureServer(server) {
+    const root = r('./dist/client/blog-runtime')
+    const types: Record<string, string> = {
+      '.js': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.woff2': 'font/woff2',
+    }
+    server.middlewares.use((req, res, next) => {
+      const pathname = (req.url ?? '').split('?')[0]
+      const match = /^\/blog-runtime\/(inkstone-blog-v\d+)\/(.+)$/.exec(pathname)
+      if (!match) return next()
+      const file = path.resolve(root, match[1]!, match[2]!)
+      if (!file.startsWith(path.resolve(root) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+        res.statusCode = 404
+        res.end('Reading runtime not found')
+        return
+      }
+      res.setHeader('Content-Type', types[path.extname(file)] ?? 'application/octet-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.end(fs.readFileSync(file))
+    })
+  },
+})
+
 const config: UserConfigFnPromise = async ({ mode, command }) => ({
   plugins: [
     watcherErrorsAreNotFatal(),
+    blogRuntimeAssets(),
     react(),
     katexWoff2Only(),
     excalidrawVendorPlugin(),

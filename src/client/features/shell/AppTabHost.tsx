@@ -34,6 +34,7 @@ const CONTAINERS: Partial<Record<AppTabId, ComponentType>> = {
   notes: AppShell,
   inknote: lazy(() => import('../inknote/InknoteApp').then((module) => ({ default: module.InknoteApp }))),
   memos: lazy(() => import('../memos/MemosApp').then((module) => ({ default: module.MemosApp }))),
+  'blog-admin': lazy(() => import('../blog-admin/BlogAdminApp').then((module) => ({ default: module.BlogAdminApp }))),
   nav: lazy(() => import('../nav/NavApp').then((module) => ({ default: module.NavApp }))),
   clouddrive: lazy(() => import('../clouddrive/ClouddriveApp').then((module) => ({ default: module.ClouddriveApp }))),
   reading: ReadingApp,

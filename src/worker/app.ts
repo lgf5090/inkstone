@@ -6,6 +6,9 @@ import { loadSession, requireClientHeader } from './middleware/auth'
 import { authRoutes } from './routes/auth'
 import { totpRoutes } from './routes/totp'
 import { notesRoutes } from './routes/notes'
+import { blogAdminRoutes } from './blog/admin-routes'
+import { blogPublicRoutes } from './blog/public-routes'
+import { blogRuntimeRoutes } from './blog/runtime-routes'
 import { inknoteRoutes } from './routes/inknote'
 import { inknoteAssetsRoutes } from './routes/inknote-assets'
 import { inknoteSettingsRoutes } from './routes/inknote-settings'
@@ -192,6 +195,8 @@ export function createApp() {
   app.route('/api/auth/totp', totpRoutes)
   app.route('/api/auth', authRoutes)
   app.route('/api/notes', notesRoutes)
+  app.route('/api/blog/admin', blogAdminRoutes)
+  app.route('/api/blog', blogPublicRoutes)
   app.route('/api/inknote', inknoteRoutes)
   app.route('/api/inknote', inknoteAssetsRoutes)
   app.route('/api/inknote', inknoteSettingsRoutes)
@@ -326,6 +331,8 @@ export function createApp() {
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
+
+  app.route('/blog-runtime', blogRuntimeRoutes)
 
   app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw))
 
