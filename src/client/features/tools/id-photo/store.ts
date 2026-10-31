@@ -9,8 +9,17 @@ import type {
   PrintSheetOptions,
 } from '@shared/tools/id-photo/types'
 import { getIdPhotoSettings, listCustomSpecs } from './api'
+import {
+  panCrop,
+  panPercent,
+  percentToCrop,
+  rotatedBounds,
+  zoomPercentOf,
+  type CropRect,
+  type Size,
+} from './engine/framing'
 
-export type IdPhotoOptionsTab = 'spec' | 'color' | 'retouch' | 'attire' | 'print'
+export type IdPhotoOptionsTab = 'spec' | 'color' | 'framing' | 'retouch' | 'attire'
 
 const MAX_WORKING_EDGE = 2048
 
@@ -22,6 +31,21 @@ export function planSourceResize(width: number, height: number): { width: number
     width: Math.max(1, Math.round(width * ratio)),
     height: Math.max(1, Math.round(height * ratio)),
   }
+}
+
+function clampCropFn(rect: CropRect, layer: Size): CropRect {
+  return {
+    cropX: Math.min(layer.width - rect.cropWidth, Math.max(0, rect.cropX)),
+    cropY: Math.min(layer.height - rect.cropHeight, Math.max(0, rect.cropY)),
+    cropWidth: rect.cropWidth,
+    cropHeight: rect.cropHeight,
+  }
+}
+
+function cropRectOf(adjustOptions: IdPhotoAdjustOptions, layer: Size): CropRect | null {
+  const { cropX, cropY, cropWidth, cropHeight } = adjustOptions
+  if (cropX === undefined || cropY === undefined || !cropWidth || !cropHeight) return null
+  return clampCropFn({ cropX, cropY, cropWidth, cropHeight }, layer)
 }
 
 function downscale(image: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
@@ -90,6 +114,13 @@ export interface IdPhotoState {
   originalImageSrc: string | null
   imageElement: HTMLImageElement | HTMLCanvasElement | null
   sourceSize: { width: number; height: number } | null
+  workingSize: Size | null
+  framingLayer: () => Size | null
+  cropRect: () => CropRect | null
+  cropPercents: () => { zoom: number; x: number; y: number } | null
+  setCropPercents: (zoom: number, x: number, y: number) => void
+  panByRatio: (dx: number, dy: number) => void
+  resetCrop: () => void
   setImageSrc: (src: string | null) => Promise<boolean>
 
   // Spec Selection
@@ -141,14 +172,23 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   imageElement: null,
   sourceSize: null,
   setImageSrc: (src) => {
+    const uncrop = (options: IdPhotoAdjustOptions): IdPhotoAdjustOptions => ({
+      ...options,
+      cropX: undefined,
+      cropY: undefined,
+      cropWidth: undefined,
+      cropHeight: undefined,
+    })
     if (!src) {
-      set({
+      set((s) => ({
         imageSrc: null,
         originalImageSrc: null,
         imageElement: null,
         sourceSize: null,
+        workingSize: null,
         lastExport: null,
-      })
+        adjustOptions: uncrop(s.adjustOptions),
+      }))
       return Promise.resolve(false)
     }
     return new Promise<boolean>((resolve) => {
@@ -156,13 +196,15 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
       img.onload = () => {
         const plan = planSourceResize(img.naturalWidth, img.naturalHeight)
         const working = plan ? downscale(img, plan.width, plan.height) : img
-        set({
+        set((s) => ({
           imageSrc: src,
           originalImageSrc: src,
           imageElement: working,
           sourceSize: { width: img.naturalWidth, height: img.naturalHeight },
+          workingSize: { width: working.width, height: working.height },
           lastExport: null,
-        })
+          adjustOptions: uncrop(s.adjustOptions),
+        }))
         resolve(true)
       }
       img.onerror = () => resolve(false)
@@ -198,6 +240,57 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
     const builtin = BUILTIN_ID_PHOTO_SPECS.find((s) => s.id === selectedSpecId)
     return builtin ?? BUILTIN_ID_PHOTO_SPECS[0]
   },
+
+  workingSize: null,
+
+  framingLayer: () => {
+    const { workingSize, adjustOptions } = get()
+    if (!workingSize) return null
+    return rotatedBounds(workingSize.width, workingSize.height, adjustOptions.rotation ?? 0)
+  },
+
+  cropRect: () => {
+    const layer = get().framingLayer()
+    if (!layer) return null
+    const manual = cropRectOf(get().adjustOptions, layer)
+    if (manual) return manual
+    const spec = get().getActiveSpec()
+    return percentToCrop(layer, spec.widthPx / spec.heightPx, 0, 50, 50)
+  },
+
+  cropPercents: () => {
+    const layer = get().framingLayer()
+    if (!layer) return null
+    const rect = cropRectOf(get().adjustOptions, layer)
+    if (!rect) return { zoom: 0, x: 50, y: 50 }
+    return { zoom: zoomPercentOf(rect, layer, rect.cropWidth / rect.cropHeight), ...panPercent(rect, layer) }
+  },
+
+  panByRatio: (dx, dy) => {
+    const layer = get().framingLayer()
+    const rect = get().cropRect()
+    if (!layer || !rect) return
+    set((s) => ({ adjustOptions: { ...s.adjustOptions, ...panCrop(rect, layer, dx * rect.cropWidth, dy * rect.cropHeight) } }))
+  },
+
+  setCropPercents: (zoom, x, y) =>
+    set((s) => {
+      const layer = s.framingLayer()
+      if (!layer) return s
+      const rect = percentToCrop(layer, s.getActiveSpec().widthPx / s.getActiveSpec().heightPx, zoom, x, y)
+      return { adjustOptions: { ...s.adjustOptions, ...rect } }
+    }),
+
+  resetCrop: () =>
+    set((s) => ({
+      adjustOptions: {
+        ...s.adjustOptions,
+        cropX: undefined,
+        cropY: undefined,
+        cropWidth: undefined,
+        cropHeight: undefined,
+      },
+    })),
 
   loadCustomSpecs: async () => {
     set({ customSpecs: await listCustomSpecs() })

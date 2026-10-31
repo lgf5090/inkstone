@@ -899,12 +899,13 @@ export const EN_US_TOOLS = {
   'tools.id_photo.content.reupload': 'Re-upload',
   'tools.id_photo.content.rotate_left': 'Rotate 90° Left',
   'tools.id_photo.content.rotate_right': 'Rotate 90° Right',
-  'tools.id_photo.content.crop_reset': 'Reset Crop',
+  'tools.id_photo.content.remove_photo': 'Remove Photo',
 
   // Options tabs
   'tools.id_photo.options.accordion_title': 'ID Photo Settings & Options',
   'tools.id_photo.options.tab_spec': 'Specification',
   'tools.id_photo.options.tab_color': 'Background',
+  'tools.id_photo.options.tab_framing': 'Framing',
   'tools.id_photo.options.tab_retouch': 'Retouch',
   'tools.id_photo.options.tab_attire': 'Attire',
 
@@ -939,6 +940,15 @@ export const EN_US_TOOLS = {
   'tools.id_photo.retouch.smoothness': 'Skin Smoothing',
   'tools.id_photo.retouch.sharpness': 'Detail Sharpening',
   'tools.id_photo.retouch.reset': 'Reset Retouching',
+
+  // Framing tab
+  'tools.id_photo.common.framing_params': 'Crop Area & Position',
+  'tools.id_photo.framing.zoom': 'Zoom',
+  'tools.id_photo.framing.horizontal': 'Horizontal Position',
+  'tools.id_photo.framing.vertical': 'Vertical Position',
+  'tools.id_photo.framing.auto_align': 'Reset Framing',
+  'tools.id_photo.framing.drag_hint': 'Drag the preview to pan. 100% means no crop.',
+  'tools.id_photo.framing.need_photo': 'Upload a portrait to adjust framing',
 
   // Attire tab
   'tools.id_photo.attire.none': 'Original Clothes',

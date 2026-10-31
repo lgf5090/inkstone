@@ -899,12 +899,13 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.content.reupload': '重新上传',
   'tools.id_photo.content.rotate_left': '向左旋转90°',
   'tools.id_photo.content.rotate_right': '向右旋转90°',
-  'tools.id_photo.content.crop_reset': '重置裁剪',
+  'tools.id_photo.content.remove_photo': '移除照片',
 
   // Beautify panel
   'tools.id_photo.options.accordion_title': '证件照设置选项',
   'tools.id_photo.options.tab_spec': '规格标准',
   'tools.id_photo.options.tab_color': '背景色彩',
+  'tools.id_photo.options.tab_framing': '构图取景',
   'tools.id_photo.options.tab_retouch': '人像微调',
   'tools.id_photo.options.tab_attire': '正装换衣',
 
@@ -939,6 +940,15 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.retouch.smoothness': '双边磨皮',
   'tools.id_photo.retouch.sharpness': '细节锐化',
   'tools.id_photo.retouch.reset': '重置微调参数',
+
+  // Framing tab
+  'tools.id_photo.common.framing_params': '取景范围与画面位置',
+  'tools.id_photo.framing.zoom': '取景缩放',
+  'tools.id_photo.framing.horizontal': '水平位置',
+  'tools.id_photo.framing.vertical': '垂直位置',
+  'tools.id_photo.framing.auto_align': '恢复自动取景',
+  'tools.id_photo.framing.drag_hint': '也可直接拖动预览画面来平移，缩放 100% 表示不裁切',
+  'tools.id_photo.framing.need_photo': '上传人像后才能调整取景',
 
   // Formal-wear tab
   'tools.id_photo.attire.none': '保持原着',

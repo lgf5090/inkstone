@@ -29547,6 +29547,7 @@ const allowed = new Map([
     "// Specs library view",
     "// Settings view",
     "// Shortlinks Module (tools/shortlinks)",
+    "// Framing tab",
   ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
@@ -29630,6 +29631,7 @@ const allowed = new Map([
     "// History view",
     "// Spec library view",
     "// Preferences view",
+    "// Framing tab",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",
@@ -44381,6 +44383,15 @@ const allowed = new Map([
     "// National standards should have flag emojis",
     "// 1:1 instead of 5:7",
     "// 250KB exceeds 100KB limit",
+  ]],
+  ["tests/tools-id-photo-framing-ui.test.tsx", [
+    "/** Lets the preview engine's pending render promise settle inside an act scope. */",
+    "// cn_one_inch is 295x413 px (taller than the layer-relative 1200x1600), so the frame is height-bound.",
+    "// A frame that already spans the layer on one axis has nowhere to travel, so that axis",
+    "// reports the neutral centre rather than the number it was handed.",
+    "// React tracks the node's value itself, so a plain assignment reads as \"nothing changed\" and",
+    "// the change event is dropped. The prototype setter is what a real keystroke goes through.",
+    "// The shared slider coalesces a drag into one write per frame, so the frame is the handoff.",
   ]],
   ["tests/tools-id-photo-ui.test.tsx", [
     "// Upload & Options panel headers",

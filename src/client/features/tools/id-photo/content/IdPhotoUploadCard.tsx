@@ -119,11 +119,11 @@ export function IdPhotoUploadCard() {
                 <UploadCloud size={15} />
               </IconButton>
             </Tooltip>
-            <Tooltip label={t('tools.id_photo.content.crop_reset')}>
+            <Tooltip label={t('tools.id_photo.content.remove_photo')}>
               <IconButton
                 size="sm"
                 variant="danger"
-                label={t('tools.id_photo.content.crop_reset')}
+                label={t('tools.id_photo.content.remove_photo')}
                 onClick={() => setImageSrc(null)}
               >
                 <Trash2 size={15} />

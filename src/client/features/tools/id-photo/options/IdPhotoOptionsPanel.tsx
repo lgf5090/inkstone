@@ -1,5 +1,6 @@
 import {
   Award,
+  Crosshair,
   Minus,
   Palette,
   Plus,
@@ -13,12 +14,14 @@ import { t } from '../../../../lib/i18n'
 import { useIdPhotoStore } from '../store'
 import { SpecsTab } from './SpecsTab'
 import { ColorTab } from './ColorTab'
+import { FramingTab } from './FramingTab'
 import { RetouchTab } from './RetouchTab'
 import { AttireTab } from './AttireTab'
 
 const OPTIONS_TABS = [
   { id: 'spec', labelKey: 'tools.id_photo.options.tab_spec', icon: Award },
   { id: 'color', labelKey: 'tools.id_photo.options.tab_color', icon: Palette },
+  { id: 'framing', labelKey: 'tools.id_photo.options.tab_framing', icon: Crosshair },
   { id: 'retouch', labelKey: 'tools.id_photo.options.tab_retouch', icon: SlidersHorizontal },
   { id: 'attire', labelKey: 'tools.id_photo.options.tab_attire', icon: Shirt },
 ] as const
@@ -78,6 +81,7 @@ export function IdPhotoOptionsPanel() {
           <div id="id-photo-options-panel" role="tabpanel" tabIndex={0} className="min-h-0">
             {activeTab === 'spec' && <SpecsTab />}
             {activeTab === 'color' && <ColorTab />}
+            {activeTab === 'framing' && <FramingTab />}
             {activeTab === 'retouch' && <RetouchTab />}
             {activeTab === 'attire' && <AttireTab />}
           </div>

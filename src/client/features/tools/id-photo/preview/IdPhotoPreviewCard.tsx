@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Eye, Grid, Maximize2, UserCheck } from 'lucide-react'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
@@ -30,8 +30,33 @@ export function IdPhotoPreviewCard() {
   const guidesVisible = useIdPhotoStore((s) => s.guidesVisible)
   const toggleGuides = useIdPhotoStore((s) => s.toggleGuides)
   const setFullscreenModalOpen = useIdPhotoStore((s) => s.setFullscreenModalOpen)
+  const panByRatio = useIdPhotoStore((s) => s.panByRatio)
 
   const activeSpec = getActiveSpec()
+
+  const drag = useRef<{ pointerId: number; x: number; y: number; width: number; height: number } | null>(null)
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!imageElement || comparingOriginal) return
+    const box = event.currentTarget.getBoundingClientRect()
+    if (box.width === 0 || box.height === 0) return
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: box.width, height: box.height }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = drag.current
+    if (!state || state.pointerId !== event.pointerId) return
+    const dx = (event.clientX - state.x) / state.width
+    const dy = (event.clientY - state.y) / state.height
+    state.x = event.clientX
+    state.y = event.clientY
+    if (dx !== 0 || dy !== 0) panByRatio(dx, dy)
+  }
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId === event.pointerId) drag.current = null
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -129,12 +154,22 @@ export function IdPhotoPreviewCard() {
               className="max-h-[360px] max-w-full rounded-[var(--r-md)] object-contain shadow-sm"
             />
           ) : (
-            <div className="relative">
+            <div
+              className="relative touch-none"
+              data-framing-drag
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerEnd}
+              onPointerCancel={handlePointerEnd}
+            >
               <canvas
                 ref={canvasRef}
                 role="img"
                 aria-label={t('tools.id_photo.common.thumbnail')}
-                className="max-h-[360px] w-auto max-w-full rounded-[var(--r-md)] shadow-[var(--shadow-pop)]"
+                className={cn(
+                  'max-h-[360px] w-auto max-w-full rounded-[var(--r-md)] shadow-[var(--shadow-pop)]',
+                  imageElement && 'cursor-grab',
+                )}
               />
               {renderFailed && (
                 <p className="absolute inset-0 flex items-center justify-center text-center text-[length:var(--text-12)] font-medium text-[var(--danger)]">

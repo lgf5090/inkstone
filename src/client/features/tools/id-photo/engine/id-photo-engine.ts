@@ -2,6 +2,7 @@ import { ATTIRE_PRESETS } from '@shared/tools/id-photo/presets'
 import type { IdPhotoAdjustOptions, IdPhotoExportFormat, IdPhotoSpec } from '@shared/tools/id-photo/types'
 import { applyBackdropMatte, applyImageFilters, renderBackground } from './background-matting'
 import { calculateOptimalCrop } from './face-align'
+import { clampCrop, rotatedBounds } from './framing'
 import { applySharpening, applySkinSmoothing } from './retouch-pipeline'
 
 export interface ExportedPhoto {
@@ -73,11 +74,10 @@ export class IdPhotoEngine {
       'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height
 
     const radians = (rotation * Math.PI) / 180
-    const cos = Math.abs(Math.cos(radians))
-    const sin = Math.abs(Math.sin(radians))
+    const bounds = rotatedBounds(sourceWidth, sourceHeight, rotation)
     const layer = document.createElement('canvas')
-    layer.width = Math.max(1, Math.round(sourceWidth * cos + sourceHeight * sin))
-    layer.height = Math.max(1, Math.round(sourceWidth * sin + sourceHeight * cos))
+    layer.width = bounds.width
+    layer.height = bounds.height
 
     const ctx = this.requireContext(layer, 'the rotated source layer')
     ctx.translate(layer.width / 2, layer.height / 2)
@@ -119,6 +119,15 @@ export class IdPhotoEngine {
       cropY = optimal.cropY
       cropW = optimal.cropWidth
       cropH = optimal.cropHeight
+    } else {
+      const bounded = clampCrop(
+        { cropX, cropY, cropWidth: cropW, cropHeight: cropH },
+        { width: layerWidth, height: layerHeight },
+      )
+      cropX = bounded.cropX
+      cropY = bounded.cropY
+      cropW = bounded.cropWidth
+      cropH = bounded.cropHeight
     }
 
     const portrait = document.createElement('canvas')
