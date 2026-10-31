@@ -8,6 +8,7 @@ import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
 import {
+  decryptValue,
   encryptValue,
   getKeyIv,
   getRecoveryPass,
@@ -361,6 +362,9 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
           groupId: 'group-default-1',
         }),
       )
+      // The welcome card must not carry the master password: that made every vault an offline oracle.
+      const welcomePayload = createAccountSpy.mock.calls[0]![0] as { password: string }
+      expect(decryptValue(getKeyIv('Init01'), welcomePayload.password)).not.toBe('Init01')
       expect(usePasswordVaultStore.getState().isSettingOpen).toBe(false)
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
       expect(usePasswordVaultStore.getState().masterPasswordText).toBe('Init01')
@@ -471,6 +475,59 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(usePasswordVaultStore.getState().masterPasswordText).toBe(newPass)
       expect(usePasswordVaultStore.getState().keyIV?.key).toBe(newKeyIv.key)
       expect(usePasswordVaultStore.getState().isResetOpen).toBe(false)
+    })
+
+    it('aborts without sending anything when a stored field cannot be opened by the old password', async () => {
+      // The old implementation re-encrypted the raw ciphertext here, which lost the value for good.
+      const intact: PasswordAccount = {
+        id: 'acc-intact',
+        groupId: 'grp-1',
+        title: encryptValue(keyiv, 'Title'),
+        username: encryptValue(keyiv, 'user'),
+        password: encryptValue(keyiv, 'pass'),
+        link: encryptValue(keyiv, 'https://example.com'),
+        remark: '',
+        favicon: '',
+        isFavorite: false,
+        sort: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+      }
+      const corrupt: PasswordAccount = { ...intact, id: 'acc-corrupt', password: 'deadbeef' }
+
+      usePasswordVaultStore.setState({
+        isResetOpen: true,
+        isUnlocked: true,
+        masterPasswordText: masterPassword,
+        accounts: [intact, corrupt],
+      })
+
+      const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
+
+      renderWithHosts(createElement(Reset))
+
+      act(() => {
+        setInputValue(
+          document.querySelector<HTMLInputElement>('[data-testid="password-reset-old"]')!,
+          masterPassword,
+        )
+        setInputValue(
+          document.querySelector<HTMLInputElement>('[data-testid="password-reset-new"]')!,
+          'FreshP',
+        )
+        setInputValue(
+          document.querySelector<HTMLInputElement>('[data-testid="password-reset-confirm"]')!,
+          'FreshP',
+        )
+      })
+
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="password-reset-submit"]')!.click()
+      })
+
+      expect(resetApiSpy).not.toHaveBeenCalled()
+      const error = document.querySelector('[data-testid="password-reset-error"]')
+      expect(error?.textContent).toContain(t('tools.password.reset.aborted', { index: '2' }))
     })
   })
 

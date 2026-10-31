@@ -73,7 +73,9 @@ export function Setting({ open, onClose }: SettingProps) {
         groupId: defaultGroup.id,
         title: encryptValue(keyiv, welcomeTitle),
         username: encryptValue(keyiv, welcomeUser),
-        password: encryptValue(keyiv, password),
+        // Never the master password. Storing it here made every vault an offline oracle: open the
+        // first row, compare with the key that just opened it, and the guess is confirmed.
+        password: encryptValue(keyiv, 'demo-password'),
         link: encryptValue(keyiv, 'https://github.com/shuaiplus/inkstone'),
         remark: encryptValue(keyiv, 'Inkstone Password Vault'),
       })

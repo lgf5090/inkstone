@@ -8,14 +8,13 @@ import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
 import {
-  decryptValue,
-  encryptValue,
   evaluatePasswordStrength,
   getKeyIv,
   getRecoveryPass,
   hashMasterPassword,
   verifyMasterPasswordCandidate,
 } from './crypto'
+import { reencryptAccounts } from './utils/reencrypt'
 
 export interface ResetProps {
   open?: boolean
@@ -87,24 +86,13 @@ export function Reset({ open, onClose }: ResetProps) {
         allAccounts = await passwordApi.getAccounts()
       }
 
-      const reencrypted = allAccounts.map((acc) => {
-        const tryDec = (val: string) => {
-          if (!val) return ''
-          try {
-            return decryptValue(oldKeyIv, val)
-          } catch {
-            return val
-          }
-        }
-        return {
-          id: acc.id,
-          title: encryptValue(newKeyIv, tryDec(acc.title)),
-          username: encryptValue(newKeyIv, tryDec(acc.username)),
-          password: encryptValue(newKeyIv, tryDec(acc.password)),
-          link: encryptValue(newKeyIv, tryDec(acc.link)),
-          remark: encryptValue(newKeyIv, tryDec(acc.remark)),
-        }
-      })
+      const { rows: reencrypted, failedIndex } = reencryptAccounts(allAccounts, oldKeyIv, newKeyIv)
+      if (failedIndex >= 0) {
+        // Nothing has been sent yet, so the vault is still whole under the old password. The old
+        // implementation wrote raw ciphertext back through the new key here and lost the value.
+        setError(t('tools.password.reset.aborted', { index: String(failedIndex + 1) }))
+        return
+      }
 
       // 3. Call API to reset master password and replace ciphertexts
       await passwordApi.resetMasterPassword({
