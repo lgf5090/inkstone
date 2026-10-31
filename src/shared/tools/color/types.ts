@@ -45,6 +45,12 @@ export interface OklabColor {
   b: number // -0.4 - 0.4
 }
 
+export interface OklchColor {
+  l: number // 0 - 1 (Lightness, same axis as OKLab)
+  c: number // 0 - 0.4 (Chroma)
+  h: number // 0 - 360 (Hue angle)
+}
+
 export type SupportedColorFormat = 'hex' | 'rgb' | 'hsv' | 'hsl' | 'cmyk' | 'hsi' | 'lab'
 
 /**

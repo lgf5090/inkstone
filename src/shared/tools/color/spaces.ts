@@ -9,6 +9,7 @@ import type {
   HslColor,
   HsvColor,
   LabColor,
+  OklchColor,
   OklabColor,
   RgbColor,
 } from './types'
@@ -439,6 +440,24 @@ export function oklabToRgb(oklab: OklabColor): RgbColor {
   const b = clamp(Math.round(linearToSrgb(bLin) * 255), 0, 255)
 
   return { r, g, b }
+}
+
+/**
+ * Converts RGB to OKLCH — the same OKLab lightness, with chroma and hue as polar coordinates.
+ *
+ * Export targets that speak `oklch()` need the polar form, and a reader comparing two swatches by hue
+ * expects the angle to match what the colour wheel shows.
+ */
+export function rgbToOklch(rgb: RgbColor): OklchColor {
+  const { l, a, b } = rgbToOklab(rgb)
+  const hue = (Math.atan2(b, a) * 180) / Math.PI
+  return { l, c: Math.sqrt(a * a + b * b), h: (hue + 360) % 360 }
+}
+
+/** The CSS `oklch()` notation for a colour, rounded to the precision design tools exchange at. */
+export function rgbToOklchString(rgb: RgbColor): string {
+  const { l, c, h } = rgbToOklch(rgb)
+  return `oklch(${(l * 100).toFixed(1)}% ${c.toFixed(4)} ${h.toFixed(1)})`
 }
 
 /**

@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getColorSpaceValues } from '@shared/tools/color/spaces'
 import { evaluateWcagContrast, simulateColorBlindness } from '@shared/tools/color/a11y'
 import { generateTokenScale } from '@shared/tools/color/token-scale'
-import { exportToCssVariables, triggerDownload } from './lib/export-engine'
+import { EXPORT_FORMAT_IDS, EXPORT_FORMATS, triggerDownload } from './lib/export-engine'
 import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { initI18n, t } from '../../../lib/i18n'
 import { useColorStudioStore } from './store'
@@ -37,12 +37,19 @@ vi.mock('@shared/tools/color/a11y', async (importOriginal) => {
 })
 vi.mock('./lib/export-engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./lib/export-engine')>()
-  return { ...actual, exportToCssVariables: vi.fn(actual.exportToCssVariables), triggerDownload: vi.fn() }
+  // The dialog reaches a format through the table, so the spy has to sit on the entry it calls — patching
+  // the standalone builder would watch a function nothing uses any more.
+  const buildCss = vi.fn(actual.EXPORT_FORMATS.css.build)
+  return {
+    ...actual,
+    triggerDownload: vi.fn(),
+    EXPORT_FORMATS: { ...actual.EXPORT_FORMATS, css: { ...actual.EXPORT_FORMATS.css, build: buildCss } },
+  }
 })
 
 let rendered: RenderedElement | null = null
 
-const cssCalls = () => vi.mocked(exportToCssVariables).mock.calls.length
+const cssCalls = () => vi.mocked(EXPORT_FORMATS.css.build).mock.calls.length
 const tokenCalls = () => vi.mocked(generateTokenScale).mock.calls.length
 const cvdCalls = () => vi.mocked(simulateColorBlindness).mock.calls.length
 const wcagCalls = () => vi.mocked(evaluateWcagContrast).mock.calls.length
@@ -128,11 +135,12 @@ describe('download file names', () => {
   }
 
   function pickFormat(label: string): void {
-    const option = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]')).find(
-      (node) => node.textContent?.trim() === label,
-    )!
+    const select = document.querySelector<HTMLSelectElement>('#color-export-format')!
+    const wanted = Array.from(select.options).find((option) => option.textContent?.trim() === label)!
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
     act(() => {
-      option.click()
+      setter?.call(select, wanted.value)
+      select.dispatchEvent(new Event('change', { bubbles: true }))
     })
   }
 
@@ -157,6 +165,10 @@ describe('download file names', () => {
     pickFormat(t('tools.color.export.format_json'))
     clickDownload()
     expect(downloadNames()).toEqual(['sunset-dusk.css', 'sunset-dusk.json'])
+    // The bytes handed to the browser are the bytes the preview showed, for the format that is selected.
+    const bodies = vi.mocked(triggerDownload).mock.calls.map((call) => String(call[0]))
+    expect(bodies[1]).toContain('"title": "Sunset Dusk"')
+    expect(bodies[1]).not.toContain('--color-sunset-dusk-1')
   })
 
   it('names a Tailwind export after the palette, not after the project config', () => {
@@ -195,7 +207,74 @@ describe('download file names', () => {
 
     // Every character used to fail the ASCII filter, leaving `----.css` and a `--color-----1` variable.
     expect(downloadNames()).toEqual(['palette.css'])
-    expect(vi.mocked(exportToCssVariables).mock.results[0]!.value).toContain('--color-palette-1:')
+    expect(vi.mocked(triggerDownload).mock.calls[0]![0]).toContain('--color-palette-1:')
+  })
+
+  it('offers one option per format the exporter can build', () => {
+    rendered = renderElement(createElement(ExportPaletteModal))
+    act(() => {
+      useColorStudioStore.getState().openExportPaletteModal({ title: 'Dusk', colors: ['#123456'] })
+    })
+
+    const select = document.querySelector<HTMLSelectElement>('#color-export-format')!
+    const offered = Array.from(select.options).map((option) => option.value)
+    // The table is the list of formats; a format missing from the picker is a format nobody can reach.
+    expect(offered.sort()).toEqual([...EXPORT_FORMAT_IDS].sort())
+    for (const option of Array.from(select.options)) {
+      expect(option.textContent?.trim(), option.value).not.toBe(option.value)
+      expect(option.textContent?.trim().length).toBeGreaterThan(1)
+    }
+  })
+
+  it('previews what it will download, for every text format', () => {
+    rendered = renderElement(createElement(ExportPaletteModal))
+    act(() => {
+      useColorStudioStore.getState().openExportPaletteModal({ title: 'Dusk', colors: ['#123456', '#abcdef'] })
+    })
+
+    for (const id of EXPORT_FORMAT_IDS) {
+      pickFormat(t(EXPORT_FORMATS[id].labelKey))
+      const preview = document.querySelector('pre')!.textContent ?? ''
+      const expected = EXPORT_FORMATS[id].binary
+        ? t('tools.color.export.binary_notice', { format: t(EXPORT_FORMATS[id].labelKey), count: 2 })
+        : EXPORT_FORMATS[id].build({ title: 'Dusk', colors: ['#123456', '#abcdef'] })
+      // JSON stamps the moment it was written, and the two builds are a heartbeat apart.
+      const mask = (text: string) => text.replace(/"exportedAt": "[^"]*"/, '"exportedAt": "…"')
+      expect(mask(preview), `${id} preview`).toBe(mask(expected))
+    }
+  })
+
+  it('names the format in the copy toast, not its internal id', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+    })
+    act(() => {
+      useUi.setState({ toasts: [] })
+    })
+    rendered = renderElement(createElement(ExportPaletteModal))
+    act(() => {
+      useColorStudioStore.getState().openExportPaletteModal({ title: 'Dusk', colors: ['#123456'] })
+    })
+
+    pickFormat(t('tools.color.export.format_oklch'))
+    const copy = Array.from(document.querySelectorAll('button')).find((node) =>
+      node.textContent?.includes(t('tools.color.export.copy_code')),
+    )!
+    await act(async () => {
+      copy.click()
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2))
+      }
+    })
+
+    const code = EXPORT_FORMATS.oklch.build({ title: 'Dusk', colors: ['#123456'] })
+    const titles = useUi.getState().toasts.map((item) => item.title)
+    // Compared whole, because the localised name of this format also contains the word 'oklch': a toast
+    // that pasted the raw id would slip through a substring check.
+    expect(titles).toContain(
+      t('tools.color.toast.copied', { label: t('tools.color.export.format_oklch'), value: `${code.slice(0, 30)}...` }),
+    )
   })
 
   it('reports a download as a download', () => {

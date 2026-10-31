@@ -2,21 +2,18 @@ import { useState } from 'react'
 import { Check, Copy, Download } from 'lucide-react'
 import { Modal } from '../../../../../components/overlay'
 import { Button } from '../../../../../components/primitives'
-import { Segmented } from '../../../../../components/form'
+import { Field, Select } from '../../../../../components/form'
 import { t } from '../../../../../lib/i18n'
 import { useUi } from '../../../../../store/ui'
 import {
+  EXPORT_FORMATS,
+  EXPORT_FORMAT_IDS,
+  exportFileName,
   exportToAseBlob,
-  exportToCssVariables,
-  exportToJson,
-  exportToScssVariables,
-  exportToTailwindConfig,
-  slugFromTitle,
   triggerDownload,
+  type ExportFormatId,
 } from '../../lib/export-engine'
 import { useColorStudioStore } from '../../store'
-
-type ExportFormat = 'ase' | 'css' | 'scss' | 'tailwind' | 'json'
 
 export function ExportPaletteModal() {
   const isOpen = useColorStudioStore((s) => s.isExportPaletteModalOpen)
@@ -24,7 +21,7 @@ export function ExportPaletteModal() {
   const targetPalette = useColorStudioStore((s) => s.exportTargetPalette)
   const currentHex = useColorStudioStore((s) => s.currentHex)
 
-  const [activeFormat, setActiveFormat] = useState<ExportFormat>('css')
+  const [activeFormat, setActiveFormat] = useState<ExportFormatId>('css')
   const [hasCopied, setHasCopied] = useState(false)
 
   // A closed modal has no work to do: the preview box walks the whole palette and the swatch strip
@@ -36,32 +33,23 @@ export function ExportPaletteModal() {
     colors: [currentHex, '#3b82f6', '#10b981', '#f59e0b'],
   }
 
-  const getCodePreview = (): string => {
-    switch (activeFormat) {
-      case 'css':
-        return exportToCssVariables(paletteData)
-      case 'scss':
-        return exportToScssVariables(paletteData)
-      case 'tailwind':
-        return exportToTailwindConfig(paletteData)
-      case 'json':
-        return exportToJson(paletteData)
-      case 'ase':
-        return `// Binary Adobe Swatch Exchange format (.ase)\n// Contains ${paletteData.colors.length} calibrated RGB swatches\n// Click "Download File" to save and load into Adobe Photoshop / Illustrator / InDesign.`
-      default:
-        return ''
-    }
-  }
+  const format = EXPORT_FORMATS[activeFormat]
+  const fileName = exportFileName(activeFormat, paletteData)
+
+  const getCodePreview = (): string =>
+    format.binary
+      ? t('tools.color.export.binary_notice', { format: t(format.labelKey), count: paletteData.colors.length })
+      : format.build(paletteData)
 
   const handleCopy = async () => {
-    if (activeFormat === 'ase') return
+    if (format.binary) return
     const code = getCodePreview()
     try {
       await navigator.clipboard.writeText(code)
       setHasCopied(true)
       useUi.getState().toast({
         title: t('tools.color.toast.copied', {
-          label: activeFormat.toUpperCase(),
+          label: t(format.labelKey),
           value: code.slice(0, 30) + '...',
         }),
         tone: 'success',
@@ -76,28 +64,8 @@ export function ExportPaletteModal() {
   }
 
   const handleDownload = () => {
-    const slug = slugFromTitle(paletteData.title)
-    const extension = activeFormat === 'tailwind' ? 'tailwind.js' : activeFormat
-    const fileName = `${slug}.${extension}`
-    switch (activeFormat) {
-      case 'ase': {
-        const blob = exportToAseBlob(paletteData)
-        triggerDownload(blob, fileName, 'application/octet-stream')
-        break
-      }
-      case 'css':
-        triggerDownload(exportToCssVariables(paletteData), fileName, 'text/css')
-        break
-      case 'scss':
-        triggerDownload(exportToScssVariables(paletteData), fileName, 'text/x-scss')
-        break
-      case 'tailwind':
-        triggerDownload(exportToTailwindConfig(paletteData), fileName, 'text/javascript')
-        break
-      case 'json':
-        triggerDownload(exportToJson(paletteData), fileName, 'application/json')
-        break
-    }
+    const body = format.binary ? exportToAseBlob(paletteData) : format.build(paletteData)
+    triggerDownload(body, fileName, format.mime)
 
     useUi.getState().toast({
       title: t('tools.color.toast.downloaded', { name: fileName }),
@@ -120,7 +88,7 @@ export function ExportPaletteModal() {
             })}
           </span>
           <div className="flex items-center gap-2">
-            {activeFormat !== 'ase' && (
+            {!format.binary && (
               <Button size="sm" variant="secondary" onClick={handleCopy}>
                 {hasCopied ? (
                   <Check size={14} className="mr-1 text-[var(--success)]" />
@@ -152,20 +120,19 @@ export function ExportPaletteModal() {
         </div>
 
         {/* Format Selector */}
-        <Segmented
-          size="sm"
-          className="w-full"
-          label={t('tools.color.export.title')}
-          value={activeFormat}
-          onChange={setActiveFormat}
-          options={[
-            { value: 'css' as const, label: t('tools.color.export.format_css') },
-            { value: 'scss' as const, label: t('tools.color.export.format_scss') },
-            { value: 'tailwind' as const, label: t('tools.color.export.format_tailwind') },
-            { value: 'ase' as const, label: t('tools.color.export.format_ase') },
-            { value: 'json' as const, label: t('tools.color.export.format_json') },
-          ]}
-        />
+        <Field label={t('tools.color.export.format_label')}>
+          <Select
+            id="color-export-format"
+            value={activeFormat}
+            onChange={(e) => setActiveFormat(e.target.value as ExportFormatId)}
+          >
+            {EXPORT_FORMAT_IDS.map((id) => (
+              <option key={id} value={id}>
+                {t(EXPORT_FORMATS[id].labelKey)}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
         {/* Code Preview Box */}
         <div className="relative rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
