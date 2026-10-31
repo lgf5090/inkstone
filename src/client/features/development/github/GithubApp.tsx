@@ -68,7 +68,12 @@ export function GithubApp() {
 
   return (
     <div data-testid="github-app-root" className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)]">
-      {tab === 'repos' ? <ReposPane {...shared} /> : <GistsPane tab={tab} onTabChange={setTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} />}
+      <div data-testid="github-tab-repos" className={tab === 'repos' ? 'contents' : 'hidden'}>
+        <ReposPane {...shared} />
+      </div>
+      <div data-testid="github-tab-gists" className={tab === 'gists' ? 'contents' : 'hidden'}>
+        <GistsPane tab={tab} onTabChange={setTab} onOpenAccounts={shared.onOpenAccounts} onOpenMirrors={shared.onOpenMirrors} currentMirrorId={shared.currentMirrorId} />
+      </div>
       <AccountsDialog
         open={accountsOpen}
         onClose={() => setAccountsOpen(false)}

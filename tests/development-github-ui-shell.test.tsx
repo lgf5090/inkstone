@@ -138,6 +138,8 @@ describe('GitHub module shell', () => {
     await settle()
     expect(rendered.container.textContent ?? '').toContain(t('development.github.gists.empty'))
     expect(rendered.container.textContent ?? '').toContain(t('development.github.gists.create'))
+    expect(rendered.container.querySelector('[data-testid="github-tab-gists"]')?.className).not.toContain('hidden')
+    expect(rendered.container.querySelector('[data-testid="github-tab-repos"]')?.className).toContain('hidden')
   })
 
   it('commits the typed query when the time range changes', async () => {
