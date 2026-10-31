@@ -4,6 +4,7 @@ import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { compileQuery, queryKeeps, queryKeepsRows } from '../../../lib/query-match'
+import { usePinyinVersion } from '../../../lib/pinyin'
 import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
@@ -64,7 +65,9 @@ export function AccountList({
 
   // Filter based on search query. The shared matcher reads a Chinese title by its initials, accepts
   // `/pattern/flags`, and refuses an unsafe expression instead of stalling the tab — none of which
-  // the hand-written `toLowerCase().includes` could do.
+  // the hand-written `toLowerCase().includes` could do. `pinyinVersion` is in the deps because the
+  // reading table loads asynchronously: a filter frozen before it lands would never match again.
+  const pinyinVersion = usePinyinVersion()
   const query = useMemo(() => compileQuery(search), [search])
   const filteredAccounts = useMemo(() => {
     if (queryKeepsRows(query)) return scopeFiltered
@@ -75,7 +78,7 @@ export function AccountList({
         queryKeeps(query, a.link) ||
         queryKeeps(query, a.remark),
     )
-  }, [scopeFiltered, query])
+  }, [scopeFiltered, query, pinyinVersion])
 
   const handleQuickNew = async () => {
     const targetGroupId = selectedGroupId || groups[0]?.id
