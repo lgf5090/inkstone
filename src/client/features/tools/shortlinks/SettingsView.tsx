@@ -22,6 +22,20 @@ import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
 import { copyShortlinkText } from './copy'
 
+/**
+ * Downloads an authenticated URL without a popup: a window opened after the fetch resolves has lost
+ * the reader's activation and is blocked by the popup blocker; an anchor click is a download.
+ */
+function downloadUrl(url: string): void {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.rel = 'noopener'
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
 function formatCombinations(length: number): string {
   return (SLUG_ALPHABET_SIZE ** length).toLocaleString()
 }
@@ -131,7 +145,7 @@ export function SettingsView() {
   const handleExportTxt = async () => {
     try {
       const res = await shortlinksApi.exportTxt()
-      window.open(res.url, '_blank', 'noopener')
+      downloadUrl(res.url)
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
@@ -140,7 +154,7 @@ export function SettingsView() {
   const handleExportCsv = async () => {
     try {
       const res = await shortlinksApi.exportCsv()
-      window.open(res.url, '_blank', 'noopener')
+      downloadUrl(res.url)
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
     }
