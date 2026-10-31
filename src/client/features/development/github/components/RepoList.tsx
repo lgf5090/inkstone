@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Globe, PanelLeft, PanelRight, RefreshCw, Settings2, X } from 'lucide-react'
 import type { GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
@@ -70,13 +70,13 @@ export function RepoList({
   isExplore: boolean
   query: string
   onQueryChange: (value: string) => void
-  onCommitSearch: () => void
+  onCommitSearch: (query: string) => void
   onClear: () => void
   onGoDiscover: () => void
   loading: boolean
   error: string | null
   prefs: GithubPrefs
-  onUpdatePrefs: (patch: Partial<GithubPrefs>) => void
+  onUpdatePrefs: (patch: Partial<GithubPrefs>, query?: string) => void
   mirrors: GithubMirrorSource[]
   currentMirrorId: string
   onCurrentMirrorChange: (id: string) => void
@@ -100,6 +100,8 @@ export function RepoList({
 }) {
   const settingsAnchor = useRef<HTMLButtonElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [draft, setDraft] = useState(query)
+  useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const hasMore = isExplore && items.length === GITHUB_PER_PAGE && page * GITHUB_PER_PAGE < Math.min(totalCount, 1000)
   const hasPrev = page > 1
@@ -109,9 +111,9 @@ export function RepoList({
       id: `sort-${option.value}`,
       label: t(option.labelKey),
       checked: prefs.sort === option.value,
-      onSelect: () => onUpdatePrefs({ sort: option.value }),
+      onSelect: () => onUpdatePrefs({ sort: option.value }, draft),
     })),
-    { id: 'order', label: prefs.order === 'desc' ? t('development.github.repos.current_desc') : t('development.github.repos.current_asc'), icon: prefs.order === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }) },
+    { id: 'order', label: prefs.order === 'desc' ? t('development.github.repos.current_desc') : t('development.github.repos.current_asc'), icon: prefs.order === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }, draft) },
     { id: 'mirror-header', label: t('development.github.mirrors.section'), separatorBefore: true, disabled: true },
     ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
     { id: 'mirror-manage', label: t('development.github.mirrors.manage'), icon: <Settings2 size={13} />, onSelect: onManageMirrors },
@@ -125,13 +127,17 @@ export function RepoList({
           <div className="min-w-0 flex-1">
             <Input
               type="search"
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && isExplore) { event.preventDefault(); onCommitSearch() } }}
+              value={draft}
+              onChange={(event) => {
+                const next = event.target.value
+                setDraft(next)
+                if (!isExplore) onQueryChange(next)
+              }}
+              onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' && isExplore) { event.preventDefault(); onCommitSearch(draft) } }}
               placeholder={isExplore ? t('development.github.repos.search_placeholder') : t('development.github.repos.filter_placeholder')}
               aria-label={t('development.github.repos.search')}
               className="h-8 pr-7 text-[length:var(--text-12)]"
-              trailing={query ? <IconButton label={t('common.clear')} size="sm" onClick={onClear}><X size={12} /></IconButton> : undefined}
+              trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear() }}><X size={12} /></IconButton> : undefined}
             />
           </div>
           <Button ref={settingsAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.repos.more_settings')} aria-label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></Button>
@@ -142,21 +148,21 @@ export function RepoList({
             <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
               {GITHUB_RANGE_OPTIONS.map((option) => {
                 const active = prefs.range === option.value
-                return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value })} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
+                return <button key={option.value} type="button" onClick={() => onUpdatePrefs({ range: option.value }, draft)} data-active={active || undefined} className={cn('shrink-0 rounded-full px-2.5 py-1 text-[length:var(--text-11)] font-medium transition-colors', active ? 'bg-[var(--accent)] text-[var(--accent-contrast)]' : 'bg-[var(--bg-raised)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]')}>{t(option.labelKey)}</button>
               })}
-              <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language })} />
+              <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-1.5 md:hidden">
               <SelectMenu
                 value={prefs.range}
                 options={GITHUB_RANGE_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
-                onChange={(range) => onUpdatePrefs({ range })}
+                onChange={(range) => onUpdatePrefs({ range }, draft)}
                 label={t('development.github.repos.range_filter')}
                 size="sm"
                 className="h-7"
                 width={180}
               />
-              <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language })} />
+              <LanguageMenu value={prefs.language} onChange={(language) => onUpdatePrefs({ language }, draft)} />
             </div>
             <span className="ml-auto shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('development.github.repos.result_count', { count: formatNumber(totalCount) })}</span>
           </div>

@@ -83,32 +83,32 @@ export function ReposPane({
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
   const tagManager = useMemo(() => tags, [tags])
 
-  const updatePrefs = useCallback((patch: Partial<GithubPrefs>) => {
+  const updatePrefs = useCallback((patch: Partial<GithubPrefs>, nextQuery?: string) => {
     setPrefs((previous) => {
       const next = { ...previous, ...patch }
       saveRepoPrefs(next)
       return next
     })
-    setCommittedQuery(query.trim())
+    setCommittedQuery((nextQuery ?? query).trim())
     setPage(1)
   }, [query])
 
-  const selectView = (view: GithubViewId) => {
+  const selectView = useCallback((view: GithubViewId) => {
     setSelectedView(view)
     setSelectedRepoId(null)
     setPage(1)
-  }
+  }, [])
 
-  const toggleExpand = (id: string) => {
+  const toggleExpand = useCallback((id: string) => {
     setExpanded((previous) => {
       const next = new Set(previous)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
-  }
+  }, [])
 
-  const saveRepo = (repo: GithubRepo, patch: Partial<SavedGithubRepo>) => {
+  const saveRepo = useCallback((repo: GithubRepo, patch: Partial<SavedGithubRepo>) => {
     const id = String(repo.id)
     const existing = useGithubStore.getState().repos.find((entry) => entry.id === id)
     const now = Date.now()
@@ -116,25 +116,25 @@ export function ReposPane({
       ? { ...existing, ...patch, updatedAt: now }
       : { id, fullName: repo.fullName, url: repo.url, data: repo, tagIds: [], pinned: false, favorited: false, createdAt: now, updatedAt: now, ...patch }
     void upsertRepo(next)
-  }
+  }, [upsertRepo])
 
-  const togglePin = (repo: GithubRepo) => {
+  const togglePin = useCallback((repo: GithubRepo) => {
     const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     saveRepo(repo, { pinned: !existing?.pinned })
-  }
+  }, [saveRepo])
 
-  const toggleFav = (repo: GithubRepo) => {
+  const toggleFav = useCallback((repo: GithubRepo) => {
     const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     saveRepo(repo, { favorited: !existing?.favorited })
-  }
+  }, [saveRepo])
 
-  const toggleTag = (repo: GithubRepo, tag: string) => {
+  const toggleTag = useCallback((repo: GithubRepo, tag: string) => {
     const existing = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     const tagIds = existing?.tagIds ?? []
     saveRepo(repo, { tagIds: tagIds.includes(tag) ? tagIds.filter((id) => id !== tag) : [...tagIds, tag] })
-  }
+  }, [saveRepo])
 
-  const removeRepo = async (repo: GithubRepo) => {
+  const removeRepo = useCallback(async (repo: GithubRepo) => {
     const saved = useGithubStore.getState().repos.find((entry) => entry.id === String(repo.id))
     if (!saved) return
     const ok = await confirm({
@@ -145,29 +145,33 @@ export function ReposPane({
     })
     if (!ok) return
     void deleteRepo(saved.id)
-    if (selectedRepoId === saved.id) setSelectedRepoId(null)
+    setSelectedRepoId((current) => (current === saved.id ? null : current))
     toast({ title: t('development.github.repos.removed'), tone: 'success' })
-  }
+  }, [deleteRepo, toast])
 
-  const addTag = (name: string, color: string, parentId: string | null) => {
+  const selectRepo = useCallback((repo: GithubRepo) => {
+    setSelectedRepoId(String(repo.id))
+  }, [])
+
+  const addTag = useCallback((name: string, color: string, parentId: string | null) => {
     const now = Date.now()
     void upsertTag({ id: tagId(), name, color, parentId, sortOrder: tags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now })
-  }
+  }, [tags, upsertTag])
 
-  const updateTag = (id: string, patch: { name: string; color: string; parentId: string | null }) => {
+  const updateTag = useCallback((id: string, patch: { name: string; color: string; parentId: string | null }) => {
     const existing = tags.find((tag) => tag.id === id)
     if (!existing) return
     void upsertTag({ ...existing, ...patch, updatedAt: Date.now() })
-  }
+  }, [tags, upsertTag])
 
-  const refreshLocal = async () => {
+  const refreshLocal = useCallback(async () => {
     setRefreshing(true)
     try {
       await refresh()
     } finally {
       setRefreshing(false)
     }
-  }
+  }, [refresh])
 
   const sidebar = (
     <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} />
@@ -186,7 +190,7 @@ export function ReposPane({
             isExplore={isExplore}
             query={query}
             onQueryChange={setQuery}
-            onCommitSearch={() => { setCommittedQuery(query.trim()); setPage(1) }}
+            onCommitSearch={(value) => { setQuery(value); setCommittedQuery(value.trim()); setPage(1) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
             onGoDiscover={() => selectView(GITHUB_EXPLORE_VIEW)}
             loading={search.loading || refreshing}
@@ -205,11 +209,11 @@ export function ReposPane({
             repoMap={repoMap}
             tags={tags}
             selectedRepoId={selectedRepoId}
-            onSelectRepo={(repo) => setSelectedRepoId(String(repo.id))}
+            onSelectRepo={selectRepo}
             onTogglePin={togglePin}
             onToggleFav={toggleFav}
             onToggleTag={toggleTag}
-            onRemoveRepo={(repo) => void removeRepo(repo)}
+            onRemoveRepo={removeRepo}
             toggleSidebar={toggleSidebar}
             toggleDetail={toggleDetail}
             detailDisabled={detailDisabled}
