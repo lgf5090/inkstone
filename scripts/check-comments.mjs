@@ -38105,6 +38105,13 @@ const allowed = new Map([
     "// An absent body means \"back up everything\"; a body that cannot be read is refused instead of",
     "// defaulted, because defaulting one turned a broken request into a full backup nobody asked for.",
   ]],
+  ["src/worker/routes/tools-qrcode.ts", [
+    "/** Comfortable for a design session; a scripted loop against the store is not. */",
+    "/** A QR raster is tens of kilobytes; this is a brake on payloads that would not fit an isolate. */",
+    "/** Ids reach an R2 key and a primary key, so they are matched rather than sanitised. */",
+    "/**\n * Stored files are served back to the browser, so the bytes have to be the image the record claims.\n * Raster payloads are checked by signature; SVG stays allowed because a record can legitimately be a\n * vector code, and fileHeaders() serves it sandboxed so it has no script context to run in.\n */",
+    "// Private: these are a member's own codes, some of them encoding a Wi-Fi password.",
+  ]],
   ["src/worker/routes/tools-shortlinks-redirect.ts", [
     "/**\n * Public Edge Redirect Engine with Password Gate and Async Analytics (`/l/:slug`).\n */",
     "// Best-effort record swallow in click tracker",
@@ -44537,6 +44544,10 @@ const allowed = new Map([
     "// 9. When R2 is unavailable, returns 503",
     "// A truncated upload used to be caught and defaulted, so the caller that meant \"back up this subset\"",
     "// got a full snapshot instead. The route cannot honour a body it cannot read, so it says so.",
+  ]],
+  ["tests/tools-qrcode-api.test.ts", [
+    "/** A real 1×1 PNG: the storage guard checks signatures, so fixtures have to carry actual image bytes. */",
+    "// A well-formed id that simply does not exist stays a 404 rather than leaking into a 400.",
   ]],
   ["tests/tools-qrcode-settings.test.tsx", [
     "// A second visit means the reader came back to a workbench they may have retuned, so the saved",
