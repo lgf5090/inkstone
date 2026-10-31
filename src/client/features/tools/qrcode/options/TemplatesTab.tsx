@@ -75,7 +75,7 @@ export function TemplatesTab() {
                   {preset.category === 'scenario' && t('tools.qrcode.templates.cat_scenario')}
                 </span>
                 <span className="truncate text-[length:var(--text-11)] font-medium text-[var(--text-primary)]">
-                  {preset.name}
+                  {t(preset.nameKey)}
                 </span>
               </div>
             </button>

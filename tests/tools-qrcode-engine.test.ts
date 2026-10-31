@@ -151,7 +151,6 @@ describe('QR Code Engine & Beautification System', () => {
       for (const id of expectedIds) {
         const found = ONLINE_LOGOS.find((l) => l.id === id)
         expect(found).toBeDefined()
-        expect(found?.name).toBeTruthy()
         expect(found?.nameKey).toContain('tools.qrcode.logos.')
         expect(found?.svg).toContain('<svg')
         expect(found?.svg).toContain('</svg>')
@@ -161,7 +160,7 @@ describe('QR Code Engine & Beautification System', () => {
 
     it('retrieves logo by id and returns undefined for unknown id', () => {
       const wechat = getOnlineLogoById('wechat')
-      expect(wechat?.name).toBe('WeChat')
+      expect(wechat?.nameKey).toBe('tools.qrcode.logos.wechat')
       expect(getOnlineLogoById('non-existent')).toBeUndefined()
     })
 
@@ -210,7 +209,7 @@ describe('QR Code Engine & Beautification System', () => {
     it('retrieves preset by ID correctly', () => {
       const wecom = getPresetById('wecom')
       expect(wecom).toBeDefined()
-      expect(wecom?.name).toBe('WeCom')
+      expect(wecom?.nameKey).toBe('tools.qrcode.presets.wecom')
       expect(wecom?.options.dotsOptions.color).toBe('#1877f2')
 
       expect(getPresetById('unknown')).toBeUndefined()

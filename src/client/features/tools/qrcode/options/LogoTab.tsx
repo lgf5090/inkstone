@@ -81,8 +81,8 @@ export function LogoTab() {
               <button
                 key={item.id}
                 type="button"
-                title={item.name}
-                aria-label={item.name}
+                title={t(item.nameKey)}
+                aria-label={t(item.nameKey)}
                 data-testid={`logo-preset-${item.id}`}
                 onClick={() => handleSelectOnlineLogo(item.id)}
                 className={cn(
@@ -93,7 +93,7 @@ export function LogoTab() {
                     : 'border-[var(--border-subtle)] bg-[var(--bg-inset)]'
                 )}
               >
-                <img src={item.dataUrl} alt={item.name} className="h-6 w-6 object-contain" />
+                <img src={item.dataUrl} alt={t(item.nameKey)} className="h-6 w-6 object-contain" />
               </button>
             )
           })}

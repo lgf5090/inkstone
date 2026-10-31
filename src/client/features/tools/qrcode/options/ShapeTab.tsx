@@ -126,6 +126,14 @@ const ELEMENT_SHAPES: readonly ShapeOption[] = [
   },
 ]
 
+const SUB_MARKER_OPTIONS: ReadonlyArray<{ value: QrToolkitMarkerSubShape; labelKey: MessageKey }> = [
+  { value: 'square', labelKey: 'tools.qrcode.eye.sub_square' },
+  { value: 'circle', labelKey: 'tools.qrcode.eye.sub_circle' },
+  { value: 'box', labelKey: 'tools.qrcode.eye.sub_box' },
+  { value: 'random', labelKey: 'tools.qrcode.eye.sub_random' },
+  { value: 'plus', labelKey: 'tools.qrcode.eye.sub_plus' },
+]
+
 interface EyeOption {
   id: QrEyeShape | QrToolkitMarkerShape
   labelKey: MessageKey
@@ -403,19 +411,19 @@ export function ShapeTab() {
           {t('tools.qrcode.eye.sub_marker_title')}
         </label>
         <div className="grid grid-cols-5 gap-1.5">
-          {(['square', 'circle', 'box', 'random', 'plus'] as QrToolkitMarkerSubShape[]).map((sub) => (
+          {SUB_MARKER_OPTIONS.map((sub) => (
             <button
-              key={sub}
+              key={sub.value}
               type="button"
-              onClick={() => setToolkitOptions({ markerSub: sub, enabled: true })}
+              onClick={() => setToolkitOptions({ markerSub: sub.value, enabled: true })}
               className={cn(
-                'rounded-[var(--r-md)] border py-1.5 text-xs font-medium capitalize transition-colors',
-                (tk.markerSub || 'square') === sub
+                'rounded-[var(--r-md)] border py-1.5 text-[length:var(--text-12)] font-medium transition-colors',
+                (tk.markerSub || 'square') === sub.value
                   ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-inset)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
               )}
             >
-              {sub}
+              {t(sub.labelKey)}
             </button>
           ))}
         </div>

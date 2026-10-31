@@ -73,7 +73,6 @@ const REDPACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 4
 export const ONLINE_LOGOS: OnlineLogo[] = [
   {
     id: 'wechat',
-    name: 'WeChat',
     nameKey: 'tools.qrcode.logos.wechat',
     category: 'social',
     svg: WECHAT_SVG,
@@ -81,7 +80,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'qq',
-    name: 'QQ',
     nameKey: 'tools.qrcode.logos.qq',
     category: 'social',
     svg: QQ_SVG,
@@ -89,7 +87,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'taobao',
-    name: 'Taobao',
     nameKey: 'tools.qrcode.logos.taobao',
     category: 'payment',
     svg: TAOBAO_SVG,
@@ -97,7 +94,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'weibo',
-    name: 'Weibo',
     nameKey: 'tools.qrcode.logos.weibo',
     category: 'social',
     svg: WEIBO_SVG,
@@ -105,7 +101,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'qzone',
-    name: 'Qzone',
     nameKey: 'tools.qrcode.logos.qzone',
     category: 'social',
     svg: QZONE_SVG,
@@ -113,7 +108,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'twitter',
-    name: 'Twitter/X',
     nameKey: 'tools.qrcode.logos.twitter',
     category: 'social',
     svg: TWITTER_X_SVG,
@@ -121,7 +115,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'facebook',
-    name: 'Facebook',
     nameKey: 'tools.qrcode.logos.facebook',
     category: 'social',
     svg: FACEBOOK_SVG,
@@ -129,7 +122,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'fingerprint',
-    name: 'Fingerprint',
     nameKey: 'tools.qrcode.logos.fingerprint',
     category: 'util',
     svg: FINGERPRINT_SVG,
@@ -137,7 +129,6 @@ export const ONLINE_LOGOS: OnlineLogo[] = [
   },
   {
     id: 'redpacket',
-    name: 'Red Packet',
     nameKey: 'tools.qrcode.logos.redpacket',
     category: 'payment',
     svg: REDPACKET_SVG,

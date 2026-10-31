@@ -244,7 +244,7 @@ export function QrTemplatesView() {
 
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] truncate">
-                      {preset.name}
+                      {t(preset.nameKey)}
                     </span>
                     <span className="shrink-0 rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                       {preset.category === 'minimal' && t('tools.qrcode.templates.cat_minimal')}
@@ -255,7 +255,7 @@ export function QrTemplatesView() {
                   </div>
 
                   <p className="text-[length:var(--text-11)] text-[var(--text-secondary)] line-clamp-2 mb-3 min-h-[30px]">
-                    {preset.description}
+                    {t(preset.descriptionKey)}
                   </p>
 
                   <div className="mt-auto">

@@ -18043,6 +18043,8 @@ const allowed = new Map([
     "/* Blend Mode & Opacity Controls */",
     "/* Diagnostics Stats and Mask Exports */",
     "/* ControlNet Mask Export Actions */",
+    "/* Reference QR Upload / Generator Hook */",
+    "/* Diagnostics & Comparison Workspace */",
   ]],
   ["src/client/features/tools/qrcode/compare/diff-engine.ts", [
     "// Correction map",
@@ -18052,6 +18054,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/qrcode/engine/export-pipeline.ts", [
     "/**\n * Saves a blob through a temporary anchor. Revoking in the same tick as the click is what cut\n * downloads short on some browsers, so the revoke waits for the task that follows.\n */",
+    "/** Same-origin files (a stored record's own image) download through the anchor's own name. */",
   ]],
   ["src/client/features/tools/qrcode/engine/qr-engine.ts", [
     "// A blank canvas here would export a code nothing can scan, and the preview would look",

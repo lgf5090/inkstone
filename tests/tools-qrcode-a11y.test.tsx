@@ -22,7 +22,7 @@ function mount(node: ReactNode): RenderedElement {
 }
 
 function tabNamed(root: HTMLElement, label: string): HTMLButtonElement | undefined {
-  return Array.from(root.querySelectorAll('button[role="tab"]')).find(
+  return Array.from(root.querySelectorAll<HTMLButtonElement>('button[role="tab"]')).find(
     (b) => b.textContent?.trim() === label
   )
 }
