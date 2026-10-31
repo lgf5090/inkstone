@@ -14,7 +14,7 @@ import { githubJson } from './github-http'
 import { readHttpUrl } from '@shared/development/github/url'
 
 const GIST_ID_PATTERN = /^[a-f0-9]{8,64}$/
-const GITHUB_USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/
+const GITHUB_USERNAME_PATTERN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
 
 export type GistListType = 'public' | 'mine' | 'user'
 

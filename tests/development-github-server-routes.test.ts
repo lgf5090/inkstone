@@ -542,6 +542,9 @@ describe('development github proxies', () => {
     const detail = await call('GET', `/gist/detail?gist=${GIST_ID}`)
     expect(detail.status).toBe(200)
     expect((await bodyOf<{ files: unknown[] }>(detail)).data?.files).toHaveLength(1)
+
+    expect((await call('GET', '/gist/users/a-/gists')).status).toBe(400)
+    expect((await call('GET', '/gist/users/a--b/gists')).status).toBe(400)
   })
 
   it('checks gist ownership before updating or deleting', async () => {
