@@ -209,8 +209,7 @@ export function ReposPane({
     }
   }, [refresh])
 
-  const syncStars = useCallback(async () => {
-    if (syncingStars) return
+  const syncStars = useCallback(async () => {    if (syncingStars) return
     setSyncingStars(true)
     try {
       const result = await githubApi.starred(1, 100)
@@ -228,6 +227,25 @@ export function ReposPane({
       setSyncingStars(false)
     }
   }, [saveRepo, syncingStars, toast])
+
+  const exportLibrary = useCallback(() => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      tags,
+      repos,
+    }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `github-repos-${new Date().toISOString().slice(0, 10)}.json`
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast({ title: t('development.github.repos.export_done'), tone: 'success' })
+  }, [tags, repos, toast])
 
   const sidebar = (
     <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
@@ -273,6 +291,7 @@ export function ReposPane({
             onRemoveRepo={removeRepo}
             onSyncStars={() => void syncStars()}
             syncingStars={syncingStars}
+            onExportLibrary={exportLibrary}
             toggleSidebar={toggleSidebar}
             toggleDetail={toggleDetail}
             detailDisabled={detailDisabled}

@@ -13,6 +13,7 @@ import { useUi } from '../../../../store/ui'
 import { githubApi } from '../api'
 import { formatDate, formatNumber } from '../lib/format'
 import { addGistFile, buildGistFilesPatch, gistFileIssueKey, GistFileError, normalizeGistFiles, removeGistFile, updateGistFile } from '../lib/gist-files'
+import { GistCode } from './GistCode'
 
 export function GistDetail({
   gist,
@@ -128,6 +129,24 @@ export function GistDetail({
     if (ok) window.setTimeout(() => setCopied(false), 1500)
     else toast({ title: t('development.github.common.copy_failed'), tone: 'danger' })
   }
+  const copyAll = async () => {
+    if (!gist) return
+    const text = gist.files.map((file) => `===== ${file.filename} =====\n${file.content}`).join('\n\n')
+    const ok = await copyText(text)
+    toast({ title: ok ? t('development.github.gists.all_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }
+  const downloadCurrent = () => {
+    if (!current) return
+    const url = URL.createObjectURL(new Blob([current.content], { type: 'text/plain;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = current.filename
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   const exportGist = async (format: 'json' | 'md' | 'txt') => {
     if (!gist) return
@@ -176,7 +195,7 @@ export function GistDetail({
       {readOnly && <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.gists.read_only')}</div>}
       {!readOnly && gist.owner && <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-4 py-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><span className="min-w-0 flex-1">{t('development.github.gists.local_snapshot_desc')}</span>{onPushToGithub && <Button variant="secondary" size="sm" loading={pushing} disabled={pushing} onClick={() => { setPushing(true); void onPushToGithub().finally(() => setPushing(false)) }}><Upload size={12} />{t('development.github.gists.push_to_github')}</Button>}</div>}
       <div className="border-b border-[var(--border-subtle)] p-3">
-        <div className="mb-2 flex items-center gap-2"><FileCode size={14} className="text-[var(--text-tertiary)]" /><span className="text-[length:var(--text-13)] font-semibold">{t('development.github.gists.files')}</span><span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">({files.length})</span>{editing && <Button variant="secondary" size="sm" className="ml-auto" onClick={addFile}><Plus size={11} />{t('development.github.gists.add_file')}</Button>}</div>
+        <div className="mb-2 flex items-center gap-2"><FileCode size={14} className="text-[var(--text-tertiary)]" /><span className="text-[length:var(--text-13)] font-semibold">{t('development.github.gists.files')}</span><span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">({files.length})</span>{editing ? <Button variant="secondary" size="sm" className="ml-auto" onClick={addFile}><Plus size={11} />{t('development.github.gists.add_file')}</Button> : <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void copyAll()}><Copy size={11} />{t('development.github.gists.copy_all')}</Button>}</div>
         <div className="flex flex-wrap gap-1.5">
           {files.map((file, index) => (
             <div key={`${file.filename}-${index}`} className={cn('inline-flex items-center rounded-[var(--r-md)] border', index === selectedFile ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-subtle)]')}>
@@ -190,9 +209,9 @@ export function GistDetail({
       <div className="p-4">
         {current ? <div className="space-y-2">
           <div className="flex items-center gap-2">
-            {editing ? <><Input value={current.filename} onChange={(event) => updateFile(selectedFile, { filename: event.target.value })} placeholder={t('development.github.gists.filename_placeholder')} className="h-8 flex-1 text-[length:var(--text-11)]" /><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{current.language}</span></> : <><span className="min-w-0 truncate text-[length:var(--text-13)] font-medium">{current.filename}</span><span className="shrink-0 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{current.language ?? 'Text'}</span><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatNumber(current.size)} {t('development.github.gists.bytes')}</span><Button variant="ghost" size="sm" className="ml-auto" onClick={() => void copyContent()} disabled={!current.content}>{copied ? <><Check size={11} className="text-[var(--success)]" />{t('development.github.gists.copied')}</> : <><Copy size={11} />{t('development.github.gists.copy_content')}</>}</Button></>}
+            {editing ? <><Input value={current.filename} onChange={(event) => updateFile(selectedFile, { filename: event.target.value })} placeholder={t('development.github.gists.filename_placeholder')} className="h-8 flex-1 text-[length:var(--text-11)]" /><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{current.language}</span></> : <><span className="min-w-0 truncate text-[length:var(--text-13)] font-medium">{current.filename}</span><span className="shrink-0 rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{current.language ?? 'Text'}</span><span className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{formatNumber(current.size)} {t('development.github.gists.bytes')}</span><Button variant="ghost" size="sm" className="ml-auto" onClick={() => void copyContent()} disabled={!current.content}>{copied ? <><Check size={11} className="text-[var(--success)]" />{t('development.github.gists.copied')}</> : <><Copy size={11} />{t('development.github.gists.copy_content')}</>}</Button><IconButton label={t('development.github.gists.download_file')} size="sm" onClick={downloadCurrent}><Download size={11} /></IconButton></>}
           </div>
-          {editing ? <Textarea value={current.content} onChange={(event) => updateFile(selectedFile, { content: event.target.value })} placeholder={t('development.github.gists.content_placeholder')} className="min-h-[280px] font-mono text-[length:var(--text-11)]" /> : <pre className="max-h-[55vh] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-11)] leading-relaxed"><code className="font-mono">{current.content || t('development.github.gists.empty_file')}</code></pre>}
+          {editing ? <Textarea value={current.content} onChange={(event) => updateFile(selectedFile, { content: event.target.value })} placeholder={t('development.github.gists.content_placeholder')} className="min-h-[280px] font-mono text-[length:var(--text-11)]" /> : <div className="ink-prose"><pre className="max-h-[55vh] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-11)] leading-relaxed"><code className="font-mono">{current.content ? <GistCode content={current.content} language={current.language} /> : t('development.github.gists.empty_file')}</code></pre></div>}
         </div> : <p className="rounded-[var(--r-md)] border border-dashed border-[var(--border-subtle)] p-4 text-center text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.gists.no_files')}</p>}
       </div>
 
