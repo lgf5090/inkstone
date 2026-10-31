@@ -54,7 +54,7 @@ describe('the public site projection exposes the settings the frontend renders',
       announcement: { enable: true, text: '  Server maintenance on Sunday  ', closable: false },
       llms: { enable: false, excludeTags: ['secret', ' secret ', 42, 'private'] },
     })
-    expect(site.announcement).toEqual({ enable: true, text: 'Server maintenance on Sunday', closable: false })
+    expect(site.announcement).toEqual({ enable: true, text: 'Server maintenance on Sunday', closable: false, linkText: '', linkUrl: '' })
     expect(site.llms).toEqual({ enable: false, excludeTags: ['secret', 'private'] })
   })
 
