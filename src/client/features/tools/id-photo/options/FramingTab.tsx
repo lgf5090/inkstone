@@ -6,8 +6,15 @@ import { Button } from '../../../../components/primitives'
 import { MAX_ZOOM } from '../engine/framing'
 import { useIdPhotoStore } from '../store'
 
-function zoomLabel(percent: number): string {
-  return `${Math.round((1 + (percent / 100) * (MAX_ZOOM - 1)) * 100)}%`
+const ZOOM_MIN = 100
+const ZOOM_MAX = MAX_ZOOM * 100
+
+function zoomToSliderPercent(zoom: number): number {
+  return Math.round(ZOOM_MIN + (zoom / 100) * (ZOOM_MAX - ZOOM_MIN))
+}
+
+function sliderPercentToZoom(value: number): number {
+  return ((value - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100
 }
 
 export function FramingTab() {
@@ -40,54 +47,36 @@ export function FramingTab() {
       </div>
 
       <Field label={t('tools.id_photo.framing.zoom')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={crop.zoom}
-            label={t('tools.id_photo.framing.zoom')}
-            onChange={(val) => setCropPercents(val, crop.x, crop.y)}
-            className="flex-1"
-          />
-          <span className="w-12 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {zoomLabel(crop.zoom)}
-          </span>
-        </div>
+        <Slider
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step={1}
+          suffix="%"
+          value={zoomToSliderPercent(crop.zoom)}
+          onChange={(val) => setCropPercents(sliderPercentToZoom(val), crop.x, crop.y)}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.framing.horizontal')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={crop.x}
-            label={t('tools.id_photo.framing.horizontal')}
-            onChange={(val) => setCropPercents(crop.zoom, val, crop.y)}
-            className="flex-1"
-          />
-          <span className="w-12 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {crop.x}%
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={1}
+          suffix="%"
+          value={crop.x}
+          onChange={(val) => setCropPercents(crop.zoom, val, crop.y)}
+        />
       </Field>
 
       <Field label={t('tools.id_photo.framing.vertical')}>
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={100}
-            step={1}
-            value={crop.y}
-            label={t('tools.id_photo.framing.vertical')}
-            onChange={(val) => setCropPercents(crop.zoom, crop.x, val)}
-            className="flex-1"
-          />
-          <span className="w-12 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {crop.y}%
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={100}
+          step={1}
+          suffix="%"
+          value={crop.y}
+          onChange={(val) => setCropPercents(crop.zoom, crop.x, val)}
+        />
       </Field>
 
       <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">

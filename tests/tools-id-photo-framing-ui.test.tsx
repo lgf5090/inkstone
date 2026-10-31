@@ -44,6 +44,23 @@ async function settle(): Promise<void> {
   })
 }
 
+async function moveSlider(input: HTMLInputElement, value: string): Promise<void> {
+  act(() => {
+    // React tracks the node's value itself, so a plain assignment reads as "nothing changed" and
+    // the change event is dropped. The prototype setter is what a real keystroke goes through.
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    if (setValue) setValue.call(input, value)
+    else input.value = value
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  // The shared slider coalesces a drag into one write per frame, so the frame is the handoff.
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
 function pointer(element: Element, type: string, x: number, y: number): void {
   act(() => {
     element.dispatchEvent(
@@ -188,38 +205,28 @@ describe('ID photo manual framing', () => {
     const view = await renderElement(<IdPhotoApp />)
     await settle()
 
-    const sliders = Array.from(view.container.querySelectorAll<HTMLInputElement>('input[type="range"]')).filter(
-      (input) => input.getAttribute('aria-label') === t('tools.id_photo.framing.zoom'),
-    )
-    expect(sliders).toHaveLength(1)
-
-    const move = async (input: HTMLInputElement, value: string) => {
-      act(() => {
-        // React tracks the node's value itself, so a plain assignment reads as "nothing changed" and
-        // the change event is dropped. The prototype setter is what a real keystroke goes through.
-        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-        if (setValue) setValue.call(input, value)
-        else input.value = value
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-      })
-      // The shared slider coalesces a drag into one write per frame, so the frame is the handoff.
-      await act(async () => {
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => resolve())
-        })
-      })
+    const labelled = (label: string): HTMLInputElement | null => {
+      const field = [...view.container.querySelectorAll('label')].find((node) => node.textContent?.trim() === label)
+      return field?.htmlFor ? (document.getElementById(field.htmlFor) as HTMLInputElement | null) : null
     }
 
-    const zoom = sliders[0]
-    await move(zoom, '60')
+    const zoom = labelled(t('tools.id_photo.framing.zoom'))
+    expect(zoom).not.toBeNull()
+    // The row shows one number, in the unit the user thinks in: 100% means no crop at all.
+    expect(zoom!.min).toBe('100')
+    expect(zoom!.max).toBe('400')
+    const readouts = [...zoom!.parentElement!.querySelectorAll('span')].filter((span) => (span.textContent ?? '').includes('%'))
+    expect(readouts).toHaveLength(1)
+    expect(readouts[0].textContent).toBe('100%')
+
+    await moveSlider(zoom!, '280')
     expect(useIdPhotoStore.getState().cropPercents()?.zoom).toBe(60)
+    expect(readouts[0].textContent).toBe('280%')
     expect(insideLayer(framing())).toBe(true)
 
-    const vertical = Array.from(view.container.querySelectorAll<HTMLInputElement>('input[type="range"]')).find(
-      (input) => input.getAttribute('aria-label') === t('tools.id_photo.framing.vertical'),
-    )
-    expect(vertical).toBeDefined()
-    await move(vertical!, '20')
+    const vertical = labelled(t('tools.id_photo.framing.vertical'))
+    expect(vertical).not.toBeNull()
+    await moveSlider(vertical!, '20')
     expect(useIdPhotoStore.getState().cropPercents()?.y).toBe(20)
 
     view.unmount()
