@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, History, Package, Save, Scale, Star, Tag as TagIcon } from 'lucide-react'
+import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, Save, Scale, Star, Tag as TagIcon, Terminal } from 'lucide-react'
 import type { GithubMirrorSource, GithubRelease, GithubReleaseAsset, GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
@@ -97,6 +97,8 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
   const [assetName, setAssetName] = useState('')
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(notes)
+  const [cloneOpen, setCloneOpen] = useState(false)
+  const cloneAnchor = useRef<HTMLButtonElement>(null)
   const toast = useUi((state) => state.toast)
 
   useEffect(() => setNotesDraft(notes), [notes])
@@ -148,7 +150,17 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
   const release = detail.releases[releaseIndex]
   const currentAsset = release?.assets.find((asset) => asset.name === assetName) ?? release?.assets[0]
   const mirrorBase = mirror?.url ?? ''
+  const mirrorPage = mirrorBase ? buildMirrorDownloadUrl(mirrorBase, repo.url) : ''
   const readmeFailed = detail.warnings.some((warning) => warning.source === 'readme')
+  const copyValue = async (value: string, message: string) => {
+    const ok = await copyText(value)
+    toast({ title: ok ? message : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }
+  const cloneItems: MenuItem[] = [
+    { id: 'https', label: t('development.github.repos.clone_https'), icon: <Copy size={13} />, onSelect: () => void copyValue(`https://github.com/${repo.fullName}.git`, t('development.github.repos.clone_copied')) },
+    { id: 'ssh', label: t('development.github.repos.clone_ssh'), icon: <Terminal size={13} />, onSelect: () => void copyValue(`git@github.com:${repo.fullName}.git`, t('development.github.repos.clone_copied')) },
+    ...(mirrorPage ? [{ id: 'mirror', label: t('development.github.repos.clone_mirror'), icon: <Globe size={13} />, onSelect: () => void copyValue(mirrorPage, t('development.github.repos.mirror_url_copied')) }] : []),
+  ]
 
   return (
     <div className="h-full min-w-0 overflow-y-auto overscroll-contain" data-slot="repo-detail">
@@ -163,7 +175,12 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
             {repo.description && <p className="mt-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]">{repo.description}</p>}
             {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
           </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button ref={cloneAnchor} variant="secondary" size="sm" onClick={() => setCloneOpen(true)}><Terminal size={12} />{t('development.github.repos.clone')}</Button>
+            {mirrorPage && <a href={mirrorPage} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Globe size={12} />{t('development.github.repos.open_in_mirror')}</a>}
+          </div>
         </div>
+        <Menu anchor={cloneAnchor} open={cloneOpen} onClose={() => setCloneOpen(false)} items={cloneItems} align="end" width={240} label={t('development.github.repos.clone')} />
         {repo.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{repo.topics.map((topic) => <span key={topic} className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--accent-on-soft)]"><TagIcon size={9} />{topic}</span>)}</div>}
         <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <Stat icon={<Star size={12} className="text-[var(--warning)]" />} label={t('development.github.repos.stars')} value={formatNumber(repo.stargazersCount)} />
