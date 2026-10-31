@@ -106,7 +106,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.gists.public_desc": "任何人都可以看到此 Gist",
   "development.github.gists.public_gists": "公开 Gist",
   "development.github.gists.read_only": "只有从自己的账户保存的 Gist 才能编辑。",
-  "development.github.gists.saved_count": "已保存 {count} 个",
+  "development.github.gists.saved_count": "本页已保存 {count} 个",
   "development.github.gists.saved_local": "已保存到本地",
   "development.github.gists.save_local": "保存到本地",
   "development.github.gists.search_placeholder": "搜索 Gist（描述 / 文件名）…",

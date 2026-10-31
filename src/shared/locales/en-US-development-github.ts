@@ -106,7 +106,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.gists.public_desc": "Anyone can see this gist",
   "development.github.gists.public_gists": "Public gists",
   "development.github.gists.read_only": "Only gists saved from your own account can be edited.",
-  "development.github.gists.saved_count": "{count} saved",
+  "development.github.gists.saved_count": "{count} saved on this page",
   "development.github.gists.saved_local": "Saved locally",
   "development.github.gists.save_local": "Save locally",
   "development.github.gists.search_placeholder": "Search gists (description / filename)…",

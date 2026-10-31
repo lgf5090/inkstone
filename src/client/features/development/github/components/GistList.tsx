@@ -160,6 +160,9 @@ export function GistList({
   const [sortOpen, setSortOpen] = useState(false)
   const [tagOpen, setTagOpen] = useState(false)
   const allSelected = items.length > 0 && items.every((gist) => selectedIds.has(gist.id))
+  const savedOnPage = remote && savedRemoteIds
+    ? items.reduce((count, gist) => count + (savedRemoteIds.has(gist.id) ? 1 : 0), 0)
+    : 0
   const sortItems: MenuItem[] = [
     ...(remote ? [] : [{ id: 'select-all', label: t('development.github.gists.select_all'), checked: allSelected, onSelect: onSelectAll }]),
     { id: 'view-mode', label: viewMode === 'list' ? t('development.github.gists.card_view') : t('development.github.gists.list_view'), icon: viewMode === 'list' ? <LayoutGrid size={13} /> : <List size={13} />, onSelect: () => onViewModeChange(viewMode === 'list' ? 'card' : 'list') },
@@ -196,7 +199,7 @@ export function GistList({
       </div>
       <Menu anchor={sortAnchor} open={sortOpen} onClose={() => setSortOpen(false)} items={sortItems} align="end" width={240} label={t('development.github.gists.sort_by')} />
       <Menu anchor={tagAnchor} open={tagOpen} onClose={() => setTagOpen(false)} items={tagItems} align="start" width={220} label={t('development.github.tags.section')} />
-      {remote && <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Globe size={12} className="text-[var(--accent)]" /><span className="min-w-0 flex-1 truncate font-medium">{remoteTitle || t('development.github.gists.explore_github')}</span><span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.gists.current_page_only')}</span>{savedRemoteIds && savedRemoteIds.size > 0 && <span className="text-[var(--success)]">{t('development.github.gists.saved_count', { count: savedRemoteIds.size })}</span>}</div>}
+      {remote && <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Globe size={12} className="text-[var(--accent)]" /><span className="min-w-0 flex-1 truncate font-medium">{remoteTitle || t('development.github.gists.explore_github')}</span><span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{t('development.github.gists.current_page_only')}</span>{savedOnPage > 0 && <span className="text-[var(--success)]">{t('development.github.gists.saved_count', { count: savedOnPage })}</span>}</div>}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {error ? <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-12)] font-medium">{t('development.github.common.load_failed')}</p><p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{error}</p><Button variant="secondary" size="sm" onClick={onRefresh}><RefreshCw size={12} />{t('development.github.common.retry')}</Button></div>
         : items.length === 0 && !loading ? <Empty art={remote ? 'search' : 'notes'} title={remote ? t('development.github.gists.empty_remote') : query ? t('development.github.gists.no_match') : t('development.github.gists.empty')} action={!remote && !query ? <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={onCreate}><Plus size={12} />{t('development.github.gists.create')}</Button><Button variant="secondary" size="sm" onClick={onImport}>{t('development.github.gists.import')}</Button></div> : undefined} />
