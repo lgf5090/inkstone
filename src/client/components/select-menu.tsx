@@ -49,7 +49,6 @@ export function SelectMenu<T extends string>({
   /** `sm` is the toolbar row; `md` the form field. */
   size?: 'sm' | 'md'
   placeholder?: string
-  /** Long option lists get the shared filter box. */
   searchable?: boolean
 }) {
   const anchor = useRef<HTMLButtonElement>(null)

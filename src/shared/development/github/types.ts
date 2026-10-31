@@ -57,7 +57,6 @@ export interface GithubAccountView {
   avatarUrl: string
   createdAt: number
   updatedAt: number
-  /** Present on the add response only: whether GitHub reported the gist scope. */
   gistScope?: boolean | null
 }
 
@@ -173,9 +172,7 @@ export interface GistFile {
   language: string | null
   content: string
   size: number
-  /** Bootstrap summaries carry the first characters for the card preview. */
   preview?: string | null
-  /** The body was left out of this payload and must be fetched by gist id. */
   truncated?: boolean
 }
 
