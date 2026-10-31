@@ -4,34 +4,57 @@
  */
 
 import { generateAlgorithmicPalettes } from '@shared/tools/color/colorspace-algorithms'
-import { normalizeHex } from '@shared/tools/color/spaces'
+import { TRADITIONAL_CHINESE_COLORS } from '@shared/tools/color/presets/traditional-chinese'
+import { deltaE76, hexToRgb, normalizeHex } from '@shared/tools/color/spaces'
 import type {
   AiPaletteRequest,
   AiPaletteResult,
   PoeticColorInterpretation,
+  PoeticInterpretResult,
 } from '@shared/tools/color/types'
-import { runOneShot } from '../../assistant/one-shot'
+import { runOneShot, OneShotError } from '../../assistant/one-shot'
 import { AssistantStore } from '../../assistant/store'
 import type { Env } from '../../env'
+import type { AiFallbackReason } from '@shared/tools/color/contract'
 
 const AI_COLOR_DEADLINE_MS = 25000
 
-export const COLOR_AI_FALLBACK_NAMES = [
-  '山青', '黛水', '晴岚', '霁色', '秋香', '凝脂', '暮云', '朱殷', '苍玉', '玄影',
-]
+/**
+ * Why the model did not answer, in terms the reader can act on.
+ *
+ * `no_model` and `quota` are settings the reader can fix; the rest are transient. Collapsing them into
+ * one "AI failed" toast taught nobody which button to press, so the kind survives the fallback.
+ */
+function fallbackReason(error: unknown): AiFallbackReason {
+  if (error instanceof OneShotError) return error.kind
+  return 'upstream'
+}
 
-export const COLOR_AI_FALLBACK_STORIES = [
-  '远岫空濛如积翠，深林独坐见清幽',
-  '碧水初平两岸春，微澜轻拂带流光',
-  '长空如洗天高远，片云初散日微晴',
-  '雨后新晴云破处，苍茫一抹动客心',
-  '满庭黄叶随风舞，浅浅秋光向晚凉',
-  '素肌玉骨含香韵，淡然自有一种清',
-  '半落青山斜照里，暮霞低卷雁声沉',
-  '绛雪凝丹明落照，一枝初秀染红霞',
-  '苍苔古木深沉处，玉润含光冷翠凝',
-  '夜色如墨沉深渊，万象归宁月一痕',
-]
+/**
+ * Fills a palette request from the algorithmic engine.
+ *
+ * One algorithmic group holds at most six colors, so a reader who asked for eight used to be handed four
+ * with no comment. The groups overlap heavily, hence the de-duplication, and the random start keeps repeat
+ * requests from returning the same list every time.
+ */
+function algorithmicFallback(seed: string, count: number): string[] {
+  const groups = generateAlgorithmicPalettes(seed)
+  const start = Math.floor(Math.random() * groups.length)
+  const picked: string[] = []
+  const seen = new Set<string>()
+
+  for (let offset = 0; offset < groups.length && picked.length < count; offset++) {
+    for (const raw of groups[(start + offset) % groups.length].colors) {
+      const hex = normalizeHex(raw, true)
+      if (seen.has(hex)) continue
+      seen.add(hex)
+      picked.push(hex)
+      if (picked.length >= count) break
+    }
+  }
+
+  return picked
+}
 
 /**
  * Generates an AI color palette scheme based on user prompt, seed color, and stylistic preferences.
@@ -97,17 +120,24 @@ ${userPrompt ? `- Description: ${userPrompt}` : ''}`
           description: c.description || '',
         })),
         tags: Array.isArray(parsed.tags) ? parsed.tags : [style, tone],
+        degraded: false,
       }
     }
-  } catch {
-    // Graceful offline fallback: derive high-quality palette via algorithmic engine
+    // The model answered with something unusable: still an algorithmic palette, still worth reporting.
+    return degradedPalette(seed, count, style, tone, 'malformed')
+  } catch (error: unknown) {
+    return degradedPalette(seed, count, style, tone, fallbackReason(error))
   }
+}
 
-  // Algorithmic Fallback
-  const algorithmic = generateAlgorithmicPalettes(seed)
-  const chosenGroup = algorithmic[Math.floor(Math.random() * algorithmic.length)]
-  const fallbackColors = chosenGroup.colors.slice(0, count)
-
+function degradedPalette(
+  seed: string,
+  count: number,
+  style: string,
+  tone: string,
+  reason: AiFallbackReason,
+): AiPaletteResult {
+  const fallbackColors = algorithmicFallback(seed, count)
   return {
     title: `${style} Harmonic Inspiration`,
     description: `Balanced color scheme computed for seed ${seed} based on color space algorithms.`,
@@ -117,10 +147,39 @@ ${userPrompt ? `- Description: ${userPrompt}` : ''}`
       description: i === 0 ? 'Primary' : i === 1 ? 'Accent' : 'Transition',
     })),
     tags: [style, 'algorithmic', tone],
+    degraded: true,
+    reason,
   }
 }
 
 export type { PoeticColorInterpretation } from '@shared/tools/color/types'
+
+/**
+ * Names a color after the closest entry in the traditional palette.
+ *
+ * The offline fallback used to hand back the same ten poetic names in rotation, so a reader who named two
+ * different photos got the same lyric couplet on a red and on a grey, and nothing about the answer was
+ * about the color. Naming by nearest catalogued color is not a model's answer, but it is an answer about
+ * the color, and it is reproducible.
+ */
+function nearestTraditionalColor(hex: string): PoeticColorInterpretation {
+  const rgb = hexToRgb(hex)
+  let best = TRADITIONAL_CHINESE_COLORS[0]
+  let bestDelta = Number.POSITIVE_INFINITY
+  for (const item of TRADITIONAL_CHINESE_COLORS) {
+    const delta = deltaE76(rgb, hexToRgb(item.hex))
+    if (delta < bestDelta) {
+      bestDelta = delta
+      best = item
+    }
+  }
+  const provenance = [best.solarTerm, best.series, best.pinyin].filter(Boolean).join(' · ')
+  return {
+    hex,
+    name: best.name,
+    story: provenance,
+  }
+}
 
 /**
  * Generates poetic Chinese aesthetic interpretations for extracted image colors
@@ -130,8 +189,13 @@ export async function interpretAiPoeticColors(
   userId: string,
   colors: string[],
   theme = 'Natural Harmony',
-): Promise<PoeticColorInterpretation[]> {
+): Promise<PoeticInterpretResult> {
   const normColors = colors.map((c) => normalizeHex(c, true))
+  const fallback = (reason: AiFallbackReason): PoeticInterpretResult => ({
+    items: normColors.map(nearestTraditionalColor),
+    degraded: true,
+    reason,
+  })
 
   try {
     const assistant = new AssistantStore(env.DB, userId, env)
@@ -164,20 +228,17 @@ Colors: ${normColors.join(', ')}`
     const parsed = JSON.parse(cleanJson) as PoeticColorInterpretation[]
 
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((item, idx) => ({
-        hex: normColors[idx] || normalizeHex(item.hex, true),
-        name: item.name || `Color ${idx + 1}`,
-        story: item.story || 'Extracted color',
-      }))
+      return {
+        items: parsed.map((item, idx) => ({
+          hex: normColors[idx] || normalizeHex(item.hex, true),
+          name: item.name || `Color ${idx + 1}`,
+          story: item.story || 'Extracted color',
+        })),
+        degraded: false,
+      }
     }
-  } catch {
-    // Fallback
+    return fallback('malformed')
+  } catch (error: unknown) {
+    return fallback(fallbackReason(error))
   }
-
-  // Graceful offline fallback
-  return normColors.map((hex, i) => ({
-    hex,
-    name: COLOR_AI_FALLBACK_NAMES[i % COLOR_AI_FALLBACK_NAMES.length],
-    story: COLOR_AI_FALLBACK_STORIES[i % COLOR_AI_FALLBACK_STORIES.length],
-  }))
 }

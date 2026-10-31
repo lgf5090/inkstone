@@ -5,6 +5,7 @@ import { t } from '../../../../lib/i18n'
 import { Tooltip } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
+import { AiDegradedNotice } from './AiDegradedNotice'
 
 export interface AiPaletteResultCardProps {
   result: AiPaletteResult
@@ -63,6 +64,8 @@ export function AiPaletteResultCard({ result }: AiPaletteResultCardProps) {
           <span>{t('tools.color.ai.save_scheme')}</span>
         </Button>
       </div>
+
+      {result.degraded && <AiDegradedNotice reason={result.reason ?? 'upstream'} />}
 
       {/* Colors Ribbon & Details */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-2">

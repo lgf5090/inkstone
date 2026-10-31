@@ -17358,6 +17358,9 @@ const allowed = new Map([
     "// reader sees rather than matching the attribute (case-sensitivity of attribute",
     "// selectors is the DOM implementation's detail, not this view's contract).",
   ]],
+  ["src/client/features/tools/color/components/AiDegradedNotice.tsx", [
+    "/**\n * Says out loud that no model answered.\n *\n * The color engine has always had an algorithmic fallback for palette generation and poetic naming, and\n * the result looked identical to a model's answer — including the \"AI\" in the panel title. This is the one\n * line that tells the reader which of the two they are looking at, and why.\n */",
+  ]],
   ["src/client/features/tools/color/components/AiPaletteResultCard.tsx", [
     "/* Colors Ribbon & Details */",
     "/* Color Box */",
@@ -30980,6 +30983,15 @@ const allowed = new Map([
     "/**\n * 8. Dust Palette (Vintage weathered dust palette - 5 colors)\n */",
     "/**\n * Generates all MyColorSpace algorithmic palettes for a given base color\n */",
   ]],
+  ["src/shared/tools/color/contract.ts", [
+    "/**\n * Client↔server contract constants for the Color Assistant.\n *\n * These values used to live in two places each: the slider bounds in a view, the matching ceiling in a\n * zod schema, and the history window in a comment. A reader who pushed the extract-count slider to its\n * right-hand end sent thirteen colors to an endpoint that accepted twelve, and every picker drag logged a\n * source the schema would refuse. Naming the bounds once is what keeps the control and the validator\n * from drifting apart again, so the schema, the store and the views all read from here.\n */",
+    "/** Where a color was picked, recorded in the sliding history window. */",
+    "/** The image extractor's slider bounds; the AI namer receives the dominant color on top of these. */",
+    "/** How many colors an AI palette may ask for. */",
+    "/** Rows the history keeps, and the page size that shows them. */",
+    "/** A saved palette is capped here, so a gradient editor cannot outgrow what the API will accept. */",
+    "/**\n * Why a model-backed answer fell back to the algorithm.\n *\n * The reader needs this to know whether the palette on screen was designed or computed: a fallback that\n * arrives without a label is a feature reporting success while not running.\n */",
+  ]],
   ["src/shared/tools/color/harmonies.ts", [
     "/**\n * Classical color harmony algorithms (Complementary, Triadic/Split-Complementary, Analogous, Tetradic/Intermediate)\n */",
     "/**\n * Returns all color harmonies for a given base color\n */",
@@ -31132,6 +31144,8 @@ const allowed = new Map([
     "// [C, M, Y, K] in %",
     "// hex or rgba",
     "// 0 - 100 %",
+    "/**\n   * True when no model answered and the palette was computed instead.\n   *\n   * The engine has always had an algorithmic fallback, and a reader who was never told could not tell a\n   * designed scheme from a hue rotation — so the flag travels with the result rather than living only in\n   * a server log.\n   */",
+    "/**\n * A poetic naming pass, with the honesty flag the bare array could not carry.\n *\n * Returned as an object rather than a per-item marker because the answer is one verdict for the whole\n * batch: either the model named these colors or the fallback table did.\n */",
   ]],
   ["src/shared/tools/id-photo/presets.ts", [
     "// SVG path representation for lightweight offline formal wear rendering",
@@ -39196,11 +39210,11 @@ const allowed = new Map([
   ["src/worker/tools/color/ai.ts", [
     "/**\n * AI Color Palette and Poetic Interpretation Engine.\n * Reuses Chat App's `AssistantStore` and `runOneShot` for zero extra dependencies.\n */",
     "/**\n * Generates an AI color palette scheme based on user prompt, seed color, and stylistic preferences.\n */",
-    "// Graceful offline fallback: derive high-quality palette via algorithmic engine",
-    "// Algorithmic Fallback",
     "/**\n * Generates poetic Chinese aesthetic interpretations for extracted image colors\n */",
-    "// Fallback",
-    "// Graceful offline fallback",
+    "/**\n * Why the model did not answer, in terms the reader can act on.\n *\n * `no_model` and `quota` are settings the reader can fix; the rest are transient. Collapsing them into\n * one \"AI failed\" toast taught nobody which button to press, so the kind survives the fallback.\n */",
+    "/**\n * Fills a palette request from the algorithmic engine.\n *\n * One algorithmic group holds at most six colors, so a reader who asked for eight used to be handed four\n * with no comment. The groups overlap heavily, hence the de-duplication, and the random start keeps repeat\n * requests from returning the same list every time.\n */",
+    "// The model answered with something unusable: still an algorithmic palette, still worth reporting.",
+    "/**\n * Names a color after the closest entry in the traditional palette.\n *\n * The offline fallback used to hand back the same ten poetic names in rotation, so a reader who named two\n * different photos got the same lyric couplet on a red and on a grey, and nothing about the answer was\n * about the color. Naming by nearest catalogued color is not a model's answer, but it is an answer about\n * the color, and it is reproducible.\n */",
   ]],
   ["src/worker/tools/color/r2.ts", [
     "/**\n * Cloudflare R2 storage driver for the Color Assistant module (`tools/color`).\n *\n * Strict key naming convention:\n * `tools/color/{format}/{userId}/{assetId}.{format}`\n * where format is normalized to png, jpg, svg, or ase.\n */",
@@ -39225,9 +39239,9 @@ const allowed = new Map([
     "// Favorites (Single Colors)",
     "// ignore",
     "// Multi-Color Palettes (Palettes & Groups)",
-    "// History (Sliding window of last 100 entries)",
-    "// Truncate sliding window if user has more than 100 history items",
     "// Assets",
+    "// History (sliding window of COLOR_HISTORY_WINDOW entries)",
+    "// Truncate sliding window if user has more than the retained history",
   ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
@@ -44400,6 +44414,16 @@ const allowed = new Map([
     "// List after delete",
     "// Toggle favorite",
     "// Download asset",
+    "// The fallback used to hand back one algorithmic group, which holds at most six colors: asking for",
+    "// five could return four. The count the reader picked is the count they get.",
+    "// No assistant model is configured in this harness, so the answer must admit it was computed.",
+  ]],
+  ["tests/tools-color-contracts.test.ts", [
+    "/**\n * Contract tests for the Color Assistant: the bounds and vocabularies the client controls and the server\n * validator have to agree on. Each one here was broken in a way every existing suite walked past, because\n * the two sides each held their own copy of the number.\n */",
+    "// The store types the argument, so tsc is the real guard; this scan is the tripwire for a call site",
+    "// that reaches around the type with a widened parameter or a cast.",
+    "// The slider's right-hand end used to send COLOR_EXTRACT_MAX + 1 colors to a schema capped at 12.",
+    "// This harness configures no assistant model, so a truthful answer has to admit it computed the palette.",
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",

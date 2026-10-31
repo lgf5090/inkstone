@@ -2,6 +2,8 @@
  * Types and interfaces for the Color Assistant module (`tools/color`).
  */
 
+import type { AiFallbackReason, ColorHistorySource } from './contract'
+
 export interface RgbColor {
   r: number // 0 - 255
   g: number // 0 - 255
@@ -148,7 +150,7 @@ export interface UserColorPalette {
 export interface ColorHistoryItem {
   id: string
   hex: string
-  source: 'studio' | 'eyedropper' | 'image' | 'algorithm' | 'ai'
+  source: ColorHistorySource
   createdAt: number
 }
 
@@ -177,12 +179,33 @@ export interface AiPaletteResult {
     description?: string
   }>
   tags: string[]
+  /**
+   * True when no model answered and the palette was computed instead.
+   *
+   * The engine has always had an algorithmic fallback, and a reader who was never told could not tell a
+   * designed scheme from a hue rotation — so the flag travels with the result rather than living only in
+   * a server log.
+   */
+  degraded: boolean
+  reason?: AiFallbackReason
 }
 
 export interface PoeticColorInterpretation {
   hex: string
   name: string
   story: string
+}
+
+/**
+ * A poetic naming pass, with the honesty flag the bare array could not carry.
+ *
+ * Returned as an object rather than a per-item marker because the answer is one verdict for the whole
+ * batch: either the model named these colors or the fallback table did.
+ */
+export interface PoeticInterpretResult {
+  items: PoeticColorInterpretation[]
+  degraded: boolean
+  reason?: AiFallbackReason
 }
 
 export type ColorBlindnessType =

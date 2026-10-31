@@ -37,6 +37,14 @@ export function AiPaletteView() {
         count: colorCount,
       })
       setResult(data)
+      if (data.degraded) {
+        useUi.getState().toast({
+          title: t('tools.color.ai.degraded_notice', {
+            reason: t(('tools.color.ai.reason.' + (data.reason ?? 'upstream')) as Parameters<typeof t>[0]),
+          }),
+          tone: 'warning',
+        })
+      }
     } catch (e: unknown) {
       const err = e as Error
       useUi.getState().toast({

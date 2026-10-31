@@ -3,6 +3,13 @@
  */
 
 import { z } from 'zod'
+import {
+  COLOR_AI_INTERPRET_MAX,
+  COLOR_AI_PALETTE_MAX,
+  COLOR_AI_PALETTE_MIN,
+  COLOR_HISTORY_SOURCES,
+  COLOR_PALETTE_MAX_COLORS,
+} from './contract'
 
 export const RgbColorSchema = z.object({
   r: z.number().int().min(0).max(255),
@@ -52,7 +59,7 @@ export const PaletteColorItemSchema = z.object({
 export const CreateColorPaletteSchema = z.object({
   id: z.string().optional(),
   title: z.string().min(1).max(100),
-  colors: z.array(PaletteColorItemSchema).min(1).max(20),
+  colors: z.array(PaletteColorItemSchema).min(1).max(COLOR_PALETTE_MAX_COLORS),
   sourceType: z
     .enum(['custom', 'colorhunt', 'mycolorspace', 'ai', 'image', 'harmony'])
     .default('custom'),
@@ -66,7 +73,7 @@ export const CreateColorPaletteSchema = z.object({
 
 export const UpdateColorPaletteSchema = z.object({
   title: z.string().min(1).max(100).optional(),
-  colors: z.array(PaletteColorItemSchema).min(1).max(20).optional(),
+  colors: z.array(PaletteColorItemSchema).min(1).max(COLOR_PALETTE_MAX_COLORS).optional(),
   description: z.string().max(1000).optional(),
   tags: z.array(z.string().max(50)).optional(),
   likesCount: z.number().int().min(0).optional(),
@@ -84,19 +91,22 @@ export const UpdateColorSettingsSchema = z.object({
 
 export const AddColorHistorySchema = z.object({
   hex: z.string().regex(/^#?[0-9a-fA-F]{6}$/),
-  source: z.enum(['studio', 'eyedropper', 'image', 'algorithm', 'ai']).default('studio'),
+  source: z.enum(COLOR_HISTORY_SOURCES).default('studio'),
 })
 
 export const AiPaletteGenerateSchema = z.object({
   seedHex: z.string().regex(/^#?[0-9a-fA-F]{6}$/).optional(),
   style: z.string().max(100).optional(),
   tone: z.enum(['warm', 'cool', 'neutral', 'all']).default('all'),
-  count: z.number().int().min(3).max(8).default(5),
+  count: z.number().int().min(COLOR_AI_PALETTE_MIN).max(COLOR_AI_PALETTE_MAX).default(5),
   prompt: z.string().max(500).optional(),
 })
 
 export const AiPoeticInterpretSchema = z.object({
-  colors: z.array(z.string().regex(/^#?[0-9a-fA-F]{6}$/)).min(1).max(12),
+  colors: z
+    .array(z.string().regex(/^#?[0-9a-fA-F]{6}$/))
+    .min(1)
+    .max(COLOR_AI_INTERPRET_MAX),
   theme: z.string().max(200).optional(),
 })
 

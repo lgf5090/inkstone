@@ -123,7 +123,7 @@ describe('ColorStudio UI & State Suite', () => {
       rendered = renderElement(createElement(ColorStudioView))
 
       act(() => {
-        useColorStudioStore.getState().setCurrentColor('#ef4444', 'test')
+        useColorStudioStore.getState().setCurrentColor('#ef4444', 'palette')
       })
 
       const updatedInput = rendered.container.querySelector<HTMLInputElement>(`input[aria-label="${t('tools.color.studio.hex_input_label')}"]`)

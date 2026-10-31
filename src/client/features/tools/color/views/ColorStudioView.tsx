@@ -89,7 +89,7 @@ export function ColorStudioView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <EyedropperButton onPick={(hex) => setCurrentColor(hex, 'picker')} />
+          <EyedropperButton onPick={(hex) => setCurrentColor(hex, 'eyedropper')} />
           <Button
             variant="secondary"
             size="sm"

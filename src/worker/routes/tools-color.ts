@@ -4,6 +4,7 @@
 
 import { Hono, type Context } from 'hono'
 import { z } from 'zod'
+import { COLOR_HISTORY_WINDOW } from '@shared/tools/color/contract'
 import {
   AddColorHistorySchema,
   AiPaletteGenerateSchema,
@@ -208,7 +209,7 @@ toolsColorRoutes.post('/palettes/:id/favorite', async (c) => {
 
 toolsColorRoutes.get('/history', async (c) => {
   const store = getStore(c)
-  const limit = Number(c.req.query('limit')) || 60
+  const limit = Number(c.req.query('limit')) || COLOR_HISTORY_WINDOW
   const history = await store.listHistory(limit)
   return c.json({ ok: true, data: history })
 })

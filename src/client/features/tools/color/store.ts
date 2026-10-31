@@ -4,6 +4,7 @@
 
 import { create } from 'zustand'
 import { getColorSpaceValues, normalizeHex } from '@shared/tools/color/spaces'
+import { COLOR_HISTORY_WINDOW, type ColorHistorySource } from '@shared/tools/color/contract'
 import type {
   ColorHistoryItem,
   ColorSettings,
@@ -45,8 +46,8 @@ export interface ColorStudioState {
   exportTargetPalette: { title: string; colors: string[] } | null
 
   // Actions
-  setCurrentHex: (hex: string, source?: string) => void
-  setCurrentColor: (hex: string, source?: string) => void
+  setCurrentHex: (hex: string, source?: ColorHistorySource) => void
+  setCurrentColor: (hex: string, source?: ColorHistorySource) => void
   copyColor: (value: string, label?: string) => Promise<void>
   setActiveUiTab: (tab: string) => void
   setTraditionalTab: (tab: 'chinese' | 'nippon') => void
@@ -118,7 +119,7 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   isExportPaletteModalOpen: false,
   exportTargetPalette: null,
 
-  setCurrentHex: (hex: string, source = 'studio') => {
+  setCurrentHex: (hex: string, source: ColorHistorySource = 'studio') => {
     const norm = normalizeHex(hex, true)
     set({
       currentHex: norm,
@@ -134,7 +135,7 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     }
   },
 
-  setCurrentColor: (hex: string, source?: string) => {
+  setCurrentColor: (hex: string, source?: ColorHistorySource) => {
     get().setCurrentHex(hex, source)
   },
 
@@ -313,7 +314,7 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
 
   fetchHistory: async () => {
     try {
-      const history = await colorApi.listHistory()
+      const history = await colorApi.listHistory(COLOR_HISTORY_WINDOW)
       set({ history })
     } catch {
       // Best effort

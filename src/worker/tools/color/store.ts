@@ -4,6 +4,7 @@
  * multi-color palettes, history, settings, and assets.
  */
 
+import { COLOR_HISTORY_WINDOW, type ColorHistorySource } from '@shared/tools/color/contract'
 import { hexToRgb, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
 import type {
   ColorHistoryItem,
@@ -582,10 +583,10 @@ export class ColorStore {
   }
 
   // ==========================================
-  // History (Sliding window of last 100 entries)
+  // History (sliding window of COLOR_HISTORY_WINDOW entries)
   // ==========================================
 
-  async listHistory(limit = 60): Promise<ColorHistoryItem[]> {
+  async listHistory(limit = COLOR_HISTORY_WINDOW): Promise<ColorHistoryItem[]> {
     const results = await this.db
       .prepare(
         `SELECT * FROM tools_color_history
@@ -593,7 +594,7 @@ export class ColorStore {
          ORDER BY created_at DESC
          LIMIT ?`,
       )
-      .bind(this.userId, Math.min(100, Math.max(1, limit)))
+      .bind(this.userId, Math.min(COLOR_HISTORY_WINDOW, Math.max(1, limit)))
       .all<{
         user_id: string
         id: string
@@ -610,7 +611,7 @@ export class ColorStore {
     }))
   }
 
-  async addHistory(hex: string, source: ColorHistoryItem['source'] = 'studio'): Promise<ColorHistoryItem> {
+  async addHistory(hex: string, source: ColorHistorySource = 'studio'): Promise<ColorHistoryItem> {
     const id = `col_hist_${crypto.randomUUID().slice(0, 12)}`
     const now = Date.now()
 
@@ -622,7 +623,7 @@ export class ColorStore {
       .bind(this.userId, id, hex, source, now)
       .run()
 
-    // Truncate sliding window if user has more than 100 history items
+    // Truncate sliding window if user has more than the retained history
     await this.db
       .prepare(
         `DELETE FROM tools_color_history
@@ -630,10 +631,10 @@ export class ColorStore {
            SELECT id FROM tools_color_history
            WHERE user_id = ?
            ORDER BY created_at DESC
-           LIMIT 100
+           LIMIT ?
          )`,
       )
-      .bind(this.userId, this.userId)
+      .bind(this.userId, this.userId, COLOR_HISTORY_WINDOW)
       .run()
 
     return {

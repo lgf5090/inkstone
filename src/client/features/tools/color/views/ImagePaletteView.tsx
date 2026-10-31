@@ -11,6 +11,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { extractPaletteFromPixels } from '@shared/tools/color/quantize'
+import { COLOR_EXTRACT_MAX, COLOR_EXTRACT_MIN } from '@shared/tools/color/contract'
 import type { PoeticColorInterpretation } from '@shared/tools/color/types'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
@@ -145,11 +146,13 @@ export function ImagePaletteView() {
     if (allColors.length === 0) return
     setIsInterpreting(true)
     try {
-      const results = await colorApi.interpretColors(allColors)
-      setInterpretations(results)
+      const result = await colorApi.interpretColors(allColors)
+      setInterpretations(result.items)
       useUi.getState().toast({
-        title: t('tools.color.toast.ai_success'),
-        tone: 'success',
+        title: result.degraded
+          ? t('tools.color.image.ai_namer_fallback')
+          : t('tools.color.toast.ai_success'),
+        tone: result.degraded ? 'warning' : 'success',
       })
     } catch {
       useUi.getState().toast({
@@ -267,8 +270,8 @@ export function ImagePaletteView() {
               <input
                 type="range"
                 aria-label={t('tools.color.image.extract_count')}
-                min={3}
-                max={12}
+                min={COLOR_EXTRACT_MIN}
+                max={COLOR_EXTRACT_MAX}
                 step={1}
                 value={maxColors}
                 onChange={(e) => setMaxColors(Number(e.target.value))}
@@ -428,9 +431,11 @@ export function ImagePaletteView() {
                             <span className="text-[length:var(--text-12)] font-medium text-[var(--accent)]">
                               {interp.name}
                             </span>
-                            <p className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] mt-0.5">
-                              {interp.story}
-                            </p>
+                            {interp.story && (
+                              <p className="truncate text-[length:var(--text-11)] text-[var(--text-tertiary)] mt-0.5">
+                                {interp.story}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>

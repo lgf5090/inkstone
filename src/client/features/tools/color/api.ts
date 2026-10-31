@@ -2,13 +2,14 @@
  * Color Assistant Client REST API
  */
 
+import type { ColorHistorySource } from '@shared/tools/color/contract'
 import type {
   AiPaletteRequest,
   AiPaletteResult,
   ColorHistoryItem,
   ColorSettings,
   PaletteColorItem,
-  PoeticColorInterpretation,
+  PoeticInterpretResult,
   UserColorFavorite,
   UserColorPalette,
 } from '@shared/tools/color/types'
@@ -126,7 +127,7 @@ export const colorApi = {
   // History
   listHistory: (limit?: number) =>
     request<ColorHistoryItem[]>(`/history${limit ? `?limit=${limit}` : ''}`),
-  addHistory: (hex: string, source?: string) =>
+  addHistory: (hex: string, source?: ColorHistorySource) =>
     request<ColorHistoryItem>('/history', {
       method: 'POST',
       body: JSON.stringify({ hex, source }),
@@ -143,7 +144,7 @@ export const colorApi = {
       body: JSON.stringify(body),
     }),
   interpretColors: (colors: string[], theme?: string) =>
-    request<PoeticColorInterpretation[]>('/ai/interpret', {
+    request<PoeticInterpretResult>('/ai/interpret', {
       method: 'POST',
       body: JSON.stringify({ colors, theme }),
     }),
