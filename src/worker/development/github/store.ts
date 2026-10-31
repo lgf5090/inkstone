@@ -1,4 +1,4 @@
-import { MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
+import { GIST_PREVIEW_CHARS, MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
 import type {
   GithubExportFormat,
   GithubTag,
@@ -490,6 +490,29 @@ export async function listGists(db: D1Database, userId: string): Promise<SavedGi
     .bind(userId)
     .all<GistRow>()
   return results.map(toGist)
+}
+
+export function toGistSummary(gist: SavedGist): SavedGist {
+  const files = Array.isArray(gist.data.files) ? gist.data.files : []
+  return {
+    ...gist,
+    data: {
+      ...gist.data,
+      files: files.map((file) => {
+        if (file.content.length <= GIST_PREVIEW_CHARS) return file
+        return {
+          ...file,
+          content: '',
+          preview: file.content.slice(0, GIST_PREVIEW_CHARS),
+          truncated: true,
+        }
+      }),
+    },
+  }
+}
+
+export async function listGistSummaries(db: D1Database, userId: string): Promise<SavedGist[]> {
+  return (await listGists(db, userId)).map(toGistSummary)
 }
 
 export async function findGist(db: D1Database, userId: string, id: string): Promise<SavedGist | null> {

@@ -649,6 +649,36 @@ describe('development github proxies', () => {
   })
 })
 
+describe('development github gist summaries', () => {
+  it('serves a capped preview in bootstrap and full content on demand', async () => {
+    const base = gistBody(GIST_ID)
+    const data = base.data as Record<string, unknown>
+    const body = {
+      ...base,
+      data: {
+        ...data,
+        files: [{ filename: 'big.txt', language: 'Text', content: 'x'.repeat(300), size: 300 }],
+      },
+    }
+    expect((await call('PUT', `/gist/gists/${GIST_ID}`, { body })).status).toBe(200)
+
+    const bootstrap = await call('GET', '/bootstrap')
+    const gists = (await bodyOf<{
+      gists: Array<{
+        id: string
+        data: { files: Array<{ content: string; preview?: string; truncated?: boolean; size: number }> }
+      }>
+    }>(bootstrap)).data!.gists
+    const summary = gists.find((gist) => gist.id === GIST_ID)!
+    expect(summary.data.files[0]).toMatchObject({ content: '', truncated: true, size: 300 })
+    expect(summary.data.files[0]!.preview).toHaveLength(200)
+
+    const full = await call('GET', `/gist/gists/${GIST_ID}`)
+    const detail = (await bodyOf<{ gist: { data: { files: Array<{ content: string }> } } }>(full)).data!.gist
+    expect(detail.data.files[0]!.content).toHaveLength(300)
+  })
+})
+
 describe('development github exports', () => {
   async function createLocalGist(): Promise<void> {
     const response = await call('PUT', `/gist/gists/${GIST_ID}`, { body: gistBody(GIST_ID) })

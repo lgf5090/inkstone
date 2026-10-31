@@ -77,6 +77,7 @@ import {
   findRepo,
   insertExport,
   listExports,
+  listGistSummaries,
   listGists,
   listGistTags,
   listRepos,
@@ -371,7 +372,7 @@ developmentGithubRoutes.get('/bootstrap', async (c) => {
     listTags(c.env.DB, userId),
     listRepos(c.env.DB, userId),
     listGistTags(c.env.DB, userId),
-    listGists(c.env.DB, userId),
+    listGistSummaries(c.env.DB, userId),
     listMirrors(c.env.DB, userId),
     listAccountViews(c.env.DB, userId),
   ])
@@ -487,6 +488,14 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
 developmentGithubRoutes.get('/gist/gists', async (c) => {
   const gists = await listGists(c.env.DB, userIdOf(c))
   return c.json({ ok: true, data: { gists } })
+})
+
+developmentGithubRoutes.get('/gist/gists/:id', async (c) => {
+  const userId = userIdOf(c)
+  const id = gistPathId(c)
+  const gist = await findGist(c.env.DB, userId, id)
+  if (!gist) throw githubNotFound('Gist not found')
+  return c.json({ ok: true, data: { gist } })
 })
 
 developmentGithubRoutes.put('/gist/gists/:id', async (c) => {
