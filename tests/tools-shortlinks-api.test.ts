@@ -294,6 +294,29 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect(red4.status).toBe(404)
   })
 
+  it('keeps exactly one primary slug when switching and deleting', async () => {
+    const link = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/primary', custom_slug: 'primary-one' },
+      }),
+    )).data
+    await call('POST', `/api/tools/shortlinks/links/${link.id}/slugs`, { body: { slug: 'primary-two' } })
+
+    const switched = await call('PATCH', `/api/tools/shortlinks/links/${link.id}/slugs/primary-two/primary`)
+    expect(switched.status).toBe(200)
+    let current = (await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data
+    let primaries = current.slugs.filter((s: any) => s.is_primary)
+    expect(primaries).toHaveLength(1)
+    expect(primaries[0].slug).toBe('primary-two')
+
+    const removed = await call('DELETE', `/api/tools/shortlinks/links/${link.id}/slugs/primary-two`)
+    expect(removed.status).toBe(200)
+    current = (await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data
+    primaries = current.slugs.filter((s: any) => s.is_primary)
+    expect(primaries).toHaveLength(1)
+    expect(primaries[0].slug).toBe('primary-one')
+  })
+
   it('rejects malformed ids, ranges, offsets and slug-status bodies with 4xx', async () => {
     const badId = await call('GET', '/api/tools/shortlinks/links/abc')
     expect(badId.status).toBe(400)

@@ -3030,6 +3030,18 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 202,
     statements: DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
   },
+  {
+    // One short link has one primary code: two of them make the list and the QR pick different
+    // codes for the same link. Dedupe first so the index can be created on an existing database.
+    version: 203,
+    statements: [
+      `UPDATE tools_shortlinks_slugs SET is_primary = 0
+         WHERE is_primary = 1
+           AND rowid NOT IN (SELECT MIN(rowid) FROM tools_shortlinks_slugs WHERE is_primary = 1 GROUP BY link_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_tools_shortlinks_slugs_one_primary
+         ON tools_shortlinks_slugs(link_id) WHERE is_primary = 1`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

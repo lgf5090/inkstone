@@ -252,35 +252,56 @@ export class ShortlinksStore {
 
     const now = Math.floor(Date.now() / 1000)
 
-    // Insert Link
-    const linkInsert = await this.db
-      .prepare(
-        `INSERT INTO tools_shortlinks_links (user_id, url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        this.userId,
-        url,
-        params.label?.trim() || null,
-        passwordHash,
-        isProtected,
-        now,
-        params.expires_at ?? null,
-        params.created_via || 'app',
-        'user',
-      )
-      .run()
+    // The link row and its first slug commit together: a generated slug lost to a concurrent create
+    // must not leave a link that no short code can ever resolve.
+    let linkId = 0
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.db.batch([
+          this.db
+            .prepare(
+              `INSERT INTO tools_shortlinks_links (user_id, url, label, password_hash, is_password_protected, created_at, expires_at, created_via, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              this.userId,
+              url,
+              params.label?.trim() || null,
+              passwordHash,
+              isProtected,
+              now,
+              params.expires_at ?? null,
+              params.created_via || 'app',
+              'user',
+            ),
+          this.db
+            .prepare(
+              `INSERT INTO tools_shortlinks_slugs (slug, user_id, link_id, is_custom, is_primary, created_at, disabled_at)
+               VALUES (?, ?, last_insert_rowid(), ?, 1, ?, NULL)`,
+            )
+            .bind(slug, this.userId, isCustom, now),
+        ])
+        break
+      } catch (err) {
+        const retryable = !isCustom && attempt < 2 && err instanceof Error && /UNIQUE constraint failed/i.test(err.message)
+        if (!retryable) throw err
+        const settings = await this.getSettings()
+        const len = params.slug_length || settings.slug_default_length || DEFAULT_SLUG_LENGTH
+        slug = await generateUniqueSlug(this.db, len, async (db, candidate) => {
+          const row = await db.prepare('SELECT slug FROM tools_shortlinks_slugs WHERE slug = ? LIMIT 1').bind(candidate).first()
+          return Boolean(row)
+        })
+      }
+    }
 
-    const linkId = linkInsert.meta.last_row_id as number
-
-    // Insert Slug
-    await this.db
-      .prepare(
-        `INSERT INTO tools_shortlinks_slugs (slug, user_id, link_id, is_custom, is_primary, created_at, disabled_at)
-         VALUES (?, ?, ?, ?, 1, ?, NULL)`,
-      )
-      .bind(slug, this.userId, linkId, isCustom, now)
-      .run()
+    const inserted = await this.db
+      .prepare('SELECT link_id FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
+      .bind(slug, this.userId)
+      .first<{ link_id: number }>()
+    if (!inserted) {
+      throw new ApiError(500, 'internal', 'Link was not persisted')
+    }
+    linkId = inserted.link_id
 
     // Title sniffing if label was not provided
     if (!params.label) {
@@ -641,15 +662,14 @@ export class ShortlinksStore {
       throw ApiError.notFound('Slug not found for this link')
     }
 
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 0 WHERE link_id = ? AND user_id = ?')
-      .bind(linkId, this.userId)
-      .run()
-
-    await this.db
-      .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 1 WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
-      .run()
+    await this.db.batch([
+      this.db
+        .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 0 WHERE link_id = ? AND user_id = ?')
+        .bind(linkId, this.userId),
+      this.db
+        .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 1 WHERE slug = ? AND link_id = ? AND user_id = ?')
+        .bind(slug, linkId, this.userId),
+    ])
 
     await deleteCachedSlug(kv, slug)
   }
@@ -702,25 +722,26 @@ export class ShortlinksStore {
       throw ApiError.badRequest('Cannot delete the only slug attached to a short link')
     }
 
+    const statements = [
+      this.db
+        .prepare('DELETE FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
+        .bind(slug, this.userId),
+    ]
     if (slugRow.is_primary) {
-      // Pick another slug to be primary
       const nextSlug = await this.db
         .prepare('SELECT slug FROM tools_shortlinks_slugs WHERE link_id = ? AND slug != ? AND user_id = ? LIMIT 1')
         .bind(slugRow.link_id, slug, this.userId)
         .first<{ slug: string }>()
-
       if (nextSlug) {
-        await this.db
-          .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 1 WHERE slug = ? AND user_id = ?')
-          .bind(nextSlug.slug, this.userId)
-          .run()
+        // After the delete, so the one-primary index never sees two rows at once.
+        statements.push(
+          this.db
+            .prepare('UPDATE tools_shortlinks_slugs SET is_primary = 1 WHERE slug = ? AND link_id = ? AND user_id = ?')
+            .bind(nextSlug.slug, slugRow.link_id, this.userId),
+        )
       }
     }
-
-    await this.db
-      .prepare('DELETE FROM tools_shortlinks_slugs WHERE slug = ? AND user_id = ?')
-      .bind(slug, this.userId)
-      .run()
+    await this.db.batch(statements)
 
     await deleteCachedSlug(kv, slug)
   }
