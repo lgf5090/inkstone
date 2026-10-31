@@ -63,7 +63,7 @@ export const RepoRow = memo(function RepoRow({
       )}
     >
       <div className="flex gap-2">
-        {checkable && <Checkbox checked={checked} onChange={(next) => onCheck(String(repo.id), next)} ariaLabel={t('development.github.repos.select_item', { name: repo.fullName })} className="mt-0.5 shrink-0" />}
+        {checkable && <span onClick={(event) => event.stopPropagation()}><Checkbox checked={checked} onChange={(next) => onCheck(String(repo.id), next)} ariaLabel={t('development.github.repos.select_item', { name: repo.fullName })} className="mt-0.5 shrink-0" /></span>}
         <div className="w-7 shrink-0 pt-0.5 text-right text-[length:var(--text-12)] font-semibold tabular-nums text-[var(--text-quaternary)]">
           {rank <= 3 ? <span className="text-[var(--warning)]">#{rank}</span> : `#${rank}`}
         </div>
