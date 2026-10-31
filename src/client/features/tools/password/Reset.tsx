@@ -138,6 +138,10 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-old"
             type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             maxLength={6}
             value={oldPassword}
             onChange={(e) => {
@@ -161,6 +165,10 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-new"
             type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             maxLength={6}
             value={newPassword}
             onChange={(e) => {
@@ -225,6 +233,10 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-confirm"
             type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             maxLength={6}
             value={confirmPassword}
             onChange={(e) => {
@@ -244,7 +256,7 @@ export function Reset({ open, onClose }: ResetProps) {
           <div
             data-testid="password-reset-error"
             role="alert"
-            className="rounded-[var(--r-sm)] bg-[var(--danger-soft,rgba(239,68,68,0.1))] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
           >
             {error}
           </div>

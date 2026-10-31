@@ -1,7 +1,7 @@
 import zxcvbn from 'zxcvbn'
+import { getLocale, t } from '../../../../lib/i18n'
 import {
   ZH_CN_PASSWORD_LENGTH_SUGGESTION,
-  ZH_CN_PASSWORD_STRENGTH_LABELS,
   ZH_CN_PASSWORD_SUGGESTIONS,
   ZH_CN_PASSWORD_WARNINGS,
 } from '@shared/locales/zh-CN-tools'
@@ -30,7 +30,12 @@ export const STRENGTH_I18N_KEYS = [
 ] as const
 
 const STRENGTH_COLORS: readonly PasswordStrengthColor[] = ['error', 'warning', 'info', 'success', 'success']
-const STRENGTH_LABELS: readonly string[] = ZH_CN_PASSWORD_STRENGTH_LABELS
+
+/** zxcvbn's feedback is English; the dictionary only maps it when the reader is reading Chinese. */
+function translateFeedback(text: string, table: Record<string, string>): string {
+  if (!text) return ''
+  return getLocale() === 'zh-CN' ? (table[text] ?? text) : text
+}
 
 export function evaluatePasswordStrength(password: string): PasswordStrengthResult {
   if (!password) {
@@ -47,21 +52,24 @@ export function evaluatePasswordStrength(password: string): PasswordStrengthResu
   const result = zxcvbn(password)
   const score = Math.max(0, Math.min(4, result.score)) as PasswordStrengthScore
 
-  const suggestions = (result.feedback.suggestions || []).map(
-    (s) => SUGGESTION_TRANSLATIONS[s] || s,
+  const suggestions = (result.feedback.suggestions || []).map((s) =>
+    translateFeedback(s, SUGGESTION_TRANSLATIONS),
   )
 
   if (score === 2 && suggestions.length === 0) {
-    suggestions.push(ZH_CN_PASSWORD_LENGTH_SUGGESTION)
+    suggestions.push(
+      getLocale() === 'zh-CN'
+        ? ZH_CN_PASSWORD_LENGTH_SUGGESTION
+        : 'Use a longer password — length matters more than symbols',
+    )
   }
 
-  const rawWarning = result.feedback.warning || ''
-  const warning = rawWarning ? (WARNING_TRANSLATIONS[rawWarning] || rawWarning) : ''
+  const warning = translateFeedback(result.feedback.warning || '', WARNING_TRANSLATIONS)
 
   return {
     score,
     color: STRENGTH_COLORS[score] ?? 'error',
-    label: STRENGTH_LABELS[score] ?? '',
+    label: t(STRENGTH_I18N_KEYS[score] ?? STRENGTH_I18N_KEYS[0]),
     suggestions,
     warning,
     feedback: suggestions,

@@ -82,15 +82,15 @@ export function PasswordGeneratorForm({
   const getStrengthBarColor = (score: number) => {
     switch (score) {
       case 0:
-        return 'bg-red-500'
+        return 'bg-[var(--danger)]'
       case 1:
         return 'bg-orange-500'
       case 2:
-        return 'bg-amber-500'
+        return 'bg-[var(--warning)]'
       case 3:
-        return 'bg-blue-500'
+        return 'bg-[var(--accent)]'
       case 4:
-        return 'bg-emerald-500'
+        return 'bg-[var(--success)]'
       default:
         return 'bg-zinc-300 dark:bg-zinc-700'
     }
@@ -125,7 +125,7 @@ export function PasswordGeneratorForm({
               type="button"
               variant={copied ? 'subtle' : 'secondary'}
               size="sm"
-              icon={copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+              icon={copied ? <Check size={14} className="text-[var(--success)]" /> : <Copy size={14} />}
               onClick={handleCopy}
               title={t('tools.password.generator.copy')}
               aria-label={t('tools.password.generator.copy')}
@@ -155,7 +155,7 @@ export function PasswordGeneratorForm({
               ))}
             </div>
             {strength.warning && (
-              <p className="mt-0.5 text-[length:var(--text-11)] text-amber-500">
+              <p className="mt-0.5 text-[length:var(--text-11)] text-[var(--warning)]">
                 {strength.warning}
               </p>
             )}
@@ -164,7 +164,7 @@ export function PasswordGeneratorForm({
       </div>
 
       {!isCharsetValid && (
-        <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-red-500/10 p-2.5 text-[length:var(--text-12)] text-red-500">
+        <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--danger-soft)] p-2.5 text-[length:var(--text-12)] text-[var(--danger)]">
           <AlertTriangle size={16} />
           <span>{t('tools.password.generator.at_least_one_type')}</span>
         </div>
@@ -255,7 +255,7 @@ export function PasswordGeneratorForm({
             invalid={customSymbols.length === 0}
           />
           {customSymbols.length === 0 && (
-            <span className="text-[length:var(--text-11)] text-red-500">
+            <span className="text-[length:var(--text-11)] text-[var(--danger)]">
               {t('tools.password.generator.symbols_empty')}
             </span>
           )}

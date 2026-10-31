@@ -184,6 +184,8 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
           <Input
             id="export-master-password"
             type="password"
+            autoComplete="current-password"
+            spellCheck={false}
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
             placeholder={t('tools.password.door.placeholder')}
@@ -193,7 +195,7 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
         </div>
 
         {errorMsg && (
-          <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-red-500/10 p-2.5 text-[length:var(--text-12)] text-red-500">
+          <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--danger-soft)] p-2.5 text-[length:var(--text-12)] text-[var(--danger)]">
             <AlertCircle size={15} />
             <span>{errorMsg}</span>
           </div>

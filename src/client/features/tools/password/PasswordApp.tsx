@@ -36,8 +36,10 @@ export function PasswordApp() {
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const closeBackupSettings = usePasswordVaultStore((s) => s.closeBackupSettings)
   const targetGroup = usePasswordVaultStore((s) => s.targetGroupForExportImport)
+  const autoLockMinutes = usePasswordVaultStore((s) => s.settings?.autoLockMinutes)
 
-  useAutoLock()
+  // The configured time, not a constant: the setting existed in the database with nothing reading it.
+  useAutoLock(autoLockMinutes ? autoLockMinutes * 60 * 1000 : undefined)
 
   useEffect(() => {
     if (!isUnlocked && vaultState === null) {

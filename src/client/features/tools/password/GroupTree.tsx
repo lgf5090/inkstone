@@ -286,7 +286,11 @@ export function GroupTree() {
         </Tooltip>
       </div>
 
-      <div className="mt-0.5 space-y-0.5">
+      <div
+        role="tree"
+        aria-label={t('tools.password.nav.groups')}
+        className="mt-0.5 space-y-0.5"
+      >
         {groupTree.length === 0 ? (
           <div className="px-3 py-2 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {t('tools.password.group.empty')}

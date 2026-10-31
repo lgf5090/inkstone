@@ -113,6 +113,10 @@ export function Setting({ open, onClose }: SettingProps) {
           <input
             data-testid="password-setting-input"
             type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             maxLength={6}
             value={password}
             onChange={(e) => {
@@ -179,6 +183,10 @@ export function Setting({ open, onClose }: SettingProps) {
           <input
             data-testid="password-setting-confirm"
             type="password"
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             maxLength={6}
             value={confirmPassword}
             onChange={(e) => {
@@ -198,7 +206,7 @@ export function Setting({ open, onClose }: SettingProps) {
           <div
             data-testid="password-setting-error"
             role="alert"
-            className="rounded-[var(--r-sm)] bg-[var(--danger-soft,rgba(239,68,68,0.1))] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
           >
             {error}
           </div>

@@ -10,8 +10,11 @@ import {
   getKeyIv,
   hashMasterPassword,
   SEALED_PREFIX,
+  STRENGTH_I18N_KEYS,
   verifyMasterPassword,
 } from './index'
+import { getLocale, t } from '../../../../lib/i18n'
+import { ZH_CN_PASSWORD_LENGTH_SUGGESTION } from '@shared/locales/zh-CN-tools'
 
 function getKeyIvNode(passphrase: string): { key: string; iv: string } {
   const hash1 = crypto.createHash('md5').update(passphrase).digest('hex')
@@ -206,8 +209,8 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       const result = evaluatePasswordStrength('123456')
       expect(result.score).toBe(0)
       expect(result.color).toBe('error')
-      expect(result.label).toBe('非常弱')
-      expect(result.warning).toBe('这是排名前10的常用弱密码')
+      expect(result.label).toBe(t('tools.password.strength.very_weak'))
+      expect(result.warning.length).toBeGreaterThan(0)
       expect(result.suggestions.length).toBeGreaterThan(0)
       expect(result.feedback).toEqual(result.suggestions)
     })
@@ -216,15 +219,19 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       const result = evaluatePasswordStrength('CorrectHorse-BatteryStaple-2026-XyZ#@!')
       expect(result.score).toBe(4)
       expect(result.color).toBe('success')
-      expect(result.label).toBe('非常强')
+      expect(result.label).toBe(t('tools.password.strength.very_strong'))
     })
 
     it('adds length suggestion when score is 2 and no suggestions exist', () => {
       const result = evaluatePasswordStrength('Tr0ub4dor&3')
       if (result.score === 2 && result.suggestions.length === 0) {
-        expect(result.suggestions).toContain('建议增长密码长度')
+        expect(result.suggestions).toContain(
+          getLocale() === 'zh-CN'
+            ? ZH_CN_PASSWORD_LENGTH_SUGGESTION
+            : 'Use a longer password — length matters more than symbols',
+        )
       }
-      expect(['非常弱', '弱', '中等', '强', '非常强']).toContain(result.label)
+      expect(result.label).toBe(t(STRENGTH_I18N_KEYS[result.score]))
       expect(['error', 'warning', 'info', 'success']).toContain(result.color)
     })
 

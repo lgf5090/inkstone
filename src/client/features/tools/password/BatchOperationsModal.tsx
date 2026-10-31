@@ -367,7 +367,7 @@ export function BatchOperationsModal({ open, onClose }: BatchOperationsModalProp
       >
         <div className="flex flex-col gap-4 text-[var(--text-primary)]">
           <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--danger-soft)] text-[var(--danger)]">
               <AlertTriangle size={18} />
             </div>
             <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">

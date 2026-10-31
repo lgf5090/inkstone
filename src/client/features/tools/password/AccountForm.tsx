@@ -38,10 +38,10 @@ export function PasswordStrengthIndicator({ password }: { password: string }) {
 
   const getBarColor = (index: number) => {
     if (index >= score && score > 0) return 'bg-[var(--border-subtle)]'
-    if (score === 0 || score === 1) return 'bg-red-500'
-    if (score === 2) return 'bg-amber-500'
-    if (score === 3) return 'bg-blue-500'
-    return 'bg-emerald-500'
+    if (score === 0 || score === 1) return 'bg-[var(--danger)]'
+    if (score === 2) return 'bg-[var(--warning)]'
+    if (score === 3) return 'bg-[var(--accent)]'
+    return 'bg-[var(--success)]'
   }
 
   return (
@@ -434,7 +434,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
             >
               <Star
                 size={16}
-                className={formData.isFavorite ? 'fill-amber-400 text-amber-400' : ''}
+                className={formData.isFavorite ? 'fill-[var(--warning)] text-[var(--warning)]' : ''}
               />
             </IconButton>
           </Tooltip>
@@ -536,6 +536,9 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
               <div className="relative flex-1 min-w-0">
                 <Input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label={t('tools.password.account.password')}
                   value={formData.password}
                   disabled={isLocked}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -545,7 +548,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
                   trailing={
                     <button
                       type="button"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('tools.password.account.hide_password') : t('tools.password.account.show_password')}
                       onClick={() => setShowPassword(!showPassword)}
                       className="rounded p-1 text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
                       data-testid="toggle-password-btn"

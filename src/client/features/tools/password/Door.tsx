@@ -127,7 +127,7 @@ export function Door({ className }: DoorProps) {
           </h2>
           <p className="mt-1 flex items-center gap-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             <ShieldCheck size={13} className="text-[var(--accent)]" />
-            <span>{'Inkstone Zero-Knowledge Vault'}</span>
+            <span>{t('tools.password.door.vault_tag')}</span>
           </p>
         </div>
 
@@ -140,6 +140,10 @@ export function Door({ className }: DoorProps) {
               ref={inputRef}
               data-testid="password-door-input"
               type="password"
+              autoComplete="current-password"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
               inputMode="text"
               maxLength={6}
               value={password}

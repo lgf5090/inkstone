@@ -51,12 +51,13 @@ export function AccountCard({
   return (
     <div
       data-account-id={account.id}
+      role="listitem"
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragOver={onDragOver}
       onDrop={handleDrop}
       className={cn(
-        'group relative flex items-center gap-1 rounded-lg transition-all duration-150',
+        'group relative flex items-center gap-1 rounded-[var(--r-lg)] transition-all duration-[var(--dur-fast)]',
         className,
       )}
     >
@@ -69,9 +70,9 @@ export function AccountCard({
         data-testid="account-card"
         onClick={() => onSelect(account)}
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-3 rounded-lg border px-3 py-2 text-left select-none',
+          'flex min-w-0 flex-1 items-center gap-3 rounded-[var(--r-lg)] border px-3 py-2 text-left select-none',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
-          'transition-colors duration-150',
+          'transition-colors duration-[var(--dur-fast)]',
           isSelected
             ? 'border-[var(--accent)] bg-[var(--accent-soft)]/20 shadow-sm'
             : 'border-transparent bg-transparent hover:bg-[var(--bg-hover)]',
@@ -111,8 +112,8 @@ export function AccountCard({
         data-testid="account-favorite-btn"
         onClick={() => onToggleFavorite?.(account.id)}
         className={cn(
-          'shrink-0 p-1 rounded-md text-[var(--text-quaternary)] transition-colors',
-          'hover:bg-[var(--bg-hover)] hover:text-amber-400',
+          'shrink-0 p-1 rounded-[var(--r-md)] text-[var(--text-quaternary)] transition-colors',
+          'hover:bg-[var(--bg-hover)] hover:text-[var(--warning)]',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]',
         )}
       >
@@ -121,7 +122,7 @@ export function AccountCard({
           className={cn(
             'transition-colors',
             account.isFavorite
-              ? 'fill-amber-400 text-amber-400'
+              ? 'fill-[var(--warning)] text-[var(--warning)]'
               : 'text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]',
           )}
         />

@@ -149,6 +149,9 @@ export function GroupTreeNode({
     <div
       data-testid={`group-tree-node-${group.id}`}
       data-depth={depth}
+      role="treeitem"
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      aria-selected={isSelected}
       className="select-none"
     >
       <div
@@ -168,7 +171,7 @@ export function GroupTreeNode({
           isSelected
             ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-          isDragOver && 'bg-[var(--accent-softer,rgba(59,130,246,0.15))] ring-1 ring-[var(--accent)]',
+          isDragOver && 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]',
         )}
       >
         {/* Expand / Collapse Toggle Arrow. A leaf keeps the space it would have taken, so the icons of a
@@ -230,7 +233,7 @@ export function GroupTreeNode({
             on a control cannot also select the group. */}
         <div
           data-testid="group-hover-actions"
-          className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
+          className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
           {canHaveChildren && (
             <Tooltip label={t('tools.password.group.new_child')} side="top">

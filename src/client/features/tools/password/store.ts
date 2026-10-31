@@ -4,6 +4,7 @@ import type {
   PasswordVaultState,
   PasswordGroup,
   PasswordAccount,
+  PasswordSettings,
   DecryptedAccount,
 } from '@shared/tools/password/types'
 import { passwordApi } from './api'
@@ -28,6 +29,8 @@ export type PasswordViewMode =
 
 export interface PasswordVaultStore {
   vaultState: PasswordVaultState | null
+  /** Server-side preferences; `autoLockMinutes` is what the auto-lock timer actually uses. */
+  settings: PasswordSettings | null
   isUnlocked: boolean
   keyIV: KeyIV | null
   groups: PasswordGroup[]
@@ -62,6 +65,7 @@ export interface PasswordVaultStore {
   // Methods
   checkVaultAndAutoUnlock: () => Promise<void>
   unlock: (keyiv: KeyIV) => void
+  loadSettings: () => Promise<void>
   upgradeLegacyVault: (password: string) => Promise<void>
   lock: () => void
   clearVaultState: () => void
@@ -158,6 +162,7 @@ function decryptAccount(acc: PasswordAccount, keyiv: KeyIV): DecryptedAccount {
 
 export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   vaultState: null,
+  settings: null,
   isUnlocked: false,
   keyIV: null,
   groups: [],
@@ -215,6 +220,16 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     }))
 
     void get().refreshData()
+    void get().loadSettings()
+  },
+
+  loadSettings: async () => {
+    if (!get().keyIV) return
+    try {
+      set({ settings: await passwordApi.getSettings() })
+    } catch {
+      // Keep the last known value; the 5-minute default covers a first read that failed.
+    }
   },
 
   upgradeLegacyVault: async (password) => {
