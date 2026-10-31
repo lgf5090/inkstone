@@ -153,6 +153,16 @@ export async function downloadQrCode(
   saveBlobAsFile(blob, filename)
 }
 
+/** Same-origin files (a stored record's own image) download through the anchor's own name. */
+export function saveUrlAsFile(url: string, filename: string): void {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+}
+
 /**
  * Saves a blob through a temporary anchor. Revoking in the same tick as the click is what cut
  * downloads short on some browsers, so the revoke waits for the task that follows.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download, RefreshCw, Trash2, Undo2 } from 'lucide-react'
 import type { QrCodeRecord } from '../../../../../shared/tools/qrcode/types'
 import { deleteQrRecord, fetchQrRecords } from '../api'
+import { saveUrlAsFile } from '../engine/export-pipeline'
 import { useQrCodeStore } from '../store'
 import { useToolsStore } from '../../store'
 import { Button, IconButton } from '../../../../components/primitives'
@@ -139,15 +140,18 @@ export function QrHistoryView() {
                 </Button>
 
                 <div className="flex items-center gap-1">
-                  <a
-                    href={`/api/tools/qrcode/records/${record.id}/file`}
-                    download={`qrcode-${record.id}.${record.fileType}`}
-                    className="inline-flex"
+                  <IconButton
+                    size="sm"
+                    label={t('tools.qrcode.history.download')}
+                    onClick={() =>
+                      saveUrlAsFile(
+                        `/api/tools/qrcode/records/${record.id}/file`,
+                        `qrcode-${record.id}.${record.fileType}`
+                      )
+                    }
                   >
-                    <IconButton size="sm" label={t('tools.qrcode.history.download')}>
-                      <Download size={14} />
-                    </IconButton>
-                  </a>
+                    <Download size={14} />
+                  </IconButton>
                   <IconButton
                     size="sm"
                     label={t('tools.qrcode.history.delete')}
