@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, Save, Scale, Star, Tag as TagIcon, Terminal } from 'lucide-react'
+import { AlertCircle, Calendar, Code2, Copy, Download, Edit3, ExternalLink, FileText, GitBranch, Globe, History, Package, Save, Scale, Sparkles, Star, Tag as TagIcon, Terminal } from 'lucide-react'
 import type { GithubMirrorSource, GithubRelease, GithubReleaseAsset, GithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
+import { navigateToPath } from '../../../../lib/app-history'
+import { useAssistant } from '../../../chat/assistant-store'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../../../components/primitives'
@@ -156,6 +158,23 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
     const ok = await copyText(value)
     toast({ title: ok ? message : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
+  const startAiSummary = () => {
+    const assistant = useAssistant.getState()
+    const running = assistant.turn
+    if (running && !running.done) {
+      toast({ title: t('assistant.edit.busy'), tone: 'warning' })
+      return
+    }
+    assistant.setView('chat')
+    assistant.newConversation()
+    assistant.seedComposer(t('development.github.repos.ai_prompt', {
+      name: repo.fullName,
+      url: repo.url,
+      description: repo.description ?? '',
+      readme: (detail.readme ?? '').slice(0, 2000),
+    }))
+    navigateToPath('/chat')
+  }
   const cloneItems: MenuItem[] = [
     { id: 'https', label: t('development.github.repos.clone_https'), icon: <Copy size={13} />, onSelect: () => void copyValue(`https://github.com/${repo.fullName}.git`, t('development.github.repos.clone_copied')) },
     { id: 'ssh', label: t('development.github.repos.clone_ssh'), icon: <Terminal size={13} />, onSelect: () => void copyValue(`git@github.com:${repo.fullName}.git`, t('development.github.repos.clone_copied')) },
@@ -176,6 +195,7 @@ export function RepoDetail({ repo, mirror, notes, onUpdateNotes }: { repo: Githu
             {repo.homepage && <a href={repo.homepage} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--accent)] hover:underline"><ExternalLink size={11} />{repo.homepage}</a>}
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <Button variant="secondary" size="sm" onClick={startAiSummary}><Sparkles size={12} />{t('development.github.repos.ai_summary')}</Button>
             <Button ref={cloneAnchor} variant="secondary" size="sm" onClick={() => setCloneOpen(true)}><Terminal size={12} />{t('development.github.repos.clone')}</Button>
             {mirrorPage && <a href={mirrorPage} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center gap-1 rounded-[var(--r-sm)] border border-[var(--border-default)] px-2 text-[length:var(--text-11)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"><Globe size={12} />{t('development.github.repos.open_in_mirror')}</a>}
           </div>

@@ -192,6 +192,8 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.repos.current_asc": "Current: ascending (click to switch)",
   "development.github.repos.current_desc": "Current: descending (click to switch)",
   "development.github.repos.default_branch": "Default branch",
+  "development.github.repos.ai_summary": "AI summary",
+  "development.github.repos.ai_prompt": "Summarize the GitHub repository {name}: its purpose, main features and where it fits.\nURL: {url}\nDescription: {description}\nREADME excerpt:\n{readme}",
   "development.github.repos.clone": "Clone",
   "development.github.repos.clone_https": "Copy HTTPS clone command",
   "development.github.repos.clone_ssh": "Copy SSH clone command",

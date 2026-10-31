@@ -192,6 +192,8 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.repos.current_asc": "当前：升序（点击切换降序）",
   "development.github.repos.current_desc": "当前：降序（点击切换升序）",
   "development.github.repos.default_branch": "默认分支",
+  "development.github.repos.ai_summary": "AI 总结",
+  "development.github.repos.ai_prompt": "请总结 GitHub 仓库 {name} 的用途、主要功能与适用场景。\n链接：{url}\n描述：{description}\nREADME 摘录：\n{readme}",
   "development.github.repos.clone": "克隆",
   "development.github.repos.clone_https": "复制 HTTPS 克隆命令",
   "development.github.repos.clone_ssh": "复制 SSH 克隆命令",
