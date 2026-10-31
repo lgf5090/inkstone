@@ -55,6 +55,28 @@ toolsShortlinksRoutes.use('*', async (c, next) => {
   await next()
 })
 
+const ADMIN_MUTATION_LIMIT = 120
+const ADMIN_MUTATION_WINDOW_SECONDS = 60 * 60
+
+toolsShortlinksRoutes.use('*', async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD') return next()
+  const userId = c.get('userId') ?? c.get('user')?.id
+  if (!userId) return next()
+
+  const store = new ShortlinksStore(c.env.DB, userId)
+  const budget = await store.consumeRateLimit(
+    `admin:${userId}`,
+    ADMIN_MUTATION_LIMIT,
+    ADMIN_MUTATION_WINDOW_SECONDS,
+    Math.floor(Date.now() / 1000),
+  )
+  if (!budget.allowed) {
+    c.header('Retry-After', String(budget.retryAfter))
+    throw new ApiError(429, 'too_many_attempts', 'Too many changes in a short window; please slow down')
+  }
+  await next()
+})
+
 function getUserId(c: Context<AppBindings>): string {
   const user = c.get('user')
   const userId = user?.id || c.get('userId')

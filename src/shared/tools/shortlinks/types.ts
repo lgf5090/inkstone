@@ -54,7 +54,6 @@ export interface ShortLinkBundle {
   link_count: number
   total_clicks: number
   sparkline: number[]
-  archived_at: number | null
   created_at: number
   updated_at: number
 }

@@ -46,6 +46,9 @@ export interface Env {
   /** Signs the daily visitor-fingerprint salt; without it no fingerprint is recorded. */
   SHORTLINKS_SECRET?: string
 
+  /** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */
+  SHORTLINKS_CLICK_RETENTION_DAYS?: string
+
   SYNC_HUB?: DurableObjectNamespace
 
   CREDENTIAL_VAULT?: DurableObjectNamespace

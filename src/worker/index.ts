@@ -31,6 +31,7 @@ import { runEmailAutoDraftJobs } from './email/auto-draft'
 import { runEmailSnoozeWake } from './email/snooze'
 import { runEmailFollowUpSweep } from './email/follow-up'
 import { runScheduledSends } from './email/scheduled-send'
+import { runShortlinksRetention } from './tools/shortlinks/maintenance'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 
 export { SyncHub } from './realtime/sync-hub'
@@ -99,6 +100,14 @@ export default {
       const emailFollowUpTick = runEmailFollowUpSweep(env, event.scheduledTime)
       // The Cloudflare app's scheduled maintenance runs on every fire: its own rows decide which
       // expressions include this minute, and each run is recorded either way.
+      // Click-detail retention rides the top of the hour only: it deletes in bounded chunks and must not
+      // compete with the every-minute delivery sweeps.
+      const shortlinksTick = new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? runShortlinksRetention(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] shortlinks retention failed:', (error as Error).message)
+            return 0
+          })
+        : Promise.resolve(0)
       const cloudflareTick = runDueCloudflareTasks(env, event.scheduledTime).catch((error) => {
         console.warn('[inkstone] Cloudflare scheduled tasks failed:', (error as Error).message)
         return null
@@ -108,7 +117,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick])
+        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick])
         return
       }
       const drains: Promise<unknown>[] = [
@@ -144,7 +153,7 @@ export default {
             providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
           ]
         : []
-      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick])
+      await Promise.all([...drains, ...heavy, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick])
     })())
   },
 

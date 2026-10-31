@@ -8,6 +8,7 @@ import {
   TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
 } from '../src/worker/tools/shortlinks/schema'
 import { errorResponse } from '../src/worker/lib/errors'
+import { ShortlinksStore } from '../src/worker/tools/shortlinks/store'
 import { sha256Hex } from '../src/worker/lib/encoding'
 import type { AppBindings, Env } from '../src/worker/env'
 import { toolsShortlinksRoutes } from '../src/worker/routes/tools-shortlinks'
@@ -603,6 +604,19 @@ describe('Shortlinks Bundles and Analytics', () => {
       headers: { authorization: 'Bearer sl_deadbeef' },
     })
     expect(unknownKey.status).toBe(401)
+  })
+
+  it('spends a per-account mutation budget', async () => {
+    const store = new ShortlinksStore(env.DB, USER_A)
+    const now = Math.floor(Date.now() / 1000)
+    const bucket = `test-budget-${now}`
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect((await store.consumeRateLimit(bucket, 3, 60, now)).allowed).toBe(true)
+    }
+    const blocked = await store.consumeRateLimit(bucket, 3, 60, now)
+    expect(blocked.allowed).toBe(false)
+    expect(blocked.retryAfter).toBeGreaterThan(0)
+    expect((await store.consumeRateLimit(bucket, 3, 60, now + 61)).allowed).toBe(true)
   })
 
   it('creates API key and lists keys', async () => {

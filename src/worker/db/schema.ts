@@ -3099,6 +3099,20 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
+    // The admin-side mutation budget (one row per account window). A table rather than a column so the
+    // shortlinks module can keep its own counters without touching an existing table's shape.
+    version: 213,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS tools_shortlinks_rate_limits (
+         bucket TEXT NOT NULL PRIMARY KEY,
+         count INTEGER NOT NULL DEFAULT 0,
+         window_start INTEGER NOT NULL
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_clicked
+         ON tools_shortlinks_clicks(clicked_at)`,
+    ],
+  },
+  {
     // The click counter rides the link row so the list can sort and page by clicks without aggregating
     // the whole clicks table; the rows themselves stay for the per-day and per-dimension breakdowns.
     version: 212,

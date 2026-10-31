@@ -62,6 +62,8 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     visitor_fp TEXT,
     is_self_referrer INTEGER DEFAULT 0
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_clicked
+    ON tools_shortlinks_clicks(clicked_at)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_user_time 
     ON tools_shortlinks_clicks(user_id, clicked_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_link_time 
@@ -110,6 +112,12 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL
   )`,
 
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_rate_limits (
+    bucket TEXT NOT NULL PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0,
+    window_start INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_password_attempts (
     bucket TEXT NOT NULL PRIMARY KEY,
     failures INTEGER NOT NULL DEFAULT 0,
@@ -152,6 +160,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_bundles',
   'tools_shortlinks_bundle_links',
   'tools_shortlinks_settings',
+  'tools_shortlinks_rate_limits',
   'tools_shortlinks_password_attempts',
   'tools_shortlinks_api_keys',
   'tools_shortlinks_backups',
@@ -162,6 +171,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_links_url',
   'idx_tools_shortlinks_slugs_user',
   'idx_tools_shortlinks_slugs_link',
+  'idx_tools_shortlinks_clicks_clicked',
   'idx_tools_shortlinks_clicks_user_time',
   'idx_tools_shortlinks_clicks_link_time',
   'idx_tools_shortlinks_clicks_slug_time',

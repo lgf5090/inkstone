@@ -171,6 +171,39 @@ export class ShortlinksStore {
       .run()
   }
 
+  async consumeRateLimit(
+    bucket: string,
+    limit: number,
+    windowSeconds: number,
+    now: number,
+  ): Promise<{ allowed: boolean; retryAfter: number }> {
+    const row = await this.db
+      .prepare('SELECT count, window_start FROM tools_shortlinks_rate_limits WHERE bucket = ?')
+      .bind(bucket)
+      .first<{ count: number; window_start: number }>()
+
+    if (!row || row.window_start <= now - windowSeconds) {
+      await this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_rate_limits (bucket, count, window_start) VALUES (?, 1, ?)
+           ON CONFLICT (bucket) DO UPDATE SET count = 1, window_start = excluded.window_start`,
+        )
+        .bind(bucket, now)
+        .run()
+      return { allowed: true, retryAfter: 0 }
+    }
+
+    if (row.count >= limit) {
+      return { allowed: false, retryAfter: row.window_start + windowSeconds - now }
+    }
+
+    await this.db
+      .prepare('UPDATE tools_shortlinks_rate_limits SET count = count + 1 WHERE bucket = ?')
+      .bind(bucket)
+      .run()
+    return { allowed: true, retryAfter: 0 }
+  }
+
   async clearPasswordFailures(bucket: string): Promise<void> {
     await this.db
       .prepare('DELETE FROM tools_shortlinks_password_attempts WHERE bucket = ?')
@@ -230,7 +263,7 @@ export class ShortlinksStore {
         .bind(custom)
         .first()
       if (existingSlug) {
-        throw ApiError.conflict('This slug is already in use')
+        throw ApiError.conflict('This slug is not available')
       }
       slug = custom
       isCustom = 1
@@ -603,7 +636,7 @@ export class ShortlinksStore {
       .bind(slug)
       .first()
     if (existingSlug) {
-      throw ApiError.conflict('This slug is already taken')
+      throw ApiError.conflict('This slug is not available')
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -1104,7 +1137,7 @@ export class ShortlinksStore {
                 WHERE bl.bundle_id = b.id AND bl.user_id = ?) as total_clicks
            FROM tools_shortlinks_bundles b
            WHERE b.user_id = ?
-           ORDER BY b.archived_at ASC, b.created_at DESC`,
+           ORDER BY b.created_at DESC`,
         )
         .bind(this.userId, this.userId, this.userId)
         .all<{
@@ -1114,7 +1147,6 @@ export class ShortlinksStore {
           description: string | null
           icon: string | null
           accent: BundleAccent
-          archived_at: number | null
           created_via: string | null
           created_by: string
           created_at: number
@@ -1151,7 +1183,6 @@ export class ShortlinksStore {
       link_count: r.link_count || 0,
       total_clicks: r.total_clicks || 0,
       sparkline: fillBuckets('7d', sparkByBundle.get(r.id) ?? new Map(), now).map((b) => b.count),
-      archived_at: r.archived_at,
       created_at: r.created_at,
       updated_at: r.updated_at,
     }))
@@ -1202,7 +1233,6 @@ export class ShortlinksStore {
         description: string | null
         icon: string | null
         accent: BundleAccent
-        archived_at: number | null
         created_via: string | null
         created_by: string
         created_at: number
@@ -1223,7 +1253,6 @@ export class ShortlinksStore {
       link_count: row.link_count || 0,
       total_clicks: row.total_clicks || 0,
       sparkline: [],
-      archived_at: row.archived_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
     }
@@ -1287,22 +1316,6 @@ export class ShortlinksStore {
     await this.db
       .prepare('DELETE FROM tools_shortlinks_bundles WHERE id = ? AND user_id = ?')
       .bind(id, this.userId)
-      .run()
-  }
-
-  async archiveBundle(id: number): Promise<void> {
-    const now = Math.floor(Date.now() / 1000)
-    await this.db
-      .prepare('UPDATE tools_shortlinks_bundles SET archived_at = ?, updated_at = ? WHERE id = ? AND user_id = ?')
-      .bind(now, now, id, this.userId)
-      .run()
-  }
-
-  async unarchiveBundle(id: number): Promise<void> {
-    const now = Math.floor(Date.now() / 1000)
-    await this.db
-      .prepare('UPDATE tools_shortlinks_bundles SET archived_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?')
-      .bind(now, id, this.userId)
       .run()
   }
 

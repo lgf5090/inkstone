@@ -35501,6 +35501,8 @@ const allowed = new Map([
     "// codes for the same link. Dedupe first so the index can be created on an existing database.",
     "// The click counter rides the link row so the list can sort and page by clicks without aggregating",
     "// the whole clicks table; the rows themselves stay for the per-day and per-dimension breakdowns.",
+    "// The admin-side mutation budget (one row per account window). A table rather than a column so the",
+    "// shortlinks module can keep its own counters without touching an existing table's shape.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -35712,6 +35714,7 @@ const allowed = new Map([
     "/** HMAC secret for the blog Worker's cache purge endpoint. */",
     "/** Optional public base for the versioned reading runtime. */",
     "/** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */",
+    "/** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -35772,6 +35775,8 @@ const allowed = new Map([
     "// the sweep itself spaces successes and failures, so this fire only starts what is due.",
     "// The Cloudflare app's scheduled maintenance runs on every fire: its own rows decide which",
     "// expressions include this minute, and each run is recorded either way.",
+    "// Click-detail retention rides the top of the hour only: it deletes in bounded chunks and must not",
+    "// compete with the every-minute delivery sweeps.",
   ]],
   ["src/worker/inknote/assets.ts", [
     "/**\n * Inknote's binary assets: object keys, upload validation, reference scans and the cleanup queue.\n *\n * Page JSON stays in D1; only bytes live in R2/KV. Every object key is generated here from an id the\n * server made, and every row query binds `user_id`, because a filename or note id supplied by a\n * client must never be able to name another account's object.\n */",
@@ -39258,6 +39263,9 @@ const allowed = new Map([
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
     "// Without a server secret the salt would be a public constant, so a visitor id it produced could be",
     "// reversed by enumerating addresses; no secret means no visitor id at all.",
+  ]],
+  ["src/worker/tools/shortlinks/maintenance.ts", [
+    "/** Deletes click rows past the retention window in bounded chunks so one fire never blocks the tick. */",
   ]],
   ["src/worker/tools/shortlinks/password-gate.ts", [
     "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",

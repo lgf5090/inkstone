@@ -87,7 +87,6 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
           link_count: 5,
           total_clicks: 340,
           sparkline: [1, 2, 3],
-          archived_at: null,
           created_at: 1729000000,
           updated_at: 1729000000,
         },
