@@ -8,6 +8,7 @@ import {
   type GistMetaPatch,
   type GithubAccountView,
   type GithubBootstrap,
+  type GithubCollection,
   type GithubExportFile,
   type GithubExportFormat,
   type GithubMirrorProbeResult,
@@ -138,6 +139,27 @@ export const githubApi = {
 
   batchUpdateRepos(ids: string[], patch: RepoBatchPatch, signal?: AbortSignal): Promise<{ count: number }> {
     return readData<{ count: number }>('/repos/batch-update', { method: 'POST', body: { ids, patch }, signal })
+  },
+
+  listCollections(signal?: AbortSignal): Promise<GithubCollection[]> {
+    return readData<{ collections: GithubCollection[] }>('/collections', { signal }).then((response) => response.collections)
+  },
+
+  upsertCollection(collection: GithubCollection, signal?: AbortSignal): Promise<GithubCollection> {
+    return readData<{ collection: GithubCollection }>(`/collections/${encodeURIComponent(collection.id)}`, {
+      method: 'PUT',
+      body: {
+        name: collection.name,
+        description: collection.description,
+        repoIds: collection.repoIds,
+      },
+      signal,
+    }).then((response) => response.collection)
+  },
+
+  deleteCollection(id: string, signal?: AbortSignal): Promise<void> {
+    return request<{ ok: true }>(`${BASE}/collections/${encodeURIComponent(id)}`, { method: 'DELETE', signal })
+      .then(() => undefined)
   },
 
   listGistTags(signal?: AbortSignal): Promise<GithubTag[]> {

@@ -1,7 +1,8 @@
-import { GIST_PREVIEW_CHARS, MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
+import { GIST_PREVIEW_CHARS, MAX_COLLECTIONS, MAX_GISTS, MAX_REPOS, MAX_TAGS } from '@shared/development/github/limits'
 import type {
   GistBatchPatch,
   GistMetaPatch,
+  GithubCollection,
   GithubExportFormat,
   GithubTag,
   RepoBatchPatch,
@@ -56,6 +57,15 @@ interface ExportRow {
   created_at: number
 }
 
+interface CollectionRow {
+  id: string
+  name: string
+  description: string
+  repo_ids: string
+  created_at: number
+  updated_at: number
+}
+
 export interface ExportRecord {
   id: string
   filename: string
@@ -107,10 +117,19 @@ export interface GistUpsert {
   createdAt?: number
 }
 
+export interface CollectionUpsert {
+  id: string
+  name: string
+  description: string
+  repoIds: string[]
+  createdAt?: number
+}
+
 const TAG_COLUMNS = 'id, name, color, parent_id, sort_order, created_at, updated_at'
 const REPO_COLUMNS = 'id, full_name, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const GIST_COLUMNS = 'id, description, url, data_json, tag_ids, pinned, favorited, notes, created_at, updated_at'
 const EXPORT_COLUMNS = 'id, filename, format, r2_key, size, created_at'
+const COLLECTION_COLUMNS = 'id, name, description, repo_ids, created_at, updated_at'
 
 function readJson<T>(raw: string, fallback: T, label: string): T {
   try {
@@ -163,6 +182,17 @@ function toGist(row: GistRow): SavedGist {
     pinned: row.pinned === 1,
     favorited: row.favorited === 1,
     notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function toCollection(row: CollectionRow): GithubCollection {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    repoIds: readStringArray(row.repo_ids, 'collection repo ids'),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -364,6 +394,120 @@ export async function deleteRepo(db: D1Database, userId: string, id: string): Pr
     .bind(userId, id)
     .run()
   return (result.meta.changes ?? 0) > 0
+}
+
+export async function listCollections(db: D1Database, userId: string): Promise<GithubCollection[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${COLLECTION_COLUMNS} FROM development_github_collections
+        WHERE user_id = ?1
+        ORDER BY created_at ASC`,
+    )
+    .bind(userId)
+    .all<CollectionRow>()
+  return results.map(toCollection)
+}
+
+export async function findCollection(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<GithubCollection | null> {
+  const row = await db
+    .prepare(`SELECT ${COLLECTION_COLUMNS} FROM development_github_collections WHERE user_id = ?1 AND id = ?2`)
+    .bind(userId, id)
+    .first<CollectionRow>()
+  return row ? toCollection(row) : null
+}
+
+export async function countCollections(db: D1Database, userId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS count FROM development_github_collections WHERE user_id = ?1')
+    .bind(userId)
+    .first<{ count: number }>()
+  return Number(row?.count ?? 0)
+}
+
+export async function upsertCollection(
+  db: D1Database,
+  userId: string,
+  input: CollectionUpsert,
+): Promise<GithubCollection> {
+  const existing = await findCollection(db, userId, input.id)
+  if (!existing && (await countCollections(db, userId)) >= MAX_COLLECTIONS) {
+    throw ApiError.badRequest(`Collections are limited to ${MAX_COLLECTIONS} per account`)
+  }
+  const now = Date.now()
+  const createdAt = existing?.createdAt ?? input.createdAt ?? now
+  const repoIds = Array.from(new Set(input.repoIds))
+  await db
+    .prepare(
+      `INSERT INTO development_github_collections
+         (user_id, id, name, description, repo_ids, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       ON CONFLICT (user_id, id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         repo_ids = excluded.repo_ids,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(
+      userId,
+      input.id,
+      input.name,
+      input.description,
+      JSON.stringify(repoIds),
+      createdAt,
+      now,
+    )
+    .run()
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    repoIds,
+    createdAt,
+    updatedAt: now,
+  }
+}
+
+export async function deleteCollection(db: D1Database, userId: string, id: string): Promise<boolean> {
+  const result = await db
+    .prepare('DELETE FROM development_github_collections WHERE user_id = ?1 AND id = ?2')
+    .bind(userId, id)
+    .run()
+  return (result.meta.changes ?? 0) > 0
+}
+
+export async function unbindReposFromCollections(
+  db: D1Database,
+  userId: string,
+  repoIds: readonly string[],
+): Promise<string[]> {
+  if (repoIds.length === 0) return []
+  const removed = new Set(repoIds)
+  const { results } = await db
+    .prepare('SELECT id, repo_ids FROM development_github_collections WHERE user_id = ?1')
+    .bind(userId)
+    .all<{ id: string; repo_ids: string }>()
+  const now = Date.now()
+  const updated: string[] = []
+  const statements: D1PreparedStatement[] = []
+  for (const row of results) {
+    const current = readStringArray(row.repo_ids, 'collection repo ids')
+    const next = current.filter((repoId) => !removed.has(repoId))
+    if (next.length === current.length) continue
+    updated.push(row.id)
+    statements.push(
+      db
+        .prepare(
+          'UPDATE development_github_collections SET repo_ids = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4',
+        )
+        .bind(JSON.stringify(next), now, userId, row.id),
+    )
+  }
+  await runBatched(db, statements)
+  return updated
 }
 
 export async function unbindRepoTags(
@@ -804,7 +948,7 @@ export async function batchUpdateRepos(
   return batchUpdateSavedRows(db, 'development_github_repos', 'repo tag ids', userId, ids, patch)
 }
 
-type IdTable = 'development_github_tags' | 'development_github_gist_tags'
+type IdTable = 'development_github_tags' | 'development_github_gist_tags' | 'development_github_repos'
 
 async function findExistingIds(
   db: D1Database,
@@ -843,6 +987,17 @@ export async function findMissingGistTagIds(
   const unique = Array.from(new Set(ids))
   if (unique.length === 0) return []
   const found = await findExistingIds(db, 'development_github_gist_tags', userId, unique)
+  return unique.filter((id) => !found.has(id))
+}
+
+export async function findMissingRepoIds(
+  db: D1Database,
+  userId: string,
+  ids: readonly string[],
+): Promise<string[]> {
+  const unique = Array.from(new Set(ids))
+  if (unique.length === 0) return []
+  const found = await findExistingIds(db, 'development_github_repos', userId, unique)
   return unique.filter((id) => !found.has(id))
 }
 

@@ -8,17 +8,21 @@ import {
   collectDescendantTagIds,
   deleteExpiredExports,
   deleteGistTags,
+  deleteCollection,
   deleteGists,
   deleteRepo,
   deleteRepos,
   deleteTags,
+  findCollection,
   findExport,
   findGist,
   findMissingGistTagIds,
+  findMissingRepoIds,
   findMissingTagIds,
   findRepo,
   findTag,
   insertExport,
+  listCollections,
   listExpiredExports,
   listExports,
   listGists,
@@ -26,7 +30,9 @@ import {
   listRepos,
   listTags,
   unbindGistTags,
+  unbindReposFromCollections,
   unbindRepoTags,
+  upsertCollection,
   upsertGist,
   upsertGistTag,
   upsertRepo,
@@ -323,6 +329,57 @@ describe('development github repositories and gists', () => {
     expect(await deleteRepos(db, USER_A, ['1', '2', '3'])).toBe(2)
     expect(await listRepos(db, USER_A)).toEqual([])
     expect(await listRepos(db, USER_B)).toHaveLength(1)
+  })
+})
+
+describe('development github collections', () => {
+  it('creates, renames and isolates collections', async () => {
+    await upsertRepo(db, USER_A, repoInput('1'))
+    await upsertCollection(db, USER_A, {
+      id: 'later',
+      name: 'Later',
+      description: 'Second',
+      repoIds: ['1'],
+      createdAt: 20,
+    })
+    const first = await upsertCollection(db, USER_A, {
+      id: 'curated',
+      name: 'Curated',
+      description: 'First',
+      repoIds: ['1', '1'],
+      createdAt: 10,
+    })
+    expect(first.repoIds).toEqual(['1'])
+
+    const renamed = await upsertCollection(db, USER_A, {
+      id: 'curated',
+      name: 'Renamed',
+      description: 'Updated',
+      repoIds: ['1'],
+      createdAt: 99,
+    })
+    expect(renamed.createdAt).toBe(10)
+    expect((await listCollections(db, USER_A)).map((collection) => collection.id)).toEqual(['curated', 'later'])
+    expect(await listCollections(db, USER_B)).toEqual([])
+
+    expect(await findMissingRepoIds(db, USER_A, ['1', '2'])).toEqual(['2'])
+    expect(await findCollection(db, USER_B, 'curated')).toBeNull()
+    expect(await deleteCollection(db, USER_B, 'curated')).toBe(false)
+    expect(await deleteCollection(db, USER_A, 'curated')).toBe(true)
+    expect(await listCollections(db, USER_A)).toEqual([expect.objectContaining({ id: 'later' })])
+  })
+
+  it('unbinds deleted repositories from every collection', async () => {
+    await upsertRepo(db, USER_A, repoInput('1'))
+    await upsertRepo(db, USER_A, repoInput('2'))
+    await upsertCollection(db, USER_A, { id: 'one', name: 'One', description: '', repoIds: ['1', '2'] })
+    await upsertCollection(db, USER_A, { id: 'two', name: 'Two', description: '', repoIds: ['2'] })
+    await upsertCollection(db, USER_A, { id: 'three', name: 'Three', description: '', repoIds: ['1'] })
+
+    expect(await unbindReposFromCollections(db, USER_A, ['2'])).toEqual(['one', 'two'])
+    expect((await findCollection(db, USER_A, 'one'))?.repoIds).toEqual(['1'])
+    expect((await findCollection(db, USER_A, 'two'))?.repoIds).toEqual([])
+    expect((await findCollection(db, USER_A, 'three'))?.repoIds).toEqual(['1'])
   })
 })
 

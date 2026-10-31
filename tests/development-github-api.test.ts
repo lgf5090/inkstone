@@ -146,6 +146,35 @@ describe('GitHub API client', () => {
     expect(results).toEqual([{ id: 'm', ok: true, status: 200, latencyMs: 42, error: '' }])
   })
 
+  it('creates, updates and deletes collections', async () => {
+    const collection = {
+      id: 'curated',
+      name: 'Curated',
+      description: 'Picked',
+      repoIds: ['1'],
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    fetchMock.mockResolvedValueOnce(envelope({ collections: [collection] }))
+    expect(await githubApi.listCollections()).toEqual([collection])
+    expect(requestUrl(0).pathname).toBe('/api/development/github/collections')
+
+    fetchMock.mockResolvedValueOnce(envelope({ collection }))
+    expect(await githubApi.upsertCollection(collection)).toEqual(collection)
+    expect(requestUrl(1).pathname).toBe('/api/development/github/collections/curated')
+    expect(requestInit(1).method).toBe('PUT')
+    expect(JSON.parse(String(requestInit(1).body))).toEqual({
+      name: 'Curated',
+      description: 'Picked',
+      repoIds: ['1'],
+    })
+
+    fetchMock.mockResolvedValueOnce(envelope({ ok: true }))
+    await githubApi.deleteCollection('curated')
+    expect(requestUrl(2).pathname).toBe('/api/development/github/collections/curated')
+    expect(requestInit(2).method).toBe('DELETE')
+  })
+
   it('adds an account without requiring the token in the response', async () => {
     fetchMock.mockResolvedValueOnce(envelope({
       account: { id: 'a1', username: 'octo', avatarUrl: '', createdAt: 1, updatedAt: 1 },

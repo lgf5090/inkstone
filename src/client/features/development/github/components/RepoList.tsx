@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Download, Globe, History, PanelLeft, PanelRight, Pin, RefreshCw, Settings2, Star, Tag as TagIcon, Trash2, X } from 'lucide-react'
-import type { GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Download, Globe, History, ListChecks, PanelLeft, PanelRight, Pin, RefreshCw, Settings2, Star, Tag as TagIcon, Trash2, X } from 'lucide-react'
+import type { GithubCollection, GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
@@ -59,6 +59,8 @@ export function RepoList({
   onPageChange,
   repoMap,
   tags,
+  collection,
+  onToggleCollectionRepo,
   selectedRepoId,
   selectedIds,
   onCheckRepo,
@@ -102,6 +104,8 @@ export function RepoList({
   onPageChange: (page: number) => void
   repoMap: Map<string, SavedGithubRepo>
   tags: GithubTag[]
+  collection?: GithubCollection | null
+  onToggleCollectionRepo: (repoId: string, checked: boolean) => void
   selectedRepoId: string | null
   selectedIds: Set<string>
   onCheckRepo: (id: string, checked: boolean) => void
@@ -126,10 +130,12 @@ export function RepoList({
   const mirrorAnchor = useRef<HTMLButtonElement>(null)
   const historyAnchor = useRef<HTMLButtonElement>(null)
   const tagAnchor = useRef<HTMLButtonElement>(null)
+  const memberAnchor = useRef<HTMLButtonElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [mirrorOpen, setMirrorOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [tagOpen, setTagOpen] = useState(false)
+  const [memberOpen, setMemberOpen] = useState(false)
   const [draft, setDraft] = useState(query)
   useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
@@ -165,6 +171,17 @@ export function RepoList({
     { id: 'tag-remove-header', label: t('development.github.tags.remove_tag'), disabled: true, separatorBefore: true },
     ...tags.map((tag) => ({ id: `tag-remove-${tag.id}`, label: tag.name, icon: <span className="size-2.5 rounded-full" style={{ backgroundColor: tag.color }} />, onSelect: () => onBatchTag(tag.id, 'remove') })),
   ] : [{ id: 'tag-none', label: t('development.github.tags.no_tags'), disabled: true }]
+  const memberItems: MenuItem[] = useMemo(() => {
+    if (!collection) return []
+    const saved = Array.from(repoMap.values()).sort((left, right) => left.fullName.localeCompare(right.fullName))
+    if (saved.length === 0) return [{ id: 'members-empty', label: t('development.github.collections.members_empty'), disabled: true }]
+    return saved.map((repo) => ({
+      id: repo.id,
+      label: repo.fullName,
+      checked: collection.repoIds.includes(repo.id),
+      onSelect: () => onToggleCollectionRepo(repo.id, !collection.repoIds.includes(repo.id)),
+    }))
+  }, [collection, repoMap, onToggleCollectionRepo])
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="repo-list">
       <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
@@ -218,6 +235,10 @@ export function RepoList({
         ) : (
           <div className="flex flex-wrap items-center gap-2 px-2 pb-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
             <span>{t('development.github.repos.repo_count', { count: totalCount })}</span>
+            {collection && <>
+              {collection.description && <span className="min-w-0 flex-1 truncate" title={collection.description}>{collection.description}</span>}
+              <Button ref={memberAnchor} variant="ghost" size="sm" onClick={() => setMemberOpen(true)}><ListChecks size={11} />{t('development.github.collections.members')}</Button>
+            </>}
             {selectedIds.size > 0 && <>
               <span className="font-medium text-[var(--accent)]">{t('development.github.repos.selected', { count: selectedIds.size })}</span>
               <Button variant="ghost" size="sm" onClick={() => onBatchPin(!allSelectedPinned)}><Pin size={11} />{allSelectedPinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')}</Button>
@@ -232,6 +253,7 @@ export function RepoList({
       <Menu anchor={mirrorAnchor} open={mirrorOpen} onClose={() => setMirrorOpen(false)} items={mirrorItems} align="end" width={220} label={t('development.github.mirrors.section')} />
       <Menu anchor={historyAnchor} open={historyOpen} onClose={() => setHistoryOpen(false)} items={historyItems} align="end" width={240} label={t('development.github.repos.search_history')} />
       <Menu anchor={tagAnchor} open={tagOpen} onClose={() => setTagOpen(false)} items={tagItems} align="start" width={220} label={t('development.github.tags.section')} />
+      {collection && <Menu anchor={memberAnchor} open={memberOpen} onClose={() => setMemberOpen(false)} items={memberItems} align="start" width={260} label={t('development.github.collections.members')} searchable searchPlaceholder={t('development.github.collections.members')} />}
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -243,12 +265,14 @@ export function RepoList({
         ) : items.length === 0 && !loading ? (
           <Empty
             art="search"
-            title={isExplore ? t('development.github.repos.no_results') : t('development.github.repos.no_repos')}
+            title={isExplore ? t('development.github.repos.no_results') : collection ? t('development.github.collections.empty_view') : t('development.github.repos.no_repos')}
             action={query
               ? <Button variant="secondary" size="sm" onClick={onClear}>{t('common.clear')}</Button>
-              : !isExplore
-                ? <Button variant="secondary" size="sm" onClick={onGoDiscover}>{t('development.github.repos.discover')}</Button>
-                : undefined}
+              : collection
+                ? <Button variant="secondary" size="sm" onClick={() => setMemberOpen(true)}><ListChecks size={12} />{t('development.github.collections.members')}</Button>
+                : !isExplore
+                  ? <Button variant="secondary" size="sm" onClick={onGoDiscover}>{t('development.github.repos.discover')}</Button>
+                  : undefined}
           />
         ) : (
           <div className="absolute inset-0 overflow-y-auto overscroll-contain">

@@ -60,6 +60,15 @@ export interface GithubMirrorProbeResult {
   error: '' | 'timeout' | 'blocked' | 'http' | 'network'
 }
 
+export interface GithubCollection {
+  id: string
+  name: string
+  description: string
+  repoIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
 export interface GithubAccountView {
   id: string
   username: string
@@ -132,6 +141,7 @@ export const GITHUB_PINNED_VIEW = 'pinned'
 export const GITHUB_FAV_VIEW = 'favorited'
 export const GITHUB_PER_PAGE = 25
 export const GIST_REMOTE_PER_PAGE = 30
+export const GITHUB_COLLECTION_VIEW_PREFIX = 'collection:'
 
 export interface GithubPrefs {
   range: GithubTimeRange
@@ -294,6 +304,7 @@ export interface GithubCapabilities {
 export interface GithubBootstrap {
   tags: GithubTag[]
   repos: SavedGithubRepo[]
+  collections: GithubCollection[]
   gistTags: GithubTag[]
   gists: SavedGist[]
   mirrors: GithubMirrorSource[]

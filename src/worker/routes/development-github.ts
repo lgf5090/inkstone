@@ -14,6 +14,7 @@ import {
   GithubAccountTokenSchema,
   GithubBatchDeleteSchema,
   GithubBatchUpdateSchema,
+  GithubCollectionInputSchema,
   GithubExportSchema,
   GithubGistListQuerySchema,
   GithubMirrorListSchema,
@@ -68,6 +69,7 @@ import {
   batchUpdateGists,
   batchUpdateRepos,
   collectDescendantTagIds,
+  deleteCollection,
   deleteExport,
   deleteGist,
   deleteGists,
@@ -75,12 +77,15 @@ import {
   deleteRepo,
   deleteRepos,
   deleteTags,
+  findCollection,
   findExport,
   findGist,
   findMissingGistTagIds,
+  findMissingRepoIds,
   findMissingTagIds,
   findRepo,
   insertExport,
+  listCollections,
   listExports,
   listGistSummaries,
   listGistTags,
@@ -90,7 +95,9 @@ import {
   searchGistIds,
   toGistSummary,
   unbindGistTags,
+  unbindReposFromCollections,
   unbindRepoTags,
+  upsertCollection,
   upsertGist,
   upsertGistTag,
   upsertRepo,
@@ -402,9 +409,10 @@ developmentGithubRoutes.get('/image', async (c) => {
 
 developmentGithubRoutes.get('/bootstrap', async (c) => {
   const userId = userIdOf(c)
-  const [tags, repos, gistTags, gists, mirrors, accounts] = await Promise.all([
+  const [tags, repos, collections, gistTags, gists, mirrors, accounts] = await Promise.all([
     listTags(c.env.DB, userId),
     listRepos(c.env.DB, userId),
+    listCollections(c.env.DB, userId),
     listGistTags(c.env.DB, userId),
     listGistSummaries(c.env.DB, userId),
     listMirrors(c.env.DB, userId),
@@ -412,7 +420,7 @@ developmentGithubRoutes.get('/bootstrap', async (c) => {
   ])
   return c.json({
     ok: true,
-    data: { tags, repos, gistTags, gists, mirrors, accounts, capabilities: { exports: Boolean(c.env.FILES) } },
+    data: { tags, repos, collections, gistTags, gists, mirrors, accounts, capabilities: { exports: Boolean(c.env.FILES) } },
   })
 })
 
@@ -483,6 +491,7 @@ developmentGithubRoutes.delete('/repos/:id', async (c) => {
   const id = repoPathId(c)
   if (!(await findRepo(c.env.DB, userId, id))) throw githubNotFound('Repository not found')
   await deleteRepo(c.env.DB, userId, id)
+  await unbindReposFromCollections(c.env.DB, userId, [id])
   return c.json({ ok: true, data: { ok: true } })
 })
 
@@ -492,6 +501,7 @@ developmentGithubRoutes.post('/repos/batch-delete', async (c) => {
   const ids = body.ids.filter((id) => REPO_ID_PATTERN.test(id))
   if (ids.length !== body.ids.length) throw ApiError.badRequest('Invalid repository id')
   const count = await deleteRepos(c.env.DB, userId, ids)
+  await unbindReposFromCollections(c.env.DB, userId, ids)
   return c.json({ ok: true, data: { count } })
 })
 
@@ -509,6 +519,39 @@ developmentGithubRoutes.post('/repos/batch-update', async (c) => {
     removeTagIds: body.patch.removeTagIds,
   })
   return c.json({ ok: true, data: { count } })
+})
+
+developmentGithubRoutes.get('/collections', async (c) => {
+  const collections = await listCollections(c.env.DB, userIdOf(c))
+  return c.json({ ok: true, data: { collections } })
+})
+
+developmentGithubRoutes.put('/collections/:id', async (c) => {
+  const userId = userIdOf(c)
+  const id = slugId(c)
+  const body = await parseBody(c, GithubCollectionInputSchema, SMALL_BODY_LIMIT)
+  const collections = await listCollections(c.env.DB, userId)
+  const name = body.name.trim().toLowerCase()
+  if (collections.some((collection) => collection.id !== id && collection.name.trim().toLowerCase() === name)) {
+    throw ApiError.badRequest('A collection with this name already exists')
+  }
+  const missing = await findMissingRepoIds(c.env.DB, userId, body.repoIds)
+  if (missing.length > 0) throw ApiError.badRequest('Some repositories do not exist', { missing })
+  const collection = await upsertCollection(c.env.DB, userId, {
+    id,
+    name: body.name,
+    description: body.description,
+    repoIds: body.repoIds,
+  })
+  return c.json({ ok: true, data: { collection } })
+})
+
+developmentGithubRoutes.delete('/collections/:id', async (c) => {
+  const userId = userIdOf(c)
+  const id = slugId(c)
+  if (!(await findCollection(c.env.DB, userId, id))) throw githubNotFound('Collection not found')
+  await deleteCollection(c.env.DB, userId, id)
+  return c.json({ ok: true, data: { ok: true } })
 })
 
 developmentGithubRoutes.get('/gist/tags', async (c) => {

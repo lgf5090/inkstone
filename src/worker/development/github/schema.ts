@@ -1,3 +1,18 @@
+export const DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS development_github_collections (
+    user_id     TEXT NOT NULL,
+    id          TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    repo_ids    TEXT NOT NULL DEFAULT '[]',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_development_github_collections_user_created
+     ON development_github_collections(user_id, created_at ASC)`,
+]
+
 export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS development_github_tags (
     user_id    TEXT NOT NULL,
@@ -99,11 +114,13 @@ export const DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_development_github_exports_user_created
      ON development_github_exports(user_id, created_at DESC)`,
+  ...DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
 ]
 
 export const DEVELOPMENT_GITHUB_REQUIRED_TABLES: readonly string[] = [
   'development_github_tags',
   'development_github_repos',
+  'development_github_collections',
   'development_github_gist_tags',
   'development_github_gists',
   'development_github_accounts',
@@ -114,6 +131,7 @@ export const DEVELOPMENT_GITHUB_REQUIRED_TABLES: readonly string[] = [
 export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
   'idx_development_github_tags_user_parent',
   'idx_development_github_repos_user_updated',
+  'idx_development_github_collections_user_created',
   'idx_development_github_gist_tags_user_parent',
   'idx_development_github_gists_user_updated',
   'idx_development_github_accounts_user_name',
@@ -124,6 +142,7 @@ export const DEVELOPMENT_GITHUB_REQUIRED_INDEXES: readonly string[] = [
 export const DEVELOPMENT_GITHUB_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   development_github_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
   development_github_repos: ['user_id', 'id', 'full_name', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
+  development_github_collections: ['user_id', 'id', 'name', 'description', 'repo_ids', 'created_at', 'updated_at'],
   development_github_gist_tags: ['user_id', 'id', 'name', 'color', 'parent_id', 'sort_order', 'created_at', 'updated_at'],
   development_github_gists: ['user_id', 'id', 'description', 'url', 'data_json', 'tag_ids', 'pinned', 'favorited', 'notes', 'created_at', 'updated_at'],
   development_github_accounts: ['user_id', 'id', 'username', 'avatar_url', 'token_ciphertext', 'created_at', 'updated_at'],

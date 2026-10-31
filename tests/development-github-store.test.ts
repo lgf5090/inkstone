@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   GithubBootstrap,
+  GithubCollection,
   GithubTag,
   SavedGist,
   SavedGithubRepo,
@@ -61,6 +62,10 @@ function repo(id: string, tagIds: string[] = []): SavedGithubRepo {
   }
 }
 
+function collection(id: string, repoIds: string[] = []): GithubCollection {
+  return { id, name: id, description: `${id} description`, repoIds, createdAt: 1, updatedAt: 1 }
+}
+
 function gist(id: string): SavedGist {
   return {
     id,
@@ -89,6 +94,7 @@ function gist(id: string): SavedGist {
 const BOOTSTRAP: GithubBootstrap = {
   tags: [],
   repos: [],
+  collections: [],
   gistTags: [],
   gists: [],
   mirrors: [],
@@ -288,6 +294,31 @@ describe('GitHub store optimistic writes', () => {
     expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['2'])
     await pending
     expect(String(fetchMock.mock.calls[0]![0])).toContain('/repos/batch-delete')
+  })
+
+  it('keeps collection membership in sync when repositories are removed', async () => {
+    useGithubStore.setState({
+      status: 'ready',
+      repos: [repo('r1'), repo('r2')],
+      collections: [collection('c1', ['r1', 'r2'])],
+    })
+    fetchMock.mockResolvedValueOnce(envelope({ ok: true }))
+    const pending = useGithubStore.getState().deleteRepo('r1')
+    expect(useGithubStore.getState().collections[0]!.repoIds).toEqual(['r2'])
+    await pending
+  })
+
+  it('upserts and deletes collections optimistically', async () => {
+    useGithubStore.setState({ status: 'ready', collections: [collection('c1', ['r1'])] })
+    fetchMock.mockResolvedValueOnce(envelope({ collection: collection('c2', ['r2']) }))
+    const adding = useGithubStore.getState().upsertCollection(collection('c2', ['r2']))
+    expect(useGithubStore.getState().collections.map((entry) => entry.id)).toEqual(['c1', 'c2'])
+    await adding
+
+    fetchMock.mockResolvedValueOnce(envelope({ ok: true }))
+    const removing = useGithubStore.getState().deleteCollection('c1')
+    expect(useGithubStore.getState().collections.map((entry) => entry.id)).toEqual(['c2'])
+    await removing
   })
 
   it('patches gist metadata without sending file content', async () => {

@@ -328,6 +328,47 @@ describe('development github tags and repositories', () => {
     expect((await bodyOf<{ count: number }>(deleted)).data?.count).toBe(2)
     expect((await bodyOf<{ repos: unknown[] }>(await call('GET', '/repos'))).data?.repos).toEqual([])
   })
+
+  it('manages collections, validates members and unbinds deleted repositories', async () => {
+    expect((await call('PUT', '/repos/1', { body: repoBody(1) })).status).toBe(200)
+    expect((await call('PUT', '/repos/2', { body: repoBody(2) })).status).toBe(200)
+
+    const created = await call('PUT', '/collections/curated', {
+      body: { name: 'Curated', description: 'Picked repos', repoIds: ['1', '2', '1'] },
+    })
+    expect(created.status).toBe(200)
+    expect((await bodyOf<{ collection: { repoIds: string[] } }>(created)).data?.collection.repoIds).toEqual(['1', '2'])
+
+    expect(
+      (await call('PUT', '/collections/other', { body: { name: 'curated' } })).status,
+    ).toBe(400)
+    const missing = await call('PUT', '/collections/other', {
+      body: { name: 'Other', repoIds: ['999'] },
+    })
+    expect(missing.status).toBe(400)
+    expect((await bodyOf(missing)).error?.details).toEqual({ missing: ['999'] })
+
+    await call('PUT', '/repos/9', { user: USER_B, body: repoBody(9) })
+    const foreign = await call('PUT', '/collections/other', {
+      body: { name: 'Other', repoIds: ['9'] },
+    })
+    expect(foreign.status).toBe(400)
+    expect((await bodyOf(foreign)).error?.details).toEqual({ missing: ['9'] })
+
+    const listed = await bodyOf<{ collections: Array<{ id: string }> }>(await call('GET', '/collections'))
+    expect(listed.data?.collections.map((collection) => collection.id)).toEqual(['curated'])
+
+    expect((await call('DELETE', '/repos/1')).status).toBe(200)
+    const afterDelete = await bodyOf<{ collections: Array<{ repoIds: string[] }> }>(await call('GET', '/collections'))
+    expect(afterDelete.data?.collections[0]?.repoIds).toEqual(['2'])
+    expect((await call('POST', '/repos/batch-delete', { body: { ids: ['2'] } })).status).toBe(200)
+    const afterBatch = await bodyOf<{ collections: Array<{ repoIds: string[] }> }>(await call('GET', '/collections'))
+    expect(afterBatch.data?.collections[0]?.repoIds).toEqual([])
+
+    expect((await call('DELETE', '/collections/curated', { user: USER_B })).status).toBe(404)
+    expect((await call('DELETE', '/collections/curated')).status).toBe(200)
+    expect((await bodyOf<{ collections: unknown[] }>(await call('GET', '/collections'))).data?.collections).toEqual([])
+  })
 })
 
 describe('development github gist entities', () => {

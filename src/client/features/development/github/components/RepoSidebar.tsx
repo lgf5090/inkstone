@@ -1,12 +1,12 @@
 import { memo, useMemo } from 'react'
-import { Compass, Download, FileText, Pin, Settings2, Star, Tag as TagIcon } from 'lucide-react'
-import type { GithubTag, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
-import { GITHUB_ALL_VIEW, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
+import { Compass, Download, FileText, Layers, Pin, Plus, Settings2, Star, Tag as TagIcon } from 'lucide-react'
+import type { GithubCollection, GithubTag, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
+import { GITHUB_ALL_VIEW, GITHUB_COLLECTION_VIEW_PREFIX, GITHUB_EXPLORE_VIEW, GITHUB_FAV_VIEW, GITHUB_PINNED_VIEW } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { Button } from '../../../../components/primitives'
 import { SidebarItem, SectionLabel, TagTreeList } from './TagSidebarParts'
 
-export const RepoSidebar = memo(function RepoSidebar({ tags, savedRepos, selectedView, onSelect, expanded, onToggleExpand, onManageTags, onImportRepo }: { tags: GithubTag[]; savedRepos: SavedGithubRepo[]; selectedView: GithubViewId; onSelect: (view: GithubViewId) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; onManageTags: () => void; onImportRepo: () => void }) {
+export const RepoSidebar = memo(function RepoSidebar({ tags, collections, savedRepos, selectedView, onSelect, expanded, onToggleExpand, onManageTags, onManageCollections, onImportRepo }: { tags: GithubTag[]; collections: GithubCollection[]; savedRepos: SavedGithubRepo[]; selectedView: GithubViewId; onSelect: (view: GithubViewId) => void; expanded: Set<string>; onToggleExpand: (id: string) => void; onManageTags: () => void; onManageCollections: () => void; onImportRepo: () => void }) {
   const pinned = useMemo(() => savedRepos.filter((repo) => repo.pinned).length, [savedRepos])
   const favorite = useMemo(() => savedRepos.filter((repo) => repo.favorited).length, [savedRepos])
   return (
@@ -27,6 +27,24 @@ export const RepoSidebar = memo(function RepoSidebar({ tags, savedRepos, selecte
             <Button variant="ghost" size="sm" className="ml-auto h-6 px-1.5" onClick={onManageTags} title={t('development.github.tags.manage')} aria-label={t('development.github.tags.manage')}><Settings2 size={12} /></Button>
           </div>
           <TagTreeList tags={tags} items={savedRepos} selectedView={selectedView} onSelect={onSelect} expanded={expanded} onToggleExpand={onToggleExpand} emptyAction={onManageTags} />
+          <div className="my-2 border-t border-[var(--border-subtle)]" />
+          <div className="flex items-center gap-1 px-2 pb-1">
+            <Layers size={12} className="text-[var(--text-tertiary)]" />
+            <SectionLabel>{t('development.github.collections.section')}</SectionLabel>
+            <Button variant="ghost" size="sm" className="ml-auto h-6 px-1.5" onClick={onManageCollections} title={t('development.github.collections.manage')} aria-label={t('development.github.collections.manage')}><Settings2 size={12} /></Button>
+          </div>
+          {collections.length === 0 ? (
+            <button type="button" onClick={onManageCollections} className="flex w-full items-center gap-2 rounded-[var(--r-md)] px-2 py-1.5 text-left text-[length:var(--text-11)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"><Plus size={12} />{t('development.github.collections.create_first')}</button>
+          ) : collections.map((collection) => (
+            <SidebarItem
+              key={collection.id}
+              icon={<Layers size={14} />}
+              label={collection.name}
+              count={collection.repoIds.length}
+              active={selectedView === `${GITHUB_COLLECTION_VIEW_PREFIX}${collection.id}`}
+              onClick={() => onSelect(`${GITHUB_COLLECTION_VIEW_PREFIX}${collection.id}`)}
+            />
+          ))}
         </div>
       </div>
     </aside>

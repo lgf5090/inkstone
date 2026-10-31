@@ -1,5 +1,7 @@
 export const MAX_TAGS = 500
 export const MAX_REPOS = 5000
+export const MAX_COLLECTIONS = 100
+export const MAX_COLLECTION_REPOS = 500
 export const MAX_GISTS = 5000
 export const MAX_ACCOUNTS = 20
 export const MAX_MIRRORS = 20

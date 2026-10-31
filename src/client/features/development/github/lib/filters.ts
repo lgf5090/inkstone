@@ -2,10 +2,12 @@ import {
   DEFAULT_GIST_PREFS,
   GIST_FAV_VIEW,
   GIST_PINNED_VIEW,
+  GITHUB_COLLECTION_VIEW_PREFIX,
   GITHUB_FAV_VIEW,
   GITHUB_PINNED_VIEW,
   type GistPrefs,
   type GistViewId,
+  type GithubCollection,
   type GithubViewId,
   type SavedGist,
   type SavedGithubRepo,
@@ -13,6 +15,12 @@ import {
 
 function tagIdOf(view: string): string | null {
   return view.startsWith('tag:') ? view.slice(4) || null : null
+}
+
+function collectionIdOf(view: string): string | null {
+  return view.startsWith(GITHUB_COLLECTION_VIEW_PREFIX)
+    ? view.slice(GITHUB_COLLECTION_VIEW_PREFIX.length) || null
+    : null
 }
 
 function matchesRepo(repo: SavedGithubRepo, query: string): boolean {
@@ -44,8 +52,19 @@ export function filterRepos(
   repos: readonly SavedGithubRepo[],
   view: GithubViewId,
   query: string,
+  collections: readonly GithubCollection[] = [],
 ): SavedGithubRepo[] {
   const normalized = query.trim().toLowerCase()
+  const selectedCollectionId = collectionIdOf(view)
+  if (selectedCollectionId) {
+    const collection = collections.find((entry) => entry.id === selectedCollectionId)
+    if (!collection) return []
+    const byId = new Map(repos.map((repo) => [repo.id, repo]))
+    return collection.repoIds
+      .map((id) => byId.get(id))
+      .filter((repo): repo is SavedGithubRepo => Boolean(repo))
+      .filter((repo) => matchesRepo(repo, normalized))
+  }
   const selectedTagId = tagIdOf(view)
   return repos.filter((repo) => {
     if (view === GITHUB_PINNED_VIEW && !repo.pinned) return false

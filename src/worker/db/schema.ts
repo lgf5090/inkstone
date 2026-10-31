@@ -139,6 +139,7 @@ import {
   DEVELOPMENT_GITHUB_REQUIRED_COLUMNS,
   DEVELOPMENT_GITHUB_REQUIRED_INDEXES,
   DEVELOPMENT_GITHUB_REQUIRED_TABLES,
+  DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
   DEVELOPMENT_GITHUB_SCHEMA_STATEMENTS,
 } from '../development/github/schema'
 import {
@@ -3024,6 +3025,10 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `ALTER TABLE development_github_repos ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
     ],
+  },
+  {
+    version: 202,
+    statements: DEVELOPMENT_GITHUB_COLLECTIONS_SCHEMA_STATEMENTS,
   },
 ]
 

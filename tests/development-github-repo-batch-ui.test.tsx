@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, t } from '../src/client/lib/i18n'
 import { renderElement } from '../src/client/lib/test-render'
 import { RepoList } from '../src/client/features/development/github/components/RepoList'
-import type { GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
+import type { GithubCollection, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 
 function repo(id: number): GithubRepo {
   return {
@@ -45,11 +45,12 @@ function savedOf(source: GithubRepo, pinned = false): SavedGithubRepo {
   }
 }
 
-function renderList(options: { explore?: boolean; pinned?: boolean; onBatchPin?: (value: boolean) => void; onBatchRemove?: () => void } = {}) {
+function renderList(options: { explore?: boolean; pinned?: boolean; collection?: GithubCollection | null; onBatchPin?: (value: boolean) => void; onBatchRemove?: () => void; onToggleCollectionRepo?: (id: string, checked: boolean) => void } = {}) {
   const repos = [repo(1), repo(2), repo(3)]
   const saved = new Map(repos.map((entry) => [String(entry.id), savedOf(entry, options.pinned)]))
   const onBatchPin = options.onBatchPin ?? vi.fn()
   const onBatchRemove = options.onBatchRemove ?? vi.fn()
+  const onToggleCollectionRepo = options.onToggleCollectionRepo ?? vi.fn()
 
   function Harness() {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -93,6 +94,8 @@ function renderList(options: { explore?: boolean; pinned?: boolean; onBatchPin?:
         onPageChange={() => undefined}
         repoMap={saved}
         tags={[] as GithubTag[]}
+        collection={options.collection ?? null}
+        onToggleCollectionRepo={onToggleCollectionRepo}
         selectedRepoId={null}
         selectedIds={selectedIds}
         onCheckRepo={check}
@@ -116,7 +119,7 @@ function renderList(options: { explore?: boolean; pinned?: boolean; onBatchPin?:
     )
   }
 
-  return { view: renderElement(<Harness />), onBatchPin, onBatchRemove }
+  return { view: renderElement(<Harness />), onBatchPin, onBatchRemove, onToggleCollectionRepo }
 }
 
 function checkbox(container: HTMLElement, label: string): HTMLButtonElement {
@@ -168,6 +171,29 @@ describe('saved repository batch actions', () => {
   it('keeps selection controls out of the explore list', () => {
     const { view } = renderList({ explore: true })
     expect(view.container.querySelector('[role="checkbox"]')).toBeNull()
+    view.unmount()
+  })
+
+  it('adds a repository to the selected collection from its member menu', () => {
+    const collection: GithubCollection = {
+      id: 'c1',
+      name: 'Curated',
+      description: 'Picked repositories',
+      repoIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const { view, onToggleCollectionRepo } = renderList({ collection })
+    expect(view.container.textContent).toContain('Picked repositories')
+    const manage = Array.from(view.container.querySelectorAll('button'))
+      .find((button) => (button.textContent ?? '').trim() === t('development.github.collections.members'))
+    expect(manage).toBeTruthy()
+    act(() => manage!.click())
+    const item = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]'))
+      .find((entry) => (entry.textContent ?? '').trim() === 'acme/repo-1')
+    expect(item).toBeTruthy()
+    act(() => item!.click())
+    expect(onToggleCollectionRepo).toHaveBeenCalledWith('1', true)
     view.unmount()
   })
 })

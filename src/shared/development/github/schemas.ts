@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { isHttpUrl } from './url'
 import {
   MAX_BATCH_IDS,
+  MAX_COLLECTION_REPOS,
   MAX_GIST_DATA_BYTES,
   MAX_GIST_FILES,
   MAX_GIST_FILENAME,
@@ -129,6 +130,12 @@ export const GithubMirrorListSchema = z.object({
       ctx.addIssue({ code: 'custom', path: ['mirrors'], message: 'Mirror URL cannot contain credentials' })
     }
   }
+})
+
+export const GithubCollectionInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(500).default(''),
+  repoIds: z.array(z.string().regex(/^[0-9]{1,20}$/)).max(MAX_COLLECTION_REPOS).default([]),
 })
 
 export const GithubMirrorProbeSchema = z.object({

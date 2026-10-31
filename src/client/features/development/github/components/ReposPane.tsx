@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GithubPrefs, GithubRepo, GithubViewId, SavedGithubRepo } from '@shared/development/github/types'
-import { GITHUB_ALL_VIEW, GITHUB_EXPLORE_VIEW, GITHUB_PER_PAGE } from '@shared/development/github/types'
+import { GITHUB_ALL_VIEW, GITHUB_COLLECTION_VIEW_PREFIX, GITHUB_EXPLORE_VIEW, GITHUB_PER_PAGE } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
 import { navigateToAddress } from '../../../../lib/app-history'
 import { confirm } from '../../../../components/overlay'
@@ -19,6 +19,7 @@ import { RepoDetail } from './RepoDetail'
 import { TagManager } from './TagManager'
 import { SidebarFooter } from './SidebarFooter'
 import { RepoImportDialog } from './RepoImportDialog'
+import { CollectionManager } from './CollectionManager'
 
 function tagId(): string {
   return `gtag-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -43,6 +44,7 @@ export function ReposPane({
 }) {
   const tags = useGithubStore((state) => state.tags)
   const repos = useGithubStore((state) => state.repos)
+  const collections = useGithubStore((state) => state.collections)
   const mirrors = useGithubStore((state) => state.mirrors)
   const upsertRepo = useGithubStore((state) => state.upsertRepo)
   const upsertTag = useGithubStore((state) => state.upsertTag)
@@ -50,6 +52,8 @@ export function ReposPane({
   const deleteRepo = useGithubStore((state) => state.deleteRepo)
   const batchDeleteRepos = useGithubStore((state) => state.batchDeleteRepos)
   const batchUpdateRepos = useGithubStore((state) => state.batchUpdateRepos)
+  const upsertCollection = useGithubStore((state) => state.upsertCollection)
+  const deleteCollection = useGithubStore((state) => state.deleteCollection)
   const toast = useUi((state) => state.toast)
   const refresh = useGithubStore((state) => state.refresh)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
@@ -62,6 +66,7 @@ export function ReposPane({
   const [committedQuery, setCommittedQuery] = useState('')
   const [page, setPage] = useState(1)
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
+  const [collectionManagerOpen, setCollectionManagerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [syncingStars, setSyncingStars] = useState(false)
   const [searchHistory, setSearchHistory] = useState(loadSearchHistory)
@@ -90,10 +95,17 @@ export function ReposPane({
     return null
   }, [selectedRepoId, search.data, repos, extraRepo])
 
+  const selectedCollection = useMemo(() => (
+    selectedView.startsWith(GITHUB_COLLECTION_VIEW_PREFIX)
+      ? collections.find((collection) => `${GITHUB_COLLECTION_VIEW_PREFIX}${collection.id}` === selectedView) ?? null
+      : null
+  ), [collections, selectedView])
+
   const listItems = useMemo<GithubRepo[]>(() => {
     if (isExplore) return search.data?.items ?? []
-    return filterRepos(sortSavedRepos(repos), selectedView, query).map((repo) => repo.data)
-  }, [isExplore, search.data, repos, selectedView, query])
+    const saved = selectedCollection ? repos : sortSavedRepos(repos)
+    return filterRepos(saved, selectedView, query, collections).map((repo) => repo.data)
+  }, [isExplore, search.data, repos, selectedView, query, collections, selectedCollection])
 
   const totalCount = isExplore ? (search.data?.total ?? 0) : listItems.length
   const repoMap = useMemo(() => new Map(repos.map((repo) => [repo.id, repo])), [repos])
@@ -316,6 +328,36 @@ export function ReposPane({
     }
   }, [saveRepo, syncingStars, toast])
 
+  const addCollection = useCallback((name: string, description: string) => {
+    const now = Date.now()
+    void upsertCollection({
+      id: `gh-collection-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      description,
+      repoIds: [],
+      createdAt: now,
+      updatedAt: now,
+    })
+  }, [upsertCollection])
+
+  const updateCollection = useCallback((id: string, patch: { name: string; description: string }) => {
+    const existing = collections.find((collection) => collection.id === id)
+    if (existing) void upsertCollection({ ...existing, ...patch, updatedAt: Date.now() })
+  }, [collections, upsertCollection])
+
+  const removeCollection = useCallback((id: string) => {
+    void deleteCollection(id)
+    if (selectedView === `${GITHUB_COLLECTION_VIEW_PREFIX}${id}`) selectView(GITHUB_ALL_VIEW)
+  }, [deleteCollection, selectedView, selectView])
+
+  const toggleCollectionRepo = useCallback((repoId: string, checked: boolean) => {
+    if (!selectedCollection) return
+    const repoIds = checked
+      ? [...selectedCollection.repoIds.filter((id) => id !== repoId), repoId]
+      : selectedCollection.repoIds.filter((id) => id !== repoId)
+    void upsertCollection({ ...selectedCollection, repoIds, updatedAt: Date.now() })
+  }, [selectedCollection, upsertCollection])
+
   const exportLibrary = useCallback(() => {
     const payload = {
       version: 1,
@@ -336,7 +378,7 @@ export function ReposPane({
   }, [tags, repos, toast])
 
   const sidebar = (
-    <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
+    <RepoSidebar tags={tags} collections={collections} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onManageCollections={() => setCollectionManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
   )
 
   return (
@@ -373,6 +415,8 @@ export function ReposPane({
             onPageChange={setPage}
             repoMap={repoMap}
             tags={tags}
+            collection={selectedCollection}
+            onToggleCollectionRepo={toggleCollectionRepo}
             selectedRepoId={selectedRepoId}
             selectedIds={selectedIds}
             onCheckRepo={checkRepo}
@@ -405,6 +449,14 @@ export function ReposPane({
         onAdd={addTag}
         onUpdate={updateTag}
         onDelete={(id) => void deleteTag(id)}
+      />
+      <CollectionManager
+        open={collectionManagerOpen}
+        onClose={() => setCollectionManagerOpen(false)}
+        collections={collections}
+        onAdd={addCollection}
+        onUpdate={updateCollection}
+        onDelete={removeCollection}
       />
       <RepoImportDialog
         open={importOpen}

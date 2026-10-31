@@ -109,6 +109,20 @@ describe('saved repository filters', () => {
     expect(filterRepos(repos, 'all', 'cli').map((repo) => repo.id)).toEqual(['alpha'])
     expect(filterRepos(repos, 'tag:missing', '').map((repo) => repo.id)).toEqual([])
   })
+
+  it('lists collection members in their saved order and filters them by query', () => {
+    const repos = [
+      savedRepo('alpha', { updatedAt: 30 }),
+      savedRepo('beta', { updatedAt: 20 }),
+      savedRepo('gamma', { updatedAt: 10 }),
+    ]
+    const collections = [
+      { id: 'curated', name: 'Curated', description: '', repoIds: ['gamma', 'alpha'], createdAt: 1, updatedAt: 1 },
+    ]
+    expect(filterRepos(repos, 'collection:curated', '', collections).map((repo) => repo.id)).toEqual(['gamma', 'alpha'])
+    expect(filterRepos(repos, 'collection:curated', 'BETA', collections)).toEqual([])
+    expect(filterRepos(repos, 'collection:missing', '', collections)).toEqual([])
+  })
 })
 
 describe('saved gist filters', () => {

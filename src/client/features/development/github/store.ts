@@ -5,6 +5,7 @@ import type {
   GithubAccountView,
   GithubBootstrap,
   GithubCapabilities,
+  GithubCollection,
   GithubMirrorProbeResult,
   GithubMirrorSource,
   GithubTag,
@@ -26,6 +27,7 @@ export interface GithubStore {
   error: string | null
   tags: GithubTag[]
   repos: SavedGithubRepo[]
+  collections: GithubCollection[]
   gistTags: GithubTag[]
   gists: SavedGist[]
   mirrors: GithubMirrorSource[]
@@ -43,6 +45,8 @@ export interface GithubStore {
   deleteRepo: (id: string) => Promise<void>
   batchDeleteRepos: (ids: string[]) => Promise<void>
   batchUpdateRepos: (ids: string[], patch: RepoBatchPatch) => Promise<void>
+  upsertCollection: (collection: GithubCollection) => Promise<void>
+  deleteCollection: (id: string) => Promise<void>
   upsertGist: (gist: SavedGist) => Promise<void>
   patchGist: (id: string, patch: GistMetaPatch) => Promise<void>
   deleteGist: (id: string) => Promise<void>
@@ -55,7 +59,7 @@ export interface GithubStore {
   setActiveAccount: (id: string | null) => void
 }
 
-type CollectionKey = 'tags' | 'repos' | 'gistTags' | 'gists' | 'mirrors' | 'accounts'
+type CollectionKey = 'tags' | 'repos' | 'collections' | 'gistTags' | 'gists' | 'mirrors' | 'accounts'
 
 const DEFAULT_CAPABILITIES: GithubCapabilities = { exports: false }
 const writeQueues = new Map<string, Promise<void>>()
@@ -92,6 +96,25 @@ function upsertById<T extends { id: string }>(items: readonly T[], item: T): T[]
   const present = items.some((entry) => entry.id === item.id)
   if (!present) return [item, ...items]
   return items.map((entry) => (entry.id === item.id ? item : entry))
+}
+
+function upsertCollectionById(items: readonly GithubCollection[], item: GithubCollection): GithubCollection[] {
+  const present = items.some((entry) => entry.id === item.id)
+  if (!present) return [...items, item]
+  return items.map((entry) => (entry.id === item.id ? item : entry))
+}
+
+function stripRepoIdsFromCollections(
+  collections: readonly GithubCollection[],
+  removed: ReadonlySet<string>,
+): GithubCollection[] {
+  let changed = false
+  const next = collections.map((collection) => {
+    if (!collection.repoIds.some((id) => removed.has(id))) return collection
+    changed = true
+    return { ...collection, repoIds: collection.repoIds.filter((id) => !removed.has(id)) }
+  })
+  return changed ? next : [...collections]
 }
 
 function stripTags<T extends { tagIds: string[]; updatedAt: number }>(
@@ -156,6 +179,9 @@ export const useGithubStore = create<GithubStore>((set, get) => {
         case 'repos':
           set({ repos: await githubApi.listRepos() })
           return
+        case 'collections':
+          set({ collections: await githubApi.listCollections() })
+          return
         case 'gistTags':
           set({ gistTags: await githubApi.listGistTags() })
           return
@@ -198,6 +224,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       error: null,
       tags: data.tags ?? [],
       repos: data.repos ?? [],
+      collections: data.collections ?? [],
       gistTags: data.gistTags ?? [],
       gists: data.gists ?? [],
       mirrors: data.mirrors ?? [],
@@ -227,6 +254,7 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     error: null,
     tags: [],
     repos: [],
+    collections: [],
     gistTags: [],
     gists: [],
     mirrors: [],
@@ -342,13 +370,20 @@ export const useGithubStore = create<GithubStore>((set, get) => {
 
     deleteRepo: async (id) => {
       const revision = bump('repos')
-      set((state) => ({ repos: state.repos.filter((repo) => repo.id !== id) }))
+      const collectionRevision = bump('collections')
+      set((state) => ({
+        repos: state.repos.filter((repo) => repo.id !== id),
+        collections: stripRepoIdsFromCollections(state.collections, new Set([id])),
+      }))
       await enqueue(`repo:${id}`, async () => {
         try {
           await githubApi.deleteRepo(id)
         } catch (error) {
           notifyFailure(error)
-          if (isCurrent('repos', revision)) await reconcile(['repos'])
+          const pending: CollectionKey[] = []
+          if (isCurrent('repos', revision)) pending.push('repos')
+          if (isCurrent('collections', collectionRevision)) pending.push('collections')
+          if (pending.length > 0) await reconcile(pending)
         }
       })
     },
@@ -357,13 +392,50 @@ export const useGithubStore = create<GithubStore>((set, get) => {
       const removed = new Set(ids)
       if (removed.size === 0) return
       const revision = bump('repos')
-      set((state) => ({ repos: state.repos.filter((repo) => !removed.has(repo.id)) }))
+      const collectionRevision = bump('collections')
+      set((state) => ({
+        repos: state.repos.filter((repo) => !removed.has(repo.id)),
+        collections: stripRepoIdsFromCollections(state.collections, removed),
+      }))
       await enqueue('repos:batch', async () => {
         try {
           await githubApi.batchDeleteRepos(Array.from(removed))
         } catch (error) {
           notifyFailure(error)
-          if (isCurrent('repos', revision)) await reconcile(['repos'])
+          const pending: CollectionKey[] = []
+          if (isCurrent('repos', revision)) pending.push('repos')
+          if (isCurrent('collections', collectionRevision)) pending.push('collections')
+          if (pending.length > 0) await reconcile(pending)
+        }
+      })
+    },
+
+    upsertCollection: async (collection) => {
+      const next = { ...collection, updatedAt: Date.now() }
+      const revision = bump('collections')
+      set((state) => ({ collections: upsertCollectionById(state.collections, next) }))
+      await enqueue(`collection:${collection.id}`, async () => {
+        try {
+          const saved = await githubApi.upsertCollection(next)
+          if (isCurrent('collections', revision)) {
+            set((state) => ({ collections: upsertCollectionById(state.collections, saved) }))
+          }
+        } catch (error) {
+          notifyFailure(error)
+          if (isCurrent('collections', revision)) await reconcile(['collections'])
+        }
+      })
+    },
+
+    deleteCollection: async (id) => {
+      const revision = bump('collections')
+      set((state) => ({ collections: state.collections.filter((collection) => collection.id !== id) }))
+      await enqueue(`collection:${id}`, async () => {
+        try {
+          await githubApi.deleteCollection(id)
+        } catch (error) {
+          notifyFailure(error)
+          if (isCurrent('collections', revision)) await reconcile(['collections'])
         }
       })
     },
