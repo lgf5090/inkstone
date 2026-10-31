@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import {
   Archive,
   CheckCircle2,
@@ -7,9 +7,13 @@ import {
   ListPlus,
 } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
+import { useUi } from '../../../../store/ui'
+import { saveBlobAsFile } from '../engine/export-pipeline'
+import { Button } from '../../../../components/primitives'
 import { useQrCodeStore } from '../store'
 import type { QrExportFormat } from '../../../../../shared/tools/qrcode/types'
 import {
+  MAX_BATCH_ITEMS,
   generateRandomString,
   runBatchGeneration,
   type BatchItemConfig,
@@ -31,6 +35,7 @@ export const QrBatchView: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null)
   const [downloadReady, setDownloadReady] = useState<boolean>(false)
+  const cancelRef = useRef<boolean>(false)
 
   const options = useQrCodeStore((s) => s.options)
 
@@ -58,6 +63,12 @@ export const QrBatchView: React.FC = () => {
       }
     }
 
+    if (items.length > MAX_BATCH_ITEMS) {
+      useUi.getState().toast({ title: t('tools.qrcode.batch.limit', { max: MAX_BATCH_ITEMS }), tone: 'danger' })
+      return
+    }
+
+    cancelRef.current = false
     setIsGenerating(true)
     setProgress({ current: 0, total: items.length })
     setDownloadReady(false)
@@ -70,18 +81,17 @@ export const QrBatchView: React.FC = () => {
         randomizeStyle,
         baseOptions: options,
         onProgress: (current, total) => setProgress({ current, total }),
+        isCancelled: () => cancelRef.current,
       })
 
-      const url = URL.createObjectURL(zipBlob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${filenamePrefix}bundle-${Date.now()}.zip`
-      a.click()
-      URL.revokeObjectURL(url)
-
+      saveBlobAsFile(zipBlob, `${filenamePrefix}bundle-${Date.now()}.zip`)
       setDownloadReady(true)
-    } catch {
-      // safe fallback
+    } catch (err) {
+      const cancelled = cancelRef.current || String((err as Error)?.message ?? '').includes('BATCH_CANCELLED')
+      useUi.getState().toast({
+        title: cancelled ? t('tools.qrcode.batch.cancelled') : t('tools.qrcode.batch.error'),
+        tone: cancelled ? 'warning' : 'danger',
+      })
     } finally {
       setIsGenerating(false)
     }
@@ -226,6 +236,12 @@ export const QrBatchView: React.FC = () => {
                   ))}
                 </div>
               </div>
+
+              {isGenerating && (
+                <Button variant="secondary" size="sm" block onClick={() => { cancelRef.current = true }}>
+                  {t('tools.qrcode.batch.cancel')}
+                </Button>
+              )}
 
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-[var(--text-secondary)]">

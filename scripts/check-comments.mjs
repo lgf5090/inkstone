@@ -18007,13 +18007,18 @@ const allowed = new Map([
     "// stays clear so the next visit asks again.",
   ]],
   ["src/client/features/tools/qrcode/batch/QrBatchView.tsx", [
-    "// safe fallback",
     "/* Header */",
     "/* Input Mode Selector */",
     "/* Main Configuration Card */",
     "/* Data Source Column */",
     "/* Export Settings Column */",
     "/* Action Card */",
+  ]],
+  ["src/client/features/tools/qrcode/batch/batch-engine.ts", [
+    "/** A guard rail, not a quota: this many canvases is already minutes of main-thread work. */",
+    "/** Checked before each item, so a runaway batch can be stopped mid-run. */",
+    "// Rendering, encoding and base64 decoding all run here; without a yield the page is frozen for",
+    "// the whole batch and the progress line never repaints.",
   ]],
   ["src/client/features/tools/qrcode/compare/GridAlignModal.tsx", [
     "// Draw Grid Lines (Red)",
@@ -18037,6 +18042,12 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/qrcode/compare/diff-engine.ts", [
     "// Correction map",
+    "/** Mean RGBA of one grid cell, read out of an already-acquired full-canvas ImageData. */",
+    "// One readback for the whole canvas: per-cell getImageData meant gridSize-squared GPU syncs",
+    "// (up to ~4k of them) on every slider tick.",
+  ]],
+  ["src/client/features/tools/qrcode/engine/export-pipeline.ts", [
+    "/**\n * Saves a blob through a temporary anchor. Revoking in the same tick as the click is what cut\n * downloads short on some browsers, so the revoke waits for the task that follows.\n */",
   ]],
   ["src/client/features/tools/qrcode/engine/qr-engine.ts", [
     "// A blank canvas here would export a code nothing can scan, and the preview would look",
@@ -18046,6 +18057,9 @@ const allowed = new Map([
     "// 3D Perspective Transformation",
     "// Apply Organic Effects (crystalize or liquidify)",
     "// Output to final canvas with scale",
+    "// A per-pixel Array.find over the whole module grid is quadratic: at version 40 with a rounded,",
+    "// row or column style it cost billions of comparisons and froze the tab mid-drag. The index keeps",
+    "// find()'s semantics exactly - first match in the draw order the sort just produced.",
   ]],
   ["src/client/features/tools/qrcode/engine/text-decorator.ts", [
     "// These land inside attribute values of a file someone else will open: escaping only the text nodes",
@@ -18070,6 +18084,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/qrcode/scanner/CameraScanner.tsx", [
     "// Ignore frame decode errors",
+    "// Four canvases a second were allocated, decoded and dropped; one is reused instead.",
   ]],
   ["src/client/features/tools/qrcode/scanner/QrScannerView.tsx", [
     "// Paste image from clipboard",
@@ -18083,6 +18098,8 @@ const allowed = new Map([
     "// 1. Try native BarcodeDetector if available",
     "// Fall through to jsQR",
     "// 2. jsQR fallback",
+    "/** Reuse one canvas per call site that decodes repeatedly (the camera loop) instead of allocating.\n      When given, it is resized in place; when omitted the previous behaviour is kept. */",
+    "/** Constructing a detector per frame re-initialises the model, so one is kept for the session. */",
   ]],
   ["src/client/features/tools/qrcode/store.ts", [
     "/**\n * The encoded payload as a render-time value. A component that read it through a store getter during\n * render stayed stale: the getter is a stable function reference, so editing the content never\n * re-rendered the panel and it kept drawing — and exporting — the previous payload.\n */",
@@ -44548,6 +44565,10 @@ const allowed = new Map([
   ["tests/tools-qrcode-api.test.ts", [
     "/** A real 1×1 PNG: the storage guard checks signatures, so fixtures have to carry actual image bytes. */",
     "// A well-formed id that simply does not exist stays a 404 rather than leaking into a 400.",
+  ]],
+  ["tests/tools-qrcode-engine.test.ts", [
+    "// The release waits for the task after the click: revoking inside the same tick is what cut a",
+    "// download short, so the anchor must go first and the URL still has to be freed afterwards.",
   ]],
   ["tests/tools-qrcode-settings.test.tsx", [
     "// A second visit means the reader came back to a workbench they may have retuned, so the saved",

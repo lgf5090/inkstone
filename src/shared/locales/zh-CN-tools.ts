@@ -540,6 +540,10 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.batch.randomize_styles': '启用多样性艺术滤镜混淆 (推荐用于数据集训练)',
   'tools.qrcode.batch.generate_zip': '开始批量生成并打包 ZIP',
   'tools.qrcode.batch.generating_progress': '正在渲染打包 ({current} / {total})...',
+  'tools.qrcode.batch.limit': '批量最多 {max} 条，请拆分后再生成',
+  'tools.qrcode.batch.cancel': '取消生成',
+  'tools.qrcode.batch.cancelled': '已取消本次批量生成',
+  'tools.qrcode.batch.error': '批量生成失败，请减少条目或简化样式后重试',
   'tools.qrcode.batch.download_finished': '批量生成完毕，ZIP 压缩包已开始下载',
 
   // Color Assistant

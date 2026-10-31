@@ -26,7 +26,10 @@ export interface ScanResult {
 
 export function preprocessImageToCanvas(
   img: HTMLImageElement | HTMLVideoElement,
-  options: PreprocessOptions = {}
+  options: PreprocessOptions = {},
+  /** Reuse one canvas per call site that decodes repeatedly (the camera loop) instead of allocating.
+      When given, it is resized in place; when omitted the previous behaviour is kept. */
+  target?: HTMLCanvasElement
 ): HTMLCanvasElement {
   const naturalWidth = (img as HTMLImageElement).naturalWidth || (img as HTMLVideoElement).videoWidth || img.width
   const naturalHeight = (img as HTMLImageElement).naturalHeight || (img as HTMLVideoElement).videoHeight || img.height
@@ -45,10 +48,11 @@ export function preprocessImageToCanvas(
     }
   }
 
-  const canvas = document.createElement('canvas')
+  const canvas = target ?? document.createElement('canvas')
   canvas.width = targetWidth
   canvas.height = targetHeight
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) throw new Error('Canvas 2D context unavailable for scanning')
 
   const filters: string[] = []
   if (options.grayscale) filters.push('grayscale(100%)')
@@ -69,13 +73,29 @@ export function preprocessImageToCanvas(
   return canvas
 }
 
+let detectorPromise: Promise<any> | null = null
+
+/** Constructing a detector per frame re-initialises the model, so one is kept for the session. */
+function getDetector(): Promise<any> | null {
+  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return null
+  if (!detectorPromise) {
+    detectorPromise = Promise.resolve(
+      new (window as any).BarcodeDetector({ formats: ['qr_code'] })
+    ).catch(() => {
+      detectorPromise = null
+      return null
+    })
+  }
+  return detectorPromise
+}
+
 export async function scanCanvas(canvas: HTMLCanvasElement): Promise<ScanResult | null> {
   const startTime = performance.now()
 
   // 1. Try native BarcodeDetector if available
-  if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+  const detector = await getDetector()
+  if (detector) {
     try {
-      const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] })
       const barcodes = await detector.detect(canvas)
       if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
         const raw = barcodes[0]

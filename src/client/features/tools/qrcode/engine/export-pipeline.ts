@@ -150,18 +150,22 @@ export async function downloadQrCode(
   const filename = options?.filename || `qrcode-${Date.now()}.${ext}`
 
   const blob = await exportQrToBlob(engine, options)
-  const objectUrl = URL.createObjectURL(blob)
+  saveBlobAsFile(blob, filename)
+}
 
-  try {
-    const anchor = document.createElement('a')
-    anchor.href = objectUrl
-    anchor.download = filename
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-  } finally {
-    URL.revokeObjectURL(objectUrl)
-  }
+/**
+ * Saves a blob through a temporary anchor. Revoking in the same tick as the click is what cut
+ * downloads short on some browsers, so the revoke waits for the task that follows.
+ */
+export function saveBlobAsFile(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
 }
 
 export async function copyQrCodeToClipboard(

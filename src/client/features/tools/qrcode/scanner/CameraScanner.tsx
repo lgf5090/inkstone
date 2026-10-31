@@ -15,6 +15,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
   const [isScanning, setIsScanning] = useState<boolean>(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const onScanRef = useRef(onScan)
+  const preprocessRef = useRef(preprocessOptions)
+  onScanRef.current = onScan
+  preprocessRef.current = preprocessOptions
 
   useEffect(() => {
     let isMounted = true
@@ -93,10 +98,16 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
     async function tick() {
       if (!isCancelled && isScanning && videoRef.current && videoRef.current.readyState >= 2) {
         try {
-          const processedCanvas = preprocessImageToCanvas(videoRef.current, preprocessOptions)
+          // Four canvases a second were allocated, decoded and dropped; one is reused instead.
+          if (!scratchCanvasRef.current) scratchCanvasRef.current = document.createElement('canvas')
+          const processedCanvas = preprocessImageToCanvas(
+            videoRef.current,
+            preprocessRef.current,
+            scratchCanvasRef.current
+          )
           const result = await scanCanvas(processedCanvas)
           if (result && !isCancelled) {
-            onScan(result)
+            onScanRef.current(result)
           }
         } catch {
           // Ignore frame decode errors
@@ -113,7 +124,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
       isCancelled = true
       clearTimeout(timer)
     }
-  }, [isScanning, onScan, preprocessOptions])
+  }, [isScanning])
 
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">

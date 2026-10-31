@@ -118,6 +118,8 @@ export function QrHistoryView() {
                 <img
                   src={`/api/tools/qrcode/records/${record.id}/file`}
                   alt={record.title}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full object-contain"
                 />
               </div>

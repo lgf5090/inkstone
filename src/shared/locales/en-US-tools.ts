@@ -540,6 +540,10 @@ export const EN_US_TOOLS = {
   'tools.qrcode.batch.randomize_styles': 'Enable Diverse Artistic Style Randomization (Recommended for dataset training)',
   'tools.qrcode.batch.generate_zip': 'Generate & Download ZIP Archive',
   'tools.qrcode.batch.generating_progress': 'Rendering & packaging ({current} / {total})...',
+  'tools.qrcode.batch.limit': 'A batch holds at most {max} items; split it and try again',
+  'tools.qrcode.batch.cancel': 'Cancel generation',
+  'tools.qrcode.batch.cancelled': 'This batch was cancelled',
+  'tools.qrcode.batch.error': 'Batch generation failed. Try fewer items or simpler styling.',
   'tools.qrcode.batch.download_finished': 'Batch completed! ZIP archive download started.',
 
   // Color Assistant

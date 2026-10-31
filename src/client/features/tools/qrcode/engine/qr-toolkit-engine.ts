@@ -340,6 +340,15 @@ export async function renderToolkitQRCode(
     return getOrder(a) - getOrder(b)
   })
 
+  // A per-pixel Array.find over the whole module grid is quadratic: at version 40 with a rounded,
+  // row or column style it cost billions of comparisons and froze the tab mid-drag. The index keeps
+  // find()'s semantics exactly - first match in the draw order the sort just produced.
+  const pixelIndex = new Map<string, PixelInfo>()
+  for (const p of pixels) {
+    const key = p.x + '|' + p.y
+    if (!pixelIndex.has(key)) pixelIndex.set(key, p)
+  }
+
   const darkHex = invert ? lightColorHex : darkColorHex
 
   for (const { isDark, marker, x, y, isBorder, isIgnored } of pixels) {
@@ -517,7 +526,7 @@ export async function renderToolkitQRCode(
       }
     } else if (curPixelStyle === 'rounded' || curPixelStyle === 'row' || curPixelStyle === 'column') {
       const shouldConnect = (dx: number, dy: number) => {
-        const p = pixels.find((pxl) => pxl.x === x + dx && pxl.y === y + dy)
+        const p = pixelIndex.get(x + dx + '|' + (y + dy))
         if (!p) return true
         if (p.isIgnored || (p.isBorder && !p.isDark)) return null
         return p.isDark

@@ -13,6 +13,7 @@ import {
   type Segment,
 } from '../src/client/features/tools/qrcode/compare/diff-engine'
 import {
+  MAX_BATCH_ITEMS,
   generateRandomString,
   runBatchGeneration,
 } from '../src/client/features/tools/qrcode/batch/batch-engine'
@@ -20,7 +21,7 @@ import { QrScannerView } from '../src/client/features/tools/qrcode/scanner/QrSca
 import { QrCompareView } from '../src/client/features/tools/qrcode/compare/QrCompareView'
 import { QrBatchView } from '../src/client/features/tools/qrcode/batch/QrBatchView'
 import { AiEffectsTab } from '../src/client/features/tools/qrcode/options/AiEffectsTab'
-import { DEFAULT_QR_OPTIONS } from '../src/client/features/tools/qrcode/engine/qr-engine'
+import { DEFAULT_QR_OPTIONS, QrEngine } from '../src/client/features/tools/qrcode/engine/qr-engine'
 
 // Mock jsQR
 vi.mock('jsqr', () => {
@@ -256,6 +257,29 @@ describe('QR Toolkit Ported Features', () => {
       expect(zipBlob).toBeInstanceOf(Blob)
       expect(zipBlob.type).toBe('application/zip')
       expect(progressTracker).toContain(2)
+    })
+
+    it('refuses a batch over the cap instead of holding thousands of canvases', async () => {
+      const items = Array.from({ length: MAX_BATCH_ITEMS + 1 }, (_, i) => ({
+        text: `https://test.com/${i}`,
+        filename: `qr-${i}`,
+      }))
+      await expect(
+        runBatchGeneration({ items, baseOptions: DEFAULT_QR_OPTIONS })
+      ).rejects.toThrow(/batch limit/)
+    })
+
+    it('stops at the cancel flag before drawing another code', async () => {
+      const render = vi.spyOn(QrEngine.prototype, 'renderCanvas')
+      await expect(
+        runBatchGeneration({
+          items: [{ text: 'https://test.com', filename: 'qr-1' }],
+          baseOptions: DEFAULT_QR_OPTIONS,
+          isCancelled: () => true,
+        })
+      ).rejects.toThrow('BATCH_CANCELLED')
+      expect(render).not.toHaveBeenCalled()
+      render.mockRestore()
     })
   })
 

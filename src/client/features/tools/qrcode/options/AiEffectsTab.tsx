@@ -10,8 +10,8 @@ import type {
 } from '../../../../../shared/tools/qrcode/types'
 
 export const AiEffectsTab: React.FC = () => {
-  const { options, setToolkitOptions } = useQrCodeStore()
-  const tk = options.toolkitOptions ?? {}
+  const tk = useQrCodeStore((s) => s.options.toolkitOptions) ?? {}
+  const setToolkitOptions = useQrCodeStore((s) => s.setToolkitOptions)
 
   const effect = tk.effect ?? 'none'
   const effectTiming = tk.effectTiming ?? 'before'

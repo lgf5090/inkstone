@@ -643,10 +643,14 @@ describe('QR Code Engine & Beautification System', () => {
       })
 
       expect(createObjectURLSpy).toHaveBeenCalled()
-      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test-url')
       expect(clickSpy).toHaveBeenCalled()
       expect(appendSpy).toHaveBeenCalled()
       expect(removeSpy).toHaveBeenCalled()
+      // The release waits for the task after the click: revoking inside the same tick is what cut a
+      // download short, so the anchor must go first and the URL still has to be freed afterwards.
+      expect(revokeObjectURLSpy).not.toHaveBeenCalled()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test-url')
 
       clickSpy.mockRestore()
       createObjectURLSpy.mockRestore()

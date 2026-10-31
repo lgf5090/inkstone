@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Download, Info, Maximize2, QrCode, Upload } from 'lucide-react'
 import { useQrCodeStore, useQrPayload } from '../store'
 import { QrEngine } from '../engine/qr-engine'
+import { saveBlobAsFile } from '../engine/export-pipeline'
 import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
@@ -42,13 +43,10 @@ export function QrPreviewPanel() {
       version: '1.0',
       options,
     }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `qr-config-${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlobAsFile(
+      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      `qr-config-${Date.now()}.json`
+    )
   }
 
   const handleUploadState = (e: React.ChangeEvent<HTMLInputElement>) => {
