@@ -38,6 +38,26 @@ function mockFetch(): void {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.includes('/search')) searchRequests.push(url)
+    if (url.includes('/repo-detail')) {
+      return response({
+        ok: true,
+        data: {
+          fullName: 'octo/demo',
+          branchesCount: 1,
+          branchesTruncated: false,
+          defaultBranch: 'main',
+          tagsCount: 0,
+          tagsTruncated: false,
+          languages: [],
+          releases: [],
+          releasesTruncated: false,
+          readme: null,
+          readmeHtmlUrl: null,
+          warnings: [],
+          rateLimited: false,
+        },
+      })
+    }
     if (url.includes('/bootstrap')) {
       return response({
         ok: true,
@@ -136,5 +156,25 @@ describe('GitHub module shell', () => {
     const last = searchRequests.at(-1) ?? ''
     expect(last).toContain('q=react')
     expect(last).toContain('range=week')
+  })
+
+  it('collapses and restores the detail pane in the two-pane layout', async () => {
+    rendered = renderElement(<GithubApp />)
+    await settle()
+    const row = rendered.container.querySelector<HTMLElement>('[data-slot="github-repo-row"]')
+    expect(row).toBeTruthy()
+    act(() => row!.click())
+    await settle()
+    expect(rendered.container.querySelector('[data-slot="repo-detail"]')).not.toBeNull()
+    const toggle = rendered.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${t('development.github.common.toggle_detail')}"]`,
+    )
+    expect(toggle).toBeTruthy()
+    act(() => toggle!.click())
+    await settle()
+    expect(rendered.container.querySelector('[data-slot="repo-detail"]')).toBeNull()
+    act(() => toggle!.click())
+    await settle()
+    expect(rendered.container.querySelector('[data-slot="repo-detail"]')).not.toBeNull()
   })
 })

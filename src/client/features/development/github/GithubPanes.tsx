@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '../../../lib/cn'
 import { useMediaQuery } from '../../../lib/hooks'
 import { Drawer } from '../../../components/overlay'
@@ -38,6 +38,7 @@ export function GithubPanes({
   const [detailRatio, setDetailRatio] = useState(() => Math.min(0.7, Math.max(0.3, initial.detailRatio)))
   const [sidebarDrawer, setSidebarDrawer] = useState(false)
   const [detailDrawer, setDetailDrawer] = useState(false)
+  const [detailHidden, setDetailHidden] = useState(false)
   const splitRef = useRef<HTMLDivElement>(null)
 
   const toggleSidebar = () => {
@@ -49,9 +50,16 @@ export function GithubPanes({
   }
 
   const toggleDetail = () => {
-    if (twoPane) return
+    if (twoPane) {
+      setDetailHidden((value) => !value)
+      return
+    }
     setDetailDrawer(true)
   }
+
+  useEffect(() => {
+    if (!detailDisabled) setDetailHidden(false)
+  }, [detailDisabled])
 
   const controls: ListPaneControls = { toggleSidebar, toggleDetail, detailDisabled }
   const listContent = typeof list === 'function' ? list(controls) : list
@@ -93,22 +101,26 @@ export function GithubPanes({
       <div className="flex h-full min-h-0 flex-col" data-testid="github-panes-two">
         {tabsBar}
         <div ref={splitRef} className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-w-0 flex-1 overflow-hidden" style={{ flexBasis: `${(1 - detailRatio) * 100}%` }}>
+          <div className="min-w-0 flex-1 overflow-hidden" style={detailHidden ? undefined : { flexBasis: `${(1 - detailRatio) * 100}%` }}>
             {listContent}
           </div>
-          <SplitResizer
-            label={title}
-            containerRef={splitRef}
-            ratio={detailRatio}
-            onChange={(next) => {
-              setDetailRatio(next)
-              saveLayoutPrefs({ detailRatio: next })
-            }}
-            onReset={() => setDetailRatio(0.5)}
-          />
-          <div className="min-w-0 flex-1 overflow-hidden" style={{ flexBasis: `${detailRatio * 100}%` }}>
-            {detail}
-          </div>
+          {!detailHidden && (
+            <>
+              <SplitResizer
+                label={title}
+                containerRef={splitRef}
+                ratio={detailRatio}
+                onChange={(next) => {
+                  setDetailRatio(next)
+                  saveLayoutPrefs({ detailRatio: next })
+                }}
+                onReset={() => setDetailRatio(0.5)}
+              />
+              <div className="min-w-0 flex-1 overflow-hidden" style={{ flexBasis: `${detailRatio * 100}%` }}>
+                {detail}
+              </div>
+            </>
+          )}
         </div>
         <Drawer open={sidebarDrawer} onClose={() => setSidebarDrawer(false)} side="left" width={300} title={title}>
           {sidebarColumn}
@@ -139,22 +151,26 @@ export function GithubPanes({
           </>
         )}
         <div ref={splitRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <div className={cn('min-w-0 overflow-hidden', 'flex-1')} style={{ flexBasis: `${(1 - detailRatio) * 100}%` }}>
+          <div className={cn('min-w-0 overflow-hidden', 'flex-1')} style={detailHidden ? undefined : { flexBasis: `${(1 - detailRatio) * 100}%` }}>
             {listContent}
           </div>
-          <SplitResizer
-            label={title}
-            containerRef={splitRef}
-            ratio={detailRatio}
-            onChange={(next) => {
-              setDetailRatio(next)
-              saveLayoutPrefs({ detailRatio: next })
-            }}
-            onReset={() => setDetailRatio(0.5)}
-          />
-          <div className="min-w-0 overflow-hidden" style={{ flexBasis: `${detailRatio * 100}%` }}>
-            {detail}
-          </div>
+          {!detailHidden && (
+            <>
+              <SplitResizer
+                label={title}
+                containerRef={splitRef}
+                ratio={detailRatio}
+                onChange={(next) => {
+                  setDetailRatio(next)
+                  saveLayoutPrefs({ detailRatio: next })
+                }}
+                onReset={() => setDetailRatio(0.5)}
+              />
+              <div className="min-w-0 overflow-hidden" style={{ flexBasis: `${detailRatio * 100}%` }}>
+                {detail}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
