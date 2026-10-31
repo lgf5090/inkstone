@@ -1,8 +1,7 @@
-import { memo, useMemo, type KeyboardEvent } from 'react'
+import { memo, useMemo } from 'react'
 import { Archive, BookmarkX, Calendar, CircleDot, Copy, ExternalLink, GitFork, Globe, Pin, Scale, Star } from 'lucide-react'
 import type { GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { useUi } from '../../../../store/ui'
@@ -45,23 +44,12 @@ export const RepoRow = memo(function RepoRow({
     if (await copyText(text)) toast({ title: message, tone: 'success' })
     else toast({ title: t('development.github.common.copy_failed'), tone: 'danger' })
   }
-  const onKeyDown = (event: KeyboardEvent<HTMLLIElement>) => {
-    if (isImeComposing(event)) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onSelect(repo)
-    }
-  }
   return (
     <li
-      role="option"
-      aria-selected={selected}
-      tabIndex={0}
       data-slot="github-repo-row"
       onClick={() => onSelect(repo)}
-      onKeyDown={onKeyDown}
       className={cn(
-        'group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none',
+        'group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]',
         selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent',
       )}
     >
@@ -74,11 +62,12 @@ export const RepoRow = memo(function RepoRow({
             <GithubAvatar src={repo.owner.avatarUrl} name={repo.owner.login} size={24} className="mt-0.5" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <a href={repo.url} target="_blank" rel="noopener noreferrer" onClick={(event) => event.stopPropagation()} className="min-w-0 truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline" title={repo.fullName}>
+                <button type="button" onClick={(event) => { event.stopPropagation(); onSelect(repo) }} aria-current={selected ? 'true' : undefined} className="min-w-0 truncate bg-transparent text-left text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={repo.fullName}>
                   {repo.owner.login}/<span className="text-[var(--accent)]">{repo.name}</span>
-                </a>
+                </button>
                 {repo.isArchived && <span className="inline-flex shrink-0 items-center gap-1 rounded bg-[color-mix(in_oklab,var(--warning)_14%,transparent)] px-1.5 py-0.5 text-[length:var(--text-11)] font-medium text-[var(--warning)]"><Archive size={10} /> {t('development.github.repos.archived')}</span>}
                 <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                  <a href={repo.url} target="_blank" rel="noopener noreferrer" aria-label={t('development.github.repos.open_on_github')} title={t('development.github.repos.open_on_github')} onClick={(event) => event.stopPropagation()} className="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6"><ExternalLink size={13} /></a>
                   <IconButton label={saved?.pinned ? t('development.github.repos.unpin') : t('development.github.repos.pin')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onTogglePin(repo) }}><Pin size={13} className={cn(saved?.pinned && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={saved?.favorited ? t('development.github.repos.unfavorite') : t('development.github.repos.favorite')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onToggleFav(repo) }}><Star size={13} className={cn(saved?.favorited && 'fill-current text-[var(--warning)]')} /></IconButton>
                   <IconButton label={t('development.github.repos.copy_url')} size="sm" onClick={(event) => { event.preventDefault(); event.stopPropagation(); void copy(repo.url, t('development.github.repos.url_copied')) }}><Copy size={13} /></IconButton>

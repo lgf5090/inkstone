@@ -3,7 +3,6 @@ import { Calendar, Check, ChevronLeft, ChevronRight, Copy, Download, FileCode, G
 import type { GithubTag, GistPrefs, SavedGist } from '@shared/development/github/types'
 import { GIST_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
-import { isImeComposing } from '../../../../lib/ime'
 import { cn } from '../../../../lib/cn'
 import { copyText } from '../../../../lib/clipboard'
 import { useUi } from '../../../../store/ui'
@@ -24,13 +23,13 @@ function GistRow({ gist, tags, selected, checked, remote, savedRemote, onCheck, 
     toast({ title: ok ? t('development.github.gists.url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
   return (
-    <li role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-row" onClick={onSelect} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
+    <li data-slot="github-gist-row" onClick={onSelect} className={cn('group cursor-pointer border-l-2 px-3 py-3 transition-colors hover:bg-[var(--bg-hover)]', selected ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-transparent')}>
       <div className="flex gap-2">
-        {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_all')} className="mt-1 shrink-0" />}
+        {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_item', { name: title })} className="mt-1 shrink-0" />}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {gist.data.isPublic ? <Globe size={13} className="shrink-0 text-[var(--success)]" /> : <Lock size={13} className="shrink-0 text-[var(--warning)]" />}
-            <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] font-medium" title={title}>{title}</span>
+            <button type="button" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none" title={title}>{title}</button>
             <div className="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
               {remote ? (
                 <>
@@ -69,11 +68,11 @@ function GistCard({ gist, tags, selected, checked, remote, savedRemote, onCheck,
     toast({ title: ok ? t('development.github.gists.url_copied') : t('development.github.common.copy_failed'), tone: ok ? 'success' : 'danger' })
   }
   return (
-    <div role="option" aria-selected={selected} tabIndex={0} data-slot="github-gist-card" onClick={onSelect} onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect() } }} className={cn('group flex cursor-pointer flex-col rounded-[var(--r-lg)] border p-3 transition-all focus-visible:outline-none', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
+    <div data-slot="github-gist-card" onClick={onSelect} className={cn('group flex cursor-pointer flex-col rounded-[var(--r-lg)] border p-3 transition-all', selected ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]' : 'border-[var(--border-subtle)] hover:shadow-[var(--shadow-pop)]')}>
       <div className="flex items-center gap-2">
-        {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_all')} className="shrink-0" />}
+        {!remote && <Checkbox checked={checked} onChange={(next) => onCheck(gist.id, next)} ariaLabel={t('development.github.gists.select_item', { name: gist.description || first?.filename || gist.id })} className="shrink-0" />}
         {gist.data.isPublic ? <Globe size={13} className="shrink-0 text-[var(--success)]" /> : <Lock size={13} className="shrink-0 text-[var(--warning)]" />}
-        <span className="min-w-0 flex-1 truncate text-[length:var(--text-13)] font-medium">{gist.description || first?.filename || gist.id}</span>
+        <button type="button" onClick={(event) => { event.stopPropagation(); onSelect() }} aria-current={selected ? 'true' : undefined} className="min-w-0 flex-1 truncate bg-transparent text-left text-[length:var(--text-13)] font-medium hover:text-[var(--accent)] hover:underline focus-visible:underline focus-visible:outline-none">{gist.description || first?.filename || gist.id}</button>
         {remote ? (
           <>
             <IconButton label={savedRemote ? t('development.github.gists.saved_local') : t('development.github.gists.save_local')} size="sm" onClick={(event) => { event.stopPropagation(); if (!savedRemote) onSaveToLocal() }}>{savedRemote ? <Check size={13} className="text-[var(--success)]" /> : <Download size={13} />}</IconButton>
@@ -228,7 +227,7 @@ export function GistList({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {error ? <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center"><p className="text-[length:var(--text-12)] font-medium">{t('development.github.common.load_failed')}</p><p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{error}</p><Button variant="secondary" size="sm" onClick={onRefresh}><RefreshCw size={12} />{t('development.github.common.retry')}</Button></div>
         : items.length === 0 && !loading ? <Empty art={remote ? 'search' : 'notes'} title={remote ? t('development.github.gists.empty_remote') : query ? t('development.github.gists.no_match') : t('development.github.gists.empty')} action={query ? <Button variant="secondary" size="sm" onClick={onClear}><X size={12} />{t('common.clear')}</Button> : remote ? <Button variant="secondary" size="sm" onClick={onRefresh}><RefreshCw size={12} />{t('development.github.common.refresh')}</Button> : <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={onCreate}><Plus size={12} />{t('development.github.gists.create')}</Button><Button variant="secondary" size="sm" onClick={onImport}>{t('development.github.gists.import')}</Button></div>} />
-        : viewMode === 'list' ? <div className="absolute inset-0 overflow-y-auto overscroll-contain"><ul role="listbox" aria-label={t('development.github.gists.title')} className="divide-y divide-[var(--border-subtle)]">{items.map((gist) => <GistRow key={gist.id} gist={gist} tags={tags} selected={selectedGistId === gist.id} checked={selectedIds.has(gist.id)} remote={remote} savedRemote={savedRemoteIds?.has(gist.id) ?? false} onCheck={onCheck} onSelect={() => onSelectGist(gist)} onTogglePin={() => onTogglePin(gist)} onToggleFav={() => onToggleFav(gist)} onToggleTag={(tagId) => onToggleTag(gist, tagId)} onSaveToLocal={() => onSaveToLocal?.(gist)} />)}{loading && <li className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Spinner size={14} />{t('development.github.common.loading')}</li>}</ul></div>
+        : viewMode === 'list' ? <div className="absolute inset-0 overflow-y-auto overscroll-contain"><ul className="divide-y divide-[var(--border-subtle)]">{items.map((gist) => <GistRow key={gist.id} gist={gist} tags={tags} selected={selectedGistId === gist.id} checked={selectedIds.has(gist.id)} remote={remote} savedRemote={savedRemoteIds?.has(gist.id) ?? false} onCheck={onCheck} onSelect={() => onSelectGist(gist)} onTogglePin={() => onTogglePin(gist)} onToggleFav={() => onToggleFav(gist)} onToggleTag={(tagId) => onToggleTag(gist, tagId)} onSaveToLocal={() => onSaveToLocal?.(gist)} />)}{loading && <li className="flex items-center justify-center gap-2 py-10 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><Spinner size={14} />{t('development.github.common.loading')}</li>}</ul></div>
         : <div className="absolute inset-0 overflow-y-auto overscroll-contain"><div className="grid grid-cols-1 gap-2 p-3 xl:grid-cols-2">{items.map((gist) => <GistCard key={gist.id} gist={gist} tags={tags} selected={selectedGistId === gist.id} checked={selectedIds.has(gist.id)} remote={remote} savedRemote={savedRemoteIds?.has(gist.id) ?? false} onCheck={onCheck} onSelect={() => onSelectGist(gist)} onTogglePin={() => onTogglePin(gist)} onToggleFav={() => onToggleFav(gist)} onToggleTag={(tagId) => onToggleTag(gist, tagId)} onSaveToLocal={() => onSaveToLocal?.(gist)} />)}</div></div>}
       </div>
       {remote && items.length > 0 && <div className="flex shrink-0 items-center justify-between border-t border-[var(--border-subtle)] px-3 py-2"><span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('development.github.common.page', { page: currentPage })}</span><div className="flex gap-1"><Button variant="secondary" size="sm" disabled={currentPage <= 1 || loading} onClick={() => onLoadPage(currentPage - 1)}><ChevronLeft size={12} />{t('development.github.common.prev_page')}</Button>{hasNextPage && <Button variant="secondary" size="sm" disabled={loading} onClick={() => onLoadPage(currentPage + 1)}>{t('development.github.common.next_page')}<ChevronRight size={12} /></Button>}</div></div>}

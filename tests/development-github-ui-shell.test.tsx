@@ -178,4 +178,16 @@ describe('GitHub module shell', () => {
     await settle()
     expect(rendered.container.querySelector('[data-slot="repo-detail"]')).not.toBeNull()
   })
+
+  it('exposes the open repository as a button instead of a listbox option', async () => {
+    rendered = renderElement(<GithubApp />)
+    await settle()
+    const row = rendered.container.querySelector<HTMLElement>('[data-slot="github-repo-row"]')
+    expect(row).toBeTruthy()
+    act(() => row!.click())
+    await settle()
+    expect(rendered.container.querySelector('[role="listbox"]')).toBeNull()
+    expect(row!.getAttribute('role')).toBeNull()
+    expect(row!.querySelector('button[aria-current="true"]')).not.toBeNull()
+  })
 })

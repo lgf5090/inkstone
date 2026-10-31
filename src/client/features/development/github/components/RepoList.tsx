@@ -185,7 +185,7 @@ export function RepoList({
           />
         ) : (
           <div className="absolute inset-0 overflow-y-auto overscroll-contain">
-            <ul role="listbox" aria-label={t('development.github.repos.title')} className="divide-y divide-[var(--border-subtle)]">
+            <ul className="divide-y divide-[var(--border-subtle)]">
               {items.map((repo, index) => (
                 <RepoRow key={repo.id} repo={repo} rank={isExplore ? (page - 1) * GITHUB_PER_PAGE + index + 1 : index + 1} saved={repoMap.get(String(repo.id))} tags={tags} selected={selectedRepoId === String(repo.id)} mirrorUrl={currentMirror ? `${currentMirror.url.replace(/\/$/, '')}/${repo.url}` : repo.url} onSelect={onSelectRepo} onTogglePin={onTogglePin} onToggleFav={onToggleFav} onToggleTag={onToggleTag} onRemove={onRemoveRepo} />
               ))}
