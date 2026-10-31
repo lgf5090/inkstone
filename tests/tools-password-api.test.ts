@@ -556,6 +556,20 @@ describe('Password Manager Accounts Routes', () => {
     ).data
     expect(list.find((row) => row.id === account.id)?.groupId).toBe(group.id)
   })
+
+  it('refuses an import larger than the batch cap', async () => {
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Big' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+    const accounts = Array.from({ length: 501 }, (_, index) => ({ title: `t${index}` }))
+
+    const res = await call('POST', '/api/tools/password/accounts/import', {
+      body: { groupId: group.id, accounts },
+    })
+    expect(res.status).toBe(400)
+
+    const stored = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/accounts'))).data
+    expect(stored).toEqual([])
+  })
 })
 
 describe('Password Manager Settings Routes', () => {
@@ -579,10 +593,41 @@ describe('Password Manager Settings Routes', () => {
       },
     })
     expect(putRes.status).toBe(200)
-    const saved = (await json<{ ok: boolean; data: { autoLockMinutes: number; webdav: { username: string; enabled: boolean } } }>(putRes)).data
+    const saved = (await json<{ ok: boolean; data: { autoLockMinutes: number; webdav: { username: string; enabled: boolean; password: string; hasPassword: boolean } } }>(putRes)).data
     expect(saved.autoLockMinutes).toBe(10)
     expect(saved.webdav.username).toBe('admin')
     expect(saved.webdav.enabled).toBe(true)
+    // The secret is write-only: neither response may echo it back.
+    expect(saved.webdav.password).toBe('')
+    expect(saved.webdav.hasPassword).toBe(true)
+
+    const reread = (
+      await json<{ data: { webdav: { password: string; hasPassword: boolean } } }>(
+        await call('GET', '/api/tools/password/settings'),
+      )
+    ).data
+    expect(reread.webdav.password).toBe('')
+    expect(reread.webdav.hasPassword).toBe(true)
+
+    // Saving without the password keeps the stored one.
+    await call('PUT', '/api/tools/password/settings', {
+      body: { webdavUrl: 'https://dav.example.com/other', webdavEnabled: true },
+    })
+    const kept = (
+      await json<{ data: { webdav: { hasPassword: boolean } } }>(
+        await call('GET', '/api/tools/password/settings'),
+      )
+    ).data
+    expect(kept.webdav.hasPassword).toBe(true)
+
+    // An address the outbound guard refuses never reaches the network.
+    const blocked = await call('POST', '/api/tools/password/settings/webdav-test', {
+      body: { url: 'http://169.254.169.254/latest/meta-data/', username: 'a', password: 'b' },
+    })
+    expect(blocked.status).toBe(400)
+    expect((await json<{ error: { message: string } }>(blocked)).error.message).toContain(
+      'not reachable',
+    )
 
     // WebDAV test success
     const testOkRes = await call('POST', '/api/tools/password/settings/webdav-test', {
@@ -611,6 +656,33 @@ describe('Password Manager Settings Routes', () => {
 })
 
 describe('Password Manager Backups & Export Routes', () => {
+  it('refuses to restore a snapshot whose references do not resolve', async () => {
+    const createRes = await call('POST', '/api/tools/password/backups', {
+      body: {
+        data: {
+          _backup_info: {
+            type: 'inkstone_password_backup',
+            version: '1.0.0',
+            createTime: 1,
+            platform: 'inkstone',
+          },
+          data: {
+            groups: [],
+            accounts: [{ id: 'a-1', groupId: 'no-such-group', title: 'x' }],
+          },
+        },
+      },
+    })
+    expect(createRes.status).toBe(200)
+    const backup = (await json<{ data: { id: string } }>(createRes)).data
+
+    const restoreRes = await call('POST', `/api/tools/password/backups/${backup.id}/restore`, {
+      body: {},
+    })
+    expect(restoreRes.status).toBe(400)
+    const stored = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/accounts'))).data
+    expect(stored).toEqual([])
+  })
   it('reads an absent backup body as "back up everything" and refuses one it cannot parse', async () => {
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'NoBodyGroup' } })
     const g = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
@@ -728,6 +800,9 @@ describe('Password Manager Backups & Export Routes', () => {
     const roundTrip = await call('GET', exportCsv.downloadUrl)
     expect(roundTrip.status).toBe(200)
     expect(await roundTrip.text()).toContain('Example,testuser,secret')
+    // A plaintext dump must not be retained by a browser or a shared cache.
+    expect(roundTrip.headers.get('cache-control')).toBe('no-store')
+    expect(roundTrip.headers.get('content-disposition')).toContain('attachment')
 
     // 9. When R2 is unavailable, returns 503
     const envNoR2 = testBindings(makeD1(sqlite))

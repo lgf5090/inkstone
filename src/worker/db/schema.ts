@@ -3106,6 +3106,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'tools_password_vault', column: 'kdf_salt' },
     statements: [`ALTER TABLE tools_password_vault ADD COLUMN kdf_salt TEXT NOT NULL DEFAULT ''`],
   },
+  {
+    // The whole-vault listing filters by user and sorts by `sort`; the two older indexes lead with
+    // group_id and is_favorite, so neither could serve it.
+    version: 213,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_user
+         ON tools_password_accounts(user_id, sort ASC, id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

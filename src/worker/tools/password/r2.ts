@@ -100,3 +100,39 @@ export async function readExportFromR2(
   if (!obj) return null
   return await obj.text()
 }
+
+/** How long a plaintext export may sit in storage before the next export sweeps it. */
+export const EXPORT_TTL_MS = 60 * 60 * 1000
+
+/**
+ * Deletes this user's exports of one format that are older than the TTL.
+ *
+ * A decrypted dump has no reason to outlive the download that produced it, and nothing used to
+ * delete them: every export added a permanent plaintext object under the tenant's prefix.
+ */
+export async function purgeOldExports(
+  r2: R2Bucket | undefined,
+  userId: string,
+  type: 'txt' | 'csv',
+  now = Date.now(),
+): Promise<number> {
+  if (!r2) return 0
+
+  const prefix = `tools/password/${type}/${userId}/`
+  const cutoff = now - EXPORT_TTL_MS
+  let purged = 0
+  let cursor: string | undefined
+
+  do {
+    const listed = await r2.list({ prefix, cursor })
+    for (const object of listed.objects) {
+      if (object.uploaded.getTime() < cutoff) {
+        await r2.delete(object.key)
+        purged += 1
+      }
+    }
+    cursor = listed.truncated ? listed.cursor : undefined
+  } while (cursor)
+
+  return purged
+}

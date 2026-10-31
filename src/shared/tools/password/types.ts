@@ -63,7 +63,9 @@ export interface DecryptedAccount {
 export interface WebdavConfig {
   url: string
   username: string
+  /** Write-only: the server never returns the stored secret, only whether one exists. */
   password?: string
+  hasPassword?: boolean
   enabled: boolean
 }
 

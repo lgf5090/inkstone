@@ -100,6 +100,7 @@ export const EN_US_TOOLS = {
   "tools.password.backup.webdav_url": "WebDAV Server URL",
   "tools.password.backup.webdav_user": "WebDAV Username",
   "tools.password.backup.webdav_pass": "WebDAV Password",
+  "tools.password.backup.webdav_pass_keep": "Saved — leave blank to keep it",
   "tools.password.backup.webdav_test": "Test Connection",
   "tools.password.backup.webdav_test_ok": "WebDAV connection successful",
   "tools.password.backup.webdav_enable": "Enable WebDAV Cloud Backup",

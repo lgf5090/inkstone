@@ -100,6 +100,7 @@ export const ZH_CN_TOOLS = {
   "tools.password.backup.webdav_url": "WebDAV 服务器地址",
   "tools.password.backup.webdav_user": "WebDAV 用户名",
   "tools.password.backup.webdav_pass": "WebDAV 密码",
+  "tools.password.backup.webdav_pass_keep": "已保存，留空表示不修改",
   "tools.password.backup.webdav_test": "测试连接",
   "tools.password.backup.webdav_test_ok": "WebDAV 连接成功",
   "tools.password.backup.webdav_enable": "启用 WebDAV 云备份",

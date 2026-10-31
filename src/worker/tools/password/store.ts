@@ -13,6 +13,22 @@ import type {
 } from '@shared/tools/password/types'
 import { ApiError } from '../../lib/errors'
 
+/**
+ * D1 caps the number of statements one `batch` may carry, and the repository's other stores chunk at
+ * 90. Every caller that maps an unbounded list goes through here instead of handing `batch` a list
+ * whose length came from a request body.
+ */
+const STATEMENT_CHUNK = 90
+
+/** How many snapshots a vault keeps before the oldest are dropped. */
+const BACKUP_RETENTION = 20
+
+async function runBatched(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
+  for (let offset = 0; offset < statements.length; offset += STATEMENT_CHUNK) {
+    await db.batch(statements.slice(offset, offset + STATEMENT_CHUNK))
+  }
+}
+
 interface VaultRow {
   user_id: string
   master_hash: string
@@ -204,7 +220,7 @@ export class PasswordStore {
       )
     }
 
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   /**
@@ -353,7 +369,7 @@ export class PasswordStore {
         )
         .bind(g.parentId ?? '', g.sort, now, this.userId, g.id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   // ---------------------------------------------------------------- Accounts
@@ -557,7 +573,7 @@ export class PasswordStore {
         .prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async batchMoveAccounts(accountIds: string[], targetGroupId: string): Promise<void> {
@@ -577,7 +593,7 @@ export class PasswordStore {
         )
         .bind(targetGroupId, now, this.userId, id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async reorderAccounts(accounts: Array<{ id: string; sort: number }>): Promise<void> {
@@ -592,7 +608,7 @@ export class PasswordStore {
         )
         .bind(acc.sort, now, this.userId, acc.id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async batchImportAccounts(
@@ -670,7 +686,7 @@ export class PasswordStore {
     }
 
     if (statements.length > 0) {
-      await this.db.batch(statements)
+      await runBatched(this.db, statements)
     }
 
     return created
@@ -693,6 +709,7 @@ export class PasswordStore {
           url: '',
           username: '',
           password: '',
+          hasPassword: false,
           enabled: false,
         },
         autoBackupEnabled: true,
@@ -705,13 +722,24 @@ export class PasswordStore {
       webdav: {
         url: row.webdav_url,
         username: row.webdav_username,
-        password: row.webdav_password,
+        // The WebDAV secret is write-only: the client may replace it but never read it back, so a
+        // response that lands in a log, a cache or a screenshot carries no credential.
+        password: '',
+        hasPassword: Boolean(row.webdav_password),
         enabled: Boolean(row.webdav_enabled),
       },
       autoBackupEnabled: Boolean(row.auto_backup_enabled),
       autoLockMinutes: row.auto_lock_minutes,
       updatedAt: row.updated_at,
     }
+  }
+
+  private async storedWebdavPassword(): Promise<string> {
+    const row = await this.db
+      .prepare(`SELECT webdav_password FROM tools_password_settings WHERE user_id = ?1`)
+      .bind(this.userId)
+      .first<{ webdav_password: string }>()
+    return row?.webdav_password ?? ''
   }
 
   async saveSettings(data: {
@@ -725,7 +753,8 @@ export class PasswordStore {
     const current = await this.getSettings()
     const webdavUrl = data.webdavUrl !== undefined ? data.webdavUrl : current.webdav.url
     const webdavUsername = data.webdavUsername !== undefined ? data.webdavUsername : current.webdav.username
-    const webdavPassword = data.webdavPassword !== undefined ? data.webdavPassword : (current.webdav.password ?? '')
+    // getSettings no longer carries the secret, so "absent" has to read it from its own column.
+    const webdavPassword = data.webdavPassword !== undefined ? data.webdavPassword : await this.storedWebdavPassword()
     const webdavEnabled = data.webdavEnabled !== undefined ? (data.webdavEnabled ? 1 : 0) : (current.webdav.enabled ? 1 : 0)
     const autoBackupEnabled = data.autoBackupEnabled !== undefined ? (data.autoBackupEnabled ? 1 : 0) : (current.autoBackupEnabled ? 1 : 0)
     const autoLockMinutes = data.autoLockMinutes !== undefined ? data.autoLockMinutes : current.autoLockMinutes
@@ -761,7 +790,8 @@ export class PasswordStore {
       webdav: {
         url: webdavUrl,
         username: webdavUsername,
-        password: webdavPassword,
+        password: '',
+        hasPassword: Boolean(webdavPassword),
         enabled: Boolean(webdavEnabled),
       },
       autoBackupEnabled: Boolean(autoBackupEnabled),
@@ -777,7 +807,8 @@ export class PasswordStore {
         `SELECT id, user_id, filename, r2_key, size, type, created_at
          FROM tools_password_backups
          WHERE user_id = ?1
-         ORDER BY created_at DESC`,
+         ORDER BY created_at DESC
+         LIMIT 50`,
       )
       .bind(this.userId)
       .all<BackupRow>()
@@ -813,6 +844,34 @@ export class PasswordStore {
       type: row.type as 'auto' | 'manual',
       createdAt: row.created_at,
     }
+  }
+
+  /**
+   * Drops the snapshots past the retention limit and returns their R2 keys so the route can delete
+   * the objects. Snapshots used to accumulate one per click, forever.
+   */
+  async pruneBackups(): Promise<string[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, r2_key FROM tools_password_backups
+         WHERE user_id = ?1
+         ORDER BY created_at DESC, id DESC`,
+      )
+      .bind(this.userId)
+      .all<{ id: string; r2_key: string }>()
+
+    const stale = (results ?? []).slice(BACKUP_RETENTION)
+    if (stale.length === 0) return []
+
+    await runBatched(
+      this.db,
+      stale.map((row) =>
+        this.db
+          .prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1 AND id = ?2`)
+          .bind(this.userId, row.id),
+      ),
+    )
+    return stale.map((row) => row.r2_key)
   }
 
   async addBackupRecord(record: {
@@ -865,6 +924,21 @@ export class PasswordStore {
   }
 
   async restoreData(data: { groups: PasswordGroup[]; accounts: PasswordAccount[] }): Promise<void> {
+    // A backup is a foreign document: every reference in it has to resolve inside the same file, or
+    // the restore writes rows that no view can reach (they are filtered by a group that never came
+    // back). Refusing is cheaper than a dangling-row cleanup nobody runs.
+    const groupIds = new Set(data.groups.map((group) => group.id))
+    for (const group of data.groups) {
+      if (group.parentId && !groupIds.has(group.parentId)) {
+        throw ApiError.badRequest(`Group ${group.id} points at a missing parent`)
+      }
+    }
+    for (const account of data.accounts) {
+      if (!groupIds.has(account.groupId)) {
+        throw ApiError.badRequest(`Account ${account.id} belongs to a missing group`)
+      }
+    }
+
     const statements: D1PreparedStatement[] = [
       this.db.prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
@@ -907,6 +981,6 @@ export class PasswordStore {
       )
     }
 
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 }

@@ -436,6 +436,11 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                       id="webdav-password"
                       type="password"
                       value={webdavConfig.password || ''}
+                      placeholder={
+                        webdavConfig.hasPassword
+                          ? t('tools.password.backup.webdav_pass_keep')
+                          : undefined
+                      }
                       onChange={(e) =>
                         setWebdavConfig((prev) => ({ ...prev, password: e.target.value }))
                       }

@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+/** Ciphertext is hex of the plaintext, so these caps are roughly two bytes per character. */
+const CIPHER_MAX = 8000
+const MAX_BATCH = 200
+const MAX_IMPORT = 500
+
 export const InitVaultSchema = z.object({
   masterHash: z.string().min(10).max(200),
   kdfSalt: z.string().min(16).max(128),
@@ -17,110 +22,120 @@ export const ResetMasterPasswordSchema = z.object({
   oldPassword: z.string().min(1).max(200),
   newMasterHash: z.string().min(10).max(200),
   newKdfSalt: z.string().min(16).max(128),
-  accounts: z.array(
-    z.object({
-      id: z.string().min(1),
-      title: z.string(),
-      username: z.string(),
-      password: z.string(),
-      link: z.string().default(''),
-      remark: z.string().default(''),
-    })
-  ),
+  accounts: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(128),
+        title: z.string().max(CIPHER_MAX),
+        username: z.string().max(CIPHER_MAX),
+        password: z.string().max(CIPHER_MAX),
+        link: z.string().max(CIPHER_MAX).default(''),
+        remark: z.string().max(CIPHER_MAX).default(''),
+      }),
+    )
+    .max(MAX_IMPORT),
 })
 
 export const CreateGroupSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: z.string().min(1).max(128).optional(),
   name: z.string().trim().min(1).max(100),
-  parentId: z.string().default(''),
+  parentId: z.string().max(128).default(''),
   sort: z.number().int().default(0),
 })
 
 export const UpdateGroupSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  parentId: z.string().optional(),
+  parentId: z.string().max(128).optional(),
   sort: z.number().int().optional(),
 })
 
 export const ReorderGroupsSchema = z.object({
-  groups: z.array(
-    z.object({
-      id: z.string().min(1),
-      parentId: z.string().default(''),
-      sort: z.number().int(),
-    })
-  ),
+  groups: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(128),
+        parentId: z.string().max(128).default(''),
+        sort: z.number().int(),
+      }),
+    )
+    .max(500),
 })
 
 export const CreateAccountSchema = z.object({
-  id: z.string().min(1).optional(),
-  groupId: z.string().min(1),
-  title: z.string().default(''),
-  username: z.string().default(''),
-  password: z.string().default(''),
-  link: z.string().default(''),
-  remark: z.string().default(''),
-  favicon: z.string().default(''),
+  id: z.string().min(1).max(128).optional(),
+  groupId: z.string().min(1).max(128),
+  title: z.string().max(CIPHER_MAX).default(''),
+  username: z.string().max(CIPHER_MAX).default(''),
+  password: z.string().max(CIPHER_MAX).default(''),
+  link: z.string().max(CIPHER_MAX).default(''),
+  remark: z.string().max(CIPHER_MAX).default(''),
+  favicon: z.string().max(2048).default(''),
   isFavorite: z.boolean().default(false),
   sort: z.number().int().default(0),
 })
 
 export const UpdateAccountSchema = z.object({
-  groupId: z.string().min(1).optional(),
-  title: z.string().optional(),
-  username: z.string().optional(),
-  password: z.string().optional(),
-  link: z.string().optional(),
-  remark: z.string().optional(),
-  favicon: z.string().optional(),
+  groupId: z.string().min(1).max(128).optional(),
+  title: z.string().max(CIPHER_MAX).optional(),
+  username: z.string().max(CIPHER_MAX).optional(),
+  password: z.string().max(CIPHER_MAX).optional(),
+  link: z.string().max(CIPHER_MAX).optional(),
+  remark: z.string().max(CIPHER_MAX).optional(),
+  favicon: z.string().max(2048).optional(),
   isFavorite: z.boolean().optional(),
   sort: z.number().int().optional(),
 })
 
 export const BatchDeleteAccountsSchema = z.object({
-  accountIds: z.array(z.string().min(1)).min(1),
+  accountIds: z.array(z.string().min(1).max(128)).min(1).max(MAX_BATCH),
 })
 
 export const BatchMoveAccountsSchema = z.object({
-  accountIds: z.array(z.string().min(1)).min(1),
-  targetGroupId: z.string().min(1),
+  accountIds: z.array(z.string().min(1).max(128)).min(1).max(MAX_BATCH),
+  targetGroupId: z.string().min(1).max(128),
 })
 
 export const ReorderAccountsSchema = z.object({
-  accounts: z.array(
-    z.object({
-      id: z.string().min(1),
-      sort: z.number().int(),
-    })
-  ),
+  accounts: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(128),
+        sort: z.number().int(),
+      }),
+    )
+    .max(2000),
 })
 
 export const BatchImportAccountsSchema = z.object({
-  groupId: z.string().min(1),
-  accounts: z.array(
-    z.object({
-      id: z.string().min(1).optional(),
-      title: z.string().default(''),
-      username: z.string().default(''),
-      password: z.string().default(''),
-      link: z.string().default(''),
-      remark: z.string().default(''),
-      favicon: z.string().default(''),
-    })
-  ),
+  groupId: z.string().min(1).max(128),
+  accounts: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(128).optional(),
+        title: z.string().max(CIPHER_MAX).default(''),
+        username: z.string().max(CIPHER_MAX).default(''),
+        password: z.string().max(CIPHER_MAX).default(''),
+        link: z.string().max(CIPHER_MAX).default(''),
+        remark: z.string().max(CIPHER_MAX).default(''),
+        favicon: z.string().max(2048).default(''),
+      }),
+    )
+    .max(MAX_IMPORT),
 })
 
+// Every field is optional on purpose: the store reads "absent" as "keep what is stored", and a
+// schema-level default would turn a partial body into an explicit empty value that wipes it.
 export const SaveSettingsSchema = z.object({
-  webdavUrl: z.string().default(''),
-  webdavUsername: z.string().default(''),
-  webdavPassword: z.string().default(''),
-  webdavEnabled: z.boolean().default(false),
-  autoBackupEnabled: z.boolean().default(true),
-  autoLockMinutes: z.number().int().min(1).max(120).default(5),
+  webdavUrl: z.string().max(2048).optional(),
+  webdavUsername: z.string().max(256).optional(),
+  webdavPassword: z.string().max(512).optional(),
+  webdavEnabled: z.boolean().optional(),
+  autoBackupEnabled: z.boolean().optional(),
+  autoLockMinutes: z.number().int().min(1).max(120).optional(),
 })
 
 export const TestWebdavSchema = z.object({
-  url: z.string().url(),
-  username: z.string().min(1),
-  password: z.string().min(1),
+  url: z.string().max(2048).url(),
+  username: z.string().min(1).max(256),
+  password: z.string().min(1).max(512),
 })

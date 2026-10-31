@@ -46,6 +46,10 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
      ON tools_password_accounts(user_id, group_id, sort ASC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_fav
      ON tools_password_accounts(user_id, is_favorite, sort ASC, id)`,
+  // The whole-vault list sorts by `user_id, sort` with no group filter; neither index above leads
+  // with that pair, so unlock used to scan and sort the table every time.
+  `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_user
+     ON tools_password_accounts(user_id, sort ASC, id)`,
 
   `CREATE TABLE IF NOT EXISTS tools_password_settings (
     user_id TEXT NOT NULL,
@@ -85,6 +89,7 @@ export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_password_groups_user',
   'idx_tools_password_accounts_group',
   'idx_tools_password_accounts_fav',
+  'idx_tools_password_accounts_user',
   'idx_tools_password_backups_user',
 ]
 

@@ -31,10 +31,12 @@ import {
   consumeAttemptBudget,
 } from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
+import { checkTarget } from '../lib/outbound'
 import {
   deleteFromR2,
   getExportCsvR2Key,
   getExportTxtR2Key,
+  purgeOldExports,
   readBackupFromR2,
   readExportFromR2,
   uploadBackupToR2,
@@ -277,8 +279,15 @@ toolsPasswordRoutes.put('/settings', async (c) => {
 
 toolsPasswordRoutes.post('/settings/webdav-test', async (c) => {
   const body = await parseBody(c, TestWebdavSchema)
+  // The server makes the request, so the address has to clear the shared outbound guard first:
+  // otherwise this endpoint is a way to reach a metadata service from inside the deployment.
+  const target = checkTarget(body.url)
+  if (!target.url) {
+    throw ApiError.badRequest(target.error)
+  }
+
   try {
-    const client = createClient(body.url, {
+    const client = createClient(target.url.toString(), {
       username: body.username,
       password: body.password,
     })
@@ -351,6 +360,17 @@ toolsPasswordRoutes.post('/backups', async (c) => {
     type,
   })
 
+  // Snapshots used to accumulate one per click forever; the oldest beyond the retention limit go
+  // now, rows and objects together.
+  const staleKeys = await store.pruneBackups()
+  await Promise.all(
+    staleKeys.map((staleKey) =>
+      deleteFromR2(c.env.FILES, staleKey).catch((error: unknown) => {
+        console.warn('password: pruned backup object not deleted', staleKey, error)
+      }),
+    ),
+  )
+
   return c.json({ ok: true, data: record })
 })
 
@@ -416,6 +436,11 @@ toolsPasswordRoutes.post('/export', async (c) => {
   const userId = getUserId(c)
   const body = await parseBody(c, ExportSchema)
   const fileId = crypto.randomUUID()
+  // A decrypted dump has no reason to outlive its download; the sweep runs before the new write so
+  // the prefix never grows without bound.
+  await purgeOldExports(c.env.FILES, userId, body.type).catch((error: unknown) => {
+    console.warn('password: export sweep failed', error)
+  })
   const { size } = await uploadExportToR2(
     c.env.FILES,
     userId,
@@ -453,6 +478,11 @@ toolsPasswordRoutes.get('/export/:type/:fileId', async (c) => {
   return new Response(content, {
     headers: {
       'content-type': type === 'txt' ? 'text/plain; charset=utf-8' : 'text/csv; charset=utf-8',
+      // A plaintext password dump must not be retained by a browser or a shared cache, and it is
+      // offered as a download rather than rendered in the tab.
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'content-disposition': `attachment; filename="passwords_export.${type}"`,
     },
   })
 })
