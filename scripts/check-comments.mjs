@@ -17397,7 +17397,6 @@ const allowed = new Map([
     "// 0-100",
     "// 0-100, default 50",
     "// Draw the circular color disk on canvas",
-    "// Anti-aliased boundary",
     "// Ignored if capture already lost",
     "// Accessible keyboard navigation",
     "// Thumb position",
@@ -17457,6 +17456,13 @@ const allowed = new Map([
   ["src/client/features/tools/color/components/modals/TokenScaleModal.tsx", [
     "/* 11-step scale grid */",
     "/* Step details table */",
+  ]],
+  ["src/client/features/tools/color/lib/color-wheel.ts", [
+    "/**\n * The color wheel's pixel field and its blit, kept apart from the component.\n *\n * The disk used to be written with `putImageData` after `ctx.scale(dpr, dpr)`, on the assumption that the\n * scale would enlarge it. `putImageData` copies device pixels and ignores the context transform, so on any\n * display that is not exactly 1× the wheel landed in the top-left corner at 1/dpr of its box while the\n * pointer math kept answering for the full CSS size. Splitting the field (pure) from the blit (canvas) is\n * what lets the geometry be tested at all: jsdom has no 2D context.\n */",
+    "/** Opaque inside the disk, transparent outside, anti-aliased across the boundary. */",
+    "/** Radius inset that keeps the disk off the canvas edge, so the border never clips a color. */",
+    "/**\n * Sizes the blit.\n *\n * The backing store carries the device pixels; the drawing itself stays in CSS units under a `dpr` scale,\n * which is the only way the disk ends up filling the box the pointer math already assumes.\n */",
+    "/**\n * Paints the wheel into `canvas` at the device's own resolution.\n *\n * The field is computed at CSS size and then scaled up by `drawImage`, which is the one canvas call that\n * honours the transform. Computing it at device size instead would quadruple a per-pixel HSL conversion on\n * every lightness change, and a hue field has no detail for the extra samples to resolve.\n */",
   ]],
   ["src/client/features/tools/color/lib/export-engine.ts", [
     "/**\n * Universal Palette Exporter Engine (ASE, CSS, SCSS, Tailwind, JSON)\n */",
@@ -44435,6 +44441,10 @@ const allowed = new Map([
     "// Check luminance decrease from 50 to 950",
     "// Achromatopsia should have equal R, G, B",
     "// 100 pixels of red and 50 pixels of green",
+  ]],
+  ["tests/tools-color-wheel.test.ts", [
+    "/**\n * Geometry of the color wheel's field and blit.\n *\n * jsdom answers `getContext('2d')` with null here, so the blit itself is verified in a real browser (see\n * the ledger's round-2 record for the device-pixel readback); what these cases pin is the two decisions\n * that failure turned on: the disk is built centred in its own square, and the backing store is sized by\n * the device pixel ratio while the drawing stays in CSS units.\n */",
+    "// Hue 0 due east, hue 180 due west, both near full saturation at the rim.",
   ]],
   ["tests/tools-container.test.tsx", [
     "// Sub-menu slot labels must not be in collapsed rail",
