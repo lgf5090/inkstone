@@ -83,6 +83,7 @@ export function TagAssign({
         align="start"
         width={220}
         label={t('development.github.tags.assign_title')}
+        searchable
       />
     </>
   )

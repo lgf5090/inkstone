@@ -34,6 +34,7 @@ export function SelectMenu<T extends string>({
   align = 'start',
   size = 'md',
   placeholder,
+  searchable = false,
 }: {
   /** The control's accessible name; also the menu's, so the panel is announced with its owner. */
   label: string
@@ -48,6 +49,8 @@ export function SelectMenu<T extends string>({
   /** `sm` is the toolbar row; `md` the form field. */
   size?: 'sm' | 'md'
   placeholder?: string
+  /** Long option lists get the shared filter box. */
+  searchable?: boolean
 }) {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -96,6 +99,7 @@ export function SelectMenu<T extends string>({
         align={align}
         width={width}
         label={label}
+        searchable={searchable}
       />
     </>
   )

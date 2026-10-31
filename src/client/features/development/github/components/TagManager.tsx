@@ -87,7 +87,7 @@ export function TagManager({
           </h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('development.github.tags.name_placeholder')} className="h-8" onKeyDown={(event) => { if (isImeComposing(event)) return; if (event.key === 'Enter') add() }} />
-            <SelectMenu value={parentId} options={parentOptions} onChange={setParentId} label={t('development.github.tags.top_level')} size="sm" />
+            <SelectMenu value={parentId} options={parentOptions} onChange={setParentId} label={t('development.github.tags.top_level')} size="sm" searchable />
           </div>
           <div className="mt-2">
             <TagColorPicker value={color} onChange={setColor} />
