@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import type { GithubAccountView } from '@shared/development/github/types'
-import { t } from '../../../../lib/i18n'
+import { localeTag, t } from '../../../../lib/i18n'
 import { isImeComposing } from '../../../../lib/ime'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
@@ -88,7 +88,7 @@ export function AccountsView({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[length:var(--text-13)] font-medium">{account.username}</p>
                   <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                    {t('development.github.accounts.added_at', { date: new Date(account.createdAt).toLocaleDateString() })}
+                    {t('development.github.accounts.added_at', { date: new Date(account.createdAt).toLocaleDateString(localeTag()) })}
                   </p>
                 </div>
                 <a href={`https://github.com/${encodeURIComponent(account.username)}`} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded p-1.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]" title={t('development.github.accounts.open_profile')}>
