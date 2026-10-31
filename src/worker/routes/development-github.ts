@@ -410,8 +410,8 @@ developmentGithubRoutes.delete('/tags/:id', async (c) => {
   const tags = await listTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  await deleteTags(c.env.DB, userId, removedTagIds)
   const updatedRepoIds = await unbindRepoTags(c.env.DB, userId, removedTagIds)
+  await deleteTags(c.env.DB, userId, removedTagIds)
   return c.json({ ok: true, data: { removedTagIds, updatedRepoIds } })
 })
 
@@ -479,8 +479,8 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
   const tags = await listGistTags(c.env.DB, userId)
   if (!tags.some((tag) => tag.id === id)) throw githubNotFound('Gist tag not found')
   const removedTagIds = collectDescendantTagIds(tags, id)
-  await deleteGistTags(c.env.DB, userId, removedTagIds)
   const updatedGistIds = await unbindGistTags(c.env.DB, userId, removedTagIds)
+  await deleteGistTags(c.env.DB, userId, removedTagIds)
   return c.json({ ok: true, data: { removedTagIds, updatedGistIds } })
 })
 
