@@ -169,6 +169,7 @@ export function ReposPane({
             onQueryChange={setQuery}
             onCommitSearch={() => { setCommittedQuery(query.trim()); setPage(1) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
+            onGoDiscover={() => selectView(GITHUB_EXPLORE_VIEW)}
             loading={search.loading || refreshing}
             error={search.error instanceof Error ? search.error.message : null}
             prefs={prefs}

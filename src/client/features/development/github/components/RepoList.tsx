@@ -41,6 +41,7 @@ export function RepoList({
   onQueryChange,
   onCommitSearch,
   onClear,
+  onGoDiscover,
   loading,
   error,
   prefs,
@@ -70,6 +71,7 @@ export function RepoList({
   onQueryChange: (value: string) => void
   onCommitSearch: () => void
   onClear: () => void
+  onGoDiscover: () => void
   loading: boolean
   error: string | null
   prefs: GithubPrefs
@@ -170,7 +172,15 @@ export function RepoList({
             <Button variant="secondary" size="sm" onClick={onRefresh} disabled={loading}><RefreshCw size={12} />{t('development.github.common.retry')}</Button>
           </div>
         ) : items.length === 0 && !loading ? (
-          <Empty art="search" title={isExplore ? t('development.github.repos.no_results') : t('development.github.repos.no_repos')} />
+          <Empty
+            art="search"
+            title={isExplore ? t('development.github.repos.no_results') : t('development.github.repos.no_repos')}
+            action={query
+              ? <Button variant="secondary" size="sm" onClick={onClear}>{t('common.clear')}</Button>
+              : !isExplore
+                ? <Button variant="secondary" size="sm" onClick={onGoDiscover}>{t('development.github.repos.discover')}</Button>
+                : undefined}
+          />
         ) : (
           <div className="absolute inset-0 overflow-y-auto overscroll-contain">
             <ul role="listbox" aria-label={t('development.github.repos.title')} className="divide-y divide-[var(--border-subtle)]">
