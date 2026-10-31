@@ -97,8 +97,31 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const saveTimerRef = useRef<number | null>(null)
   const latestDataRef = useRef<DecryptedAccount | null>(null)
 
+  // The debounce is the only copy of the last few keystrokes: unmounting or switching accounts
+  // inside the 300 ms window used to throw them away. Both paths now write them out first.
+  const flushPendingSave = () => {
+    if (!saveTimerRef.current) return
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+
+    const pending = latestDataRef.current
+    if (!pending) return
+    void updateAccount(pending.id, {
+      title: pending.title,
+      username: pending.username,
+      password: pending.password,
+      link: pending.link,
+      remark: pending.remark,
+      favicon: pending.favicon,
+    }).catch(() => {
+      useUi.getState().toast({ title: t('common.save_failed'), tone: 'danger' })
+    })
+  }
+
   // Sync state when selected account changes
   useEffect(() => {
+    flushPendingSave()
+
     if (!activeAccount) {
       setFormData(null)
       latestDataRef.current = null
@@ -120,12 +143,9 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     setIsLocked(hasExistingContent)
   }, [activeAccount?.id])
 
-  // Flush debounce timer on unmount
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) {
-        window.clearTimeout(saveTimerRef.current)
-      }
+      flushPendingSave()
     }
   }, [])
 
@@ -250,6 +270,12 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     })
 
     if (ok) {
+      // A pending save would otherwise fire at the row 300 ms after it was deleted.
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      latestDataRef.current = null
       await deleteAccount(formData.id)
       useUi.getState().toast({
         title: t('notes.deleted'),

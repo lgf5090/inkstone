@@ -46,6 +46,13 @@ export function PasswordApp() {
   }, [isUnlocked, vaultState, checkVaultAndAutoUnlock])
 
   useEffect(() => {
+    // Sign-out clears the whole session cache; the vault must not survive it in memory.
+    const forget = () => usePasswordVaultStore.getState().forgetSession()
+    window.addEventListener('inkstone:session-cleared', forget)
+    return () => window.removeEventListener('inkstone:session-cleared', forget)
+  }, [])
+
+  useEffect(() => {
     if (activePasswordView === 'backup_settings') {
       usePasswordVaultStore.getState().openBackupSettings()
     } else if (activePasswordView === 'batch_operations') {

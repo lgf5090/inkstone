@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { FolderTree, Plus } from 'lucide-react'
 import type { PasswordGroup } from '@shared/tools/password/types'
 import { t } from '../../../lib/i18n'
@@ -64,9 +64,26 @@ export function GroupTree() {
   const openExportModal = usePasswordVaultStore((s) => s.openExportModal)
   const openImportModal = usePasswordVaultStore((s) => s.openImportModal)
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    return new Set(groups.map((g) => g.id))
-  })
+  // The initialiser runs once, when the tree mounts — before unlock has fetched any groups. Groups
+  // are therefore expanded the first time they are seen, once each, so a group the reader collapsed
+  // stays collapsed while new ones still appear open.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(groups.map((g) => g.id)))
+  const seenGroupIds = useRef<Set<string>>(new Set(groups.map((g) => g.id)))
+
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      let added = false
+      const next = new Set(prev)
+      for (const group of groups) {
+        if (!seenGroupIds.current.has(group.id)) {
+          seenGroupIds.current.add(group.id)
+          next.add(group.id)
+          added = true
+        }
+      }
+      return added ? next : prev
+    })
+  }, [groups])
 
   // Account count per group map
   const accountCountMap = useMemo(() => {
