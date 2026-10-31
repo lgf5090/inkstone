@@ -21,7 +21,7 @@ const TABS: { id: SettingsTab; label: MessageKey }[] = [
 ]
 
 const LOCALES = ['en', 'zh-CN', 'zh-TW', 'ja', 'ko', 'es', 'id', 'th', 'tr', 'vi']
-const THEME_STYLES = ['tonalSpot', 'vibrant', 'expressive', 'neutral', 'monochrome']
+const THEME_STYLES = ['tonalSpot', 'vibrant', 'expressive', 'fidelity', 'content', 'monochrome', 'neutral', 'rainbow', 'fruitSalad']
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
