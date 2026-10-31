@@ -25,6 +25,7 @@ import {
   DEFAULT_TIMELINE_RANGE,
 } from '@shared/tools/shortlinks/types'
 import { ApiError } from '../../lib/errors'
+import { hashPassword } from '../../lib/password'
 import {
   computeDelta,
   fillBuckets,
@@ -39,15 +40,9 @@ import {
   getShortlinksExportTxtR2Key,
   uploadShortlinksFileToR2,
 } from './r2'
+import { PASSWORD_ATTEMPT_LIMIT, PASSWORD_ATTEMPT_WINDOW_SECONDS } from './password-gate'
 import { generateUniqueSlug, validateCustomSlug } from './slugs'
 import { fetchPageTitle } from './title-fetch'
-
-export async function hashPassword(password: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password))
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
 
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[/?#]+$/, '')
@@ -125,6 +120,66 @@ export class ShortlinksStore {
       .run()
 
     return updated
+  }
+
+  // -------------------------------------------------------------------------
+  // Password gate throttling
+  // -------------------------------------------------------------------------
+
+  async passwordGateState(bucket: string, now: number): Promise<{ blocked: boolean; retryAfter: number }> {
+    const row = await this.db
+      .prepare('SELECT failures, window_start FROM tools_shortlinks_password_attempts WHERE bucket = ?')
+      .bind(bucket)
+      .first<{ failures: number; window_start: number }>()
+
+    if (!row) return { blocked: false, retryAfter: 0 }
+    if (row.window_start <= now - PASSWORD_ATTEMPT_WINDOW_SECONDS) return { blocked: false, retryAfter: 0 }
+    if (row.failures < PASSWORD_ATTEMPT_LIMIT) return { blocked: false, retryAfter: 0 }
+    return { blocked: true, retryAfter: row.window_start + PASSWORD_ATTEMPT_WINDOW_SECONDS - now }
+  }
+
+  async recordPasswordFailure(bucket: string, now: number): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT failures, window_start FROM tools_shortlinks_password_attempts WHERE bucket = ?')
+      .bind(bucket)
+      .first<{ failures: number; window_start: number }>()
+
+    if (!row || row.window_start <= now - PASSWORD_ATTEMPT_WINDOW_SECONDS) {
+      await this.db
+        .prepare(
+          `INSERT INTO tools_shortlinks_password_attempts (bucket, failures, window_start) VALUES (?, 1, ?)
+           ON CONFLICT (bucket) DO UPDATE SET failures = 1, window_start = excluded.window_start`,
+        )
+        .bind(bucket, now)
+        .run()
+      return
+    }
+
+    await this.db
+      .prepare('UPDATE tools_shortlinks_password_attempts SET failures = failures + 1 WHERE bucket = ?')
+      .bind(bucket)
+      .run()
+  }
+
+  async clearPasswordFailures(bucket: string): Promise<void> {
+    await this.db
+      .prepare('DELETE FROM tools_shortlinks_password_attempts WHERE bucket = ?')
+      .bind(bucket)
+      .run()
+  }
+
+  async upgradePasswordHash(linkId: number, password: string, kv?: KVNamespace): Promise<string> {
+    const hash = await hashPassword(password)
+    await this.db
+      .prepare('UPDATE tools_shortlinks_links SET password_hash = ? WHERE id = ? AND user_id = ?')
+      .bind(hash, linkId, this.userId)
+      .run()
+
+    const link = await this.getLinkById(linkId)
+    if (link) {
+      for (const s of link.slugs) await deleteCachedSlug(kv, s.slug)
+    }
+    return hash
   }
 
   // -------------------------------------------------------------------------

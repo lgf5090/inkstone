@@ -18,46 +18,6 @@ const MAP_TAIL = '\n])\n'
 const ALLOWLIST_CJK = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u
 
 const allowed = new Map([
-  ["src/worker/development/api-tester/schema.ts", [
-    "/**\n * One row per live relay socket.\n *\n * The row is inserted when the upgrade is accepted and deleted when the pair closes; `expires_at`\n * is the crash safety net (the same idle window the socket itself honours). Counting these rows is\n * how a single account is kept from parking dozens of long-lived Worker connections.\n */",
-  ]],
-  ["src/client/features/development/api-tester/components/HistoryDialog.tsx", [
-    "// History no longer rides along with the workspace state: it is read when the dialog needs it.",
-  ]],
-  ["src/client/features/development/api-tester/components/RawViewer.tsx", [
-    "/** One rendered line is exactly one 20px row, which is what makes windowing possible. */",
-    "/** Rows drawn above and below the viewport so a fast wheel scroll never meets a blank strip. */",
-    "/** Without a measurable viewport (jsdom, a hidden pane) render this many rows rather than guessing. */",
-    "/** A one-character query on a 5 MB body can match a million times; the list is bounded, the count says so. */",
-    "// `scrollTop` stays authoritative even when no height can be measured: that is how a jump to a",
-    "// match still renders its row in jsdom, where every element reports a zero-height viewport.",
-  ]],
-  ["src/client/features/development/api-tester/components/RequestBuilder.tsx", [
-    "// The module-level Cmd/Ctrl+Enter handler owns the modified key, so this answers the bare key only.",
-  ]],
-  ["src/client/features/development/api-tester/lib/inflight.ts", [
-    "/** One in-flight controller per tab, so a send in one tab cannot abort a send in another. */",
-    "/** Starts a request for a tab, aborting only that tab's earlier request. */",
-    "/** Unregisters `controller` if it is still the one this tab owns. */",
-  ]],
-  ["src/client/features/development/api-tester/lib/shortcut.ts", [
-    "/**\n * Cmd/Ctrl+Enter sends the active request from anywhere in the module.\n *\n * The URL field's own Enter handler answers the bare key only, so the two paths cannot both fire\n * for one keystroke. An IME frame is excluded the same way every other bare-key handler here is.\n */",
-  ]],
-  ["src/client/features/development/api-tester/send.ts", [
-    "/** One toast per outage, not one per request: a failing history endpoint would otherwise shout every send. */",
-  ]],
-  ["src/client/features/development/api-tester/store.ts", [
-    "// The workspace may have been switched while the request was in flight.",
-  ]],
-  ["src/client/features/development/api-tester/ws-session.ts", [
-    "/**\n * Socket sessions outlive the panel that shows them.\n *\n * A tab switch unmounts the panel but must not drop the connection or the transcript: the node id\n * owns both, so coming back shows the same conversation and the socket is closed only on an explicit\n * disconnect, a deleted node, or leaving the module.\n */",
-    "// The peer may already be gone; the session state below is what the user sees either way.",
-    "/** A deleted request takes its conversation with it. */",
-  ]],
-  ["src/worker/development/api-tester/body.ts", [
-    "/**\n * Reads an upstream body up to `maxBytes`, cancelling the stream the moment it crosses the cap.\n *\n * Every relay in this module needs the same thing: the caller chooses the target, so a response it\n * never bounds is a response that can hold the Worker open and fill its memory.\n */",
-    "// The payload is already refused; the reader is released below either way.",
-  ]],
   ["scripts/check-comments.mjs", [
     "// The rebuild rewrites this gate’s own allowlist, so it has to be armed explicitly and",
     "// cannot be reached by a plain flag; the summary makes the diff reviewable afterwards.",
@@ -6092,6 +6052,20 @@ const allowed = new Map([
     "// Opening the dialog starts on the active environment; later environment edits must not steal",
     "// the selection back from a newly created one.",
   ]],
+  ["src/client/features/development/api-tester/components/HistoryDialog.tsx", [
+    "// History no longer rides along with the workspace state: it is read when the dialog needs it.",
+  ]],
+  ["src/client/features/development/api-tester/components/RawViewer.tsx", [
+    "/** One rendered line is exactly one 20px row, which is what makes windowing possible. */",
+    "/** Rows drawn above and below the viewport so a fast wheel scroll never meets a blank strip. */",
+    "/** Without a measurable viewport (jsdom, a hidden pane) render this many rows rather than guessing. */",
+    "/** A one-character query on a 5 MB body can match a million times; the list is bounded, the count says so. */",
+    "// `scrollTop` stays authoritative even when no height can be measured: that is how a jump to a",
+    "// match still renders its row in jsdom, where every element reports a zero-height viewport.",
+  ]],
+  ["src/client/features/development/api-tester/components/RequestBuilder.tsx", [
+    "// The module-level Cmd/Ctrl+Enter handler owns the modified key, so this answers the bare key only.",
+  ]],
   ["src/client/features/development/api-tester/components/ResponseBody.tsx", [
     "/**\n * The response body's own CSP, injected at the front of `srcdoc`. `sandbox=\"\"` already gives the\n * document an opaque origin; this stops it from loading scripts, network resources or fonts even if a\n * future browser relaxes the sandbox default. Inline styles and data/blob images are allowed so a\n * self-contained HTML report still renders.\n */",
     "// The relay refused to buffer it (over the size cap), so there is nothing to show and",
@@ -6175,6 +6149,11 @@ const allowed = new Map([
     "// Form fields always imply form-data, even if a flag combination skipped the branch above.",
     "// An empty raw body is not a body.",
   ]],
+  ["src/client/features/development/api-tester/lib/inflight.ts", [
+    "/** One in-flight controller per tab, so a send in one tab cannot abort a send in another. */",
+    "/** Starts a request for a tab, aborting only that tab's earlier request. */",
+    "/** Unregisters `controller` if it is still the one this tab owns. */",
+  ]],
   ["src/client/features/development/api-tester/lib/mock-generator.ts", [
     "/** Reference-compatible alias; the shared keyword module owns the actual union. */",
     "/**\n * Mock data generator.\n *\n * Replaces `{{mock:type}}` placeholders with realistic random values. The Chinese and English data\n * pools live in `@shared/development/api-tester/mock-data` because they are sample data rather than\n * interface copy.\n *\n * Usage:\n *   generateMock('{\"name\":\"{{mock:name}}\",\"age\":{{mock:int:18:65}}}', 'zh')\n */",
@@ -6194,6 +6173,9 @@ const allowed = new Map([
     "// Unquoted placeholder: a string value gets quotes, everything else stays a bare value.",
     "/** Example template shown by the mock generator dialog. */",
   ]],
+  ["src/client/features/development/api-tester/lib/shortcut.ts", [
+    "/**\n * Cmd/Ctrl+Enter sends the active request from anywhere in the module.\n *\n * The URL field's own Enter handler answers the bare key only, so the two paths cannot both fire\n * for one keystroke. An IME frame is excluded the same way every other bare-key handler here is.\n */",
+  ]],
   ["src/client/features/development/api-tester/persistence.ts", [
     "/** The page is going away: one last keepalive write, under the browser's 64 KiB limit. */",
     "/** Delays before each automatic retry of a failed save; the budget resets on the next edit or success. */",
@@ -6201,6 +6183,17 @@ const allowed = new Map([
     "/**\n   * A failed save keeps `dirty`, so the next edit already retries; this covers the case where the\n   * user stops editing after the failure and would otherwise never learn the state is unsaved.\n   */",
     "// The keepalive budget is 64 KiB of *bytes*; counting characters lets a CJK-heavy state through",
     "// an API that then refuses the whole request.",
+  ]],
+  ["src/client/features/development/api-tester/send.ts", [
+    "/** One toast per outage, not one per request: a failing history endpoint would otherwise shout every send. */",
+  ]],
+  ["src/client/features/development/api-tester/store.ts", [
+    "// The workspace may have been switched while the request was in flight.",
+  ]],
+  ["src/client/features/development/api-tester/ws-session.ts", [
+    "/**\n * Socket sessions outlive the panel that shows them.\n *\n * A tab switch unmounts the panel but must not drop the connection or the transcript: the node id\n * owns both, so coming back shows the same conversation and the socket is closed only on an explicit\n * disconnect, a deleted node, or leaving the module.\n */",
+    "// The peer may already be gone; the session state below is what the user sees either way.",
+    "/** A deleted request takes its conversation with it. */",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -35386,6 +35379,10 @@ const allowed = new Map([
     "/** An id list in chunks no statement can choke on. */",
     "/** The `IN` placeholders for one chunk, numbered after the tenant bind at `?1`. */",
   ]],
+  ["src/worker/development/api-tester/body.ts", [
+    "/**\n * Reads an upstream body up to `maxBytes`, cancelling the stream the moment it crosses the cap.\n *\n * Every relay in this module needs the same thing: the caller chooses the target, so a response it\n * never bounds is a response that can hold the Worker open and fill its memory.\n */",
+    "// The payload is already refused; the reader is released below either way.",
+  ]],
   ["src/worker/development/api-tester/files.ts", [
     "/**\n * The one place an object key is formed.\n *\n * The kind, the owner and the id are all path segments the server chose, and each is checked here\n * so no caller can smuggle a slash into a key. An image keeps the extension its MIME names; an\n * image whose type is unknown is stored as the opaque binary it effectively is.\n */",
     "/**\n * Drops expired rows and their objects. Cleanup is triggered by the routes that touch the library,\n * and a failure is logged rather than allowed to fail the user's own upload or listing.\n */",
@@ -35415,6 +35412,9 @@ const allowed = new Map([
     "// The redirect's own payload is never read; a cancel that itself rejects changes nothing here.",
     "// Every hop is judged again: a public host may redirect into the network this worker",
     "// can see but the caller cannot.",
+  ]],
+  ["src/worker/development/api-tester/schema.ts", [
+    "/**\n * One row per live relay socket.\n *\n * The row is inserted when the upgrade is accepted and deleted when the pair closes; `expires_at`\n * is the crash safety net (the same idle window the socket itself honours). Counting these rows is\n * how a single account is kept from parking dozens of long-lived Worker connections.\n */",
   ]],
   ["src/worker/development/api-tester/ws.ts", [
     "/** A WebSocket handshake is a header exchange; a target that stalls it must not pin the request. */",
@@ -37937,14 +37937,16 @@ const allowed = new Map([
     "// 1. Check KV cache",
     "// 2. Read-through to D1 if missed",
     "// Populate KV",
-    "// 3. Status checks",
     "// 4. Password Gate",
     "// 5. Async Click Tracking via ctx.waitUntil",
     "// Best-effort record swallow in click tracker",
     "// Execution context is not present in local test environments; wait for record directly",
     "// Best-effort swallow of click tracking failure when background execution context is unavailable",
-    "// Set auth cookie if protected and password was entered",
     "// Non-fatal",
+    "// 3. Status checks; `!= null` keeps a cache entry written before the field existed from reading as disabled.",
+    "// Cloudflare stamps this header on every edge request; a client-supplied X-Forwarded-For never decides a bucket or a fingerprint.",
+    "// One-way upgrade for a link still holding the module's original unsalted SHA-256 digest.",
+    "// A protected hop depends on a cookie, so a cached 302 would replay it for whoever shares the cache.",
   ]],
   ["src/worker/routes/tools-shortlinks.ts", [
     "/**\n * Short Links Manager API routes (`/api/tools/shortlinks/*`).\n */",
@@ -39117,6 +39119,10 @@ const allowed = new Map([
   ["src/worker/tools/shortlinks/fingerprint.ts", [
     "/**\n * Privacy-respecting visitor fingerprinting.\n *\n * Daily salt rotation ensures IDs cannot be correlated across days.\n * Raw IP is never stored.\n */",
   ]],
+  ["src/worker/tools/shortlinks/password-gate.ts", [
+    "/**\n * The stored hash signs the cookie instead of travelling in it, so changing the password retires\n * every cookie issued under the old one. Legacy unsalted digests are recognised here and upgraded.\n */",
+    "/** The row stores only this digest, never the visitor address. */",
+  ]],
   ["src/worker/tools/shortlinks/r2.ts", [
     "/**\n * R2 storage helpers for Short Links backups, exported files, and QR images.\n *\n * Path invariants:\n * - Backups: `tools/shortlinks/backup/${userId}/${backupId}.json`\n * - Plaintext TXT: `tools/shortlinks/txt/${userId}/${fileId}.txt`\n * - Protected TXT: `tools/shortlinks/txt/${userId}/protected_${fileId}.txt`\n * - Plaintext CSV: `tools/shortlinks/csv/${userId}/${fileId}.csv`\n * - QR Images: `tools/shortlinks/qr/${userId}/${slug}.png`\n */",
   ]],
@@ -39167,6 +39173,7 @@ const allowed = new Map([
     "// Backups & Export/Import",
     "// JSON export",
     "// Continue on conflict",
+    "// Password gate throttling",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

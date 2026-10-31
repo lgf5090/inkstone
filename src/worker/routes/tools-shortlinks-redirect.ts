@@ -2,26 +2,29 @@
  * Public Edge Redirect Engine with Password Gate and Async Analytics (`/l/:slug`).
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
+import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
+import { escapeHtml } from '../lib/encoding'
+import { verifyPassword } from '../lib/password'
 import { getCachedSlug, putCachedSlug } from '../tools/shortlinks/cache'
 import { computeVisitorFingerprint } from '../tools/shortlinks/fingerprint'
+import {
+  AUTH_TOKEN_TTL_SECONDS,
+  attemptBucket,
+  authCookieName,
+  isLegacyDigest,
+  legacyDigest,
+  mintAuthToken,
+  verifyAuthToken,
+} from '../tools/shortlinks/password-gate'
 import { isSelfReferrer, parseReferrerHost } from '../tools/shortlinks/referrer'
-import { hashPassword, ShortlinksStore } from '../tools/shortlinks/store'
+import { ShortlinksStore } from '../tools/shortlinks/store'
 import { parseUserAgentInfo } from '../tools/shortlinks/ua'
 
 export const toolsShortlinksRedirectRoutes = new Hono<AppBindings>()
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function renderPasswordPage(slug: string, errorMsg?: string): Response {
+function renderPasswordPage(slug: string, errorMsg?: string, status = 401): Response {
   const safeSlug = encodeURIComponent(slug)
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -140,7 +143,7 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
     <form method="POST" action="/l/${safeSlug}">
       <div>
         <label for="password">\u8bbf\u95ee\u5bc6\u7801</label>
-        <input type="password" id="password" name="password" required autofocus placeholder="\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801" />
+        <input type="password" id="password" name="password" required autofocus autocomplete="current-password" placeholder="\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801" />
       </div>
       <button type="submit">\u9a8c\u8bc1\u5e76\u8df3\u8f6c</button>
     </form>
@@ -149,9 +152,10 @@ function renderPasswordPage(slug: string, errorMsg?: string): Response {
 </html>`
 
   return new Response(html, {
-    status: 401,
+    status,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
     },
   })
 }
@@ -198,11 +202,11 @@ function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', mess
 
   return new Response(html, {
     status: 404,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
   })
 }
 
-async function handleRedirect(c: any, providedPassword?: string) {
+async function handleRedirect(c: Context<AppBindings>, providedPassword?: string) {
   const slug = c.req.param('slug')
   if (!slug) {
     return renderNotFoundPage()
@@ -213,8 +217,8 @@ async function handleRedirect(c: any, providedPassword?: string) {
 
   // 2. Read-through to D1 if missed
   if (!entry) {
-    const store = new ShortlinksStore(c.env.DB, '')
-    const dbRecord = await store.findSlugForRedirect(slug)
+    const lookup = new ShortlinksStore(c.env.DB, '')
+    const dbRecord = await lookup.findSlugForRedirect(slug)
     if (!dbRecord) {
       return renderNotFoundPage()
     }
@@ -232,43 +236,67 @@ async function handleRedirect(c: any, providedPassword?: string) {
     await putCachedSlug(c.env.SHORTLINKS_KV, slug, entry)
   }
 
-  // 3. Status checks
-  if (entry.disabled_at !== null) {
+  // 3. Status checks; `!= null` keeps a cache entry written before the field existed from reading as disabled.
+  if (entry.disabled_at != null) {
     return renderNotFoundPage('\u94fe\u63a5\u5df2\u505c\u7528', '\u8be5\u77ed\u94fe\u63a5\u5df2\u88ab\u521b\u5efa\u8005\u6682\u65f6\u505c\u7528\u3002')
   }
 
   const now = Math.floor(Date.now() / 1000)
-  if (entry.expires_at !== null && entry.expires_at <= now) {
+  if (entry.expires_at != null && entry.expires_at <= now) {
     return renderNotFoundPage('\u94fe\u63a5\u5df2\u8fc7\u671f', '\u8be5\u77ed\u94fe\u63a5\u5df2\u8fbe\u5230\u9884\u8bbe\u6709\u6548\u671f\u9650\u5e76\u5df2\u8fc7\u671f\u5931\u6548\u3002')
   }
 
+  const store = new ShortlinksStore(c.env.DB, entry.user_id)
+  // Cloudflare stamps this header on every edge request; a client-supplied X-Forwarded-For never decides a bucket or a fingerprint.
+  const ip = (c.req.header('cf-connecting-ip') || '').trim()
+  let issuedCookie: string | null = null
+
   // 4. Password Gate
   if (entry.password_hash) {
-    let inputPassword = providedPassword || c.req.query('pwd') || c.req.query('password')
-    let verified = false
+    let authKey: string = entry.password_hash
+    const submittedPassword = (providedPassword ?? '').trim()
+    const submitted = submittedPassword.length > 0
+    const bucket = ip ? await attemptBucket(slug, ip) : null
 
-    if (inputPassword) {
-      const inputHash = await hashPassword(inputPassword)
-      if (inputHash === entry.password_hash || inputPassword === entry.password_hash) {
-        verified = true
-      }
-    } else if (c.req.header('cookie')) {
-      const cookies = c.req.header('cookie') || ''
-      const match =
-        cookies.match(new RegExp(`shortlink_auth_${encodeURIComponent(slug)}=([^;]+)`)) ||
-        cookies.match(new RegExp(`shortlink_auth_${slug}=([^;]+)`))
-      if (match) {
-        const token = decodeURIComponent(match[1])
-        if (token === entry.password_hash || (await hashPassword(token)) === entry.password_hash) {
-          verified = true
-        }
+    if (bucket) {
+      const gate = await store.passwordGateState(bucket, now)
+      if (gate.blocked) {
+        return renderPasswordPage(
+          slug,
+          `\u5bc6\u7801\u9519\u8bef\u6b21\u6570\u8fc7\u591a\uff0c\u8bf7\u5728 ${Math.ceil(gate.retryAfter / 60)} \u5206\u949f\u540e\u91cd\u8bd5`,
+          429,
+        )
       }
     }
 
-    if (!verified) {
-      if (inputPassword) {
+    let verified = false
+    if (submitted) {
+      verified = await verifyPassword(submittedPassword, authKey)
+      if (!verified && isLegacyDigest(authKey)) {
+        // One-way upgrade for a link still holding the module's original unsalted SHA-256 digest.
+        if ((await legacyDigest(submittedPassword)) === authKey) {
+          verified = true
+          authKey = await store.upgradePasswordHash(
+            entry.link_id,
+            submittedPassword,
+            c.env.SHORTLINKS_KV,
+          )
+          entry = { ...entry, password_hash: authKey }
+          await putCachedSlug(c.env.SHORTLINKS_KV, slug, entry)
+        }
+      }
+      if (!verified) {
+        if (bucket) await store.recordPasswordFailure(bucket, now)
         return renderPasswordPage(slug, '\u8bbf\u95ee\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165')
       }
+      if (bucket) await store.clearPasswordFailures(bucket)
+      issuedCookie = await mintAuthToken(authKey, slug, now + AUTH_TOKEN_TTL_SECONDS)
+    } else {
+      const token = getCookie(c, authCookieName(slug))
+      verified = Boolean(token) && (await verifyAuthToken(token as string, authKey, slug, now))
+    }
+
+    if (!verified) {
       return renderPasswordPage(slug)
     }
   }
@@ -276,7 +304,6 @@ async function handleRedirect(c: any, providedPassword?: string) {
   // 5. Async Click Tracking via ctx.waitUntil
   const ua = c.req.header('user-agent') || ''
   const referer = c.req.header('referer') || null
-  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || ''
   const country = c.req.header('cf-ipcountry') || null
   const region = c.req.header('cf-region') || null
   const city = c.req.header('cf-ipcity') || null
@@ -295,8 +322,6 @@ async function handleRedirect(c: any, providedPassword?: string) {
 
   const isQr = utmMedium === 'qr' || urlObj.searchParams.get('src') === 'qr' || urlObj.searchParams.get('qr') === '1'
   const linkMode = isQr ? 'qr' : 'link'
-
-  const store = new ShortlinksStore(c.env.DB, entry.user_id)
 
   const recordPromise = (async () => {
     try {
@@ -335,14 +360,16 @@ async function handleRedirect(c: any, providedPassword?: string) {
     })
   }
 
-  // Set auth cookie if protected and password was entered
+  // A protected hop depends on a cookie, so a cached 302 would replay it for whoever shares the cache.
   const headers: Record<string, string> = {
     Location: entry.url,
-    'Cache-Control': 'private, max-age=90',
+    'Cache-Control': entry.password_hash ? 'no-store' : 'private, max-age=90',
   }
 
-  if (entry.password_hash) {
-    headers['Set-Cookie'] = `shortlink_auth_${encodeURIComponent(slug)}=${encodeURIComponent(entry.password_hash)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
+  if (issuedCookie) {
+    const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : ''
+    headers['Set-Cookie'] =
+      `${authCookieName(slug)}=${encodeURIComponent(issuedCookie)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_TOKEN_TTL_SECONDS}${secure}`
   }
 
   return new Response(null, {

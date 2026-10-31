@@ -8,6 +8,7 @@ import {
   TOOLS_SHORTLINKS_SCHEMA_STATEMENTS,
 } from '../src/worker/tools/shortlinks/schema'
 import { errorResponse } from '../src/worker/lib/errors'
+import { sha256Hex } from '../src/worker/lib/encoding'
 import type { AppBindings, Env } from '../src/worker/env'
 import { toolsShortlinksRoutes } from '../src/worker/routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from '../src/worker/routes/tools-shortlinks-redirect'
@@ -20,6 +21,8 @@ const USER_B = 'user-bob'
 interface CallOptions {
   user?: string | null
   body?: unknown
+  form?: Record<string, string>
+  headers?: Record<string, string>
 }
 
 function testApp(): Hono<AppBindings> {
@@ -60,7 +63,7 @@ async function call(
   options: CallOptions = {},
 ): Promise<Response> {
   const userId = options.user === undefined ? USER_A : options.user
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...options.headers }
   if (userId) {
     headers['x-test-user'] = userId
   }
@@ -68,7 +71,10 @@ async function call(
     headers['X-Inkstone-Client'] = '1'
   }
   let body: string | undefined
-  if (options.body !== undefined) {
+  if (options.form !== undefined) {
+    headers['content-type'] = 'application/x-www-form-urlencoded'
+    body = new URLSearchParams(options.form).toString()
+  } else if (options.body !== undefined) {
     headers['content-type'] = 'application/json'
     body = JSON.stringify(options.body)
   }
@@ -95,7 +101,7 @@ afterEach(() => {
 })
 
 describe('Shortlinks D1 Schema & Tenant Isolation', () => {
-  it('creates all 8 required tables and 15 indexes', () => {
+  it('creates every required table and index', () => {
     const tableRows = sqlite
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
       .all() as Array<{ name: string }>
@@ -219,8 +225,8 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     expect(red4.status).toBe(404)
   })
 
-  it('protects link with password and serves gate page', async () => {
-    await call('POST', '/api/tools/shortlinks/links', {
+  it('protects link with password, signs the cookie and refuses a query-string secret', async () => {
+    const created = await call('POST', '/api/tools/shortlinks/links', {
       user: USER_A,
       body: {
         url: 'https://secret.example.com',
@@ -228,18 +234,106 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
         password: 'vault-password-123',
       },
     })
+    expect(created.status).toBe(200)
 
     const gateRes = await call('GET', '/l/secret-link', { user: null })
     expect(gateRes.status).toBe(401)
+    expect(gateRes.headers.get('Cache-Control')).toBe('no-store')
     const html = await gateRes.text()
     expect(html).toContain('受保护的短链接')
 
-    const wrongRes = await call('GET', '/l/secret-link?pwd=wrong', { user: null })
+    const viaQuery = await call('GET', '/l/secret-link?pwd=vault-password-123', { user: null })
+    expect(viaQuery.status).toBe(401)
+
+    const wrongRes = await call('POST', '/l/secret-link', { user: null, form: { password: 'wrong' } })
     expect(wrongRes.status).toBe(401)
 
-    const okRes = await call('GET', '/l/secret-link?pwd=vault-password-123', { user: null })
+    const okRes = await call('POST', '/l/secret-link', {
+      user: null,
+      form: { password: 'vault-password-123' },
+    })
     expect(okRes.status).toBe(302)
     expect(okRes.headers.get('Location')).toBe('https://secret.example.com')
+    expect(okRes.headers.get('Cache-Control')).toBe('no-store')
+
+    const stored = sqlite
+      .prepare(
+        'SELECT password_hash FROM tools_shortlinks_links WHERE id = (SELECT link_id FROM tools_shortlinks_slugs WHERE slug = ?)',
+      )
+      .get('secret-link') as { password_hash: string }
+    expect(stored.password_hash.startsWith('scrypt$')).toBe(true)
+
+    const setCookie = okRes.headers.get('Set-Cookie') ?? ''
+    expect(setCookie).toContain('sl_auth_secret-link=')
+    expect(setCookie).toContain('HttpOnly')
+    expect(setCookie).not.toContain('vault-password-123')
+    expect(setCookie).not.toContain(stored.password_hash)
+
+    const cookiePair = setCookie.split(';')[0]!
+    const replay = await call('GET', '/l/secret-link', {
+      user: null,
+      headers: { cookie: cookiePair },
+    })
+    expect(replay.status).toBe(302)
+
+    const forged = await call('GET', '/l/secret-link', {
+      user: null,
+      headers: { cookie: 'sl_auth_secret-link=9999999999.deadbeef' },
+    })
+    expect(forged.status).toBe(401)
+  })
+
+  it('upgrades a legacy unsalted digest on the first successful unlock', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      user: USER_A,
+      body: { url: 'https://legacy.example.com', custom_slug: 'legacy-link' },
+    })
+    const legacy = await sha256Hex('legacy-pass')
+    sqlite
+      .prepare(
+        'UPDATE tools_shortlinks_links SET password_hash = ?, is_password_protected = 1 WHERE id = (SELECT link_id FROM tools_shortlinks_slugs WHERE slug = ?)',
+      )
+      .run(legacy, 'legacy-link')
+
+    const okRes = await call('POST', '/l/legacy-link', { user: null, form: { password: 'legacy-pass' } })
+    expect(okRes.status).toBe(302)
+
+    const row = sqlite
+      .prepare(
+        'SELECT password_hash FROM tools_shortlinks_links WHERE id = (SELECT link_id FROM tools_shortlinks_slugs WHERE slug = ?)',
+      )
+      .get('legacy-link') as { password_hash: string }
+    expect(row.password_hash.startsWith('scrypt$')).toBe(true)
+  })
+
+  it('throttles repeated password failures per visitor', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      user: USER_A,
+      body: { url: 'https://secret.example.com/two', custom_slug: 'secret-two', password: 'correct-password' },
+    })
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const res = await call('POST', '/l/secret-two', {
+        user: null,
+        form: { password: `wrong-${attempt}` },
+        headers: { 'cf-connecting-ip': '203.0.113.7' },
+      })
+      expect(res.status).toBe(401)
+    }
+
+    const blocked = await call('POST', '/l/secret-two', {
+      user: null,
+      form: { password: 'correct-password' },
+      headers: { 'cf-connecting-ip': '203.0.113.7' },
+    })
+    expect(blocked.status).toBe(429)
+
+    const otherVisitor = await call('POST', '/l/secret-two', {
+      user: null,
+      form: { password: 'correct-password' },
+      headers: { 'cf-connecting-ip': '198.51.100.9' },
+    })
+    expect(otherVisitor.status).toBe(302)
   })
 })
 

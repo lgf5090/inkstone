@@ -109,6 +109,12 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL
   )`,
 
+  `CREATE TABLE IF NOT EXISTS tools_shortlinks_password_attempts (
+    bucket TEXT NOT NULL PRIMARY KEY,
+    failures INTEGER NOT NULL DEFAULT 0,
+    window_start INTEGER NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -145,6 +151,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_TABLES: readonly string[] = [
   'tools_shortlinks_bundles',
   'tools_shortlinks_bundle_links',
   'tools_shortlinks_settings',
+  'tools_shortlinks_password_attempts',
   'tools_shortlinks_api_keys',
   'tools_shortlinks_backups',
 ]
