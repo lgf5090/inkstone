@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Globe, PanelLeft, PanelRight, RefreshCw, Settings2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Globe, PanelLeft, PanelRight, RefreshCw, Settings2, Star, X } from 'lucide-react'
 import type { GithubMirrorSource, GithubPrefs, GithubRepo, GithubTag, SavedGithubRepo } from '@shared/development/github/types'
 import { GITHUB_PER_PAGE, GITHUB_RANGE_OPTIONS, GITHUB_SORT_OPTIONS } from '@shared/development/github/types'
 import { t } from '../../../../lib/i18n'
@@ -63,6 +63,8 @@ export function RepoList({
   onToggleFav,
   onToggleTag,
   onRemoveRepo,
+  onSyncStars,
+  syncingStars,
   toggleSidebar,
   toggleDetail,
   detailDisabled,
@@ -94,6 +96,8 @@ export function RepoList({
   onToggleFav: (repo: GithubRepo) => void
   onToggleTag: (repo: GithubRepo, tagId: string) => void
   onRemoveRepo: (repo: GithubRepo) => void
+  onSyncStars: () => void
+  syncingStars: boolean
   toggleSidebar: () => void
   toggleDetail: () => void
   detailDisabled: boolean
@@ -117,6 +121,7 @@ export function RepoList({
     })),
     { id: 'order', label: prefs.order === 'desc' ? t('development.github.repos.current_desc') : t('development.github.repos.current_asc'), icon: prefs.order === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }, draft) },
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} className={cn(loading && 'animate-spin')} />, separatorBefore: true, onSelect: onRefresh },
+    { id: 'sync-stars', label: syncingStars ? t('development.github.repos.syncing_stars') : t('development.github.repos.sync_stars'), icon: <Star size={13} />, disabled: syncingStars, onSelect: onSyncStars },
   ]
   const mirrorItems: MenuItem[] = [
     ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),

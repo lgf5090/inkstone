@@ -60,6 +60,7 @@ export function ReposPane({
   const [page, setPage] = useState(1)
   const [tagManagerOpen, setTagManagerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [syncingStars, setSyncingStars] = useState(false)
   const [extraRepo, setExtraRepo] = useState<GithubRepo | null>(null)
   const lookupRef = useRef<string | null>(null)
 
@@ -208,6 +209,26 @@ export function ReposPane({
     }
   }, [refresh])
 
+  const syncStars = useCallback(async () => {
+    if (syncingStars) return
+    setSyncingStars(true)
+    try {
+      const result = await githubApi.starred(1, 100)
+      const existing = new Set(useGithubStore.getState().repos.map((repo) => repo.id))
+      let added = 0
+      for (const repo of result.items) {
+        if (existing.has(String(repo.id))) continue
+        saveRepo(repo, {})
+        added += 1
+      }
+      toast({ title: t('development.github.repos.stars_synced', { added, total: result.items.length }), tone: 'success' })
+    } catch (error) {
+      toast({ title: t('development.github.repos.stars_sync_failed'), description: error instanceof Error ? error.message : undefined, tone: 'danger' })
+    } finally {
+      setSyncingStars(false)
+    }
+  }, [saveRepo, syncingStars, toast])
+
   const sidebar = (
     <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} onImportRepo={() => setImportOpen(true)} />
   )
@@ -250,6 +271,8 @@ export function ReposPane({
             onToggleFav={toggleFav}
             onToggleTag={toggleTag}
             onRemoveRepo={removeRepo}
+            onSyncStars={() => void syncStars()}
+            syncingStars={syncingStars}
             toggleSidebar={toggleSidebar}
             toggleDetail={toggleDetail}
             detailDisabled={detailDisabled}

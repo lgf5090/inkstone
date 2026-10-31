@@ -243,6 +243,11 @@ export const githubApi = {
       .then((response) => response.repo)
   },
 
+  starred(page = 1, perPage = 100, signal?: AbortSignal): Promise<{ items: GithubRepo[]; hasNext: boolean }> {
+    const query = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+    return readData(`/starred?${query.toString()}`, { signal })
+  },
+
   gistDetail(id: string, signal?: AbortSignal): Promise<GistItem> {
     const query = new URLSearchParams({ gist: id })
     return readData(`/gist/detail?${query.toString()}`, { signal })

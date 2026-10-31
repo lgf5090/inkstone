@@ -14,6 +14,7 @@ import { githubJson } from '../src/worker/development/github/github-http'
 import {
   buildSearchQuery,
   fetchRepoDetail,
+  fetchStarredRepos,
   normalizeRepo,
   parseRepoFullName,
   searchRepositories,
@@ -568,5 +569,23 @@ describe('development github repo detail parts', () => {
     expect(detail.readme).toBe('# hi')
     expect(detail.languages).toEqual([{ name: 'TypeScript', bytes: 10, percentage: 100 }])
     expect(detail.releases).toEqual([])
+  })
+})
+
+describe('development github starred repositories', () => {
+  it('normalizes a starred page and its next link', async () => {
+    stubFetch(() => jsonResponse([
+      {
+        id: 1,
+        name: 'demo',
+        full_name: 'octo/demo',
+        html_url: 'https://github.com/octo/demo',
+        owner: { login: 'octo', avatar_url: '' },
+        stargazers_count: 1,
+      },
+    ], 200, { link: '<https://api.github.com/user/starred?page=2>; rel="next"' }))
+    const result = await fetchStarredRepos(1, 100, 'tok')
+    expect(result.items[0]?.fullName).toBe('octo/demo')
+    expect(result.hasNext).toBe(true)
   })
 })

@@ -1,6 +1,7 @@
 import {
   GITHUB_DETAIL_TIMEOUT_MS,
   GITHUB_SEARCH_TIMEOUT_MS,
+  GITHUB_TIMEOUT_MS,
   MAX_GITHUB_TEXT_BYTES,
 } from '@shared/development/github/limits'
 import type {
@@ -258,6 +259,21 @@ export async function fetchRepository(
     timeoutMs: GITHUB_DETAIL_TIMEOUT_MS,
   })
   return normalizeRepo(data)
+}
+
+export async function fetchStarredRepos(
+  page: number,
+  perPage: number,
+  token: string,
+): Promise<{ items: GithubRepo[]; hasNext: boolean }> {
+  const { data, link } = await githubJson<unknown[]>(
+    `/user/starred?per_page=${perPage}&page=${page}`,
+    { token, timeoutMs: GITHUB_TIMEOUT_MS },
+  )
+  return {
+    items: Array.isArray(data) ? data.map((item) => normalizeRepo(item)) : [],
+    hasNext: link !== null && link.includes('rel="next"'),
+  }
 }
 
 export const REPO_DETAIL_PARTS: readonly GithubRepoDetailPart[] = [

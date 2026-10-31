@@ -50,7 +50,7 @@ import {
   listGithubGists,
   updateGithubGist,
 } from '../development/github/github-gists'
-import { fetchRepoDetail, fetchRepository, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
+import { fetchRepoDetail, fetchRepository, fetchStarredRepos, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
 import { listMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
   assertExportStorage,
@@ -162,6 +162,11 @@ const RepoDetailQuerySchema = z.object({
 
 const RepoLookupQuerySchema = z.object({
   repo: z.string().min(3).max(300),
+})
+
+const StarredQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100).default(1),
+  per_page: z.coerce.number().int().min(1).max(100).default(100),
 })
 
 const GistDetailQuerySchema = z.object({
@@ -644,6 +649,17 @@ developmentGithubRoutes.get('/search', async (c) => {
     token,
   )
   return c.json({ ok: true, data: result })
+})
+
+developmentGithubRoutes.get('/starred', async (c) => {
+  const userId = userIdOf(c)
+  listBudget(userId)
+  const query = parseQuery(c, StarredQuerySchema)
+  const token = requireToken(
+    await effectiveGithubToken(c.env, c.env.DB, userId),
+    'Add a GitHub account before syncing starred repositories',
+  )
+  return c.json({ ok: true, data: await fetchStarredRepos(query.page, query.per_page, token) })
 })
 
 developmentGithubRoutes.get('/repo-lookup', async (c) => {
