@@ -1,3 +1,5 @@
+import type { MessageKey } from '../../locales/en-US'
+
 export type IdPhotoExportFormat = 'jpg' | 'jpeg' | 'png' | 'webp'
 
 export type IdPhotoCategory =
@@ -10,7 +12,7 @@ export type IdPhotoCategory =
 export interface IdPhotoSpec {
   id: string
   name: string
-  nameKey?: string
+  nameKey?: MessageKey
   category: IdPhotoCategory
   countryCode: string // e.g. 'CN', 'US', 'GB', 'JP', 'KR', 'EU'
   countryNameKey: string
@@ -26,7 +28,7 @@ export interface IdPhotoSpec {
   fileSizeMinKb?: number
   fileSizeMaxKb?: number
   aspectRatioLabel?: string
-  descriptionKey?: string
+  descriptionKey?: MessageKey
   isBuiltin?: boolean
   isFavorite?: boolean
 }
@@ -90,7 +92,7 @@ export interface IdPhotoComplianceReport {
   passed: boolean
   checks: {
     id: string
-    titleKey: string
+    titleKey: MessageKey
     passed: boolean
     level: 'pass' | 'warning' | 'fail' | 'unknown'
     message: string

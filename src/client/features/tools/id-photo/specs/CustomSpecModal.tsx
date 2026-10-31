@@ -7,6 +7,12 @@ import { useUi } from '../../../../store/ui'
 import { createCustomSpec } from '../api'
 import { useIdPhotoStore } from '../store'
 
+const SPEC_MIN_MM = 10
+const SPEC_MAX_MM = 400
+const SPEC_MIN_DPI = 72
+const SPEC_MAX_DPI = 1200
+const SPEC_MAX_NAME = 50
+
 export interface CustomSpecModalProps {
   open: boolean
   onClose: () => void
@@ -19,20 +25,36 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
   const [dpi, setDpi] = useState('300')
   const [submitting, setSubmitting] = useState(false)
 
+  const parseDimension = (raw: string) => {
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value < SPEC_MIN_MM || value > SPEC_MAX_MM) return null
+    return value
+  }
+  const parseDpi = (raw: string) => {
+    const value = Number(raw)
+    if (!Number.isInteger(value) || value < SPEC_MIN_DPI || value > SPEC_MAX_DPI) return null
+    return value
+  }
+  const widthValue = parseDimension(widthMm)
+  const heightValue = parseDimension(heightMm)
+  const dpiValue = parseDpi(dpi)
+  const invalid =
+    !name.trim() || widthValue === null || heightValue === null || dpiValue === null
+
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (invalid || widthValue === null || heightValue === null || dpiValue === null) return
 
     setSubmitting(true)
     try {
       const created = await createCustomSpec({
-        name: name.trim(),
-        widthMm: parseFloat(widthMm) || 35,
-        heightMm: parseFloat(heightMm) || 45,
-        dpi: parseInt(dpi, 10) || 300,
+        name: name.trim().slice(0, SPEC_MAX_NAME),
+        widthMm: widthValue,
+        heightMm: heightValue,
+        dpi: dpiValue,
         recommendedBgColors: ['#ffffff', '#438EDB'],
         category: 'custom',
       })
@@ -40,7 +62,7 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
       await loadCustomSpecs()
       setSelectedSpecId(created.id)
       useUi.getState().toast({
-        title: t('tools.id_photo.spec.add_custom'),
+        title: t('tools.id_photo.specs.created', { name: name.trim().slice(0, SPEC_MAX_NAME) }),
         tone: 'success',
       })
       onClose()
@@ -63,7 +85,9 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
             onChange={(e) => setName(e.target.value)}
             placeholder={t('tools.id_photo.common.custom_badge_placeholder')}
             required
-            autoFocus
+            maxLength={SPEC_MAX_NAME}
+            aria-invalid={name.trim() ? undefined : true}
+            invalid={name.trim() ? undefined : true}
           />
         </Field>
 
@@ -79,7 +103,10 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
               required
             />
           </Field>
-          <Field label={t('tools.id_photo.common.height_mm')}>
+          <Field
+            label={t('tools.id_photo.common.height_mm')}
+            hint={t('tools.id_photo.specs.dimension_hint', { min: SPEC_MIN_MM, max: SPEC_MAX_MM })}
+          >
             <Input
               type="number"
               step="0.5"
@@ -92,7 +119,10 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
           </Field>
         </div>
 
-        <Field label={t('tools.id_photo.unit.dpi')}>
+        <Field
+          label={t('tools.id_photo.unit.dpi')}
+          hint={t('tools.id_photo.specs.dpi_hint', { min: SPEC_MIN_DPI, max: SPEC_MAX_DPI })}
+        >
           <Input
             type="number"
             min="72"
@@ -107,7 +137,7 @@ export function CustomSpecModal({ open, onClose }: CustomSpecModalProps) {
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('tools.id_photo.common.cancel')}
           </Button>
-          <Button type="submit" variant="primary" disabled={submitting || !name.trim()}>
+          <Button type="submit" variant="primary" disabled={submitting || invalid}>
             {t('tools.id_photo.spec.add_custom')}
           </Button>
         </div>

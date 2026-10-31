@@ -1,4 +1,5 @@
 import type { IdPhotoComplianceReport, IdPhotoSpec } from '@shared/tools/id-photo/types'
+import type { MessageKey } from '@shared/locales/en-US'
 import { calculateOptimalCrop } from './face-align'
 
 export interface ComplianceInput {
@@ -44,7 +45,7 @@ export function checkIdPhotoCompliance(input: ComplianceInput): IdPhotoComplianc
 
   const checks: Check[] = []
   let score = 100
-  const unknown = (id: string, titleKey: string, expectedValue: string): void => {
+  const unknown = (id: string, titleKey: MessageKey, expectedValue: string): void => {
     checks.push({ id, titleKey, passed: false, level: 'unknown', message: '', expectedValue })
   }
 

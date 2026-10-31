@@ -1,6 +1,8 @@
+import type { MessageKey } from '../../locales/en-US'
+
 export interface IdPhotoBgColorPreset {
   id: string
-  nameKey: string
+  nameKey: MessageKey
   color: string
   endColor?: string
   isGradient?: boolean
@@ -68,9 +70,9 @@ export const ID_PHOTO_BG_PRESETS: readonly IdPhotoBgColorPreset[] = [
 
 export interface AttirePreset {
   id: string
-  nameKey: string
+  nameKey: MessageKey
   gender: 'male' | 'female' | 'unisex'
-  categoryKey: string
+  categoryKey: MessageKey
   previewSvg: string // SVG path representation for lightweight offline formal wear rendering
 }
 

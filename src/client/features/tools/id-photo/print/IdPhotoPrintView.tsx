@@ -10,9 +10,13 @@ import { useIdPhotoStore } from '../store'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
 import { calculatePrintLayout, renderPrintSheet } from '../engine/print-layout-engine'
 
+const PREVIEW_DPI = 110
+
 export function IdPhotoPrintView() {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const renderGeneration = useRef(0)
   const [exporting, setExporting] = useState(false)
+  const [sheetFailed, setSheetFailed] = useState(false)
 
   const imageElement = useIdPhotoStore((s) => s.imageElement)
   const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
@@ -22,39 +26,41 @@ export function IdPhotoPrintView() {
 
   const activeSpec = getActiveSpec()
 
+
+  const draftWidthPx = Math.round((activeSpec.widthMm / 25.4) * PREVIEW_DPI)
+  const draftHeightPx = Math.round((activeSpec.heightMm / 25.4) * PREVIEW_DPI)
+
   const layout = calculatePrintLayout(activeSpec.widthMm, activeSpec.heightMm, printOptions)
+  const draftOptions = { ...printOptions, dpi: PREVIEW_DPI }
 
   useEffect(() => {
-    if (!imageElement || !containerRef.current) return
+    const canvas = canvasRef.current
+    if (!canvas || !imageElement || !layout.fits) return
 
+    const generation = ++renderGeneration.current
     const engine = new IdPhotoEngine(activeSpec, adjustOptions)
-    let isMounted = true
 
-    if (!layout.fits) return
-
-    engine.renderCanvas(imageElement).then((photoCanvas) => {
-      if (!isMounted || !containerRef.current) return
-
-      const sheetCanvas = renderPrintSheet(
-        photoCanvas,
-        printOptions,
-        activeSpec.widthMm,
-        activeSpec.heightMm,
-      )
-
-      containerRef.current.innerHTML = ''
-      sheetCanvas.style.maxWidth = '100%'
-      sheetCanvas.style.maxHeight = '420px'
-      sheetCanvas.style.height = 'auto'
-      sheetCanvas.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.12)'
-      sheetCanvas.style.borderRadius = 'var(--r-sm)'
-      containerRef.current.appendChild(sheetCanvas)
-    })
-
-    return () => {
-      isMounted = false
-    }
-  }, [imageElement, activeSpec, adjustOptions, printOptions, layout])
+    engine
+      .renderCanvas(imageElement, draftWidthPx, draftHeightPx)
+      .then((photoCanvas) => {
+        if (generation !== renderGeneration.current) return
+        const sheetCanvas = renderPrintSheet(
+          photoCanvas,
+          draftOptions,
+          activeSpec.widthMm,
+          activeSpec.heightMm,
+        )
+        canvas.width = sheetCanvas.width
+        canvas.height = sheetCanvas.height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(sheetCanvas, 0, 0)
+      })
+      .catch(() => {
+        if (generation !== renderGeneration.current) return
+        setSheetFailed(true)
+      })
+  }, [imageElement, activeSpec, adjustOptions, draftOptions, layout, draftWidthPx, draftHeightPx])
 
   const handleDownloadSheet = async () => {
     if (!imageElement || !layout.fits) return
@@ -112,7 +118,7 @@ export function IdPhotoPrintView() {
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => setPrintOptions({ paperSize: p.id as any })}
+                  onClick={() => setPrintOptions({ paperSize: p.id })}
                   className={cn(
                     'flex flex-col items-center justify-center gap-1 rounded-[var(--r-md)] border p-2.5 text-center',
                     'transition-[border-color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
@@ -122,7 +128,7 @@ export function IdPhotoPrintView() {
                   )}
                 >
                   <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
-                    {t(p.nameKey as any)}
+                    {t(p.nameKey)}
                   </span>
                   <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)] font-mono">
                     {p.widthMm}×{p.heightMm}{t('tools.id_photo.unit.mm')}
@@ -145,7 +151,7 @@ export function IdPhotoPrintView() {
               className={cn(
                 'flex-1 rounded-[var(--r-md)] border py-1.5 text-[length:var(--text-12)] font-medium',
                 printOptions.orientation === 'portrait'
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-base)] text-[var(--text-secondary)]',
               )}
             >
@@ -157,7 +163,7 @@ export function IdPhotoPrintView() {
               className={cn(
                 'flex-1 rounded-[var(--r-md)] border py-1.5 text-[length:var(--text-12)] font-medium',
                 printOptions.orientation === 'landscape'
-                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)] font-semibold'
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)] font-semibold'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-base)] text-[var(--text-secondary)]',
               )}
             >
@@ -235,7 +241,17 @@ export function IdPhotoPrintView() {
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
-            <div ref={containerRef} className="flex items-center justify-center" />
+            <canvas
+              ref={canvasRef}
+              role="img"
+              aria-label={t('tools.id_photo.print.title')}
+              className="max-h-[420px] w-auto max-w-full rounded-[var(--r-sm)] shadow-[var(--shadow-pop)]"
+            />
+            {sheetFailed && (
+              <p className="text-[length:var(--text-12)] font-medium text-[var(--danger)]">
+                {t('tools.id_photo.preview.render_failed')}
+              </p>
+            )}
             <div className="flex items-center gap-2 rounded-full bg-[var(--bg-sunken)] px-3 py-1 text-[length:var(--text-11)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
               <span>{layout.rows} × {layout.cols}</span>
               <span>•</span>

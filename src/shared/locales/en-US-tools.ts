@@ -917,6 +917,10 @@ export const EN_US_TOOLS = {
   'tools.id_photo.spec.category_visa': 'Visas',
   'tools.id_photo.spec.category_custom': 'Custom Specs',
   'tools.id_photo.spec.add_custom': 'Add Custom',
+  'tools.id_photo.spec.no_results': 'No specification matches — try another word or category',
+  'tools.id_photo.specs.created': 'Created the “{name}” specification',
+  'tools.id_photo.specs.dimension_hint': 'Allowed: {min}–{max} mm',
+  'tools.id_photo.specs.dpi_hint': 'Allowed: {min}–{max} DPI',
   'tools.id_photo.spec.physical_size': 'Physical Size',
   'tools.id_photo.spec.pixel_size': 'Pixel Size',
   'tools.id_photo.spec.recommended_bg': 'Official Backgrounds',
@@ -926,6 +930,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.color.gradient_toggle': 'Enable Subtle 3D Gradient',
   'tools.id_photo.color.feathering_label': 'Edge Feathering',
   'tools.id_photo.color.feathering_hint': 'Smoothes hair edges and prevents white halo lines',
+  'tools.id_photo.color.recommend': 'Backgrounds recommended for “{spec}”',
 
   // Retouch tab
   'tools.id_photo.retouch.brightness': 'Brightness',

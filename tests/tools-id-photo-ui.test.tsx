@@ -11,6 +11,16 @@ describe('ID Photo Studio UI Integration Tests', () => {
   beforeEach(async () => {
     installTestGlobals()
     await initI18n()
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: () => 'blob:id-photo-stub',
+      configurable: true,
+      writable: true,
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: () => undefined,
+      configurable: true,
+      writable: true,
+    })
     window.innerWidth = 1280
     window.innerHeight = 800
 
@@ -274,7 +284,7 @@ describe('ID Photo Studio UI Integration Tests', () => {
     act(() => {
       printButton?.click()
     })
-    expect(clicked).toContain('/api/tools/id-photo/records/idp_test_1/print-file')
+    expect(clicked).toContain('/api/tools/id-photo/records/idp_test_1/print-file?download=1')
 
     clickSpy.mockRestore()
     vi.unstubAllGlobals()
@@ -336,5 +346,18 @@ describe('ID Photo Studio UI Integration Tests', () => {
     vi.unstubAllGlobals()
     useIdPhotoStore.setState({ customSpecs: [] })
     useToolsStore.setState({ activeIdPhotoView: 'studio' })
+  })
+
+  it('mounts a single preview surface in the studio', async () => {
+    const view = await renderElement(<IdPhotoApp />)
+    const guidesToggles = view.container.querySelectorAll(
+      `button[aria-label="${t('tools.id_photo.preview.show_guides')}"]`,
+    )
+    expect(guidesToggles.length).toBe(1)
+    const exportPanels = Array.from(view.container.querySelectorAll('h3, p, span')).filter(
+      (node) => node.textContent === t('tools.id_photo.export.title'),
+    )
+    expect(exportPanels.length).toBe(1)
+    view.unmount()
   })
 })

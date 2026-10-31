@@ -8,6 +8,7 @@ import { Button } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
+import { specLabel } from '../spec-label'
 import { renderPrintSheet } from '../engine/print-layout-engine'
 import { createIdPhotoRecord } from '../api'
 
@@ -158,9 +159,9 @@ export function IdPhotoExportControls() {
       const printDataUrl = printCanvas.toDataURL('image/jpeg', 0.92)
 
       await createIdPhotoRecord({
-        title: `${activeSpec.name} - ${new Date().toLocaleDateString()}`,
+        title: `${specLabel(activeSpec)} - ${new Date().toLocaleDateString()}`,
         specId: activeSpec.id,
-        specName: activeSpec.name,
+        specName: specLabel(activeSpec),
         widthPx: activeSpec.widthPx,
         heightPx: activeSpec.heightPx,
         widthMm: activeSpec.widthMm,

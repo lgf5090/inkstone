@@ -17585,11 +17585,6 @@ const allowed = new Map([
     "/* Tabs and Search Bar */",
     "/* Swatch Grids */",
   ]],
-  ["src/client/features/tools/id-photo/IdPhotoApp.tsx", [
-    "/* Mobile Top Preview */",
-    "/* Left / Middle Settings and Image Setup Area */",
-    "/* Right Preview and Export Controls on Large Screens */",
-  ]],
   ["src/client/features/tools/id-photo/api.ts", [
     "// fallback",
   ]],
@@ -17649,10 +17644,6 @@ const allowed = new Map([
     "/* Top action toolbar */",
     "/* Main Preview Container */",
     "/* Standard Alignment Guides Overlay */",
-    "/* Top crown line */",
-    "/* Eye horizontal center line */",
-    "/* Chin bottom line */",
-    "/* Vertical Center line */",
     "/* Bottom Spec Meta Tag */",
   ]],
   ["src/client/features/tools/id-photo/print/IdPhotoPrintView.tsx", [
@@ -31090,9 +31081,6 @@ const allowed = new Map([
   ["src/shared/tools/id-photo/presets.ts", [
     "// SVG path representation for lightweight offline formal wear rendering",
   ]],
-  ["src/shared/tools/id-photo/schemas.ts", [
-    "// base64 / data-url",
-  ]],
   ["src/shared/tools/id-photo/specs.ts", [
     "// 1. China Standards",
     "// 2. Exam and Certifications",
@@ -38013,6 +38001,9 @@ const allowed = new Map([
     "// History",
     "// AI Palette Studio & Poetic Interpretation",
     "// Assets (R2 upload / download)",
+  ]],
+  ["src/worker/routes/tools-id-photo.ts", [
+    "/**\n * The declared fileType is a client claim, so the bytes decide what a stored portrait really is:\n * a mislabelled upload would otherwise be served back with a content type it does not match.\n */",
   ]],
   ["src/worker/routes/tools-password.ts", [
     "/**\n * Password Manager API routes (`/api/tools/password/*`).\n */",

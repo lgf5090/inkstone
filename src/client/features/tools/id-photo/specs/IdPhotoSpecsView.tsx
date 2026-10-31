@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Award, Plus, Star, Trash2 } from 'lucide-react'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
-import type { IdPhotoCategory, IdPhotoSpec } from '@shared/tools/id-photo/types'
+import type { IdPhotoSpec } from '@shared/tools/id-photo/types'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Input } from '../../../../components/form'
@@ -9,10 +9,12 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { deleteCustomSpec, updateCustomSpec } from '../api'
+import { specLabel } from '../spec-label'
+import { filterSpecs, SPEC_CATEGORIES, type SpecCategoryFilter } from './filter-specs'
 
 export function IdPhotoSpecsView() {
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState<IdPhotoCategory | 'all'>('all')
+  const [category, setCategory] = useState<SpecCategoryFilter>('all')
 
   const selectedSpecId = useIdPhotoStore((s) => s.selectedSpecId)
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
@@ -24,26 +26,10 @@ export function IdPhotoSpecsView() {
     return [...customSpecs, ...BUILTIN_ID_PHOTO_SPECS]
   }, [customSpecs])
 
-  const filteredSpecs = useMemo(() => {
-    return allSpecs.filter((s) => {
-      const matchCat = category === 'all' || s.category === category
-      const q = search.trim().toLowerCase()
-      const matchSearch =
-        !q ||
-        s.name.toLowerCase().includes(q) ||
-        s.countryCode.toLowerCase().includes(q)
-      return matchCat && matchSearch
-    })
-  }, [allSpecs, category, search])
-
-  const categories = [
-    { id: 'all', labelKey: 'tools.id_photo.spec.category_all' },
-    { id: 'cn_standard', labelKey: 'tools.id_photo.spec.category_cn' },
-    { id: 'exam_cert', labelKey: 'tools.id_photo.spec.category_exam' },
-    { id: 'intl_passport', labelKey: 'tools.id_photo.spec.category_intl' },
-    { id: 'visa', labelKey: 'tools.id_photo.spec.category_visa' },
-    { id: 'custom', labelKey: 'tools.id_photo.spec.category_custom' },
-  ] as const
+  const filteredSpecs = useMemo(
+    () => filterSpecs(allSpecs, search, category, specLabel),
+    [allSpecs, category, search],
+  )
 
   const toggleFavorite = async (e: React.MouseEvent, spec: IdPhotoSpec) => {
     e.stopPropagation()
@@ -71,7 +57,7 @@ export function IdPhotoSpecsView() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border-subtle)]">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
             <Award size={22} />
           </div>
           <div>
@@ -108,13 +94,13 @@ export function IdPhotoSpecsView() {
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          {categories.map((c) => {
+          {SPEC_CATEGORIES.map((c) => {
             const active = category === c.id
             return (
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setCategory(c.id as any)}
+                onClick={() => setCategory(c.id)}
                 className={cn(
                   'rounded-full px-3 py-1 text-[length:var(--text-12)] font-medium shrink-0',
                   active
@@ -122,7 +108,7 @@ export function IdPhotoSpecsView() {
                     : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
                 )}
               >
-                {t(c.labelKey as any)}
+                {t(c.labelKey)}
               </button>
             )
           })}
@@ -146,7 +132,7 @@ export function IdPhotoSpecsView() {
             >
               <button
                 type="button"
-                aria-label={spec.nameKey ? t(spec.nameKey as never) : spec.name}
+                aria-label={specLabel(spec)}
                 aria-pressed={isSelected}
                 onClick={() => setSelectedSpecId(spec.id)}
                 className="absolute inset-0 z-[var(--z-sticky)] rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -159,7 +145,7 @@ export function IdPhotoSpecsView() {
                     </span>
                   )}
                   <h4 className="truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
-                    {spec.nameKey ? t(spec.nameKey as any) : spec.name}
+                    {specLabel(spec)}
                   </h4>
                 </div>
                 {!spec.isBuiltin && (
@@ -190,7 +176,7 @@ export function IdPhotoSpecsView() {
 
               {spec.descriptionKey && (
                 <p className="text-[length:var(--text-12)] text-[var(--text-secondary)] line-clamp-2">
-                  {t(spec.descriptionKey as any)}
+                  {t(spec.descriptionKey)}
                 </p>
               )}
 
@@ -215,7 +201,7 @@ export function IdPhotoSpecsView() {
                         <span
                           key={idx}
                           style={{ backgroundColor: color }}
-                          className="h-3.5 w-3.5 rounded-full border border-black/10 dark:border-white/20"
+                          className="h-3.5 w-3.5 rounded-full border border-[var(--border-strong)]"
                         />
                       ))}
                     </div>

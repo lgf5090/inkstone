@@ -7,6 +7,7 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
+import { specLabel } from '../spec-label'
 
 const MAX_BATCH_ITEMS = 60
 const UNSUPPORTED_MIME = /^image\/(heic|heif|tiff|svg\+xml)$/i
@@ -255,7 +256,7 @@ export function IdPhotoBatchView() {
             <span>{t('tools.id_photo.batch.items_count', { count: items.length })}</span>
             <span>
               {t('tools.id_photo.common.target_spec')}: {activeSpec.flagEmoji}{' '}
-              {activeSpec.nameKey ? t(activeSpec.nameKey as never) : activeSpec.name} (
+              {specLabel(activeSpec)} (
               {activeSpec.widthPx}×{activeSpec.heightPx} {t('tools.id_photo.unit.px')})
             </span>
           </div>

@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
 import { Check, Plus } from 'lucide-react'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
-import type { IdPhotoCategory } from '@shared/tools/id-photo/types'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Input } from '../../../../components/form'
 import { Button } from '../../../../components/primitives'
 import { useIdPhotoStore } from '../store'
+import { specLabel } from '../spec-label'
+import { filterSpecs, SPEC_CATEGORIES, type SpecCategoryFilter } from '../specs/filter-specs'
 
 export function SpecsTab() {
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState<IdPhotoCategory | 'all'>('all')
+  const [category, setCategory] = useState<SpecCategoryFilter>('all')
 
   const selectedSpecId = useIdPhotoStore((s) => s.selectedSpecId)
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
@@ -21,27 +22,10 @@ export function SpecsTab() {
     return [...customSpecs, ...BUILTIN_ID_PHOTO_SPECS]
   }, [customSpecs])
 
-  const filteredSpecs = useMemo(() => {
-    return allSpecs.filter((s) => {
-      const matchCat = category === 'all' || s.category === category
-      const q = search.trim().toLowerCase()
-      const matchSearch =
-        !q ||
-        s.name.toLowerCase().includes(q) ||
-        s.countryCode.toLowerCase().includes(q) ||
-        (s.aspectRatioLabel && s.aspectRatioLabel.includes(q))
-      return matchCat && matchSearch
-    })
-  }, [allSpecs, category, search])
-
-  const categories = [
-    { id: 'all', labelKey: 'tools.id_photo.spec.category_all' },
-    { id: 'cn_standard', labelKey: 'tools.id_photo.spec.category_cn' },
-    { id: 'exam_cert', labelKey: 'tools.id_photo.spec.category_exam' },
-    { id: 'intl_passport', labelKey: 'tools.id_photo.spec.category_intl' },
-    { id: 'visa', labelKey: 'tools.id_photo.spec.category_visa' },
-    { id: 'custom', labelKey: 'tools.id_photo.spec.category_custom' },
-  ] as const
+  const filteredSpecs = useMemo(
+    () => filterSpecs(allSpecs, search, category, specLabel),
+    [allSpecs, category, search],
+  )
 
   return (
     <div className="flex flex-col gap-3">
@@ -68,13 +52,13 @@ export function SpecsTab() {
 
       {/* Category Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-        {categories.map((c) => {
+        {SPEC_CATEGORIES.map((c) => {
           const active = category === c.id
           return (
             <button
               key={c.id}
               type="button"
-              onClick={() => setCategory(c.id as IdPhotoCategory | 'all')}
+              onClick={() => setCategory(c.id)}
               className={cn(
                 'rounded-full px-2.5 py-1 text-[length:var(--text-12)] font-medium shrink-0',
                 'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
@@ -106,7 +90,7 @@ export function SpecsTab() {
             >
               <button
                 type="button"
-                aria-label={spec.nameKey ? t(spec.nameKey as never) : spec.name}
+                aria-label={specLabel(spec)}
                 aria-pressed={isSelected}
                 onClick={() => setSelectedSpecId(spec.id)}
                 className="absolute inset-0 z-[var(--z-sticky)] rounded-[var(--r-md)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -119,7 +103,7 @@ export function SpecsTab() {
                     </span>
                   )}
                   <h4 className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-                    {spec.nameKey ? t(spec.nameKey as any) : spec.name}
+                    {specLabel(spec)}
                   </h4>
                 </div>
                 {isSelected && (
@@ -150,7 +134,7 @@ export function SpecsTab() {
                         <span
                           key={idx}
                           style={{ backgroundColor: color }}
-                          className="h-3 w-3 rounded-full border border-black/10 dark:border-white/20"
+                          className="h-3 w-3 rounded-full border border-[var(--border-strong)]"
                         />
                       ))}
                     </div>
@@ -161,6 +145,12 @@ export function SpecsTab() {
           )
         })}
       </div>
+
+      {filteredSpecs.length === 0 && (
+        <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+          {t('tools.id_photo.spec.no_results')}
+        </p>
+      )}
     </div>
   )
 }

@@ -8,8 +8,9 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '../../../../lib/cn'
+import { Tabs } from '../../../../components/tabs'
 import { t } from '../../../../lib/i18n'
-import { useIdPhotoStore, type IdPhotoOptionsTab } from '../store'
+import { useIdPhotoStore } from '../store'
 import { SpecsTab } from './SpecsTab'
 import { ColorTab } from './ColorTab'
 import { RetouchTab } from './RetouchTab'
@@ -57,36 +58,24 @@ export function IdPhotoOptionsPanel() {
 
       {isOpen && (
         <div className="flex flex-col gap-4 p-3.5">
-          <div
-            role="tablist"
-            className="flex items-center gap-1 border-b border-[var(--border-subtle)] pb-2 overflow-x-auto"
-          >
-            {OPTIONS_TABS.map((tab) => {
-              const Icon = tab.icon
-              const isSelected = activeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClick={() => setActiveTab(tab.id as IdPhotoOptionsTab)}
-                  className={cn(
-                    'flex items-center gap-1.5 rounded-[var(--r-md)] px-3 py-1.5 text-[length:var(--text-13)] font-medium shrink-0',
-                    'transition-[background-color,color] duration-[var(--dur-fast)]',
-                    isSelected
-                      ? 'border-b-2 border-[var(--accent)] text-[var(--accent)] font-semibold'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-                  )}
-                >
-                  <Icon size={14} />
+          <Tabs
+            label={t('tools.id_photo.options.accordion_title')}
+            value={activeTab}
+            onChange={setActiveTab}
+            panelId="id-photo-options-panel"
+            className="border-b border-[var(--border-subtle)] pb-2"
+            items={OPTIONS_TABS.map((tab) => ({
+              id: tab.id,
+              label: (
+                <>
+                  <tab.icon size={14} />
                   <span>{t(tab.labelKey)}</span>
-                </button>
-              )
-            })}
-          </div>
+                </>
+              ),
+            }))}
+          />
 
-          <div role="tabpanel" className="min-h-0">
+          <div id="id-photo-options-panel" role="tabpanel" tabIndex={0} className="min-h-0">
             {activeTab === 'spec' && <SpecsTab />}
             {activeTab === 'color' && <ColorTab />}
             {activeTab === 'retouch' && <RetouchTab />}

@@ -128,7 +128,7 @@ export function IdPhotoSettingsView() {
                   <button
                     key={preset.id}
                     type="button"
-                    aria-label={t(preset.nameKey as never)}
+                    aria-label={t(preset.nameKey)}
                     aria-pressed={defaultBgColor.toLowerCase() === preset.color.toLowerCase()}
                     onClick={() => setDefaultBgColor(preset.color)}
                     style={{ backgroundColor: preset.color }}
@@ -162,7 +162,7 @@ export function IdPhotoSettingsView() {
               value={printPaperSize}
               options={PRINT_SHEET_PRESETS.map((preset) => ({
                 value: preset.id,
-                label: `${t(preset.nameKey as never)} (${preset.widthMm}×${preset.heightMm}mm)`,
+                label: `${t(preset.nameKey)} (${preset.widthMm}×${preset.heightMm}mm)`,
               }))}
               onChange={(value) => setPrintPaperSize(value)}
               className="w-full"

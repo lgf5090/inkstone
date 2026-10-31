@@ -917,6 +917,10 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.spec.category_visa': '出国签证',
   'tools.id_photo.spec.category_custom': '自定义规格',
   'tools.id_photo.spec.add_custom': '新建规格',
+  'tools.id_photo.spec.no_results': '没有匹配的规格，试试换关键词或分类',
+  'tools.id_photo.specs.created': '已创建规格「{name}」',
+  'tools.id_photo.specs.dimension_hint': '可填 {min}–{max} mm',
+  'tools.id_photo.specs.dpi_hint': '可填 {min}–{max} DPI',
   'tools.id_photo.spec.physical_size': '物理尺寸',
   'tools.id_photo.spec.pixel_size': '像素尺寸',
   'tools.id_photo.spec.recommended_bg': '官方底色',
@@ -926,6 +930,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.color.gradient_toggle': '启用立体双色渐变',
   'tools.id_photo.color.feathering_label': '边缘羽化平滑',
   'tools.id_photo.color.feathering_hint': '消除发丝与背景边缘的锯齿与白边',
+  'tools.id_photo.color.recommend': '「{spec}」推荐底色',
 
   // Portrait retouch tab
   'tools.id_photo.retouch.brightness': '面部亮度',

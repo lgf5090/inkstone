@@ -9,11 +9,12 @@ import {
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { useIdPhotoStore } from '../store'
+import { specLabel } from '../spec-label'
 import { checkIdPhotoCompliance } from '../engine/compliance-engine'
 
 export function IdPhotoComplianceView() {
   const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
-  const imageElement = useIdPhotoStore((s) => s.imageElement)
+  const sourceSize = useIdPhotoStore((s) => s.sourceSize)
   const adjustOptions = useIdPhotoStore((s) => s.adjustOptions)
   const lastExport = useIdPhotoStore((s) => s.lastExport)
 
@@ -25,12 +26,12 @@ export function IdPhotoComplianceView() {
         spec: activeSpec,
         actualWidthPx: activeSpec.widthPx,
         actualHeightPx: activeSpec.heightPx,
-        sourceWidthPx: imageElement?.naturalWidth,
-        sourceHeightPx: imageElement?.naturalHeight,
+        sourceWidthPx: sourceSize?.width,
+        sourceHeightPx: sourceSize?.height,
         fileSizeBytes: lastExport?.bytes,
         bgColorHex: adjustOptions.bgColor,
       }),
-    [activeSpec, imageElement, adjustOptions.bgColor, lastExport],
+    [activeSpec, sourceSize, adjustOptions.bgColor, lastExport],
   )
 
   return (
@@ -46,7 +47,7 @@ export function IdPhotoComplianceView() {
             </h2>
             <p className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
               {activeSpec.flagEmoji && <span className="mr-1">{activeSpec.flagEmoji}</span>}
-              {activeSpec.nameKey ? t(activeSpec.nameKey as never) : activeSpec.name} ({activeSpec.widthMm}×{activeSpec.heightMm} {t('tools.id_photo.unit.mm')})
+              {specLabel(activeSpec)} ({activeSpec.widthMm}×{activeSpec.heightMm} {t('tools.id_photo.unit.mm')})
             </p>
           </div>
         </div>
@@ -100,7 +101,7 @@ export function IdPhotoComplianceView() {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <h4 className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-                    {t(check.titleKey as never)}
+                    {t(check.titleKey)}
                   </h4>
                   <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
                     {isUnknown ? t('tools.id_photo.compliance.unknown') : check.message}
