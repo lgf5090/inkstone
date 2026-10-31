@@ -1215,7 +1215,7 @@ export const ZH_CN_PASSWORD_WARNINGS: Record<string, string> = {
   'This is a top-10 common password': '这是排名前10的常用弱密码',
   'This is a top-100 common password': '这是排名前100的常用弱密码',
   'This is a very common password': '这是非常常见的密码',
-  'Similar to a commonly used password': '与常用密码相似',
+  'This is similar to a commonly used password': '与常用密码相似',
   'A word by itself is easy to guess': '单字很容易被猜出',
   'Names and surnames by themselves are easy to guess': '名字或姓氏很容易被猜出',
   'Common names and surnames are easy to guess': '常见姓名很容易被猜出',
@@ -1225,7 +1225,7 @@ export const ZH_CN_PASSWORD_WARNINGS: Record<string, string> = {
   'Repeats like "abcabcabc" are only slightly harder to guess than "abc"': '像"abcabcabc"这样的重复模式很容易被猜出',
   'Sequences like abc or 6543 are easy to guess': '像abc或6543这样的连续字符很容易被猜出',
   'Recent years are easy to guess': '最近的年份很容易被猜出',
-  'Dates are easy to guess': '日期很容易被猜出',
+  'Dates are often easy to guess': '日期很容易被猜出',
 }
 
 export const ZH_CN_PASSWORD_LENGTH_SUGGESTION = '建议增长密码长度'
