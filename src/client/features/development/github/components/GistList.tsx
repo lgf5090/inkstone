@@ -120,6 +120,8 @@ export function GistList({
   onBatchTag,
   onCreate,
   onImport,
+  exportsEnabled,
+  onOpenExportHistory,
   loading,
   error,
   remote,
@@ -158,6 +160,8 @@ export function GistList({
   onBatchTag: (tagId: string, action: 'add' | 'remove') => void
   onCreate: () => void
   onImport: () => void
+  exportsEnabled: boolean
+  onOpenExportHistory: () => void
   loading: boolean
   error: string | null
   remote: boolean
@@ -188,6 +192,7 @@ export function GistList({
     ...GIST_SORT_OPTIONS.map((option) => ({ id: option.value, label: t(option.labelKey), checked: prefs.sort === option.value, onSelect: () => onUpdatePrefs({ sort: option.value }) })),
     { id: 'order', label: prefs.order === 'desc' ? t('development.github.gists.current_desc') : t('development.github.gists.current_asc'), separatorBefore: true, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }) },
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} />, separatorBefore: true, onSelect: onRefresh },
+    ...(exportsEnabled ? [{ id: 'exports', label: t('development.github.gists.exports_title'), icon: <Download size={13} />, onSelect: onOpenExportHistory }] : []),
   ]
   const tagItems: MenuItem[] = tags.length > 0 ? [
     { id: 'tag-add-header', label: t('development.github.tags.assign'), disabled: true },

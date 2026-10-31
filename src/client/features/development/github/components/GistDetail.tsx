@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, Lock, Plus, Save, Trash2, X } from 'lucide-react'
+import { Calendar, Check, Copy, Download, Edit3, ExternalLink, FileCode, FileText, Globe, History, Lock, Plus, Save, Trash2, X } from 'lucide-react'
 import type { GistFile, GistFilesPatch, GistItem } from '@shared/development/github/types'
 import { MAX_GIST_TOTAL_CONTENT_BYTES } from '@shared/development/github/limits'
 import { t } from '../../../../lib/i18n'
@@ -23,6 +23,7 @@ export function GistDetail({
   onUpdateNotes,
   onUpdateGist,
   onDeleteGist,
+  onOpenExportHistory,
 }: {
   gist: GistItem | null
   notes: string
@@ -32,6 +33,7 @@ export function GistDetail({
   onUpdateNotes?: (notes: string) => void
   onUpdateGist?: (gist: GistItem, files: GistFilesPatch) => void | Promise<void>
   onDeleteGist?: (id: string) => void
+  onOpenExportHistory?: () => void
 }) {
   const toast = useUi((state) => state.toast)
   const [editing, setEditing] = useState(false)
@@ -162,7 +164,7 @@ export function GistDetail({
               <Button variant="secondary" size="sm" onClick={() => setEditing(false)} disabled={saving}><X size={12} />{t('common.cancel')}</Button>
               <Button size="sm" onClick={() => void save()} disabled={saving} loading={saving}><Save size={12} />{t('common.save')}</Button>
             </> : <Button variant="secondary" size="sm" onClick={startEdit}><Edit3 size={12} />{t('common.edit')}</Button>)}
-            {!readOnly && exportable && exportsEnabled && !editing && <><Button ref={exportAnchor} variant="secondary" size="sm" onClick={() => setExportOpen(true)} loading={exporting}><Download size={12} />{t('development.github.gists.export')}</Button><Menu anchor={exportAnchor} open={exportOpen} onClose={() => setExportOpen(false)} items={[{ id: 'json', label: t('development.github.gists.export_json'), onSelect: () => void exportGist('json') }, { id: 'md', label: t('development.github.gists.export_md'), onSelect: () => void exportGist('md') }, { id: 'txt', label: t('development.github.gists.export_txt'), onSelect: () => void exportGist('txt') }] satisfies MenuItem[]} align="end" width={180} label={t('development.github.gists.export')} /></>}
+            {!readOnly && exportable && exportsEnabled && !editing && <><Button ref={exportAnchor} variant="secondary" size="sm" onClick={() => setExportOpen(true)} loading={exporting}><Download size={12} />{t('development.github.gists.export')}</Button><Menu anchor={exportAnchor} open={exportOpen} onClose={() => setExportOpen(false)} items={[{ id: 'json', label: t('development.github.gists.export_json'), onSelect: () => void exportGist('json') }, { id: 'md', label: t('development.github.gists.export_md'), onSelect: () => void exportGist('md') }, { id: 'txt', label: t('development.github.gists.export_txt'), onSelect: () => void exportGist('txt') }, ...(onOpenExportHistory ? [{ id: 'history', label: t('development.github.gists.exports_title'), icon: <History size={13} />, separatorBefore: true, onSelect: onOpenExportHistory }] : [])] satisfies MenuItem[]} align="end" width={200} label={t('development.github.gists.export')} /></>}
             {!readOnly && onDeleteGist && !editing && <IconButton label={t('common.delete')} size="sm" onClick={() => onDeleteGist(gist.id)}><Trash2 size={13} /></IconButton>}
           </div>
         </div>
