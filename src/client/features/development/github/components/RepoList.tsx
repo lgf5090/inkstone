@@ -99,7 +99,9 @@ export function RepoList({
   detailDisabled: boolean
 }) {
   const settingsAnchor = useRef<HTMLButtonElement>(null)
+  const mirrorAnchor = useRef<HTMLButtonElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mirrorOpen, setMirrorOpen] = useState(false)
   const [draft, setDraft] = useState(query)
   useEffect(() => setDraft(query), [query])
   const currentMirror = mirrors.find((mirror) => mirror.id === currentMirrorId) ?? mirrors[0]
@@ -114,10 +116,11 @@ export function RepoList({
       onSelect: () => onUpdatePrefs({ sort: option.value }, draft),
     })),
     { id: 'order', label: prefs.order === 'desc' ? t('development.github.repos.current_desc') : t('development.github.repos.current_asc'), icon: prefs.order === 'desc' ? <ArrowDown size={13} /> : <ArrowUp size={13} />, onSelect: () => onUpdatePrefs({ order: prefs.order === 'desc' ? 'asc' : 'desc' }, draft) },
-    { id: 'mirror-header', label: t('development.github.mirrors.section'), separatorBefore: true, disabled: true },
-    ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
-    { id: 'mirror-manage', label: t('development.github.mirrors.manage'), icon: <Settings2 size={13} />, onSelect: onManageMirrors },
     { id: 'refresh', label: t('development.github.common.refresh'), icon: <RefreshCw size={13} className={cn(loading && 'animate-spin')} />, separatorBefore: true, onSelect: onRefresh },
+  ]
+  const mirrorItems: MenuItem[] = [
+    ...mirrors.filter((mirror) => mirror.enabled).map((mirror) => ({ id: `mirror-${mirror.id}`, label: mirror.name, icon: <Globe size={13} />, checked: currentMirrorId === mirror.id, onSelect: () => onCurrentMirrorChange(mirror.id) })),
+    { id: 'mirror-manage', label: t('development.github.mirrors.manage'), icon: <Settings2 size={13} />, separatorBefore: true, onSelect: onManageMirrors },
   ]
   return (
     <div className="flex h-full min-w-0 flex-col border-r border-[var(--border-subtle)]" data-slot="repo-list">
@@ -140,6 +143,7 @@ export function RepoList({
               trailing={draft ? <IconButton label={t('common.clear')} size="sm" onClick={() => { setDraft(''); onClear() }}><X size={12} /></IconButton> : undefined}
             />
           </div>
+          <Button ref={mirrorAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.mirrors.section')} aria-label={t('development.github.mirrors.section')} onClick={() => setMirrorOpen(true)}><Globe size={14} /></Button>
           <Button ref={settingsAnchor} variant="secondary" size="sm" className="size-8 px-0" title={t('development.github.repos.more_settings')} aria-label={t('development.github.repos.more_settings')} onClick={() => setSettingsOpen(true)}><Settings2 size={14} /></Button>
           <IconButton label={t('development.github.common.toggle_detail')} size="sm" onClick={toggleDetail} disabled={detailDisabled}><PanelRight size={15} /></IconButton>
         </div>
@@ -171,6 +175,7 @@ export function RepoList({
         )}
       </div>
       <Menu anchor={settingsAnchor} open={settingsOpen} onClose={() => setSettingsOpen(false)} items={settingsItems} align="end" width={250} label={t('development.github.repos.more_settings')} />
+      <Menu anchor={mirrorAnchor} open={mirrorOpen} onClose={() => setMirrorOpen(false)} items={mirrorItems} align="end" width={220} label={t('development.github.mirrors.section')} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {error ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
