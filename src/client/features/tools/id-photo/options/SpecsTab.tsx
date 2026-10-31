@@ -3,6 +3,7 @@ import { Check, Plus } from 'lucide-react'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import { Input } from '../../../../components/form'
 import { Button } from '../../../../components/primitives'
 import { useIdPhotoStore } from '../store'
@@ -12,6 +13,7 @@ import { filterSpecs, SPEC_CATEGORIES, type SpecCategoryFilter } from '../specs/
 export function SpecsTab() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<SpecCategoryFilter>('all')
+  const pinyinVersion = usePinyinVersion()
 
   const selectedSpecId = useIdPhotoStore((s) => s.selectedSpecId)
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
@@ -24,7 +26,7 @@ export function SpecsTab() {
 
   const filteredSpecs = useMemo(
     () => filterSpecs(allSpecs, search, category, specLabel),
-    [allSpecs, category, search],
+    [allSpecs, category, search, pinyinVersion],
   )
 
   return (
