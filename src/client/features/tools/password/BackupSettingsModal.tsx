@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Cloud,
   RefreshCw,
@@ -11,7 +11,7 @@ import {
 import { t } from '../../../lib/i18n'
 import { Modal } from '../../../components/overlay'
 import { Button } from '../../../components/primitives'
-import { Input, Switch, Segmented } from '../../../components/form'
+import { Input, Segmented, Slider, Switch } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
 import { passwordApi } from './api'
@@ -59,6 +59,8 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
   })
   const [isTestingWebdav, setIsTestingWebdav] = useState<boolean>(false)
   const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false)
+  const [autoLockMinutes, setAutoLockMinutes] = useState<number>(5)
+  const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchBackups = async () => {
     setIsLoadingBackups(true)
@@ -78,6 +80,9 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
       if (settings?.webdav) {
         setWebdavConfig(settings.webdav)
       }
+      if (settings?.autoLockMinutes) {
+        setAutoLockMinutes(settings.autoLockMinutes)
+      }
     } catch {
       // Ignored
     }
@@ -89,6 +94,30 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
       void fetchSettings()
     }
   }, [isVisible])
+
+  // Dragging a slider fires on every step; the write is debounced and the store is refreshed so the
+  // auto-lock timer picks the new value up immediately.
+  const handleAutoLockChange = (minutes: number) => {
+    setAutoLockMinutes(minutes)
+    if (autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current)
+    autoLockTimerRef.current = setTimeout(() => {
+      void passwordApi
+        .saveSettings({ autoLockMinutes: minutes })
+        .then(() => usePasswordVaultStore.getState().loadSettings())
+        .catch((err: unknown) => {
+          toast({
+            title: err instanceof Error ? err.message : t('tools.password.backup.save_failed'),
+            tone: 'danger',
+          })
+        })
+    }, 400)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (autoLockTimerRef.current) clearTimeout(autoLockTimerRef.current)
+    }
+  }, [])
 
   // Handle create cloud backup
   const handleCreateCloudBackup = async () => {
@@ -297,6 +326,21 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                 </div>
               </div>
 
+              {/* Auto-lock. The value lived in the database with no control and no reader. */}
+              <div className="flex flex-col gap-2 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
+                <Slider
+                  label={t('tools.password.backup.auto_lock')}
+                  value={autoLockMinutes}
+                  min={1}
+                  max={60}
+                  suffix={t('tools.password.common.minutes')}
+                  onChange={handleAutoLockChange}
+                />
+                <p className="text-[length:var(--text-11)] text-[var(--text-secondary)]">
+                  {t('tools.password.backup.auto_lock_desc')}
+                </p>
+              </div>
+
               {/* Backup History List */}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
@@ -355,7 +399,7 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                               type="button"
                               variant="ghost"
                               size="sm"
-                              icon={<Trash2 size={13} className="text-red-500" />}
+                              icon={<Trash2 size={13} className="text-[var(--danger)]" />}
                               onClick={() => handleDeleteBackup(rec.id)}
                               aria-label={t('tools.password.backup.delete_snapshot')}
                             />
@@ -435,7 +479,14 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
                     <Input
                       id="webdav-password"
                       type="password"
+                      autoComplete="new-password"
+                      spellCheck={false}
                       value={webdavConfig.password || ''}
+                      placeholder={
+                        webdavConfig.hasPassword
+                          ? t('tools.password.backup.webdav_pass_keep')
+                          : undefined
+                      }
                       onChange={(e) =>
                         setWebdavConfig((prev) => ({ ...prev, password: e.target.value }))
                       }
@@ -482,7 +533,7 @@ export function BackupSettingsModal({ open, onClose }: BackupSettingsModalProps)
       >
         <div className="flex flex-col gap-4 text-[var(--text-primary)]">
           <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--warning-soft)] text-[var(--warning)]">
               <AlertTriangle size={18} />
             </div>
             <div>

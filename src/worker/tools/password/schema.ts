@@ -7,6 +7,7 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL,
     master_hash TEXT NOT NULL,
     recovery_hint TEXT NOT NULL DEFAULT '',
+    kdf_salt TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id)
@@ -17,6 +18,7 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     parent_id TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
     sort INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -34,6 +36,7 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
     password TEXT NOT NULL DEFAULT '',
     link TEXT NOT NULL DEFAULT '',
     remark TEXT NOT NULL DEFAULT '',
+    totp_secret TEXT NOT NULL DEFAULT '',
     favicon TEXT NOT NULL DEFAULT '',
     is_favorite INTEGER NOT NULL DEFAULT 0,
     sort INTEGER NOT NULL DEFAULT 0,
@@ -45,6 +48,10 @@ export const TOOLS_PASSWORD_SCHEMA_STATEMENTS: readonly string[] = [
      ON tools_password_accounts(user_id, group_id, sort ASC, id)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_fav
      ON tools_password_accounts(user_id, is_favorite, sort ASC, id)`,
+  // The whole-vault list sorts by `user_id, sort` with no group filter; neither index above leads
+  // with that pair, so unlock used to scan and sort the table every time.
+  `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_user
+     ON tools_password_accounts(user_id, sort ASC, id)`,
 
   `CREATE TABLE IF NOT EXISTS tools_password_settings (
     user_id TEXT NOT NULL,
@@ -84,6 +91,7 @@ export const TOOLS_PASSWORD_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_password_groups_user',
   'idx_tools_password_accounts_group',
   'idx_tools_password_accounts_fav',
+  'idx_tools_password_accounts_user',
   'idx_tools_password_backups_user',
 ]
 
@@ -92,6 +100,7 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'user_id',
     'master_hash',
     'recovery_hint',
+    'kdf_salt',
     'created_at',
     'updated_at',
   ],
@@ -100,6 +109,7 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'id',
     'name',
     'parent_id',
+    'icon',
     'sort',
     'created_at',
     'updated_at',
@@ -113,6 +123,7 @@ export const TOOLS_PASSWORD_REQUIRED_COLUMNS: Readonly<Record<string, readonly s
     'password',
     'link',
     'remark',
+    'totp_secret',
     'favicon',
     'is_favorite',
     'sort',

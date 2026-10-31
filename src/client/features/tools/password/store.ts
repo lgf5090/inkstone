@@ -4,19 +4,20 @@ import type {
   PasswordVaultState,
   PasswordGroup,
   PasswordAccount,
+  PasswordSettings,
   DecryptedAccount,
 } from '@shared/tools/password/types'
 import { passwordApi } from './api'
 import {
+  createVaultSalt,
   decryptValue,
+  deriveVaultKey,
   encryptValue,
   getKeyIv,
-  getOriginalPasswordPlus,
-  getRecoveryPass,
+  hashMasterPassword,
 } from './crypto'
-
-const LOGIN_INFO_KEY = 'inkstone.tools.password.login_info'
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+import { reencryptAccounts } from './utils/reencrypt'
+import { t } from '../../../lib/i18n'
 
 export type PasswordViewMode =
   | 'all'
@@ -25,12 +26,14 @@ export type PasswordViewMode =
   | 'groups'
   | 'backup_settings'
   | 'batch_operations'
+  | 'health'
 
 export interface PasswordVaultStore {
   vaultState: PasswordVaultState | null
+  /** Server-side preferences; `autoLockMinutes` is what the auto-lock timer actually uses. */
+  settings: PasswordSettings | null
   isUnlocked: boolean
   keyIV: KeyIV | null
-  masterPasswordText: string
   groups: PasswordGroup[]
   groupTree: PasswordGroup[]
   accounts: PasswordAccount[]
@@ -41,6 +44,12 @@ export interface PasswordVaultStore {
   searchQuery: string
   isLoading: boolean
   lastActiveTime: number
+  /**
+   * Bumped by every unlock, lock and wipe. Async work captures it before awaiting and refuses to
+   * write back when it moved, so a stale response cannot repopulate a locked vault or overwrite a
+   * vault that is now open under a different key.
+   */
+  keyEpoch: number
 
   // Modals
   isSettingOpen: boolean
@@ -56,8 +65,12 @@ export interface PasswordVaultStore {
 
   // Methods
   checkVaultAndAutoUnlock: () => Promise<void>
-  unlock: (keyiv: KeyIV, rememberLogin?: boolean, rawPassword?: string) => void
+  unlock: (keyiv: KeyIV) => void
+  loadSettings: () => Promise<void>
+  upgradeLegacyVault: (password: string) => Promise<void>
   lock: () => void
+  clearVaultState: () => void
+  forgetSession: () => void
   refreshData: () => Promise<void>
   setSelectedAccountId: (id: string | null) => void
   setSelectedGroupId: (id: string | null) => void
@@ -72,7 +85,10 @@ export interface PasswordVaultStore {
   toggleFavorite: (id: string) => Promise<void>
 
   createGroup: (name: string, parentId?: string) => Promise<PasswordGroup>
-  updateGroup: (id: string, dataOrName: string | { name?: string; parentId?: string; sort?: number }) => Promise<void>
+  updateGroup: (
+    id: string,
+    dataOrName: string | { name?: string; parentId?: string; icon?: string; sort?: number },
+  ) => Promise<void>
   deleteGroup: (id: string) => Promise<void>
   moveAccountToGroup: (accountId: string, targetGroupId: string) => Promise<void>
   reorderAccounts: (accounts: Array<{ id: string; sort: number }>) => Promise<void>
@@ -140,6 +156,7 @@ function decryptAccount(acc: PasswordAccount, keyiv: KeyIV): DecryptedAccount {
     password: tryDecrypt(acc.password),
     link: tryDecrypt(acc.link),
     remark: tryDecrypt(acc.remark),
+    totpSecret: tryDecrypt(acc.totpSecret ?? ''),
     favicon: acc.favicon || '',
     isFavorite: acc.isFavorite,
     sort: acc.sort,
@@ -150,9 +167,9 @@ function decryptAccount(acc: PasswordAccount, keyiv: KeyIV): DecryptedAccount {
 
 export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   vaultState: null,
+  settings: null,
   isUnlocked: false,
   keyIV: null,
-  masterPasswordText: '',
   groups: [],
   groupTree: [],
   accounts: [],
@@ -163,6 +180,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   searchQuery: '',
   isLoading: false,
   lastActiveTime: Date.now(),
+  keyEpoch: 0,
 
   isSettingOpen: false,
   isResetOpen: false,
@@ -185,49 +203,20 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
       if (!state.hasVault) {
         set({ isSettingOpen: true, isUnlocked: false, isLoading: false })
-        return
-      }
-
-      // Check 24h remember login in localStorage
-      const savedInfo = typeof localStorage !== 'undefined' ? localStorage.getItem(LOGIN_INFO_KEY) : null
-      if (savedInfo) {
-        try {
-          const { expireTime, encryptedPass } = JSON.parse(savedInfo)
-          if (expireTime > Date.now() && encryptedPass) {
-            const rawPassword = getOriginalPasswordPlus(encryptedPass)
-            if (rawPassword) {
-              const keyiv = getKeyIv(rawPassword)
-              get().unlock(keyiv, false, rawPassword)
-            }
-          } else {
-            localStorage.removeItem(LOGIN_INFO_KEY)
-          }
-        } catch {
-          localStorage.removeItem(LOGIN_INFO_KEY)
-        }
       }
     } catch {
-      // Ignored
+      // `vaultState` stays null, so the pane keeps its loading branch — the honest answer when the
+      // server could not be asked.
     } finally {
       set({ isLoading: false })
     }
   },
 
-  unlock: (keyiv: KeyIV, rememberLogin = false, rawPassword = '') => {
-    if (rememberLogin && rawPassword && typeof localStorage !== 'undefined') {
-      try {
-        const encryptedPass = getRecoveryPass(rawPassword)
-        const expireTime = Date.now() + ONE_DAY_MS
-        localStorage.setItem(LOGIN_INFO_KEY, JSON.stringify({ encryptedPass, expireTime }))
-      } catch {
-        // Ignored
-      }
-    }
-
+  unlock: (keyiv: KeyIV) => {
     set((state) => ({
+      keyEpoch: state.keyEpoch + 1,
       isUnlocked: true,
       keyIV: keyiv,
-      masterPasswordText: rawPassword,
       lastActiveTime: Date.now(),
       // Whoever holds the key has a vault: the locked pane asks `vaultState.hasVault` to choose between the
       // door and the setup form, and the answer read before the vault was created would lock a reader out of
@@ -236,33 +225,98 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     }))
 
     void get().refreshData()
+    void get().loadSettings()
+  },
+
+  loadSettings: async () => {
+    if (!get().keyIV) return
+    try {
+      set({ settings: await passwordApi.getSettings() })
+    } catch {
+      // Keep the last known value; the 5-minute default covers a first read that failed.
+    }
+  },
+
+  upgradeLegacyVault: async (password) => {
+    // Vaults created before the salted derivation are re-sealed here, while the password is in
+    // hand: one atomic reset that swaps the key, the verifier and every row together.
+    const legacy = getKeyIv(password)
+    const salt = createVaultSalt()
+    const next = deriveVaultKey(password, salt)
+    const raw = await passwordApi.getAccounts()
+    const { rows, failedIndex } = reencryptAccounts(raw, legacy, next)
+    if (failedIndex >= 0) {
+      throw new Error(t('tools.password.upgrade.blocked', { index: String(failedIndex + 1) }))
+    }
+
+    await passwordApi.resetMasterPassword({
+      oldPassword: password,
+      newMasterHash: hashMasterPassword(password),
+      newKdfSalt: salt,
+      accounts: rows,
+    })
+    get().unlock(next)
   },
 
   lock: () => {
-    if (typeof localStorage !== 'undefined') {
-      const savedInfo = localStorage.getItem(LOGIN_INFO_KEY)
-      if (savedInfo) {
-        try {
-          const { expireTime } = JSON.parse(savedInfo)
-          if (expireTime <= Date.now()) {
-            localStorage.removeItem(LOGIN_INFO_KEY)
-          }
-        } catch {
-          localStorage.removeItem(LOGIN_INFO_KEY)
-        }
-      }
-    }
-
-    set({
+    set((state) => ({
+      keyEpoch: state.keyEpoch + 1,
       isUnlocked: false,
       keyIV: null,
-      masterPasswordText: '',
       selectedAccountId: null,
-    })
+      // The ciphertext can stay; the plaintext must not. Anything already in flight is discarded
+      // by the epoch check in refreshData/updateAccount.
+      decryptedAccounts: {},
+    }))
+  },
+
+  clearVaultState: () => {
+    set((state) => ({
+      keyEpoch: state.keyEpoch + 1,
+      vaultState: { hasVault: false },
+      isUnlocked: false,
+      keyIV: null,
+      groups: [],
+      groupTree: [],
+      accounts: [],
+      decryptedAccounts: {},
+      selectedAccountId: null,
+      selectedGroupId: null,
+      searchQuery: '',
+    }))
+  },
+
+  forgetSession: () => {
+    // Signing out must leave nothing of the previous reader behind: not the plaintext, not the
+    // ciphertext, and not the answer "this account has a vault". `vaultState: null` makes the pane
+    // ask the server again for whoever signs in next.
+    set((state) => ({
+      keyEpoch: state.keyEpoch + 1,
+      vaultState: null,
+      isUnlocked: false,
+      keyIV: null,
+      groups: [],
+      groupTree: [],
+      accounts: [],
+      decryptedAccounts: {},
+      selectedAccountId: null,
+      selectedGroupId: null,
+      searchQuery: '',
+      isSettingOpen: false,
+      isResetOpen: false,
+      isRecoverOpen: false,
+      isExportModalOpen: false,
+      isImportModalOpen: false,
+      isBackupSettingsOpen: false,
+      isBatchOperationsOpen: false,
+      isQuickAddModalOpen: false,
+      isGeneratorModalOpen: false,
+      targetGroupForExportImport: null,
+    }))
   },
 
   refreshData: async () => {
-    const { keyIV } = get()
+    const { keyIV, keyEpoch } = get()
     if (!keyIV) return
 
     set({ isLoading: true })
@@ -271,6 +325,11 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
         passwordApi.getGroups(),
         passwordApi.getAccounts(),
       ])
+
+      // A lock, a re-key or a second unlock while this was in flight makes the answer stale: the
+      // old key would otherwise write its plaintext back into a vault that is now locked or keyed
+      // differently.
+      if (get().keyEpoch !== keyEpoch) return
 
       const groupTree = buildTree(groups)
       const decryptedMap: Record<string, DecryptedAccount> = {}
@@ -287,9 +346,11 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
         selectedGroupId: get().selectedGroupId || (groups[0]?.id ?? null),
       })
     } catch {
-      // Error handled by UI boundary
+      // The vault stays on whatever it showed before; the next refresh retries.
     } finally {
-      set({ isLoading: false })
+      if (get().keyEpoch === keyEpoch) {
+        set({ isLoading: false })
+      }
     }
   },
 
@@ -309,6 +370,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
       password: data.password ? encryptValue(keyIV, data.password) : '',
       link: data.link ? encryptValue(keyIV, data.link) : '',
       remark: data.remark ? encryptValue(keyIV, data.remark) : '',
+      totpSecret: data.totpSecret ? encryptValue(keyIV, data.totpSecret) : '',
       favicon: data.favicon || '',
       isFavorite: Boolean(data.isFavorite),
       sort: data.sort ?? accounts.length,
@@ -327,7 +389,7 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   updateAccount: async (id, data) => {
-    const { keyIV, decryptedAccounts, accounts } = get()
+    const { keyIV, keyEpoch } = get()
     if (!keyIV) throw new Error('Vault is locked')
 
     const encryptedUpdates: Partial<PasswordAccount> = {}
@@ -337,17 +399,25 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
     if (data.password !== undefined) encryptedUpdates.password = encryptValue(keyIV, data.password)
     if (data.link !== undefined) encryptedUpdates.link = encryptValue(keyIV, data.link)
     if (data.remark !== undefined) encryptedUpdates.remark = encryptValue(keyIV, data.remark)
+    if (data.totpSecret !== undefined) encryptedUpdates.totpSecret = encryptValue(keyIV, data.totpSecret)
     if (data.favicon !== undefined) encryptedUpdates.favicon = data.favicon
     if (data.isFavorite !== undefined) encryptedUpdates.isFavorite = data.isFavorite
     if (data.sort !== undefined) encryptedUpdates.sort = data.sort
 
     const updated = await passwordApi.updateAccount(id, encryptedUpdates)
+    if (get().keyEpoch !== keyEpoch) {
+      // Locked or re-keyed while the write was in flight: the row is on the server, but this
+      // session must not decrypt it into a vault that no longer holds that key.
+      return updated
+    }
     const dec = decryptAccount(updated, keyIV)
 
-    set({
-      accounts: accounts.map((a) => (a.id === id ? updated : a)),
-      decryptedAccounts: { ...decryptedAccounts, [id]: dec },
-    })
+    // Re-read after the await: another write (a favourite toggle, a second tab's save) may have
+    // landed in between, and the snapshot taken before the request would undo it.
+    set((state) => ({
+      accounts: state.accounts.map((a) => (a.id === id ? updated : a)),
+      decryptedAccounts: { ...state.decryptedAccounts, [id]: dec },
+    }))
 
     return updated
   },
@@ -368,10 +438,33 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   toggleFavorite: async (id) => {
-    const { decryptedAccounts } = get()
+    const { decryptedAccounts, accounts } = get()
     const target = decryptedAccounts[id]
     if (!target) return
-    await get().updateAccount(id, { isFavorite: !target.isFavorite })
+    const next = !target.isFavorite
+
+    // Flip locally first: two clicks in quick succession must build on each other, not on the
+    // pre-request snapshot (which made the pair cancel out on the server while the UI flipped once).
+    set({
+      decryptedAccounts: { ...decryptedAccounts, [id]: { ...target, isFavorite: next } },
+      accounts: accounts.map((a) => (a.id === id ? { ...a, isFavorite: next } : a)),
+    })
+
+    try {
+      await get().updateAccount(id, { isFavorite: next })
+    } catch (error) {
+      const state = get()
+      set({
+        decryptedAccounts: {
+          ...state.decryptedAccounts,
+          [id]: { ...target, isFavorite: target.isFavorite },
+        },
+        accounts: state.accounts.map((a) =>
+          a.id === id ? { ...a, isFavorite: target.isFavorite } : a,
+        ),
+      })
+      throw error
+    }
   },
 
   createGroup: async (name, parentId = '') => {

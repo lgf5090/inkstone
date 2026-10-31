@@ -65,7 +65,7 @@ describe('the command registry', () => {
     // and deep research; the five after them are the chat's actions (`chat-*`); then Templater's four
     // (`cmd-templater-*`: insert, create, replace, and the cursor jump); and the last four open the
     // to-do app, put a note selection in it, or read today's list.
-    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(79)
+    expect(commands.length, 'the palette used to own this list; nothing may be dropped on the way out').toBe(82)
     expect(new Set(commands.map((entry) => entry.id)).size).toBe(commands.length)
     for (const entry of commands) {
       expect(entry.kind).toBe('command')

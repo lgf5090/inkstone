@@ -8,12 +8,16 @@ import { Checkbox, Slider } from '../../../components/form'
 import { Modal, Tooltip } from '../../../components/overlay'
 import { PasswordStrengthIndicator } from './AccountForm'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
+import { DEFAULT_CUSTOM_SYMBOLS, generateRandomPassword } from './utils/generator'
 
-const UPPERCASE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-const LOWERCASE = 'abcdefghijklmnopqrstuvwxyz'
-const NUMBERS = '0123456789'
-const SYMBOLS = '!@#$%^&*()_+-=[]{}|;:,.<>?'
-
+/**
+ * One generator for the whole module.
+ *
+ * The random-password page and the generator dialog used to carry separate implementations with
+ * different character sets (25 versus 32 symbols) and different rules; this delegates to the shared
+ * one so a password made in either place is made the same way.
+ */
 export function generatePassword(options: {
   length: number
   uppercase: boolean
@@ -21,29 +25,14 @@ export function generatePassword(options: {
   numbers: boolean
   symbols: boolean
 }): string {
-  let pool = ''
-  if (options.uppercase) pool += UPPERCASE
-  if (options.lowercase) pool += LOWERCASE
-  if (options.numbers) pool += NUMBERS
-  if (options.symbols) pool += SYMBOLS
-
-  if (!pool) pool = LOWERCASE + NUMBERS
-
-  const array = new Uint32Array(options.length)
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(array)
-  } else {
-    for (let i = 0; i < options.length; i++) {
-      array[i] = Math.floor(Math.random() * 0xffffffff)
-    }
-  }
-
-  let result = ''
-  for (let i = 0; i < options.length; i++) {
-    result += pool[array[i]! % pool.length]
-  }
-
-  return result
+  return generateRandomPassword({
+    length: options.length,
+    uppercase: options.uppercase,
+    lowercase: options.lowercase,
+    numbers: options.numbers,
+    symbols: options.symbols,
+    customSymbols: DEFAULT_CUSTOM_SYMBOLS,
+  })
 }
 
 export function Generator({ className }: { className?: string }) {
@@ -66,7 +55,7 @@ export function Generator({ className }: { className?: string }) {
   const copyPassword = async () => {
     if (!generatedPassword) return
     try {
-      await navigator.clipboard.writeText(generatedPassword)
+      await copySecret(generatedPassword)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         tone: 'success',

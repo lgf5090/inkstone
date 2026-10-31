@@ -126,6 +126,7 @@ const PASSWORD_NAV_SLOTS: readonly NavSlot[] = [
   { id: 'groups', labelKey: 'tools.password.nav.groups', icon: FolderTree },
   { id: 'backup_settings', labelKey: 'tools.password.nav.backup_settings', icon: Settings },
   { id: 'batch_operations', labelKey: 'tools.password.nav.batch_operations', icon: CheckSquare },
+  { id: 'health', labelKey: 'tools.password.nav.health', icon: ShieldCheck },
 ]
 
 export interface ToolsSidebarProps {

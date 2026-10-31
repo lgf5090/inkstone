@@ -24,16 +24,13 @@ export function extractDomain(link?: string): string {
   }
 }
 
+// Soft backgrounds with a text colour that is legible on each. The previous palette paired
+// `text-white` with saturated 600-level brand colours, none of which this app's contrast gates saw.
 const BG_PALETTES = [
-  'bg-blue-600 text-white',
-  'bg-emerald-600 text-white',
-  'bg-amber-600 text-white',
-  'bg-violet-600 text-white',
-  'bg-rose-600 text-white',
-  'bg-indigo-600 text-white',
-  'bg-cyan-600 text-white',
-  'bg-teal-600 text-white',
-  'bg-fuchsia-600 text-white',
+  'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]',
+  'bg-[var(--success-soft)] text-[var(--text-primary)]',
+  'bg-[var(--warning-soft)] text-[var(--text-primary)]',
+  'bg-[var(--danger-soft)] text-[var(--danger)]',
 ]
 
 export function getAvatarColor(seed: string): string {
@@ -62,7 +59,10 @@ export function FaviconAvatar({
 }: FaviconAvatarProps) {
   const [loadFailed, setLoadFailed] = useState(false)
   const domain = extractDomain(url)
-  const candidateSrc = favicon || (domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : '')
+  // The site's own icon, fetched by this deployment rather than by a third-party service — the old
+  // Google URL handed that service the list of every site the vault holds.
+  const candidateSrc =
+    favicon || (domain ? `/api/tools/password/favicon?domain=${encodeURIComponent(domain)}` : '')
 
   useEffect(() => {
     setLoadFailed(false)

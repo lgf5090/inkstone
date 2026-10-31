@@ -13,10 +13,27 @@ import type {
 } from '@shared/tools/password/types'
 import { ApiError } from '../../lib/errors'
 
+/**
+ * D1 caps the number of statements one `batch` may carry, and the repository's other stores chunk at
+ * 90. Every caller that maps an unbounded list goes through here instead of handing `batch` a list
+ * whose length came from a request body.
+ */
+const STATEMENT_CHUNK = 90
+
+/** How many snapshots a vault keeps before the oldest are dropped. */
+const BACKUP_RETENTION = 20
+
+async function runBatched(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
+  for (let offset = 0; offset < statements.length; offset += STATEMENT_CHUNK) {
+    await db.batch(statements.slice(offset, offset + STATEMENT_CHUNK))
+  }
+}
+
 interface VaultRow {
   user_id: string
   master_hash: string
   recovery_hint: string
+  kdf_salt: string
   created_at: number
   updated_at: number
 }
@@ -26,6 +43,7 @@ interface GroupRow {
   id: string
   name: string
   parent_id: string
+  icon: string
   sort: number
   created_at: number
   updated_at: number
@@ -40,6 +58,7 @@ interface AccountRow {
   password: string
   link: string
   remark: string
+  totp_secret: string
   favicon: string
   is_favorite: number
   sort: number
@@ -74,6 +93,7 @@ function toGroup(row: GroupRow): PasswordGroup {
     userId: row.user_id,
     name: row.name,
     parentId: row.parent_id,
+    icon: row.icon,
     sort: row.sort,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -90,6 +110,7 @@ function toAccount(row: AccountRow): PasswordAccount {
     password: row.password,
     link: row.link,
     remark: row.remark,
+    totpSecret: row.totp_secret,
     favicon: row.favicon,
     isFavorite: Boolean(row.is_favorite),
     sort: row.sort,
@@ -105,39 +126,44 @@ export class PasswordStore {
   ) {}
 
   // ---------------------------------------------------------------- Vault
+  /**
+   * `recovery_hint` is deliberately not read or written any more: it held the first three characters
+   * of the master password under a key that shipped in the bundle, so it was a leak dressed as a
+   * feature. The column stays in the schema (dropping it needs a migration over live rows) and
+   * always reads as ''.
+   */
   async getVaultState(): Promise<PasswordVaultState> {
     const row = await this.db
-      .prepare(`SELECT recovery_hint, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
-      .first<Pick<VaultRow, 'recovery_hint' | 'created_at' | 'updated_at'>>()
+      .first<Pick<VaultRow, 'created_at' | 'updated_at'>>()
 
     if (!row) {
       return { hasVault: false }
     }
     return {
       hasVault: true,
-      recoveryHint: row.recovery_hint,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  async getVault(): Promise<{ masterHash: string; recoveryHint: string; createdAt: number; updatedAt: number } | null> {
+  async getVault(): Promise<{ masterHash: string; kdfSalt: string; createdAt: number; updatedAt: number } | null> {
     const row = await this.db
-      .prepare(`SELECT master_hash, recovery_hint, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT master_hash, kdf_salt, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
       .first<VaultRow>()
 
     if (!row) return null
     return {
       masterHash: row.master_hash,
-      recoveryHint: row.recovery_hint,
+      kdfSalt: row.kdf_salt,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  async initVault(masterHash: string, recoveryHint: string): Promise<PasswordVaultState> {
+  async initVault(masterHash: string, kdfSalt: string): Promise<PasswordVaultState> {
     const existing = await this.getVaultState()
     if (existing.hasVault) {
       throw ApiError.badRequest('Vault is already initialized')
@@ -146,15 +172,14 @@ export class PasswordStore {
     const now = Date.now()
     await this.db
       .prepare(
-        `INSERT INTO tools_password_vault (user_id, master_hash, recovery_hint, created_at, updated_at)
+        `INSERT INTO tools_password_vault (user_id, master_hash, kdf_salt, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5)`,
       )
-      .bind(this.userId, masterHash, recoveryHint, now, now)
+      .bind(this.userId, masterHash, kdfSalt, now, now)
       .run()
 
     return {
       hasVault: true,
-      recoveryHint,
       createdAt: now,
       updatedAt: now,
     }
@@ -162,7 +187,7 @@ export class PasswordStore {
 
   async resetMasterPassword(
     newMasterHash: string,
-    newRecoveryHint: string,
+    newKdfSalt: string,
     accounts: Array<{
       id: string
       title: string
@@ -170,6 +195,7 @@ export class PasswordStore {
       password: string
       link?: string
       remark?: string
+      totpSecret?: string
     }>,
   ): Promise<void> {
     const existing = await this.getVaultState()
@@ -181,10 +207,10 @@ export class PasswordStore {
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
-          `UPDATE tools_password_vault SET master_hash = ?1, recovery_hint = ?2, updated_at = ?3
+          `UPDATE tools_password_vault SET master_hash = ?1, kdf_salt = ?2, updated_at = ?3
            WHERE user_id = ?4`,
         )
-        .bind(newMasterHash, newRecoveryHint, now, this.userId),
+        .bind(newMasterHash, newKdfSalt, now, this.userId),
     ]
 
     for (const acc of accounts) {
@@ -192,21 +218,53 @@ export class PasswordStore {
         this.db
           .prepare(
             `UPDATE tools_password_accounts
-             SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, updated_at = ?6
-             WHERE user_id = ?7 AND id = ?8`,
+             SET title = ?1, username = ?2, password = ?3, link = ?4, remark = ?5, totp_secret = ?6, updated_at = ?7
+             WHERE user_id = ?8 AND id = ?9`,
           )
-          .bind(acc.title, acc.username, acc.password, acc.link ?? '', acc.remark ?? '', now, this.userId, acc.id),
+          .bind(
+            acc.title,
+            acc.username,
+            acc.password,
+            acc.link ?? '',
+            acc.remark ?? '',
+            acc.totpSecret ?? '',
+            now,
+            this.userId,
+            acc.id,
+          ),
       )
     }
 
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
+  }
+
+  /**
+   * Forgets the vault and everything in it. This is the one write that needs no master password:
+   * a reader who lost it cannot open the rows anyway, and keeping them only leaves ciphertext that
+   * nobody can ever decrypt. Backup objects are returned so the route can drop them from R2 too.
+   */
+  async wipeVault(): Promise<string[]> {
+    const backups = await this.db
+      .prepare(`SELECT r2_key FROM tools_password_backups WHERE user_id = ?1`)
+      .bind(this.userId)
+      .all<{ r2_key: string }>()
+
+    await this.db.batch([
+      this.db.prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_settings WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_vault WHERE user_id = ?1`).bind(this.userId),
+    ])
+
+    return (backups.results ?? []).map((row) => row.r2_key)
   }
 
   // ---------------------------------------------------------------- Groups
   async getGroups(): Promise<PasswordGroup[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT id, user_id, name, parent_id, sort, created_at, updated_at
+        `SELECT id, user_id, name, parent_id, icon, sort, created_at, updated_at
          FROM tools_password_groups
          WHERE user_id = ?1
          ORDER BY sort ASC, id ASC`,
@@ -220,7 +278,7 @@ export class PasswordStore {
   async getGroup(id: string): Promise<PasswordGroup | null> {
     const row = await this.db
       .prepare(
-        `SELECT id, user_id, name, parent_id, sort, created_at, updated_at
+        `SELECT id, user_id, name, parent_id, icon, sort, created_at, updated_at
          FROM tools_password_groups
          WHERE user_id = ?1 AND id = ?2`,
       )
@@ -230,18 +288,19 @@ export class PasswordStore {
     return row ? toGroup(row) : null
   }
 
-  async createGroup(data: { id?: string; name: string; parentId?: string; sort?: number }): Promise<PasswordGroup> {
+  async createGroup(data: { id?: string; name: string; parentId?: string; icon?: string; sort?: number }): Promise<PasswordGroup> {
     const id = data.id || crypto.randomUUID()
     const parentId = data.parentId ?? ''
+    const icon = data.icon ?? ''
     const sort = data.sort ?? 0
     const now = Date.now()
 
     await this.db
       .prepare(
-        `INSERT INTO tools_password_groups (user_id, id, name, parent_id, sort, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
       )
-      .bind(this.userId, id, data.name, parentId, sort, now, now)
+      .bind(this.userId, id, data.name, parentId, icon, sort, now, now)
       .run()
 
     return {
@@ -249,13 +308,14 @@ export class PasswordStore {
       userId: this.userId,
       name: data.name,
       parentId,
+      icon,
       sort,
       createdAt: now,
       updatedAt: now,
     }
   }
 
-  async updateGroup(id: string, data: { name?: string; parentId?: string; sort?: number }): Promise<PasswordGroup> {
+  async updateGroup(id: string, data: { name?: string; parentId?: string; icon?: string; sort?: number }): Promise<PasswordGroup> {
     const existing = await this.getGroup(id)
     if (!existing) {
       throw ApiError.notFound('Group not found')
@@ -263,22 +323,24 @@ export class PasswordStore {
 
     const name = data.name !== undefined ? data.name : existing.name
     const parentId = data.parentId !== undefined ? data.parentId : existing.parentId
+    const icon = data.icon !== undefined ? data.icon : existing.icon
     const sort = data.sort !== undefined ? data.sort : existing.sort
     const now = Date.now()
 
     await this.db
       .prepare(
         `UPDATE tools_password_groups
-         SET name = ?1, parent_id = ?2, sort = ?3, updated_at = ?4
-         WHERE user_id = ?5 AND id = ?6`,
+         SET name = ?1, parent_id = ?2, icon = ?3, sort = ?4, updated_at = ?5
+         WHERE user_id = ?6 AND id = ?7`,
       )
-      .bind(name, parentId, sort, now, this.userId, id)
+      .bind(name, parentId, icon, sort, now, this.userId, id)
       .run()
 
     return {
       ...existing,
       name,
       parentId,
+      icon,
       sort,
       updatedAt: now,
     }
@@ -326,7 +388,7 @@ export class PasswordStore {
         )
         .bind(g.parentId ?? '', g.sort, now, this.userId, g.id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   // ---------------------------------------------------------------- Accounts
@@ -334,7 +396,7 @@ export class PasswordStore {
     if (groupId) {
       const { results } = await this.db
         .prepare(
-          `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+          `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
            FROM tools_password_accounts
            WHERE user_id = ?1 AND group_id = ?2
            ORDER BY sort ASC, id ASC`,
@@ -346,7 +408,7 @@ export class PasswordStore {
 
     const { results } = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1
          ORDER BY sort ASC, id ASC`,
@@ -360,7 +422,7 @@ export class PasswordStore {
   async getAccount(id: string): Promise<PasswordAccount | null> {
     const row = await this.db
       .prepare(
-        `SELECT id, user_id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
+        `SELECT id, user_id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
          FROM tools_password_accounts
          WHERE user_id = ?1 AND id = ?2`,
       )
@@ -378,16 +440,26 @@ export class PasswordStore {
     password?: string
     link?: string
     remark?: string
+    totpSecret?: string
     favicon?: string
     isFavorite?: boolean
     sort?: number
   }): Promise<PasswordAccount> {
+    // A group id the tenant does not own used to be inserted verbatim, which produced rows no view
+    // could reach (they are filtered by a group the client never selects). Refusing here keeps the
+    // dangling-row class out of the table instead of cleaning it up later.
+    const group = await this.getGroup(data.groupId)
+    if (!group) {
+      throw ApiError.badRequest('Target group not found')
+    }
+
     const id = data.id || crypto.randomUUID()
     const title = data.title ?? ''
     const username = data.username ?? ''
     const password = data.password ?? ''
     const link = data.link ?? ''
     const remark = data.remark ?? ''
+    const totpSecret = data.totpSecret ?? ''
     const favicon = data.favicon ?? ''
     const isFavorite = data.isFavorite ? 1 : 0
     const sort = data.sort ?? 0
@@ -396,8 +468,8 @@ export class PasswordStore {
     await this.db
       .prepare(
         `INSERT INTO tools_password_accounts (
-           user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+           user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       )
       .bind(
         this.userId,
@@ -408,6 +480,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite,
         sort,
@@ -425,6 +498,7 @@ export class PasswordStore {
       password,
       link,
       remark,
+      totpSecret,
       favicon,
       isFavorite: Boolean(isFavorite),
       sort,
@@ -442,6 +516,7 @@ export class PasswordStore {
       password?: string
       link?: string
       remark?: string
+      totpSecret?: string
       favicon?: string
       isFavorite?: boolean
       sort?: number
@@ -452,12 +527,20 @@ export class PasswordStore {
       throw ApiError.notFound('Account not found')
     }
 
+    if (data.groupId !== undefined && data.groupId !== existing.groupId) {
+      const group = await this.getGroup(data.groupId)
+      if (!group) {
+        throw ApiError.badRequest('Target group not found')
+      }
+    }
+
     const groupId = data.groupId !== undefined ? data.groupId : existing.groupId
     const title = data.title !== undefined ? data.title : existing.title
     const username = data.username !== undefined ? data.username : existing.username
     const password = data.password !== undefined ? data.password : existing.password
     const link = data.link !== undefined ? data.link : existing.link
     const remark = data.remark !== undefined ? data.remark : existing.remark
+    const totpSecret = data.totpSecret !== undefined ? data.totpSecret : existing.totpSecret
     const favicon = data.favicon !== undefined ? data.favicon : existing.favicon
     const isFavorite = data.isFavorite !== undefined ? (data.isFavorite ? 1 : 0) : (existing.isFavorite ? 1 : 0)
     const sort = data.sort !== undefined ? data.sort : existing.sort
@@ -467,8 +550,8 @@ export class PasswordStore {
       .prepare(
         `UPDATE tools_password_accounts
          SET group_id = ?1, title = ?2, username = ?3, password = ?4, link = ?5, remark = ?6,
-             favicon = ?7, is_favorite = ?8, sort = ?9, updated_at = ?10
-         WHERE user_id = ?11 AND id = ?12`,
+             totp_secret = ?7, favicon = ?8, is_favorite = ?9, sort = ?10, updated_at = ?11
+         WHERE user_id = ?12 AND id = ?13`,
       )
       .bind(
         groupId,
@@ -477,6 +560,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite,
         sort,
@@ -494,6 +578,7 @@ export class PasswordStore {
       password,
       link,
       remark,
+      totpSecret,
       favicon,
       isFavorite: Boolean(isFavorite),
       sort,
@@ -515,7 +600,7 @@ export class PasswordStore {
         .prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1 AND id = ?2`)
         .bind(this.userId, id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async batchMoveAccounts(accountIds: string[], targetGroupId: string): Promise<void> {
@@ -535,7 +620,7 @@ export class PasswordStore {
         )
         .bind(targetGroupId, now, this.userId, id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async reorderAccounts(accounts: Array<{ id: string; sort: number }>): Promise<void> {
@@ -550,7 +635,7 @@ export class PasswordStore {
         )
         .bind(acc.sort, now, this.userId, acc.id),
     )
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 
   async batchImportAccounts(
@@ -562,6 +647,7 @@ export class PasswordStore {
       password?: string
       link?: string
       remark?: string
+      totpSecret?: string
       favicon?: string
       sort?: number
     }>,
@@ -583,6 +669,7 @@ export class PasswordStore {
       const password = item.password ?? ''
       const link = item.link ?? ''
       const remark = item.remark ?? ''
+      const totpSecret = item.totpSecret ?? ''
       const favicon = item.favicon ?? ''
       const sort = item.sort ?? i
 
@@ -590,8 +677,8 @@ export class PasswordStore {
         this.db
           .prepare(
             `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
           )
           .bind(
             this.userId,
@@ -602,6 +689,7 @@ export class PasswordStore {
             password,
             link,
             remark,
+            totpSecret,
             favicon,
             0,
             sort,
@@ -619,6 +707,7 @@ export class PasswordStore {
         password,
         link,
         remark,
+        totpSecret,
         favicon,
         isFavorite: false,
         sort,
@@ -628,7 +717,7 @@ export class PasswordStore {
     }
 
     if (statements.length > 0) {
-      await this.db.batch(statements)
+      await runBatched(this.db, statements)
     }
 
     return created
@@ -651,6 +740,7 @@ export class PasswordStore {
           url: '',
           username: '',
           password: '',
+          hasPassword: false,
           enabled: false,
         },
         autoBackupEnabled: true,
@@ -663,13 +753,24 @@ export class PasswordStore {
       webdav: {
         url: row.webdav_url,
         username: row.webdav_username,
-        password: row.webdav_password,
+        // The WebDAV secret is write-only: the client may replace it but never read it back, so a
+        // response that lands in a log, a cache or a screenshot carries no credential.
+        password: '',
+        hasPassword: Boolean(row.webdav_password),
         enabled: Boolean(row.webdav_enabled),
       },
       autoBackupEnabled: Boolean(row.auto_backup_enabled),
       autoLockMinutes: row.auto_lock_minutes,
       updatedAt: row.updated_at,
     }
+  }
+
+  private async storedWebdavPassword(): Promise<string> {
+    const row = await this.db
+      .prepare(`SELECT webdav_password FROM tools_password_settings WHERE user_id = ?1`)
+      .bind(this.userId)
+      .first<{ webdav_password: string }>()
+    return row?.webdav_password ?? ''
   }
 
   async saveSettings(data: {
@@ -683,7 +784,8 @@ export class PasswordStore {
     const current = await this.getSettings()
     const webdavUrl = data.webdavUrl !== undefined ? data.webdavUrl : current.webdav.url
     const webdavUsername = data.webdavUsername !== undefined ? data.webdavUsername : current.webdav.username
-    const webdavPassword = data.webdavPassword !== undefined ? data.webdavPassword : (current.webdav.password ?? '')
+    // getSettings no longer carries the secret, so "absent" has to read it from its own column.
+    const webdavPassword = data.webdavPassword !== undefined ? data.webdavPassword : await this.storedWebdavPassword()
     const webdavEnabled = data.webdavEnabled !== undefined ? (data.webdavEnabled ? 1 : 0) : (current.webdav.enabled ? 1 : 0)
     const autoBackupEnabled = data.autoBackupEnabled !== undefined ? (data.autoBackupEnabled ? 1 : 0) : (current.autoBackupEnabled ? 1 : 0)
     const autoLockMinutes = data.autoLockMinutes !== undefined ? data.autoLockMinutes : current.autoLockMinutes
@@ -719,7 +821,8 @@ export class PasswordStore {
       webdav: {
         url: webdavUrl,
         username: webdavUsername,
-        password: webdavPassword,
+        password: '',
+        hasPassword: Boolean(webdavPassword),
         enabled: Boolean(webdavEnabled),
       },
       autoBackupEnabled: Boolean(autoBackupEnabled),
@@ -735,7 +838,8 @@ export class PasswordStore {
         `SELECT id, user_id, filename, r2_key, size, type, created_at
          FROM tools_password_backups
          WHERE user_id = ?1
-         ORDER BY created_at DESC`,
+         ORDER BY created_at DESC
+         LIMIT 50`,
       )
       .bind(this.userId)
       .all<BackupRow>()
@@ -771,6 +875,34 @@ export class PasswordStore {
       type: row.type as 'auto' | 'manual',
       createdAt: row.created_at,
     }
+  }
+
+  /**
+   * Drops the snapshots past the retention limit and returns their R2 keys so the route can delete
+   * the objects. Snapshots used to accumulate one per click, forever.
+   */
+  async pruneBackups(): Promise<string[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, r2_key FROM tools_password_backups
+         WHERE user_id = ?1
+         ORDER BY created_at DESC, id DESC`,
+      )
+      .bind(this.userId)
+      .all<{ id: string; r2_key: string }>()
+
+    const stale = (results ?? []).slice(BACKUP_RETENTION)
+    if (stale.length === 0) return []
+
+    await runBatched(
+      this.db,
+      stale.map((row) =>
+        this.db
+          .prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1 AND id = ?2`)
+          .bind(this.userId, row.id),
+      ),
+    )
+    return stale.map((row) => row.r2_key)
   }
 
   async addBackupRecord(record: {
@@ -823,6 +955,21 @@ export class PasswordStore {
   }
 
   async restoreData(data: { groups: PasswordGroup[]; accounts: PasswordAccount[] }): Promise<void> {
+    // A backup is a foreign document: every reference in it has to resolve inside the same file, or
+    // the restore writes rows that no view can reach (they are filtered by a group that never came
+    // back). Refusing is cheaper than a dangling-row cleanup nobody runs.
+    const groupIds = new Set(data.groups.map((group) => group.id))
+    for (const group of data.groups) {
+      if (group.parentId && !groupIds.has(group.parentId)) {
+        throw ApiError.badRequest(`Group ${group.id} points at a missing parent`)
+      }
+    }
+    for (const account of data.accounts) {
+      if (!groupIds.has(account.groupId)) {
+        throw ApiError.badRequest(`Account ${account.id} belongs to a missing group`)
+      }
+    }
+
     const statements: D1PreparedStatement[] = [
       this.db.prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1`).bind(this.userId),
       this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
@@ -832,10 +979,19 @@ export class PasswordStore {
       statements.push(
         this.db
           .prepare(
-            `INSERT INTO tools_password_groups (user_id, id, name, parent_id, sort, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+            `INSERT INTO tools_password_groups (user_id, id, name, parent_id, icon, sort, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
           )
-          .bind(this.userId, g.id, g.name, g.parentId ?? '', g.sort ?? 0, g.createdAt || Date.now(), g.updatedAt || Date.now()),
+          .bind(
+            this.userId,
+            g.id,
+            g.name,
+            g.parentId ?? '',
+            g.icon ?? '',
+            g.sort ?? 0,
+            g.createdAt || Date.now(),
+            g.updatedAt || Date.now(),
+          ),
       )
     }
 
@@ -844,8 +1000,8 @@ export class PasswordStore {
         this.db
           .prepare(
             `INSERT INTO tools_password_accounts (
-               user_id, id, group_id, title, username, password, link, remark, favicon, is_favorite, sort, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+               user_id, id, group_id, title, username, password, link, remark, totp_secret, favicon, is_favorite, sort, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
           )
           .bind(
             this.userId,
@@ -856,6 +1012,7 @@ export class PasswordStore {
             a.password ?? '',
             a.link ?? '',
             a.remark ?? '',
+            a.totpSecret ?? '',
             a.favicon ?? '',
             a.isFavorite ? 1 : 0,
             a.sort ?? 0,
@@ -865,6 +1022,6 @@ export class PasswordStore {
       )
     }
 
-    await this.db.batch(statements)
+    await runBatched(this.db, statements)
   }
 }

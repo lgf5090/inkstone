@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
+import { hashSync } from 'bcryptjs'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -29,6 +30,11 @@ vi.mock('webdav', () => ({
 
 const USER_A = 'user-alice'
 const USER_B = 'user-bob'
+
+// Rounds 4 keeps the fixture fast; the routes only compare, they never re-hash at cost 10.
+const OLD_PASSWORD = 'old-pass'
+const KDF_SALT = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+const OLD_HASH = hashSync(OLD_PASSWORD, 4)
 
 interface CallOptions {
   user?: string | null
@@ -100,6 +106,13 @@ beforeEach(() => {
   for (const statement of TOOLS_PASSWORD_SCHEMA_STATEMENTS) {
     sqlite.exec(statement)
   }
+  // The unlock budget lives in the shared throttle table, which this module does not own.
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS login_attempts (
+    key TEXT PRIMARY KEY,
+    fails INTEGER NOT NULL DEFAULT 0,
+    last_fail_at INTEGER NOT NULL,
+    locked_until INTEGER
+  )`)
   env = testBindings(makeD1(sqlite), { FILES: testR2Bucket() })
 })
 
@@ -138,7 +151,7 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
     // 1. User A inits vault
     const initRes = await call('POST', '/api/tools/password/vault/init', {
       user: USER_A,
-      body: { masterHash: 'hash-alice-1234567890', recoveryHint: 'Alice secret question' },
+      body: { masterHash: 'hash-alice-1234567890', kdfSalt: 'a1b2c3d4e5f60718293a4b5c6d7e8f90' },
     })
     expect(initRes.status).toBe(200)
 
@@ -228,77 +241,118 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
 })
 
 describe('Password Manager Vault Routes', () => {
-  it('handles /vault GET, POST /init, POST /reset with schema validation', async () => {
-    // GET initial
+  it('handles /vault GET and POST /init, and no longer hands back a recovery hint', async () => {
     const getRes = await call('GET', '/api/tools/password/vault')
     expect(getRes.status).toBe(200)
     expect(await json(getRes)).toEqual({ ok: true, data: { hasVault: false } })
 
-    // POST /init validation failures
     const shortHash = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'short', recoveryHint: 'hint' },
+      body: { masterHash: 'short' },
     })
     expect(shortHash.status).toBe(400)
 
-    const missingHint = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'hash-length-sufficient-12345', recoveryHint: '' },
-    })
-    expect(missingHint.status).toBe(400)
-
-    // Valid init
     const initRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'master-hash-valid-1234567890', recoveryHint: 'First pet name' },
+      body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT },
     })
     expect(initRes.status).toBe(200)
-    const initData = await json<{ ok: boolean; data: { hasVault: boolean; recoveryHint: string } }>(initRes)
+    const initData = await json<{ ok: boolean; data: Record<string, unknown> }>(initRes)
     expect(initData.data.hasVault).toBe(true)
-    expect(initData.data.recoveryHint).toBe('First pet name')
+    expect(initData.data).not.toHaveProperty('recoveryHint')
 
-    // Cannot init twice
     const reinitRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'another-master-hash-123456789', recoveryHint: 'Second hint' },
+      body: { masterHash: hashSync('other', 4), kdfSalt: KDF_SALT },
     })
     expect(reinitRes.status).toBe(400)
+  })
 
-    // Create group & account to test reset reencryption
+  it('verifies the master password on the server and throttles guesses', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+
+    const wrong = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: 'not-it' },
+    })
+    expect(wrong.status).toBe(401)
+    const wrongBody = await json<{ error: { code: string } }>(wrong)
+    expect(wrongBody.error.code).toBe('wrong_password')
+
+    const right = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(right.status).toBe(200)
+    // The client cannot derive the vault key without the per-vault salt.
+    expect((await json<{ data: { salt: string } }>(right)).data.salt).toBe(KDF_SALT)
+
+    // A successful unlock clears the budget, so the next mistakes start from zero again.
+    const again = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(again.status).toBe(200)
+  })
+
+  it('refuses a reset that does not prove the old password', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
-    const group = await json<{ ok: boolean; data: { id: string } }>(gRes)
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
     const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: group.id, title: 'old-title', password: 'old-pass-ciphertext' },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string } }>(aRes)).data
+
+    const stolen = await call('POST', '/api/tools/password/vault/reset', {
       body: {
-        groupId: group.data.id,
-        title: 'old-title-ciphertext',
-        username: 'old-user-ciphertext',
-        password: 'old-pass-ciphertext',
+        oldPassword: 'guessing',
+        newMasterHash: hashSync('attacker-key', 4),
+        newKdfSalt: KDF_SALT,
+        accounts: [{ id: account.id, title: 'mine', username: '', password: '' }],
       },
     })
-    const account = await json<{ ok: boolean; data: { id: string } }>(aRes)
+    expect(stolen.status).toBe(401)
 
-    // POST /reset
-    const resetRes = await call('POST', '/api/tools/password/vault/reset', {
+    // The rejected write must not have touched the rows.
+    const untouched = (
+      await json<{ ok: boolean; data: Array<{ title: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(untouched[0]!.title).toBe('old-title')
+
+    const accepted = await call('POST', '/api/tools/password/vault/reset', {
       body: {
-        newMasterHash: 'new-master-hash-valid-9876543210',
-        newRecoveryHint: 'Updated recovery hint',
-        accounts: [
-          {
-            id: account.data.id,
-            title: 'new-title-ciphertext',
-            username: 'new-user-ciphertext',
-            password: 'new-pass-ciphertext',
-          },
-        ],
+        oldPassword: OLD_PASSWORD,
+        newMasterHash: hashSync('new-key', 4),
+        newKdfSalt: KDF_SALT,
+        accounts: [{ id: account.id, title: 'new-title', username: '', password: 'new-pass' }],
       },
     })
-    expect(resetRes.status).toBe(200)
+    expect(accepted.status).toBe(200)
 
-    // Verify updated state & re-encrypted account
-    const stateRes = await call('GET', '/api/tools/password/vault')
-    const stateData = await json<{ ok: boolean; data: { recoveryHint: string } }>(stateRes)
-    expect(stateData.data.recoveryHint).toBe('Updated recovery hint')
+    const resealed = (
+      await json<{ ok: boolean; data: Array<{ title: string; password: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(resealed[0]!.title).toBe('new-title')
+    expect(resealed[0]!.password).toBe('new-pass')
+  })
 
-    const accountsRes = await call('GET', '/api/tools/password/accounts')
-    const accountsData = await json<{ ok: boolean; data: Array<{ title: string; password: string }> }>(accountsRes)
-    expect(accountsData.data[0].title).toBe('new-title-ciphertext')
-    expect(accountsData.data[0].password).toBe('new-pass-ciphertext')
+  it('erases the vault only when the confirmation literal is sent', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+    await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
+
+    const noConfirm = await call('POST', '/api/tools/password/vault/wipe', { body: {} })
+    expect(noConfirm.status).toBe(400)
+    expect((await json<{ data: { hasVault: boolean } }>(await call('GET', '/api/tools/password/vault'))).data.hasVault).toBe(true)
+
+    const wiped = await call('POST', '/api/tools/password/vault/wipe', {
+      body: { confirm: 'delete-all' },
+    })
+    expect(wiped.status).toBe(200)
+    expect(await json(await call('GET', '/api/tools/password/vault'))).toEqual({
+      ok: true,
+      data: { hasVault: false },
+    })
+    const groups = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/groups'))).data
+    expect(groups).toEqual([])
   })
 })
 
@@ -366,6 +420,35 @@ describe('Password Manager Groups Routes', () => {
     // Delete g3 (empty): succeeds
     const delEmptyRes = await call('DELETE', `/api/tools/password/groups/${g3.id}`)
     expect(delEmptyRes.status).toBe(200)
+  })
+
+  it('stores a group icon and returns it on the next read', async () => {
+    const createRes = await call('POST', '/api/tools/password/groups', {
+      body: { name: 'Banking', icon: 'bank' },
+    })
+    const group = (await json<{ ok: boolean; data: { id: string; icon: string } }>(createRes)).data
+    expect(group.icon).toBe('bank')
+
+    const updateRes = await call('PUT', `/api/tools/password/groups/${group.id}`, {
+      body: { icon: 'secure' },
+    })
+    expect(updateRes.status).toBe(200)
+
+    const list = (
+      await json<{ ok: boolean; data: Array<{ id: string; icon: string }> }>(
+        await call('GET', '/api/tools/password/groups'),
+      )
+    ).data
+    expect(list.find((row) => row.id === group.id)?.icon).toBe('secure')
+
+    // Clearing it goes back to the default picture.
+    await call('PUT', `/api/tools/password/groups/${group.id}`, { body: { name: 'Banking' } })
+    const after = (
+      await json<{ ok: boolean; data: Array<{ id: string; icon: string }> }>(
+        await call('GET', '/api/tools/password/groups'),
+      )
+    ).data
+    expect(after.find((row) => row.id === group.id)?.icon).toBe('secure')
   })
 })
 
@@ -476,6 +559,130 @@ describe('Password Manager Accounts Routes', () => {
     const delRes = await call('DELETE', `/api/tools/password/accounts/${a3.id}`)
     expect(delRes.status).toBe(200)
   })
+
+  it('persists the TOTP secret and keeps it through a re-seal', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH, kdfSalt: KDF_SALT } })
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+
+    const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: {
+        groupId: group.id,
+        title: 'sealed-title',
+        totpSecret: 'sealed-totp',
+      },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string; totpSecret: string } }>(aRes)).data
+    expect(account.totpSecret).toBe('sealed-totp')
+
+    // The reset path re-writes every column; a field it does not know about would be dropped.
+    const reset = await call('POST', '/api/tools/password/vault/reset', {
+      body: {
+        oldPassword: OLD_PASSWORD,
+        newMasterHash: hashSync('next-key', 4),
+        newKdfSalt: KDF_SALT,
+        accounts: [
+          {
+            id: account.id,
+            title: 're-sealed-title',
+            username: '',
+            password: '',
+            totpSecret: 'resealed-totp',
+          },
+        ],
+      },
+    })
+    expect(reset.status).toBe(200)
+
+    const rows = (
+      await json<{ ok: boolean; data: Array<{ totpSecret: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(rows[0]!.totpSecret).toBe('resealed-totp')
+  })
+
+  it('refuses an account whose group does not exist', async () => {
+    const createRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: 'no-such-group', title: 'orphan', password: 'x' },
+    })
+    expect(createRes.status).toBe(400)
+
+    // Moving an existing account into a missing group is refused as well.
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Real' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+    const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: group.id, title: 'kept' },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string } }>(aRes)).data
+    const moveRes = await call('PUT', `/api/tools/password/accounts/${account.id}`, {
+      body: { groupId: 'no-such-group' },
+    })
+    expect(moveRes.status).toBe(400)
+
+    const list = (
+      await json<{ ok: boolean; data: Array<{ id: string; groupId: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(list.find((row) => row.id === account.id)?.groupId).toBe(group.id)
+  })
+
+  it('refuses an import larger than the batch cap', async () => {
+    const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Big' } })
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
+    const accounts = Array.from({ length: 501 }, (_, index) => ({ title: `t${index}` }))
+
+    const res = await call('POST', '/api/tools/password/accounts/import', {
+      body: { groupId: group.id, accounts },
+    })
+    expect(res.status).toBe(400)
+
+    const stored = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/accounts'))).data
+    expect(stored).toEqual([])
+  })
+})
+
+describe('Password Manager Favicon Proxy', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('refuses a private address, a non-host value and a path', async () => {
+    for (const domain of ['169.254.169.254', '%2Fetc%2Fpasswd', 'localhost', 'https%3A%2F%2Fx.com']) {
+      const res = await call('GET', `/api/tools/password/favicon?domain=${domain}`)
+      expect(res.status, domain).toBe(400)
+    }
+  })
+
+  it('returns the site icon with a private cache header', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })),
+    )
+
+    const res = await call('GET', '/api/tools/password/favicon?domain=example.com')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('cache-control')).toContain('private')
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('answers 404 when the site says something that is not an image', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })),
+    )
+
+    const res = await call('GET', '/api/tools/password/favicon?domain=example.com')
+    expect(res.status).toBe(404)
+  })
 })
 
 describe('Password Manager Settings Routes', () => {
@@ -499,10 +706,41 @@ describe('Password Manager Settings Routes', () => {
       },
     })
     expect(putRes.status).toBe(200)
-    const saved = (await json<{ ok: boolean; data: { autoLockMinutes: number; webdav: { username: string; enabled: boolean } } }>(putRes)).data
+    const saved = (await json<{ ok: boolean; data: { autoLockMinutes: number; webdav: { username: string; enabled: boolean; password: string; hasPassword: boolean } } }>(putRes)).data
     expect(saved.autoLockMinutes).toBe(10)
     expect(saved.webdav.username).toBe('admin')
     expect(saved.webdav.enabled).toBe(true)
+    // The secret is write-only: neither response may echo it back.
+    expect(saved.webdav.password).toBe('')
+    expect(saved.webdav.hasPassword).toBe(true)
+
+    const reread = (
+      await json<{ data: { webdav: { password: string; hasPassword: boolean } } }>(
+        await call('GET', '/api/tools/password/settings'),
+      )
+    ).data
+    expect(reread.webdav.password).toBe('')
+    expect(reread.webdav.hasPassword).toBe(true)
+
+    // Saving without the password keeps the stored one.
+    await call('PUT', '/api/tools/password/settings', {
+      body: { webdavUrl: 'https://dav.example.com/other', webdavEnabled: true },
+    })
+    const kept = (
+      await json<{ data: { webdav: { hasPassword: boolean } } }>(
+        await call('GET', '/api/tools/password/settings'),
+      )
+    ).data
+    expect(kept.webdav.hasPassword).toBe(true)
+
+    // An address the outbound guard refuses never reaches the network.
+    const blocked = await call('POST', '/api/tools/password/settings/webdav-test', {
+      body: { url: 'http://169.254.169.254/latest/meta-data/', username: 'a', password: 'b' },
+    })
+    expect(blocked.status).toBe(400)
+    expect((await json<{ error: { message: string } }>(blocked)).error.message).toContain(
+      'not reachable',
+    )
 
     // WebDAV test success
     const testOkRes = await call('POST', '/api/tools/password/settings/webdav-test', {
@@ -531,6 +769,33 @@ describe('Password Manager Settings Routes', () => {
 })
 
 describe('Password Manager Backups & Export Routes', () => {
+  it('refuses to restore a snapshot whose references do not resolve', async () => {
+    const createRes = await call('POST', '/api/tools/password/backups', {
+      body: {
+        data: {
+          _backup_info: {
+            type: 'inkstone_password_backup',
+            version: '1.0.0',
+            createTime: 1,
+            platform: 'inkstone',
+          },
+          data: {
+            groups: [],
+            accounts: [{ id: 'a-1', groupId: 'no-such-group', title: 'x' }],
+          },
+        },
+      },
+    })
+    expect(createRes.status).toBe(200)
+    const backup = (await json<{ data: { id: string } }>(createRes)).data
+
+    const restoreRes = await call('POST', `/api/tools/password/backups/${backup.id}/restore`, {
+      body: {},
+    })
+    expect(restoreRes.status).toBe(400)
+    const stored = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/accounts'))).data
+    expect(stored).toEqual([])
+  })
   it('reads an absent backup body as "back up everything" and refuses one it cannot parse', async () => {
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'NoBodyGroup' } })
     const g = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
@@ -621,8 +886,10 @@ describe('Password Manager Backups & Export Routes', () => {
       },
     })
     expect(exportTxtRes.status).toBe(200)
-    const exportTxt = (await json<{ ok: boolean; data: { fileId: string; key: string } }>(exportTxtRes)).data
-    expect(exportTxt.key).toBe(`tools/password/txt/${USER_A}/${exportTxt.fileId}.txt`)
+    const exportTxt = (
+      await json<{ ok: boolean; data: { fileId: string; downloadUrl: string } }>(exportTxtRes)
+    ).data
+    expect(exportTxt.downloadUrl).toBe(`/api/tools/password/export/txt/${exportTxt.fileId}`)
 
     // Read export TXT
     const getExportTxtRes = await call('GET', `/api/tools/password/export/txt/${exportTxt.fileId}`)
@@ -638,8 +905,17 @@ describe('Password Manager Backups & Export Routes', () => {
       },
     })
     expect(exportCsvRes.status).toBe(200)
-    const exportCsv = (await json<{ ok: boolean; data: { fileId: string; key: string } }>(exportCsvRes)).data
-    expect(exportCsv.key).toBe(`tools/password/csv/${USER_A}/${exportCsv.fileId}.csv`)
+    const exportCsv = (
+      await json<{ ok: boolean; data: { fileId: string; downloadUrl: string } }>(exportCsvRes)
+    ).data
+    // The R2 key is internal; what the client is handed must be a route it can actually fetch.
+    expect(exportCsv.downloadUrl).toBe(`/api/tools/password/export/csv/${exportCsv.fileId}`)
+    const roundTrip = await call('GET', exportCsv.downloadUrl)
+    expect(roundTrip.status).toBe(200)
+    expect(await roundTrip.text()).toContain('Example,testuser,secret')
+    // A plaintext dump must not be retained by a browser or a shared cache.
+    expect(roundTrip.headers.get('cache-control')).toBe('no-store')
+    expect(roundTrip.headers.get('content-disposition')).toContain('attachment')
 
     // 9. When R2 is unavailable, returns 503
     const envNoR2 = testBindings(makeD1(sqlite))

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { FolderTree, Plus } from 'lucide-react'
 import type { PasswordGroup } from '@shared/tools/password/types'
 import { t } from '../../../lib/i18n'
@@ -8,6 +8,7 @@ import { confirm, prompt, Tooltip } from '../../../components/overlay'
 import { useToolsStore } from '../store'
 import { usePasswordVaultStore } from './store'
 import { GroupTreeNode, MAX_GROUP_TREE_DEPTH } from './GroupTreeNode'
+import { GroupIconPicker } from './GroupIconPicker'
 
 function isDescendant(groups: PasswordGroup[], parentId: string, childId: string): boolean {
   if (parentId === childId) return true
@@ -64,9 +65,27 @@ export function GroupTree() {
   const openExportModal = usePasswordVaultStore((s) => s.openExportModal)
   const openImportModal = usePasswordVaultStore((s) => s.openImportModal)
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    return new Set(groups.map((g) => g.id))
-  })
+  // The initialiser runs once, when the tree mounts — before unlock has fetched any groups. Groups
+  // are therefore expanded the first time they are seen, once each, so a group the reader collapsed
+  // stays collapsed while new ones still appear open.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(groups.map((g) => g.id)))
+  const [iconTarget, setIconTarget] = useState<PasswordGroup | null>(null)
+  const seenGroupIds = useRef<Set<string>>(new Set(groups.map((g) => g.id)))
+
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      let added = false
+      const next = new Set(prev)
+      for (const group of groups) {
+        if (!seenGroupIds.current.has(group.id)) {
+          seenGroupIds.current.add(group.id)
+          next.add(group.id)
+          added = true
+        }
+      }
+      return added ? next : prev
+    })
+  }, [groups])
 
   // Account count per group map
   const accountCountMap = useMemo(() => {
@@ -269,7 +288,11 @@ export function GroupTree() {
         </Tooltip>
       </div>
 
-      <div className="mt-0.5 space-y-0.5">
+      <div
+        role="tree"
+        aria-label={t('tools.password.nav.groups')}
+        className="mt-0.5 space-y-0.5"
+      >
         {groupTree.length === 0 ? (
           <div className="px-3 py-2 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             {t('tools.password.group.empty')}
@@ -291,11 +314,14 @@ export function GroupTree() {
               onExport={openExportModal}
               onImport={openImportModal}
               onMoveGroup={handleMoveGroup}
+              onSetIcon={setIconTarget}
               onMoveAccount={handleMoveAccount}
             />
           ))
         )}
       </div>
+
+      <GroupIconPicker group={iconTarget} onClose={() => setIconTarget(null)} />
     </div>
   )
 }

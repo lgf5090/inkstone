@@ -7,6 +7,7 @@ import { Reset } from './Reset'
 import { Recover } from './Recover'
 import { useAutoLock } from './useAutoLock'
 import { AccountArea } from './AccountArea'
+import { PasswordHealthView } from './PasswordHealthView'
 import { FavoriteAccounts } from './FavoriteAccounts'
 import { RandomPasswordView } from './RandomPasswordView'
 import { PasswordGeneratorModal } from './PasswordGeneratorModal'
@@ -36,14 +37,23 @@ export function PasswordApp() {
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const closeBackupSettings = usePasswordVaultStore((s) => s.closeBackupSettings)
   const targetGroup = usePasswordVaultStore((s) => s.targetGroupForExportImport)
+  const autoLockMinutes = usePasswordVaultStore((s) => s.settings?.autoLockMinutes)
 
-  useAutoLock()
+  // The configured time, not a constant: the setting existed in the database with nothing reading it.
+  useAutoLock(autoLockMinutes ? autoLockMinutes * 60 * 1000 : undefined)
 
   useEffect(() => {
     if (!isUnlocked && vaultState === null) {
       void checkVaultAndAutoUnlock()
     }
   }, [isUnlocked, vaultState, checkVaultAndAutoUnlock])
+
+  useEffect(() => {
+    // Sign-out clears the whole session cache; the vault must not survive it in memory.
+    const forget = () => usePasswordVaultStore.getState().forgetSession()
+    window.addEventListener('inkstone:session-cleared', forget)
+    return () => window.removeEventListener('inkstone:session-cleared', forget)
+  }, [])
 
   useEffect(() => {
     if (activePasswordView === 'backup_settings') {
@@ -103,7 +113,10 @@ export function PasswordApp() {
           <RandomPasswordView />
         </div>
       )}
-      {activePasswordView !== 'favorites' && activePasswordView !== 'generator' && <AccountArea />}
+      {activePasswordView === 'health' && <PasswordHealthView />}
+      {activePasswordView !== 'favorites' &&
+        activePasswordView !== 'generator' &&
+        activePasswordView !== 'health' && <AccountArea />}
 
       {/* Auxiliary Modals */}
       <Setting />

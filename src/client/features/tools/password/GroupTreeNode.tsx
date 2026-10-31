@@ -5,6 +5,7 @@ import {
   Folder,
   FolderOpen,
   MoreHorizontal,
+  Palette,
   Pencil,
   Plus,
   Trash2,
@@ -15,6 +16,7 @@ import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { Badge, IconButton } from '../../../components/primitives'
 import { Menu, useContextMenu, Tooltip, type MenuItem } from '../../../components/overlay'
+import { groupIcon } from './groupIcons'
 
 export const MAX_GROUP_TREE_DEPTH = 7
 
@@ -27,6 +29,7 @@ export interface GroupTreeNodeProps {
   onSelect: (group: PasswordGroup) => void
   onToggleExpand: (groupId: string) => void
   onNewChild: (parent: PasswordGroup) => void
+  onSetIcon: (group: PasswordGroup) => void
   onRename: (group: PasswordGroup) => void
   onDelete: (group: PasswordGroup) => void
   onExport: (group: PasswordGroup) => void
@@ -44,6 +47,7 @@ export function GroupTreeNode({
   onSelect,
   onToggleExpand,
   onNewChild,
+  onSetIcon,
   onRename,
   onDelete,
   onExport,
@@ -56,6 +60,7 @@ export function GroupTreeNode({
   const isExpanded = expandedIds.has(group.id)
   const accountCount = accountCountMap[group.id] || 0
   const canHaveChildren = depth < MAX_GROUP_TREE_DEPTH
+  const CustomIcon = groupIcon(group.icon)
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
@@ -122,6 +127,12 @@ export function GroupTreeNode({
       onSelect: () => onRename(group),
     },
     {
+      id: 'set-icon',
+      label: t('tools.password.group.set_icon'),
+      icon: <Palette size={14} />,
+      onSelect: () => onSetIcon(group),
+    },
+    {
       id: 'export',
       label: t('tools.password.group.export'),
       icon: <Download size={14} />,
@@ -149,6 +160,9 @@ export function GroupTreeNode({
     <div
       data-testid={`group-tree-node-${group.id}`}
       data-depth={depth}
+      role="treeitem"
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      aria-selected={isSelected}
       className="select-none"
     >
       <div
@@ -168,7 +182,7 @@ export function GroupTreeNode({
           isSelected
             ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
-          isDragOver && 'bg-[var(--accent-softer,rgba(59,130,246,0.15))] ring-1 ring-[var(--accent)]',
+          isDragOver && 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]',
         )}
       >
         {/* Expand / Collapse Toggle Arrow. A leaf keeps the space it would have taken, so the icons of a
@@ -201,9 +215,20 @@ export function GroupTreeNode({
           onClick={() => onSelect(group)}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
         >
-          {/* Folder Icon */}
-          <span className="shrink-0 text-[var(--text-tertiary)]">
-            {hasChildren && isExpanded ? <FolderOpen size={15} /> : <Folder size={15} />}
+          {/* Group icon: the chosen one, or the folder default */}
+          <span
+            className={cn(
+              'shrink-0',
+              CustomIcon ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]',
+            )}
+          >
+            {CustomIcon ? (
+              <CustomIcon size={15} aria-hidden="true" />
+            ) : hasChildren && isExpanded ? (
+              <FolderOpen size={15} aria-hidden="true" />
+            ) : (
+              <Folder size={15} aria-hidden="true" />
+            )}
           </span>
 
           {/* Group Name */}
@@ -230,7 +255,7 @@ export function GroupTreeNode({
             on a control cannot also select the group. */}
         <div
           data-testid="group-hover-actions"
-          className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
+          className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
           {canHaveChildren && (
             <Tooltip label={t('tools.password.group.new_child')} side="top">
@@ -292,6 +317,7 @@ export function GroupTreeNode({
               onSelect={onSelect}
               onToggleExpand={onToggleExpand}
               onNewChild={onNewChild}
+              onSetIcon={onSetIcon}
               onRename={onRename}
               onDelete={onDelete}
               onExport={onExport}

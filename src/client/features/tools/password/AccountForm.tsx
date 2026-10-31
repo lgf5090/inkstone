@@ -22,7 +22,9 @@ import { IconButton, Spinner } from '../../../components/primitives'
 import { Input, Textarea } from '../../../components/form'
 import { Tooltip, confirm } from '../../../components/overlay'
 import { evaluatePasswordStrength } from './crypto/strength'
+import { TotpCodeLine } from './TotpCodeLine'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import { FaviconAvatar } from './FaviconAvatar'
 
 export interface AccountFormProps {
@@ -38,10 +40,10 @@ export function PasswordStrengthIndicator({ password }: { password: string }) {
 
   const getBarColor = (index: number) => {
     if (index >= score && score > 0) return 'bg-[var(--border-subtle)]'
-    if (score === 0 || score === 1) return 'bg-red-500'
-    if (score === 2) return 'bg-amber-500'
-    if (score === 3) return 'bg-blue-500'
-    return 'bg-emerald-500'
+    if (score === 0 || score === 1) return 'bg-[var(--danger)]'
+    if (score === 2) return 'bg-[var(--warning)]'
+    if (score === 3) return 'bg-[var(--accent)]'
+    return 'bg-[var(--success)]'
   }
 
   return (
@@ -97,8 +99,32 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const saveTimerRef = useRef<number | null>(null)
   const latestDataRef = useRef<DecryptedAccount | null>(null)
 
+  // The debounce is the only copy of the last few keystrokes: unmounting or switching accounts
+  // inside the 300 ms window used to throw them away. Both paths now write them out first.
+  const flushPendingSave = () => {
+    if (!saveTimerRef.current) return
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+
+    const pending = latestDataRef.current
+    if (!pending) return
+    void updateAccount(pending.id, {
+      title: pending.title,
+      username: pending.username,
+      password: pending.password,
+      link: pending.link,
+      remark: pending.remark,
+      favicon: pending.favicon,
+      totpSecret: pending.totpSecret,
+    }).catch(() => {
+      useUi.getState().toast({ title: t('common.save_failed'), tone: 'danger' })
+    })
+  }
+
   // Sync state when selected account changes
   useEffect(() => {
+    flushPendingSave()
+
     if (!activeAccount) {
       setFormData(null)
       latestDataRef.current = null
@@ -120,12 +146,9 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     setIsLocked(hasExistingContent)
   }, [activeAccount?.id])
 
-  // Flush debounce timer on unmount
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) {
-        window.clearTimeout(saveTimerRef.current)
-      }
+      flushPendingSave()
     }
   }, [])
 
@@ -145,6 +168,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
           link: dataToSave.link,
           remark: dataToSave.remark,
           favicon: dataToSave.favicon,
+          totpSecret: dataToSave.totpSecret,
         })
         setSaveStatus('saved')
       } catch {
@@ -167,7 +191,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const copyUsername = async () => {
     if (!formData?.username) return
     try {
-      await navigator.clipboard.writeText(formData.username)
+      await copySecret(formData.username)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: formData.username,
@@ -181,7 +205,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
   const copyPassword = async () => {
     if (!formData?.password) return
     try {
-      await navigator.clipboard.writeText(formData.password)
+      await copySecret(formData.password)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: t('tools.password.account.password'),
@@ -202,7 +226,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     // Auto write credentials to clipboard before opening URL
     if (formData.password) {
       try {
-        await navigator.clipboard.writeText(formData.password)
+        await copySecret(formData.password)
         useUi.getState().toast({
           title: t('tools.password.account.copied'),
           description: `${t('tools.password.account.password')} -> ${url}`,
@@ -229,7 +253,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
       .join('\n')
 
     try {
-      await navigator.clipboard.writeText(text)
+      await copySecret(text)
       useUi.getState().toast({
         title: t('tools.password.account.copied'),
         description: t('tools.password.account.share'),
@@ -250,6 +274,12 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
     })
 
     if (ok) {
+      // A pending save would otherwise fire at the row 300 ms after it was deleted.
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      latestDataRef.current = null
       await deleteAccount(formData.id)
       useUi.getState().toast({
         title: t('notes.deleted'),
@@ -273,7 +303,14 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
         void copyPassword()
       } else if (key === 'n') {
         e.preventDefault()
-        const targetGroupId = selectedGroupId || groups[0]?.id || 'default'
+        const targetGroupId = selectedGroupId || groups[0]?.id
+        if (!targetGroupId) {
+          useUi.getState().toast({
+            title: t('tools.password.account.no_group'),
+            tone: 'danger',
+          })
+          return
+        }
         void createAccount({
           groupId: targetGroupId,
           title: '',
@@ -281,6 +318,11 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
           password: '',
           link: '',
           remark: '',
+        }).catch((err: unknown) => {
+          useUi.getState().toast({
+            title: err instanceof Error ? err.message : t('common.save_failed'),
+            tone: 'danger',
+          })
         })
       }
     }
@@ -396,7 +438,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
             >
               <Star
                 size={16}
-                className={formData.isFavorite ? 'fill-amber-400 text-amber-400' : ''}
+                className={formData.isFavorite ? 'fill-[var(--warning)] text-[var(--warning)]' : ''}
               />
             </IconButton>
           </Tooltip>
@@ -498,6 +540,9 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
               <div className="relative flex-1 min-w-0">
                 <Input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label={t('tools.password.account.password')}
                   value={formData.password}
                   disabled={isLocked}
                   onChange={(e: ChangeEvent<HTMLInputElement>) =>
@@ -507,7 +552,7 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
                   trailing={
                     <button
                       type="button"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('tools.password.account.hide_password') : t('tools.password.account.show_password')}
                       onClick={() => setShowPassword(!showPassword)}
                       className="rounded p-1 text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
                       data-testid="toggle-password-btn"
@@ -547,6 +592,26 @@ export function AccountForm({ onBack, className }: AccountFormProps) {
 
             {/* Password Strength Indicator */}
             <PasswordStrengthIndicator password={formData.password} />
+          </div>
+
+          {/* TOTP secret and its live code */}
+          <div>
+            <label className="block text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)] mb-1">
+              {t('tools.password.account.totp')}
+            </label>
+            <Input
+              value={formData.totpSecret ?? ''}
+              disabled={isLocked}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                handleFieldChange('totpSecret', e.target.value)
+              }
+              placeholder={t('tools.password.account.totp_placeholder')}
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={t('tools.password.account.totp')}
+              data-testid="input-totp"
+            />
+            <TotpCodeLine secret={formData.totpSecret ?? ''} />
           </div>
 
           {/* Website Link */}

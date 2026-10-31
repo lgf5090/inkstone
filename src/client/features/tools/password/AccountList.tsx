@@ -3,10 +3,13 @@ import { CheckSquare, Plus, Search, Settings, Sparkles, X } from 'lucide-react'
 import type { DecryptedAccount } from '@shared/tools/password/types'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
+import { compileQuery, queryKeeps, queryKeepsRows } from '../../../lib/query-match'
+import { usePinyinVersion } from '../../../lib/pinyin'
 import { Empty } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { Tooltip } from '../../../components/overlay'
+import { useUi } from '../../../store/ui'
 import { useToolsStore } from '../store'
 import { usePasswordVaultStore } from './store'
 import { AccountCard } from './AccountCard'
@@ -60,32 +63,49 @@ export function AccountList({
     return decryptedList
   }, [decryptedList, filterFavoritesOnly, activePasswordView, groupId, selectedGroupId])
 
-  // Filter based on search query (instant fuzzy/substring match)
+  // Filter based on search query. The shared matcher reads a Chinese title by its initials, accepts
+  // `/pattern/flags`, and refuses an unsafe expression instead of stalling the tab — none of which
+  // the hand-written `toLowerCase().includes` could do. `pinyinVersion` is in the deps because the
+  // reading table loads asynchronously: a filter frozen before it lands would never match again.
+  const pinyinVersion = usePinyinVersion()
+  const query = useMemo(() => compileQuery(search), [search])
   const filteredAccounts = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return scopeFiltered
-    return scopeFiltered.filter((a) => {
-      return (
-        a.title.toLowerCase().includes(q) ||
-        a.username.toLowerCase().includes(q) ||
-        a.link.toLowerCase().includes(q) ||
-        a.remark.toLowerCase().includes(q)
-      )
-    })
-  }, [scopeFiltered, search])
+    if (queryKeepsRows(query)) return scopeFiltered
+    return scopeFiltered.filter(
+      (a) =>
+        queryKeeps(query, a.title) ||
+        queryKeeps(query, a.username) ||
+        queryKeeps(query, a.link) ||
+        queryKeeps(query, a.remark),
+    )
+  }, [scopeFiltered, query, pinyinVersion])
 
   const handleQuickNew = async () => {
-    const targetGroupId = selectedGroupId || groups[0]?.id || 'default'
-    const created = await createAccount({
-      groupId: targetGroupId,
-      title: '',
-      username: '',
-      password: '',
-      link: '',
-      remark: '',
-      isFavorite: filterFavoritesOnly || activePasswordView === 'favorites',
-    })
-    setSelectedAccountId(created.id)
+    const targetGroupId = selectedGroupId || groups[0]?.id
+    if (!targetGroupId) {
+      useUi.getState().toast({
+        title: t('tools.password.account.no_group'),
+        tone: 'danger',
+      })
+      return
+    }
+    try {
+      const created = await createAccount({
+        groupId: targetGroupId,
+        title: '',
+        username: '',
+        password: '',
+        link: '',
+        remark: '',
+        isFavorite: filterFavoritesOnly || activePasswordView === 'favorites',
+      })
+      setSelectedAccountId(created.id)
+    } catch (err) {
+      useUi.getState().toast({
+        title: err instanceof Error ? err.message : t('common.save_failed'),
+        tone: 'danger',
+      })
+    }
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -107,6 +127,13 @@ export function AccountList({
       e.preventDefault()
       setSelectedAccountId(filteredAccounts[filteredAccounts.length - 1]!.id)
     }
+  }
+
+  // Without a cancelling dragover on the drop target the browser never fires `drop`, so card-to-card
+  // reordering was dead even though the card carried an onDrop handler.
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
   }
 
   const handleReorderDrop = (e: DragEvent, targetAccount: DecryptedAccount) => {
@@ -249,6 +276,7 @@ export function AccountList({
                 isSelected={acc.id === selectedAccountId}
                 onSelect={(account) => setSelectedAccountId(account.id)}
                 onToggleFavorite={(id) => void toggleFavorite(id)}
+                onDragOver={handleDragOver}
                 onDrop={handleReorderDrop}
               />
             ))}

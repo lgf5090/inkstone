@@ -4,8 +4,11 @@ import { t } from '../../../lib/i18n'
 import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
+import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { getKeyIv, verifyMasterPasswordCandidate } from './crypto'
+import { MASTER_PASSWORD_MAX_LENGTH } from '@shared/tools/password/types'
+import { PasswordApiError, passwordApi } from './api'
+import { deriveVaultKey, getKeyIv } from './crypto'
 
 export interface DoorProps {
   className?: string
@@ -13,7 +16,6 @@ export interface DoorProps {
 
 export function Door({ className }: DoorProps) {
   const [password, setPassword] = useState('')
-  const [rememberLogin, setRememberLogin] = useState(false)
   const [isCapsLock, setIsCapsLock] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,8 +25,6 @@ export function Door({ className }: DoorProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const vaultState = usePasswordVaultStore((s) => s.vaultState)
-  const accounts = usePasswordVaultStore((s) => s.accounts)
   const unlock = usePasswordVaultStore((s) => s.unlock)
   const openRecover = usePasswordVaultStore((s) => s.openRecover)
   const openReset = usePasswordVaultStore((s) => s.openReset)
@@ -49,7 +49,7 @@ export function Door({ className }: DoorProps) {
   const handleSubmit = async () => {
     if (loading) return
 
-    if (!password || password.length !== 6) {
+    if (!password) {
       triggerFail(t('tools.password.door.placeholder'))
       return
     }
@@ -58,16 +58,32 @@ export function Door({ className }: DoorProps) {
     setError(null)
 
     try {
-      const valid = await verifyMasterPasswordCandidate(password, vaultState, accounts)
-      if (!valid) {
-        triggerFail(t('tools.password.door.fail'))
-        return
+      // The server answers whether this is the master password — it holds a verifier and a rate
+      // limit. An empty salt marks a vault from before the salted derivation; it is re-sealed now,
+      // which is the only moment the password is in hand.
+      const { salt } = await passwordApi.unlock(password)
+      if (salt) {
+        unlock(deriveVaultKey(password, salt))
+      } else {
+        try {
+          await usePasswordVaultStore.getState().upgradeLegacyVault(password)
+        } catch {
+          // The vault still opens under the legacy derivation; the upgrade retries next unlock.
+          unlock(getKeyIv(password))
+          useUi.getState().toast({
+            title: t('tools.password.upgrade.failed'),
+            tone: 'warning',
+          })
+        }
       }
-
-      const keyiv = getKeyIv(password)
-      unlock(keyiv, rememberLogin, password)
-    } catch {
-      triggerFail(t('tools.password.door.fail'))
+    } catch (err) {
+      triggerFail(
+        err instanceof PasswordApiError && err.code === 'wrong_password'
+          ? t('tools.password.door.fail')
+          : err instanceof Error
+            ? err.message
+            : t('tools.password.door.fail'),
+      )
     } finally {
       setLoading(false)
     }
@@ -112,7 +128,7 @@ export function Door({ className }: DoorProps) {
           </h2>
           <p className="mt-1 flex items-center gap-1 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
             <ShieldCheck size={13} className="text-[var(--accent)]" />
-            <span>{'Inkstone Zero-Knowledge Vault'}</span>
+            <span>{t('tools.password.door.vault_tag')}</span>
           </p>
         </div>
 
@@ -125,11 +141,15 @@ export function Door({ className }: DoorProps) {
               ref={inputRef}
               data-testid="password-door-input"
               type="password"
+              autoComplete="current-password"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
               inputMode="text"
-              maxLength={6}
+              maxLength={MASTER_PASSWORD_MAX_LENGTH}
               value={password}
               onChange={(e) => {
-                setPassword(e.target.value.slice(0, 6))
+                setPassword(e.target.value)
                 if (error) setError(null)
               }}
               onKeyDown={handleKeyDown}
@@ -182,18 +202,6 @@ export function Door({ className }: DoorProps) {
               {error}
             </div>
           )}
-
-          {/* 24-hour remember login checkbox */}
-          <label className="flex items-center gap-2 cursor-pointer select-none text-[length:var(--text-13)] text-[var(--text-secondary)]">
-            <input
-              data-testid="password-door-remember"
-              type="checkbox"
-              checked={rememberLogin}
-              onChange={(e) => setRememberLogin(e.target.checked)}
-              className="size-4 rounded border-[var(--border-subtle)] text-[var(--accent)] focus:ring-[var(--accent)]"
-            />
-            <span>{t('tools.password.door.remember_login')}</span>
-          </label>
 
           <Button
             data-testid="password-door-submit"

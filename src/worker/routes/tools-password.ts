@@ -17,23 +17,34 @@ import {
   ResetMasterPasswordSchema,
   SaveSettingsSchema,
   TestWebdavSchema,
+  UnlockVaultSchema,
   UpdateAccountSchema,
   UpdateGroupSchema,
+  WipeVaultSchema,
 } from '@shared/tools/password/schemas'
 import type { PasswordBackupData } from '@shared/tools/password/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import {
+  assertAttemptBudget,
+  clearLoginFailures,
+  consumeAttemptBudget,
+} from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
+import { checkTarget } from '../lib/outbound'
 import {
   deleteFromR2,
   getExportCsvR2Key,
   getExportTxtR2Key,
+  purgeOldExports,
   readBackupFromR2,
   readExportFromR2,
   uploadBackupToR2,
   uploadExportToR2,
 } from '../tools/password/r2'
 import { PasswordStore } from '../tools/password/store'
+import { verifyMasterHash } from '../tools/password/verify'
+import { fetchFavicon, parseFaviconDomain } from '../tools/password/favicon'
 
 export const toolsPasswordRoutes = new Hono<AppBindings>()
 
@@ -69,6 +80,29 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
 }
 
 // ---------------------------------------------------------------- Vault
+/**
+ * Master-password guesses are spent from one budget per user, the same ladder login uses. Before
+ * this existed the check lived in the browser: a 6-character password was verified by whether a
+ * CBC padding check happened to pass, with no rate limit and nothing to log.
+ */
+const UNLOCK_WINDOW_MS = 10 * 60 * 1000
+
+async function spendUnlockBudget(c: Context<AppBindings>): Promise<string> {
+  const key = `password-unlock:${getUserId(c)}`
+  await assertAttemptBudget(
+    () =>
+      consumeAttemptBudget(c.env.DB, [
+        { key, maxAttempts: 10, windowMs: UNLOCK_WINDOW_MS, lockMs: UNLOCK_WINDOW_MS },
+      ]),
+    'Too many master password attempts',
+  )
+  return key
+}
+
+function wrongMasterPassword(): ApiError {
+  return new ApiError(401, 'wrong_password', 'Master password is incorrect')
+}
+
 toolsPasswordRoutes.get('/vault', async (c) => {
   const store = getStore(c)
   const state = await store.getVaultState()
@@ -78,14 +112,60 @@ toolsPasswordRoutes.get('/vault', async (c) => {
 toolsPasswordRoutes.post('/vault/init', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, InitVaultSchema)
-  const state = await store.initVault(body.masterHash, body.recoveryHint)
+  const state = await store.initVault(body.masterHash, body.kdfSalt)
   return c.json({ ok: true, data: state })
+})
+
+toolsPasswordRoutes.post('/vault/unlock', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, UnlockVaultSchema)
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.password, vault.masterHash)) {
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+  // An empty salt means the vault predates the salted derivation; the client re-seals it now that
+  // it has the password in hand.
+  return c.json({ ok: true, data: { ok: true, salt: vault.kdfSalt } })
 })
 
 toolsPasswordRoutes.post('/vault/reset', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, ResetMasterPasswordSchema)
-  await store.resetMasterPassword(body.newMasterHash, body.newRecoveryHint, body.accounts)
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  // The old password is the authorisation for this write. Without it, a stolen session could
+  // re-encrypt the whole vault under a key the attacker chose.
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.oldPassword, vault.masterHash)) {
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+  await store.resetMasterPassword(body.newMasterHash, body.newKdfSalt, body.accounts)
+  return c.json({ ok: true })
+})
+
+toolsPasswordRoutes.post('/vault/wipe', async (c) => {
+  const store = getStore(c)
+  await parseBody(c, WipeVaultSchema)
+  const backupKeys = await store.wipeVault()
+  await Promise.all(
+    backupKeys.map((key) =>
+      deleteFromR2(c.env.FILES, key).catch((error: unknown) => {
+        // Best effort: the rows are already gone, so a leftover object only costs storage. Log it
+        // instead of failing the wipe the user asked for.
+        console.warn('password: backup object not deleted', key, error)
+      }),
+    ),
+  )
   return c.json({ ok: true })
 })
 
@@ -184,6 +264,28 @@ toolsPasswordRoutes.delete('/accounts/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// ---------------------------------------------------------------- Favicon
+toolsPasswordRoutes.get('/favicon', async (c) => {
+  const domain = parseFaviconDomain(c.req.query('domain') ?? '')
+  if (!domain) {
+    throw ApiError.badRequest('Invalid favicon domain')
+  }
+
+  const icon = await fetchFavicon(domain)
+  if (!icon) {
+    throw ApiError.notFound('No favicon available')
+  }
+
+  return new Response(icon.bytes, {
+    headers: {
+      'content-type': icon.contentType,
+      // Behind auth, so a shared cache must not keep it; the browser may.
+      'cache-control': 'private, max-age=604800',
+      'x-content-type-options': 'nosniff',
+    },
+  })
+})
+
 // ---------------------------------------------------------------- Settings
 toolsPasswordRoutes.get('/settings', async (c) => {
   const store = getStore(c)
@@ -200,8 +302,15 @@ toolsPasswordRoutes.put('/settings', async (c) => {
 
 toolsPasswordRoutes.post('/settings/webdav-test', async (c) => {
   const body = await parseBody(c, TestWebdavSchema)
+  // The server makes the request, so the address has to clear the shared outbound guard first:
+  // otherwise this endpoint is a way to reach a metadata service from inside the deployment.
+  const target = checkTarget(body.url)
+  if (!target.url) {
+    throw ApiError.badRequest(target.error)
+  }
+
   try {
-    const client = createClient(body.url, {
+    const client = createClient(target.url.toString(), {
       username: body.username,
       password: body.password,
     })
@@ -274,6 +383,17 @@ toolsPasswordRoutes.post('/backups', async (c) => {
     type,
   })
 
+  // Snapshots used to accumulate one per click forever; the oldest beyond the retention limit go
+  // now, rows and objects together.
+  const staleKeys = await store.pruneBackups()
+  await Promise.all(
+    staleKeys.map((staleKey) =>
+      deleteFromR2(c.env.FILES, staleKey).catch((error: unknown) => {
+        console.warn('password: pruned backup object not deleted', staleKey, error)
+      }),
+    ),
+  )
+
   return c.json({ ok: true, data: record })
 })
 
@@ -339,7 +459,12 @@ toolsPasswordRoutes.post('/export', async (c) => {
   const userId = getUserId(c)
   const body = await parseBody(c, ExportSchema)
   const fileId = crypto.randomUUID()
-  const { key, size } = await uploadExportToR2(
+  // A decrypted dump has no reason to outlive its download; the sweep runs before the new write so
+  // the prefix never grows without bound.
+  await purgeOldExports(c.env.FILES, userId, body.type).catch((error: unknown) => {
+    console.warn('password: export sweep failed', error)
+  })
+  const { size } = await uploadExportToR2(
     c.env.FILES,
     userId,
     fileId,
@@ -347,11 +472,13 @@ toolsPasswordRoutes.post('/export', async (c) => {
     body.content,
   )
 
+  // The R2 key stays server-side: it describes the tenant's storage layout and the client cannot use
+  // it. The download URL names the authenticated route below, which is what a caller can fetch.
   return c.json({
     ok: true,
     data: {
       fileId,
-      key,
+      downloadUrl: `/api/tools/password/export/${body.type}/${fileId}`,
       size,
       type: body.type,
       filename: body.filename || `passwords_export_${Date.now()}.${body.type}`,
@@ -374,6 +501,11 @@ toolsPasswordRoutes.get('/export/:type/:fileId', async (c) => {
   return new Response(content, {
     headers: {
       'content-type': type === 'txt' ? 'text/plain; charset=utf-8' : 'text/csv; charset=utf-8',
+      // A plaintext password dump must not be retained by a browser or a shared cache, and it is
+      // offered as a download rather than rendered in the tab.
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'content-disposition': `attachment; filename="passwords_export.${type}"`,
     },
   })
 })

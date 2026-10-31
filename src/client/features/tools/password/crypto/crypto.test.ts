@@ -1,17 +1,20 @@
 import crypto from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
+  createVaultSalt,
   decryptValue,
   DEFAULT_BCRYPT_ROUNDS,
+  deriveVaultKey,
   encryptValue,
   evaluatePasswordStrength,
   getKeyIv,
-  getOriginalPasswordPlus,
-  getRecoveryPass,
   hashMasterPassword,
-  RECOVERY_PASSPHRASE,
+  SEALED_PREFIX,
+  STRENGTH_I18N_KEYS,
   verifyMasterPassword,
 } from './index'
+import { getLocale, t } from '../../../../lib/i18n'
+import { ZH_CN_PASSWORD_LENGTH_SUGGESTION } from '@shared/locales/zh-CN-tools'
 
 function getKeyIvNode(passphrase: string): { key: string; iv: string } {
   const hash1 = crypto.createHash('md5').update(passphrase).digest('hex')
@@ -24,12 +27,6 @@ function encryptValueNode(keyiv: { key: string; iv: string }, data: string): str
   if (!data) return ''
   const cipher = crypto.createCipheriv('aes-256-cbc', keyiv.key, keyiv.iv)
   return cipher.update(data, 'utf8', 'hex') + cipher.final('hex')
-}
-
-function decryptValueNode(keyiv: { key: string; iv: string }, data: string): string {
-  if (!data) return ''
-  const decipher = crypto.createDecipheriv('aes-256-cbc', keyiv.key, keyiv.iv)
-  return decipher.update(data, 'hex', 'utf8') + decipher.final('utf8')
 }
 
 describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
@@ -77,10 +74,22 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       const encrypted = encryptValue(testKeyIv, plaintext)
 
       expect(encrypted).not.toBe(plaintext)
-      expect(/^[0-9a-f]+$/i.test(encrypted)).toBe(true)
+      expect(encrypted.startsWith(SEALED_PREFIX)).toBe(true)
 
       const decrypted = decryptValue(testKeyIv, encrypted)
       expect(decrypted).toBe(plaintext)
+    })
+
+    it('never produces the same ciphertext twice for the same input', () => {
+      // The old format derived its IV from the passphrase, so identical values in different rows
+      // were byte-identical and revealed each other. A fresh nonce per value breaks that, and this
+      // assertion is what keeps a future "optimisation" from folding it back.
+      const first = encryptValue(testKeyIv, 'same-plaintext')
+      const second = encryptValue(testKeyIv, 'same-plaintext')
+
+      expect(first).not.toBe(second)
+      expect(decryptValue(testKeyIv, first)).toBe('same-plaintext')
+      expect(decryptValue(testKeyIv, second)).toBe('same-plaintext')
     })
 
     it('handles empty strings by returning empty string', () => {
@@ -88,7 +97,7 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       expect(decryptValue(testKeyIv, '')).toBe('')
     })
 
-    it('is 100% interoperable with Node.js crypto AES-256-CBC', () => {
+    it('still reads rows written by the legacy deterministic AES-256-CBC format', () => {
       const testCases = [
         'simple-ascii-password',
         '中文密码测试与特殊符号：¥…—【】《》',
@@ -98,15 +107,10 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       ]
 
       for (const text of testCases) {
-        const nobleEncrypted = encryptValue(testKeyIv, text)
-        const nodeDecrypted = decryptValueNode(testKeyIv, nobleEncrypted)
-        expect(nodeDecrypted).toBe(text)
-
-        const nodeEncrypted = encryptValueNode(testKeyIv, text)
-        const nobleDecrypted = decryptValue(testKeyIv, nodeEncrypted)
-        expect(nobleDecrypted).toBe(text)
-
-        expect(nobleEncrypted).toBe(nodeEncrypted)
+        // Node's crypto stands in for the rows the old client wrote.
+        const legacyCiphertext = encryptValueNode(testKeyIv, text)
+        expect(legacyCiphertext.startsWith(SEALED_PREFIX)).toBe(false)
+        expect(decryptValue(testKeyIv, legacyCiphertext)).toBe(text)
       }
     })
 
@@ -122,32 +126,28 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
     })
   })
 
-  describe('Recovery Password Tokens (getRecoveryPass & getOriginalPasswordPlus)', () => {
-    it('uses recovery_key passphrase and matches uTools legacy behavior', () => {
-      const password = 'mySecretUserPassword'
-      const recoveryToken = getRecoveryPass(password)
+  describe('Salted key derivation', () => {
+    it('is stable for one salt and independent across salts', () => {
+      const salt = createVaultSalt()
+      const first = deriveVaultKey('abcdef', salt)
+      const second = deriveVaultKey('abcdef', salt)
+      const other = deriveVaultKey('abcdef', createVaultSalt())
 
-      const expectedKeyIv = getKeyIvNode(RECOVERY_PASSPHRASE)
-      const expectedToken = encryptValueNode(expectedKeyIv, password)
-
-      expect(recoveryToken).toBe(expectedToken)
-
-      const restored = getOriginalPasswordPlus(recoveryToken)
-      expect(restored).toBe(password)
+      expect(first.key).toBe(second.key)
+      expect(first.key).toHaveLength(64)
+      expect(other.key).not.toBe(first.key)
     })
 
-    it('handles first 3 characters recovery format from preload.js', () => {
-      const masterPass = 'SuperSecurePass2026'
-      const partialPass = masterPass.slice(0, 3)
-      const recoveryToken = getRecoveryPass(partialPass)
-
-      const restored = getOriginalPasswordPlus(recoveryToken)
-      expect(restored).toBe(partialPass)
+    it('refuses a missing salt instead of falling back to the unsalted derivation', () => {
+      expect(() => deriveVaultKey('abcdef', '')).toThrow()
     })
 
-    it('returns empty string for empty input', () => {
-      expect(getRecoveryPass('')).toBe('')
-      expect(getOriginalPasswordPlus('')).toBe('')
+    it('seals and opens with a derived key, and a legacy key cannot open that row', () => {
+      const key = deriveVaultKey('abcdef', createVaultSalt())
+      const sealed = encryptValue(key, 'secret')
+
+      expect(decryptValue(key, sealed)).toBe('secret')
+      expect(() => decryptValue(getKeyIv('abcdef'), sealed)).toThrow()
     })
   })
 
@@ -209,8 +209,8 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       const result = evaluatePasswordStrength('123456')
       expect(result.score).toBe(0)
       expect(result.color).toBe('error')
-      expect(result.label).toBe('非常弱')
-      expect(result.warning).toBe('这是排名前10的常用弱密码')
+      expect(result.label).toBe(t('tools.password.strength.very_weak'))
+      expect(result.warning.length).toBeGreaterThan(0)
       expect(result.suggestions.length).toBeGreaterThan(0)
       expect(result.feedback).toEqual(result.suggestions)
     })
@@ -219,15 +219,19 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
       const result = evaluatePasswordStrength('CorrectHorse-BatteryStaple-2026-XyZ#@!')
       expect(result.score).toBe(4)
       expect(result.color).toBe('success')
-      expect(result.label).toBe('非常强')
+      expect(result.label).toBe(t('tools.password.strength.very_strong'))
     })
 
     it('adds length suggestion when score is 2 and no suggestions exist', () => {
       const result = evaluatePasswordStrength('Tr0ub4dor&3')
       if (result.score === 2 && result.suggestions.length === 0) {
-        expect(result.suggestions).toContain('建议增长密码长度')
+        expect(result.suggestions).toContain(
+          getLocale() === 'zh-CN'
+            ? ZH_CN_PASSWORD_LENGTH_SUGGESTION
+            : 'Use a longer password — length matters more than symbols',
+        )
       }
-      expect(['非常弱', '弱', '中等', '强', '非常强']).toContain(result.label)
+      expect(result.label).toBe(t(STRENGTH_I18N_KEYS[result.score]))
       expect(['error', 'warning', 'info', 'success']).toContain(result.color)
     })
 

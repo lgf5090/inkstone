@@ -144,7 +144,6 @@ beforeEach(() => {
     vaultState: { hasVault: true },
     isUnlocked: true,
     keyIV: { key: 'mock-key', iv: 'mock-iv' },
-    masterPasswordText: '123456',
     groups: [MOCK_GROUP],
     groupTree: [MOCK_GROUP],
     accounts: MOCK_RAW_ACCOUNTS,
@@ -210,7 +209,10 @@ describe('FaviconAvatar', () => {
 
     const img = host.querySelector<HTMLImageElement>('img')
     expect(img).not.toBeNull()
-    expect(img?.src).toContain('google.com/s2/favicons')
+    // Same-origin proxy, not a third-party favicon service: the old URL handed that service every
+    // site stored in the vault.
+    expect(img?.src).toContain('/api/tools/password/favicon?domain=example.com')
+    expect(img?.src).not.toContain('google.com')
 
     // Simulate img error
     act(() => {

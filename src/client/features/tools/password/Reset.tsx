@@ -6,16 +6,16 @@ import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
-import { passwordApi } from './api'
+import { MASTER_PASSWORD_MAX_LENGTH, MASTER_PASSWORD_MIN_LENGTH } from '@shared/tools/password/types'
+import { PasswordApiError, passwordApi } from './api'
 import {
-  decryptValue,
-  encryptValue,
+  createVaultSalt,
+  deriveVaultKey,
   evaluatePasswordStrength,
   getKeyIv,
-  getRecoveryPass,
   hashMasterPassword,
-  verifyMasterPasswordCandidate,
 } from './crypto'
+import { reencryptAccounts } from './utils/reencrypt'
 
 export interface ResetProps {
   open?: boolean
@@ -25,8 +25,6 @@ export interface ResetProps {
 export function Reset({ open, onClose }: ResetProps) {
   const storeOpen = usePasswordVaultStore((s) => s.isResetOpen)
   const storeClose = usePasswordVaultStore((s) => s.closeReset)
-  const vaultState = usePasswordVaultStore((s) => s.vaultState)
-  const masterPasswordText = usePasswordVaultStore((s) => s.masterPasswordText)
   const accounts = usePasswordVaultStore((s) => s.accounts)
   const unlock = usePasswordVaultStore((s) => s.unlock)
 
@@ -45,13 +43,13 @@ export function Reset({ open, onClose }: ResetProps) {
     e?.preventDefault()
     if (submitting) return
 
-    if (!oldPassword || oldPassword.length !== 6) {
+    if (!oldPassword) {
       setError(t('tools.password.door.fail'))
       return
     }
 
-    if (!newPassword || newPassword.length !== 6) {
-      setError(t('tools.password.door.placeholder'))
+    if (!newPassword || newPassword.length < MASTER_PASSWORD_MIN_LENGTH) {
+      setError(t('tools.password.setting.too_short', { min: String(MASTER_PASSWORD_MIN_LENGTH) }))
       return
     }
 
@@ -64,57 +62,54 @@ export function Reset({ open, onClose }: ResetProps) {
     setError(null)
 
     try {
-      // 1. Validate old password
-      let oldValid = false
-      if (masterPasswordText) {
-        oldValid = oldPassword === masterPasswordText
-      } else {
-        oldValid = await verifyMasterPasswordCandidate(oldPassword, vaultState, accounts)
-      }
-
-      if (!oldValid) {
-        setError(t('tools.password.door.fail'))
-        setSubmitting(false)
+      // 1. Ask the server whether this is the old master password. It holds the verifier and the
+      // rate limit; a local guess would re-encrypt under the wrong key before anyone noticed.
+      let currentSalt = ''
+      try {
+        currentSalt = (await passwordApi.unlock(oldPassword)).salt
+      } catch (err) {
+        setError(
+          err instanceof PasswordApiError && err.code === 'wrong_password'
+            ? t('tools.password.door.fail')
+            : err instanceof Error
+              ? err.message
+              : t('tools.password.door.fail'),
+        )
         return
       }
 
       // 2. Batch re-encrypt accounts
-      const oldKeyIv = getKeyIv(oldPassword)
-      const newKeyIv = getKeyIv(newPassword)
+      const newSalt = createVaultSalt()
+      // The key the vault is actually open under beats a re-derivation: an unlocked vault already
+      // holds it, and a locked one can derive it from the salt the server just returned.
+      const oldKeyIv =
+        usePasswordVaultStore.getState().keyIV ??
+        (currentSalt ? deriveVaultKey(oldPassword, currentSalt) : getKeyIv(oldPassword))
+      const newKeyIv = deriveVaultKey(newPassword, newSalt)
 
       let allAccounts = accounts
       if (!allAccounts || allAccounts.length === 0) {
         allAccounts = await passwordApi.getAccounts()
       }
 
-      const reencrypted = allAccounts.map((acc) => {
-        const tryDec = (val: string) => {
-          if (!val) return ''
-          try {
-            return decryptValue(oldKeyIv, val)
-          } catch {
-            return val
-          }
-        }
-        return {
-          id: acc.id,
-          title: encryptValue(newKeyIv, tryDec(acc.title)),
-          username: encryptValue(newKeyIv, tryDec(acc.username)),
-          password: encryptValue(newKeyIv, tryDec(acc.password)),
-          link: encryptValue(newKeyIv, tryDec(acc.link)),
-          remark: encryptValue(newKeyIv, tryDec(acc.remark)),
-        }
-      })
+      const { rows: reencrypted, failedIndex } = reencryptAccounts(allAccounts, oldKeyIv, newKeyIv)
+      if (failedIndex >= 0) {
+        // Nothing has been sent yet, so the vault is still whole under the old password. The old
+        // implementation wrote raw ciphertext back through the new key here and lost the value.
+        setError(t('tools.password.reset.aborted', { index: String(failedIndex + 1) }))
+        return
+      }
 
       // 3. Call API to reset master password and replace ciphertexts
       await passwordApi.resetMasterPassword({
+        oldPassword,
         newMasterHash: hashMasterPassword(newPassword),
-        newRecoveryHint: getRecoveryPass(newPassword.slice(0, 3)),
+        newKdfSalt: newSalt,
         accounts: reencrypted,
       })
 
       // 4. Update memory keys and unlock
-      unlock(newKeyIv, false, newPassword)
+      unlock(newKeyIv)
       handleClose()
 
       useUi.getState().toast({
@@ -144,10 +139,14 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-old"
             type="password"
-            maxLength={6}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={oldPassword}
             onChange={(e) => {
-              setOldPassword(e.target.value.slice(0, 6))
+              setOldPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.reset.old_pass')}
@@ -167,10 +166,14 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-new"
             type="password"
-            maxLength={6}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={newPassword}
             onChange={(e) => {
-              setNewPassword(e.target.value.slice(0, 6))
+              setNewPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.reset.new_pass')}
@@ -231,10 +234,14 @@ export function Reset({ open, onClose }: ResetProps) {
           <input
             data-testid="password-reset-confirm"
             type="password"
-            maxLength={6}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={confirmPassword}
             onChange={(e) => {
-              setConfirmPassword(e.target.value.slice(0, 6))
+              setConfirmPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.reset.confirm_new')}
@@ -250,7 +257,7 @@ export function Reset({ open, onClose }: ResetProps) {
           <div
             data-testid="password-reset-error"
             role="alert"
-            className="rounded-[var(--r-sm)] bg-[var(--danger-soft,rgba(239,68,68,0.1))] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
           >
             {error}
           </div>

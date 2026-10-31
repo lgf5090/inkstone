@@ -6,12 +6,13 @@ import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
+import { MASTER_PASSWORD_MAX_LENGTH, MASTER_PASSWORD_MIN_LENGTH } from '@shared/tools/password/types'
 import { passwordApi } from './api'
 import {
+  createVaultSalt,
+  deriveVaultKey,
   encryptValue,
   evaluatePasswordStrength,
-  getKeyIv,
-  getRecoveryPass,
   hashMasterPassword,
 } from './crypto'
 
@@ -40,8 +41,8 @@ export function Setting({ open, onClose }: SettingProps) {
     e?.preventDefault()
     if (submitting) return
 
-    if (!password || password.length !== 6) {
-      setError(t('tools.password.door.placeholder'))
+    if (!password || password.length < MASTER_PASSWORD_MIN_LENGTH) {
+      setError(t('tools.password.setting.too_short', { min: String(MASTER_PASSWORD_MIN_LENGTH) }))
       return
     }
 
@@ -55,17 +56,17 @@ export function Setting({ open, onClose }: SettingProps) {
 
     try {
       const masterHash = hashMasterPassword(password)
-      const recoveryHint = getRecoveryPass(password.slice(0, 3))
+      const salt = createVaultSalt()
+      const keyiv = deriveVaultKey(password, salt)
 
       // 1. Initialize vault
-      await passwordApi.initVault(masterHash, recoveryHint)
+      await passwordApi.initVault(masterHash, salt)
 
       // 2. Create default group
       const defaultGroupName = t('tools.password.setting.default_group')
       const defaultGroup = await passwordApi.createGroup({ name: defaultGroupName })
 
       // 3. Create guided welcome account
-      const keyiv = getKeyIv(password)
       const welcomeTitle = t('tools.password.setting.welcome_account_title')
       const welcomeUser = t('tools.password.setting.welcome_account_user')
 
@@ -73,14 +74,16 @@ export function Setting({ open, onClose }: SettingProps) {
         groupId: defaultGroup.id,
         title: encryptValue(keyiv, welcomeTitle),
         username: encryptValue(keyiv, welcomeUser),
-        password: encryptValue(keyiv, password),
+        // Never the master password. Storing it here made every vault an offline oracle: open the
+        // first row, compare with the key that just opened it, and the guess is confirmed.
+        password: encryptValue(keyiv, 'demo-password'),
         link: encryptValue(keyiv, 'https://github.com/shuaiplus/inkstone'),
         remark: encryptValue(keyiv, 'Inkstone Password Vault'),
       })
 
       // 4. Close modal and unlock
       handleClose()
-      unlock(keyiv, false, password)
+      unlock(keyiv)
 
       useUi.getState().toast({
         title: t('tools.password.setting.submit'),
@@ -111,10 +114,14 @@ export function Setting({ open, onClose }: SettingProps) {
           <input
             data-testid="password-setting-input"
             type="password"
-            maxLength={6}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={password}
             onChange={(e) => {
-              setPassword(e.target.value.slice(0, 6))
+              setPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.door.placeholder')}
@@ -177,10 +184,14 @@ export function Setting({ open, onClose }: SettingProps) {
           <input
             data-testid="password-setting-confirm"
             type="password"
-            maxLength={6}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            maxLength={MASTER_PASSWORD_MAX_LENGTH}
             value={confirmPassword}
             onChange={(e) => {
-              setConfirmPassword(e.target.value.slice(0, 6))
+              setConfirmPassword(e.target.value)
               if (error) setError(null)
             }}
             placeholder={t('tools.password.setting.confirm_label')}
@@ -196,7 +207,7 @@ export function Setting({ open, onClose }: SettingProps) {
           <div
             data-testid="password-setting-error"
             role="alert"
-            className="rounded-[var(--r-sm)] bg-[var(--danger-soft,rgba(239,68,68,0.1))] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+            className="rounded-[var(--r-sm)] bg-[var(--danger-soft)] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
           >
             {error}
           </div>

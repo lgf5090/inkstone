@@ -13,6 +13,7 @@ import { Button } from '../../../components/primitives'
 import { Input, Select, Checkbox } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
+import { copySecret } from './utils/clipboard'
 import { passwordApi } from './api'
 
 export interface BatchOperationsModalProps {
@@ -145,17 +146,16 @@ export function BatchOperationsModal({ open, onClose }: BatchOperationsModalProp
       .join('\n\n-------------------------\n\n')
 
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text)
-      }
+      await copySecret(text)
       toast({
         title: t('tools.password.batch.copied_success', { count: selectedAccs.length }),
         tone: 'success',
       })
     } catch {
+      // A failed copy used to report success; the reader then pasted nothing.
       toast({
-        title: t('tools.password.batch.copied_success', { count: selectedAccs.length }),
-        tone: 'success',
+        title: t('tools.password.common.copy_failed'),
+        tone: 'danger',
       })
     }
   }
@@ -367,7 +367,7 @@ export function BatchOperationsModal({ open, onClose }: BatchOperationsModalProp
       >
         <div className="flex flex-col gap-4 text-[var(--text-primary)]">
           <div className="flex items-start gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--danger-soft)] text-[var(--danger)]">
               <AlertTriangle size={18} />
             </div>
             <p className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]">

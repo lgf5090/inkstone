@@ -260,7 +260,7 @@ export function ImportModal({ open, onClose, group }: ImportModalProps) {
         </div>
 
         {errorMsg && (
-          <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-red-500/10 p-2.5 text-[length:var(--text-12)] text-red-500">
+          <div className="flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--danger-soft)] p-2.5 text-[length:var(--text-12)] text-[var(--danger)]">
             <AlertCircle size={15} />
             <span>{errorMsg}</span>
           </div>

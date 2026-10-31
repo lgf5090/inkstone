@@ -25,12 +25,12 @@ export const DEFAULT_GENERATOR_OPTIONS: PasswordGeneratorOptions = {
 function getRandomInt(max: number): number {
   if (max <= 0) return 0
   const array = new Uint32Array(1)
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(array)
-  } else {
-    // Fallback for environments lacking crypto
-    array[0] = Math.floor(Math.random() * 0xffffffff)
+  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+    // A password built from Math.random is not a password. There is no safe fallback, so this is an
+    // error rather than a quietly weaker result.
+    throw new Error('A secure random source is not available in this browser')
   }
+  crypto.getRandomValues(array)
   return array[0] % max
 }
 
@@ -41,12 +41,15 @@ export function generateRandomPassword(options: Partial<PasswordGeneratorOptions
   }
 
   const length = Math.max(1, Math.min(256, merged.length))
+  // Each pool is deduplicated: a symbol typed twice in `customSymbols` would otherwise be twice as
+  // likely as every other one, which is a weighting nobody asked for.
   const pools: string[] = []
-
   if (merged.uppercase) pools.push('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
   if (merged.lowercase) pools.push('abcdefghijklmnopqrstuvwxyz')
   if (merged.numbers) pools.push('0123456789')
-  if (merged.symbols && merged.customSymbols.length > 0) pools.push(merged.customSymbols)
+  if (merged.symbols && merged.customSymbols.length > 0) {
+    pools.push([...new Set(merged.customSymbols)].join(''))
+  }
 
   if (pools.length === 0) return ''
 

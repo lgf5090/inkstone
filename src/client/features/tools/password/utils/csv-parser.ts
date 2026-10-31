@@ -178,6 +178,17 @@ export function parseCSV(text: string): ParsedCsvAccount[] {
 }
 
 /**
+ * A spreadsheet treats a cell that begins with one of these as a formula. Titles and remarks come
+ * from the vault (and, through import, from files), so the export neutralises the leading character
+ * with an apostrophe instead of letting Excel run it.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/
+
+function neutralizeFormula(val: string): string {
+  return FORMULA_LEAD.test(val) ? `'${val}` : val
+}
+
+/**
  * Converts an array of accounts to standard RFC 4180 CSV string with header.
  */
 export function toCSV(
@@ -192,11 +203,11 @@ export function toCSV(
   const header = 'title,username,password,link,remark'
   const rows = accounts.map((acc) =>
     [
-      escapeCSVField(acc.title),
-      escapeCSVField(acc.username),
-      escapeCSVField(acc.password),
-      escapeCSVField(acc.link),
-      escapeCSVField(acc.remark),
+      escapeCSVField(neutralizeFormula(acc.title)),
+      escapeCSVField(neutralizeFormula(acc.username)),
+      escapeCSVField(neutralizeFormula(acc.password)),
+      escapeCSVField(neutralizeFormula(acc.link)),
+      escapeCSVField(neutralizeFormula(acc.remark)),
     ].join(',')
   )
 
