@@ -91,6 +91,44 @@ export interface ColorStudioState {
 
 const DEFAULT_HEX = '#627486'
 
+/** How long the pointer has to rest before the color lands in the history. */
+const HISTORY_IDLE_MS = 600
+
+/**
+ * The pending history write, held outside the store on purpose.
+ *
+ * A drag of the hue slider calls `setCurrentHex` once per step, and each of those used to POST a row and
+ * then GET the whole list back — thirty-one steps measured twenty writes and twenty reads. Nothing in the
+ * interface shows a timer, so the schedule lives in module scope rather than in render-visible state, and
+ * only the last color of a burst is kept: the intermediate ones were never what the reader meant to pick.
+ */
+let pendingHistory: { hex: string, source: ColorHistorySource } | null = null
+let historyTimer: ReturnType<typeof setTimeout> | null = null
+let lastLoggedHex: string | null = null
+
+function queueHistoryWrite(hex: string, source: ColorHistorySource): void {
+  pendingHistory = { hex, source }
+  if (historyTimer) return
+
+  historyTimer = setTimeout(() => {
+    historyTimer = null
+    const entry = pendingHistory
+    pendingHistory = null
+    if (!entry || entry.hex === lastLoggedHex) return
+
+    lastLoggedHex = entry.hex
+    colorApi.addHistory(entry.hex, entry.source).then(() => {
+      useColorStudioStore.getState().fetchHistory()
+    }).catch((error: unknown) => {
+      // A history row is a convenience trail, not reader data: losing one must not interrupt picking
+      // colors. The hex is released so the next change over that color retries rather than being
+      // silently remembered as already saved.
+      lastLoggedHex = null
+      console.debug('[tools/color] history write failed', entry.hex, error)
+    })
+  }, HISTORY_IDLE_MS)
+}
+
 export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   currentHex: DEFAULT_HEX,
   colorSpaceValues: getColorSpaceValues(DEFAULT_HEX),
@@ -126,13 +164,7 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
       colorSpaceValues: getColorSpaceValues(norm),
     })
 
-    if (get().settings.autoSaveHistory) {
-      colorApi.addHistory(norm, source).then(() => {
-        get().fetchHistory()
-      }).catch(() => {
-        // Best effort
-      })
-    }
+    if (get().settings.autoSaveHistory) queueHistoryWrite(norm, source)
   },
 
   setCurrentColor: (hex: string, source?: ColorHistorySource) => {
@@ -325,6 +357,8 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     try {
       await colorApi.clearHistory()
       set({ history: [] })
+      // The trail is empty now, so the next color is worth recording even if it was the last one logged.
+      lastLoggedHex = null
       useUi.getState().toast({
         title: t('tools.color.toast.history_cleared'),
         tone: 'default',

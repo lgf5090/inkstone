@@ -146,6 +146,16 @@ describe('Color history window', () => {
     const list = await (await call('GET', '/api/tools/color/history')).json<{ data: unknown[] }>()
     expect(list.data).toHaveLength(COLOR_HISTORY_WINDOW)
   })
+
+  it('does not store the same color twice in a row', async () => {
+    // A second tab, or a page re-read, used to add a fresh row for the color already on top.
+    await call('POST', '/api/tools/color/history', { hex: '#123456', source: 'picker' })
+    await call('POST', '/api/tools/color/history', { hex: '#123456', source: 'picker' })
+    await call('POST', '/api/tools/color/history', { hex: '#123456', source: 'palette' })
+
+    const list = await (await call('GET', '/api/tools/color/history')).json<{ data: Array<{ hex: string }> }>()
+    expect(list.data).toHaveLength(1)
+  })
 })
 
 describe('Color palette ceiling', () => {

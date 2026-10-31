@@ -17457,6 +17457,10 @@ const allowed = new Map([
     "/* 11-step scale grid */",
     "/* Step details table */",
   ]],
+  ["src/client/features/tools/color/history-write.test.tsx", [
+    "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
+    "// The algorithm view's refresh button re-selects the current color; that is not an exploration.",
+  ]],
   ["src/client/features/tools/color/lib/color-wheel.ts", [
     "/**\n * The color wheel's pixel field and its blit, kept apart from the component.\n *\n * The disk used to be written with `putImageData` after `ctx.scale(dpr, dpr)`, on the assumption that the\n * scale would enlarge it. `putImageData` copies device pixels and ignores the context transform, so on any\n * display that is not exactly 1× the wheel landed in the top-left corner at 1/dpr of its box while the\n * pointer math kept answering for the full CSS size. Splitting the field (pure) from the blit (canvas) is\n * what lets the geometry be tested at all: jsdom has no 2D context.\n */",
     "/** Opaque inside the disk, transparent outside, anti-aliased across the boundary. */",
@@ -17512,6 +17516,12 @@ const allowed = new Map([
     "// Modal controls",
     "// Best effort",
     "// If copying hex and stripHash is enabled, remove leading #",
+    "/** How long the pointer has to rest before the color lands in the history. */",
+    "/**\n * The pending history write, held outside the store on purpose.\n *\n * A drag of the hue slider calls `setCurrentHex` once per step, and each of those used to POST a row and\n * then GET the whole list back — thirty-one steps measured twenty writes and twenty reads. Nothing in the\n * interface shows a timer, so the schedule lives in module scope rather than in render-visible state, and\n * only the last color of a burst is kept: the intermediate ones were never what the reader meant to pick.\n */",
+    "// A history row is a convenience trail, not reader data: losing one must not interrupt picking",
+    "// colors. The hex is released so the next change over that color retries rather than being",
+    "// silently remembered as already saved.",
+    "// The trail is empty now, so the next color is worth recording even if it was the last one logged.",
   ]],
   ["src/client/features/tools/color/views/AiPaletteView.tsx", [
     "/* Header */",
@@ -39248,6 +39258,8 @@ const allowed = new Map([
     "// Assets",
     "// History (sliding window of COLOR_HISTORY_WINDOW entries)",
     "// Truncate sliding window if user has more than the retained history",
+    "// Re-picking the color that is already on top of the trail is not a new exploration. The client",
+    "// debounces a drag, but this is what keeps a second tab or a re-read page from re-inserting.",
   ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
@@ -44430,6 +44442,7 @@ const allowed = new Map([
     "// that reaches around the type with a widened parameter or a cast.",
     "// The slider's right-hand end used to send COLOR_EXTRACT_MAX + 1 colors to a schema capped at 12.",
     "// This harness configures no assistant model, so a truthful answer has to admit it computed the palette.",
+    "// A second tab, or a page re-read, used to add a fresh row for the color already on top.",
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",

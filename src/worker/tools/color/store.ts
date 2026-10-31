@@ -5,7 +5,7 @@
  */
 
 import { COLOR_HISTORY_WINDOW, type ColorHistorySource } from '@shared/tools/color/contract'
-import { hexToRgb, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
+import { hexToRgb, normalizeHex, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
 import type {
   ColorHistoryItem,
   ColorSettings,
@@ -612,6 +612,27 @@ export class ColorStore {
   }
 
   async addHistory(hex: string, source: ColorHistorySource = 'studio'): Promise<ColorHistoryItem> {
+    const latest = await this.db
+      .prepare(
+        `SELECT id, hex, source, created_at FROM tools_color_history
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .bind(this.userId)
+      .first<{ id: string; hex: string; source: string; created_at: number }>()
+
+    // Re-picking the color that is already on top of the trail is not a new exploration. The client
+    // debounces a drag, but this is what keeps a second tab or a re-read page from re-inserting.
+    if (latest && normalizeHex(latest.hex, true) === normalizeHex(hex, true)) {
+      return {
+        id: latest.id,
+        hex: latest.hex,
+        source: (latest.source as ColorHistorySource) || 'studio',
+        createdAt: latest.created_at,
+      }
+    }
+
     const id = `col_hist_${crypto.randomUUID().slice(0, 12)}`
     const now = Date.now()
 
