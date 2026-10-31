@@ -36,7 +36,29 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
     themeColor: { hue: 315, style: 'tonalSpot', spec: '2025' },
   },
   profile: { name: '', bio: '', avatar: '', links: [] },
-  nav: { links: [] },
+  nav: {
+    links: [
+      { label: 'Home', href: '/' },
+      { label: 'Archive', href: '/archive' },
+      { label: 'Friends', href: '/friends' },
+      { label: 'Moments', href: '/moments' },
+      { label: 'Anime', href: '/anime' },
+      { label: 'Compass', href: '/compass' },
+      { label: 'Albums', href: '/albums' },
+      {
+        label: 'More',
+        href: '/more',
+        children: [
+          { label: 'Timeline', href: '/timeline' },
+          { label: 'Projects', href: '/projects' },
+          { label: 'Devices', href: '/devices' },
+          { label: 'Games', href: '/games' },
+          { label: 'Skills', href: '/skills' },
+          { label: 'About', href: '/about' },
+        ],
+      },
+    ],
+  },
   sidebar: {
     enable: true,
     arrangement: 'single',
