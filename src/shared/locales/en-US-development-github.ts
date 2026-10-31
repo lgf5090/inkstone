@@ -50,7 +50,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.errors.upstream": "GitHub could not complete the request. Try again later.",
   "development.github.gists.add_file": "Add file",
   "development.github.gists.card_view": "Card view",
-  "development.github.gists.chars": "chars",
+  "development.github.gists.bytes": "bytes",
   "development.github.gists.confirm_delete": "Confirm delete",
   "development.github.gists.content_placeholder": "File content…",
   "development.github.gists.copied": "Copied",

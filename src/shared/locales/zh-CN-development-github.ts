@@ -50,7 +50,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.errors.upstream": "GitHub 未能完成请求，请稍后重试。",
   "development.github.gists.add_file": "添加文件",
   "development.github.gists.card_view": "卡片视图",
-  "development.github.gists.chars": "字符",
+  "development.github.gists.bytes": "字节",
   "development.github.gists.confirm_delete": "确认删除",
   "development.github.gists.content_placeholder": "文件内容…",
   "development.github.gists.copied": "已复制",
