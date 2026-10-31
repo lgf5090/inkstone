@@ -12,6 +12,7 @@ import { CustomSpecModal } from './specs/CustomSpecModal'
 import { IdPhotoExportControls } from './export/IdPhotoExportControls'
 import { IdPhotoComplianceView } from './compliance/IdPhotoComplianceView'
 import { IdPhotoCompareView } from './compare/IdPhotoCompareView'
+import { IdPhotoDraftNotice } from './draft/IdPhotoDraftNotice'
 import { IdPhotoPrintView } from './print/IdPhotoPrintView'
 import { IdPhotoBatchView } from './batch/IdPhotoBatchView'
 import { IdPhotoSpecsView } from './specs/IdPhotoSpecsView'
@@ -22,12 +23,14 @@ export function IdPhotoApp() {
   const activeIdPhotoView = useToolsStore((s) => s.activeIdPhotoView)
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
   const loadPreferences = useIdPhotoStore((s) => s.loadPreferences)
+  const refreshDraftMeta = useIdPhotoStore((s) => s.refreshDraftMeta)
 
   const isWide = useMediaQuery('(min-width: 1024px)')
   const customSpecModalOpen = useIdPhotoStore((s) => s.customSpecModalOpen)
   const setCustomSpecModalOpen = useIdPhotoStore((s) => s.setCustomSpecModalOpen)
 
   useEffect(() => {
+    refreshDraftMeta()
     const boot = async () => {
       try {
         await loadCustomSpecs()
@@ -41,7 +44,7 @@ export function IdPhotoApp() {
       }
     }
     void boot()
-  }, [loadCustomSpecs, loadPreferences])
+  }, [loadCustomSpecs, loadPreferences, refreshDraftMeta])
 
   return (
     <div
@@ -58,6 +61,7 @@ export function IdPhotoApp() {
           <div className="flex w-[420px] xl:w-[460px] 2xl:w-[500px] shrink-0 flex-col gap-4 overflow-y-auto p-4 xl:p-6 bg-[var(--bg-sunken)]/30">
             <IdPhotoPreviewCard />
             <IdPhotoExportControls />
+            <IdPhotoDraftNotice />
           </div>
         </div>
       )}
@@ -68,6 +72,7 @@ export function IdPhotoApp() {
           <IdPhotoUploadCard />
           <IdPhotoOptionsPanel />
           <IdPhotoExportControls />
+          <IdPhotoDraftNotice />
         </div>
       )}
 

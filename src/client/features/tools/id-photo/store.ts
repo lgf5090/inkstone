@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useSession } from '../../../store/session'
 import { PRINT_SHEET_PRESETS } from '@shared/tools/id-photo/presets'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
 import type {
@@ -9,6 +10,14 @@ import type {
   PrintSheetOptions,
 } from '@shared/tools/id-photo/types'
 import { getIdPhotoSettings, listCustomSpecs } from './api'
+import {
+  clearDraft as clearStoredDraft,
+  draftSource,
+  loadDraft,
+  readDraftMeta,
+  saveDraft,
+  type IdPhotoDraftMeta,
+} from './draft-store'
 import { defaultCompareIds, toggleCompareId } from './compare/compare-model'
 import {
   panCrop,
@@ -168,6 +177,11 @@ export interface IdPhotoState {
   // View toggles
   guidesVisible: boolean
   toggleGuides: () => void
+  draftMeta: IdPhotoDraftMeta | null
+  draftStatus: 'idle' | 'pending' | 'saved' | 'too_large' | 'failed'
+  refreshDraftMeta: () => void
+  clearDraft: () => Promise<void>
+  restoreDraft: () => Promise<boolean>
   fullscreenModalOpen: boolean
   setFullscreenModalOpen: (open: boolean) => void
   customSpecModalOpen: boolean
@@ -411,4 +425,73 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   setFullscreenModalOpen: (fullscreenModalOpen) => set({ fullscreenModalOpen }),
   customSpecModalOpen: false,
   setCustomSpecModalOpen: (customSpecModalOpen) => set({ customSpecModalOpen }),
+
+  draftMeta: null,
+  draftStatus: 'idle',
+  refreshDraftMeta: () => set({ draftMeta: readDraftMeta(draftScope()) }),
+  clearDraft: async () => {
+    await clearStoredDraft(draftScope())
+    set({ draftMeta: null, draftStatus: 'idle' })
+  },
+  restoreDraft: async () => {
+    const draft = await loadDraft(draftScope())
+    if (!draft) {
+      set({ draftMeta: null })
+      return false
+    }
+    if (!(await get().setImageSrc(draft.src))) return false
+    const known = [...get().customSpecs, ...BUILTIN_ID_PHOTO_SPECS].some((spec) => spec.id === draft.specId)
+    set((s) => ({
+      adjustOptions: {
+        ...s.adjustOptions,
+        ...draft.options,
+        ...(known ? { specId: draft.specId } : {}),
+      },
+      ...(known ? { selectedSpecId: draft.specId } : {}),
+      draftStatus: 'saved',
+    }))
+    return true
+  },
 }))
+
+const DRAFT_DEBOUNCE_MS = 1200
+
+function draftScope(): string {
+  return useSession.getState().user?.id ?? ''
+}
+
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+
+function writeDraftNow(): void {
+  draftTimer = null
+  const state = useIdPhotoStore.getState()
+  const src = draftSource(state.imageSrc)
+  if (!src) return
+  void saveDraft({ src, specId: state.selectedSpecId, options: state.adjustOptions, scope: draftScope() })
+    .then((result) => {
+      const store = useIdPhotoStore.getState()
+      if (result.ok) {
+        store.refreshDraftMeta()
+        useIdPhotoStore.setState({ draftStatus: 'saved' })
+      } else {
+        useIdPhotoStore.setState({ draftStatus: 'too_large' })
+      }
+    })
+    .catch(() => {
+      // A draft is a convenience, so a device whose storage refuses does not break the studio.
+      useIdPhotoStore.setState({ draftStatus: 'failed' })
+    })
+}
+
+useIdPhotoStore.subscribe((state, previous) => {
+  if (state.imageSrc === previous.imageSrc && state.adjustOptions === previous.adjustOptions && state.selectedSpecId === previous.selectedSpecId) return
+  if (!state.imageSrc) {
+    if (draftTimer) clearTimeout(draftTimer)
+    draftTimer = null
+    useIdPhotoStore.setState({ draftStatus: 'idle' })
+    return
+  }
+  useIdPhotoStore.setState({ draftStatus: 'pending' })
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(writeDraftNow, DRAFT_DEBOUNCE_MS)
+})

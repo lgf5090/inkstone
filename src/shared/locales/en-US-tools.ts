@@ -968,6 +968,19 @@ export const EN_US_TOOLS = {
   'tools.id_photo.compare.max': 'Up to 4 specifications side by side — remove one to add another',
   'tools.id_photo.compare.min_hint': 'Keep at least 2 specifications',
 
+  // Local draft
+  'tools.id_photo.draft.title': 'Local draft',
+  'tools.id_photo.draft.saved': 'Draft saved automatically',
+  'tools.id_photo.draft.pending': 'Saving draft…',
+  'tools.id_photo.draft.restorable': 'A draft from last time is still on this device',
+  'tools.id_photo.draft.saved_at': 'Last saved: {time}',
+  'tools.id_photo.draft.never': 'No draft on this device yet',
+  'tools.id_photo.draft.local_only': 'Kept on this device only — never uploaded or visible elsewhere',
+  'tools.id_photo.draft.restore': 'Restore draft',
+  'tools.id_photo.draft.clear': 'Delete draft',
+  'tools.id_photo.draft.too_large': 'The photo is too large, so the draft was not saved',
+  'tools.id_photo.draft.failed': 'Local storage is unavailable, so the draft was not saved',
+
   // Attire tab
   'tools.id_photo.attire.none': 'Original Clothes',
   'tools.id_photo.attire.scale': 'Attire Scale',

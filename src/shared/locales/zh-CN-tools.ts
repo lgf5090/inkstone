@@ -968,6 +968,19 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.compare.max': '最多并排 4 个规格，先移出一个再加',
   'tools.id_photo.compare.min_hint': '至少保留 2 个规格',
 
+  // Local draft
+  'tools.id_photo.draft.title': '本机草稿',
+  'tools.id_photo.draft.saved': '草稿已自动保存',
+  'tools.id_photo.draft.pending': '正在保存草稿…',
+  'tools.id_photo.draft.restorable': '这台设备上还留着上次的草稿',
+  'tools.id_photo.draft.saved_at': '上次保存：{time}',
+  'tools.id_photo.draft.never': '这台设备上还没有草稿',
+  'tools.id_photo.draft.local_only': '只存在这台设备，不会上传或出现在其他设备',
+  'tools.id_photo.draft.restore': '恢复草稿',
+  'tools.id_photo.draft.clear': '清除草稿',
+  'tools.id_photo.draft.too_large': '照片太大，草稿没有保存',
+  'tools.id_photo.draft.failed': '本机存储不可用，草稿没有保存',
+
   // Formal-wear tab
   'tools.id_photo.attire.none': '保持原着',
   'tools.id_photo.attire.scale': '正装缩放',
