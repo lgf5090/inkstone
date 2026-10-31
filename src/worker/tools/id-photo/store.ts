@@ -59,6 +59,10 @@ interface SettingsRow {
   updated_at: number
 }
 
+export function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
 function toRecord(row: RecordRow): IdPhotoRecord {
   return {
     id: row.id,
@@ -110,15 +114,28 @@ function toSpec(row: SpecRow): IdPhotoSpec {
   }
 }
 
+const LEGACY_AUTOSAVE_ENABLED = 1
+const LEGACY_FACE_ALIGN_ENABLED = 1
+
+function defaultSettings(userId: string): IdPhotoUserSettings {
+  return {
+    userId,
+    defaultSpecId: 'cn_one_inch',
+    defaultBgColor: '#ffffff',
+    defaultDpi: 300,
+    defaultExportFormat: 'jpg',
+    printPaperSize: '6inch',
+    updatedAt: 0,
+  }
+}
+
 function toSettings(row: SettingsRow): IdPhotoUserSettings {
   return {
-    userId: row.user_id,
+    ...defaultSettings(row.user_id),
     defaultSpecId: row.default_spec_id,
     defaultBgColor: row.default_bg_color,
     defaultDpi: row.default_dpi,
     defaultExportFormat: row.default_export_format,
-    autoSaveHistory: Boolean(row.auto_save_history),
-    autoFaceAlign: Boolean(row.auto_face_align),
     printPaperSize: (row.print_paper_size as '5inch' | '6inch' | 'a4') || '6inch',
     updatedAt: row.updated_at,
   }
@@ -148,8 +165,9 @@ export class IdPhotoStore {
     }
 
     if (query.search?.trim()) {
-      conditions.push('(title LIKE ? OR spec_name LIKE ?)')
-      params.push(`%${query.search.trim()}%`, `%${query.search.trim()}%`)
+      conditions.push("(title LIKE ? ESCAPE '\\' OR spec_name LIKE ? ESCAPE '\\')")
+      const term = `%${escapeLikeTerm(query.search.trim())}%`
+      params.push(term, term)
     }
 
     const where = conditions.join(' AND ')
@@ -316,6 +334,34 @@ export class IdPhotoStore {
     return toSpec(created)
   }
 
+  async updateSpec(
+    id: string,
+    patch: { name?: string; isFavorite?: boolean },
+  ): Promise<IdPhotoSpec | null> {
+    const current = await this.db
+      .prepare(`SELECT * FROM tools_id_photo_specs WHERE user_id = ? AND id = ?`)
+      .bind(this.userId, id)
+      .first<SpecRow>()
+    if (!current) return null
+
+    await this.db
+      .prepare(
+        `UPDATE tools_id_photo_specs
+         SET name = ?, is_favorite = ?, updated_at = ?
+         WHERE user_id = ? AND id = ?`
+      )
+      .bind(
+        patch.name ?? current.name,
+        patch.isFavorite === undefined ? current.is_favorite : patch.isFavorite ? 1 : 0,
+        Date.now(),
+        this.userId,
+        id,
+      )
+      .run()
+
+    return this.listSpecs().then((specs) => specs.find((spec) => spec.id === id) ?? toSpec(current))
+  }
+
   async deleteSpec(id: string): Promise<boolean> {
     const res = await this.db
       .prepare(`DELETE FROM tools_id_photo_specs WHERE user_id = ? AND id = ?`)
@@ -334,39 +380,7 @@ export class IdPhotoStore {
       return toSettings(row)
     }
 
-    const defaultSettings: IdPhotoUserSettings = {
-      userId: this.userId,
-      defaultSpecId: 'cn_one_inch',
-      defaultBgColor: '#ffffff',
-      defaultDpi: 300,
-      defaultExportFormat: 'jpg',
-      autoSaveHistory: true,
-      autoFaceAlign: true,
-      printPaperSize: '6inch',
-      updatedAt: Date.now(),
-    }
-
-    await this.db
-      .prepare(
-        `INSERT OR IGNORE INTO tools_id_photo_settings (
-          user_id, default_spec_id, default_bg_color, default_dpi, default_export_format,
-          auto_save_history, auto_face_align, print_paper_size, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        this.userId,
-        defaultSettings.defaultSpecId,
-        defaultSettings.defaultBgColor,
-        defaultSettings.defaultDpi,
-        defaultSettings.defaultExportFormat,
-        defaultSettings.autoSaveHistory ? 1 : 0,
-        defaultSettings.autoFaceAlign ? 1 : 0,
-        defaultSettings.printPaperSize,
-        defaultSettings.updatedAt,
-      )
-      .run()
-
-    return defaultSettings
+    return defaultSettings(this.userId)
   }
 
   async updateSettings(
@@ -401,8 +415,8 @@ export class IdPhotoStore {
         updated.defaultBgColor,
         updated.defaultDpi,
         updated.defaultExportFormat,
-        updated.autoSaveHistory ? 1 : 0,
-        updated.autoFaceAlign ? 1 : 0,
+        LEGACY_AUTOSAVE_ENABLED,
+        LEGACY_FACE_ALIGN_ENABLED,
         updated.printPaperSize,
         updated.updatedAt,
       )

@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Award, Plus, Trash2 } from 'lucide-react'
+import { Award, Plus, Star, Trash2 } from 'lucide-react'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
-import type { IdPhotoCategory } from '@shared/tools/id-photo/types'
+import type { IdPhotoCategory, IdPhotoSpec } from '@shared/tools/id-photo/types'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Input } from '../../../../components/form'
 import { Button, IconButton } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
-import { deleteCustomSpec } from '../api'
+import { deleteCustomSpec, updateCustomSpec } from '../api'
 
 export function IdPhotoSpecsView() {
   const [search, setSearch] = useState('')
@@ -44,6 +44,16 @@ export function IdPhotoSpecsView() {
     { id: 'visa', labelKey: 'tools.id_photo.spec.category_visa' },
     { id: 'custom', labelKey: 'tools.id_photo.spec.category_custom' },
   ] as const
+
+  const toggleFavorite = async (e: React.MouseEvent, spec: IdPhotoSpec) => {
+    e.stopPropagation()
+    try {
+      await updateCustomSpec(spec.id, { isFavorite: !spec.isFavorite })
+      await loadCustomSpecs()
+    } catch {
+      useUi.getState().toast({ title: t('tools.id_photo.specs.favorite_failed'), tone: 'danger' })
+    }
+  }
 
   const handleDeleteSpec = async (e: React.MouseEvent, specId: string) => {
     e.stopPropagation()
@@ -153,15 +163,28 @@ export function IdPhotoSpecsView() {
                   </h4>
                 </div>
                 {!spec.isBuiltin && (
-                  <IconButton
-                    size="sm"
-                    variant="danger"
-                    className="relative z-[var(--z-menu)]"
-                    label={t('tools.id_photo.common.delete')}
-                    onClick={(e) => handleDeleteSpec(e, spec.id)}
-                  >
-                    <Trash2 size={13} />
-                  </IconButton>
+                  <div className="flex items-center gap-1">
+                    <IconButton
+                      size="sm"
+                      active={Boolean(spec.isFavorite)}
+                      className="relative z-[var(--z-menu)]"
+                      label={t(spec.isFavorite ? 'tools.id_photo.specs.unfavorite' : 'tools.id_photo.specs.favorite')}
+                      onClick={(e) => {
+                        void toggleFavorite(e, spec)
+                      }}
+                    >
+                      <Star size={13} />
+                    </IconButton>
+                    <IconButton
+                      size="sm"
+                      variant="danger"
+                      className="relative z-[var(--z-menu)]"
+                      label={t('tools.id_photo.common.delete')}
+                      onClick={(e) => handleDeleteSpec(e, spec.id)}
+                    >
+                      <Trash2 size={13} />
+                    </IconButton>
+                  </div>
                 )}
               </div>
 

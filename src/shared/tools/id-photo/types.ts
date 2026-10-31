@@ -81,8 +81,6 @@ export interface IdPhotoUserSettings {
   defaultBgColor: string
   defaultDpi: number
   defaultExportFormat: string
-  autoSaveHistory: boolean
-  autoFaceAlign: boolean
   printPaperSize: '5inch' | '6inch' | 'a4'
   updatedAt: number
 }

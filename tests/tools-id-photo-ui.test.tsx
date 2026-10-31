@@ -221,4 +221,120 @@ describe('ID Photo Studio UI Integration Tests', () => {
 
     view.unmount()
   })
+
+  it('offers the archived print sheet for download', async () => {
+    const record = {
+      id: 'idp_test_1',
+      userId: 'u1',
+      title: 'Standard 1-Inch',
+      specId: 'cn_one_inch',
+      specName: 'Standard 1-Inch',
+      widthPx: 295,
+      heightPx: 413,
+      widthMm: 25,
+      heightMm: 35,
+      dpi: 300,
+      bgColor: '#ffffff',
+      optionsJson: '{}',
+      r2Key: 'tools/id_photo/jpg/u1/idp_test_1.jpg',
+      printR2Key: 'tools/id_photo/print/u1/idp_test_1_print.jpg',
+      fileType: 'jpg',
+      fileSize: 4096,
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(
+        async () =>
+          Response.json({
+            ok: true,
+            data: { records: [record, { ...record, id: 'idp_test_2', printR2Key: '' }], total: 2 },
+          }),
+      ),
+    )
+    const clicked: string[] = []
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function click(this: HTMLAnchorElement) {
+        clicked.push(this.getAttribute('href') ?? '')
+      })
+    useToolsStore.setState({ activeIdPhotoView: 'history' })
+
+    const view = await renderElement(<IdPhotoApp />)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+
+    const printButtons = Array.from(view.container.querySelectorAll('button')).filter(
+      (button) => button.getAttribute('aria-label') === t('tools.id_photo.export.download_print'),
+    )
+    expect(printButtons.length).toBe(1)
+    const printButton = printButtons[0]
+    act(() => {
+      printButton?.click()
+    })
+    expect(clicked).toContain('/api/tools/id-photo/records/idp_test_1/print-file')
+
+    clickSpy.mockRestore()
+    vi.unstubAllGlobals()
+    view.unmount()
+    useToolsStore.setState({ activeIdPhotoView: 'studio' })
+  })
+
+  it('marks a custom specification as favourite through the API', async () => {
+    const custom = {
+      id: 'spec_custom_9',
+      name: 'Desk badge',
+      category: 'custom',
+      countryCode: '',
+      countryNameKey: '',
+      widthMm: 32,
+      heightMm: 40,
+      widthPx: 378,
+      heightPx: 472,
+      dpi: 300,
+      recommendedBgColors: ['#ffffff'],
+      faceRatioMin: 0.6,
+      faceRatioMax: 0.8,
+      isBuiltin: false,
+      isFavorite: false,
+    }
+    const patchBody = vi.hoisted(() => ({ current: '' }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>(
+        async (_input, init) => {
+          if (String(init?.method) === 'PATCH') {
+            patchBody.current = String(init?.body)
+            return Response.json({ ok: true, data: { ...custom, isFavorite: true } })
+          }
+          return Response.json({ ok: true, data: [{ ...custom, isFavorite: true }] })
+        },
+      ),
+    )
+    useIdPhotoStore.setState({ customSpecs: [custom] as never })
+    useToolsStore.setState({ activeIdPhotoView: 'specs' })
+
+    const view = await renderElement(<IdPhotoApp />)
+    const star = view.container.querySelector(
+      `button[aria-label="${t('tools.id_photo.specs.favorite')}"]`,
+    ) as HTMLButtonElement | null
+    expect(star).not.toBeNull()
+
+    act(() => {
+      star?.click()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(patchBody.current).toContain('"isFavorite":true')
+    expect(useIdPhotoStore.getState().customSpecs[0]?.isFavorite).toBe(true)
+
+    view.unmount()
+    vi.unstubAllGlobals()
+    useIdPhotoStore.setState({ customSpecs: [] })
+    useToolsStore.setState({ activeIdPhotoView: 'studio' })
+  })
 })

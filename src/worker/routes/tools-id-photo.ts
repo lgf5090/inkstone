@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import {
   CreateCustomSpecSchema,
+  UpdateCustomSpecSchema,
   CreateIdPhotoRecordSchema,
   QueryIdPhotoRecordsSchema,
   UpdateIdPhotoSettingsSchema,
@@ -124,7 +125,9 @@ toolsIdPhotoRoutes.post('/records', async (c) => {
     printR2Key = uploadedPrint.key
   }
 
-  const record = await store.createRecord({
+  let record
+  try {
+    record = await store.createRecord({
     id: recordId,
     title: body.title || `${body.specName || 'ID Photo'} - ${new Date().toLocaleDateString()}`,
     specId: body.specId,
@@ -140,7 +143,14 @@ toolsIdPhotoRoutes.post('/records', async (c) => {
     printR2Key,
     fileType: format,
     fileSize,
-  })
+    })
+  } catch (error) {
+    await Promise.allSettled([
+      r2Key ? deleteIdPhotoFromR2(c.env.FILES, r2Key) : Promise.resolve(),
+      printR2Key ? deleteIdPhotoFromR2(c.env.FILES, printR2Key) : Promise.resolve(),
+    ])
+    throw error
+  }
 
   return c.json({ ok: true, data: record }, 201)
 })
@@ -163,14 +173,15 @@ toolsIdPhotoRoutes.delete('/records/:id', async (c) => {
     throw ApiError.notFound('Record not found')
   }
 
-  if (keys.r2Key) {
-    await deleteIdPhotoFromR2(c.env.FILES, keys.r2Key)
-  }
-  if (keys.printR2Key) {
-    await deleteIdPhotoFromR2(c.env.FILES, keys.printR2Key)
-  }
+  const storage = await Promise.allSettled([
+    keys.r2Key ? deleteIdPhotoFromR2(c.env.FILES, keys.r2Key) : Promise.resolve(),
+    keys.printR2Key ? deleteIdPhotoFromR2(c.env.FILES, keys.printR2Key) : Promise.resolve(),
+  ])
 
-  return c.json({ ok: true, data: { deleted: true } })
+  return c.json({
+    ok: true,
+    data: { deleted: true, storageCleaned: storage.every((result) => result.status === 'fulfilled') },
+  })
 })
 
 toolsIdPhotoRoutes.get('/records/:id/file', async (c) => {
@@ -254,6 +265,16 @@ toolsIdPhotoRoutes.post('/specs', async (c) => {
   })
 
   return c.json({ ok: true, data: spec }, 201)
+})
+
+toolsIdPhotoRoutes.patch('/specs/:id', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, UpdateCustomSpecSchema)
+  const spec = await store.updateSpec(c.req.param('id'), body)
+  if (!spec) {
+    throw ApiError.notFound('Spec not found')
+  }
+  return c.json({ ok: true, data: spec })
 })
 
 toolsIdPhotoRoutes.delete('/specs/:id', async (c) => {

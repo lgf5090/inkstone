@@ -87,7 +87,7 @@ describe('ID photo batch view', () => {
     ) as HTMLButtonElement | null
     expect(remove).not.toBeNull()
     await act(async () => {
-      remove.click()
+      remove?.click()
     })
 
     expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:mock')

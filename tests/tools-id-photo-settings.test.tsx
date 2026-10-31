@@ -13,8 +13,6 @@ const SETTINGS: IdPhotoUserSettings = {
   defaultBgColor: '#438EDB',
   defaultDpi: 300,
   defaultExportFormat: 'png',
-  autoSaveHistory: true,
-  autoFaceAlign: true,
   printPaperSize: 'a4',
   updatedAt: 1,
 }
@@ -108,5 +106,14 @@ describe('ID photo preferences', () => {
 
     vi.unstubAllGlobals()
     view.unmount()
+  })
+
+  it("uses the specification's own size limit as the export target", () => {
+    useIdPhotoStore.getState().setSelectedSpecId('exam_postgraduate')
+    const limited = useIdPhotoStore.getState().targetMaxKb
+    expect(typeof limited).toBe('number')
+
+    useIdPhotoStore.getState().setSelectedSpecId('cn_one_inch')
+    expect(useIdPhotoStore.getState().targetMaxKb).toBe(limited)
   })
 })

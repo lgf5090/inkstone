@@ -68,8 +68,10 @@ export async function createIdPhotoRecord(payload: {
   })
 }
 
-export async function deleteIdPhotoRecord(id: string): Promise<void> {
-  await request<{ deleted: boolean }>(`/api/tools/id-photo/records/${id}`, {
+export async function deleteIdPhotoRecord(
+  id: string,
+): Promise<{ deleted: boolean; storageCleaned: boolean }> {
+  return request<{ deleted: boolean; storageCleaned: boolean }>(`/api/tools/id-photo/records/${id}`, {
     method: 'DELETE',
   })
 }
@@ -93,6 +95,16 @@ export async function createCustomSpec(spec: {
   return request<IdPhotoSpec>('/api/tools/id-photo/specs', {
     method: 'POST',
     body: JSON.stringify(spec),
+  })
+}
+
+export async function updateCustomSpec(
+  id: string,
+  patch: { name?: string; isFavorite?: boolean },
+): Promise<IdPhotoSpec> {
+  return request<IdPhotoSpec>(`/api/tools/id-photo/specs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   })
 }
 

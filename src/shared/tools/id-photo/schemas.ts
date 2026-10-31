@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const HexColor = z.string().regex(HEX_COLOR)
+
 export const IdPhotoCategorySchema = z.enum([
   'cn_standard',
   'exam_cert',
@@ -73,7 +76,34 @@ export const UpdateIdPhotoSettingsSchema = z.object({
   defaultBgColor: z.string().optional(),
   defaultDpi: z.number().int().positive().optional(),
   defaultExportFormat: z.enum(['jpg', 'jpeg', 'png', 'webp']).optional(),
-  autoSaveHistory: z.boolean().optional(),
-  autoFaceAlign: z.boolean().optional(),
   printPaperSize: z.enum(['5inch', '6inch', 'a4']).optional(),
+})
+
+export const UpdateCustomSpecSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  isFavorite: z.boolean().optional(),
+})
+
+const optionalRange = (min: number, max: number) => z.number().min(min).max(max).optional()
+
+export const IdPhotoAdjustOptionsSchema = z.object({
+  specId: z.string().min(1).max(60),
+  bgColor: HexColor,
+  bgType: z.enum(['solid', 'gradient']),
+  bgGradientEndColor: HexColor.optional(),
+  feathering: optionalRange(0, 100),
+  brightness: optionalRange(-100, 100),
+  contrast: optionalRange(-100, 100),
+  smoothness: optionalRange(0, 100),
+  whitening: optionalRange(0, 100),
+  sharpness: optionalRange(0, 100),
+  attireId: z.string().max(60).optional(),
+  attireScale: optionalRange(0.5, 2),
+  attireOffsetX: optionalRange(-500, 500),
+  attireOffsetY: optionalRange(-500, 500),
+  cropX: optionalRange(0, 20000),
+  cropY: optionalRange(0, 20000),
+  cropWidth: optionalRange(1, 20000),
+  cropHeight: optionalRange(1, 20000),
+  rotation: optionalRange(-360, 360),
 })
