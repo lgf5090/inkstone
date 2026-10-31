@@ -48,6 +48,11 @@ export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[/?#]+$/, '')
 }
 
+function csvCell(value: string): string {
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  return `"${guarded.replace(/"/g, '""')}"`
+}
+
 export class ShortlinksStore {
   constructor(
     private readonly db: D1Database,
@@ -1625,12 +1630,23 @@ export class ShortlinksStore {
     return rows.results ?? []
   }
 
+  /** Pages through the whole account: listLinks caps one page at 100 rows. */
+  private async allLinksForExport(): Promise<ShortLink[]> {
+    const pageSize = 100
+    const all: ShortLink[] = []
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await this.listLinks({ limit: pageSize, offset })
+      all.push(...page.items)
+      if (page.items.length < pageSize || all.length >= page.total) return all
+    }
+  }
+
   async createBackup(r2Bucket?: R2Bucket): Promise<ShortlinkBackup> {
     const now = Math.floor(Date.now() / 1000)
     const backupId = `backup_${now}_${crypto.randomUUID().slice(0, 8)}`
     const filename = `shortlinks_backup_${now}.json`
 
-    const links = (await this.listLinks({ limit: 1000 })).items
+    const links = await this.allLinksForExport()
     const bundles = await this.listBundles()
     const settings = await this.getSettings()
 
@@ -1639,6 +1655,7 @@ export class ShortlinksStore {
         type: 'inkstone_shortlinks_backup',
         version: '1.0.0',
         created_at: now,
+        link_count: links.length,
       },
       settings,
       links,
@@ -1669,6 +1686,7 @@ export class ShortlinksStore {
       size,
       type: 'manual',
       created_at: now,
+      link_count: links.length,
     }
   }
 
@@ -1678,7 +1696,7 @@ export class ShortlinksStore {
   ): Promise<{ key: string; filename: string; size: number }> {
     const now = Math.floor(Date.now() / 1000)
     const fileId = `${now}_${crypto.randomUUID().slice(0, 6)}`
-    const { items: links } = await this.listLinks({ limit: 1000 })
+    const links = await this.allLinksForExport()
 
     if (format === 'txt') {
       const filename = `shortlinks_${fileId}.txt`
@@ -1712,9 +1730,9 @@ export class ShortlinksStore {
         const slug = l.slugs.find((s) => s.is_primary)?.slug || l.slugs[0]?.slug || ''
         return [
           l.id,
-          `"${slug.replace(/"/g, '""')}"`,
-          `"${l.url.replace(/"/g, '""')}"`,
-          `"${(l.label || '').replace(/"/g, '""')}"`,
+          csvCell(slug),
+          csvCell(l.url),
+          csvCell(l.label || ''),
           l.password_protected ? 1 : 0,
           l.total_clicks,
           l.created_at,
@@ -1758,45 +1776,54 @@ export class ShortlinksStore {
   async restoreBackup(
     backupId: string,
     r2Bucket?: R2Bucket,
-  ): Promise<{ restored: number }> {
+  ): Promise<{ imported: number; total: number; protectedWithoutPassword: number }> {
     const backup = await this.db
       .prepare('SELECT * FROM tools_shortlinks_backups WHERE user_id = ? AND id = ?')
       .bind(this.userId, backupId)
       .first<ShortlinkBackup>()
 
     if (!backup) {
-      throw new Error('Backup not found')
+      throw ApiError.notFound('Backup not found')
     }
 
     if (!r2Bucket) {
-      return { restored: 0 }
+      throw new ApiError(503, 'storage_unavailable', 'R2 storage is not configured')
     }
 
     const obj = await r2Bucket.get(backup.r2_key)
     if (!obj) {
-      throw new Error('Backup file not found in storage')
+      throw ApiError.notFound('Backup file not found in storage')
     }
 
     const text = await obj.text()
     const parsed = JSON.parse(text)
-    const links = (parsed.links || []) as Array<{ url: string; label?: string; slugs?: Array<{ slug: string }> }>
+    const links = (parsed.links || []) as Array<{
+      url: string
+      label?: string | null
+      expires_at?: number | null
+      password_protected?: boolean
+      slugs?: Array<{ slug: string }>
+    }>
 
-    let restored = 0
+    let imported = 0
+    let protectedWithoutPassword = 0
     for (const l of links) {
       try {
         const slug = l.slugs?.[0]?.slug
         await this.createLink({
           url: l.url,
-          label: l.label,
+          label: l.label ?? undefined,
           custom_slug: slug,
+          expires_at: l.expires_at ?? null,
           allow_duplicate: true,
         })
-        restored++
+        imported++
+        if (l.password_protected) protectedWithoutPassword++
       } catch {
         // Continue on conflict
       }
     }
 
-    return { restored }
+    return { imported, total: links.length, protectedWithoutPassword }
   }
 }

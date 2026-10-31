@@ -385,16 +385,25 @@ toolsShortlinksRoutes.get('/export/download', async (c) => {
   const key = c.req.query('key')
   const filename = c.req.query('filename') || 'export.txt'
   if (!key) throw ApiError.badRequest('Missing key')
-  const userId = c.get('userId')
-  if (!key.startsWith('tools/shortlinks/') || !key.includes(`/${userId}/`)) {
+  const userId = getUserId(c)
+  const parts = key.split('/')
+  const isOwnedExport =
+    parts.length === 5 &&
+    parts[0] === 'tools' &&
+    parts[1] === 'shortlinks' &&
+    (parts[2] === 'txt' || parts[2] === 'csv' || parts[2] === 'backup') &&
+    parts[3] === userId
+  if (!isOwnedExport) {
     throw ApiError.forbidden('Access denied to requested export file')
   }
   const obj = await c.env.FILES?.get(key)
   if (!obj) throw ApiError.notFound('Export file not found')
+  const fallbackName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_')
   return new Response(obj.body, {
     headers: {
       'content-type': filename.endsWith('.csv') ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8',
-      'content-disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
+      'content-disposition': `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      'x-content-type-options': 'nosniff',
     },
   })
 })

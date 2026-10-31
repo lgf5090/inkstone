@@ -231,8 +231,11 @@ export const shortlinksApi = {
     }).then((r) => r.data),
 
   restoreBackup: (backupId: string | number) =>
-    request<{ data: { restored: number } }>('/api/tools/shortlinks/backups/restore', {
-      method: 'POST',
-      body: { backup_id: String(backupId) },
-    }).then((r) => r.data),
+    request<{ data: { imported: number; total: number; protectedWithoutPassword: number } }>(
+      '/api/tools/shortlinks/backups/restore',
+      {
+        method: 'POST',
+        body: { backup_id: String(backupId) },
+      },
+    ).then((r) => r.data),
 }

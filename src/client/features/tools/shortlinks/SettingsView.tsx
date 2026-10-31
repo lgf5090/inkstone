@@ -163,8 +163,11 @@ export function SettingsView() {
   const handleCreateBackup = async () => {
     setBackingUp(true)
     try {
-      await shortlinksApi.createBackup()
-      useUiStore.getState().toast(t('tools.shortlinks.settings.save_success'), 'success')
+      const backup = await shortlinksApi.createBackup()
+      useUiStore.getState().toast(
+        t('tools.shortlinks.settings.backup_result', { count: backup.link_count ?? 0 }),
+        'success',
+      )
       void fetchBackups()
     } catch (err) {
       useUiStore.getState().toast((err as Error).message, 'error')
@@ -186,9 +189,20 @@ export function SettingsView() {
     try {
       const res = await shortlinksApi.restoreBackup(backupId)
       useUiStore.getState().toast(
-        t('tools.shortlinks.modal.import_result', { count: res.restored }),
+        t('tools.shortlinks.settings.restore_result', {
+          imported: res.imported,
+          total: res.total,
+        }),
         'success',
       )
+      if (res.protectedWithoutPassword > 0) {
+        useUiStore.getState().toast(
+          t('tools.shortlinks.settings.restore_protected_warn', {
+            count: res.protectedWithoutPassword,
+          }),
+          'error',
+        )
+      }
       void fetchLinks()
       void fetchDashboard()
     } catch (err) {

@@ -39174,6 +39174,7 @@ const allowed = new Map([
     "// JSON export",
     "// Continue on conflict",
     "// Password gate throttling",
+    "/** Pages through the whole account: listLinks caps one page at 100 rows. */",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",

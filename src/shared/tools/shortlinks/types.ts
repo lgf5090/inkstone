@@ -233,6 +233,7 @@ export interface ShortlinkBackup {
   r2_key: string
   size: number
   size_bytes?: number
+  link_count?: number
   type: 'auto' | 'manual'
   created_at: number
 }

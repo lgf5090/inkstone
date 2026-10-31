@@ -463,23 +463,64 @@ describe('Shortlinks Bundles and Analytics', () => {
     expect(keys[0].title).toBe('CI Deployer')
   })
 
-  it('exports and backups data', async () => {
-    await call('POST', '/api/tools/shortlinks/links', { body: { url: 'https://export1.com', custom_slug: 'e1' } })
-
-    const exportRes = await call('POST', '/api/tools/shortlinks/export', {
-      body: { format: 'txt' },
+  it('exports and backs up every link, guards CSV cells and restores appending', async () => {
+    await call('POST', '/api/tools/shortlinks/links', {
+      body: { url: 'https://export1.com', custom_slug: 'e1', label: "=cmd|' /C calc'!A0" },
     })
-    expect(exportRes.status).toBe(200)
-    const expData = (await json<any>(exportRes)).data
-    expect(expData.key).toContain('tools/shortlinks/txt/')
-    expect(expData.url).toContain('/api/tools/shortlinks/export/download')
 
-    const dlRes = await call('GET', expData.url)
-    expect(dlRes.status).toBe(200)
+    const insertLink = sqlite.prepare(
+      'INSERT INTO tools_shortlinks_links (user_id, url, label, is_password_protected, created_at) VALUES (?, ?, ?, 0, ?)',
+    )
+    const insertSlug = sqlite.prepare(
+      'INSERT INTO tools_shortlinks_slugs (slug, user_id, link_id, is_custom, is_primary, created_at) VALUES (?, ?, ?, 1, 1, ?)',
+    )
+    const stamp = Math.floor(Date.now() / 1000)
+    for (let index = 0; index < 120; index++) {
+      const inserted = insertLink.run(USER_A, `https://bulk.example.com/${index}`, `bulk ${index}`, stamp)
+      insertSlug.run(`bulk-${index}`, USER_A, Number(inserted.lastInsertRowid), stamp)
+    }
 
     const backupRes = await call('POST', '/api/tools/shortlinks/backups')
     expect(backupRes.status).toBe(200)
-    const bkpData = (await json<any>(backupRes)).data
-    expect(bkpData.r2_key).toContain('tools/shortlinks/backup/')
+    const backup = (await json<any>(backupRes)).data
+    expect(backup.r2_key).toContain('tools/shortlinks/backup/')
+    expect(backup.link_count).toBe(121)
+
+    const csvRes = await call('GET', '/api/tools/shortlinks/export/csv')
+    expect(csvRes.status).toBe(200)
+    const csvExport = (await json<any>(csvRes)).data
+    const csvDownload = await call('GET', csvExport.url)
+    expect(csvDownload.status).toBe(200)
+    expect(csvDownload.headers.get('x-content-type-options')).toBe('nosniff')
+    const csvText = await csvDownload.text()
+    expect(csvText.split('\n').filter(Boolean)).toHaveLength(122)
+    expect(csvText).toContain('"\'=cmd')
+    expect(csvText).toContain('bulk-119')
+
+    sqlite.exec('DELETE FROM tools_shortlinks_slugs; DELETE FROM tools_shortlinks_links;')
+
+    const restoreRes = await call('POST', '/api/tools/shortlinks/backups/restore', {
+      body: { backup_id: backup.id },
+    })
+    expect(restoreRes.status).toBe(200)
+    const restored = (await json<any>(restoreRes)).data
+    expect(restored.total).toBe(121)
+    expect(restored.imported).toBe(121)
+    expect(restored.protectedWithoutPassword).toBe(0)
+  })
+
+  it('refuses an export download whose key belongs to another account or another prefix', async () => {
+    const own = await call('GET', '/api/tools/shortlinks/export/download?key=tools/shortlinks/txt/user-bob/anything.txt')
+    expect(own.status).toBe(403)
+    const escape = await call(
+      'GET',
+      `/api/tools/shortlinks/export/download?key=${encodeURIComponent('tools/shortlinks/txt/other/user-alice/x.txt')}`,
+    )
+    expect(escape.status).toBe(403)
+    const wrongPrefix = await call(
+      'GET',
+      `/api/tools/shortlinks/export/download?key=${encodeURIComponent('tools/shortlinks/qr/user-alice/x.png')}`,
+    )
+    expect(wrongPrefix.status).toBe(403)
   })
 })
