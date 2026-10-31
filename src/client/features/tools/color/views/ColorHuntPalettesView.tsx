@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
 import { compileQuery, queryKeeps, queryKeepsRows } from '../../../../lib/query-match'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import { COLOR_HUNT_PALETTES } from '@shared/tools/color/presets/color-hunt-curated'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
@@ -12,6 +13,10 @@ export function ColorHuntPalettesView() {
   const setTagFilter = useColorStudioStore((s) => s.setColorHuntTagFilter)
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
+
+  // The reading table arrives after the first paint on a cold cache: a listing filtered before it lands
+  // has to be filtered again once it is here, or the box keeps showing the answer typed before.
+  const pinyinVersion = usePinyinVersion()
 
   const tags = useMemo(() => {
     const set = new Set<string>()
@@ -31,7 +36,7 @@ export function ColorHuntPalettesView() {
         p.tags.some((tag) => keep(tag))
       )
     })
-  }, [tagFilter, compiledQuery])
+  }, [tagFilter, compiledQuery, pinyinVersion])
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6 space-y-6 bg-[var(--bg-base)]">

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
 import { compileQuery, queryKeeps, queryKeepsRows } from '../../../../lib/query-match'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import {
   ANTD_PALETTES,
   FLAT_UI_PALETTES,
@@ -41,6 +42,10 @@ export function UiPaletteView() {
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
+  // The reading table arrives after the first paint on a cold cache: a listing filtered before it lands
+  // has to be filtered again once it is here, or the box keeps showing the answer typed before.
+  const pinyinVersion = usePinyinVersion()
+
   const currentGroups: UiPaletteGroup[] = useMemo(() => {
     switch (activeTab) {
       case 'tailwind':
@@ -74,7 +79,7 @@ export function UiPaletteView() {
         return null
       })
       .filter((g): g is UiPaletteGroup => g !== null)
-  }, [currentGroups, compiledQuery])
+  }, [currentGroups, compiledQuery, pinyinVersion])
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto p-4 md:p-6 overflow-y-auto">

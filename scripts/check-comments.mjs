@@ -17654,6 +17654,8 @@ const allowed = new Map([
     "/* Tag chips */",
     "/* Search */",
     "/* Palettes Grid */",
+    "// The reading table arrives after the first paint on a cold cache: a listing filtered before it lands",
+    "// has to be filtered again once it is here, or the box keeps showing the answer typed before.",
   ]],
   ["src/client/features/tools/color/views/ColorSettingsView.tsx", [
     "/** The tabs `UiPaletteView` can open on; a stored value outside this list falls back to the first. */",
@@ -17730,6 +17732,8 @@ const allowed = new Map([
     "/* Search */",
     "/* Series Filter Dots */",
     "/* Color Cards Grid */",
+    "// The reading table arrives after the first paint on a cold cache: a listing filtered before it lands",
+    "// has to be filtered again once it is here, or the box keeps showing the answer typed before.",
   ]],
   ["src/client/features/tools/color/views/UiPaletteView.tsx", [
     "/* Header */",
@@ -17739,6 +17743,8 @@ const allowed = new Map([
     "// that a late response must not move the ground under them.",
     "// The box already says when it refused a pattern; the list has to agree with it. Filtering by a plain",
     "// substring while handing the compiled query to FilterInput gave two answers to one search.",
+    "// The reading table arrives after the first paint on a cold cache: a listing filtered before it lands",
+    "// has to be filtered again once it is here, or the box keeps showing the answer typed before.",
   ]],
   ["src/client/features/tools/id-photo/IdPhotoApp.tsx", [
     "/* Mobile Top Preview */",

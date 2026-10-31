@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
 import { compileQuery, queryKeeps, queryKeepsRows } from '../../../../lib/query-match'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import {
   TRADITIONAL_CHINESE_COLORS,
   TRADITIONAL_NIPPON_COLORS,
@@ -20,6 +21,10 @@ export function TraditionalColorView() {
   const [selectedSeries, setSelectedSeries] = useState<string>('all')
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
+
+  // The reading table arrives after the first paint on a cold cache: a listing filtered before it lands
+  // has to be filtered again once it is here, or the box keeps showing the answer typed before.
+  const pinyinVersion = usePinyinVersion()
 
   const currentDataset: TraditionalColorItem[] = useMemo(() => {
     return traditionalTab === 'chinese'
@@ -52,7 +57,7 @@ export function TraditionalColorView() {
         keep(item.solarTerm)
       )
     })
-  }, [currentDataset, selectedSeries, compiledQuery])
+  }, [currentDataset, selectedSeries, compiledQuery, pinyinVersion])
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto p-4 md:p-6 overflow-y-auto">
