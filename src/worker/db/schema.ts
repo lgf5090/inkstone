@@ -3102,14 +3102,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // One random salt per vault, so the client can derive the encryption key with scrypt instead of
     // a fixed triple-MD5 of the passphrase. '' marks a vault created before this migration; its rows
     // are re-sealed on the next unlock.
-    version: 212,
+    version: 214,
     skipIfColumnExists: { table: 'tools_password_vault', column: 'kdf_salt' },
     statements: [`ALTER TABLE tools_password_vault ADD COLUMN kdf_salt TEXT NOT NULL DEFAULT ''`],
   },
   {
     // The whole-vault listing filters by user and sorts by `sort`; the two older indexes lead with
     // group_id and is_favorite, so neither could serve it.
-    version: 213,
+    version: 215,
     statements: [
       `CREATE INDEX IF NOT EXISTS idx_tools_password_accounts_user
          ON tools_password_accounts(user_id, sort ASC, id)`,
@@ -3117,13 +3117,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   },
   {
     // Sealed TOTP secret per account. '' means the account has no second factor stored.
-    version: 214,
+    version: 216,
     skipIfColumnExists: { table: 'tools_password_accounts', column: 'totp_secret' },
     statements: [`ALTER TABLE tools_password_accounts ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`],
   },
   {
     // A short curated icon id per group; '' keeps the default folder picture.
-    version: 215,
+    version: 217,
     skipIfColumnExists: { table: 'tools_password_groups', column: 'icon' },
     statements: [`ALTER TABLE tools_password_groups ADD COLUMN icon TEXT NOT NULL DEFAULT ''`],
   },
