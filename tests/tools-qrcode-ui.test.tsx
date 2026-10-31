@@ -12,6 +12,18 @@ import { useQrCodeStore, encodeQrData } from '../src/client/features/tools/qrcod
 import { useToolsStore } from '../src/client/features/tools/store'
 import { QrEngine, DEFAULT_QR_OPTIONS } from '../src/client/features/tools/qrcode/engine/qr-engine'
 
+// A view that fails partway never reaches its unmount call, and a mounted workbench keeps a live
+// subscription on the shared store, so its renders would land inside whichever test runs next.
+const openViews: RenderedElement[] = []
+
+afterEach(async () => {
+  for (const view of openViews.splice(0)) {
+    await act(async () => {
+      view.unmount()
+    })
+  }
+})
+
 describe('QR Code Studio UI Integration Tests', () => {
   beforeEach(async () => {
     installTestGlobals()
@@ -33,6 +45,7 @@ describe('QR Code Studio UI Integration Tests', () => {
       vcardContent: { firstName: '', lastName: '' },
       emailContent: { to: '', subject: '', body: '' },
       phoneContent: { phone: '' },
+      options: { ...DEFAULT_QR_OPTIONS },
       contentAccordionOpen: true,
       beautifyAccordionOpen: true,
       activeBeautifyTab: 'template',
@@ -151,6 +164,64 @@ describe('QR Code Studio UI Integration Tests', () => {
     })
     expect(useQrCodeStore.getState().activeBeautifyTab).toBe('color')
     expect(view.container.textContent).toContain(t('tools.qrcode.color.solid_palette'))
+
+    view.unmount()
+  })
+
+  it('offers every frame style the engine can draw and writes the caption back', async () => {
+    const view = await renderElement(<QrCodeApp />)
+    openViews.push(view)
+
+    const beautifySection = view.container.querySelector(
+      `section[aria-label="${t('tools.qrcode.beautify.accordion_title')}"]`
+    )
+    expect(beautifySection).not.toBeNull()
+
+    const frameTabBtn = Array.from(beautifySection!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === t('tools.qrcode.beautify.tab_frame')
+    )
+    expect(frameTabBtn, 'the beautify panel has no frame tab').toBeDefined()
+
+    act(() => {
+      frameTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(useQrCodeStore.getState().activeBeautifyTab).toBe('frame')
+
+    const typeSelect = beautifySection!.querySelector('select')
+    expect(typeSelect).not.toBeNull()
+    // 'none' plus the eight styles frame-decorator's switch can render
+    expect(typeSelect!.querySelectorAll('option')).toHaveLength(9)
+
+    const selectValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLSelectElement.prototype,
+      'value'
+    )?.set
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value'
+    )?.set
+
+    // Without a frame there is nothing to caption, so the field must not pretend to be usable.
+    act(() => {
+      selectValueSetter?.call(typeSelect, 'none')
+      typeSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(useQrCodeStore.getState().options.frameOptions?.type).toBe('none')
+    expect(beautifySection!.querySelector('input')).toBeNull()
+
+    act(() => {
+      selectValueSetter?.call(typeSelect, 'dark-green')
+      typeSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(useQrCodeStore.getState().options.frameOptions?.type).toBe('dark-green')
+
+    const caption = beautifySection!.querySelector('input')
+    expect(caption, 'choosing a frame style did not reveal the caption field').not.toBeNull()
+    act(() => {
+      inputValueSetter?.call(caption, 'Scan for details')
+      caption!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(useQrCodeStore.getState().options.frameOptions?.label).toBe('Scan for details')
 
     view.unmount()
   })

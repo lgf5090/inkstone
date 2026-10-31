@@ -16,7 +16,14 @@ import type {
 } from '../../../../shared/tools/qrcode/types'
 import { DEFAULT_QR_OPTIONS } from './engine/qr-engine'
 
-export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color' | 'ai'
+export type BeautifyTab =
+  | 'template'
+  | 'shape'
+  | 'logo'
+  | 'frame'
+  | 'text'
+  | 'color'
+  | 'ai'
 
 // The export size the slider offers and the workbench accepts; server defaults are clamped into it.
 export const EXPORT_SIZE_MIN = 300

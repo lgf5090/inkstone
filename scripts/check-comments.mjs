@@ -18092,6 +18092,9 @@ const allowed = new Map([
   ["src/client/features/tools/qrcode/options/AiEffectsTab.tsx", [
     "/** One affordance per knob that has a non-default value, rather than a reset per row. */",
   ]],
+  ["src/client/features/tools/qrcode/options/FrameTab.tsx", [
+    "/** Matches the length the API accepts for a frame caption. */",
+  ]],
   ["src/client/features/tools/qrcode/options/ShapeTab.tsx", [
     "/* Pixel Elements */",
     "/* Main Corner Markers */",
@@ -44624,6 +44627,10 @@ const allowed = new Map([
     "// the next test and make every observation here a function of test order.",
     "// The module store's own view field was a second nav source that nothing read, so the scanner's",
     "// jump buttons wrote into it and the workbench never moved; only toolsStore drives the views.",
+    "// A view that fails partway never reaches its unmount call, and a mounted workbench keeps a live",
+    "// subscription on the shared store, so its renders would land inside whichever test runs next.",
+    "// 'none' plus the eight styles frame-decorator's switch can render",
+    "// Without a frame there is nothing to caption, so the field must not pretend to be usable.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

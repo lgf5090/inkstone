@@ -1,4 +1,5 @@
 import {
+  Frame,
   Image as ImageIcon,
   Minus,
   Palette,
@@ -13,6 +14,7 @@ import { useQrCodeStore } from '../store'
 import { cn } from '../../../../lib/cn'
 import { Tabs } from '../../../../components/tabs'
 import { t } from '../../../../lib/i18n'
+import { FrameTab } from './FrameTab'
 import { TemplatesTab } from './TemplatesTab'
 import { ShapeTab } from './ShapeTab'
 import { LogoTab } from './LogoTab'
@@ -24,6 +26,7 @@ const BEAUTIFY_TABS = [
   { id: 'template', labelKey: 'tools.qrcode.beautify.tab_template', icon: Sparkles },
   { id: 'shape', labelKey: 'tools.qrcode.beautify.tab_shape', icon: Shapes },
   { id: 'logo', labelKey: 'tools.qrcode.beautify.tab_logo', icon: ImageIcon },
+  { id: 'frame', labelKey: 'tools.qrcode.beautify.tab_frame', icon: Frame },
   { id: 'text', labelKey: 'tools.qrcode.beautify.tab_text', icon: Type },
   { id: 'color', labelKey: 'tools.qrcode.beautify.tab_color', icon: Palette },
   { id: 'ai', labelKey: 'tools.qrcode.beautify.tab_ai', icon: Wand2 },
@@ -93,6 +96,7 @@ export function QrBeautifyPanel() {
             {activeTab === 'template' && <TemplatesTab />}
             {activeTab === 'shape' && <ShapeTab />}
             {activeTab === 'logo' && <LogoTab />}
+            {activeTab === 'frame' && <FrameTab />}
             {activeTab === 'text' && <TextTab />}
             {activeTab === 'color' && <ColorTab />}
             {activeTab === 'ai' && <AiEffectsTab />}
