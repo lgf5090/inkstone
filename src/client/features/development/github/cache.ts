@@ -12,23 +12,39 @@ const SEARCH_TTL_MS = 5 * 60_000
 const DETAIL_TTL_MS = 10 * 60_000
 const REMOTE_TTL_MS = 2 * 60_000
 const MAX_CACHE_ENTRIES = 30
+const MAX_CACHE_BYTES = 8 * 1024 * 1024
 
 interface CacheEntry {
   data: unknown
   storedAt: number
+  bytes: number
 }
 
 const cache = new Map<string, CacheEntry>()
+let cacheBytes = 0
 
 function cacheKey(...parts: (string | number)[]): string {
   return JSON.stringify(parts)
+}
+
+function estimateBytes(data: unknown): number {
+  if (!data || typeof data !== 'object') return 1024
+  const readme = (data as { readme?: unknown }).readme
+  return 4096 + (typeof readme === 'string' ? readme.length * 2 : 0)
+}
+
+function dropEntry(key: string): void {
+  const entry = cache.get(key)
+  if (!entry) return
+  cache.delete(key)
+  cacheBytes -= entry.bytes
 }
 
 function readCache<T>(key: string, ttl: number, now = Date.now()): T | undefined {
   const entry = cache.get(key)
   if (!entry) return undefined
   if (now - entry.storedAt > ttl) {
-    cache.delete(key)
+    dropEntry(key)
     return undefined
   }
   cache.delete(key)
@@ -37,17 +53,20 @@ function readCache<T>(key: string, ttl: number, now = Date.now()): T | undefined
 }
 
 function writeCache(key: string, data: unknown): void {
-  cache.delete(key)
-  cache.set(key, { data, storedAt: Date.now() })
-  while (cache.size > MAX_CACHE_ENTRIES) {
+  dropEntry(key)
+  const bytes = estimateBytes(data)
+  cache.set(key, { data, storedAt: Date.now(), bytes })
+  cacheBytes += bytes
+  while (cache.size > MAX_CACHE_ENTRIES || cacheBytes > MAX_CACHE_BYTES) {
     const oldest = cache.keys().next().value
     if (oldest === undefined) break
-    cache.delete(oldest)
+    dropEntry(oldest)
   }
 }
 
 export function clearGithubCache(): void {
   cache.clear()
+  cacheBytes = 0
 }
 
 export interface GithubQuery<T> {
