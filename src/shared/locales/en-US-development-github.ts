@@ -140,6 +140,7 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.mirrors.existing": "Existing mirror sources",
   "development.github.mirrors.format_hint": "Example:",
   "development.github.mirrors.invalid_url": "Only http and https mirror URLs are allowed.",
+  "development.github.mirrors.keep_one": "Keep at least one mirror; turn its switch off to disable it",
   "development.github.mirrors.manage": "Manage mirror sources",
   "development.github.mirrors.name_placeholder": "Name (e.g. gh-proxy)",
   "development.github.mirrors.saved": "Mirror sources saved",

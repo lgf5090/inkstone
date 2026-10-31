@@ -60,6 +60,7 @@ export function MirrorDialog({
   }
 
   const remove = (id: string) => {
+    if (mirrors.length <= 1) return
     const next = mirrors.filter((mirror) => mirror.id !== id)
     onSave(next)
     if (currentMirrorId === id) {
@@ -112,7 +113,15 @@ export function MirrorDialog({
                 >
                   {current ? <><Check size={12} /> {t('development.github.mirrors.current_label')}</> : t('development.github.mirrors.set_current')}
                 </Button>
-                <IconButton label={t('common.delete')} size="sm" onClick={() => remove(mirror.id)}><Trash2 size={13} /></IconButton>
+                <IconButton
+                  label={mirrors.length > 1 ? t('common.delete') : t('development.github.mirrors.keep_one')}
+                  size="sm"
+                  disabled={mirrors.length <= 1}
+                  title={mirrors.length > 1 ? undefined : t('development.github.mirrors.keep_one')}
+                  onClick={() => remove(mirror.id)}
+                >
+                  <Trash2 size={13} />
+                </IconButton>
               </div>
             )
           })}

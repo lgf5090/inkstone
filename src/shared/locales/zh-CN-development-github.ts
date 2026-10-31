@@ -140,6 +140,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.mirrors.existing": "已有镜像源",
   "development.github.mirrors.format_hint": "示例：",
   "development.github.mirrors.invalid_url": "镜像地址只支持 http 或 https。",
+  "development.github.mirrors.keep_one": "至少保留一个镜像源；停用请关闭开关",
   "development.github.mirrors.manage": "管理镜像源",
   "development.github.mirrors.name_placeholder": "名称（如：gh-proxy）",
   "development.github.mirrors.saved": "镜像源已保存",
