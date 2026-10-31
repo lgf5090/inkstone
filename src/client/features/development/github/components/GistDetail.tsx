@@ -16,7 +16,6 @@ export function GistDetail({
   gist,
   notes,
   readOnly,
-  saving,
   exportsEnabled,
   exportable = true,
   onUpdateNotes,
@@ -26,7 +25,6 @@ export function GistDetail({
   gist: GistItem | null
   notes: string
   readOnly: boolean
-  saving: boolean
   exportsEnabled: boolean
   exportable?: boolean
   onUpdateNotes?: (notes: string) => void
@@ -41,6 +39,7 @@ export function GistDetail({
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesDraft, setNotesDraft] = useState(notes)
   const [copied, setCopied] = useState(false)
+  const [saving, setSaving] = useState(false)
   const exportAnchor = useRef<HTMLButtonElement>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -97,9 +96,20 @@ export function GistDetail({
       toast({ title: t('development.github.gists.filename_duplicate'), tone: 'danger' })
       return
     }
-    await onUpdateGist({ ...gist, description: editDescription.trim(), files: valid, fileCount: valid.length, updatedAt: new Date().toISOString() })
-    setEditing(false)
-    if (selectedFile >= valid.length) setSelectedFile(0)
+    setSaving(true)
+    try {
+      await onUpdateGist({ ...gist, description: editDescription.trim(), files: valid, fileCount: valid.length, updatedAt: new Date().toISOString() })
+      setEditing(false)
+      if (selectedFile >= valid.length) setSelectedFile(0)
+    } catch (cause) {
+      toast({
+        title: t('development.github.gists.update_failed'),
+        description: cause instanceof Error ? cause.message : undefined,
+        tone: 'danger',
+      })
+    } finally {
+      setSaving(false)
+    }
   }
   const copyContent = async () => {
     if (!current?.content) return

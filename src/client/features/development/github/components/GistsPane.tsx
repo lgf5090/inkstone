@@ -165,14 +165,12 @@ export function GistsPane({
     setSelectedGistId(null)
   }
   const updateRemote = async (gist: GistItem) => {
-    try {
-      const updated = await githubApi.updateRemoteGist(gist.id, { description: gist.description, files: gist.files })
-      setSelectedRemoteId(updated.id)
-      const local = gists.find((entry) => entry.id === gist.id)
-      if (local) persist({ ...local, data: updated, updatedAt: Date.now() })
-      void remoteQuery.refetch()
-      void remoteDetail.refetch()
-    } catch (cause) { toast({ title: cause instanceof Error ? cause.message : t('development.github.gists.update_failed'), tone: 'danger' }) }
+    const updated = await githubApi.updateRemoteGist(gist.id, { description: gist.description, files: gist.files })
+    setSelectedRemoteId(updated.id)
+    const local = gists.find((entry) => entry.id === gist.id)
+    if (local) persist({ ...local, data: updated, updatedAt: Date.now() })
+    void remoteQuery.refetch()
+    void remoteDetail.refetch()
   }
   const updateLocal = (gist: GistItem) => {
     const current = useGithubStore.getState().gists.find((entry) => entry.id === selectedGistId)
@@ -233,7 +231,7 @@ export function GistsPane({
             detailDisabled={detailDisabled}
           />
         )}
-        detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} saving={false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} />}
+        detail={<GistDetail gist={detailGist} notes={remote ? '' : selectedLocal?.notes ?? ''} readOnly={remote ? !canEditRemote : false} exportsEnabled={exportsEnabled} exportable={!remote} onUpdateNotes={remote ? undefined : updateNotes} onUpdateGist={remote ? updateRemote : updateLocal} onDeleteGist={(id) => void deleteOne(id)} />}
       />
       <TagManager open={tagManagerOpen} onClose={() => setTagManagerOpen(false)} tags={gistTags} title={t('development.github.tags.manage_gist_title')} description={t('development.github.tags.manage_gist_desc')} onAdd={addTag} onUpdate={editTag} onDelete={(id) => void deleteGistTag(id)} />
       <GistImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImport={(gist) => { const now = Date.now(); persist({ id: gist.id, description: gist.description, url: gist.url, data: gist, tagIds: [], pinned: false, favorited: false, notes: '', createdAt: now, updatedAt: now }); setSelectedView(GIST_ALL_VIEW); setSelectedGistId(gist.id) }} />
