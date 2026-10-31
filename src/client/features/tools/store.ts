@@ -26,6 +26,7 @@ export type PasswordNavView =
   | 'groups'
   | 'backup_settings'
   | 'batch_operations'
+  | 'health'
 
 export type QrCodeNavView =
   | 'generator'

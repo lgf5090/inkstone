@@ -7,6 +7,7 @@ import { Reset } from './Reset'
 import { Recover } from './Recover'
 import { useAutoLock } from './useAutoLock'
 import { AccountArea } from './AccountArea'
+import { PasswordHealthView } from './PasswordHealthView'
 import { FavoriteAccounts } from './FavoriteAccounts'
 import { RandomPasswordView } from './RandomPasswordView'
 import { PasswordGeneratorModal } from './PasswordGeneratorModal'
@@ -112,7 +113,10 @@ export function PasswordApp() {
           <RandomPasswordView />
         </div>
       )}
-      {activePasswordView !== 'favorites' && activePasswordView !== 'generator' && <AccountArea />}
+      {activePasswordView === 'health' && <PasswordHealthView />}
+      {activePasswordView !== 'favorites' &&
+        activePasswordView !== 'generator' &&
+        activePasswordView !== 'health' && <AccountArea />}
 
       {/* Auxiliary Modals */}
       <Setting />

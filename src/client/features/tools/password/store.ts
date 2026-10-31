@@ -26,6 +26,7 @@ export type PasswordViewMode =
   | 'groups'
   | 'backup_settings'
   | 'batch_operations'
+  | 'health'
 
 export interface PasswordVaultStore {
   vaultState: PasswordVaultState | null
