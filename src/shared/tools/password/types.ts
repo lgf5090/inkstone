@@ -9,7 +9,6 @@ export interface KeyIV {
 
 export interface PasswordVaultState {
   hasVault: boolean
-  recoveryHint?: string
   createdAt?: number
   updatedAt?: number
 }

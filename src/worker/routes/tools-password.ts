@@ -17,12 +17,19 @@ import {
   ResetMasterPasswordSchema,
   SaveSettingsSchema,
   TestWebdavSchema,
+  UnlockVaultSchema,
   UpdateAccountSchema,
   UpdateGroupSchema,
+  WipeVaultSchema,
 } from '@shared/tools/password/schemas'
 import type { PasswordBackupData } from '@shared/tools/password/types'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import {
+  assertAttemptBudget,
+  clearLoginFailures,
+  consumeAttemptBudget,
+} from '../lib/throttle'
 import { requireAuth } from '../middleware/auth'
 import {
   deleteFromR2,
@@ -34,6 +41,7 @@ import {
   uploadExportToR2,
 } from '../tools/password/r2'
 import { PasswordStore } from '../tools/password/store'
+import { verifyMasterHash } from '../tools/password/verify'
 
 export const toolsPasswordRoutes = new Hono<AppBindings>()
 
@@ -69,6 +77,29 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
 }
 
 // ---------------------------------------------------------------- Vault
+/**
+ * Master-password guesses are spent from one budget per user, the same ladder login uses. Before
+ * this existed the check lived in the browser: a 6-character password was verified by whether a
+ * CBC padding check happened to pass, with no rate limit and nothing to log.
+ */
+const UNLOCK_WINDOW_MS = 10 * 60 * 1000
+
+async function spendUnlockBudget(c: Context<AppBindings>): Promise<string> {
+  const key = `password-unlock:${getUserId(c)}`
+  await assertAttemptBudget(
+    () =>
+      consumeAttemptBudget(c.env.DB, [
+        { key, maxAttempts: 10, windowMs: UNLOCK_WINDOW_MS, lockMs: UNLOCK_WINDOW_MS },
+      ]),
+    'Too many master password attempts',
+  )
+  return key
+}
+
+function wrongMasterPassword(): ApiError {
+  return new ApiError(401, 'wrong_password', 'Master password is incorrect')
+}
+
 toolsPasswordRoutes.get('/vault', async (c) => {
   const store = getStore(c)
   const state = await store.getVaultState()
@@ -78,14 +109,58 @@ toolsPasswordRoutes.get('/vault', async (c) => {
 toolsPasswordRoutes.post('/vault/init', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, InitVaultSchema)
-  const state = await store.initVault(body.masterHash, body.recoveryHint)
+  const state = await store.initVault(body.masterHash)
   return c.json({ ok: true, data: state })
+})
+
+toolsPasswordRoutes.post('/vault/unlock', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, UnlockVaultSchema)
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.password, vault.masterHash)) {
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+  return c.json({ ok: true, data: { ok: true } })
 })
 
 toolsPasswordRoutes.post('/vault/reset', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, ResetMasterPasswordSchema)
-  await store.resetMasterPassword(body.newMasterHash, body.newRecoveryHint, body.accounts)
+  const vault = await store.getVault()
+  if (!vault) {
+    throw ApiError.badRequest('Vault is not initialized')
+  }
+
+  // The old password is the authorisation for this write. Without it, a stolen session could
+  // re-encrypt the whole vault under a key the attacker chose.
+  const budgetKey = await spendUnlockBudget(c)
+  if (!verifyMasterHash(body.oldPassword, vault.masterHash)) {
+    throw wrongMasterPassword()
+  }
+  await clearLoginFailures(c.env.DB, [budgetKey])
+  await store.resetMasterPassword(body.newMasterHash, body.accounts)
+  return c.json({ ok: true })
+})
+
+toolsPasswordRoutes.post('/vault/wipe', async (c) => {
+  const store = getStore(c)
+  await parseBody(c, WipeVaultSchema)
+  const backupKeys = await store.wipeVault()
+  await Promise.all(
+    backupKeys.map((key) =>
+      deleteFromR2(c.env.FILES, key).catch((error: unknown) => {
+        // Best effort: the rows are already gone, so a leftover object only costs storage. Log it
+        // instead of failing the wipe the user asked for.
+        console.warn('password: backup object not deleted', key, error)
+      }),
+    ),
+  )
   return c.json({ ok: true })
 })
 

@@ -1,8 +1,6 @@
 import { cbc } from '@noble/ciphers/aes.js'
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/ciphers/utils.js'
-import { getKeyIv, type KeyIv } from './keyiv'
-
-export const RECOVERY_PASSPHRASE = 'recovery_key'
+import type { KeyIv } from './keyiv'
 
 export function encryptValue(keyiv: KeyIv, plaintext: string): string {
   if (!plaintext) {
@@ -31,20 +29,4 @@ export function decryptValue(keyiv: KeyIv, ciphertext: string): string {
       { cause: error },
     )
   }
-}
-
-export function getRecoveryPass(password: string): string {
-  if (!password) {
-    return ''
-  }
-  const keyiv = getKeyIv(RECOVERY_PASSPHRASE)
-  return encryptValue(keyiv, password)
-}
-
-export function getOriginalPasswordPlus(recoveryHex: string): string {
-  if (!recoveryHex) {
-    return ''
-  }
-  const keyiv = getKeyIv(RECOVERY_PASSPHRASE)
-  return decryptValue(keyiv, recoveryHex)
 }

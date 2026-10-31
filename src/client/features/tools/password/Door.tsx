@@ -5,7 +5,8 @@ import { cn } from '../../../lib/cn'
 import { isImeComposing } from '../../../lib/ime'
 import { Button, Spinner } from '../../../components/primitives'
 import { usePasswordVaultStore } from './store'
-import { getKeyIv, verifyMasterPasswordCandidate } from './crypto'
+import { PasswordApiError, passwordApi } from './api'
+import { getKeyIv } from './crypto'
 
 export interface DoorProps {
   className?: string
@@ -13,7 +14,6 @@ export interface DoorProps {
 
 export function Door({ className }: DoorProps) {
   const [password, setPassword] = useState('')
-  const [rememberLogin, setRememberLogin] = useState(false)
   const [isCapsLock, setIsCapsLock] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -23,8 +23,6 @@ export function Door({ className }: DoorProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const vaultState = usePasswordVaultStore((s) => s.vaultState)
-  const accounts = usePasswordVaultStore((s) => s.accounts)
   const unlock = usePasswordVaultStore((s) => s.unlock)
   const openRecover = usePasswordVaultStore((s) => s.openRecover)
   const openReset = usePasswordVaultStore((s) => s.openReset)
@@ -58,16 +56,20 @@ export function Door({ className }: DoorProps) {
     setError(null)
 
     try {
-      const valid = await verifyMasterPasswordCandidate(password, vaultState, accounts)
-      if (!valid) {
-        triggerFail(t('tools.password.door.fail'))
-        return
-      }
-
+      // The server answers whether this is the master password — it holds a verifier and a rate
+      // limit. The browser only derives the key once the answer is yes, so a wrong guess can no
+      // longer "succeed" on a lucky padding byte and unlock a vault of garbage.
+      await passwordApi.unlock(password)
       const keyiv = getKeyIv(password)
-      unlock(keyiv, rememberLogin, password)
-    } catch {
-      triggerFail(t('tools.password.door.fail'))
+      unlock(keyiv)
+    } catch (err) {
+      triggerFail(
+        err instanceof PasswordApiError && err.code === 'wrong_password'
+          ? t('tools.password.door.fail')
+          : err instanceof Error
+            ? err.message
+            : t('tools.password.door.fail'),
+      )
     } finally {
       setLoading(false)
     }
@@ -182,18 +184,6 @@ export function Door({ className }: DoorProps) {
               {error}
             </div>
           )}
-
-          {/* 24-hour remember login checkbox */}
-          <label className="flex items-center gap-2 cursor-pointer select-none text-[length:var(--text-13)] text-[var(--text-secondary)]">
-            <input
-              data-testid="password-door-remember"
-              type="checkbox"
-              checked={rememberLogin}
-              onChange={(e) => setRememberLogin(e.target.checked)}
-              className="size-4 rounded border-[var(--border-subtle)] text-[var(--accent)] focus:ring-[var(--accent)]"
-            />
-            <span>{t('tools.password.door.remember_login')}</span>
-          </label>
 
           <Button
             data-testid="password-door-submit"

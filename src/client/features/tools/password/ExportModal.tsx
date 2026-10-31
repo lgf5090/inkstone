@@ -6,9 +6,8 @@ import { Button } from '../../../components/primitives'
 import { Input, Checkbox, Segmented, Select } from '../../../components/form'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { getKeyIv } from './crypto'
 import { toCSV } from './utils/csv-parser'
-import { passwordApi } from './api'
+import { PasswordApiError, passwordApi } from './api'
 import type { PasswordGroup } from '@shared/tools/password/types'
 
 export type ExportFormat = 'csv' | 'txt'
@@ -42,8 +41,6 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
   const groups = usePasswordVaultStore((s) => s.groups)
   const accounts = usePasswordVaultStore((s) => s.accounts)
   const decryptedAccounts = usePasswordVaultStore((s) => s.decryptedAccounts)
-  const keyIV = usePasswordVaultStore((s) => s.keyIV)
-  const masterPasswordText = usePasswordVaultStore((s) => s.masterPasswordText)
 
   const isVisible = open !== undefined ? open : storeIsOpen
   const handleClose = onClose || storeClose
@@ -52,37 +49,39 @@ export function ExportModal({ open, onClose, group }: ExportModalProps) {
   const [passwordInput, setPasswordInput] = useState<string>('')
   const [includeSubgroups, setIncludeSubgroups] = useState<boolean>(true)
   const [format, setFormat] = useState<ExportFormat>('csv')
-  const [saveToR2, setSaveToR2] = useState<boolean>(true)
+  const [saveToR2, setSaveToR2] = useState<boolean>(false)
   const [selectedGroupId, setSelectedGroupId] = useState<string>(activeGroup?.id || 'all')
 
   const [isExporting, setIsExporting] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
-  // Verify master password
-  const verifyIdentity = (): boolean => {
+  // Verify master password against the server, which holds the verifier and the rate limit. The
+  // previous check compared the input with a plaintext copy kept in the store — theatre that also
+  // meant the password sat in memory.
+  const verifyIdentity = async (): Promise<boolean> => {
     if (!passwordInput) {
       setErrorMsg(t('tools.password.export.input_password'))
       return false
     }
 
-    if (masterPasswordText && passwordInput === masterPasswordText) {
+    try {
+      await passwordApi.unlock(passwordInput)
       return true
+    } catch (err) {
+      setErrorMsg(
+        err instanceof PasswordApiError && err.code === 'wrong_password'
+          ? t('tools.password.door.fail')
+          : err instanceof Error
+            ? err.message
+            : t('tools.password.door.fail'),
+      )
+      return false
     }
-
-    if (keyIV) {
-      const derived = getKeyIv(passwordInput)
-      if (derived.key === keyIV.key && derived.iv === keyIV.iv) {
-        return true
-      }
-    }
-
-    setErrorMsg(t('tools.password.door.fail'))
-    return false
   }
 
   const handleExport = async () => {
     setErrorMsg('')
-    if (!verifyIdentity()) {
+    if (!(await verifyIdentity())) {
       return
     }
 

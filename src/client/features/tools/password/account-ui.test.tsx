@@ -144,7 +144,6 @@ beforeEach(() => {
     vaultState: { hasVault: true },
     isUnlocked: true,
     keyIV: { key: 'mock-key', iv: 'mock-iv' },
-    masterPasswordText: '123456',
     groups: [MOCK_GROUP],
     groupTree: [MOCK_GROUP],
     accounts: MOCK_RAW_ACCOUNTS,

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initI18n, setLocaleAsync, t } from '../../../lib/i18n'
 import { installTestGlobals, renderElement } from '../../../lib/test-render'
 import { usePasswordVaultStore } from './store'
-import { passwordApi } from './api'
+import { passwordApi, PasswordApiError } from './api'
 import { getKeyIv, encryptValue } from './crypto'
 import { escapeCSVField, parseCSVRows, parseCSV, toCSV } from './utils/csv-parser'
 import { generateRandomPassword } from './utils/generator'
@@ -17,15 +17,22 @@ import { ImportModal, parseImportData } from './ImportModal'
 import { BackupSettingsModal } from './BackupSettingsModal'
 import type { PasswordGroup, PasswordAccount, DecryptedAccount } from '@shared/tools/password/types'
 
-// Mock passwordApi methods
-vi.mock('./api', () => ({
-  passwordApi: {
-    getVaultState: vi.fn(),
-    getGroups: vi.fn(),
-    getAccounts: vi.fn(),
-    createAccount: vi.fn(),
-    updateAccount: vi.fn(),
-    deleteAccount: vi.fn(),
+// Mock passwordApi methods. The real module is imported first so the error class the components
+// check with `instanceof` stays the same object they receive.
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
+  return {
+    ...actual,
+    passwordApi: {
+      ...actual.passwordApi,
+      getVaultState: vi.fn(),
+      getGroups: vi.fn(),
+      getAccounts: vi.fn(),
+      createAccount: vi.fn(),
+      updateAccount: vi.fn(),
+      deleteAccount: vi.fn(),
+      unlock: vi.fn().mockResolvedValue({ ok: true }),
+      wipeVault: vi.fn().mockResolvedValue({ ok: true }),
     batchDeleteAccounts: vi.fn().mockResolvedValue({ ok: true, count: 2 }),
     batchMoveAccounts: vi.fn().mockResolvedValue({ ok: true, count: 2 }),
     batchImportAccounts: vi.fn().mockResolvedValue([]),
@@ -58,8 +65,9 @@ vi.mock('./api', () => ({
     }),
     restoreBackup: vi.fn().mockResolvedValue({ ok: true, count: 5 }),
     deleteBackup: vi.fn().mockResolvedValue({ ok: true }),
-  },
-}))
+    },
+  }
+})
 
 function setInputValue(element: HTMLElement, value: string): void {
   const prototype = Object.getPrototypeOf(element)
@@ -198,7 +206,6 @@ describe('WS-7: Auxiliary Feature Modules', () => {
     usePasswordVaultStore.setState({
       isUnlocked: true,
       keyIV: keyiv,
-      masterPasswordText: MASTER_PASS,
       groups: sampleGroups,
       accounts: sampleAccounts,
       decryptedAccounts: sampleDecrypted,
@@ -649,6 +656,9 @@ describe('WS-7: Auxiliary Feature Modules', () => {
   // =========================================================================
   describe('6. ExportModal', () => {
     it('verifies master password and denies export when password is incorrect', async () => {
+      vi.mocked(passwordApi.unlock).mockRejectedValueOnce(
+        new PasswordApiError('Master password is incorrect', 401, 'wrong_password'),
+      )
       const view = renderElement(createElement(ExportModal, { open: true }))
 
       const pwdInput = document.querySelector('#export-master-password') as HTMLInputElement
@@ -683,8 +693,34 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
-      expect(passwordApi.exportPlaintext).toHaveBeenCalledWith('csv', expect.any(String))
+      // Uploading a plaintext dump is opt-in now: the browser download is the only default path.
+      expect(passwordApi.exportPlaintext).not.toHaveBeenCalled()
       expect(onClose).toHaveBeenCalled()
+      view.unmount()
+    })
+
+    it('uploads a cloud copy only after the reader opts in', async () => {
+      const view = renderElement(createElement(ExportModal, { open: true }))
+
+      const r2Label = Array.from(document.querySelectorAll('label')).find((el) =>
+        el.textContent?.includes(t('tools.password.export.r2_copy_label')),
+      )!
+      const r2Checkbox = r2Label.querySelector<HTMLButtonElement>('[role="checkbox"]')!
+      expect(r2Checkbox.getAttribute('aria-checked')).toBe('false')
+      act(() => {
+        r2Checkbox.click()
+      })
+
+      setInputValue(document.querySelector('#export-master-password') as HTMLInputElement, MASTER_PASS)
+      const exportBtn = Array.from(document.querySelectorAll('button')).find((b) =>
+        b.textContent?.includes(t('tools.password.export.download'))
+      ) as HTMLButtonElement
+
+      await act(async () => {
+        exportBtn.click()
+      })
+
+      expect(passwordApi.exportPlaintext).toHaveBeenCalledWith('csv', expect.any(String))
       view.unmount()
     })
 
@@ -711,10 +747,7 @@ describe('WS-7: Auxiliary Feature Modules', () => {
       })
 
       expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
-      expect(passwordApi.exportPlaintext).toHaveBeenCalledWith(
-        'txt',
-        expect.stringContaining(`${t('tools.password.account.title')}: GitHub`)
-      )
+      expect(passwordApi.exportPlaintext).not.toHaveBeenCalled()
       view.unmount()
     })
   })

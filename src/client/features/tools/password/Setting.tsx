@@ -11,7 +11,6 @@ import {
   encryptValue,
   evaluatePasswordStrength,
   getKeyIv,
-  getRecoveryPass,
   hashMasterPassword,
 } from './crypto'
 
@@ -55,10 +54,9 @@ export function Setting({ open, onClose }: SettingProps) {
 
     try {
       const masterHash = hashMasterPassword(password)
-      const recoveryHint = getRecoveryPass(password.slice(0, 3))
 
       // 1. Initialize vault
-      await passwordApi.initVault(masterHash, recoveryHint)
+      await passwordApi.initVault(masterHash)
 
       // 2. Create default group
       const defaultGroupName = t('tools.password.setting.default_group')
@@ -82,7 +80,7 @@ export function Setting({ open, onClose }: SettingProps) {
 
       // 4. Close modal and unlock
       handleClose()
-      unlock(keyiv, false, password)
+      unlock(keyiv)
 
       useUi.getState().toast({
         title: t('tools.password.setting.submit'),

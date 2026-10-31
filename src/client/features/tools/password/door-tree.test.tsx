@@ -6,12 +6,11 @@ import { renderElement, type RenderedElement } from '../../../lib/test-render'
 import { ConfirmHost, PromptHost } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { usePasswordVaultStore } from './store'
-import { passwordApi } from './api'
+import { passwordApi, PasswordApiError } from './api'
 import {
   decryptValue,
   encryptValue,
   getKeyIv,
-  getRecoveryPass,
 } from './crypto'
 import { Door } from './Door'
 import { Setting } from './Setting'
@@ -64,11 +63,9 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
     usePasswordVaultStore.setState({
       vaultState: {
         hasVault: true,
-        recoveryHint: getRecoveryPass(masterPassword.slice(0, 3)),
       },
       isUnlocked: false,
       keyIV: null,
-      masterPasswordText: '',
       groups: [],
       groupTree: [],
       accounts: [],
@@ -196,6 +193,10 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         updatedAt: Date.now(),
       }
       usePasswordVaultStore.setState({ accounts: [encAccount] })
+      // The wrong-password answer now comes from the server, which owns the verifier and the limit.
+      vi.spyOn(passwordApi, 'unlock').mockRejectedValue(
+        new PasswordApiError('Master password is incorrect', 401, 'wrong_password'),
+      )
 
       renderWithHosts(createElement(Door))
       const input = document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')!
@@ -232,15 +233,14 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
         updatedAt: Date.now(),
       }
       usePasswordVaultStore.setState({ accounts: [encAccount] })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
       vi.spyOn(passwordApi, 'getGroups').mockResolvedValue([])
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([encAccount])
 
       renderWithHosts(createElement(Door))
       const input = document.querySelector<HTMLInputElement>('[data-testid="password-door-input"]')!
-      const rememberCheckbox = document.querySelector<HTMLInputElement>('[data-testid="password-door-remember"]')!
 
       act(() => {
-        rememberCheckbox.click()
         setInputValue(input, masterPassword)
       })
 
@@ -249,7 +249,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       })
 
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
-      expect(usePasswordVaultStore.getState().masterPasswordText).toBe(masterPassword)
       expect(usePasswordVaultStore.getState().keyIV?.key).toBe(keyiv.key)
     })
 
@@ -367,7 +366,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       expect(decryptValue(getKeyIv('Init01'), welcomePayload.password)).not.toBe('Init01')
       expect(usePasswordVaultStore.getState().isSettingOpen).toBe(false)
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
-      expect(usePasswordVaultStore.getState().masterPasswordText).toBe('Init01')
     })
 
     it('keeps the door reachable for a lock taken right after setup', async () => {
@@ -395,10 +393,10 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
   // ---------------------------------------------------------------- Reset
   describe('Reset Component (Change Master Password)', () => {
     it('validates old password and blocks reset if old password is wrong', async () => {
-      usePasswordVaultStore.setState({
-        isResetOpen: true,
-        masterPasswordText: masterPassword,
-      })
+      usePasswordVaultStore.setState({ isResetOpen: true })
+      vi.spyOn(passwordApi, 'unlock').mockRejectedValue(
+        new PasswordApiError('Master password is incorrect', 401, 'wrong_password'),
+      )
       renderWithHosts(createElement(Reset))
 
       const oldInput = document.querySelector<HTMLInputElement>('[data-testid="password-reset-old"]')!
@@ -440,11 +438,11 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isResetOpen: true,
         isUnlocked: true,
-        masterPasswordText: masterPassword,
         accounts: [existingAccount],
       })
 
       const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
       vi.spyOn(passwordApi, 'getAccounts').mockResolvedValue([existingAccount])
 
       renderWithHosts(createElement(Reset))
@@ -472,7 +470,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       const newKeyIv = getKeyIv(newPass)
       const reencryptedAccount = payload.accounts[0]
       expect(reencryptedAccount.id).toBe(existingAccount.id)
-      expect(usePasswordVaultStore.getState().masterPasswordText).toBe(newPass)
       expect(usePasswordVaultStore.getState().keyIV?.key).toBe(newKeyIv.key)
       expect(usePasswordVaultStore.getState().isResetOpen).toBe(false)
     })
@@ -498,11 +495,11 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isResetOpen: true,
         isUnlocked: true,
-        masterPasswordText: masterPassword,
         accounts: [intact, corrupt],
       })
 
       const resetApiSpy = vi.spyOn(passwordApi, 'resetMasterPassword').mockResolvedValue({ ok: true })
+      vi.spyOn(passwordApi, 'unlock').mockResolvedValue({ ok: true })
 
       renderWithHosts(createElement(Reset))
 
@@ -533,69 +530,68 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
 
   // ---------------------------------------------------------------- Recover
   describe('Recover Component', () => {
-    it('displays first 3 characters hint and verifies with remaining 3 characters', async () => {
-      const hint = masterPassword.slice(0, 3) // 'MyP'
-      const suffix = masterPassword.slice(3) // 'ass'
-
+    it('explains that the master password cannot be recovered and shows no part of it', () => {
       usePasswordVaultStore.setState({
         isRecoverOpen: true,
-        vaultState: {
-          hasVault: true,
-          recoveryHint: getRecoveryPass(hint),
-        },
+        vaultState: { hasVault: true },
       })
 
       renderWithHosts(createElement(Recover))
 
-      // Displays first 3 chars
-      const hintBadge = document.querySelector('[data-testid="password-recover-prefix-badge"]')
-      expect(hintBadge?.textContent).toBe(hint)
-
-      const suffixInput = document.querySelector<HTMLInputElement>('[data-testid="password-recover-suffix-input"]')!
-      expect(suffixInput).toBeTruthy()
-      expect(suffixInput.maxLength).toBe(3)
-
-      act(() => {
-        setInputValue(suffixInput, suffix)
-      })
-
-      const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-recover-submit"]')!
-      await act(async () => {
-        submitBtn.click()
-      })
-
-      expect(usePasswordVaultStore.getState().isUnlocked).toBe(true)
-      expect(usePasswordVaultStore.getState().masterPasswordText).toBe(masterPassword)
-      expect(usePasswordVaultStore.getState().isRecoverOpen).toBe(false)
+      expect(document.querySelector('[data-testid="password-recover-body"]')?.textContent).toBe(
+        t('tools.password.recover.body'),
+      )
+      // The old screen printed the first three characters; nothing in this DOM may repeat them.
+      expect(document.body.textContent).not.toContain(masterPassword.slice(0, 3))
+      expect(document.querySelector('[data-testid="password-recover-prefix-badge"]')).toBeNull()
+      expect(document.querySelector('[data-testid="password-recover-suffix-input"]')).toBeNull()
     })
 
-    it('rejects incomplete or incorrect suffix', async () => {
-      const hint = masterPassword.slice(0, 3)
+    it('offers the reset modal to a reader who still knows the old password', async () => {
+      usePasswordVaultStore.setState({ isRecoverOpen: true, vaultState: { hasVault: true } })
+      renderWithHosts(createElement(Recover))
 
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="password-recover-open-reset"]')!.click()
+      })
+
+      expect(usePasswordVaultStore.getState().isRecoverOpen).toBe(false)
+      expect(usePasswordVaultStore.getState().isResetOpen).toBe(true)
+    })
+
+    it('erases the unreadable vault after confirmation and returns to setup', async () => {
       usePasswordVaultStore.setState({
         isRecoverOpen: true,
-        vaultState: {
-          hasVault: true,
-          recoveryHint: getRecoveryPass(hint),
-        },
+        isUnlocked: false,
+        vaultState: { hasVault: true },
+        accounts: [],
       })
+      const wipeSpy = vi.spyOn(passwordApi, 'wipeVault').mockResolvedValue({ ok: true })
 
       renderWithHosts(createElement(Recover))
-      const suffixInput = document.querySelector<HTMLInputElement>('[data-testid="password-recover-suffix-input"]')!
 
-      // Enter only 2 characters
-      act(() => {
-        setInputValue(suffixInput, '12')
-      })
-
-      const submitBtn = document.querySelector<HTMLButtonElement>('[data-testid="password-recover-submit"]')!
       await act(async () => {
-        submitBtn.click()
+        document.querySelector<HTMLButtonElement>('[data-testid="password-recover-wipe"]')!.click()
       })
 
-      const error = document.querySelector('[data-testid="password-recover-error"]')
-      expect(error).toBeTruthy()
-      expect(usePasswordVaultStore.getState().isUnlocked).toBe(false)
+      // The shared confirm host renders a second dialog; the trigger button in the Recover modal
+      // carries the same label, so the click has to be scoped to the dialog on top.
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+      const confirmDialog = dialogs[dialogs.length - 1]
+      expect(confirmDialog).toBeTruthy()
+      const destructive = Array.from(confirmDialog!.querySelectorAll<HTMLButtonElement>('button')).find(
+        (btn) => btn.textContent?.trim() === t('tools.password.recover.wipe'),
+      )
+      expect(destructive).toBeTruthy()
+      await act(async () => {
+        destructive!.click()
+      })
+
+      expect(wipeSpy).toHaveBeenCalledTimes(1)
+      const state = usePasswordVaultStore.getState()
+      expect(state.vaultState).toEqual({ hasVault: false })
+      expect(state.isSettingOpen).toBe(true)
+      expect(state.isRecoverOpen).toBe(false)
     })
   })
 
@@ -611,7 +607,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isUnlocked: true,
         keyIV: keyiv,
-        masterPasswordText: masterPassword,
       })
 
       renderWithHosts(createElement(AutoLockHost, { timeout: 300_000 }))
@@ -631,7 +626,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
 
       expect(usePasswordVaultStore.getState().isUnlocked).toBe(false)
       expect(usePasswordVaultStore.getState().keyIV).toBeNull()
-      expect(usePasswordVaultStore.getState().masterPasswordText).toBe('')
     })
 
     it('cancels auto-lock if focus returns before 5 minutes', () => {
@@ -639,7 +633,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isUnlocked: true,
         keyIV: keyiv,
-        masterPasswordText: masterPassword,
       })
 
       renderWithHosts(createElement(AutoLockHost, { timeout: 300_000 }))
@@ -664,7 +657,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isUnlocked: true,
         keyIV: keyiv,
-        masterPasswordText: masterPassword,
       })
 
       renderWithHosts(createElement(AutoLockHost, { timeout: 300_000 }))
@@ -754,7 +746,6 @@ describe('WS-5: Password Manager Core UI - Door System & Group Tree', () => {
       usePasswordVaultStore.setState({
         isUnlocked: true,
         keyIV: keyiv,
-        masterPasswordText: masterPassword,
         groups: [
           mockGroups[0],
           mockGroups[0].childs![0],

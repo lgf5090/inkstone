@@ -6,10 +6,7 @@ import {
   encryptValue,
   evaluatePasswordStrength,
   getKeyIv,
-  getOriginalPasswordPlus,
-  getRecoveryPass,
   hashMasterPassword,
-  RECOVERY_PASSPHRASE,
   verifyMasterPassword,
 } from './index'
 
@@ -119,35 +116,6 @@ describe('WS-2: Client Zero-Knowledge Crypto Engine', () => {
 
       const wrongKeyIv = getKeyIv('wrong-passphrase')
       expect(() => decryptValue(wrongKeyIv, validEnc)).toThrow()
-    })
-  })
-
-  describe('Recovery Password Tokens (getRecoveryPass & getOriginalPasswordPlus)', () => {
-    it('uses recovery_key passphrase and matches uTools legacy behavior', () => {
-      const password = 'mySecretUserPassword'
-      const recoveryToken = getRecoveryPass(password)
-
-      const expectedKeyIv = getKeyIvNode(RECOVERY_PASSPHRASE)
-      const expectedToken = encryptValueNode(expectedKeyIv, password)
-
-      expect(recoveryToken).toBe(expectedToken)
-
-      const restored = getOriginalPasswordPlus(recoveryToken)
-      expect(restored).toBe(password)
-    })
-
-    it('handles first 3 characters recovery format from preload.js', () => {
-      const masterPass = 'SuperSecurePass2026'
-      const partialPass = masterPass.slice(0, 3)
-      const recoveryToken = getRecoveryPass(partialPass)
-
-      const restored = getOriginalPasswordPlus(recoveryToken)
-      expect(restored).toBe(partialPass)
-    })
-
-    it('returns empty string for empty input', () => {
-      expect(getRecoveryPass('')).toBe('')
-      expect(getOriginalPasswordPlus('')).toBe('')
     })
   })
 

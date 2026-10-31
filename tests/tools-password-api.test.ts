@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { DatabaseSync } from 'node:sqlite'
+import { hashSync } from 'bcryptjs'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -100,6 +101,13 @@ beforeEach(() => {
   for (const statement of TOOLS_PASSWORD_SCHEMA_STATEMENTS) {
     sqlite.exec(statement)
   }
+  // The unlock budget lives in the shared throttle table, which this module does not own.
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS login_attempts (
+    key TEXT PRIMARY KEY,
+    fails INTEGER NOT NULL DEFAULT 0,
+    last_fail_at INTEGER NOT NULL,
+    locked_until INTEGER
+  )`)
   env = testBindings(makeD1(sqlite), { FILES: testR2Bucket() })
 })
 
@@ -138,7 +146,7 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
     // 1. User A inits vault
     const initRes = await call('POST', '/api/tools/password/vault/init', {
       user: USER_A,
-      body: { masterHash: 'hash-alice-1234567890', recoveryHint: 'Alice secret question' },
+      body: { masterHash: 'hash-alice-1234567890' },
     })
     expect(initRes.status).toBe(200)
 
@@ -228,77 +236,118 @@ describe('Password Manager D1 Schema & Tenant Isolation', () => {
 })
 
 describe('Password Manager Vault Routes', () => {
-  it('handles /vault GET, POST /init, POST /reset with schema validation', async () => {
-    // GET initial
+  // Rounds 4 keeps the fixture fast; the route only compares, it never re-hashes at cost 10.
+  const OLD_PASSWORD = 'old-pass'
+  const OLD_HASH = hashSync(OLD_PASSWORD, 4)
+
+  it('handles /vault GET and POST /init, and no longer hands back a recovery hint', async () => {
     const getRes = await call('GET', '/api/tools/password/vault')
     expect(getRes.status).toBe(200)
     expect(await json(getRes)).toEqual({ ok: true, data: { hasVault: false } })
 
-    // POST /init validation failures
     const shortHash = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'short', recoveryHint: 'hint' },
+      body: { masterHash: 'short' },
     })
     expect(shortHash.status).toBe(400)
 
-    const missingHint = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'hash-length-sufficient-12345', recoveryHint: '' },
-    })
-    expect(missingHint.status).toBe(400)
-
-    // Valid init
     const initRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'master-hash-valid-1234567890', recoveryHint: 'First pet name' },
+      body: { masterHash: OLD_HASH },
     })
     expect(initRes.status).toBe(200)
-    const initData = await json<{ ok: boolean; data: { hasVault: boolean; recoveryHint: string } }>(initRes)
+    const initData = await json<{ ok: boolean; data: Record<string, unknown> }>(initRes)
     expect(initData.data.hasVault).toBe(true)
-    expect(initData.data.recoveryHint).toBe('First pet name')
+    expect(initData.data).not.toHaveProperty('recoveryHint')
 
-    // Cannot init twice
     const reinitRes = await call('POST', '/api/tools/password/vault/init', {
-      body: { masterHash: 'another-master-hash-123456789', recoveryHint: 'Second hint' },
+      body: { masterHash: hashSync('other', 4) },
     })
     expect(reinitRes.status).toBe(400)
+  })
 
-    // Create group & account to test reset reencryption
+  it('verifies the master password on the server and throttles guesses', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
+
+    const wrong = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: 'not-it' },
+    })
+    expect(wrong.status).toBe(401)
+    const wrongBody = await json<{ error: { code: string } }>(wrong)
+    expect(wrongBody.error.code).toBe('wrong_password')
+
+    const right = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(right.status).toBe(200)
+
+    // A successful unlock clears the budget, so the next mistakes start from zero again.
+    const again = await call('POST', '/api/tools/password/vault/unlock', {
+      body: { password: OLD_PASSWORD },
+    })
+    expect(again.status).toBe(200)
+  })
+
+  it('refuses a reset that does not prove the old password', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
     const gRes = await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
-    const group = await json<{ ok: boolean; data: { id: string } }>(gRes)
+    const group = (await json<{ ok: boolean; data: { id: string } }>(gRes)).data
     const aRes = await call('POST', '/api/tools/password/accounts', {
+      body: { groupId: group.id, title: 'old-title', password: 'old-pass-ciphertext' },
+    })
+    const account = (await json<{ ok: boolean; data: { id: string } }>(aRes)).data
+
+    const stolen = await call('POST', '/api/tools/password/vault/reset', {
       body: {
-        groupId: group.data.id,
-        title: 'old-title-ciphertext',
-        username: 'old-user-ciphertext',
-        password: 'old-pass-ciphertext',
+        oldPassword: 'guessing',
+        newMasterHash: hashSync('attacker-key', 4),
+        accounts: [{ id: account.id, title: 'mine', username: '', password: '' }],
       },
     })
-    const account = await json<{ ok: boolean; data: { id: string } }>(aRes)
+    expect(stolen.status).toBe(401)
 
-    // POST /reset
-    const resetRes = await call('POST', '/api/tools/password/vault/reset', {
+    // The rejected write must not have touched the rows.
+    const untouched = (
+      await json<{ ok: boolean; data: Array<{ title: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(untouched[0]!.title).toBe('old-title')
+
+    const accepted = await call('POST', '/api/tools/password/vault/reset', {
       body: {
-        newMasterHash: 'new-master-hash-valid-9876543210',
-        newRecoveryHint: 'Updated recovery hint',
-        accounts: [
-          {
-            id: account.data.id,
-            title: 'new-title-ciphertext',
-            username: 'new-user-ciphertext',
-            password: 'new-pass-ciphertext',
-          },
-        ],
+        oldPassword: OLD_PASSWORD,
+        newMasterHash: hashSync('new-key', 4),
+        accounts: [{ id: account.id, title: 'new-title', username: '', password: 'new-pass' }],
       },
     })
-    expect(resetRes.status).toBe(200)
+    expect(accepted.status).toBe(200)
 
-    // Verify updated state & re-encrypted account
-    const stateRes = await call('GET', '/api/tools/password/vault')
-    const stateData = await json<{ ok: boolean; data: { recoveryHint: string } }>(stateRes)
-    expect(stateData.data.recoveryHint).toBe('Updated recovery hint')
+    const resealed = (
+      await json<{ ok: boolean; data: Array<{ title: string; password: string }> }>(
+        await call('GET', '/api/tools/password/accounts'),
+      )
+    ).data
+    expect(resealed[0]!.title).toBe('new-title')
+    expect(resealed[0]!.password).toBe('new-pass')
+  })
 
-    const accountsRes = await call('GET', '/api/tools/password/accounts')
-    const accountsData = await json<{ ok: boolean; data: Array<{ title: string; password: string }> }>(accountsRes)
-    expect(accountsData.data[0].title).toBe('new-title-ciphertext')
-    expect(accountsData.data[0].password).toBe('new-pass-ciphertext')
+  it('erases the vault only when the confirmation literal is sent', async () => {
+    await call('POST', '/api/tools/password/vault/init', { body: { masterHash: OLD_HASH } })
+    await call('POST', '/api/tools/password/groups', { body: { name: 'Main' } })
+
+    const noConfirm = await call('POST', '/api/tools/password/vault/wipe', { body: {} })
+    expect(noConfirm.status).toBe(400)
+    expect((await json<{ data: { hasVault: boolean } }>(await call('GET', '/api/tools/password/vault'))).data.hasVault).toBe(true)
+
+    const wiped = await call('POST', '/api/tools/password/vault/wipe', {
+      body: { confirm: 'delete-all' },
+    })
+    expect(wiped.status).toBe(200)
+    expect(await json(await call('GET', '/api/tools/password/vault'))).toEqual({
+      ok: true,
+      data: { hasVault: false },
+    })
+    const groups = (await json<{ data: unknown[] }>(await call('GET', '/api/tools/password/groups'))).data
+    expect(groups).toEqual([])
   })
 })
 

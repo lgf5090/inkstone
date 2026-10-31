@@ -85,12 +85,33 @@ describe('passwordApi wire contracts', () => {
     expect(captured[0]!.body).toMatchObject({ webdavUrl: '', webdavEnabled: false })
   })
 
-  it('posts an export with the `type` field the route requires', async () => {
-    const captured = captureRequests()
+  it('posts an export with the `type` field the route requires', async () => {    const captured = captureRequests()
 
     await passwordApi.exportPlaintext('csv', 'title,password\na,b\n')
 
     expect(captured[0]!.url).toContain('/api/tools/password/export')
     expect(captured[0]!.body).toEqual({ type: 'csv', content: 'title,password\na,b\n' })
+  })
+
+  it('unwraps the API error object into a message and a code', async () => {
+    // Reading `data.error` straight off the body used to put "[object Object]" in the toast and
+    // made every failure indistinguishable from every other one.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: { code: 'wrong_password', message: 'Master password is incorrect' },
+        }),
+      })),
+    )
+
+    await expect(passwordApi.unlock('nope00')).rejects.toMatchObject({
+      name: 'PasswordApiError',
+      message: 'Master password is incorrect',
+      code: 'wrong_password',
+      status: 401,
+    })
   })
 })

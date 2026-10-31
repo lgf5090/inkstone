@@ -6,13 +6,11 @@ import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { Modal } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
-import { passwordApi } from './api'
+import { PasswordApiError, passwordApi } from './api'
 import {
   evaluatePasswordStrength,
   getKeyIv,
-  getRecoveryPass,
   hashMasterPassword,
-  verifyMasterPasswordCandidate,
 } from './crypto'
 import { reencryptAccounts } from './utils/reencrypt'
 
@@ -24,8 +22,6 @@ export interface ResetProps {
 export function Reset({ open, onClose }: ResetProps) {
   const storeOpen = usePasswordVaultStore((s) => s.isResetOpen)
   const storeClose = usePasswordVaultStore((s) => s.closeReset)
-  const vaultState = usePasswordVaultStore((s) => s.vaultState)
-  const masterPasswordText = usePasswordVaultStore((s) => s.masterPasswordText)
   const accounts = usePasswordVaultStore((s) => s.accounts)
   const unlock = usePasswordVaultStore((s) => s.unlock)
 
@@ -63,17 +59,18 @@ export function Reset({ open, onClose }: ResetProps) {
     setError(null)
 
     try {
-      // 1. Validate old password
-      let oldValid = false
-      if (masterPasswordText) {
-        oldValid = oldPassword === masterPasswordText
-      } else {
-        oldValid = await verifyMasterPasswordCandidate(oldPassword, vaultState, accounts)
-      }
-
-      if (!oldValid) {
-        setError(t('tools.password.door.fail'))
-        setSubmitting(false)
+      // 1. Ask the server whether this is the old master password. It holds the verifier and the
+      // rate limit; a local guess would re-encrypt under the wrong key before anyone noticed.
+      try {
+        await passwordApi.unlock(oldPassword)
+      } catch (err) {
+        setError(
+          err instanceof PasswordApiError && err.code === 'wrong_password'
+            ? t('tools.password.door.fail')
+            : err instanceof Error
+              ? err.message
+              : t('tools.password.door.fail'),
+        )
         return
       }
 
@@ -96,13 +93,13 @@ export function Reset({ open, onClose }: ResetProps) {
 
       // 3. Call API to reset master password and replace ciphertexts
       await passwordApi.resetMasterPassword({
+        oldPassword,
         newMasterHash: hashMasterPassword(newPassword),
-        newRecoveryHint: getRecoveryPass(newPassword.slice(0, 3)),
         accounts: reencrypted,
       })
 
       // 4. Update memory keys and unlock
-      unlock(newKeyIv, false, newPassword)
+      unlock(newKeyIv)
       handleClose()
 
       useUi.getState().toast({

@@ -14,6 +14,22 @@ const HEADERS = {
   'X-Inkstone-Client': '1',
 }
 
+/**
+ * Carries the API's own error code and status so a caller can tell "wrong master password" (401)
+ * from "you have used up your attempts" (429) without matching on an English sentence.
+ */
+export class PasswordApiError extends Error {
+  readonly code?: string
+  readonly status: number
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'PasswordApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     credentials: 'same-origin',
@@ -26,15 +42,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let errorMsg = `HTTP ${res.status}`
+    let errorCode: string | undefined
     try {
-      const data = await res.json()
-      if (data && (data.error || data.message)) {
-        errorMsg = data.error || data.message
+      // The API answers `{ error: { code, message } }`. Reading `data.error` directly put
+      // "[object Object]" in every toast; this unwraps both that shape and a plain string.
+      const data = (await res.json()) as {
+        error?: string | { code?: string; message?: string }
+        message?: string
+      }
+      if (typeof data?.error === 'string') {
+        errorMsg = data.error
+      } else if (data?.error?.message) {
+        errorMsg = data.error.message
+        errorCode = data.error.code
+      } else if (data?.message) {
+        errorMsg = data.message
       }
     } catch {
-      // Ignored
+      // Not JSON (proxy page, empty body): the status line is all there is to report.
     }
-    throw new Error(errorMsg)
+    throw new PasswordApiError(errorMsg, res.status, errorCode)
   }
 
   const json = (await res.json()) as any
@@ -47,15 +74,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const passwordApi = {
   getVaultState: () => request<PasswordVaultState>('/vault'),
 
-  initVault: (masterHash: string, recoveryHint: string) =>
+  initVault: (masterHash: string) =>
     request<{ ok: boolean }>('/vault/init', {
       method: 'POST',
-      body: JSON.stringify({ masterHash, recoveryHint }),
+      body: JSON.stringify({ masterHash }),
+    }),
+
+  // The server owns the "is this the master password" answer now, which is what lets it rate-limit
+  // guesses and what makes /vault/reset require proof of the old one.
+  unlock: (password: string) =>
+    request<{ ok: boolean }>('/vault/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+
+  wipeVault: () =>
+    request<{ ok: boolean }>('/vault/wipe', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'delete-all' }),
     }),
 
   resetMasterPassword: (payload: {
+    oldPassword: string
     newMasterHash: string
-    newRecoveryHint: string
     accounts: Array<{
       id: string
       title: string

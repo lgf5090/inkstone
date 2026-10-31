@@ -1,74 +1,70 @@
-import { useState, type FormEvent } from 'react'
-import { KeyRound, ShieldAlert } from 'lucide-react'
+import { useState } from 'react'
+import { KeyRound, ShieldAlert, Trash2 } from 'lucide-react'
 import { t } from '../../../lib/i18n'
-import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
-import { Button, Spinner } from '../../../components/primitives'
-import { Modal } from '../../../components/overlay'
+import { Button } from '../../../components/primitives'
+import { Modal, confirm } from '../../../components/overlay'
 import { usePasswordVaultStore } from './store'
-import {
-  getKeyIv,
-  getOriginalPasswordPlus,
-  verifyMasterPasswordCandidate,
-} from './crypto'
+import { passwordApi } from './api'
 
 export interface RecoverProps {
   open?: boolean
   onClose?: () => void
 }
 
+/**
+ * The honest version of "forgot the master password".
+ *
+ * The vault key exists only as a function of the master password, and the server keeps a one-way
+ * digest, so there is nothing to hand back. The old screen printed the first three characters as a
+ * "hint", which showed half a six-character secret and let anyone finish the guess in 10^3 tries;
+ * it is gone. What is left is what the design actually allows: change it if you still know it, or
+ * throw the unreadable rows away and start over.
+ */
 export function Recover({ open, onClose }: RecoverProps) {
   const storeOpen = usePasswordVaultStore((s) => s.isRecoverOpen)
   const storeClose = usePasswordVaultStore((s) => s.closeRecover)
-  const vaultState = usePasswordVaultStore((s) => s.vaultState)
-  const accounts = usePasswordVaultStore((s) => s.accounts)
-  const unlock = usePasswordVaultStore((s) => s.unlock)
+  const openReset = usePasswordVaultStore((s) => s.openReset)
+  const openSetting = usePasswordVaultStore((s) => s.openSetting)
+  const clearVaultState = usePasswordVaultStore((s) => s.clearVaultState)
 
   const isModalOpen = open !== undefined ? open : storeOpen
   const handleClose = onClose || storeClose
 
-  const [suffix, setSuffix] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [verifying, setVerifying] = useState(false)
+  const [wiping, setWiping] = useState(false)
 
-  const hint = vaultState?.recoveryHint
-    ? getOriginalPasswordPlus(vaultState.recoveryHint)
-    : ''
+  const handleOpenReset = () => {
+    handleClose()
+    openReset()
+  }
 
-  const handleVerify = async (e?: FormEvent) => {
-    e?.preventDefault()
-    if (verifying) return
+  const handleWipe = async () => {
+    const ok = await confirm({
+      title: t('tools.password.recover.wipe'),
+      description: t('tools.password.recover.wipe_confirm'),
+      tone: 'danger',
+      confirmLabel: t('tools.password.recover.wipe'),
+      cancelLabel: t('common.cancel'),
+    })
+    if (!ok) return
 
-    if (!suffix || suffix.length !== 3) {
-      setError(t('tools.password.recover.input_tail_3'))
-      return
-    }
-
-    setVerifying(true)
-    setError(null)
-
+    setWiping(true)
     try {
-      const fullPassword = hint + suffix
-      const valid = await verifyMasterPasswordCandidate(fullPassword, vaultState, accounts)
-
-      if (!valid) {
-        setError(t('tools.password.door.fail'))
-        setVerifying(false)
-        return
-      }
-
-      const keyiv = getKeyIv(fullPassword)
-      unlock(keyiv, false, fullPassword)
+      await passwordApi.wipeVault()
+      clearVaultState()
       handleClose()
-
+      openSetting()
       useUi.getState().toast({
-        title: t('tools.password.recover.verify'),
+        title: t('tools.password.recover.wipe_done'),
         tone: 'success',
       })
-    } catch {
-      setError(t('tools.password.door.fail'))
+    } catch (err) {
+      useUi.getState().toast({
+        title: err instanceof Error ? err.message : t('tools.password.recover.wipe_failed'),
+        tone: 'danger',
+      })
     } finally {
-      setVerifying(false)
+      setWiping(false)
     }
   }
 
@@ -77,77 +73,46 @@ export function Recover({ open, onClose }: RecoverProps) {
       open={isModalOpen}
       onClose={handleClose}
       title={t('tools.password.recover.title')}
-      width={460}
+      width={480}
     >
-      <form onSubmit={(e) => void handleVerify(e)} className="space-y-4 pt-1">
-        <div className="flex items-start gap-3 rounded-[var(--r-md)] bg-[var(--accent-soft)] p-3 text-[var(--accent)]">
-          <KeyRound size={20} className="shrink-0 mt-0.5" />
+      <div className="flex flex-col gap-4 text-[var(--text-primary)]">
+        <div className="flex items-start gap-3 rounded-[var(--r-md)] bg-[var(--warning-softer)] p-3">
+          <ShieldAlert size={20} className="mt-0.5 shrink-0 text-[var(--warning)]" aria-hidden="true" />
           <p
-            data-testid="password-recover-hint-text"
-            className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-primary)]"
+            data-testid="password-recover-body"
+            className="text-[length:var(--text-13)] leading-relaxed text-[var(--text-secondary)]"
           >
-            {t('tools.password.recover.hint', { hint: hint || '***' })}
+            {t('tools.password.recover.body')}
           </p>
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-            {t('tools.password.recover.tail_3_label')}
-          </label>
-          <div className="flex items-center gap-2">
-            <div
-              data-testid="password-recover-prefix-badge"
-              className="flex h-10 w-24 shrink-0 items-center justify-center rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] font-mono text-[length:var(--text-15)] font-semibold text-[var(--text-secondary)] tracking-widest"
-            >
-              {hint || '***'}
-            </div>
-            <span className="text-[var(--text-tertiary)] font-bold">+</span>
-            <input
-              data-testid="password-recover-suffix-input"
-              type="password"
-              maxLength={3}
-              value={suffix}
-              onChange={(e) => {
-                setSuffix(e.target.value.slice(0, 3))
-                if (error) setError(null)
-              }}
-              placeholder={t('tools.password.recover.tail_3_placeholder')}
-              autoFocus
-              className={cn(
-                'block w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[length:var(--text-14)] text-[var(--text-primary)] font-mono tracking-widest',
-                'placeholder:text-[var(--text-tertiary)] placeholder:font-sans placeholder:tracking-normal',
-                'focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]',
-              )}
-            />
-          </div>
-        </div>
-
-        {error && (
-          <div
-            data-testid="password-recover-error"
-            role="alert"
-            className="flex items-center gap-1.5 rounded-[var(--r-sm)] bg-[var(--danger-soft,rgba(239,68,68,0.1))] px-3 py-2 text-[length:var(--text-12)] text-[var(--danger)]"
+        <div className="flex flex-col gap-2">
+          <Button
+            data-testid="password-recover-open-reset"
+            variant="secondary"
+            icon={<KeyRound size={14} />}
+            onClick={handleOpenReset}
+            disabled={wiping}
           >
-            <ShieldAlert size={14} className="shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={handleClose} disabled={verifying}>
-            {t('common.cancel')}
+            {t('tools.password.recover.open_reset')}
           </Button>
           <Button
-            data-testid="password-recover-submit"
-            variant="primary"
-            type="submit"
-            disabled={verifying}
+            data-testid="password-recover-wipe"
+            variant="danger"
+            icon={<Trash2 size={14} />}
+            onClick={() => void handleWipe()}
+            loading={wiping}
           >
-            {verifying ? <Spinner size={14} className="mr-1.5" /> : null}
-            <span>{t('tools.password.recover.verify')}</span>
+            {t('tools.password.recover.wipe')}
           </Button>
         </div>
-      </form>
+
+        <div className="flex items-center justify-end border-t border-[var(--border-subtle)] pt-2">
+          <Button variant="ghost" onClick={handleClose} disabled={wiping}>
+            {t('common.cancel')}
+          </Button>
+        </div>
+      </div>
     </Modal>
   )
 }

@@ -105,39 +105,43 @@ export class PasswordStore {
   ) {}
 
   // ---------------------------------------------------------------- Vault
+  /**
+   * `recovery_hint` is deliberately not read or written any more: it held the first three characters
+   * of the master password under a key that shipped in the bundle, so it was a leak dressed as a
+   * feature. The column stays in the schema (dropping it needs a migration over live rows) and
+   * always reads as ''.
+   */
   async getVaultState(): Promise<PasswordVaultState> {
     const row = await this.db
-      .prepare(`SELECT recovery_hint, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
-      .first<Pick<VaultRow, 'recovery_hint' | 'created_at' | 'updated_at'>>()
+      .first<Pick<VaultRow, 'created_at' | 'updated_at'>>()
 
     if (!row) {
       return { hasVault: false }
     }
     return {
       hasVault: true,
-      recoveryHint: row.recovery_hint,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  async getVault(): Promise<{ masterHash: string; recoveryHint: string; createdAt: number; updatedAt: number } | null> {
+  async getVault(): Promise<{ masterHash: string; createdAt: number; updatedAt: number } | null> {
     const row = await this.db
-      .prepare(`SELECT master_hash, recovery_hint, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
+      .prepare(`SELECT master_hash, created_at, updated_at FROM tools_password_vault WHERE user_id = ?1`)
       .bind(this.userId)
       .first<VaultRow>()
 
     if (!row) return null
     return {
       masterHash: row.master_hash,
-      recoveryHint: row.recovery_hint,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
   }
 
-  async initVault(masterHash: string, recoveryHint: string): Promise<PasswordVaultState> {
+  async initVault(masterHash: string): Promise<PasswordVaultState> {
     const existing = await this.getVaultState()
     if (existing.hasVault) {
       throw ApiError.badRequest('Vault is already initialized')
@@ -146,15 +150,14 @@ export class PasswordStore {
     const now = Date.now()
     await this.db
       .prepare(
-        `INSERT INTO tools_password_vault (user_id, master_hash, recovery_hint, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
+        `INSERT INTO tools_password_vault (user_id, master_hash, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4)`,
       )
-      .bind(this.userId, masterHash, recoveryHint, now, now)
+      .bind(this.userId, masterHash, now, now)
       .run()
 
     return {
       hasVault: true,
-      recoveryHint,
       createdAt: now,
       updatedAt: now,
     }
@@ -162,7 +165,6 @@ export class PasswordStore {
 
   async resetMasterPassword(
     newMasterHash: string,
-    newRecoveryHint: string,
     accounts: Array<{
       id: string
       title: string
@@ -181,10 +183,10 @@ export class PasswordStore {
     const statements: D1PreparedStatement[] = [
       this.db
         .prepare(
-          `UPDATE tools_password_vault SET master_hash = ?1, recovery_hint = ?2, updated_at = ?3
-           WHERE user_id = ?4`,
+          `UPDATE tools_password_vault SET master_hash = ?1, updated_at = ?2
+           WHERE user_id = ?3`,
         )
-        .bind(newMasterHash, newRecoveryHint, now, this.userId),
+        .bind(newMasterHash, now, this.userId),
     ]
 
     for (const acc of accounts) {
@@ -200,6 +202,28 @@ export class PasswordStore {
     }
 
     await this.db.batch(statements)
+  }
+
+  /**
+   * Forgets the vault and everything in it. This is the one write that needs no master password:
+   * a reader who lost it cannot open the rows anyway, and keeping them only leaves ciphertext that
+   * nobody can ever decrypt. Backup objects are returned so the route can drop them from R2 too.
+   */
+  async wipeVault(): Promise<string[]> {
+    const backups = await this.db
+      .prepare(`SELECT r2_key FROM tools_password_backups WHERE user_id = ?1`)
+      .bind(this.userId)
+      .all<{ r2_key: string }>()
+
+    await this.db.batch([
+      this.db.prepare(`DELETE FROM tools_password_accounts WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_groups WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_settings WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_backups WHERE user_id = ?1`).bind(this.userId),
+      this.db.prepare(`DELETE FROM tools_password_vault WHERE user_id = ?1`).bind(this.userId),
+    ])
+
+    return (backups.results ?? []).map((row) => row.r2_key)
   }
 
   // ---------------------------------------------------------------- Groups

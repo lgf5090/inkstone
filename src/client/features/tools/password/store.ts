@@ -7,16 +7,7 @@ import type {
   DecryptedAccount,
 } from '@shared/tools/password/types'
 import { passwordApi } from './api'
-import {
-  decryptValue,
-  encryptValue,
-  getKeyIv,
-  getOriginalPasswordPlus,
-  getRecoveryPass,
-} from './crypto'
-
-const LOGIN_INFO_KEY = 'inkstone.tools.password.login_info'
-const ONE_DAY_MS = 24 * 60 * 60 * 1000
+import { decryptValue, encryptValue } from './crypto'
 
 export type PasswordViewMode =
   | 'all'
@@ -30,7 +21,6 @@ export interface PasswordVaultStore {
   vaultState: PasswordVaultState | null
   isUnlocked: boolean
   keyIV: KeyIV | null
-  masterPasswordText: string
   groups: PasswordGroup[]
   groupTree: PasswordGroup[]
   accounts: PasswordAccount[]
@@ -56,8 +46,9 @@ export interface PasswordVaultStore {
 
   // Methods
   checkVaultAndAutoUnlock: () => Promise<void>
-  unlock: (keyiv: KeyIV, rememberLogin?: boolean, rawPassword?: string) => void
+  unlock: (keyiv: KeyIV) => void
   lock: () => void
+  clearVaultState: () => void
   refreshData: () => Promise<void>
   setSelectedAccountId: (id: string | null) => void
   setSelectedGroupId: (id: string | null) => void
@@ -152,7 +143,6 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   vaultState: null,
   isUnlocked: false,
   keyIV: null,
-  masterPasswordText: '',
   groups: [],
   groupTree: [],
   accounts: [],
@@ -185,49 +175,19 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
 
       if (!state.hasVault) {
         set({ isSettingOpen: true, isUnlocked: false, isLoading: false })
-        return
-      }
-
-      // Check 24h remember login in localStorage
-      const savedInfo = typeof localStorage !== 'undefined' ? localStorage.getItem(LOGIN_INFO_KEY) : null
-      if (savedInfo) {
-        try {
-          const { expireTime, encryptedPass } = JSON.parse(savedInfo)
-          if (expireTime > Date.now() && encryptedPass) {
-            const rawPassword = getOriginalPasswordPlus(encryptedPass)
-            if (rawPassword) {
-              const keyiv = getKeyIv(rawPassword)
-              get().unlock(keyiv, false, rawPassword)
-            }
-          } else {
-            localStorage.removeItem(LOGIN_INFO_KEY)
-          }
-        } catch {
-          localStorage.removeItem(LOGIN_INFO_KEY)
-        }
       }
     } catch {
-      // Ignored
+      // `vaultState` stays null, so the pane keeps its loading branch — the honest answer when the
+      // server could not be asked.
     } finally {
       set({ isLoading: false })
     }
   },
 
-  unlock: (keyiv: KeyIV, rememberLogin = false, rawPassword = '') => {
-    if (rememberLogin && rawPassword && typeof localStorage !== 'undefined') {
-      try {
-        const encryptedPass = getRecoveryPass(rawPassword)
-        const expireTime = Date.now() + ONE_DAY_MS
-        localStorage.setItem(LOGIN_INFO_KEY, JSON.stringify({ encryptedPass, expireTime }))
-      } catch {
-        // Ignored
-      }
-    }
-
+  unlock: (keyiv: KeyIV) => {
     set((state) => ({
       isUnlocked: true,
       keyIV: keyiv,
-      masterPasswordText: rawPassword,
       lastActiveTime: Date.now(),
       // Whoever holds the key has a vault: the locked pane asks `vaultState.hasVault` to choose between the
       // door and the setup form, and the answer read before the vault was created would lock a reader out of
@@ -239,25 +199,25 @@ export const usePasswordVaultStore = create<PasswordVaultStore>((set, get) => ({
   },
 
   lock: () => {
-    if (typeof localStorage !== 'undefined') {
-      const savedInfo = localStorage.getItem(LOGIN_INFO_KEY)
-      if (savedInfo) {
-        try {
-          const { expireTime } = JSON.parse(savedInfo)
-          if (expireTime <= Date.now()) {
-            localStorage.removeItem(LOGIN_INFO_KEY)
-          }
-        } catch {
-          localStorage.removeItem(LOGIN_INFO_KEY)
-        }
-      }
-    }
-
     set({
       isUnlocked: false,
       keyIV: null,
-      masterPasswordText: '',
+          selectedAccountId: null,
+    })
+  },
+
+  clearVaultState: () => {
+    set({
+      vaultState: { hasVault: false },
+      isUnlocked: false,
+      keyIV: null,
+          groups: [],
+      groupTree: [],
+      accounts: [],
+      decryptedAccounts: {},
       selectedAccountId: null,
+      selectedGroupId: null,
+      searchQuery: '',
     })
   },
 
