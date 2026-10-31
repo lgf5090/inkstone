@@ -3,7 +3,7 @@ import { cn } from '../../../lib/cn'
 import { useMediaQuery } from '../../../lib/hooks'
 import { Drawer } from '../../../components/overlay'
 import { Resizer, SplitResizer } from '../../shell/Resizer'
-import { loadLayoutPrefs, saveLayoutPrefs } from './prefs'
+import { loadLayoutPrefs, saveLayoutPrefs, type GithubLayoutPrefs } from './prefs'
 
 export interface ListPaneControls {
   toggleSidebar: () => void
@@ -32,7 +32,7 @@ export function GithubPanes({
 }: GithubPanesProps) {
   const wide = useMediaQuery('(min-width: 1280px)')
   const twoPane = useMediaQuery('(min-width: 1024px)')
-  const initial = useRef(loadLayoutPrefs()).current
+  const [initial] = useState(loadLayoutPrefs)
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(300, Math.max(200, initial.sidebarWidth)))
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [detailRatio, setDetailRatio] = useState(() => Math.min(0.7, Math.max(0.3, initial.detailRatio)))
@@ -40,6 +40,24 @@ export function GithubPanes({
   const [detailDrawer, setDetailDrawer] = useState(false)
   const [detailHidden, setDetailHidden] = useState(false)
   const splitRef = useRef<HTMLDivElement>(null)
+  const pendingLayout = useRef<Partial<GithubLayoutPrefs>>({})
+  const layoutTimer = useRef<number | null>(null)
+
+  const scheduleLayoutSave = (patch: Partial<GithubLayoutPrefs>): void => {
+    pendingLayout.current = { ...pendingLayout.current, ...patch }
+    if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
+    layoutTimer.current = window.setTimeout(() => {
+      layoutTimer.current = null
+      const pending = pendingLayout.current
+      pendingLayout.current = {}
+      saveLayoutPrefs(pending)
+    }, 200)
+  }
+
+  useEffect(() => () => {
+    if (layoutTimer.current !== null) window.clearTimeout(layoutTimer.current)
+    if (Object.keys(pendingLayout.current).length > 0) saveLayoutPrefs(pendingLayout.current)
+  }, [])
 
   const toggleSidebar = () => {
     if (wide) {
@@ -112,7 +130,7 @@ export function GithubPanes({
                 ratio={detailRatio}
                 onChange={(next) => {
                   setDetailRatio(next)
-                  saveLayoutPrefs({ detailRatio: next })
+                  scheduleLayoutSave({ detailRatio: next })
                 }}
                 onReset={() => setDetailRatio(0.5)}
               />
@@ -144,7 +162,7 @@ export function GithubPanes({
               max={300}
               onChange={(next) => {
                 setSidebarWidth(next)
-                saveLayoutPrefs({ sidebarWidth: next })
+                scheduleLayoutSave({ sidebarWidth: next })
               }}
               onReset={() => setSidebarWidth(240)}
             />
@@ -162,7 +180,7 @@ export function GithubPanes({
                 ratio={detailRatio}
                 onChange={(next) => {
                   setDetailRatio(next)
-                  saveLayoutPrefs({ detailRatio: next })
+                  scheduleLayoutSave({ detailRatio: next })
                 }}
                 onReset={() => setDetailRatio(0.5)}
               />
