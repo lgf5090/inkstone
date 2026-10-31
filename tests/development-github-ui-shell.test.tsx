@@ -192,4 +192,66 @@ describe('GitHub module shell', () => {
     expect(row!.getAttribute('role')).toBeNull()
     expect(row!.querySelector('button[aria-current="true"]')).not.toBeNull()
   })
+
+  it('loads the full gist when bootstrap only carried a summary', async () => {
+    const fullGist = {
+      id: 'abcdef12',
+      description: 'Big',
+      url: 'https://gist.github.com/abcdef12',
+      isPublic: true,
+      owner: { login: 'octo', avatarUrl: '' },
+      files: [{ filename: 'a.txt', language: 'Text', content: 'FULL-BODY', size: 9 }],
+      fileCount: 1,
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-02T00:00:00Z',
+    }
+    const savedGist = {
+      id: 'abcdef12',
+      description: 'Big',
+      url: 'https://gist.github.com/abcdef12',
+      data: fullGist,
+      tagIds: [],
+      pinned: false,
+      favorited: false,
+      notes: '',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/bootstrap')) {
+        return response({
+          ok: true,
+          data: {
+            tags: [],
+            repos: [],
+            gistTags: [],
+            gists: [{
+              ...savedGist,
+              data: {
+                ...fullGist,
+                files: [{ filename: 'a.txt', language: 'Text', content: '', preview: 'FULL', truncated: true, size: 9 }],
+              },
+            }],
+            mirrors: [],
+            accounts: [],
+            capabilities: { exports: false },
+          },
+        })
+      }
+      if (url.includes('/gist/gists/abcdef12')) return response({ ok: true, data: { gist: savedGist } })
+      return response({ ok: true, data: {} })
+    }))
+    rendered = renderElement(<GithubApp />)
+    await settle()
+    const gistTab = Array.from(rendered.container.querySelectorAll<HTMLButtonElement>('[role="radio"]')).find((button) =>
+      (button.textContent ?? '').includes(t('development.github.tabs.gists')))
+    act(() => gistTab!.click())
+    await settle()
+    const row = rendered.container.querySelector<HTMLElement>('[data-slot="github-gist-row"]')
+    expect(row).toBeTruthy()
+    act(() => row!.click())
+    await settle()
+    expect(rendered.container.textContent ?? '').toContain('FULL-BODY')
+  })
 })

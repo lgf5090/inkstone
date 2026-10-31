@@ -80,7 +80,6 @@ import {
   insertExport,
   listExports,
   listGistSummaries,
-  listGists,
   listGistTags,
   listRepos,
   listTags,
@@ -507,7 +506,7 @@ developmentGithubRoutes.delete('/gist/tags/:id', async (c) => {
 })
 
 developmentGithubRoutes.get('/gist/gists', async (c) => {
-  const gists = await listGists(c.env.DB, userIdOf(c))
+  const gists = await listGistSummaries(c.env.DB, userIdOf(c))
   return c.json({ ok: true, data: { gists } })
 })
 

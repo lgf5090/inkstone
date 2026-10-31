@@ -138,9 +138,10 @@ export function GistsPane({
       return
     }
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setSearchLoading(true)
-      githubApi.searchSavedGists(needle)
+      githubApi.searchSavedGists(needle, controller.signal)
         .then((ids) => { if (!cancelled) setSearchIds(new Set(ids)) })
         .catch((error) => {
           if (cancelled) return
@@ -151,6 +152,7 @@ export function GistsPane({
     }, 200)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
   }, [needle, remote, toast])
