@@ -46,7 +46,7 @@ export const CreateBundleSchema = z.object({
   name: z.string().trim().min(1, 'Bundle name is required').max(64, 'Bundle name exceeds 64 characters'),
   description: z.string().max(256).optional().nullable(),
   icon: z.string().max(64).optional().nullable(),
-  accent: z.enum(['orange', 'red', 'green', 'blue', 'purple']).default('orange'),
+  accent: z.enum(['orange', 'red', 'green', 'blue', 'purple']).default('blue'),
 })
 
 export const UpdateBundleSchema = z.object({

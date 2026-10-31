@@ -102,7 +102,7 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
 
   `CREATE TABLE IF NOT EXISTS tools_shortlinks_settings (
     user_id TEXT NOT NULL PRIMARY KEY,
-    slug_default_length INTEGER NOT NULL DEFAULT 3,
+    slug_default_length INTEGER NOT NULL DEFAULT 6,
     default_range TEXT NOT NULL DEFAULT '30d',
     filter_bots INTEGER NOT NULL DEFAULT 1,
     filter_self_referrers INTEGER NOT NULL DEFAULT 1,

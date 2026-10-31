@@ -19,11 +19,13 @@ export function ShortlinksApp() {
   const activeView = useToolsStore((s) => s.activeShortlinksView)
   const activeLinkId = useShortlinksStore((s) => s.activeLinkId)
   const fetchBundles = useShortlinksStore((s) => s.fetchBundles)
+  const fetchSettings = useShortlinksStore((s) => s.fetchSettings)
 
   useEffect(() => {
-    // Initial fetch of bundles for selectors and badges
+    // Bundles feed the selectors and badges; settings seed the analytics range.
     void fetchBundles()
-  }, [fetchBundles])
+    void fetchSettings()
+  }, [fetchBundles, fetchSettings])
 
   return (
     <div

@@ -7,6 +7,7 @@ import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
+import { createShortlinkSafely } from '../create-link'
 
 export function CreateLinkModal() {
   const open = useShortlinksStore((s) => s.createModalOpen)
@@ -42,14 +43,14 @@ export function CreateLinkModal() {
     try {
       const parsed = expiresAt ? Date.parse(expiresAt) : NaN
       const expTs = !Number.isNaN(parsed) && parsed > 0 ? Math.floor(parsed / 1000) : null
-      const link = await shortlinksApi.createLink({
+      const link = await createShortlinkSafely({
         url: trimmedUrl,
         label: label.trim() || undefined,
         custom_slug: customSlug.trim() || undefined,
         password: password.trim() || undefined,
         expires_at: expTs,
-        allow_duplicate: true,
       })
+      if (!link) return
 
       if (bundleId && typeof bundleId === 'number') {
         try {

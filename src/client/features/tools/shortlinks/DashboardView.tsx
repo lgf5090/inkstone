@@ -19,7 +19,7 @@ import { useUiStore } from '../../../lib/ui-store'
 import { countryFlag, countryName } from '@shared/tools/shortlinks/country'
 import type { ShortLink } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
-import { shortlinksApi } from './api'
+import { createShortlinkSafely } from './create-link'
 import { copyShortlinkText } from './copy'
 
 export function DashboardView() {
@@ -45,10 +45,8 @@ export function DashboardView() {
 
     setShortening(true)
     try {
-      const created = await shortlinksApi.createLink({
-        url: trimmed,
-        allow_duplicate: true,
-      })
+      const created = await createShortlinkSafely({ url: trimmed })
+      if (!created) return
       setQuickUrl('')
       useUiStore.getState().toast(t('tools.shortlinks.links.created'), 'success')
       void fetchDashboard()

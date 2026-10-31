@@ -44,7 +44,7 @@ import { generateUniqueSlug, validateCustomSlug } from './slugs'
 import { fetchPageTitle } from './title-fetch'
 
 export function normalizeUrl(rawUrl: string): string {
-  return rawUrl.trim().replace(/[/?#]+$/, '')
+  return rawUrl.trim().replace(/[?#]+$/, '')
 }
 
 function csvCell(value: string): string {
@@ -1159,6 +1159,7 @@ export class ShortlinksStore {
     accent?: BundleAccent
   }): Promise<ShortLinkBundle> {
     const now = Math.floor(Date.now() / 1000)
+    await this.assertBundleNameFree(data.name.trim())
     const res = await this.db
       .prepare(
         `INSERT INTO tools_shortlinks_bundles (user_id, name, description, icon, accent, archived_at, created_via, created_by, created_at, updated_at)
@@ -1258,11 +1259,23 @@ export class ShortlinksStore {
       binds.push(data.accent)
     }
 
+    if (data.name !== undefined) await this.assertBundleNameFree(data.name, id)
+
     binds.push(id, this.userId)
     const sql = `UPDATE tools_shortlinks_bundles SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`
     await this.db.prepare(sql).bind(...binds).run()
 
     return (await this.getBundleById(id))!
+  }
+
+  private async assertBundleNameFree(name: string, excludeId?: number): Promise<void> {
+    const row = await this.db
+      .prepare('SELECT id FROM tools_shortlinks_bundles WHERE user_id = ? AND name = ? AND id != ? LIMIT 1')
+      .bind(this.userId, name, excludeId ?? -1)
+      .first<{ id: number }>()
+    if (row) {
+      throw ApiError.conflict('A bundle with this name already exists')
+    }
   }
 
   async deleteBundle(id: number): Promise<void> {

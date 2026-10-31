@@ -20,6 +20,7 @@ import { shortlinksApi } from './api'
 import { useUiStore } from '../../../lib/ui-store'
 
 let linksRequestSeq = 0
+let timelineSeeded = false
 let linksFetchTimer: ReturnType<typeof setTimeout> | null = null
 
 function scheduleLinksFetch(fetch: () => Promise<void>): void {
@@ -281,7 +282,13 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
     set({ loadingSettings: true })
     try {
       const settings = await shortlinksApi.getSettings()
-      set({ settings })
+      set((state) => ({
+        settings,
+        // The saved default range seeds the analytics range once; a later refetch must not undo a
+        // range the reader picked by hand.
+        activeTimelineRange: timelineSeeded ? state.activeTimelineRange : settings.default_range,
+      }))
+      timelineSeeded = true
     } catch (e) {
       useUiStore.getState().toast((e as Error).message, 'error')
     } finally {

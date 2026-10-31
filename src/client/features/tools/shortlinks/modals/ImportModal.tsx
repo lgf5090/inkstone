@@ -7,6 +7,8 @@ import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
 import { shortlinksApi } from '../api'
 
+const MAX_IMPORT_BYTES = 1024 * 1024
+
 export function ImportModal() {
   const open = useShortlinksStore((s) => s.importModalOpen)
   const setOpen = useShortlinksStore((s) => s.setImportModalOpen)
@@ -25,12 +27,19 @@ export function ImportModal() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_IMPORT_BYTES) {
+      useUiStore.getState().toast(t('tools.shortlinks.modal.import_too_large'), 'error')
+      return
+    }
     const reader = new FileReader()
     reader.onload = (event) => {
       const res = event.target?.result
       if (typeof res === 'string') {
         setContent(res)
       }
+    }
+    reader.onerror = () => {
+      useUiStore.getState().toast(t('tools.shortlinks.modal.import_read_failed'), 'error')
     }
     reader.readAsText(file)
   }

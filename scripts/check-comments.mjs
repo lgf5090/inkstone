@@ -18064,9 +18064,9 @@ const allowed = new Map([
     "/* History Backups */",
   ]],
   ["src/client/features/tools/shortlinks/ShortlinksApp.tsx", [
-    "// Initial fetch of bundles for selectors and badges",
     "/* Main View Router */",
     "/* Global Modals */",
+    "// Bundles feed the selectors and badges; settings seed the analytics range.",
   ]],
   ["src/client/features/tools/shortlinks/api.ts", [
     "/**\n * API client for Short Links management endpoints (`/api/tools/shortlinks/*`).\n */",
@@ -18094,6 +18094,8 @@ const allowed = new Map([
     "// Modals",
     "// Breakdown",
     "// A keystroke in the search box is debounced; every other filter change fetches at once.",
+    "// The saved default range seeds the analytics range once; a later refetch must not undo a",
+    "// range the reader picked by hand.",
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
