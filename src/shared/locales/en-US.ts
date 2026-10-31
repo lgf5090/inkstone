@@ -10200,7 +10200,6 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
     ...EN_US_DEVELOPMENT_APITESTER,
-    ...EN_US_DEVELOPMENT_GITHUB,
     ...EN_US_DEVELOPMENT_XGET_SHELL,
     ...EN_US_DEVELOPMENT_XGET_CORE,
     ...EN_US_DEVELOPMENT_XGET_PLATFORMS,
@@ -10210,6 +10209,7 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
 } as const;
-export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE = { ...CORE_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE };
+const GITHUB_MESSAGES = { ...EN_US_DEVELOPMENT_GITHUB } as const;
+export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof GITHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE = { ...CORE_MESSAGES, ...GITHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE };
 export type BaseMessageKey = keyof typeof CORE_MESSAGES | keyof typeof EN_US_INKNOTE;
-export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA;
+export type MessageKey = BaseMessageKey | keyof typeof GITHUB_MESSAGES | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA;
