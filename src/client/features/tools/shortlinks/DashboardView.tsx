@@ -15,12 +15,12 @@ import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/ch
 import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { t } from '../../../lib/i18n'
-import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
 import { countryFlag, countryName } from '@shared/tools/shortlinks/country'
 import type { ShortLink } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
+import { copyShortlinkText } from './copy'
 
 export function DashboardView() {
   const stats = useShortlinksStore((s) => s.dashboardStats)
@@ -68,10 +68,7 @@ export function DashboardView() {
     if (!slug) return
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const shortUrl = `${origin}/l/${slug}`
-    const success = await copyText(shortUrl)
-    if (success) {
-      useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
-    }
+    await copyShortlinkText(shortUrl)
   }
 
   // Chart configuration builder for click trend

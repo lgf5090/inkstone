@@ -45,6 +45,7 @@ export function AddSlugModal() {
   return (
     <Modal
       open={open}
+      dismissible={!submitting}
       onClose={handleClose}
       title={t('tools.shortlinks.modal.add_slug_title')}
       width={440}

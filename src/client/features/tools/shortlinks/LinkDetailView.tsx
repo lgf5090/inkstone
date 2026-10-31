@@ -14,15 +14,16 @@ import {
 } from 'lucide-react'
 import type { ChartConfiguration } from 'chart.js'
 import { ChartCanvas, withAlpha, type ChartColors } from '../../../components/chart-canvas'
+import { LoadingBlock } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { t, type MessageKey } from '../../../lib/i18n'
-import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
 import { countryFlag, countryName } from '@shared/tools/shortlinks/country'
 import type { TimelineRange } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
+import { copyShortlinkText } from './copy'
 
 const RANGES: { id: TimelineRange; labelKey: MessageKey }[] = [
   { id: '24h', labelKey: 'tools.shortlinks.detail.range_24h' },
@@ -112,7 +113,28 @@ export function LinkDetailView() {
     })
   }, [timeline])
 
-  if (!link) return null
+  if (!link) {
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-6xl mx-auto w-full">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => selectLink(null)}
+          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] -ml-2 mb-4"
+        >
+          <ArrowLeft size={16} className="mr-1.5" />
+          {t('tools.shortlinks.detail.back')}
+        </Button>
+        {loading ? (
+          <LoadingBlock />
+        ) : (
+          <div className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] py-16 text-center text-[var(--text-tertiary)] text-[length:var(--text-13)]">
+            {t('tools.shortlinks.links.empty')}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const primarySlugObj = link.slugs.find((s) => s.is_primary) || link.slugs[0]
   const primarySlug = primarySlugObj?.slug || ''
@@ -120,10 +142,7 @@ export function LinkDetailView() {
   const shortUrl = `${origin}/l/${primarySlug}`
 
   const handleCopy = async (text: string) => {
-    const ok = await copyText(text)
-    if (ok) {
-      useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
-    }
+    await copyShortlinkText(text)
   }
 
   const handleSetPrimarySlug = async (slug: string) => {

@@ -16,11 +16,11 @@ import { Button, IconButton } from '../../../components/primitives'
 import { FIELD_BASE, Input } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
 import type { TimelineRange } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
+import { copyShortlinkText } from './copy'
 
 function formatCombinations(length: number): string {
   const combos = Math.pow(62, length)
@@ -383,8 +383,7 @@ export function SettingsView() {
                 variant="secondary"
                 size="sm"
                 onClick={() => {
-                  void copyText(generatedKey)
-                  useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
+                  void copyShortlinkText(generatedKey)
                 }}
               >
                 <Copy size={14} className="mr-1" />

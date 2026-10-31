@@ -73,6 +73,7 @@ export function CreateLinkModal() {
   return (
     <Modal
       open={open}
+      dismissible={!submitting}
       onClose={handleClose}
       title={t('tools.shortlinks.modal.create_title')}
       width={520}

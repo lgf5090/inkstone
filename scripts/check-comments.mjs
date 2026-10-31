@@ -18075,6 +18075,10 @@ const allowed = new Map([
   ["src/client/features/tools/shortlinks/modals/CreateLinkModal.tsx", [
     "// Best-effort addition of newly created shortlink into bundle",
   ]],
+  ["src/client/features/tools/shortlinks/modals/ManageBundleLinksModal.tsx", [
+    "// The baseline is the bundle's membership at open time; the live list may still be loading, so",
+    "// it can never be used to infer deletions.",
+  ]],
   ["src/client/features/tools/shortlinks/modals/QrCodeModal.tsx", [
     "/* QR Plate with white background for readability */",
     "/* Short URL text */",
@@ -18090,6 +18094,7 @@ const allowed = new Map([
     "// Breakdown Modal state",
     "// Modals",
     "// Breakdown",
+    "// A keystroke in the search box is debounced; every other filter change fetches at once.",
   ]],
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",

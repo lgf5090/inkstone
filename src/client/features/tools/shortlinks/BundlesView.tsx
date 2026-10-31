@@ -8,15 +8,16 @@ import {
   QrCode,
   Trash2,
 } from 'lucide-react'
+import { LoadingBlock } from '../../../components/feedback'
 import { Button, IconButton } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
 import { Sparkline } from '../../todos/stats-charts'
 import type { BundleAccent, ShortLinkBundle } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
+import { copyShortlinkText } from './copy'
 
 const ACCENT_COLORS: Record<BundleAccent, { dot: string }> = {
   orange: { dot: 'var(--kanban-tag-orange-fg)' },
@@ -179,16 +180,23 @@ function BundleDetailView() {
   const selectLink = useShortlinksStore((s) => s.selectLink)
 
   const bundle = bundles.find((b) => b.id === activeBundleId)
-  if (!bundle) return null
+  if (!bundle) {
+    return (
+      <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 max-w-6xl mx-auto w-full space-y-4">
+        <Button variant="ghost" size="sm" onClick={() => selectBundle(null)} className="-ml-2">
+          <ArrowLeft size={16} className="mr-1.5" />
+          {t('tools.shortlinks.bundles.title')}
+        </Button>
+        {loading ? <LoadingBlock /> : null}
+      </div>
+    )
+  }
 
   const colors = ACCENT_COLORS[bundle.accent] || ACCENT_COLORS.blue
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
 
   const handleCopy = async (slug: string) => {
-    const success = await copyText(`${origin}/l/${slug}`)
-    if (success) {
-      useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
-    }
+    await copyShortlinkText(`${origin}/l/${slug}`)
   }
 
   const handleRemoveLink = async (linkId: number) => {

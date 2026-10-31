@@ -1065,6 +1065,7 @@ export const ZH_CN_TOOLS = {
   'tools.shortlinks.bundles.delete': '删除分组',
   'tools.shortlinks.bundles.delete_confirm': '确定要删除此分组吗？组内链接不会被删除。',
   'tools.shortlinks.bundles.links_count': '{count} 条链接',
+  'tools.shortlinks.bundles.selected_count': '已选 {count} 条',
   'tools.shortlinks.bundles.manage_links': '管理包含链接',
   'tools.shortlinks.bundles.add_link': '添加链接到分组',
   'tools.shortlinks.bundles.remove_link': '移出分组',

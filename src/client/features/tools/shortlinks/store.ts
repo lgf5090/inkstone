@@ -19,6 +19,17 @@ import type {
 import { shortlinksApi } from './api'
 import { useUiStore } from '../../../lib/ui-store'
 
+let linksRequestSeq = 0
+let linksFetchTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleLinksFetch(fetch: () => Promise<void>): void {
+  if (linksFetchTimer) clearTimeout(linksFetchTimer)
+  linksFetchTimer = setTimeout(() => {
+    linksFetchTimer = null
+    void fetch()
+  }, 250)
+}
+
 export interface LinksFilter {
   search: string
   status: 'all' | 'active' | 'disabled'
@@ -142,9 +153,12 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   },
   setFilter: (patch) => {
     set((state) => ({ filter: { ...state.filter, ...patch } }))
-    void get().fetchLinks()
+    // A keystroke in the search box is debounced; every other filter change fetches at once.
+    if (patch.search !== undefined) scheduleLinksFetch(get().fetchLinks)
+    else void get().fetchLinks()
   },
   fetchLinks: async () => {
+    const seq = ++linksRequestSeq
     set({ loadingLinks: true })
     const { filter } = get()
     try {
@@ -157,11 +171,13 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
         sort_order: filter.sortOrder,
         bundle_id: filter.bundleId,
       })
+      if (seq !== linksRequestSeq) return
       set({ links: res.items, totalLinks: res.total })
     } catch (e) {
+      if (seq !== linksRequestSeq) return
       useUiStore.getState().toast((e as Error).message, 'error')
     } finally {
-      set({ loadingLinks: false })
+      if (seq === linksRequestSeq) set({ loadingLinks: false })
     }
   },
 
@@ -174,11 +190,8 @@ export const useShortlinksStore = create<ShortlinksStoreState>((set, get) => ({
   loadingDetail: false,
 
   selectLink: async (id: number | null) => {
-    set({ activeLinkId: id })
-    if (id === null) {
-      set({ activeLink: null, activeLinkStats: null, activeLinkTimeline: null })
-      return
-    }
+    set({ activeLinkId: id, activeLink: null, activeLinkStats: null, activeLinkTimeline: null })
+    if (id === null) return
     await get().refreshActiveLink()
   },
 

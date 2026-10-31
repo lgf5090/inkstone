@@ -4,7 +4,6 @@ import { QRCodeSVG } from 'qrcode.react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
 import { t } from '../../../../lib/i18n'
-import { copyText } from '../../../../lib/clipboard'
 import { useUiStore } from '../../../../lib/ui-store'
 import { useShortlinksStore } from '../store'
 import {
@@ -13,6 +12,7 @@ import {
   downloadQrSvg,
   qrFileName,
 } from '../../../share/detail/qr-export'
+import { copyShortlinkText } from '../copy'
 
 export function QrCodeModal() {
   const open = useShortlinksStore((s) => s.qrModalOpen)
@@ -31,10 +31,7 @@ export function QrCodeModal() {
   const svgOf = () => plateRef.current?.querySelector('svg') ?? null
 
   const handleCopyUrl = async () => {
-    const success = await copyText(shortUrl)
-    if (success) {
-      useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
-    }
+    await copyShortlinkText(shortUrl)
   }
 
   const handleCopyImage = async () => {

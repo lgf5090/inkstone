@@ -229,7 +229,7 @@ describe('Shortlinks Frontend Feature UI & State Tests', () => {
       // First render with activeLink null
       useShortlinksStore.setState({ activeLink: null, activeLinkTimeline: null })
       const view = await renderElement(<LinkDetailView />)
-      expect(view.container.textContent).toBe('')
+      expect(view.container.textContent).toContain(t('tools.shortlinks.links.empty'))
 
       // Subsequent render with activeLink and timeline loaded
       await act(async () => {

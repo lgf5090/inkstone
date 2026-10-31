@@ -1065,6 +1065,7 @@ export const EN_US_TOOLS = {
   'tools.shortlinks.bundles.delete': 'Delete Bundle',
   'tools.shortlinks.bundles.delete_confirm': 'Are you sure you want to delete this bundle? The links inside will not be deleted.',
   'tools.shortlinks.bundles.links_count': '{count} links',
+  'tools.shortlinks.bundles.selected_count': '{count} selected',
   'tools.shortlinks.bundles.manage_links': 'Manage Included Links',
   'tools.shortlinks.bundles.add_link': 'Add Link to Bundle',
   'tools.shortlinks.bundles.remove_link': 'Remove from Bundle',

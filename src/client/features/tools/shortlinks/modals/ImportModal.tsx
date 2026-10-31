@@ -81,6 +81,7 @@ export function ImportModal() {
   return (
     <Modal
       open={open}
+      dismissible={!submitting}
       onClose={handleClose}
       title={t('tools.shortlinks.modal.import_title')}
       width={520}

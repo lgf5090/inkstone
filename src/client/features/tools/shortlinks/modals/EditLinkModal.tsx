@@ -67,6 +67,7 @@ export function EditLinkModal() {
   return (
     <Modal
       open={open}
+      dismissible={!submitting}
       onClose={closeEditModal}
       title={t('tools.shortlinks.modal.edit_title')}
       width={520}

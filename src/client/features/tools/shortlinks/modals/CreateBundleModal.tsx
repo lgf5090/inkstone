@@ -75,6 +75,7 @@ export function CreateBundleModal() {
   return (
     <Modal
       open={open}
+      dismissible={!submitting}
       onClose={closeBundleModal}
       title={
         isEdit

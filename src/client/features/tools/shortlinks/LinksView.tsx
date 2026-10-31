@@ -16,11 +16,11 @@ import { Button, IconButton } from '../../../components/primitives'
 import { Input } from '../../../components/form'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
-import { copyText } from '../../../lib/clipboard'
 import { useUiStore } from '../../../lib/ui-store'
 import type { ShortLink } from '@shared/tools/shortlinks/types'
 import { useShortlinksStore } from './store'
 import { shortlinksApi } from './api'
+import { copyShortlinkText } from './copy'
 
 export function LinksView() {
   const links = useShortlinksStore((s) => s.links)
@@ -43,10 +43,7 @@ export function LinksView() {
     if (!slug) return
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
     const shortUrl = `${origin}/l/${slug}`
-    const success = await copyText(shortUrl)
-    if (success) {
-      useUiStore.getState().toast(t('tools.shortlinks.links.copied'), 'success')
-    }
+    await copyShortlinkText(shortUrl)
   }
 
   const handleToggleSlugStatus = async (link: ShortLink) => {
