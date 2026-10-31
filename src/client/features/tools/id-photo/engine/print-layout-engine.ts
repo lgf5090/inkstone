@@ -87,7 +87,9 @@ export function renderPrintSheet(
   canvas.height = layout.paperHeightPx
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) return canvas
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable while rendering the print sheet')
+  }
 
   // 1. Pure white photo paper background
   ctx.fillStyle = '#ffffff'

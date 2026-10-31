@@ -6,7 +6,6 @@ import {
   Trash2,
   UploadCloud,
 } from 'lucide-react'
-import exifr from 'exifr'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
@@ -23,42 +22,18 @@ export function IdPhotoUploadCard() {
   const resetAdjustOptions = useIdPhotoStore((s) => s.resetAdjustOptions)
   const rotation = useIdPhotoStore((s) => s.adjustOptions.rotation ?? 0)
 
-  const handleFile = async (file: File) => {
+  const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) return
 
-    try {
-      // Auto-orient based on EXIF tag
-      let orientation = 1
-      try {
-        const exifData = await exifr.parse(file, ['Orientation'])
-        if (exifData?.Orientation) {
-          orientation = exifData.Orientation
-        }
-      } catch {
-        // EXIF read error fallback
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string
+      if (dataUrl) {
+        setImageSrc(dataUrl)
+        resetAdjustOptions()
       }
-
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string
-        if (dataUrl) {
-          setImageSrc(dataUrl)
-          resetAdjustOptions()
-          // Adjust initial rotation if orientation was EXIF 6 or 8
-          if (orientation === 6) rotateImage(90)
-          else if (orientation === 8) rotateImage(-90)
-          else if (orientation === 3) rotateImage(180)
-        }
-      }
-      reader.readAsDataURL(file)
-    } catch {
-      // Fallback direct read
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (e.target?.result) setImageSrc(e.target.result as string)
-      }
-      reader.readAsDataURL(file)
     }
+    reader.readAsDataURL(file)
   }
 
   // Paste listener for Ctrl+V

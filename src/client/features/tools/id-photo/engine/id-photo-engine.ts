@@ -2,6 +2,7 @@ import { ATTIRE_PRESETS } from '@shared/tools/id-photo/presets'
 import type { IdPhotoAdjustOptions, IdPhotoExportFormat, IdPhotoSpec } from '@shared/tools/id-photo/types'
 import { applyBackdropMatte, applyImageFilters, renderBackground } from './background-matting'
 import { calculateOptimalCrop } from './face-align'
+import { applySharpening, applySkinSmoothing } from './retouch-pipeline'
 
 export class IdPhotoEngine {
   constructor(
@@ -90,6 +91,8 @@ export class IdPhotoEngine {
     })
 
     const matte = portraitCtx.getImageData(0, 0, targetWidth, targetHeight)
+    applySkinSmoothing(matte.data, targetWidth, targetHeight, this.options.smoothness)
+    applySharpening(matte.data, targetWidth, targetHeight, this.options.sharpness)
     applyBackdropMatte({
       data: matte.data,
       width: targetWidth,

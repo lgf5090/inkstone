@@ -93,6 +93,22 @@ export function RetouchTab() {
           </span>
         </div>
       </Field>
+
+      <Field label={t('tools.id_photo.retouch.sharpness')}>
+        <div className="flex items-center gap-3 pt-1">
+          <Slider
+            min={0}
+            max={100}
+            step={1}
+            value={adjustOptions.sharpness}
+            onChange={(val) => setAdjustOptions({ sharpness: val })}
+            className="flex-1"
+          />
+          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            {adjustOptions.sharpness}
+          </span>
+        </div>
+      </Field>
     </div>
   )
 }

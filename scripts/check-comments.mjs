@@ -17603,10 +17603,6 @@ const allowed = new Map([
     "/* Suggestions Card */",
   ]],
   ["src/client/features/tools/id-photo/content/IdPhotoUploadCard.tsx", [
-    "// Auto-orient based on EXIF tag",
-    "// EXIF read error fallback",
-    "// Adjust initial rotation if orientation was EXIF 6 or 8",
-    "// Fallback direct read",
     "// Paste listener for Ctrl+V",
   ]],
   ["src/client/features/tools/id-photo/engine/background-matting.ts", [
@@ -17651,6 +17647,9 @@ const allowed = new Map([
     "// Top & Bottom tick guides",
     "// Top left",
     "// Bottom right",
+  ]],
+  ["src/client/features/tools/id-photo/engine/retouch-pipeline.ts", [
+    "/**\n * The YCbCr skin gamut the retouch step works in: smoothing has to flatten speckle on a face\n * without dragging the backdrop colour across the shoulder line, and a plain wall or a white\n * shirt falls out of this range while lit skin stays inside it.\n */",
   ]],
   ["src/client/features/tools/id-photo/export/IdPhotoExportControls.tsx", [
     "/* Target Max KB input and Format Selector */",

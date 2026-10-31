@@ -928,6 +928,7 @@ export const EN_US_TOOLS = {
   'tools.id_photo.retouch.contrast': 'Contrast',
   'tools.id_photo.retouch.whitening': 'Natural Whitening',
   'tools.id_photo.retouch.smoothness': 'Skin Smoothing',
+  'tools.id_photo.retouch.sharpness': 'Detail Sharpening',
   'tools.id_photo.retouch.reset': 'Reset Retouching',
 
   // Attire tab

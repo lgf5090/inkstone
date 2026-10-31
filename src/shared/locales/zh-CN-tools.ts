@@ -928,6 +928,7 @@ export const ZH_CN_TOOLS = {
   'tools.id_photo.retouch.contrast': '光影对比',
   'tools.id_photo.retouch.whitening': '自然美白',
   'tools.id_photo.retouch.smoothness': '双边磨皮',
+  'tools.id_photo.retouch.sharpness': '细节锐化',
   'tools.id_photo.retouch.reset': '重置微调参数',
 
   // Formal-wear tab
