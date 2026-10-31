@@ -95,6 +95,8 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.gists.import_title": "从 GitHub 导入 Gist",
   "development.github.gists.invalid_url": "无法解析 Gist URL，请输入有效的 Gist 链接或 ID",
   "development.github.gists.list_view": "列表视图",
+  "development.github.gists.local_snapshot": "本地快照",
+  "development.github.gists.local_snapshot_desc": "此处的编辑只保存到本地，不会同步到 GitHub 上的原始 Gist。",
   "development.github.gists.my_gists": "我的 Gist",
   "development.github.gists.my_github": "我的 GitHub Gist",
   "development.github.gists.no_files": "该 Gist 无文件",

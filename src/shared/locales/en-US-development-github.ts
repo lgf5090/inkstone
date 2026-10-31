@@ -95,6 +95,8 @@ export const EN_US_DEVELOPMENT_GITHUB = {
   "development.github.gists.import_title": "Import gist from GitHub",
   "development.github.gists.invalid_url": "Could not parse gist URL — enter a valid gist link or ID",
   "development.github.gists.list_view": "List view",
+  "development.github.gists.local_snapshot": "Local snapshot",
+  "development.github.gists.local_snapshot_desc": "Edits here are saved locally and are not pushed to the original gist on GitHub.",
   "development.github.gists.my_gists": "My gists",
   "development.github.gists.my_github": "My GitHub gists",
   "development.github.gists.no_files": "This gist has no files",
