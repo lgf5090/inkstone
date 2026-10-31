@@ -142,6 +142,25 @@ describe('GitHub store bootstrap', () => {
     expect(useGithubStore.getState().status).toBe('error')
     expect(useGithubStore.getState().error).toBeTruthy()
   })
+
+  it('refreshes collections without dropping back to loading', async () => {
+    useGithubStore.setState({ status: 'ready', repos: [repo('old')] })
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    fetchMock.mockImplementation(async () => {
+      await gate
+      return envelope({ ...BOOTSTRAP, repos: [repo('new')] })
+    })
+    const pending = useGithubStore.getState().refresh()
+    await Promise.resolve()
+    expect(useGithubStore.getState().status).toBe('ready')
+    release()
+    await pending
+    expect(useGithubStore.getState().status).toBe('ready')
+    expect(useGithubStore.getState().repos.map((entry) => entry.id)).toEqual(['new'])
+  })
 })
 
 describe('GitHub store optimistic writes', () => {

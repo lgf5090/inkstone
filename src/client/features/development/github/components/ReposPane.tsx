@@ -39,7 +39,9 @@ export function ReposPane({
   const upsertRepo = useGithubStore((state) => state.upsertRepo)
   const upsertTag = useGithubStore((state) => state.upsertTag)
   const deleteTag = useGithubStore((state) => state.deleteTag)
+  const refresh = useGithubStore((state) => state.refresh)
   const [prefs, setPrefs] = useState(loadRepoPrefs)
+  const [refreshing, setRefreshing] = useState(false)
   const [selectedView, setSelectedView] = useState<GithubViewId>(GITHUB_EXPLORE_VIEW)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null)
@@ -139,6 +141,15 @@ export function ReposPane({
     void upsertTag({ ...existing, ...patch, updatedAt: Date.now() })
   }
 
+  const refreshLocal = async () => {
+    setRefreshing(true)
+    try {
+      await refresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const sidebar = (
     <RepoSidebar tags={tags} savedRepos={repos} selectedView={selectedView} onSelect={selectView} expanded={expanded} onToggleExpand={toggleExpand} onManageTags={() => setTagManagerOpen(true)} />
   )
@@ -158,7 +169,7 @@ export function ReposPane({
             onQueryChange={setQuery}
             onCommitSearch={() => { setCommittedQuery(query.trim()); setPage(1) }}
             onClear={() => { setQuery(''); setCommittedQuery(''); setPage(1) }}
-            loading={search.loading}
+            loading={search.loading || refreshing}
             error={search.error instanceof Error ? search.error.message : null}
             prefs={prefs}
             onUpdatePrefs={updatePrefs}
@@ -166,7 +177,7 @@ export function ReposPane({
             currentMirrorId={currentMirrorId}
             onCurrentMirrorChange={onCurrentMirrorChange}
             onManageMirrors={onOpenMirrors}
-            onRefresh={() => { if (isExplore) void search.refetch() }}
+            onRefresh={() => { if (isExplore) void search.refetch(); else void refreshLocal() }}
             items={listItems}
             totalCount={totalCount}
             page={page}

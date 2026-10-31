@@ -51,8 +51,10 @@ export function GistsPane({
   const batchUpdate = useGithubStore((state) => state.batchUpdateGists)
   const upsertGistTag = useGithubStore((state) => state.upsertGistTag)
   const deleteGistTag = useGithubStore((state) => state.deleteGistTag)
+  const refresh = useGithubStore((state) => state.refresh)
   const toast = useUi((state) => state.toast)
   const [prefs, setPrefs] = useState(loadGistPrefs)
+  const [refreshing, setRefreshing] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'card'>(loadGistViewMode)
   const [selectedView, setSelectedView] = useState<GistViewId>(GIST_ALL_VIEW)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -179,6 +181,14 @@ export function GistsPane({
   }
   const addTag = (name: string, color: string, parentId: string | null) => { const now = Date.now(); void upsertGistTag({ id: tagId(), name, color, parentId, sortOrder: gistTags.filter((tag) => tag.parentId === parentId).length, createdAt: now, updatedAt: now }) }
   const editTag = (id: string, patch: { name: string; color: string }) => { const existing = gistTags.find((tag) => tag.id === id); if (existing) void upsertGistTag({ ...existing, ...patch, updatedAt: Date.now() }) }
+  const refreshLocal = async () => {
+    setRefreshing(true)
+    try {
+      await refresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const remoteTitle = selectedView === GIST_EXPLORE_VIEW ? t('development.github.gists.public_gists') : selectedView === GIST_MY_GITHUB_VIEW ? t('development.github.gists.my_github') : remoteUsername ? t('development.github.gists.user_gists', { username: remoteUsername }) : t('development.github.gists.explore_github')
 
@@ -200,7 +210,7 @@ export function GistsPane({
             onViewModeChange={changeViewMode}
             prefs={prefs}
             onUpdatePrefs={updatePrefs}
-            onRefresh={() => { if (remote) void remoteQuery.refetch() }}
+            onRefresh={() => { if (remote) void remoteQuery.refetch(); else void refreshLocal() }}
             items={items}
             tags={gistTags}
             selectedGistId={remote ? selectedRemoteId : selectedGistId}
@@ -217,7 +227,7 @@ export function GistsPane({
             onBatchTag={batchTag}
             onCreate={() => setCreateOpen(true)}
             onImport={() => setImportOpen(true)}
-            loading={remote ? remoteQuery.loading : false}
+            loading={remote ? remoteQuery.loading : refreshing}
             error={remote && remoteQuery.error instanceof Error ? remoteQuery.error.message : null}
             remote={remote}
             savedRemoteIds={remote ? savedRemoteIds : undefined}

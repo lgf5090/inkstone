@@ -29,6 +29,7 @@ export interface GithubStore {
   capabilities: GithubCapabilities
   load: () => Promise<void>
   reload: () => Promise<void>
+  refresh: () => Promise<void>
   upsertTag: (tag: GithubTag) => Promise<void>
   deleteTag: (id: string) => Promise<void>
   upsertGistTag: (tag: GithubTag) => Promise<void>
@@ -167,13 +168,17 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     })
   }
 
-  const runBootstrap = async (): Promise<void> => {
+  const runBootstrap = async (quiet = false): Promise<void> => {
     const sequence = ++bootstrapSequence
-    set({ status: 'loading', error: null })
+    if (!quiet) set({ status: 'loading', error: null })
     try {
       applyBootstrap(await githubApi.bootstrap(), sequence)
     } catch (error) {
       if (sequence !== bootstrapSequence) return
+      if (quiet) {
+        notifyFailure(error)
+        return
+      }
       set({ status: 'error', error: errorText(error) })
     }
   }
@@ -202,6 +207,10 @@ export const useGithubStore = create<GithubStore>((set, get) => {
     reload: async () => {
       loadPromise = null
       await runBootstrap()
+    },
+
+    refresh: async () => {
+      await runBootstrap(true)
     },
 
     upsertTag: async (tag) => {
