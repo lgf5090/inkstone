@@ -8,6 +8,7 @@ import type {
   GithubReleaseAsset,
   GithubRepo,
   GithubRepoDetail,
+  GithubRepoDetailPart,
   GithubSearchParams,
   GithubSearchResult,
   GithubWarning,
@@ -245,49 +246,68 @@ function normalizeLanguages(value: unknown): GithubRepoDetail['languages'] {
     .sort((left, right) => right.bytes - left.bytes)
 }
 
+export const REPO_DETAIL_PARTS: readonly GithubRepoDetailPart[] = [
+  'branches',
+  'tags',
+  'languages',
+  'releases',
+  'readme',
+]
+
 export async function fetchRepoDetail(
   fullName: string,
   defaultBranch: string | undefined,
   token?: string | null,
+  parts?: readonly GithubRepoDetailPart[],
 ): Promise<GithubRepoDetail> {
   const parsed = parseRepoFullName(fullName)
   if (!parsed) throw ApiError.badRequest('A repository must be named owner/name')
-  const cacheKey = `${parsed.owner.toLowerCase()}/${parsed.name.toLowerCase()}|${defaultBranch ?? ''}`
+  const requested = new Set(parts && parts.length > 0 ? parts : REPO_DETAIL_PARTS)
+  const partKey = REPO_DETAIL_PARTS.filter((part) => requested.has(part)).join(',')
+  const cacheKey = `${parsed.owner.toLowerCase()}/${parsed.name.toLowerCase()}|${defaultBranch ?? ''}|${partKey}`
   if (!token) {
     const cached = readDetailCache(cacheKey)
     if (cached) return cached
   }
   const base = `/repos/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}`
   const request = { token, timeoutMs: GITHUB_DETAIL_TIMEOUT_MS }
+  const skipped: SourceOutcome<unknown> = { data: null, error: null }
   const [branches, tags, languages, releases, readme] = await Promise.all([
-    fetchSource(async () => (await githubJson<unknown[]>(`${base}/branches?per_page=100`, request)).data),
-    fetchSource(async () => (await githubJson<unknown[]>(`${base}/tags?per_page=100`, request)).data),
-    fetchSource(
-      async () => (await githubJson<Record<string, unknown>>(`${base}/languages`, request)).data,
-    ),
-    fetchSource(async () => (await githubJson<unknown[]>(`${base}/releases?per_page=30`, request)).data),
-    fetchSource(
-      async () =>
-        (
-          await githubText(`${base}/readme`, {
-            ...request,
-            accept: 'application/vnd.github.raw+json',
-            maxBytes: MAX_GITHUB_TEXT_BYTES,
-          })
-        ).data,
-    ),
+    requested.has('branches')
+      ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/branches?per_page=100`, request)).data)
+      : Promise.resolve(skipped),
+    requested.has('tags')
+      ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/tags?per_page=100`, request)).data)
+      : Promise.resolve(skipped),
+    requested.has('languages')
+      ? fetchSource(async () => (await githubJson<Record<string, unknown>>(`${base}/languages`, request)).data)
+      : Promise.resolve(skipped),
+    requested.has('releases')
+      ? fetchSource(async () => (await githubJson<unknown[]>(`${base}/releases?per_page=30`, request)).data)
+      : Promise.resolve(skipped),
+    requested.has('readme')
+      ? fetchSource(
+        async () =>
+          (
+            await githubText(`${base}/readme`, {
+              ...request,
+              accept: 'application/vnd.github.raw+json',
+              maxBytes: MAX_GITHUB_TEXT_BYTES,
+            })
+          ).data,
+      )
+      : Promise.resolve(skipped),
   ])
-  const outcomes: Array<[GithubWarningSource, SourceOutcome<unknown>]> = [
-    ['branches', branches],
-    ['tags', tags],
-    ['languages', languages],
-    ['releases', releases],
-    ['readme', readme],
-  ]
+  const outcomes: Array<[GithubWarningSource, SourceOutcome<unknown>]> = []
+  if (requested.has('branches')) outcomes.push(['branches', branches])
+  if (requested.has('tags')) outcomes.push(['tags', tags])
+  if (requested.has('languages')) outcomes.push(['languages', languages])
+  if (requested.has('releases')) outcomes.push(['releases', releases])
+  if (requested.has('readme')) outcomes.push(['readme', readme])
   const tokenFailures = outcomes.filter(
     ([, outcome]) => outcome.error?.code === 'github_token_invalid',
   )
-  if (tokenFailures.length === outcomes.length) {
+  if (tokenFailures.length > 0 && tokenFailures.length === outcomes.length) {
     throw tokenFailures[0]![1].error!
   }
   const warnings = outcomes
@@ -306,10 +326,11 @@ export async function fetchRepoDetail(
     languages: normalizeLanguages(languages.data),
     releases: releaseList.map((release, index) => normalizeRelease(release, index)),
     releasesTruncated: releaseList.length >= 30,
-    readme: readme.data,
+    readme: typeof readme.data === 'string' ? readme.data : null,
     readmeHtmlUrl: `https://github.com/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.name)}#readme`,
     warnings,
     rateLimited: warnings.some((warning) => warning.code === 'rate_limited'),
+    loaded: REPO_DETAIL_PARTS.filter((part) => requested.has(part)),
   }
   if (!token) writeDetailCache(cacheKey, detail)
   return detail

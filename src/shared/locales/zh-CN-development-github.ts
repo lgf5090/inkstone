@@ -199,6 +199,7 @@ export const ZH_CN_DEVELOPMENT_GITHUB = {
   "development.github.repos.more_settings": "更多设置",
   "development.github.repos.my_repos": "我的仓库",
   "development.github.repos.no_assets": "该版本无附件（可能为源码归档）",
+  "development.github.repos.load_meta": "加载分支与标签统计",
   "development.github.repos.no_readme": "该项目暂无 README",
   "development.github.repos.readme_too_large": "README 过大，已跳过内嵌渲染；请在 GitHub 查看。",
   "development.github.repos.readme_failed": "README 加载失败，请稍后重试。",

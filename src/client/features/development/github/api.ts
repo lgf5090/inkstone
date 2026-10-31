@@ -12,6 +12,7 @@ import {
   type GithubExportFormat,
   type GithubMirrorSource,
   type GithubRepoDetail,
+  type GithubRepoDetailPart,
   type GithubSearchParams,
   type GithubSearchResult,
   type GithubTag,
@@ -228,9 +229,10 @@ export const githubApi = {
     return readData(`/search?${query.toString()}`, { signal })
   },
 
-  repoDetail(fullName: string, defaultBranch?: string | null, signal?: AbortSignal): Promise<GithubRepoDetail> {
+  repoDetail(fullName: string, defaultBranch?: string | null, parts?: readonly GithubRepoDetailPart[], signal?: AbortSignal): Promise<GithubRepoDetail> {
     const query = new URLSearchParams({ repo: fullName })
     if (defaultBranch) query.set('defaultBranch', defaultBranch)
+    if (parts && parts.length > 0) query.set('parts', parts.join(','))
     return readData(`/repo-detail?${query.toString()}`, { signal })
   },
 

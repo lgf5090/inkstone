@@ -3,6 +3,7 @@ import type {
   GistItem,
   GistListResult,
   GithubRepoDetail,
+  GithubRepoDetailPart,
   GithubSearchParams,
   GithubSearchResult,
 } from '@shared/development/github/types'
@@ -160,10 +161,11 @@ export function useGithubSearch(params: GithubSearchParams, enabled = true): Git
 export function useRepoDetail(
   fullName: string | null | undefined,
   defaultBranch?: string | null,
+  parts?: readonly GithubRepoDetailPart[],
 ): GithubQuery<GithubRepoDetail> {
-  const key = fullName ? cacheKey('repo-detail', fullName, defaultBranch ?? '') : null
+  const key = fullName ? cacheKey('repo-detail', fullName, defaultBranch ?? '', parts?.join(',') ?? '') : null
   return useGithubQuery(key, DETAIL_TTL_MS, Boolean(fullName), (signal) =>
-    githubApi.repoDetail(fullName!, defaultBranch, signal))
+    githubApi.repoDetail(fullName!, defaultBranch, parts, signal))
 }
 
 export function useRemoteGists(

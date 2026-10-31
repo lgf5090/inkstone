@@ -87,6 +87,7 @@ export interface GithubRelease {
 
 export type GithubWarningSource = 'branches' | 'tags' | 'languages' | 'releases' | 'readme'
 export type GithubWarningCode = 'rate_limited' | 'not_found' | 'upstream'
+export type GithubRepoDetailPart = GithubWarningSource
 
 export interface GithubWarning {
   source: GithubWarningSource
@@ -108,6 +109,7 @@ export interface GithubRepoDetail {
   readmeHtmlUrl: string | null
   warnings: GithubWarning[]
   rateLimited: boolean
+  loaded?: GithubRepoDetailPart[]
 }
 
 export type GithubTimeRange = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'

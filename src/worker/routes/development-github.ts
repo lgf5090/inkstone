@@ -22,7 +22,7 @@ import {
   SavedGistInputSchema,
   SavedGithubRepoInputSchema,
 } from '@shared/development/github/schemas'
-import type { GistItem, GithubTag } from '@shared/development/github/types'
+import type { GistItem, GithubRepoDetailPart, GithubTag } from '@shared/development/github/types'
 import { utf8ByteLength } from '@shared/text-utils'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -50,7 +50,7 @@ import {
   listGithubGists,
   updateGithubGist,
 } from '../development/github/github-gists'
-import { fetchRepoDetail, parseRepoFullName, searchRepositories } from '../development/github/github-repos'
+import { fetchRepoDetail, parseRepoFullName, REPO_DETAIL_PARTS, searchRepositories } from '../development/github/github-repos'
 import { listMirrors, replaceMirrors } from '../development/github/mirrors'
 import {
   assertExportStorage,
@@ -157,6 +157,7 @@ const GistSearchQuerySchema = z.object({
 const RepoDetailQuerySchema = z.object({
   repo: z.string().min(3).max(300),
   defaultBranch: z.string().max(200).optional(),
+  parts: z.string().max(200).optional(),
 })
 
 const GistDetailQuerySchema = z.object({
@@ -646,9 +647,21 @@ developmentGithubRoutes.get('/repo-detail', async (c) => {
   detailBudget(userId)
   const query = parseQuery(c, RepoDetailQuerySchema)
   if (!parseRepoFullName(query.repo)) throw ApiError.badRequest('A repository must be named owner/name')
+  const requestedParts = query.parts
+    ? query.parts.split(',').map((part) => part.trim()).filter(Boolean)
+    : undefined
+  if (requestedParts && (requestedParts.length === 0
+    || requestedParts.some((part) => !REPO_DETAIL_PARTS.includes(part as GithubRepoDetailPart)))) {
+    throw ApiError.badRequest('Unknown repository detail part')
+  }
   const defaultBranch = query.defaultBranch?.trim() || undefined
   const token = await effectiveGithubToken(c.env, c.env.DB, userId)
-  const detail = await fetchRepoDetail(query.repo, defaultBranch, token)
+  const detail = await fetchRepoDetail(
+    query.repo,
+    defaultBranch,
+    token,
+    requestedParts as GithubRepoDetailPart[] | undefined,
+  )
   return c.json({ ok: true, data: detail })
 })
 

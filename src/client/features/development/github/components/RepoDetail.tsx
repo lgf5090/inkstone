@@ -17,6 +17,8 @@ import { GithubAvatar } from './GithubAvatar'
 const README_RENDER_MAX_CHARS = 600_000
 const LANGUAGE_LEGEND_LIMIT = 6
 const RELEASE_BODY_PREVIEW_CHARS = 400
+const OVERVIEW_PARTS = ['readme', 'languages', 'releases'] as const
+const META_PARTS = ['branches', 'tags'] as const
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
@@ -87,7 +89,9 @@ function AssetPicker({ assets, value, onChange, mirrorBase }: { assets: GithubRe
 }
 
 export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: GithubMirrorSource | undefined }) {
-  const { data, loading, error, refetch } = useRepoDetail(repo?.fullName ?? null, repo?.defaultBranch)
+  const overview = useRepoDetail(repo?.fullName ?? null, repo?.defaultBranch, OVERVIEW_PARTS)
+  const [metaRequested, setMetaRequested] = useState(false)
+  const meta = useRepoDetail(metaRequested ? repo?.fullName ?? null : null, repo?.defaultBranch, META_PARTS)
   const [releaseIndex, setReleaseIndex] = useState(0)
   const [assetName, setAssetName] = useState('')
   const toast = useUi((state) => state.toast)
@@ -95,9 +99,30 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
   useEffect(() => {
     setReleaseIndex(0)
     setAssetName('')
+    setMetaRequested(false)
   }, [repo?.id])
 
-  const detail = data
+  const detail = useMemo(() => {
+    if (!overview.data) return null
+    if (!meta.data) return overview.data
+    return {
+      ...overview.data,
+      branchesCount: meta.data.branchesCount,
+      branchesTruncated: meta.data.branchesTruncated,
+      tagsCount: meta.data.tagsCount,
+      tagsTruncated: meta.data.tagsTruncated,
+      warnings: [...overview.data.warnings, ...meta.data.warnings],
+      rateLimited: overview.data.rateLimited || meta.data.rateLimited,
+      loaded: [...(overview.data.loaded ?? []), ...(meta.data.loaded ?? [])],
+    }
+  }, [overview.data, meta.data])
+  const metaLoaded = !detail?.loaded || detail.loaded.includes('branches')
+  const loading = overview.loading
+  const error = overview.error
+  const refetch = () => {
+    void overview.refetch()
+    if (metaRequested) void meta.refetch()
+  }
   useEffect(() => {
     if (!detail) return
     if (releaseIndex >= detail.releases.length) setReleaseIndex(0)
@@ -139,8 +164,8 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
           <Stat icon={<Star size={12} className="text-[var(--warning)]" />} label={t('development.github.repos.stars')} value={formatNumber(repo.stargazersCount)} />
           <Stat icon={<GitBranch size={12} />} label={t('development.github.repos.forks')} value={formatNumber(repo.forksCount)} />
           <Stat icon={<AlertCircle size={12} />} label={t('development.github.repos.issues')} value={formatNumber(repo.openIssuesCount)} />
-          <Stat icon={<GitBranch size={12} />} label={t('development.github.repos.branches')} value={detail.branchesTruncated ? t('development.github.repos.branches_truncated', { count: detail.branchesCount }) : String(detail.branchesCount)} />
-          <Stat icon={<TagIcon size={12} />} label={t('development.github.tags.section')} value={detail.tagsTruncated ? t('development.github.repos.tags_truncated', { count: detail.tagsCount }) : String(detail.tagsCount)} />
+          <Stat icon={<GitBranch size={12} />} label={t('development.github.repos.branches')} value={metaLoaded ? (detail.branchesTruncated ? t('development.github.repos.branches_truncated', { count: detail.branchesCount }) : String(detail.branchesCount)) : '—'} />
+          <Stat icon={<TagIcon size={12} />} label={t('development.github.tags.section')} value={metaLoaded ? (detail.tagsTruncated ? t('development.github.repos.tags_truncated', { count: detail.tagsCount }) : String(detail.tagsCount)) : '—'} />
           <Stat icon={<GitBranch size={12} />} label={t('development.github.repos.default_branch')} value={detail.defaultBranch} />
           {repo.license && <Stat icon={<Scale size={12} />} label={t('development.github.repos.license')} value={repo.license} />}
           <Stat icon={<Code2 size={12} />} label={t('development.github.repos.size')} value={`${formatNumber(repo.size)} KB`} />
@@ -149,6 +174,18 @@ export function RepoDetail({ repo, mirror }: { repo: GithubRepo | null; mirror: 
           <Stat icon={<Package size={12} />} label={t('development.github.repos.releases_title')} value={detail.releasesTruncated ? t('development.github.repos.releases_truncated', { count: detail.releases.length }) : String(detail.releases.length)} />
           {repo.language && <Stat icon={<span className="size-2.5 rounded-full" style={{ backgroundColor: getLanguageColor(repo.language) }} />} label={t('development.github.repos.language')} value={repo.language} />}
         </div>
+        {!metaLoaded && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {meta.loading
+              ? <><Spinner size={13} />{t('development.github.common.loading')}</>
+              : <>
+                <Button variant="secondary" size="sm" onClick={() => { if (metaRequested) void meta.refetch(); else setMetaRequested(true) }}>
+                  {metaRequested ? t('development.github.common.retry') : t('development.github.repos.load_meta')}
+                </Button>
+                {meta.error && <span role="alert" className="text-[var(--danger)]">{meta.error.message}</span>}
+              </>}
+          </div>
+        )}
         {detail.languages.length > 0 && <div className="mt-3"><div className="mb-1 text-[length:var(--text-11)] font-medium tracking-wide text-[var(--text-quaternary)] uppercase">{t('development.github.repos.language_dist')}</div><div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-inset)]">{detail.languages.map((language) => <div key={language.name} className="h-full" style={{ width: `${language.percentage}%`, backgroundColor: getLanguageColor(language.name) }} title={`${language.name} ${language.percentage}%`} />)}</div><div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">{detail.languages.slice(0, LANGUAGE_LEGEND_LIMIT).map((language) => <span key={language.name} className="inline-flex items-center gap-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]"><span className="size-2 rounded-full" style={{ backgroundColor: getLanguageColor(language.name) }} />{language.name}<span className="font-medium text-[var(--text-secondary)]">{language.percentage}%</span></span>)}</div></div>}
       </div>
 

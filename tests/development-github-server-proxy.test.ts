@@ -554,3 +554,19 @@ describe('development github repo detail cache', () => {
     expect(second.readme).toBe('# hi')
   })
 })
+
+describe('development github repo detail parts', () => {
+  it('fetches only the requested parts', async () => {
+    stubFetch((url) => {
+      if (url.endsWith('/readme')) return new Response('# hi', { status: 200 })
+      if (url.endsWith('/languages')) return jsonResponse({ TypeScript: 10 })
+      return jsonResponse([], 200)
+    })
+    const detail = await fetchRepoDetail('parts/demo', 'main', undefined, ['readme', 'languages'])
+    expect(calls).toHaveLength(2)
+    expect(detail.loaded).toEqual(['languages', 'readme'])
+    expect(detail.readme).toBe('# hi')
+    expect(detail.languages).toEqual([{ name: 'TypeScript', bytes: 10, percentage: 100 }])
+    expect(detail.releases).toEqual([])
+  })
+})
