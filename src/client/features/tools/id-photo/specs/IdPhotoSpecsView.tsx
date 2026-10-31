@@ -9,7 +9,6 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { deleteCustomSpec } from '../api'
-import { CustomSpecModal } from './CustomSpecModal'
 
 export function IdPhotoSpecsView() {
   const [search, setSearch] = useState('')
@@ -19,7 +18,6 @@ export function IdPhotoSpecsView() {
   const setSelectedSpecId = useIdPhotoStore((s) => s.setSelectedSpecId)
   const customSpecs = useIdPhotoStore((s) => s.customSpecs)
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
-  const customSpecModalOpen = useIdPhotoStore((s) => s.customSpecModalOpen)
   const setCustomSpecModalOpen = useIdPhotoStore((s) => s.setCustomSpecModalOpen)
 
   const allSpecs = useMemo(() => {
@@ -204,11 +202,6 @@ export function IdPhotoSpecsView() {
           )
         })}
       </div>
-
-      <CustomSpecModal
-        open={customSpecModalOpen}
-        onClose={() => setCustomSpecModalOpen(false)}
-      />
     </div>
   )
 }

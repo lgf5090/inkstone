@@ -7,6 +7,7 @@ import { IdPhotoUploadCard } from './content/IdPhotoUploadCard'
 import { IdPhotoOptionsPanel } from './options/IdPhotoOptionsPanel'
 import { IdPhotoPreviewCard } from './preview/IdPhotoPreviewCard'
 import { IdPhotoFullscreenModal } from './preview/IdPhotoFullscreenModal'
+import { CustomSpecModal } from './specs/CustomSpecModal'
 import { IdPhotoExportControls } from './export/IdPhotoExportControls'
 import { IdPhotoComplianceView } from './compliance/IdPhotoComplianceView'
 import { IdPhotoPrintView } from './print/IdPhotoPrintView'
@@ -18,6 +19,8 @@ import { IdPhotoSettingsView } from './settings/IdPhotoSettingsView'
 export function IdPhotoApp() {
   const activeIdPhotoView = useToolsStore((s) => s.activeIdPhotoView)
   const loadCustomSpecs = useIdPhotoStore((s) => s.loadCustomSpecs)
+  const customSpecModalOpen = useIdPhotoStore((s) => s.customSpecModalOpen)
+  const setCustomSpecModalOpen = useIdPhotoStore((s) => s.setCustomSpecModalOpen)
 
   useEffect(() => {
     loadCustomSpecs().catch(() => {
@@ -62,6 +65,10 @@ export function IdPhotoApp() {
       {activeIdPhotoView === 'settings' && <IdPhotoSettingsView />}
 
       <IdPhotoFullscreenModal />
+      <CustomSpecModal
+        open={customSpecModalOpen}
+        onClose={() => setCustomSpecModalOpen(false)}
+      />
     </div>
   )
 }
