@@ -84,6 +84,7 @@ export const EN_US_NAV = {
   'nav.link.title': 'Title',
   'nav.link.url': 'URL',
   'nav.link.icon': 'Icon URL',
+  'nav.link.icon_broken': 'That icon address could not be loaded, so the initial is shown instead. Point it at an address the browser can reach, or use Upload icon to keep a local copy.',
   'nav.link.description': 'Description',
   'nav.link.category': 'Category',
   'nav.link.batch_keep_open': 'Keep this window open to add more',

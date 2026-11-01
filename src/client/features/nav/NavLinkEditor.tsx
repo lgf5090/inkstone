@@ -7,7 +7,6 @@ import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
-import { cn } from '../../lib/cn'
 import { navApi, categoryOptions } from './api'
 import { navErrorToast } from './errors'
 import { useNavStore } from './nav-store'
@@ -278,16 +277,19 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
         <Field label={t('nav.link.url')}>
           <Input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com" />
         </Field>
-        <Field label={t('nav.link.icon')}>
+        <Field
+          label={t('nav.link.icon')}
+          hint={iconBroken && iconPreview ? <span role="status">{t('nav.link.icon_broken')}</span> : undefined}
+        >
           <div className="flex items-center gap-2">
             <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-              {iconPreview ? (
+              {iconPreview && !iconBroken ? (
                 <img src={iconPreview} alt="" className="size-full object-contain" referrerPolicy="no-referrer" onError={() => setIconBroken(true)} />
               ) : (
-                <span className={cn('flex size-full items-center justify-center text-[length:var(--text-11)] font-semibold', iconPreview ? '' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)]')}>{initialFor(title, url)}</span>
+                <span className="flex size-full items-center justify-center bg-[var(--bg-hover)] text-[length:var(--text-11)] font-semibold text-[var(--text-secondary)]">{initialFor(title, url)}</span>
               )}
             </div>
-            <Input value={icon} onChange={(event) => setIcon(event.target.value)} placeholder="https://example.com/icon.png" className="min-w-0 flex-1" />
+            <Input value={icon} onChange={(event) => { setIcon(event.target.value); setIconBroken(false) }} placeholder="https://example.com/icon.png" className="min-w-0 flex-1" />
             <IconButton label={t('nav.link.icon_fetch')} onClick={() => void fetchIcon(true)} disabled={!url.trim() || iconBusy !== null}>
               {iconBusy === 'fetch' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
             </IconButton>

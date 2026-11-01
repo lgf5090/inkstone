@@ -43231,6 +43231,9 @@ const allowed = new Map([
     "// primary Button renders `disabled` while `loading` — so a submit spent the whole request with",
     "// focus on <body>, outside the panel the Tab guard watches. Simulate that drop and require the",
     "// trap to hand the caret back rather than leave the dialog unreachable.",
+    "// Keeping the value is only half of it: the reader has to be told the address failed, otherwise the",
+    "// field looks accepted and the preview quietly shows an initial.",
+    "// A verdict about one address must not stay hanging on the next one.",
   ]],
   ["tests/nav-host-guard.test.ts", [
     "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",

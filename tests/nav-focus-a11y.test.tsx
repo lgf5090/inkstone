@@ -178,6 +178,25 @@ describe('navigation focus and accessible names', () => {
     const after = [...dialog().querySelectorAll<HTMLInputElement>('input')].find((field) => field.value === '/api/nav/icons/broken-icon.png')
     expect(after, 'a broken preview must not erase the value').toBeTruthy()
     expect(favicon.mock.calls.length).toBeLessThanOrEqual(2)
+
+    // Keeping the value is only half of it: the reader has to be told the address failed, otherwise the
+    // field looks accepted and the preview quietly shows an initial.
+    const message = [...dialog().querySelectorAll('[role="status"]')].map((node) => node.textContent)
+    expect(message.join(' '), 'a refused preview must say so').toContain(t('nav.link.icon_broken').slice(0, 12))
+    const described = [...dialog().querySelectorAll('[aria-describedby]')]
+      .flatMap((node) => node.getAttribute('aria-describedby')!.split(/\s+/))
+      .map((id) => dialog().querySelector(`#${id}`)?.textContent ?? '')
+    expect(described.join(' '), 'the message must be attached to the field it describes').toContain(t('nav.link.icon_broken').slice(0, 12))
+
+    // A verdict about one address must not stay hanging on the next one.
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(after!, 'https://another.example.com/logo.png')
+      after!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+    expect([...dialog().querySelectorAll('[role="status"]')].map((node) => node.textContent).join(' '))
+      .not.toContain(t('nav.link.icon_broken').slice(0, 12))
   })
 
   it('names the search-source enable box for what it does and ties its error to the field', async () => {

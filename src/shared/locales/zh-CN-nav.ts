@@ -84,6 +84,7 @@ export const ZH_CN_NAV = {
   'nav.link.title': '标题',
   'nav.link.url': 'URL',
   'nav.link.icon': '图标 URL',
+  'nav.link.icon_broken': '这个图标地址加载不了，已改用首字母占位。改成可直接访问的地址，或用「上传图标」存一份本地副本。',
   'nav.link.description': '描述',
   'nav.link.category': '分类',
   'nav.link.batch_keep_open': '连续添加，不关闭窗口',
