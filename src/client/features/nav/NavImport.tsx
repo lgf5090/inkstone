@@ -338,6 +338,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     <Modal
       open={open}
       onClose={onClose}
+      className="nav-surface"
       title={t('nav.import.title')}
       width={IMPORT_WIDTH}
       dismissible={!busy}
@@ -549,6 +550,7 @@ export function QrModal({ open, onClose, url, title }: {
     <Modal
       open={open}
       onClose={onClose}
+      className="nav-surface"
       title={t('nav.qr.title')}
       description={title || t('nav.uncategorized')}
       width={QR_WIDTH}

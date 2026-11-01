@@ -200,7 +200,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => null)
       if (manual) toast({ title: t('nav.link.icon_detected'), tone: 'success' })
     } catch (error) {
-      if (manual) toast({ title: error instanceof Error ? error.message : t('nav.link.icon_not_found'), tone: 'danger' })
+      if (manual) toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setIconBusy(null)
     }
@@ -219,7 +219,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       toast({ title: t('nav.link.icon_detected'), tone: 'success' })
     } catch (error) {
       if (sequence !== probeSeq.current) return
-      toast({ title: error instanceof Error ? error.message : t('nav.link.icon_not_found'), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       if (sequence === probeSeq.current) setIconBusy(null)
     }
@@ -233,7 +233,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       setIcon(result.icon.url)
       toast({ title: t('nav.link.icon_uploaded'), tone: 'success' })
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.icon_invalid'), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setIconBusy(null)
       if (fileRef.current) fileRef.current.value = ''
@@ -248,7 +248,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       if (result.description) setDescription(result.description)
       if (result.categoryId) setCategoryId(result.categoryId)
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.ai_unavailable'), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setAiBusy(false)
     }
@@ -256,7 +256,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
 
   const iconPreview = icon.trim()
   return (
-    <Modal open={open} onClose={onClose} title={link ? t('nav.link.edit_title') : t('nav.link.add_title')} width={560}>
+    <Modal open={open} onClose={onClose} className="nav-surface" title={link ? t('nav.link.edit_title') : t('nav.link.add_title')} width={560}>
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={pinned ? 'primary' : 'secondary'} icon={<Pin size={13} />} onClick={() => setPinned(!pinned)}>

@@ -518,6 +518,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       onClose={() => {
         if (!busy) onClose()
       }}
+      className="nav-surface"
       title={t('nav.category_manager')}
       width={620}
       dismissible={!busy}
@@ -783,6 +784,7 @@ export function UnlockModal({ category, onClose }: { category: NavCategory | nul
       onClose={() => {
         if (!busy) onClose()
       }}
+      className="nav-surface"
       title={t('nav.unlock.title', { name: category.name })}
       width={400}
       dismissible={!busy}

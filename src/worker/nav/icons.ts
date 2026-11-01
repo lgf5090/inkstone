@@ -167,7 +167,7 @@ navIconRoutes.post('/icons/probe', async (c) => {
     if (probes.includes('blocked')) throw new ApiError(400, 'nav_blocked_target', 'That address is not reachable from this deployment')
     found = batch[probes.findIndex((probe) => probe === 'hit')] ?? null
   }
-  if (!found) throw new ApiError(404, 'nav_icon_invalid', 'No site icon was found at the usual paths')
+  if (!found) throw new ApiError(404, 'nav_icon_not_found', 'No site icon was found at the usual paths')
   const result = await guardedFetch(found, { method: 'GET', timeoutMs: 8000, maxRedirects: 3 })
   if (result.error || !result.response.ok) {
     throw new ApiError(502, 'internal', `Icon fetch failed: ${result.error ?? `HTTP ${result.response.status}`}`)

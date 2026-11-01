@@ -1210,7 +1210,7 @@ function placeTooltip(anchor: DOMRect, tooltip: DOMRect, preferred: TooltipSide)
         left: side === 'right' ? anchor.right + gap : anchor.left - gap - tooltip.width,
     };
 }
-export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = Z_INDEX.drawer, ariaLabel, leftOffset = 0, bodyClassName, }: {
+export function Drawer({ open, onClose, side = 'right', width = 380, children, title, zIndex = Z_INDEX.drawer, ariaLabel, leftOffset = 0, bodyClassName, className, }: {
     open: boolean;
     onClose: () => void;
     side?: 'left' | 'right';
@@ -1223,6 +1223,9 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
     leftOffset?: number;
     /** Padding belongs to the caller: a list wants it on the rows, a settings panel on the body. */
     bodyClassName?: string;
+    /** Marks the panel itself, so a feature's own stylesheet can reach its header chrome — the close
+        button lives outside `bodyClassName`'s subtree. */
+    className?: string;
 }) {
     const panelRef = useRef<HTMLDivElement>(null);
     const titleId = useId();
@@ -1233,7 +1236,7 @@ export function Drawer({ open, onClose, side = 'right', width = 380, children, t
         return null;
     return createPortal(<div className="app-viewport-fixed fixed" style={{ zIndex, left: leftOffset }}>
       <div className="anim-fade absolute inset-0 bg-[var(--scrim)]" onClick={onClose} aria-hidden="true"/>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.side_panel")} tabIndex={-1} data-surface="drawer" className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r')} style={{
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : ariaLabel ?? t("overlay.side_panel")} tabIndex={-1} data-surface="drawer" className={cn('absolute top-0 bottom-0 flex flex-col border-[var(--border-default)] bg-[var(--bg-surface)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:py-0', side === 'right' ? 'right-0 border-l' : 'left-0 border-r', className)} style={{
             width: Math.min(width, window.innerWidth < 768 ? window.innerWidth - leftOffset : window.innerWidth - 32),
             animation: `ink-slide-in-${side} var(--dur-slow) var(--ease-out) both`,
         }}>

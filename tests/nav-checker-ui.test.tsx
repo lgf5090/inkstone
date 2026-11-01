@@ -230,6 +230,24 @@ describe('LinkCheckerModal', () => {
     }
   })
 
+  it('swaps a rotted bookmark icon for the initial instead of a torn image', async () => {
+    const withIcon = makeLink({ id: 'link-glyph', title: 'Glyph site', url: 'https://glyph.example/', icon: 'https://glyph.example/favicon.ico' })
+    seed([withIcon])
+    mount()
+    await flush()
+
+    const image = [...lastDialog().querySelectorAll<HTMLImageElement>('img')].find((el) => el.src.includes('favicon.ico'))
+    expect(image, 'the row should paint the bookmark icon').toBeTruthy()
+    act(() => {
+      image!.dispatchEvent(new Event('error'))
+    })
+    await flush()
+
+    const after = [...lastDialog().querySelectorAll<HTMLImageElement>('img')].find((el) => el.src.includes('favicon.ico'))
+    expect(after, 'a failed icon must leave the row, not sit there as the browser\'s broken-image glyph').toBeFalsy()
+    expect(lastDialog().textContent).toContain('G')
+  })
+
   it('filters rows and selects the visible or broken ones', async () => {
     window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({
       [BROKEN.id]: cacheRow('broken', Date.now()),

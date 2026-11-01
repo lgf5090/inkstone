@@ -1,0 +1,22 @@
+/* Nav is the app a phone reader taps through the most, and its controls are the shared size tokens:
+   `SIZES.sm` is 36px and `IconButton` is 36px on a phone, both under the target size rule 13 asks for.
+   Round 2 raised the header row by hand (`min-h-11 md:min-h-0`) and left everything below it small, so
+   the card menu, the dialog buttons and the checker's batch row were still 32–40px.
+
+   A thumb is not a cursor, so on a coarse pointer every control inside a nav surface gets a 44px floor.
+   Precise pointers keep the compact heights the desktop layout was measured against. `min-*` only ever
+   raises a box, so a control that is already bigger is untouched, and the floor is scoped to nav's own
+   root (`[data-nav-app]`) and to the dialogs it opens (`.nav-surface`), which React portals to
+   the body and so sit outside that root. */
+
+@media (pointer: coarse) {
+  [data-nav-app] button,
+  [data-nav-app] [role="radio"],
+  [data-nav-app] [role="menuitem"],
+  .nav-surface button,
+  .nav-surface [role="radio"],
+  .nav-surface [role="menuitem"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

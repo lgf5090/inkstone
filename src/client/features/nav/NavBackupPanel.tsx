@@ -228,6 +228,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
     <Modal
       open={open}
       onClose={onClose}
+      className="nav-surface"
       title={t('nav.backup.title')}
       width={640}
       dismissible={!busy}

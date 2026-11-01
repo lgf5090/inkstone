@@ -227,7 +227,9 @@ describe('icon probe', () => {
     stubFetch(() => new Response(null, { status: 404 }))
     const response = await call('POST', '/api/nav/icons/probe', { body: { url: 'https://bare.example.com/' } })
     expect(response.status).toBe(404)
-    expect(await errorCode(response)).toBe('nav_icon_invalid')
+    // "Nothing was there" and "what was there is not an image" are different answers, and the client
+    // maps them to different sentences; sharing one code made a plain miss read as a bad upload.
+    expect(await errorCode(response)).toBe('nav_icon_not_found')
     expect(r2.objects.size).toBe(0)
   })
 

@@ -872,7 +872,7 @@ export function NavApp() {
         {assistantDockOpen && <AssistantDock surface="nav" nav={navContext} />}
       </div>
 
-      <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} side="left" width={300} title={t('nav.categories')}>
+      <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} side="left" width={300} title={t('nav.categories')} bodyClassName="nav-surface" className="nav-surface">
         {sidebar()}
       </Drawer>
 

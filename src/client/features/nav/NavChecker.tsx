@@ -198,7 +198,10 @@ function LevelIcon({ level }: { level: NavCheckLevel }) {
 
 function LinkGlyph({ link }: { link: NavLink }) {
   const icon = link.icon?.trim()
-  if (icon && (isHttpUrl(icon) || icon.startsWith('/api/nav/icons/'))) {
+  // A bookmark's icon URL is reader-typed and rots; the card grid already answers that with the
+  // initial, and this row was painting the browser's torn-image glyph instead. Same rule, same fallback.
+  const [failedIcon, setFailedIcon] = useState<string | null>(null)
+  if (icon && (isHttpUrl(icon) || icon.startsWith('/api/nav/icons/')) && failedIcon !== icon) {
     return (
       <img
         src={icon}
@@ -209,6 +212,7 @@ function LinkGlyph({ link }: { link: NavLink }) {
         decoding="async"
         referrerPolicy="no-referrer"
         className="size-4 shrink-0 rounded-[var(--r-xs)] object-contain"
+        onError={() => setFailedIcon(icon)}
       />
     )
   }
@@ -767,6 +771,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     <Modal
       open={open}
       onClose={() => void requestClose()}
+      className="nav-surface"
       title={t('nav.checker.title')}
       width={MODAL_WIDTH}
       bodyClassName="flex flex-col gap-3"

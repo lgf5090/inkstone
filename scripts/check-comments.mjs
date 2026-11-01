@@ -661,6 +661,7 @@ const allowed = new Map([
     "// outside this panel, where the Tab guard below cannot see it, so Tab walks the page behind the",
     "// open dialog. Any caret that escapes to the document is pulled back, preferring the field the",
     "// reader was last in, because that is where a refused submit has to be corrected.",
+    "/** Marks the panel itself, so a feature's own stylesheet can reach its header chrome — the close\n        button lives outside `bodyClassName`'s subtree. */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -8077,6 +8078,8 @@ const allowed = new Map([
     "// one outage and neither rescan button would ever retry it.",
     "// Only when there is something to show: a fifth segment would crowd the phone header for",
     "// a state most scans never produce.",
+    "// A bookmark's icon URL is reader-typed and rots; the card grid already answers that with the",
+    "// initial, and this row was painting the browser's torn-image glyph instead. Same rule, same fallback.",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -29156,6 +29159,9 @@ const allowed = new Map([
   ["src/client/styles/music.css", [
     "/*\n * The music surface is owned by its feature (`features/music/music.css`); `app.css` imports this\n * entry point. Keeping the forward here means the feature stylesheet travels with the components\n * that use it, and the app stylesheet still has one line per surface.\n */",
   ]],
+  ["src/client/styles/nav.css", [
+    "/* Nav is the app a phone reader taps through the most, and its controls are the shared size tokens:\n   `SIZES.sm` is 36px and `IconButton` is 36px on a phone, both under the target size rule 13 asks for.\n   Round 2 raised the header row by hand (`min-h-11 md:min-h-0`) and left everything below it small, so\n   the card menu, the dialog buttons and the checker's batch row were still 32–40px.\n\n   A thumb is not a cursor, so on a coarse pointer every control inside a nav surface gets a 44px floor.\n   Precise pointers keep the compact heights the desktop layout was measured against. `min-*` only ever\n   raises a box, so a control that is already bigger is untouched, and the floor is scoped to nav's own\n   root (`[data-nav-app]`) and to the dialogs it opens (`.nav-surface`), which React portals to\n   the body and so sit outside that root. */",
+  ]],
   ["src/client/styles/pele.css", [
     "/*\n * The diagram engine paints with these and nothing else: every colour a Mermaid block shows is a\n * `--pele-*` custom property resolved by the page, which is why switching themes never redraws a\n * diagram. Both ramps are copied from the engine's own documentation site rather than derived from\n * our tokens — the eight series colours are chosen to stay apart at any size, and re-picking them\n * from the accent would trade that for a palette the layouts were never measured against.\n *\n * Light is the unconditional default so a document with no `data-theme` at all — an exported note,\n * a printed handout — still gets a complete ramp instead of the engine's built-in fallbacks.\n */",
     "/*\n * `.pele-on-dark` is for a surface that is a dark panel whatever the app's theme is — the\n * text-to-diagram stage is one — so it asks for the ramp directly instead of through `data-theme`.\n */",
@@ -43265,6 +43271,8 @@ const allowed = new Map([
     "// A 403 is still a warning: it is as often the checker being refused as the page being dead.",
     "// Every probe starts as HEAD; only the 403 earns a second, GET, because a refusal is as often the",
     "// checker being turned away as the page being dead.",
+    "// \"Nothing was there\" and \"what was there is not an image\" are different answers, and the client",
+    "// maps them to different sentences; sharing one code made a plain miss read as a bad upload.",
   ]],
   ["tests/nav-shared.test.ts", [
     "// The URL is the same value the prompt interpolates, so it carries the same rule a stored link does.",

@@ -41,6 +41,7 @@ const ERROR_KEYS: Record<string, string> = {
   nav_ai_invalid_response: 'nav.error.ai_invalid',
   nav_blocked_target: 'nav.error.blocked_target',
   nav_icon_invalid: 'nav.error.icon_invalid',
+  nav_icon_not_found: 'nav.link.icon_not_found',
   nav_webdav_failed: 'nav.error.webdav',
   internal: 'nav.error.internal',
   nav_order_mismatch: 'nav.error.order_mismatch',

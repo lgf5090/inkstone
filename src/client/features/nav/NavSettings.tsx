@@ -114,7 +114,7 @@ export function NavSettingsModal({ open, onClose }: ModalProps) {
   }
 
   return (
-    <Modal open={open} onClose={() => void requestClose()} title={t('nav.settings.title')} width={640}>
+    <Modal open={open} onClose={() => void requestClose()} className="nav-surface" title={t('nav.settings.title')} width={640}>
       <div className="flex flex-col gap-4">
         <Tabs
           value={tab}
