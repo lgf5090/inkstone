@@ -1,6 +1,6 @@
 import { useQrCodeStore } from '../store'
 import type { QrFrameOptions, QrFrameType } from '../../../../../shared/tools/qrcode/types'
-import { ColorWheelTrigger } from '../../../../components/color-field'
+import { ColorWellField } from '../../../../components/color-field'
 import { Field, Input, Select } from '../../../../components/form'
 import { t, type MessageKey } from '../../../../lib/i18n'
 
@@ -54,11 +54,10 @@ export function FrameTab() {
             <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
               {t('tools.qrcode.frame.color_main')}
             </span>
-            <ColorWheelTrigger
+            <ColorWellField
               value={frame.color || '#1b4332'}
               label={t('tools.qrcode.frame.color_main')}
               onChange={(color) => patch({ color })}
-              onCommit={(color) => patch({ color })}
             />
           </div>
 
@@ -66,11 +65,10 @@ export function FrameTab() {
             <span className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
               {t('tools.qrcode.frame.color_secondary')}
             </span>
-            <ColorWheelTrigger
+            <ColorWellField
               value={frame.secondaryColor || '#d4af37'}
               label={t('tools.qrcode.frame.color_secondary')}
               onChange={(secondaryColor) => patch({ secondaryColor })}
-              onCommit={(secondaryColor) => patch({ secondaryColor })}
             />
           </div>
         </>

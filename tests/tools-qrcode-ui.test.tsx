@@ -247,6 +247,39 @@ describe('QR Code Studio UI Integration Tests', () => {
     view.unmount()
   })
 
+  it('shows the colour each picker currently holds', async () => {
+    const view = await renderElement(<QrCodeApp />)
+    openViews.push(view)
+
+    const beautifySection = view.container.querySelector(
+      `section[aria-label="${t('tools.qrcode.beautify.accordion_title')}"]`
+    )
+    expect(beautifySection).not.toBeNull()
+    const frameTabBtn = Array.from(beautifySection!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === t('tools.qrcode.beautify.tab_frame')
+    )
+    act(() => {
+      frameTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      useQrCodeStore.getState().setOptions({ frameOptions: { type: 'dark-green' } })
+    })
+
+    const picker = beautifySection!.querySelector('input[type=color]')
+    expect(picker, 'no colour control for the frame').not.toBeNull()
+    const dot = picker!.parentElement!.querySelector('span[style]')
+    expect(dot, 'the colour control paints nothing: the reader cannot see the current colour').not.toBeNull()
+    expect((dot as HTMLElement).style.backgroundColor).toBe('rgb(27, 67, 50)')
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setter?.call(picker, '#ff0000')
+      picker!.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(useQrCodeStore.getState().options.frameOptions?.color).toBe('#ff0000')
+    expect((dot as HTMLElement).style.backgroundColor).toBe('rgb(255, 0, 0)')
+  })
+
   it('opens and closes QR technical details modal from preview panel', async () => {
     const view = await renderElement(<QrCodeApp />)
 

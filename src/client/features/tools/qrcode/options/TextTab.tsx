@@ -1,6 +1,6 @@
 import { useQrCodeStore } from '../store'
 import { Checkbox, Field, Select, Slider, Textarea } from '../../../../components/form'
-import { ColorWheelTrigger } from '../../../../components/color-field'
+import { ColorWellField } from '../../../../components/color-field'
 import { t } from '../../../../lib/i18n'
 
 const FONT_FAMILIES = [
@@ -122,15 +122,10 @@ export function TextTab() {
         <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
           {t('tools.qrcode.text.color_label')}
         </label>
-        <ColorWheelTrigger
+        <ColorWellField
           value={textOptions.color || '#000000'}
           label={t('tools.qrcode.text.color_label')}
           onChange={(color) =>
-            setOptions({
-              textOptions: { ...textOptions, color },
-            })
-          }
-          onCommit={(color) =>
             setOptions({
               textOptions: { ...textOptions, color },
             })
