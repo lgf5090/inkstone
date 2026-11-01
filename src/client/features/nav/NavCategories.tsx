@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, FolderPlus, Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react'
-import { getLocale } from '../../lib/i18n'
 import { isEmojiIcon, NAV_UNCATEGORIZED, normalizeCategoryName, normalizeIconName, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
 import { NAV_ICON_NAMES } from '@shared/nav/icon-catalog'
 import { Modal, confirm } from '../../components/overlay'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Segmented, Select } from '../../components/form'
 import { useUi } from '../../store/ui'
-import { t } from '../../lib/i18n'
+import { getLocale, t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { EMOJI_ICON_ENTRIES } from '../../lib/emoji-catalog-data'
 import { searchEmojiIn } from '../../lib/emoji-catalog-core'
@@ -21,6 +20,20 @@ import { useNavStore } from './nav-store'
 const CATEGORY_NAME_LIMIT = 60
 const PASSWORD_MIN_LENGTH = 8
 
+/**
+ * One comparator for both places that order categories by name.
+ *
+ * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so
+ * an English reader got pinyin order and then saw the stored sequence disagree with what was drawn.
+ * `Intl.Collator` is cached because building one per comparison is measurably slower on a large tree.
+ */
+let collatorCache: { locale: string; collator: Intl.Collator } | null = null
+function nameCollator(): Intl.Collator {
+  const locale = getLocale()
+  if (!collatorCache || collatorCache.locale !== locale) collatorCache = { locale, collator: new Intl.Collator(locale, { sensitivity: 'base' }) }
+  return collatorCache.collator
+}
+
 type IconTab = 'emoji' | 'lucide'
 
 /**
@@ -28,20 +41,6 @@ type IconTab = 'emoji' | 'lucide'
  * narrowing whichever tab is showing. Every tile is a button that names itself, and the current
  * value stays visible above the grid so a pick is confirmed without leaving the form.
  */
-/**
- * One comparator for both places that order categories by name.
- *
- * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so
- * an English reader got pinyin order and then saw it disagree with the stored sequence. `Intl.Collator`
- * is cached per locale because a fresh one per comparison is measurably slower on a large tree.
- */
-let collatorCache: { locale: string; collator: Intl.Collator } | null = null
-function collatorFor(locale: string): Intl.Collator {
-  if (!collatorCache || collatorCache.locale !== locale) collatorCache = { locale, collator: new Intl.Collator(locale, { sensitivity: 'base' }) }
-  return collatorCache.collator
-}
-const collator = collatorFor(getLocale())
-
 export function IconPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [tab, setTab] = useState<IconTab>(() => (isEmojiIcon(value) ? 'emoji' : 'lucide'))
   const [query, setQuery] = useState('')
@@ -111,33 +110,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
           <NavIcon name={value} size={15} />
         </span>
         <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('nav.icon.current')}</span>
-        <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-12)] text-[var(--t
-  // One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of
-  // the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.
-  const gridEntryIndex = tab === 'emoji'
-    ? emojiEntries.findIndex((entry) => entry.char === value)
-    : lucideNames.indexOf(normalized)
-  const roving = (index: number, selected: boolean): number => (selected || index === Math.max(gridEntryIndex, 0) ? 0 : -1)
-
-  function moveWithinGrid(event: React.KeyboardEvent<HTMLDivElement>): void {
-    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown'
-      ? 1
-      : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-        ? -1
-        : 0
-    if (!step && event.key !== 'Home' && event.key !== 'End') return
-    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]
-    if (!buttons.length) return
-    event.preventDefault()
-    const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    const next = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? buttons.length - 1
-        : Math.min(buttons.length - 1, Math.max(0, (at < 0 ? 0 : at) + step))
-    buttons[next]?.focus()
-  }
-ext-secondary)]">
+        <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-12)] text-[var(--text-secondary)]">
           {isEmojiIcon(value) ? value : normalized}
         </span>
       </div>
@@ -161,7 +134,7 @@ ext-secondary)]">
                     type="button"
                     aria-label={entry.char}
                     aria-pressed={active}
-                    tabIndex={roving(emojiEntries.findIndex((item) => item.char === entry.char), value === entry.char)}
+                    tabIndex={roving(emojiEntries.findIndex((item) => item.char === entry.char), active)}
                     title={entry.keys}
                     onClick={() => onChange(entry.char)}
                     className={cn(
@@ -181,7 +154,7 @@ ext-secondary)]">
                   <button
                     key={name}
                     type="button"
-                    tabIndex={roving(lucideNames.indexOf(name), normalized === name)}
+                    tabIndex={roving(lucideNames.indexOf(name), active)}
                     aria-label={name}
                     aria-pressed={active}
                     title={name}
@@ -317,7 +290,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   const targetKey = `${initialEditId ?? ''}|${initialParentId === undefined ? 'none' : initialParentId ?? 'root'}|${initialDeleteId ?? ''}`
 
   const tree = useMemo(() => {
-    const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || collator.compare(a.name, b.name))
+    const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || nameCollator().compare(a.name, b.name))
     const roots = sorted.filter((category) => !category.parentId)
     const children = new Map<string, NavCategory[]>()
     for (const category of sorted) {
@@ -416,7 +389,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   async function sortByName(): Promise<void> {
     if (rowsLocked) return
     const byName = (left: NavCategory, right: NavCategory): number =>
-      collator.compare(left.name, right.name) || left.sortOrder - right.sortOrder
+      nameCollator().compare(left.name, right.name) || left.sortOrder - right.sortOrder
     const groups: { parentId: string | null; orderedIds: string[] }[] = []
     const roots = categories.filter((category) => !category.parentId).sort(byName)
     if (roots.length > 1) groups.push({ parentId: null, orderedIds: roots.map((category) => category.id) })

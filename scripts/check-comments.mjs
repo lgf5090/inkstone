@@ -8045,7 +8045,7 @@ const allowed = new Map([
     "/**\n * Unlocks one protected category for the tab's session. The dialog owns the in-flight state so a\n * refused password leaves the field where the reader can correct it, and a success closes it.\n */",
     "// One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of",
     "// the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.",
-    "/**\n * One comparator for both places that order categories by name.\n *\n * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so\n * an English reader got pinyin order and then saw it disagree with the stored sequence. `Intl.Collator`\n * is cached per locale because a fresh one per comparison is measurably slower on a large tree.\n */",
+    "/**\n * One comparator for both places that order categories by name.\n *\n * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so\n * an English reader got pinyin order and then saw the stored sequence disagree with what was drawn.\n * `Intl.Collator` is cached because building one per comparison is measurably slower on a large tree.\n */",
   ]],
   ["src/client/features/nav/NavChecker.tsx", [
     "/** The reference implementation scans eight links per request and keeps three requests in flight. */",
