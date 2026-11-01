@@ -175,7 +175,7 @@ function SectionTitle({ icon, title, count, action }: { icon: React.ReactNode; t
 interface CategoryRowProps {
   label: string
   icon: string
-  count: number
+  count: number | null
   active: boolean
   locked: boolean
   small?: boolean
@@ -257,7 +257,7 @@ function CategoryRow({ label, icon, count, active, locked, small, expanded, hasC
         <NavIcon name={icon} size={small ? 13 : 15} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {locked && <Lock size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.locked')} />}
-        <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{count}</span>
+        <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{count === null ? <span aria-hidden="true">—</span> : count}</span>
       </button>
     </div>
   )
@@ -462,11 +462,14 @@ export function NavApp() {
   const detailed = settings.display.cardStyle === 'detailed'
   const activeSearchSource = settings.search.sources.find((source) => source.id === settings.search.selectedSourceId && source.enabled) ?? null
 
-  const categoryCount = useCallback((category: NavCategory): number => {
+  const categoryCount = useCallback((category: NavCategory): number | null => {
+    // A locked folder's size is not sent to this client at all, so say nothing rather than show a confident
+    // zero — an empty-looking protected folder reads as a bug.
+    if (category.hasPassword && !unlockTokens[category.id]) return null
     const own = counts.byCategory[category.id] ?? 0
     if (category.parentId) return own
     return own + categories.filter((child) => child.parentId === category.id).reduce((sum, child) => sum + (counts.byCategory[child.id] ?? 0), 0)
-  }, [counts.byCategory, categories])
+  }, [counts.byCategory, categories, unlockTokens])
   const isLocked = (category: NavCategory): boolean => category.hasPassword && !unlockTokens[category.id]
 
   function openEditor(link: NavLink | null = null, initial: { title: string; url: string } | null = null): void {
@@ -673,7 +676,7 @@ export function NavApp() {
                   <CategoryRow
                     label={child.name}
                     icon={child.icon}
-                    count={counts.byCategory[child.id] ?? 0}
+                    count={categoryCount(child)}
                     active={selectedSubcategory === child.id}
                     locked={isLocked(child)}
                     small
@@ -771,11 +774,11 @@ export function NavApp() {
           {subcategories.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] pb-2">
               <button type="button" onClick={() => selectCategory(selectedRoot!.id, null)} className={cn('rounded-full px-2.5 py-1 text-[length:var(--text-11-5)]', !selectedSubcategory ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
-                {t('nav.all')}<span className="ml-1 opacity-70">{categoryCount(selectedRoot!)}</span>
+                {t('nav.all')}<span className="ml-1 opacity-70">{categoryCount(selectedRoot!) ?? '—'}</span>
               </button>
               {subcategories.map((sub) => (
                 <button key={sub.id} type="button" onClick={() => void chooseCategory(selectedRoot, sub.id)} className={cn('flex items-center gap-1 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)]', selectedSubcategory === sub.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
-                  <NavIcon name={sub.icon} size={12} />{sub.name}{isLocked(sub) && <Lock size={10} className="text-[var(--warning)]" />}<span className="opacity-70">{counts.byCategory[sub.id] ?? 0}</span>
+                  <NavIcon name={sub.icon} size={12} />{sub.name}{isLocked(sub) && <Lock size={10} className="text-[var(--warning)]" aria-label={t('nav.locked')} role="img" />}<span className="opacity-70">{categoryCount(sub) ?? '—'}</span>
                 </button>
               ))}
             </div>

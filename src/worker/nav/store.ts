@@ -81,12 +81,27 @@ export interface NavLinkPatch {
 }
 
 export function hiddenCategories(categories: readonly NavCategory[], unlocked: ReadonlySet<string>): Set<string> {
-  const lockedRoots = new Set(categories
+  const locked = new Set(categories
     .filter((category) => category.hasPassword && !unlocked.has(category.id))
     .map((category) => category.id))
-  const hidden = new Set(lockedRoots)
+  const hidden = new Set<string>()
+  if (!locked.size) return hidden
+  const byId = new Map(categories.map((category) => [category.id, category]))
   for (const category of categories) {
-    if (category.parentId && lockedRoots.has(category.parentId)) hidden.add(category.id)
+    // Walk the whole parent chain rather than one hop: a category is hidden when *any* ancestor is locked.
+    // The one-level rule is enforced on every write path, but a tree that predates it — or one built by a
+    // bulk import — must not silently leak a grandchild's links behind a locked root.
+    let node: NavCategory | undefined = category
+    const visited = new Set<string>()
+    while (node) {
+      if (locked.has(node.id)) {
+        hidden.add(category.id)
+        break
+      }
+      if (node.parentId === null || visited.has(node.id)) break
+      visited.add(node.id)
+      node = byId.get(node.parentId)
+    }
   }
   return hidden
 }
@@ -95,6 +110,13 @@ export function visibleLinks(links: readonly NavLink[], categories: readonly Nav
   const locked = hiddenCategories(categories, unlocked)
   if (!locked.size) return [...links]
   return links.filter((link) => !locked.has(link.categoryId))
+}
+
+/** Per-category totals over the links a reader may actually see; a hidden folder gets no entry at all. */
+export function countVisibleLinks(links: readonly NavLink[]): NavCounts {
+  const byCategory: Record<string, number> = {}
+  for (const link of links) byCategory[link.categoryId] = (byCategory[link.categoryId] ?? 0) + 1
+  return { total: links.length, byCategory }
 }
 
 export class NavStore {
@@ -142,26 +164,11 @@ export class NavStore {
     return Object.fromEntries(results.map((row) => [row.link_id, { lastVisitedAt: row.last_visited_at, visitCount: row.visit_count }]))
   }
 
-  async counts(): Promise<NavCounts> {
-    const { results } = await this.db
-      .prepare('SELECT category_id, COUNT(*) AS n FROM nav_links WHERE user_id = ?1 GROUP BY category_id')
-      .bind(this.userId)
-      .all<{ category_id: string; n: number }>()
-    const byCategory: Record<string, number> = {}
-    let total = 0
-    for (const row of results) {
-      byCategory[row.category_id] = row.n
-      total += row.n
-    }
-    return { total, byCategory }
-  }
-
   async bootstrap(unlocked: ReadonlySet<string>): Promise<NavBootstrap> {
-    const [categoryRows, linkRows, visits, counts, display, search, ai, webdav] = await Promise.all([
+    const [categoryRows, linkRows, visits, display, search, ai, webdav] = await Promise.all([
       this.categoryRows(),
       this.linkRows(),
       this.visits(),
-      this.counts(),
       this.settingsGroup('display'),
       this.settingsGroup('search'),
       this.settingsGroup('ai'),
@@ -175,7 +182,9 @@ export class NavStore {
       visits,
       settings: { display, search, ai },
       webdav,
-      counts,
+      // Counted from the links the reader may see, never from the table: how many bookmarks a locked
+      // folder holds is exactly what its password exists to keep from a session without the key.
+      counts: countVisibleLinks(links),
       serverTime: Date.now(),
     }
   }
@@ -344,13 +353,26 @@ export class NavStore {
     await this.db.batch(statements)
   }
 
-  async reorderCategories(parentId: string | null, orderedIds: readonly string[]): Promise<void> {
+  async reorderCategories(parentId: string | null, orderedIds: readonly string[], hiddenCategoryIds?: ReadonlySet<string>): Promise<void> {
     const rows = await this.categoryRows()
     const group = rows.filter((row) => (row.parent_id ?? null) === parentId).map((row) => row.id)
-    if (!sameSet(group, orderedIds)) throw ApiError.badRequest('Order must cover every category in this group')
-    const statements = orderedIds.map((id, index) =>
-      this.db.prepare('UPDATE nav_categories SET sort_order = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4').bind(index, Date.now(), this.userId, id),
-    )
+    const groupSet = new Set(group)
+    // Naming something that is not in this group is still an error — that is how a request carrying another
+    // tenant's id gets refused — and a repeated id would silently collapse the order.
+    if (new Set(orderedIds).size !== orderedIds.length || orderedIds.some((id) => !groupSet.has(id))) {
+      throw ApiError.badRequest('Order must name each category in this group once')
+    }
+    // A reader who cannot see a locked category cannot order it either, so completeness is judged over the
+    // visible group; locked siblings keep the position they already have.
+    const visible = group.filter((id) => !hiddenCategoryIds?.has(id))
+    if (!sameSet(visible, orderedIds.filter((id) => !hiddenCategoryIds?.has(id)))) {
+      throw ApiError.badRequest('Order must cover every visible category in this group')
+    }
+    const statements = orderedIds
+      .filter((id) => !hiddenCategoryIds?.has(id))
+      .map((id, index) =>
+        this.db.prepare('UPDATE nav_categories SET sort_order = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4').bind(index, Date.now(), this.userId, id),
+      )
     await this.db.batch(statements)
   }
 
@@ -512,7 +534,37 @@ export class NavStore {
     return { updated, failed }
   }
 
-  async importData(categories: readonly NavImportCategory[], links: readonly NavImportLink[], skipExisting: boolean): Promise<{ imported: number; skipped: number }> {
+  /**
+   * The "categories nest only one level" rule, checked against the tree as it will stand after the upsert.
+   *
+   * `createCategory` refuses a third level per request, but the bulk upsert writes `parent_id` straight
+   * through, and the lock's visibility rule walks a bounded number of parent hops. A three-level branch
+   * would therefore leave the deepest folder's links readable behind a locked root, so both bulk entry
+   * points have to be held to the same shape as the single-item one.
+   */
+  private async assertTwoLevelTree(incoming: readonly NavImportCategory[]): Promise<void> {
+    const rows = await this.categoryRows()
+    const parentById = new Map(rows.map((row) => [row.id, row.parent_id ?? null]))
+    for (const category of incoming) parentById.set(category.id, category.parentId)
+    const childCount = new Map<string, number>()
+    for (const parentId of parentById.values()) {
+      if (parentId !== null) childCount.set(parentId, (childCount.get(parentId) ?? 0) + 1)
+    }
+    for (const category of incoming) {
+      if (category.parentId === null) continue
+      if (!parentById.has(category.parentId)) throw ApiError.badRequest('Unknown parent category')
+      if (parentById.get(category.parentId) !== null) throw ApiError.badRequest('Categories nest only one level')
+      if ((childCount.get(category.id) ?? 0) > 0) throw ApiError.badRequest('Categories nest only one level')
+    }
+  }
+
+  async importData(
+    categories: readonly NavImportCategory[],
+    links: readonly NavImportLink[],
+    skipExisting: boolean,
+    checkMergedNesting = true,
+  ): Promise<{ imported: number; skipped: number }> {
+    if (checkMergedNesting) await this.assertTwoLevelTree(categories)
     const existingUrls = skipExisting ? new Set((await this.linkRows()).map((row) => row.url)) : new Set<string>()
     const foreignCategories = await this.idsOwnedByAnotherUser('nav_categories', categories.map((category) => category.id))
     const foreignLinks = await this.idsOwnedByAnotherUser('nav_links', links.map((link) => link.id))
@@ -572,7 +624,9 @@ export class NavStore {
   async restore(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategoryNames: string[] }> {
     const previousCategories = await this.categoryRows()
     const previousCategoryIds = new Set(previousCategories.map((row) => row.id))
-    await this.importData(backup.categories, backup.links, false)
+    // A snapshot replaces the tree wholesale and `NavBackupSchema` already proved it nests one level, so
+    // the merged check would only see rows this very call is about to delete.
+    await this.importData(backup.categories, backup.links, false, false)
     const categoryIds = new Set(backup.categories.map((category) => category.id))
     const linkIds = new Set(backup.links.map((link) => link.id))
     const existingCategories = await this.categoryRows()

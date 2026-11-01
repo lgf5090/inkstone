@@ -137,6 +137,57 @@ export const NavSettingsGroupSchema = z.object({
 })
 export type NavBackupSettings = z.infer<typeof NavSettingsGroupSchema>
 
+/**
+ * The structural rules a self-contained category/link payload must satisfy.
+ *
+ * A backup is a whole snapshot, so every reference in it has to resolve inside it. The bookmark import is
+ * different — it deliberately files links under categories that already exist in the database — so it runs
+ * only the checks that are meaningful per-payload and gets its nesting rule enforced where the full tree is
+ * actually visible (`importData`, which both entry points share).
+ */
+function refineSnapshotTree(
+  data: { categories: Array<{ id: string; parentId: string | null }>; links: Array<{ id: string; categoryId: string }> },
+  ctx: z.RefinementCtx,
+): void {
+  const categoryIds = new Set(data.categories.map((category) => category.id))
+  if (categoryIds.size !== data.categories.length) {
+    ctx.addIssue({ code: 'custom', path: ['categories'], message: 'Duplicate category id' })
+  }
+  const parentOf = new Map(data.categories.map((category) => [category.id, category.parentId]))
+  data.categories.forEach((category, index) => {
+    if (category.parentId === null) return
+    if (!parentOf.has(category.parentId)) {
+      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Unknown parent category' })
+      return
+    }
+    if (parentOf.get(category.parentId) !== null) {
+      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Categories nest only one level' })
+    }
+  })
+  const linkIds = new Set(data.links.map((link) => link.id))
+  if (linkIds.size !== data.links.length) {
+    ctx.addIssue({ code: 'custom', path: ['links'], message: 'Duplicate link id' })
+  }
+  data.links.forEach((link, index) => {
+    if (!categoryIds.has(link.categoryId)) {
+      ctx.addIssue({ code: 'custom', path: ['links', index, 'categoryId'], message: 'Unknown category for link' })
+    }
+  })
+}
+
+/** Duplicate ids would silently last-write-wins through the upsert, so both bulk paths reject them. */
+function refineUniqueBulkIds(
+  data: { categories: Array<{ id: string }>; links: Array<{ id: string }> },
+  ctx: z.RefinementCtx,
+): void {
+  if (new Set(data.categories.map((category) => category.id)).size !== data.categories.length) {
+    ctx.addIssue({ code: 'custom', path: ['categories'], message: 'Duplicate category id' })
+  }
+  if (new Set(data.links.map((link) => link.id)).size !== data.links.length) {
+    ctx.addIssue({ code: 'custom', path: ['links'], message: 'Duplicate link id' })
+  }
+}
+
 export const NavImportSchema = z.object({
   categories: z.array(z.object({
     id: navId,
@@ -160,7 +211,7 @@ export const NavImportSchema = z.object({
   })).max(NAV_LIMITS.importLinksPerRequest),
   skipExisting: z.boolean().optional(),
   fallbackCategoryName: categoryName.optional(),
-})
+}).superRefine(refineUniqueBulkIds)
 
 const backupCategory = z.object({
   id: navId,
@@ -221,32 +272,7 @@ export const NavBackupSchema = z.object({
   links: z.array(backupLink).max(NAV_LIMITS.importMaxLinks),
   visits: z.record(z.string(), backupVisit).optional(),
   settings: NavSettingsGroupSchema.partial().optional(),
-}).superRefine((backup, ctx) => {
-  const categoryIds = new Set(backup.categories.map((category) => category.id))
-  if (categoryIds.size !== backup.categories.length) {
-    ctx.addIssue({ code: 'custom', path: ['categories'], message: 'Duplicate category id' })
-  }
-  const parentOf = new Map(backup.categories.map((category) => [category.id, category.parentId]))
-  backup.categories.forEach((category, index) => {
-    if (category.parentId === null) return
-    if (!parentOf.has(category.parentId)) {
-      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Unknown parent category' })
-      return
-    }
-    if (parentOf.get(category.parentId) !== null) {
-      ctx.addIssue({ code: 'custom', path: ['categories', index, 'parentId'], message: 'Categories nest only one level' })
-    }
-  })
-  const linkIds = new Set(backup.links.map((link) => link.id))
-  if (linkIds.size !== backup.links.length) {
-    ctx.addIssue({ code: 'custom', path: ['links'], message: 'Duplicate link id' })
-  }
-  backup.links.forEach((link, index) => {
-    if (!categoryIds.has(link.categoryId)) {
-      ctx.addIssue({ code: 'custom', path: ['links', index, 'categoryId'], message: 'Unknown category for link' })
-    }
-  })
-})
+}).superRefine(refineSnapshotTree)
 
 export const NavIconCaptureSchema = z.object({ url: z.string().trim().min(1).max(NAV_LIMITS.url) })
 export const NavFaviconSchema = z.object({

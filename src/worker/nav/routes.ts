@@ -134,6 +134,10 @@ navDataRoutes.patch('/categories/:id', async (c) => {
   const input = await body(c, zod(NavCategoryPatchSchema))
   const existing = await nav.category(id)
   if (!existing) throw ApiError.notFound('Category not found')
+  // Renaming a protected folder discloses nothing its name was not already doing, but changing its password
+  // mode is the lock itself — so that one patch, and only that one, has to prove the key. Without this the
+  // whole feature is bypassable by anyone holding the session: `passwordMode:'none'` and the folder is open.
+  if (input.passwordMode !== undefined && (await hiddenFor(c, nav)).has(id)) throw ApiError.notFound('Category not found')
   const patch: Parameters<NavStore['updateCategory']>[1] = {}
   if (input.name !== undefined) patch.name = input.name
   if (input.icon !== undefined) patch.icon = input.icon
@@ -150,14 +154,21 @@ navDataRoutes.patch('/categories/:id', async (c) => {
 navDataRoutes.delete('/categories/:id', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavCategoryDeleteSchema))
-  await nav.deleteCategory(c.req.param('id'), input.fallbackCategoryId)
+  const id = c.req.param('id')
+  const hidden = await hiddenFor(c, nav)
+  // Deleting a locked folder would move every hidden link into the fallback, which is a one-call way to
+  // unhide a whole branch; the fallback itself must not be a hidden folder either way.
+  if (hidden.has(id) || hidden.has(input.fallbackCategoryId)) throw ApiError.notFound('Category not found')
+  const children = (await nav.categories()).filter((child) => child.parentId === id).map((child) => child.id)
+  if (children.some((child) => hidden.has(child))) throw ApiError.notFound('Category not found')
+  await nav.deleteCategory(id, input.fallbackCategoryId)
   return c.json({ ok: true })
 })
 
 navDataRoutes.post('/categories/order', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavOrderSchema))
-  await nav.reorderCategories(input.parentId ?? null, input.orderedIds)
+  await nav.reorderCategories(input.parentId ?? null, input.orderedIds, await hiddenFor(c, nav))
   return c.json({ ok: true })
 })
 
@@ -242,6 +253,7 @@ navDataRoutes.post('/links/order', async (c) => {
   if (input.scope === 'category' && !input.categoryId) throw ApiError.badRequest('categoryId is required')
   const unlockIds = await unlocked(c)
   const hiddenCategoryIds = hiddenCategories(await nav.categories(), unlockIds)
+  if (input.categoryId && hiddenCategoryIds.has(input.categoryId)) throw ApiError.notFound('Category not found')
   await nav.reorderLinks(input.scope === 'category' ? 'category' : 'pinned', input.orderedIds, input.categoryId, hiddenCategoryIds)
   return c.json({ ok: true })
 })
@@ -263,6 +275,12 @@ navDataRoutes.post('/import', async (c) => {
     ...link,
     categoryId: known.has(link.categoryId) ? link.categoryId : fallback ?? [...known][0] ?? link.categoryId,
   }))
+  // An import upserts by id, so a payload naming a locked category would rewrite its name and parent — or
+  // file someone else's links into it — without ever asking for the key.
+  const hidden = await hiddenFor(c, nav)
+  if (input.categories.some((category) => hidden.has(category.id)) || links.some((link) => hidden.has(link.categoryId))) {
+    throw ApiError.notFound('Category not found')
+  }
   const result = await nav.importData(input.categories, links, input.skipExisting !== false)
   return c.json(result)
 })

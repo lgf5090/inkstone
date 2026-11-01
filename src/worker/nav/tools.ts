@@ -103,6 +103,12 @@ function linkView(link: NavLink, scope: NavToolScope): Record<string, unknown> {
 
 function categoryView(category: NavCategory, scope: NavToolScope): Record<string, unknown> {
   const hidden = isHidden(scope, category.id)
+  if (hidden) {
+    // A protected folder's name, icon, parent and size are exactly what its password is for, and this view
+    // is what the assistant pastes into a third-party model's context. Say only that something is behind a
+    // key; every read tool already refuses to work inside it.
+    return { id: category.id, locked: true, hidden: true, linkCount: null, childCount: null }
+  }
   return {
     id: category.id,
     name: category.name,
@@ -112,7 +118,7 @@ function categoryView(category: NavCategory, scope: NavToolScope): Record<string
     sortOrder: category.sortOrder,
     locked: category.hasPassword,
     hidden,
-    linkCount: hidden ? null : scope.visible.filter((link) => link.categoryId === category.id).length,
+    linkCount: scope.visible.filter((link) => link.categoryId === category.id).length,
     childCount: scope.categories.filter((item) => item.parentId === category.id).length,
   }
 }
@@ -127,7 +133,9 @@ export async function navOverview(scope: NavToolScope): Promise<Record<string, u
   return {
     categories: scope.categories.map((category) => categoryView(category, scope)),
     linksVisible: scope.visible.length,
-    linksHidden: scope.links.length - scope.visible.length,
+    // A count of what is locked away is itself a disclosure ("13 entries in that folder"), so this reports
+    // only that something is hidden.
+    hasHiddenLinks: scope.links.length > scope.visible.length,
     pinnedVisible: pinned.length,
     protectedCategories: scope.categories.filter((category) => category.hasPassword && !scope.unlocked.has(category.id)).length,
     topVisited,

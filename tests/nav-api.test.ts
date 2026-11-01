@@ -315,7 +315,9 @@ describe('category CRUD and ordering', () => {
       body: { name: 'Nope' },
     })).status).toBe(404)
 
-    const cleared = await call('PATCH', `/api/nav/categories/${category.id}`, { body: { passwordMode: 'none' } })
+    // Changing the lock is the one patch that has to prove the key, so clearing it needs an unlock first.
+    const keyHeaders = await seedUnlock(USER_A, category.id, 'a-long-password')
+    const cleared = await call('PATCH', `/api/nav/categories/${category.id}`, { headers: keyHeaders, body: { passwordMode: 'none' } })
     expect(cleared.status).toBe(200)
     const clearedCategory = (await json<{ category: NavCategory }>(cleared)).category
     expect(clearedCategory.hasPassword).toBe(false)
@@ -425,8 +427,9 @@ describe('category passwords and unlock tokens', () => {
 
     const before = await json<NavBootstrap>(await call('GET', '/api/nav'))
     expect(before.links.map((link) => link.id)).toEqual([openLink.id])
-    expect(before.counts.total).toBe(2)
-    expect(before.counts.byCategory[locked.id]).toBe(1)
+    // A protected folder's size is withheld: the totals cover only what this session may read.
+    expect(before.counts.total).toBe(1)
+    expect(before.counts.byCategory[locked.id]).toBeUndefined()
     expect(before.counts.byCategory[visible.id]).toBe(1)
     expect(before.categories.find((entry) => entry.id === locked.id)!.hasPassword).toBe(true)
 
@@ -473,6 +476,117 @@ describe('category passwords and unlock tokens', () => {
     }
     expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
     expect(statuses[5]).toBe(429)
+  })
+
+  it('refuses hidden category writes until the category is unlocked', async () => {
+    const locked = await createCategory(USER_A, 'Locked folder', {
+      passwordMode: 'custom',
+      password: 'category-password',
+    })
+    const open = await createCategory(USER_A, 'Open folder')
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'category-password')
+    const hiddenLink = await createLink(USER_A, locked.id, 'Secret link', {}, seedHeaders)
+    const visibleLink = await createLink(USER_A, open.id, 'Visible link')
+
+    // Taking a lock off has to require the key, otherwise the lock protects nothing.
+    expect((await call('PATCH', `/api/nav/categories/${locked.id}`, { body: { passwordMode: 'none' } })).status).toBe(404)
+    expect((await call('PATCH', `/api/nav/categories/${locked.id}`, { body: { passwordMode: 'custom', password: 'another-password' } })).status).toBe(404)
+    // Renaming discloses nothing the name was not already disclosing, so it stays available while locked.
+    expect((await call('PATCH', `/api/nav/categories/${locked.id}`, { body: { name: 'Renamed' } })).status).toBe(200)
+    // Deleting a locked folder would move every hidden link into a readable one.
+    expect((await call('DELETE', `/api/nav/categories/${locked.id}`, { body: { fallbackCategoryId: open.id } })).status).toBe(404)
+    // And filing visible links into a hidden folder must not make them disappear either.
+    expect((await call('DELETE', `/api/nav/categories/${open.id}`, { body: { fallbackCategoryId: locked.id } })).status).toBe(404)
+    // Reordering inside a hidden folder is a write into it.
+    expect((await call('POST', '/api/nav/links/order', {
+      body: { scope: 'category', categoryId: locked.id, orderedIds: [hiddenLink.id] },
+    })).status).toBe(404)
+
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(after.links.map((link) => link.id)).toEqual([visibleLink.id])
+    // The lock itself is untouched: still protected, still holding its hidden link.
+    expect(categoryRow(locked.id)).toMatchObject({ name: 'Renamed', use_default_password: 0 })
+    expect(String(categoryRow(locked.id)!.password_hash).startsWith('scrypt$')).toBe(true)
+
+    const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, { body: { password: 'category-password' } }))
+    const headers = { 'X-Nav-Unlocks': unlock.token }
+    expect((await call('PATCH', `/api/nav/categories/${locked.id}`, { headers, body: { name: 'Renamed' } })).status).toBe(200)
+    expect((await call('POST', '/api/nav/links/order', { headers, body: { scope: 'category', categoryId: locked.id, orderedIds: [hiddenLink.id] } })).status).toBe(200)
+    expect((await call('DELETE', `/api/nav/categories/${locked.id}`, { headers, body: { fallbackCategoryId: open.id } })).status).toBe(200)
+    const merged = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(merged.links.map((link) => link.id).sort()).toEqual([hiddenLink.id, visibleLink.id].sort())
+  })
+
+  it('orders the categories a reader can see while a locked sibling keeps its place', async () => {
+    const alpha = await createCategory(USER_A, 'Alpha')
+    await createCategory(USER_A, 'Locked sibling', { passwordMode: 'custom', password: 'order-password' })
+    const beta = await createCategory(USER_A, 'Beta')
+    // The client never learns the locked folder's id once counts and names are withheld, so a complete set
+    // over the *visible* group is the only thing an ordering request can possibly carry.
+    const response = await call('POST', '/api/nav/categories/order', { body: { parentId: null, orderedIds: [beta.id, alpha.id] } })
+    expect(response.status, await response.text()).toBe(200)
+    const data = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(data.categories.filter((category) => !category.hasPassword).map((category) => category.name)).toEqual(['Beta', 'Alpha'])
+    const unlock = await seedUnlock(USER_A, data.categories.find((category) => category.hasPassword)!.id, 'order-password')
+    const seen = await json<NavBootstrap>(await call('GET', '/api/nav', { headers: unlock }))
+    expect(seen.categories.filter((category) => category.hasPassword).map((category) => category.name)).toEqual(['Locked sibling'])
+  })
+
+  it('withholds a locked folder size from bootstrap counts and restores it on unlock', async () => {
+    const locked = await createCategory(USER_A, 'Locked counts', { passwordMode: 'custom', password: 'count-password' })
+    const open = await createCategory(USER_A, 'Open counts')
+    const seedHeaders = await seedUnlock(USER_A, locked.id, 'count-password')
+    await createLink(USER_A, locked.id, 'Hidden one', {}, seedHeaders)
+    await createLink(USER_A, locked.id, 'Hidden two', {}, seedHeaders)
+    await createLink(USER_A, open.id, 'Visible one')
+
+    const hidden = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(hidden.counts.total).toBe(1)
+    expect(hidden.counts.byCategory[locked.id]).toBeUndefined()
+    expect(hidden.counts.byCategory[open.id]).toBe(1)
+
+    const unlock = await json<{ token: string }>(await call('POST', `/api/nav/categories/${locked.id}/unlock`, { body: { password: 'count-password' } }))
+    const seen = await json<NavBootstrap>(await call('GET', '/api/nav', { headers: { 'X-Nav-Unlocks': unlock.token } }))
+    expect(seen.counts.total).toBe(3)
+    expect(seen.counts.byCategory[locked.id]).toBe(2)
+  })
+
+  it('refuses a bulk import that would grow the tree past one nesting level', async () => {
+    const root = await createCategory(USER_A, 'Import root')
+    const child = await createCategory(USER_A, 'Import child', { parentId: root.id })
+    const grandchild = { id: newNavId(), name: 'Import grandchild', icon: 'folder', parentId: child.id, sortOrder: 0, createdAt: 1 }
+    const ontoExisting = await call('POST', '/api/nav/import', { body: { categories: [grandchild], links: [] } })
+    expect(ontoExisting.status, await ontoExisting.text()).toBe(400)
+
+    const [l, c, d] = [newNavId(), newNavId(), newNavId()]
+    const withinPayload = await call('POST', '/api/nav/import', {
+      body: {
+        categories: [
+          { id: l, name: 'L', icon: 'folder', parentId: null, sortOrder: 0, createdAt: 1 },
+          { id: c, name: 'C', icon: 'folder', parentId: l, sortOrder: 0, createdAt: 1 },
+          { id: d, name: 'D', icon: 'folder', parentId: c, sortOrder: 0, createdAt: 1 },
+        ],
+        links: [],
+      },
+    })
+    expect(withinPayload.status).toBe(400)
+    expect(count('nav_categories')).toBe(2)
+  })
+
+  it('hides a grandchild folder behind a locked root in a three-level tree', async () => {
+    // The write paths refuse a third level, so reach one the way legacy data would: re-parent after creation.
+    const root = await createCategory(USER_A, 'Deep root', { passwordMode: 'custom', password: 'deep-password' })
+    const child = await createCategory(USER_A, 'Deep child')
+    const grandchild = await createCategory(USER_A, 'Deep grandchild')
+    await createLink(USER_A, grandchild.id, 'Deep visible')
+    sqlite.prepare('UPDATE nav_categories SET parent_id = ? WHERE id = ?').run(child.id, grandchild.id)
+    sqlite.prepare('UPDATE nav_categories SET parent_id = ? WHERE id = ?').run(root.id, child.id)
+
+    const hidden = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(hidden.links.map((link) => link.title)).toEqual([])
+    const seedHeaders = await seedUnlock(USER_A, root.id, 'deep-password')
+    const seen = await json<NavBootstrap>(await call('GET', '/api/nav', { headers: seedHeaders }))
+    expect(seen.links.map((link) => link.title)).toEqual(['Deep visible'])
   })
 
   it('refuses hidden link writes until the category is unlocked', async () => {
@@ -572,7 +686,8 @@ describe('category passwords and unlock tokens', () => {
     expect(response.status).toBe(200)
     const body = await json<NavBootstrap>(response)
     expect(body.links).toEqual([])
-    expect(body.counts.total).toBe(1)
+    // A folder the expired token no longer opens contributes nothing to the totals either.
+    expect(body.counts.total).toBe(0)
     expect(count('nav_link_visits')).toBe(0)
     expect(linkRow(secretLink.id)).toBeDefined()
   })
@@ -586,7 +701,9 @@ describe('category passwords and unlock tokens', () => {
     expect(unlock.status).toBe(200)
     expect(count('nav_category_unlocks')).toBe(1)
 
+    const { token } = await json<{ token: string }>(unlock)
     const changed = await call('PATCH', `/api/nav/categories/${locked.id}`, {
+      headers: { 'X-Nav-Unlocks': token },
       body: { passwordMode: 'custom', password: 'second-password' },
     })
     expect(changed.status).toBe(200)
