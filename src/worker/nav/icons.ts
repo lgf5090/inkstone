@@ -6,12 +6,17 @@ import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { newId } from '../lib/id'
 import { hasExpectedImageSignature, readImageSize } from '../lib/image'
 import { NAV_LIMITS, isNavId, isSafeIconValue } from '@shared/nav/model'
+import { COMMON_FAVICON_PATHS } from '@shared/nav/favicon-paths'
 import { NavFaviconSchema, NavIconCaptureSchema } from '@shared/nav/validation'
 import { guardedFetch, readGuardedBytes } from './safe-fetch'
 import { deleteNavObject, getNavObject, navIconObjectKey, putNavObject, selectNavStorage, type NavStorageKind } from './storage'
 
 export const navIconRoutes = new Hono<AppBindings>()
 navIconRoutes.use('*', requireAuth)
+
+/** Candidates are probed this many at a time, and only until the whole walk runs out of budget. */
+const PROBE_BATCH = 8
+const PROBE_BUDGET_MS = 20_000
 
 function userId(c: Context<AppBindings>): string {
   const id = c.get('userId') ?? c.get('user')?.id
@@ -126,6 +131,65 @@ navIconRoutes.post('/icons/capture', async (c) => {
   const icon = await insertIcon(c, bytes, 'captured', parsed.data.url)
   return c.json({ icon })
 })
+
+/**
+ * Find the site's own logo by asking the candidate paths from here instead of from the reader's browser.
+ *
+ * The client used to walk the whole candidate list with `new Image()`, which meant up to 76 requests
+ * straight from the reader to a third-party origin: their IP and browsing exposed, no way to cancel, and —
+ * because a browser request never passes the host guard — a free intranet port probe for anyone who typed
+ * a private address into the URL field. Doing it here puts every candidate behind the same resolver check
+ * and budget as the rest of the outbound surface, and answers in one round trip.
+ */
+navIconRoutes.post('/icons/probe', async (c) => {
+  const user = userId(c)
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `nav-icon-probe:${user}`, maxAttempts: 20, windowMs: 60_000 },
+  ]))
+  const raw = await c.req.json().catch(() => null)
+  const parsed = NavIconCaptureSchema.safeParse(raw)
+  if (!parsed.success) throw ApiError.badRequest('A valid url is required')
+  let origin: string
+  try {
+    origin = new URL(parsed.data.url).origin
+  } catch {
+    throw ApiError.badRequest('A valid url is required')
+  }
+  const candidates = COMMON_FAVICON_PATHS.filter((path) => !path.endsWith('.svg'))
+  const deadline = Date.now() + PROBE_BUDGET_MS
+  let found: string | null = null
+  for (let index = 0; index < candidates.length && !found; index += PROBE_BATCH) {
+    if (Date.now() > deadline) break
+    const batch = candidates.slice(index, index + PROBE_BATCH).map((path) => `${origin}${path}`)
+    const probes = await Promise.all(batch.map(probeCandidate))
+    // A refusal is not a miss: answering "no icon found" for a blocked address would let a caller read
+    // the guard's decisions as an absence, which is the same oracle the literal check exists to remove.
+    if (probes.includes('blocked')) throw new ApiError(400, 'nav_blocked_target', 'That address is not reachable from this deployment')
+    found = batch[probes.findIndex((probe) => probe === 'hit')] ?? null
+  }
+  if (!found) throw new ApiError(404, 'nav_icon_invalid', 'No site icon was found at the usual paths')
+  const result = await guardedFetch(found, { method: 'GET', timeoutMs: 8000, maxRedirects: 3 })
+  if (result.error || !result.response.ok) {
+    throw new ApiError(502, 'internal', `Icon fetch failed: ${result.error ?? `HTTP ${result.response.status}`}`)
+  }
+  const bytes = await readGuardedBytes(result.response, NAV_LIMITS.capturedIconBytes)
+  if (!bytes || !bytes.byteLength) throw new ApiError(413, 'payload_too_large', 'Icon is too large or empty')
+  const icon = await insertIcon(c, bytes, 'captured', found)
+  const domain = new URL(found).hostname.toLowerCase()
+  await c.env.DB.prepare(`INSERT INTO nav_favicons (user_id, domain, icon, updated_at) VALUES (?1, ?2, ?3, ?4)
+    ON CONFLICT(user_id, domain) DO UPDATE SET icon = excluded.icon, updated_at = excluded.updated_at`)
+    .bind(user, domain, icon.url, Date.now()).run()
+  return c.json({ icon })
+})
+
+/** HEAD is enough to learn a path exists; most sites answer 404 quickly for the ones that do not. */
+async function probeCandidate(url: string): Promise<'hit' | 'miss' | 'blocked'> {
+  const result = await guardedFetch(url, { method: 'HEAD', timeoutMs: 4000, maxRedirects: 2 })
+  if (result.error === 'blocked_target') return 'blocked'
+  if (result.error) return 'miss'
+  await result.response.body?.cancel().catch(() => null)
+  return result.response.ok ? 'hit' : 'miss'
+}
 
 navIconRoutes.get('/icons/:id', async (c) => {
   const id = c.req.param('id')

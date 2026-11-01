@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImagePlus, Loader2, Pin, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import type { NavLink } from '@shared/nav/model'
-import { COMMON_FAVICON_PATHS } from '@shared/nav/favicon-paths'
 import { extractDomain, initialFor, normalizeLinkUrl } from '@shared/nav/model'
 import { Modal, confirm } from '../../components/overlay'
 import { Button, IconButton } from '../../components/primitives'
@@ -21,27 +20,6 @@ interface Props {
 }
 
 const DEBOUNCE_MS = 500
-
-function imageExists(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const image = new Image()
-    const timer = window.setTimeout(() => {
-      image.onload = null
-      image.onerror = null
-      image.src = ''
-      resolve(false)
-    }, 3000)
-    image.onload = () => {
-      window.clearTimeout(timer)
-      resolve(image.naturalWidth > 0)
-    }
-    image.onerror = () => {
-      window.clearTimeout(timer)
-      resolve(false)
-    }
-    image.src = url
-  })
-}
 
 export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose }: Props) {
   const categories = useNavStore((state) => state.categories)
@@ -66,6 +44,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
   const [aiAvailable, setAiAvailable] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const fetchSeq = useRef(0)
+  const probeSeq = useRef(0)
   const options = useMemo(() => categoryOptions(categories), [categories])
 
   useEffect(() => {
@@ -211,31 +190,21 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
   }
 
   async function detectLogo() {
-    if (!url.trim()) return
+    if (!url.trim() || !normalizeLinkUrl(url)) return
+    const sequence = ++probeSeq.current
     setIconBusy('detect')
     try {
-      const parsed = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`)
-      const origin = parsed.origin
-      const candidates = COMMON_FAVICON_PATHS.filter((path) => !path.endsWith('.svg'))
-      let found: string | null = null
-      for (let index = 0; index < candidates.length && !found; index += 8) {
-        const batch = candidates.slice(index, index + 8).map((path) => `${origin}${path}`)
-        const hits = await Promise.all(batch.map(async (candidate) => (await imageExists(candidate) ? candidate : null)))
-        found = hits.find((candidate): candidate is string => Boolean(candidate)) ?? null
-      }
-      if (!found) {
-        toast({ title: t('nav.link.icon_not_found'), tone: 'warning' })
-        return
-      }
-      const captured = await navApi.captureIcon(found)
+      const captured = await navApi.probeIcon(url.trim())
+      if (sequence !== probeSeq.current) return
       setIcon(captured.icon.url)
       const domain = extractDomain(url)
       if (domain) await navApi.cacheFavicon(domain, captured.icon.url).catch(() => null)
       toast({ title: t('nav.link.icon_detected'), tone: 'success' })
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.generic'), tone: 'danger' })
+      if (sequence !== probeSeq.current) return
+      toast({ title: error instanceof Error ? error.message : t('nav.link.icon_not_found'), tone: 'danger' })
     } finally {
-      setIconBusy(null)
+      if (sequence === probeSeq.current) setIconBusy(null)
     }
   }
 
@@ -258,11 +227,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
     if (!title.trim() || !url.trim()) return
     setAiBusy(true)
     try {
-      const result = await navApi.aiSuggest({
-        title: title.trim(),
-        url: url.trim(),
-        categories: categories.map((category) => ({ id: category.id, name: category.name })),
-      })
+      const result = await navApi.aiSuggest({ title: title.trim(), url: url.trim() })
       if (result.description) setDescription(result.description)
       if (result.categoryId) setCategoryId(result.categoryId)
     } catch (error) {

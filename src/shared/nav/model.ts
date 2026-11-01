@@ -173,6 +173,8 @@ export type NavCheckLevel = 'ok' | 'warning' | 'broken' | 'skipped'
 export type NavCheckError =
   | 'timeout'
   | 'network'
+  /** The resolvers could not be reached, so nothing is known about the address. Not a verdict on the link. */
+  | 'dns_unavailable'
   | 'blocked_target'
   | 'invalid_url'
   | 'too_many_redirects'

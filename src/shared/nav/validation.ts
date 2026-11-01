@@ -92,8 +92,11 @@ export const NavBatchSchema = z.object({
 
 export const NavAiSuggestSchema = z.object({
   title: z.string().trim().min(1).max(NAV_LIMITS.title),
-  url: z.string().trim().min(1).max(NAV_LIMITS.url),
-  categories: z.array(z.object({ id: navId, name: categoryName })).max(200),
+  // Checked with the same rule a stored link gets: this string is interpolated straight into the model's
+  // prompt, so a multi-line or odd-scheme value is prompt surface nobody meant to send. The category list
+  // is no longer taken from the caller at all — the server reads its own, so a client cannot put names it
+  // invented (or names of folders it has not unlocked) in front of the model.
+  url: z.string().trim().min(1).max(NAV_LIMITS.url).refine((value) => normalizeLinkUrl(value) !== null, 'unsupported url'),
 })
 
 export const NavCheckSchema = z.object({
@@ -129,6 +132,21 @@ export const NavWebdavSettingsSchema = z.object({
   url: z.string().trim().max(NAV_LIMITS.url).default(''),
   username: z.string().trim().max(200).default(''),
 })
+
+/**
+ * The body a WebDAV call may carry.
+ *
+ * Every field is optional because a saved config supplies them, but they still have to arrive as strings:
+ * the handler used to cast the parsed JSON and call `.trim()` on whatever came back, so `{"url":123}`
+ * answered with a TypeError instead of a 400.
+ */
+export const NavWebdavRequestSchema = z.object({
+  url: z.string().trim().max(NAV_LIMITS.url).optional(),
+  username: z.string().trim().max(200).optional(),
+  password: z.string().max(512).optional(),
+  timestamped: z.boolean().optional(),
+})
+export type NavWebdavRequest = z.infer<typeof NavWebdavRequestSchema>
 
 export const NavSettingsGroupSchema = z.object({
   display: NavDisplaySettingsSchema.optional(),
@@ -270,7 +288,12 @@ export const NavBackupSchema = z.object({
   createdAt: z.number().int().nonnegative().optional(),
   categories: z.array(backupCategory).max(5000),
   links: z.array(backupLink).max(NAV_LIMITS.importMaxLinks),
-  visits: z.record(z.string(), backupVisit).optional(),
+  // Keyed by link id, so the cap follows the link cap: without it a single document could carry millions
+  // of visit entries that survive parsing and only get dropped later, one Map lookup at a time.
+  visits: z.record(z.string(), backupVisit).optional().refine(
+    (value) => !value || Object.keys(value).length <= NAV_LIMITS.importMaxLinks,
+    'Too many visit entries',
+  ),
   settings: NavSettingsGroupSchema.partial().optional(),
 }).superRefine(refineSnapshotTree)
 

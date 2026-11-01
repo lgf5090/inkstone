@@ -79,7 +79,7 @@ async function errorCode(response: Response): Promise<string> {
   return body.error.code
 }
 
-function pngBytes(width = 1, height = 1): Uint8Array {
+function pngBytes(width = 1, height = 1): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(33)
   bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
   const view = new DataView(bytes.buffer)
@@ -194,6 +194,55 @@ describe('icon upload', () => {
     expect(tooLarge.status).toBe(413)
     expect(await errorCode(tooLarge)).toBe('payload_too_large')
     expect(r2.objects.size).toBe(0)
+  })
+})
+
+describe('icon probe', () => {
+  it('walks the usual paths from the server and stores the first hit', async () => {
+    stubFetch((url, init) => {
+      if (url.endsWith('/android-chrome-192x192.png')) {
+        return new Response(init.method === 'HEAD' ? null : pngBytes(64, 64), { status: 200 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    const response = await call('POST', '/api/nav/icons/probe', { body: { url: 'https://brand.example.com/app' } })
+    expect(response.status).toBe(200)
+    const { icon } = await json<{ icon: { url: string } }>(response)
+    expect(icon.url).toMatch(/^\/api\/nav\/icons\/[0-9a-hjkmnp-tv-z]{26}$/)
+    expect(r2.objects.size).toBe(1)
+    // The domain cache is written in the same call, so the next bookmark on that host costs no probing.
+    expect(sqlite.prepare('SELECT icon FROM nav_favicons WHERE domain = ?').get('brand.example.com')).toBeDefined()
+  })
+
+  it('refuses to probe a private origin without calling fetch', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await call('POST', '/api/nav/icons/probe', { body: { url: 'http://192.168.0.1/dashboard' } })
+    expect(response.status).toBe(400)
+    expect(await errorCode(response)).toBe('nav_blocked_target')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers not-found when no candidate path serves an image', async () => {
+    stubFetch(() => new Response(null, { status: 404 }))
+    const response = await call('POST', '/api/nav/icons/probe', { body: { url: 'https://bare.example.com/' } })
+    expect(response.status).toBe(404)
+    expect(await errorCode(response)).toBe('nav_icon_invalid')
+    expect(r2.objects.size).toBe(0)
+  })
+
+  it('stops probing once the budget is spent', async () => {
+    let now = 1_700_000_000_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    stubFetch(() => {
+      // Each batch advances the clock past the budget, so the walk must not keep going.
+      now += 30_000
+      return new Response(null, { status: 404 })
+    })
+    const response = await call('POST', '/api/nav/icons/probe', { body: { url: 'https://slow.example.com/' } })
+    expect(response.status).toBe(404)
+    expect(fetchCalls.length).toBeLessThan(20)
+    clock.mockRestore()
   })
 })
 

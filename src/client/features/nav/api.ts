@@ -117,11 +117,12 @@ export const navApi = {
     return navFetch<NavIconsResponse>('/api/nav/icons', { method: 'POST', formData: form })
   },
   captureIcon: (url: string) => navFetch<NavIconsResponse>('/api/nav/icons/capture', { method: 'POST', body: { url } }),
+  probeIcon: (url: string) => navFetch<NavIconsResponse>('/api/nav/icons/probe', { method: 'POST', body: { url } }),
   deleteIcon: (id: string) => navFetch<{ ok: true }>(`/api/nav/icons/${id}`, { method: 'DELETE' }),
   favicon: (domain: string) => navFetch<NavFaviconResponse>(`/api/nav/favicon?domain=${encodeURIComponent(domain)}`),
   cacheFavicon: (domain: string, icon: string) => navFetch<{ ok: true }>('/api/nav/favicon', { method: 'POST', body: { domain, icon } }),
   aiModels: () => navFetch<NavAiModelsResponse>('/api/nav/ai/models'),
-  aiSuggest: (body: { title: string; url: string; categories: { id: string; name: string }[] }) => navFetch<NavAiSuggestResponse>('/api/nav/ai/suggest', { method: 'POST', body }),
+  aiSuggest: (body: { title: string; url: string }) => navFetch<NavAiSuggestResponse>('/api/nav/ai/suggest', { method: 'POST', body }),
   check: (urls: string[], signal?: AbortSignal) => navFetch<NavCheckResponse>('/api/nav/check', { method: 'POST', body: { urls }, signal }),
 }
 

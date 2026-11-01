@@ -273,6 +273,7 @@ export const ZH_CN_NAV = {
   'nav.checker.close_confirm': '检测正在进行，关闭窗口会中断检测，确定吗？',
   'nav.checker.help': '2xx/3xx 为正常，4xx 为警告，5xx 或网络错误为失效。',
   'nav.checker.error.timeout': '请求超时',
+  'nav.checker.error.dns_unavailable': '暂时无法解析该地址，请稍后重试',
   'nav.checker.error.network': '网络错误',
   'nav.checker.error.blocked_target': '内网地址',
   'nav.checker.error.invalid_url': '不支持的 URL',

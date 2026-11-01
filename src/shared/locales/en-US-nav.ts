@@ -273,6 +273,7 @@ export const EN_US_NAV = {
   'nav.checker.close_confirm': 'A check is running. Close it and stop checking?',
   'nav.checker.help': '2xx/3xx is OK, 4xx is a warning, 5xx or a network error is broken.',
   'nav.checker.error.timeout': 'Timed out',
+  'nav.checker.error.dns_unavailable': 'The address could not be resolved right now. Try again later',
   'nav.checker.error.network': 'Network error',
   'nav.checker.error.blocked_target': 'Private address',
   'nav.checker.error.invalid_url': 'Unsupported URL',

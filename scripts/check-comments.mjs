@@ -30370,10 +30370,18 @@ const allowed = new Map([
   ["src/shared/nav/model.ts", [
     "/** A URL a bookmark may store, or null. Mail and phone links are kept but never fetched. */",
     "/** Reserved categories the blog projects; every other category stays private to the nav app. */",
+    "/** The resolvers could not be reached, so nothing is known about the address. Not a verdict on the link. */",
   ]],
   ["src/shared/nav/validation.ts", [
     "/**\n * The structural rules a self-contained category/link payload must satisfy.\n *\n * A backup is a whole snapshot, so every reference in it has to resolve inside it. The bookmark import is\n * different — it deliberately files links under categories that already exist in the database — so it runs\n * only the checks that are meaningful per-payload and gets its nesting rule enforced where the full tree is\n * actually visible (`importData`, which both entry points share).\n */",
     "/** Duplicate ids would silently last-write-wins through the upsert, so both bulk paths reject them. */",
+    "// Checked with the same rule a stored link gets: this string is interpolated straight into the model's",
+    "// prompt, so a multi-line or odd-scheme value is prompt surface nobody meant to send. The category list",
+    "// is no longer taken from the caller at all — the server reads its own, so a client cannot put names it",
+    "// invented (or names of folders it has not unlocked) in front of the model.",
+    "/**\n * The body a WebDAV call may carry.\n *\n * Every field is optional because a saved config supplies them, but they still have to arrive as strings:\n * the handler used to cast the parsed JSON and call `.trim()` on whatever came back, so `{\"url\":123}`\n * answered with a TypeError instead of a 400.\n */",
+    "// Keyed by link id, so the cap follows the link cap: without it a single document could carry millions",
+    "// of visit entries that survive parsing and only get dropped later, one Map lookup at a time.",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -36432,6 +36440,15 @@ const allowed = new Map([
   ["src/worker/lib/encoding.ts", [
     "/**\n * The five markup metacharacters, for a string headed into an HTML document.\n *\n * The share shells interpolate a note title into `<title>` and an `og:title` attribute, and a title is\n * author text: without this a title of `</title><script>` would close the tag the server just opened.\n * It lives here rather than beside each shell because three routes needed the same rule and a route may\n * not import another one.\n */",
   ]],
+  ["src/worker/lib/host-guard.ts", [
+    "// An authoritative empty answer and a resolver that never answered are different facts, and the caller",
+    "// has to be able to tell them apart: the first means the name has no address, the second means we do",
+    "// not know. Collapsing them made every link under a resolver outage read as a dead bookmark.",
+    "// A resolver outage says nothing about the name, and the cache is shared by every account in this",
+    "// isolate: holding that answer for the failure TTL turned one provider's hiccup into a wave of",
+    "// false \"dead link\" verdicts across unrelated users.",
+    "/** False only when the resolver itself could not be reached, which is not an answer about the name. */",
+  ]],
   ["src/worker/lib/http-range.ts", [
     "/**\n * Byte-range parsing and Content-Disposition formatting shared by the worker's file responses.\n *\n * The memo file route grew these two helpers privately; the music stream route needs exactly the\n * same answers for a 206, a 416 and a filename header, so the behaviour lives here once. A range\n * header this module cannot honour answers `'invalid'`, which the caller turns into a 416 with the\n * total size; an absent or non-`bytes` header answers `null`, which means \"serve the whole object\".\n */",
     "/**\n * Parse one RFC 7233 range against a known object size.\n *\n * A multi-range request is refused rather than answered with a body no browser asked for. Suffix\n * ranges (`bytes=-500`) count back from the end, an open-ended range runs to the last byte, and an\n * end past the object is clamped. `null` means the header is not a byte range at all.\n */",
@@ -37165,6 +37182,27 @@ const allowed = new Map([
     "/**\n * Chunked uploads into the music library.\n *\n * A 300 MB file cannot cross a Worker request in one body, so the browser sends 8 MiB parts into an\n * R2 multipart upload. This module owns the task row that survives between those requests: the R2\n * upload id, the parts already accepted, and the metadata the browser reported. It is also the only\n * place that finishes a task, which is where the object becomes a `music_track` plus its ledger row.\n *\n * Completion is the trust boundary. The declared extension chose the multipart key at init, but the\n * bytes decide the recorded format: the first four kilobytes are sniffed from R2, and a container\n * that does not match its declared family aborts the whole upload. If any write after the multipart\n * merge fails, the object is deleted (or queued for the cleanup sweep) so no unreachable bytes are\n * paid for.\n */",
     "/**\n   * Take the one completion slot for an upload. Clearing `upload_id` is the claim: a second request\n   * that read the same snapshot can no longer find a multipart session to complete, and a request\n   * that arrives after the claim sees the empty id. This is what keeps two retries from racing.\n   */",
     "/**\n * Merge the parts, verify the bytes, then publish the track and its ledger row.\n *\n * The quota lease is taken before the merge and held until the ledger row exists. If anything after\n * the merge fails, the object is discarded and the task is marked failed; a failed task is not\n * resumable because its multipart session is gone.\n */",
+  ]],
+  ["src/worker/nav/ai.ts", [
+    "// Each call spends the account's own model quota, so it is metered like the outbound endpoints that",
+    "// cost the deployment something.",
+    "// Read from the store rather than from the request: the caller used to name the categories, which put",
+    "// arbitrary — and protected — folder names in front of a third-party model.",
+  ]],
+  ["src/worker/nav/backup.ts", [
+    "/**\n * The body of a WebDAV call, or a 400.\n *\n * These handlers used to write `as RequestConfig | null` over whatever `json()` returned and then call\n * `.trim()` on it, so a number where a string was expected answered with a TypeError — and a TypeError\n * from `/webdav/test` is a difference the caller can use to learn something about the address.\n */",
+    "// The endpoint reaches an address the caller chooses, so it is metered like the other outbound ones.",
+    "// A refusal from the host guard and a genuinely unreachable host have to read the same here, or this",
+    "// endpoint becomes a way to ask the server whether a name resolves to a private address.",
+    "// The declared header is the client's own account of its body — a chunked request carries no",
+    "// `content-length` at all — so measuring the bytes is the only way the limit means anything.",
+  ]],
+  ["src/worker/nav/icons.ts", [
+    "/** Candidates are probed this many at a time, and only until the whole walk runs out of budget. */",
+    "/**\n * Find the site's own logo by asking the candidate paths from here instead of from the reader's browser.\n *\n * The client used to walk the whole candidate list with `new Image()`, which meant up to 76 requests\n * straight from the reader to a third-party origin: their IP and browsing exposed, no way to cancel, and —\n * because a browser request never passes the host guard — a free intranet port probe for anyone who typed\n * a private address into the URL field. Doing it here puts every candidate behind the same resolver check\n * and budget as the rest of the outbound surface, and answers in one round trip.\n */",
+    "// A refusal is not a miss: answering \"no icon found\" for a blocked address would let a caller read",
+    "// the guard's decisions as an absence, which is the same oracle the literal check exists to remove.",
+    "/** HEAD is enough to learn a path exists; most sites answer 404 quickly for the ones that do not. */",
   ]],
   ["src/worker/nav/routes.ts", [
     "// Renaming a protected folder discloses nothing its name was not already doing, but changing its password",
@@ -43076,6 +43114,23 @@ const allowed = new Map([
     "// The first and the last row of the run both landed: a chunk loop that stops early or overshoots",
     "// shows up here, because 120 links is more than one batch may carry.",
     "// The head of the pinned list takes 1, because 0 is what every unpinned row already carries.",
+    "// Twenty attempts a minute, then the endpoint stops being a free oracle for \"can this host resolve\".",
+    "// A chunked request carries no `content-length` at all; the old check read `Number(null)` as zero and",
+    "// waved the body straight through to `json()`.",
+    "// @ts-expect-error duplex is required by the runtime when the body is a stream",
+    "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
+  ]],
+  ["tests/nav-host-guard.test.ts", [
+    "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",
+    "// can say \"unknown\" instead of reporting every link as dead. Both still refuse to fetch.",
+  ]],
+  ["tests/nav-icons-check.test.ts", [
+    "// The domain cache is written in the same call, so the next bookmark on that host costs no probing.",
+    "// Each batch advances the clock past the budget, so the walk must not keep going.",
+  ]],
+  ["tests/nav-shared.test.ts", [
+    "// The URL is the same value the prompt interpolates, so it carries the same rule a stored link does.",
+    "// Categories are read from the store server-side now, so a caller cannot name folders for the model.",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",

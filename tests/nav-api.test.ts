@@ -9,7 +9,7 @@ import { runScheduledNavBackups } from '../src/worker/nav/backup-scheduler'
 import { navDataRoutes, navSettingsRoutes } from '../src/worker/nav/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import { sha256Hex } from '../src/worker/lib/encoding'
-import { newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
+import { NAV_LIMITS, newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -551,6 +551,86 @@ describe('category passwords and unlock tokens', () => {
     const orders = data.links.map((link) => link.sortOrder).sort((left, right) => left - right)
     expect(new Set(orders).size).toBe(orders.length)
     expect(orders).toEqual([0, 1, 2])
+  })
+
+  it('answers a malformed WebDAV body as a 400 and meters the endpoint', async () => {
+    const malformed = await call('POST', '/api/nav/webdav/test', { body: { url: 123 } })
+    expect(malformed.status).toBe(400)
+    expect(await errorCode(malformed)).toBe('bad_request')
+    const notJson = await call('POST', '/api/nav/webdav/test', { body: 'not json' })
+    expect(notJson.status).toBe(400)
+
+    const statuses: number[] = []
+    for (let index = 0; index < 22; index += 1) {
+      statuses.push((await call('POST', '/api/nav/webdav/test', { body: {} })).status)
+    }
+    // Twenty attempts a minute, then the endpoint stops being a free oracle for "can this host resolve".
+    expect(statuses.slice(0, 20).every((status) => status < 500)).toBe(true)
+    expect(statuses[21]).toBe(429)
+  })
+
+  it('measures the restore body in bytes rather than trusting its header', async () => {
+    const category = await createCategory(USER_A, 'Byte limit')
+    await createLink(USER_A, category.id, 'Small backup')
+    const backup = await json<NavBackup>(await call('GET', '/api/nav/backup'))
+    const payload = JSON.stringify(backup)
+
+    // A chunked request carries no `content-length` at all; the old check read `Number(null)` as zero and
+    // waved the body straight through to `json()`.
+    const streamed = await app.fetch(new Request('http://localhost/api/nav/backup/restore', {
+      method: 'POST',
+      headers: { 'x-test-user': USER_A, 'content-type': 'application/json' },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(payload))
+          controller.close()
+        },
+      }),
+      // @ts-expect-error duplex is required by the runtime when the body is a stream
+      duplex: 'half',
+    }), env)
+    expect(streamed.status, await streamed.clone().text()).toBe(200)
+
+    const oversized = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder()
+        const chunk = encoder.encode('x'.repeat(64 * 1024))
+        // Just past the ceiling, and never valid JSON — the point is that the size is judged first.
+        for (let index = 0; index < Math.ceil(NAV_LIMITS.restoreBytes / chunk.length) + 2; index += 1) {
+          controller.enqueue(chunk)
+        }
+        controller.close()
+      },
+    })
+    const rejected = await app.fetch(new Request('http://localhost/api/nav/backup/restore', {
+      method: 'POST',
+      headers: { 'x-test-user': USER_A, 'content-type': 'application/json' },
+      body: oversized,
+      // @ts-expect-error duplex is required by the runtime when the body is a stream
+      duplex: 'half',
+    }), env)
+    expect(rejected.status).toBe(413)
+    expect(await errorCode(rejected)).toBe('payload_too_large')
+  })
+
+  it('caps the visit map a backup may carry', async () => {
+    const category = await createCategory(USER_A, 'Visit cap')
+    const link = await createLink(USER_A, category.id, 'Visited link')
+    const visits: Record<string, { lastVisitedAt: number; visitCount: number }> = {}
+    for (let index = 0; index <= NAV_LIMITS.importMaxLinks; index += 1) {
+      visits[`${link.id.slice(0, 22)}${String(index).padStart(4, '0')}`] = { lastVisitedAt: 1, visitCount: 1 }
+    }
+    const response = await call('POST', '/api/nav/backup/restore', {
+      body: {
+        format: 'inkstone-nav-backup',
+        version: 1,
+        createdAt: 1,
+        categories: [{ id: category.id, name: 'Visit cap', icon: 'folder', parentId: null, sortOrder: 0, createdAt: 1 }],
+        links: [{ id: link.id, title: 'Visited link', url: 'https://visited.example.com/', icon: null, description: null, categoryId: category.id, pinned: false, pinnedOrder: 0, sortOrder: 0, createdAt: 1 }],
+        visits,
+      },
+    })
+    expect(response.status).toBe(400)
   })
 
   it('refuses hidden category writes until the category is unlocked', async () => {

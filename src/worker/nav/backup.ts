@@ -2,8 +2,9 @@ import { Hono, type Context } from 'hono'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { decryptNavSecret, encryptNavSecret } from '../lib/crypto'
-import { NavBackupConfigSchema, NavBackupSchema } from '@shared/nav/validation'
+import { NavBackupConfigSchema, NavBackupSchema, NavWebdavRequestSchema } from '@shared/nav/validation'
 import { NAV_LIMITS, type NavBackup } from '@shared/nav/model'
 import type { WebdavConfig } from '@shared/types'
 import { parseBackupEndpoint } from '../backup/validation'
@@ -55,15 +56,40 @@ async function resolveConfig(c: Context<AppBindings>, raw: RequestConfig | null)
   return { config, password }
 }
 
+/**
+ * The body of a WebDAV call, or a 400.
+ *
+ * These handlers used to write `as RequestConfig | null` over whatever `json()` returned and then call
+ * `.trim()` on it, so a number where a string was expected answered with a TypeError — and a TypeError
+ * from `/webdav/test` is a difference the caller can use to learn something about the address.
+ */
+async function readWebdavRequest(c: Context<AppBindings>): Promise<RequestConfig | null> {
+  const raw = await c.req.json().catch(() => null)
+  const parsed = NavWebdavRequestSchema.safeParse(raw ?? {})
+  if (!parsed.success) throw ApiError.badRequest('Invalid WebDAV request')
+  return parsed.data
+}
+
 navBackupRoutes.post('/webdav/test', async (c) => {
-  const raw = await c.req.json().catch(() => null) as RequestConfig | null
+  const owner = userId(c)
+  // The endpoint reaches an address the caller chooses, so it is metered like the other outbound ones.
+  await assertAttemptBudget(() => consumeAttemptBudget(c.env.DB, [
+    { key: `nav-webdav:${owner}`, maxAttempts: 20, windowMs: 60_000 },
+  ]))
+  const raw = await readWebdavRequest(c)
   try {
     const { config, password } = await resolveConfig(c, raw)
     const result = await webdavTest(config, { password }, AbortSignal.timeout(15000))
     return c.json({ ok: result.ok, error: result.ok ? undefined : result.message })
   } catch (error) {
     if (error instanceof ApiError) throw error
-    return c.json({ ok: false, error: error instanceof Error ? error.message : 'WebDAV test failed' })
+    // A refusal from the host guard and a genuinely unreachable host have to read the same here, or this
+    // endpoint becomes a way to ask the server whether a name resolves to a private address.
+    const message = error instanceof Error ? error.message : ''
+    const oracleFree = /blocked_target|private|loopback/i.test(message)
+      ? 'Could not connect. Check the URL'
+      : friendlyError(error)
+    return c.json({ ok: false, error: oracleFree })
   }
 })
 
@@ -116,7 +142,7 @@ navBackupRoutes.put('/webdav/config', async (c) => {
 })
 
 navBackupRoutes.post('/webdav/backup', async (c) => {
-  const raw = await c.req.json().catch(() => null) as RequestConfig | null
+  const raw = await readWebdavRequest(c)
   try {
     const result = await performNavBackup(c.env, userId(c), { timestamped: raw?.timestamped !== false })
     return c.json({ ok: true, filename: result.filename, verified: result.verified })
@@ -142,10 +168,18 @@ navBackupRoutes.get('/backup', async (c) => {
 })
 
 navBackupRoutes.post('/backup/restore', async (c) => {
-  const declared = Number(c.req.header('content-length') ?? 0)
-  if (declared > NAV_LIMITS.restoreBytes + 64 * 1024) throw new ApiError(413, 'payload_too_large', 'Backup file is too large')
-  const raw = await c.req.json().catch(() => null)
-  if (!raw) throw ApiError.badRequest('Backup file is not valid JSON')
+  // The declared header is the client's own account of its body — a chunked request carries no
+  // `content-length` at all — so measuring the bytes is the only way the limit means anything.
+  const bytes = await c.req.arrayBuffer()
+  if (bytes.byteLength > NAV_LIMITS.restoreBytes + 64 * 1024) {
+    throw new ApiError(413, 'payload_too_large', 'Backup file is too large')
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    throw ApiError.badRequest('Backup file is not valid JSON')
+  }
   const parsed = NavBackupSchema.safeParse(raw)
   if (!parsed.success) throw ApiError.badRequest('Backup file has an unsupported format')
   const nav = new NavStore(c.env.DB, userId(c))

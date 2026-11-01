@@ -45,7 +45,7 @@ export async function guardedFetch(raw: string, options: GuardedFetchOptions = {
         return {
           response: new Response(null, { status: hostVerdict === 'blocked' ? 403 : 502 }),
           finalUrl: current.toString(),
-          error: hostVerdict === 'blocked' ? 'blocked_target' : 'network',
+          error: hostVerdict === 'blocked' ? 'blocked_target' : hostVerdict === 'failed' ? 'dns_unavailable' : 'network',
         }
       }
       let response: Response

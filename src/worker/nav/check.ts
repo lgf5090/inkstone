@@ -41,7 +41,7 @@ function levelFor(status: number): NavCheckLevel {
 }
 
 function failure(url: string, started: number, errorCode: NavCheckError, finalUrl?: string): NavCheckResult {
-  const level: NavCheckLevel = errorCode === 'invalid_url' || errorCode === 'blocked_target' ? 'skipped' : 'broken'
+  const level: NavCheckLevel = errorCode === 'invalid_url' || errorCode === 'blocked_target' || errorCode === 'dns_unavailable' ? 'skipped' : 'broken'
   return { url, status: null, ok: false, level, durationMs: Date.now() - started, errorCode, finalUrl }
 }
 
@@ -52,7 +52,7 @@ async function checkOne(url: string): Promise<NavCheckResult> {
   if (!result.error && (result.response.status === 405 || result.response.status === 403)) {
     await result.response.body?.cancel().catch(() => null)
     result = await guardedFetch(url, { method: 'GET', timeoutMs: 8000, maxRedirects: 5 })
-  } else if (result.error && result.error !== 'blocked_target' && result.error !== 'invalid_url') {
+  } else if (result.error && result.error !== 'blocked_target' && result.error !== 'invalid_url' && result.error !== 'dns_unavailable') {
     result = await guardedFetch(url, { method: 'GET', timeoutMs: 8000, maxRedirects: 5 })
   }
   if (result.error) return failure(url, started, result.error, result.finalUrl)

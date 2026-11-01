@@ -19,7 +19,10 @@ describe('resolvePublicHost', () => {
   })
 
   it('fails closed when no address can be resolved', async () => {
-    expect(await resolvePublicHost('example.test', async () => { throw new Error('dns down') })).toBe('unresolved')
+    // A resolver that never answered is not an answer about the name: it reads `failed`, so the checker
+    // can say "unknown" instead of reporting every link as dead. Both still refuse to fetch.
+    expect(await resolvePublicHost('example.test', async () => { throw new Error('dns down') })).toBe('failed')
+    expect(await resolvePublicHost('example.test', async () => [])).toBe('unresolved')
   })
 
   it('blocks literal private addresses without a lookup', async () => {

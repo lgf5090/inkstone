@@ -58,6 +58,7 @@ interface CheckRow {
 const CHECK_ERRORS: ReadonlySet<string> = new Set<NavCheckError>([
   'timeout',
   'network',
+  'dns_unavailable',
   'blocked_target',
   'invalid_url',
   'too_many_redirects',
@@ -160,6 +161,7 @@ function levelLabel(level: NavCheckLevel): string {
 function errorLabel(code: NavCheckError): string {
   if (code === 'timeout') return t('nav.checker.error.timeout')
   if (code === 'network') return t('nav.checker.error.network')
+  if (code === 'dns_unavailable') return t('nav.checker.error.dns_unavailable')
   if (code === 'blocked_target') return t('nav.checker.error.blocked_target')
   if (code === 'invalid_url') return t('nav.checker.error.invalid_url')
   if (code === 'too_many_redirects') return t('nav.checker.error.too_many_redirects')
