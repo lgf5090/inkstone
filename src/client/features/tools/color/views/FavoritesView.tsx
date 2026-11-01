@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowDown,
   ArrowUp,
@@ -11,12 +11,14 @@ import {
   Pipette,
   Plus,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Segmented } from '../../../../components/form'
 import { Tooltip, confirm } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { useUi } from '../../../../store/ui'
 import { EditFavoriteModal } from '../components/modals/EditFavoriteModal'
 import { PaletteHealthSummary } from '../components/PaletteHealthSummary'
 import { EditPaletteModal } from '../components/modals/EditPaletteModal'
@@ -84,6 +86,30 @@ export function FavoritesView() {
   const openEditPalette = useColorStudioStore((s) => s.openEditPalette)
   const moveFavorite = useColorStudioStore((s) => s.moveFavorite)
   const movePalette = useColorStudioStore((s) => s.movePalette)
+  const exportBackup = useColorStudioStore((s) => s.exportBackup)
+  const importBackup = useColorStudioStore((s) => s.importBackup)
+  const backupInputRef = useRef<HTMLInputElement | null>(null)
+
+  const readBackupFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const text = typeof reader.result === 'string' ? reader.result : ''
+      try {
+        const result = await importBackup(text)
+        useUi.getState().toast({
+          title: t('tools.color.backup.imported', result),
+          tone: 'success',
+        })
+      } catch (e: unknown) {
+        const err = e as Error
+        useUi.getState().toast({ title: err.message || t('tools.color.backup.rejected'), tone: 'danger' })
+      }
+    }
+    reader.onerror = () => {
+      useUi.getState().toast({ title: t('tools.color.backup.rejected'), tone: 'danger' })
+    }
+    reader.readAsText(file)
+  }
 
   useEffect(() => {
     fetchFavorites()
@@ -115,6 +141,35 @@ export function FavoritesView() {
             { value: 'palettes' as const, label: `${t('tools.color.favorites.tab_palettes')} (${palettes.length})` },
             { value: 'history' as const, label: `${t('tools.color.favorites.tab_history')} (${history.length})` },
           ]}
+        />
+      </div>
+
+      {/* A favourite is the only copy of itself, so the panel has to be able to hand it over. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Tooltip label={t('tools.color.backup.export_hint')}>
+          <Button size="sm" variant="secondary" onClick={exportBackup}>
+            <Download size={14} className="mr-1.5" />
+            {t('tools.color.backup.export')}
+          </Button>
+        </Tooltip>
+        <Tooltip label={t('tools.color.backup.import_hint')}>
+          <Button size="sm" variant="secondary" onClick={() => backupInputRef.current?.click()}>
+            <Upload size={14} className="mr-1.5" />
+            {t('tools.color.backup.import')}
+          </Button>
+        </Tooltip>
+        <input
+          ref={backupInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) readBackupFile(file)
+            e.target.value = ''
+          }}
         />
       </div>
 

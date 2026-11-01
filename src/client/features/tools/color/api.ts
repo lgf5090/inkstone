@@ -63,7 +63,7 @@ export const colorApi = {
   // Favorites
   listFavorites: (tag?: string) =>
     request<UserColorFavorite[]>(`/favorites${tag ? `?tag=${encodeURIComponent(tag)}` : ''}`),
-  createFavorite: (data: { name?: string; hex: string; tags?: string[]; note?: string }) =>
+  createFavorite: (data: { id?: string; name?: string; hex: string; tags?: string[]; note?: string }) =>
     request<UserColorFavorite>('/favorites', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -96,6 +96,7 @@ export const colorApi = {
     return request<UserColorPalette[]>(`/palettes${qs ? `?${qs}` : ''}`)
   },
   createPalette: (data: {
+    id?: string
     title: string
     colors: PaletteColorItem[]
     sourceType?: UserColorPalette['sourceType']

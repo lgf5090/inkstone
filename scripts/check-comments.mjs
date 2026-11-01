@@ -17373,6 +17373,9 @@ const allowed = new Map([
     "// Assets (R2)",
     "/**\n   * Save the order the reader put the collection in, as the whole list of ids from first to last.\n   *\n   * One request rather than one per moved row: two writes for a swap would land in whatever order the\n   * network chose, and the list would end up sorted by arrival instead of by the reader's drag.\n   */",
   ]],
+  ["src/client/features/tools/color/backup-store.test.ts", [
+    "/**\n * Restoring is not a delete in reverse.\n *\n * The same file may be handed back twice — a reader restoring onto a half-finished restore — so the rows\n * that are already there have to be counted as skipped rather than as an error, and the panel has to end up\n * showing what the server holds rather than what the file claimed.\n */",
+  ]],
   ["src/client/features/tools/color/collection-edit.test.tsx", [
     "/**\n * A saved colour is not write-once.\n *\n * The name, tags, note and order columns were in the table from the first migration, the update endpoints\n * were written, and nothing in the interface could reach any of them — so a colour saved from a swatch was\n * stuck with the label that button happened to send, in creation order, forever.\n */",
     "/** What the API doubles answer for the lists, so the update doubles can return a plausible row. */",
@@ -17669,6 +17672,10 @@ const allowed = new Map([
     "/** The row whose editor is open, by id: the list stays the single source of what it says. */",
     "/** The list with `id` moved `delta` places, or null when it is already at that end. */",
     "// Optimistic: a reorder that waits for the server before it paints looks like the click did nothing.",
+    "/** The loaded collection as a file, and that file back in. See `backupHint` for what \"loaded\" means. */",
+    "// Rows arrive in small parallel batches: a whole backup is hundreds of requests, and one at a time",
+    "// would look like a frozen panel.",
+    "// The same file imported twice answers 409, which is the row already being there.",
   ]],
   ["src/client/features/tools/color/views/AiPaletteView.tsx", [
     "/* Header */",
@@ -17728,6 +17735,7 @@ const allowed = new Map([
     "/**\n * A list the server refused, shown apart from a list that came back empty.\n *\n * Both used to render \"nothing saved yet\", which tells a reader on a flaky connection that their colors\n * are gone — and invites them to save the same hex a second time.\n */",
     "// A favorite is the only copy: there is no trash and no export, so deletion asks first.",
     "/* The editors are reached only from these cards, so they live with the panel that opens them. */",
+    "/* A favourite is the only copy of itself, so the panel has to be able to hand it over. */",
   ]],
   ["src/client/features/tools/color/views/GradientStudioView.tsx", [
     "// Tags filter",
@@ -31163,6 +31171,12 @@ const allowed = new Map([
     "/**\n * The two inks a label drawn on top of an arbitrary color may use.\n *\n * Named because the module used to pick between `text-white` and `text-zinc-900` per component, and four of\n * the six swatch surfaces picked one of them unconditionally — which put white on a near-white swatch.\n * Pure black rather than a soft near-black is what keeps the worst case above AA: the two curves cross at\n * a 4.58:1 mid-tone with black, and at 4.25:1 with anything lighter.\n */",
     "/**\n * The ink with the better contrast against `hex`.\n *\n * The choice is made by ratio rather than by a luminance cutoff so the same answer comes out of the token\n * scale, the swatch labels and the color-blindness preview, which each used to carry their own rule.\n */",
     "/** One of the two swatch inks; named so a token scale can hold the same union. */",
+  ]],
+  ["src/shared/tools/color/backup.ts", [
+    "/**\n * The saved colour collection, as a file a reader can keep.\n *\n * A favourite colour and a palette had no way out: deleting one was permanent, and the export dialog only\n * wrote colour codes for design tools, not the names, tags and notes that make a collection readable. This\n * is the round trip — same shape in, same shape out — kept in `shared` so the file a reader hands back is\n * checked against the same rules that wrote it.\n */",
+    "/** Bumped when the shape below changes; a reader's old file says which version it is. */",
+    "/** A backup may not carry more than a page of each collection, whatever the file claims. */",
+    "/** The file as written, or null when it is not a backup this version can read. */",
   ]],
   ["src/shared/tools/color/colorspace-algorithms.ts", [
     "/**\n * Algorithmic Palette Generation Engine (inspired by MyColorSpace - mycolor.space)\n * Generates 8-10 high-utility palettes purely through CIELAB, OKLab and HSL mathematics.\n */",
@@ -44653,6 +44667,10 @@ const allowed = new Map([
     "// The fallback used to hand back one algorithmic group, which holds at most six colors: asking for",
     "// five could return four. The count the reader picked is the count they get.",
     "// No assistant model is configured in this harness, so the answer must admit it was computed.",
+  ]],
+  ["tests/tools-color-backup.test.ts", [
+    "/**\n * The backup file, both ways.\n *\n * A favourite colour used to be write-once in the worst sense: no export, no trash, and a delete button on\n * hover. The file format is the smallest thing that makes loss recoverable, so its rules — what counts as a\n * backup, how many rows one may carry — are what this test pins.\n */",
+    "// A backup that could hold more rows than a list read returns would silently lose them on restore.",
   ]],
   ["tests/tools-color-contracts.test.ts", [
     "/**\n * Contract tests for the Color Assistant: the bounds and vocabularies the client controls and the server\n * validator have to agree on. Each one here was broken in a way every existing suite walked past, because\n * the two sides each held their own copy of the number.\n */",

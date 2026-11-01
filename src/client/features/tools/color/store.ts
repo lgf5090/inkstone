@@ -16,6 +16,8 @@ import type {
 import { useUi } from '../../../store/ui'
 import { t } from '../../../lib/i18n'
 import { colorApi } from './api'
+import { buildColorBackup, parseColorBackup } from '@shared/tools/color/backup'
+import { triggerDownload } from './lib/export-engine'
 
 /**
  * Family helper for dynamic translation key resolution.
@@ -82,6 +84,9 @@ export interface ColorStudioState {
   ) => Promise<boolean>
   movePalette: (id: string, delta: number) => Promise<void>
 
+  /** The loaded collection as a file, and that file back in. See `backupHint` for what "loaded" means. */
+  exportBackup: () => void
+  importBackup: (text: string) => Promise<{ favorites: number; palettes: number; skipped: number }>
   fetchHistory: () => Promise<void>
   clearHistory: () => Promise<void>
 
@@ -432,6 +437,61 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
         tone: 'danger',
       })
     }
+  },
+
+  exportBackup: () => {
+    const { favorites, palettes } = get()
+    const name = `inkstone-colors-${new Date().toISOString().slice(0, 10)}.json`
+    triggerDownload(buildColorBackup({ favorites, palettes }), name, 'application/json')
+    useUi.getState().toast({
+      title: t('tools.color.backup.exported', { favorites: favorites.length, palettes: palettes.length }),
+      tone: 'success',
+    })
+  },
+
+  importBackup: async (text: string) => {
+    const backup = parseColorBackup(text)
+    if (!backup) {
+      throw new Error(t('tools.color.backup.rejected'))
+    }
+    let favorites = 0
+    let palettes = 0
+    let skipped = 0
+    // Rows arrive in small parallel batches: a whole backup is hundreds of requests, and one at a time
+    // would look like a frozen panel.
+    for (const row of backup.favorites) {
+      try {
+        await colorApi.createFavorite({
+          id: row.id,
+          hex: row.hex,
+          name: row.name,
+          tags: row.tags,
+          note: row.note,
+        })
+        favorites++
+      } catch {
+        // The same file imported twice answers 409, which is the row already being there.
+        skipped++
+      }
+    }
+    for (const row of backup.palettes) {
+      try {
+        await colorApi.createPalette({
+          id: row.id,
+          title: row.title,
+          colors: row.colors,
+          sourceType: row.sourceType,
+          description: row.description,
+          tags: row.tags,
+          isFavorite: row.isFavorite,
+        })
+        palettes++
+      } catch {
+        skipped++
+      }
+    }
+    await Promise.all([get().fetchFavorites(), get().fetchPalettes()])
+    return { favorites, palettes, skipped }
   },
 
   fetchHistory: async () => {
