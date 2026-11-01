@@ -174,50 +174,34 @@ export function generateAlgorithmicPalettes(baseHex: string): AlgorithmicPalette
   return [
     {
       id: 'generic_gradient',
-      name: 'Generic Gradient',
-      description: 'Perceptually uniform OKLab transition, ideal for backgrounds, illustrations and smooth gradients',
       colors: makeGenericGradient(norm),
     },
     {
       id: 'matching_gradient',
-      name: 'Matching Gradient',
-      description: 'Neighboring hue micro-adjustments for subtle cards, buttons and background accents',
       colors: makeMatchingGradient(norm),
     },
     {
       id: 'spot',
-      name: 'Spot Palette',
-      description: '1 primary base + 3 striking high-contrast spotlight accents for buttons and callouts',
       colors: makeSpotPalette(norm),
     },
     {
       id: 'classy',
-      name: 'Classy Palette',
-      description: 'Elegant desaturated Morandi tones with understated sophistication',
       colors: makeClassyPalette(norm),
     },
     {
       id: 'cube',
-      name: 'Cube Palette',
-      description: 'Derived from CIELAB color space 3D cube cuts for balanced spatial color harmony',
       colors: makeCubePalette(norm),
     },
     {
       id: 'shade',
-      name: 'Shade Palette',
-      description: 'Pure hue-locked lightness step progression for typography and monochromatic systems',
       colors: makeShadePalette(norm),
     },
     {
       id: 'highlight',
-      name: 'Highlight Palette',
-      description: 'High-energy, crisp contrast pairings tailored for metrics, tags and badges',
       colors: makeHighlightPalette(norm),
     },
     {
       id: 'dust',
-      name: 'Dust Palette',
-      description: 'Vintage earthy grays and weathered pastels suited for muted typography and retro prints',
       colors: makeDustPalette(norm),
     },
   ]

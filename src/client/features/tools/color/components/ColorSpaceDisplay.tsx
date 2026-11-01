@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ColorSpaceValues } from '@shared/tools/color/types'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { colorSpaceItems } from '../lib/color-format'
 
 export interface ColorSpaceDisplayProps {
   spaces: ColorSpaceValues
@@ -12,39 +13,7 @@ export function ColorSpaceDisplay({ spaces }: ColorSpaceDisplayProps) {
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  const items: Array<{ key: string; label: string; value: string }> = [
-    { key: 'hex', label: 'HEX', value: spaces.hex.toUpperCase() },
-    {
-      key: 'rgb',
-      label: 'RGB',
-      value: `rgb(${spaces.rgb.r}, ${spaces.rgb.g}, ${spaces.rgb.b})`,
-    },
-    {
-      key: 'hsl',
-      label: 'HSL',
-      value: `hsl(${spaces.hsl.h}, ${spaces.hsl.s}%, ${spaces.hsl.l}%)`,
-    },
-    {
-      key: 'hsv',
-      label: 'HSV',
-      value: `hsv(${spaces.hsv.h}, ${spaces.hsv.s}%, ${spaces.hsv.v}%)`,
-    },
-    {
-      key: 'cmyk',
-      label: 'CMYK',
-      value: `cmyk(${spaces.cmyk.c}%, ${spaces.cmyk.m}%, ${spaces.cmyk.y}%, ${spaces.cmyk.k}%)`,
-    },
-    {
-      key: 'lab',
-      label: 'CIE-LAB',
-      value: `lab(${spaces.lab.l.toFixed(1)} ${spaces.lab.a.toFixed(1)} ${spaces.lab.b.toFixed(1)})`,
-    },
-    {
-      key: 'oklab',
-      label: 'OKLab',
-      value: `oklab(${spaces.oklab.l.toFixed(3)} ${spaces.oklab.a.toFixed(3)} ${spaces.oklab.b.toFixed(3)})`,
-    },
-  ]
+  const items = colorSpaceItems(spaces)
 
   const handleCopy = (item: { key: string; label: string; value: string }) => {
     copyColor(item.value, item.label)
@@ -67,7 +36,7 @@ export function ColorSpaceDisplay({ spaces }: ColorSpaceDisplayProps) {
               key={item.key}
               type="button"
               onClick={() => handleCopy(item)}
-              aria-label={`Copy ${item.label} value ${item.value}`}
+              aria-label={t('tools.color.space.copy_aria', { label: item.label, value: item.value })}
               className="flex items-center justify-between p-2.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-default)] transition-all text-left group"
             >
               <div className="min-w-0 pr-2">

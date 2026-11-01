@@ -8,7 +8,7 @@
  */
 import type { ComponentType } from 'react'
 import {
-  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock,
+  Archive, Clipboard, Columns2, Download, Eye, EyeOff, FolderPlus, Globe, ImagePlus, IndentDecrease, IndentIncrease, Keyboard, LayoutTemplate, Link2, ListTree, MoveDown, MoveUp, Palette, Pencil, Pin, Plus, Presentation, ScanSearch, Settings, Share2, Smile, Square, SquarePen, Sparkles, Star, Sun, Moon, Tags, Telescope, Trash2, WandSparkles, Waypoints, ChevronsDownUp, ChevronsUpDown, Search, Zap, Activity, Compass, ListChecks, Rss, BookMarked, Brain, FolderKanban, MessageSquare, CornerDownLeft, FilePlus2, Replace, ArrowRightToLine, KeyRound, Lock, Pipette,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { api } from '../../lib/api'
@@ -29,6 +29,7 @@ import { outlineHeadingsFor } from '../preview/outline-registry'
 import { openEmojiPicker } from '../../store/emoji-picker'
 import { openOmnisearch } from '../omnisearch/store'
 import { openRssSection } from '../rss/rss-commands'
+import { colorViewCommands, colorViewLabel, copySeedColor, openColorView, openSeedTokenScale, pickSeedFromScreen } from '../tools/color-commands'
 import { openTemplaterPicker } from '../templater/picker-request'
 import { requireOpenNote } from '../templater/editor-surface'
 import { createContextualNote, useNotes } from '../../store/notes'
@@ -212,6 +213,40 @@ export function appCommands(): AppCommand[] {
         icon: Activity,
         group: t("command.commands"),
         run: () => openRssSection('health'),
+    },
+    // The colour tool's ten views and the three actions a reader repeats inside it. The list is built from
+    // `COLOR_VIEW_COMMANDS`, a record keyed by the view type: a new view without a command stops compiling.
+    ...colorViewCommands().map(({ view, id }) => ({
+        id,
+        kind: 'command' as const,
+        label: colorViewLabel(view),
+        icon: Palette,
+        group: t("tools.color.module_name"),
+        run: () => openColorView(view),
+    })),
+    {
+        id: 'cmd-color-copy',
+        kind: 'command',
+        label: t("command.color_copy_seed"),
+        icon: Clipboard,
+        group: t("tools.color.module_name"),
+        run: () => void copySeedColor(),
+    },
+    {
+        id: 'cmd-color-token-scale',
+        kind: 'command',
+        label: t("command.color_token_scale"),
+        icon: ListTree,
+        group: t("tools.color.module_name"),
+        run: () => void openSeedTokenScale(),
+    },
+    {
+        id: 'cmd-color-eyedropper',
+        kind: 'command',
+        label: t("command.color_eyedropper"),
+        icon: Pipette,
+        group: t("tools.color.module_name"),
+        run: () => void pickSeedFromScreen(),
     },
     ...(linterOn
         ? [

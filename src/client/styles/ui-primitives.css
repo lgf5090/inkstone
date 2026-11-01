@@ -73,6 +73,9 @@
 
   .ink-slider {
     --pct: 50%;
+    /* A range input carries a UA minimum of ~129px, and a flex item's automatic minimum size is that
+       minimum, so `flex-1` sliders widened their row instead of shrinking (measured 129px inside 112px). */
+    min-width: 0;
   }
   .ink-slider::-webkit-slider-runnable-track {
     height: 4px;

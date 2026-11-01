@@ -4,6 +4,9 @@ import { t } from '../../../../lib/i18n'
 import { Tooltip } from '../../../../components/overlay'
 import { IconButton } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
+import { SwatchActions } from './SwatchActions'
+import { harmonyDescription, harmonyName } from '../lib/display-names'
+import { PaletteHealthSummary } from './PaletteHealthSummary'
 
 export interface HarmoniesPanelProps {
   currentHex: string
@@ -26,7 +29,9 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {harmonies.map((harmony) => (
+        {harmonies.map((harmony) => {
+          const label = harmonyName(harmony.type)
+          return (
           <div
             key={harmony.type}
             className="flex flex-col gap-2 p-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-default)] transition-colors"
@@ -34,11 +39,12 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-[length:var(--text-13)] font-medium text-[var(--text-primary)]">
-                  {harmony.label}
+                  {label}
                 </span>
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)] line-clamp-1">
-                  {harmony.description}
+                  {harmonyDescription(harmony.type)}
                 </p>
+                <PaletteHealthSummary colors={harmony.colors} />
               </div>
               <Tooltip label={t('tools.color.algorithm.save_palette')}>
                 <IconButton
@@ -46,10 +52,10 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                   size="sm"
                   onClick={() =>
                     savePalette(
-                      `${harmony.label} - ${currentHex}`,
+                      `${label} - ${currentHex}`,
                       harmony.colors.map((hex, i) => ({
                         hex,
-                        name: `${harmony.label} ${i + 1}`,
+                        name: `${label} ${i + 1}`,
                       })),
                       'harmony',
                       [harmony.type],
@@ -66,48 +72,38 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                 <div
                   key={`${hex}-${idx}`}
                   style={{ backgroundColor: hex }}
-                  className="group relative flex-1 h-full transition-all hover:flex-[1.5]"
+                  className="group relative flex-1 h-full transition-[flex] duration-[var(--dur-fast)] hover:flex-[1.5]"
                 >
                   <button
                     type="button"
-                    aria-label={`Select color ${hex}`}
+                    aria-label={t('tools.color.swatch.use', { hex })}
                     onClick={() => setCurrentColor(hex, 'palette')}
-                    className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
                   />
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30-[1px] transition-opacity gap-1 pointer-events-none group-hover:pointer-events-auto">
-                    <Tooltip label={hex}>
-                      <button
-                        type="button"
-                        aria-label={`Copy ${hex}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          copyColor(hex)
-                        }}
-                        className="p-1 rounded bg-white/80 hover:bg-white text-zinc-900 transition-colors shadow-sm"
-                      >
-                        <Copy size={11} />
-                      </button>
-                    </Tooltip>
-                    <Tooltip label={t('tools.color.studio.favorite')}>
-                      <button
-                        type="button"
-                        aria-label={`Favorite ${hex}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          addFavorite(hex, `${harmony.label} ${idx + 1}`)
-                        }}
-                        className="p-1 rounded bg-white/80 hover:bg-white text-zinc-900 transition-colors shadow-sm"
-                      >
-                        <Heart size={11} />
-                      </button>
-                    </Tooltip>
-                  </div>
+                  <SwatchActions
+                    className="absolute inset-x-0 top-1/2 -translate-y-1/2 justify-center px-1"
+                    actions={[
+                      {
+                        key: 'copy',
+                        label: t('tools.color.studio.copy'),
+                        icon: <Copy size={11} />,
+                        onSelect: () => copyColor(hex, label),
+                      },
+                      {
+                        key: 'favorite',
+                        label: t('tools.color.studio.favorite'),
+                        icon: <Heart size={11} />,
+                        onSelect: () => addFavorite(hex, `${label} ${idx + 1}`),
+                      },
+                    ]}
+                  />
                   <span className="sr-only">{hex}</span>
                 </div>
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

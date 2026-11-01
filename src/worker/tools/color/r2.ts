@@ -31,6 +31,35 @@ export function getColorContentType(format: string): string {
 }
 
 /**
+ * Does the payload actually contain what its format claims?
+ *
+ * The route used to trust the MIME the client put in its data URL, which meant the stored object — and the
+ * response header handed back on download — could say anything at all, including `text/html` served from
+ * the application's own origin. The format is now the only authority, and this is where the two are
+ * checked against each other.
+ */
+export function colorAssetLooksValid(format: string, bytes: Uint8Array): boolean {
+  const startsWith = (signature: number[]) =>
+    bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte)
+
+  switch (normalizeColorFormat(format)) {
+    case 'png':
+      return startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    case 'jpg':
+      return startsWith([0xff, 0xd8, 0xff])
+    case 'ase':
+      return startsWith([0x41, 0x53, 0x45, 0x46])
+    case 'svg': {
+      const text = new TextDecoder().decode(bytes)
+      if (!/^\s*<\?xml[\s\S]*?<svg/i.test(text) && !/^\s*<svg/i.test(text)) return false
+      // SVG is served as a document on this origin, so anything that could run there is refused even
+      // though the CSP would probably stop it.
+      return !/<\s*script|onload\s*=|on\w+\s*=\s*["']|javascript:|<\s*foreignobject/i.test(text)
+    }
+  }
+}
+
+/**
  * Returns canonical R2 key matching user specification:
  * `tools/color/{png,jpg,...}/xxx`
  */

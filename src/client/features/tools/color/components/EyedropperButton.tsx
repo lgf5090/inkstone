@@ -3,18 +3,7 @@ import { useState } from 'react'
 import { t } from '../../../../lib/i18n'
 import { Tooltip } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-
-interface EyeDropperAPI {
-  open: () => Promise<{ sRGBHex: string }>
-}
-
-declare global {
-  interface Window {
-    EyeDropper?: {
-      new (): EyeDropperAPI
-    }
-  }
-}
+import { canPickFromScreen, pickColorFromScreen } from '../lib/screen-pick'
 
 export interface EyedropperButtonProps {
   onPick: (hex: string) => void
@@ -22,19 +11,11 @@ export interface EyedropperButtonProps {
 }
 
 export function EyedropperButton({ onPick, disabled = false }: EyedropperButtonProps) {
-  const [isSupported] = useState(() => typeof window !== 'undefined' && 'EyeDropper' in window)
+  const [isSupported] = useState(canPickFromScreen)
 
   const handlePick = async () => {
-    if (!isSupported || !window.EyeDropper) return
-    try {
-      const dropper = new window.EyeDropper()
-      const result = await dropper.open()
-      if (result && result.sRGBHex) {
-        onPick(result.sRGBHex)
-      }
-    } catch {
-      // User cancelled pick or escape pressed
-    }
+    const hex = await pickColorFromScreen()
+    if (hex) onPick(hex)
   }
 
   const label = isSupported

@@ -2,7 +2,7 @@
  * UI Token Scale Generator (50 - 950, 11-step palette for Tailwind CSS / Design Systems)
  */
 
-import { getContrastRatio } from './a11y'
+import { getContrastRatio, recommendedTextColor } from './a11y'
 import { clamp, hexToRgb, hslToRgb, normalizeHex, rgbToHex, rgbToHsl } from './spaces'
 import type { TokenScaleItem, TokenScaleStep } from './types'
 
@@ -54,7 +54,7 @@ export function generateTokenScale(seedHex: string): TokenScaleItem[] {
     const contrastWhite = getContrastRatio(hex, '#ffffff')
     const contrastBlack = getContrastRatio(hex, '#000000')
 
-    const textRecommended = contrastWhite >= contrastBlack ? '#ffffff' : '#000000'
+    const textRecommended = recommendedTextColor(hex)
 
     return {
       step,

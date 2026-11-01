@@ -2,6 +2,8 @@
  * Types and interfaces for the Color Assistant module (`tools/color`).
  */
 
+import type { AiFallbackReason, ColorHistorySource } from './contract'
+
 export interface RgbColor {
   r: number // 0 - 255
   g: number // 0 - 255
@@ -30,11 +32,6 @@ export interface CmykColor {
   k: number // 0 - 100 (%)
 }
 
-export interface HsiColor {
-  h: number // 0 - 360
-  s: number // 0 - 100 (%)
-  i: number // 0 - 100 (%)
-}
 
 export interface LabColor {
   l: number // 0 - 100 (Lightness)
@@ -48,25 +45,31 @@ export interface OklabColor {
   b: number // -0.4 - 0.4
 }
 
+export interface OklchColor {
+  l: number // 0 - 1 (Lightness, same axis as OKLab)
+  c: number // 0 - 0.4 (Chroma)
+  h: number // 0 - 360 (Hue angle)
+}
+
 export type SupportedColorFormat = 'hex' | 'rgb' | 'hsv' | 'hsl' | 'cmyk' | 'hsi' | 'lab'
 
+/**
+ * The color spaces a hex resolves to.
+ *
+ * Only the values the interface reads. This used to carry eight pre-formatted CSS strings plus an HSI
+ * triple that nothing consumed, while the panel that shows the spaces built the same strings again — in a
+ * slightly different format, so the copied value and the computed one disagreed.
+ */
 export interface ColorSpaceValues {
   hex: string // with leading #
-  hexClean: string // without leading #
   rgb: RgbColor
-  rgbString: string // e.g. rgb(255, 120, 0)
   hsv: HsvColor
-  hsvString: string // e.g. hsv(28°, 100%, 100%)
   hsl: HslColor
-  hslString: string // e.g. hsl(28°, 100%, 50%)
+  /** Unrounded HSL: what the studio's sliders rotate on, so a hue change cannot move the other channels. */
+  hslExact: HslColor
   cmyk: CmykColor
-  cmykString: string // e.g. cmyk(0%, 53%, 100%, 0%)
-  hsi: HsiColor
-  hsiString: string // e.g. hsi(28°, 100%, 49%)
   lab: LabColor
-  labString: string // e.g. lab(64, 48, 67)
   oklab: OklabColor
-  oklabString: string
 }
 
 export type ColorHarmonyType =
@@ -78,9 +81,8 @@ export type ColorHarmonyType =
   | 'intermediate'
 
 export interface ColorHarmonyGroup {
+  /** Names the message family the panel reads its display name and explanation from. */
   type: ColorHarmonyType
-  label: string
-  description: string
   colors: string[] // hex values
 }
 
@@ -95,9 +97,8 @@ export type ColorSpaceAlgorithmType =
   | 'dust'
 
 export interface AlgorithmicPalette {
+  /** Names the message family the row reads its display name and explanation from. */
   id: ColorSpaceAlgorithmType
-  name: string
-  description: string
   colors: string[] // hex values
 }
 
@@ -148,7 +149,7 @@ export interface UserColorPalette {
 export interface ColorHistoryItem {
   id: string
   hex: string
-  source: 'studio' | 'eyedropper' | 'image' | 'algorithm' | 'ai'
+  source: ColorHistorySource
   createdAt: number
 }
 
@@ -177,12 +178,33 @@ export interface AiPaletteResult {
     description?: string
   }>
   tags: string[]
+  /**
+   * True when no model answered and the palette was computed instead.
+   *
+   * The engine has always had an algorithmic fallback, and a reader who was never told could not tell a
+   * designed scheme from a hue rotation — so the flag travels with the result rather than living only in
+   * a server log.
+   */
+  degraded: boolean
+  reason?: AiFallbackReason
 }
 
 export interface PoeticColorInterpretation {
   hex: string
   name: string
   story: string
+}
+
+/**
+ * A poetic naming pass, with the honesty flag the bare array could not carry.
+ *
+ * Returned as an object rather than a per-item marker because the answer is one verdict for the whole
+ * batch: either the model named these colors or the fallback table did.
+ */
+export interface PoeticInterpretResult {
+  items: PoeticColorInterpretation[]
+  degraded: boolean
+  reason?: AiFallbackReason
 }
 
 export type ColorBlindnessType =

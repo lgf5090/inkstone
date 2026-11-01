@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import type { AttachmentHubScope } from '@shared/attachment-hub'
 import type { AccentName, BackgroundName, DateRangeFilter, EditorLayout, SidebarTab, SortKey, SortOrder, ThemePref, UiDensity, ViewKind } from '@shared/types'
-import { ACCENTS, LIMITS, SIDEBAR_TABS, VIEW_KINDS } from '@shared/constants'
+import { ACCENTS, isAccentColor, LIMITS, SIDEBAR_TABS, VIEW_KINDS } from '@shared/constants'
 import { truncateText } from '@shared/text-utils'
 import { tagKey } from '@shared/markdown-utils'
 import { UI_STORAGE_KEY } from '../lib/runtime'
+import { applyCustomAccent, clearCustomAccent } from '../lib/custom-accent'
 import { isDateKey } from '../lib/time'
 import { t } from '../lib/i18n'
 
@@ -140,6 +141,8 @@ interface UiState {
 
   theme: ThemePref
   accent: AccentName
+  /** The colour behind `accent: 'custom'`; the derived variables are written from it on every apply. */
+  accentColor: string
   background: BackgroundName
   fontScale: number
 
@@ -207,7 +210,7 @@ interface UiState {
   clearTemplateInsert: () => void
   toast: (input: ToastInput) => string
   dismissToast: (id: string) => void
-  applyAppearance: (patch: { theme?: ThemePref; accent?: AccentName; background?: BackgroundName; fontScale?: number }) => void
+  applyAppearance: (patch: { theme?: ThemePref; accent?: AccentName; accentColor?: string; background?: BackgroundName; fontScale?: number }) => void
 }
 
 export const PANEL_WIDTHS = {
@@ -268,6 +271,7 @@ const DEFAULTS = {
   recentNoteIds: [] as string[],
   theme: 'system' as ThemePref,
   accent: 'indigo' as AccentName,
+  accentColor: '',
   background: 'paper' as BackgroundName,
   fontScale: 16,
 }
@@ -308,6 +312,7 @@ const PERSISTED_KEYS = [
   'recentNoteIds',
   'theme',
   'accent',
+  'accentColor',
   'background',
   'fontScale',
   'assistantDockOpen',
@@ -409,6 +414,9 @@ function loadPersisted(): Partial<UiState> {
     if (isChoice(value.accent, ACCENTS.map((accent) => accent.name))) {
       out.accent = value.accent as AccentName
     }
+    // Same guard the settings merge uses: a cached value that is not a plain hex would otherwise be read as
+    // black by the derivation, and a reader would see their accent change colour on reload with nothing said.
+    if (isAccentColor(value.accentColor)) out.accentColor = value.accentColor.toLowerCase()
     if (isChoice(value.background, ['paper', 'white'])) {
       out.background = value.background as BackgroundName
     }
@@ -788,7 +796,7 @@ export const useUi = create<UiState>((set, get) => ({
 lastPersisted = serializedPersistedState(useUi.getState())
 useUi.subscribe(schedulePersist)
 
-export function applyThemeToDom(state: Pick<UiState, 'theme' | 'accent' | 'background' | 'fontScale'>): void {
+export function applyThemeToDom(state: Pick<UiState, 'theme' | 'accent' | 'accentColor' | 'background' | 'fontScale'>): void {
   const root = document.documentElement
   const dark =
     state.theme === 'dark' ||
@@ -796,6 +804,10 @@ export function applyThemeToDom(state: Pick<UiState, 'theme' | 'accent' | 'backg
   const theme = dark ? 'dark' : 'light'
   if (root.dataset.theme !== theme) root.dataset.theme = theme
   if (root.dataset.accent !== state.accent) root.dataset.accent = state.accent
+  // A named accent is a selector; a custom one is four properties written over the cascade, refreshed on
+  // every theme change because the lightness it needs is different in each.
+  if (state.accent === 'custom' && state.accentColor) applyCustomAccent(root, state.accentColor, theme)
+  else clearCustomAccent(root)
   if (root.dataset.background !== state.background) root.dataset.background = state.background
 }
 

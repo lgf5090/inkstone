@@ -86,7 +86,7 @@ export interface UpdateCheckResponse {
 
 export type ThemePref = 'light' | 'dark' | 'system'
 export type AppLocale = 'zh-CN' | 'en-US'
-export type AccentName = 'cinnabar' | 'indigo' | 'celadon' | 'amber' | 'terracotta' | 'wisteria' | 'graphite'
+export type AccentName = 'cinnabar' | 'indigo' | 'celadon' | 'amber' | 'terracotta' | 'wisteria' | 'graphite' | 'custom'
 export type BackgroundName = 'paper' | 'white'
 export type UiDensity = 'comfortable' | 'compact'
 export type ProseFont = 'sans' | 'serif'
@@ -100,6 +100,13 @@ export interface AppearanceSettings {
   language: AppLocale
   theme: ThemePref
   accent: AccentName
+  /**
+   * The colour behind `accent: 'custom'`, as `#rrggbb`.
+   *
+   * Only the *name* is an enum, so the picked colour has nowhere to live without this: a reader who chose
+   * their own accent on one device would get the default back on the next.
+   */
+  accentColor: string
   background: BackgroundName
   density: UiDensity
   proseFont: ProseFont

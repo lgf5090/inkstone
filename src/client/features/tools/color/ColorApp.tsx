@@ -1,20 +1,30 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import { LoadingBlock } from '../../../components/feedback'
 import { useToolsStore } from '../store'
 import { useColorStudioStore } from './store'
 import { ColorStudioView } from './views/ColorStudioView'
-import { ColorSpaceAlgorithmView } from './views/ColorSpaceAlgorithmView'
-import { AiPaletteView } from './views/AiPaletteView'
-import { UiPaletteView } from './views/UiPaletteView'
-import { ImagePaletteView } from './views/ImagePaletteView'
-import { TraditionalColorView } from './views/TraditionalColorView'
-import { GradientStudioView } from './views/GradientStudioView'
-import { ColorHuntPalettesView } from './views/ColorHuntPalettesView'
-import { FavoritesView } from './views/FavoritesView'
+
+/**
+ * One chunk per view, because only one view is on screen.
+ *
+ * All ten used to be static imports, so opening the studio also parsed the four preset families, the
+ * ColorHunt data, the two traditional-colour dictionaries and the image quantizer — 80 KB of source that
+ * the first screen never touches. The studio stays eager because it is where the tool opens; a lazy studio
+ * would show a spinner instead of a colour wheel.
+ */
+const ColorSpaceAlgorithmView = lazy(() => import('./views/ColorSpaceAlgorithmView').then((m) => ({ default: m.ColorSpaceAlgorithmView })))
+const AiPaletteView = lazy(() => import('./views/AiPaletteView').then((m) => ({ default: m.AiPaletteView })))
+const UiPaletteView = lazy(() => import('./views/UiPaletteView').then((m) => ({ default: m.UiPaletteView })))
+const ImagePaletteView = lazy(() => import('./views/ImagePaletteView').then((m) => ({ default: m.ImagePaletteView })))
+const TraditionalColorView = lazy(() => import('./views/TraditionalColorView').then((m) => ({ default: m.TraditionalColorView })))
+const GradientStudioView = lazy(() => import('./views/GradientStudioView').then((m) => ({ default: m.GradientStudioView })))
+const ColorHuntPalettesView = lazy(() => import('./views/ColorHuntPalettesView').then((m) => ({ default: m.ColorHuntPalettesView })))
+const FavoritesView = lazy(() => import('./views/FavoritesView').then((m) => ({ default: m.FavoritesView })))
+const ColorSettingsView = lazy(() => import('./views/ColorSettingsView').then((m) => ({ default: m.ColorSettingsView })))
 
 // Global Modals
 import { ContrastCheckerModal } from './components/modals/ContrastCheckerModal'
 import { TokenScaleModal } from './components/modals/TokenScaleModal'
-import { RealtimeColorsModal } from './components/modals/RealtimeColorsModal'
 import { ColorBlindnessModal } from './components/modals/ColorBlindnessModal'
 import { CreateCustomPaletteModal } from './components/modals/CreateCustomPaletteModal'
 import { ExportPaletteModal } from './components/modals/ExportPaletteModal'
@@ -54,6 +64,8 @@ export function ColorApp() {
         return <ColorHuntPalettesView />
       case 'favorites':
         return <FavoritesView />
+      case 'settings':
+        return <ColorSettingsView />
       default:
         return <ColorStudioView />
     }
@@ -66,13 +78,12 @@ export function ColorApp() {
     >
       {/* Active Sub-view */}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {renderActiveView()}
+        <Suspense fallback={<LoadingBlock />}>{renderActiveView()}</Suspense>
       </div>
 
       {/* Global Modals */}
       <ContrastCheckerModal />
       <TokenScaleModal />
-      <RealtimeColorsModal />
       <ColorBlindnessModal />
       <CreateCustomPaletteModal />
       <ExportPaletteModal />

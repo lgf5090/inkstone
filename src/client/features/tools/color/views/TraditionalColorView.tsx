@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
-import { compileQuery } from '../../../../lib/query-match'
+import { compileQuery, queryKeeps, queryKeepsRows } from '../../../../lib/query-match'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import {
   TRADITIONAL_CHINESE_COLORS,
   TRADITIONAL_NIPPON_COLORS,
 } from '@shared/tools/color/presets'
 import type { TraditionalColorItem } from '@shared/tools/color/types'
 import { cn } from '../../../../lib/cn'
+import { Segmented } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { TraditionalColorCard } from '../components/TraditionalColorCard'
 import { useColorStudioStore } from '../store'
@@ -19,6 +21,10 @@ export function TraditionalColorView() {
   const [selectedSeries, setSelectedSeries] = useState<string>('all')
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
+
+  // The reading table arrives after the first paint on a cold cache: a listing filtered before it lands
+  // has to be filtered again once it is here, or the box keeps showing the answer typed before.
+  const pinyinVersion = usePinyinVersion()
 
   const currentDataset: TraditionalColorItem[] = useMemo(() => {
     return traditionalTab === 'chinese'
@@ -36,21 +42,22 @@ export function TraditionalColorView() {
   }, [currentDataset])
 
   const filteredColors = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim()
+    const keep = (subject: string | undefined) =>
+      subject !== undefined && queryKeeps(compiledQuery, subject)
     return currentDataset.filter((item) => {
       if (selectedSeries !== 'all' && item.series !== selectedSeries) {
         return false
       }
-      if (!q) return true
+      if (queryKeepsRows(compiledQuery)) return true
       return (
-        item.name.toLowerCase().includes(q) ||
-        item.hex.toLowerCase().includes(q) ||
-        (item.pinyin && item.pinyin.toLowerCase().includes(q)) ||
-        (item.romaji && item.romaji.toLowerCase().includes(q)) ||
-        (item.solarTerm && item.solarTerm.toLowerCase().includes(q))
+        keep(item.name) ||
+        keep(item.hex) ||
+        keep(item.pinyin) ||
+        keep(item.romaji) ||
+        keep(item.solarTerm)
       )
     })
-  }, [currentDataset, selectedSeries, searchQuery])
+  }, [currentDataset, selectedSeries, compiledQuery, pinyinVersion])
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto p-4 md:p-6 overflow-y-auto">
@@ -60,51 +67,25 @@ export function TraditionalColorView() {
           {t('tools.color.traditional.title')}
         </h2>
         <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
-          {t('tools.color.traditional.subtitle')}
+          {t('tools.color.traditional.subtitle', { chinese: TRADITIONAL_CHINESE_COLORS.length, nippon: TRADITIONAL_NIPPON_COLORS.length })}
         </p>
       </div>
 
       {/* Primary Tabs: Chinese vs Nippon */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div
-          role="tablist"
-          className="flex items-center gap-1.5 p-1 rounded-[var(--r-md)] bg-[var(--bg-sunken)] border border-[var(--border-subtle)]"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={traditionalTab === 'chinese'}
-            onClick={() => {
-              setTraditionalTab('chinese')
-              setSelectedSeries('all')
-            }}
-            className={cn(
-              'px-3.5 py-1.5 rounded-[var(--r-sm)] text-[length:var(--text-12)] font-medium transition-colors select-none',
-              traditionalTab === 'chinese'
-                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {t('tools.color.traditional.tab_chinese')} ({TRADITIONAL_CHINESE_COLORS.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={traditionalTab === 'nippon'}
-            onClick={() => {
-              setTraditionalTab('nippon')
-              setSelectedSeries('all')
-            }}
-            className={cn(
-              'px-3.5 py-1.5 rounded-[var(--r-sm)] text-[length:var(--text-12)] font-medium transition-colors select-none',
-              traditionalTab === 'nippon'
-                ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
-            )}
-          >
-            {t('tools.color.traditional.tab_nippon')} ({TRADITIONAL_NIPPON_COLORS.length})
-          </button>
-        </div>
+        <Segmented
+          size="sm"
+          label={t('tools.color.traditional.title')}
+          value={traditionalTab}
+          onChange={(next) => {
+            setTraditionalTab(next)
+            setSelectedSeries('all')
+          }}
+          options={[
+            { value: 'chinese' as const, label: `${t('tools.color.traditional.tab_chinese')} (${TRADITIONAL_CHINESE_COLORS.length})` },
+            { value: 'nippon' as const, label: `${t('tools.color.traditional.tab_nippon')} (${TRADITIONAL_NIPPON_COLORS.length})` },
+          ]}
+        />
 
         {/* Search */}
         <div className="w-full sm:w-64">

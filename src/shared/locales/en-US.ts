@@ -291,6 +291,9 @@ const CORE_MESSAGES = {
     "command.outline_reset_level": "Outline: reset expansion to the default level",
     "command.paste_as_link": "Paste the clipboard as a link",
     "command.copy_outline_as_text": "Copy outline as indented text",
+    "command.color_copy_seed": "Copy the current seed color",
+    "command.color_token_scale": "Generate the 50-950 scale of the current color",
+    "command.color_eyedropper": "Pick a color from the screen",
     "command.copy_outline_numbered": "Copy outline as a numbered list",
     "command.select_next_occurrence": "Select next matching text",
     "command.format_code_block": "Format the code block at the cursor",
@@ -2532,6 +2535,7 @@ const CORE_MESSAGES = {
     "settings.accent.celadon": "Jade",
     "settings.accent.cinnabar": "Cinnabar",
     "settings.accent.graphite": "Slate",
+    "settings.accent.custom": "Custom colour",
     "settings.accent.indigo": "Deep sea",
     "settings.accent.terracotta": "Lagoon",
     "settings.accent.wisteria": "Iris",
@@ -5195,6 +5199,9 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     "settings.search_weight_property_placeholder": "keywords",
     "settings.search_weight_property_add": "Add property",
     "linter.add_tooltip": "Add",
+} as const;
+
+const CORE_MESSAGES_TAIL = {
     "linter.all_rules_option": "All",
     "linter.already_in_list": "Already in the list",
     "linter.cancel_button_text": "Cancel",
@@ -10358,7 +10365,9 @@ Press \`Ctrl + ,\` to change the interface language, theme, typography, editor, 
     ...EN_US_INK_ELEMENTS,
     ...EN_US_INK_SETTINGS,
 } as const;
+
+const CORE_MESSAGES_ALL: typeof CORE_MESSAGES & typeof CORE_MESSAGES_TAIL = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL };
 const GITHUB_MESSAGES = { ...EN_US_DEVELOPMENT_GITHUB } as const;
-export const EN_US_MESSAGES: typeof CORE_MESSAGES & typeof GITHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...GITHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
-export type BaseMessageKey = keyof typeof CORE_MESSAGES | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
+export const EN_US_MESSAGES: typeof CORE_MESSAGES_ALL & typeof GITHUB_MESSAGES & typeof EN_US_INKNOTE & typeof EN_US_YOUTUBE & typeof EN_US_BLOG_ADMIN = { ...CORE_MESSAGES, ...CORE_MESSAGES_TAIL, ...GITHUB_MESSAGES, ...EN_US_INKNOTE, ...EN_US_YOUTUBE, ...EN_US_BLOG_ADMIN };
+export type BaseMessageKey = keyof typeof CORE_MESSAGES_ALL | keyof typeof EN_US_INKNOTE | keyof typeof GITHUB_MESSAGES | keyof typeof EN_US_BLOG_ADMIN;
 export type MessageKey = BaseMessageKey | NoteTemplateContentKey | keyof typeof EN_US_IMGBED | keyof typeof EN_US_YOUTUBE | keyof typeof EN_US_NAV | keyof typeof EN_US_CLOUDDRIVE | keyof typeof EN_US_CLOUDDRIVE_ADMIN | keyof typeof EN_US_CLOUDDRIVE_MEDIA;

@@ -1,20 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowDown,
+  ArrowUp,
   Clock,
   Copy,
   Download,
   Heart,
   Palette,
+  Pencil,
   Pipette,
   Plus,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import { Button, IconButton } from '../../../../components/primitives'
-import { Tooltip } from '../../../../components/overlay'
+import { Segmented } from '../../../../components/form'
+import { Tooltip, confirm } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { useUi } from '../../../../store/ui'
+import { EditFavoriteModal } from '../components/modals/EditFavoriteModal'
+import { PaletteHealthSummary } from '../components/PaletteHealthSummary'
+import { EditPaletteModal } from '../components/modals/EditPaletteModal'
 
 type FavoritesSubTab = 'colors' | 'palettes' | 'history'
+
+/**
+ * A list the server refused, shown apart from a list that came back empty.
+ *
+ * Both used to render "nothing saved yet", which tells a reader on a flaky connection that their colors
+ * are gone — and invites them to save the same hex a second time.
+ */
+function LoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-[var(--text-tertiary)]">
+      <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.load_failed')}</p>
+      <Button size="sm" variant="secondary" onClick={onRetry}>
+        {t('common.retry')}
+      </Button>
+    </div>
+  )
+}
 
 export function FavoritesView() {
   const [activeTab, setActiveTab] = useState<FavoritesSubTab>('colors')
@@ -22,20 +48,68 @@ export function FavoritesView() {
   const favorites = useColorStudioStore((s) => s.favorites)
   const palettes = useColorStudioStore((s) => s.palettes)
   const history = useColorStudioStore((s) => s.history)
+  const isLoadingFavorites = useColorStudioStore((s) => s.isLoadingFavorites)
+  const isLoadingPalettes = useColorStudioStore((s) => s.isLoadingPalettes)
+  const favoritesLoadFailed = useColorStudioStore((s) => s.favoritesLoadFailed)
+  const palettesLoadFailed = useColorStudioStore((s) => s.palettesLoadFailed)
 
   const fetchFavorites = useColorStudioStore((s) => s.fetchFavorites)
   const fetchPalettes = useColorStudioStore((s) => s.fetchPalettes)
   const fetchHistory = useColorStudioStore((s) => s.fetchHistory)
 
-  const removeFavorite = useColorStudioStore((s) => s.removeFavorite)
-  const removePalette = useColorStudioStore((s) => s.removePalette)
+  const storeRemoveFavorite = useColorStudioStore((s) => s.removeFavorite)
+  const storeRemovePalette = useColorStudioStore((s) => s.removePalette)
+  const storeClearHistory = useColorStudioStore((s) => s.clearHistory)
   const togglePaletteFavorite = useColorStudioStore((s) => s.togglePaletteFavorite)
-  const clearHistory = useColorStudioStore((s) => s.clearHistory)
+
+  const removeFavorite = async (id: string) => {
+    // A favorite is the only copy: there is no trash and no export, so deletion asks first.
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_delete_favorite_title'), description: t('tools.color.favorites.confirm_delete_favorite'), tone: 'danger', confirmLabel: t('tools.color.common.delete') }))) return
+    await storeRemoveFavorite(id)
+  }
+
+  const removePalette = async (id: string) => {
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_delete_palette_title'), description: t('tools.color.favorites.confirm_delete_palette'), tone: 'danger', confirmLabel: t('tools.color.common.delete') }))) return
+    await storeRemovePalette(id)
+  }
+
+  const clearHistory = async () => {
+    if (!(await confirm({ title: t('tools.color.favorites.confirm_clear_history_title'), description: t('tools.color.favorites.confirm_clear_history'), tone: 'danger', confirmLabel: t('tools.color.favorites.clear_history') }))) return
+    await storeClearHistory()
+  }
 
   const setCurrentHex = useColorStudioStore((s) => s.setCurrentHex)
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const openCreatePaletteModal = useColorStudioStore((s) => s.openCreatePaletteModal)
   const openExportPaletteModal = useColorStudioStore((s) => s.openExportPaletteModal)
+  const openEditFavorite = useColorStudioStore((s) => s.openEditFavorite)
+  const openEditPalette = useColorStudioStore((s) => s.openEditPalette)
+  const moveFavorite = useColorStudioStore((s) => s.moveFavorite)
+  const movePalette = useColorStudioStore((s) => s.movePalette)
+  const exportBackup = useColorStudioStore((s) => s.exportBackup)
+  const importBackup = useColorStudioStore((s) => s.importBackup)
+  const backupInputRef = useRef<HTMLInputElement | null>(null)
+
+  const readBackupFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const text = typeof reader.result === 'string' ? reader.result : ''
+      try {
+        const result = await importBackup(text)
+        useUi.getState().toast({
+          title: t('tools.color.backup.imported', result),
+          tone: 'success',
+        })
+      } catch (e: unknown) {
+        const err = e as Error
+        useUi.getState().toast({ title: err.message || t('tools.color.backup.rejected'), tone: 'danger' })
+      }
+    }
+    reader.onerror = () => {
+      useUi.getState().toast({ title: t('tools.color.backup.rejected'), tone: 'danger' })
+    }
+    reader.readAsText(file)
+  }
 
   useEffect(() => {
     fetchFavorites()
@@ -57,69 +131,81 @@ export function FavoritesView() {
         </div>
 
         {/* Tab switcher */}
-        <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab('colors')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'colors'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Heart size={13} />
-            {t('tools.color.favorites.tab_colors')} ({favorites.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('palettes')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'palettes'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Palette size={13} />
-            {t('tools.color.favorites.tab_palettes')} ({palettes.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-sm)] text-[length:var(--text-12)] font-semibold transition-colors ${
-              activeTab === 'history'
-                ? 'bg-[var(--accent)] text-white shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Clock size={13} />
-            {t('tools.color.favorites.tab_history')} ({history.length})
-          </button>
-        </div>
+        <Segmented
+          size="sm"
+          label={t('tools.color.favorites.title')}
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { value: 'colors' as const, label: `${t('tools.color.favorites.tab_colors')} (${favorites.length})` },
+            { value: 'palettes' as const, label: `${t('tools.color.favorites.tab_palettes')} (${palettes.length})` },
+            { value: 'history' as const, label: `${t('tools.color.favorites.tab_history')} (${history.length})` },
+          ]}
+        />
       </div>
+
+      {/* A favourite is the only copy of itself, so the panel has to be able to hand it over. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Tooltip label={t('tools.color.backup.export_hint')}>
+          <Button size="sm" variant="secondary" onClick={exportBackup}>
+            <Download size={14} className="mr-1.5" />
+            {t('tools.color.backup.export')}
+          </Button>
+        </Tooltip>
+        <Tooltip label={t('tools.color.backup.import_hint')}>
+          <Button size="sm" variant="secondary" onClick={() => backupInputRef.current?.click()}>
+            <Upload size={14} className="mr-1.5" />
+            {t('tools.color.backup.import')}
+          </Button>
+        </Tooltip>
+        <input
+          ref={backupInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="sr-only"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) readBackupFile(file)
+            e.target.value = ''
+          }}
+        />
+      </div>
+
+      {/* The editors are reached only from these cards, so they live with the panel that opens them. */}
+      <EditFavoriteModal />
+      <EditPaletteModal />
 
       {/* Tab 1: Colors */}
       {activeTab === 'colors' && (
         <div className="space-y-4">
-          {favorites.length === 0 ? (
+          {isLoadingFavorites ? (
+            <p className="py-16 text-center text-[length:var(--text-14)] text-[var(--text-tertiary)]">
+              {t('tools.color.favorites.loading')}
+            </p>
+          ) : favoritesLoadFailed ? (
+            <LoadFailed onRetry={fetchFavorites} />
+          ) : favorites.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--text-tertiary)]">
               <Heart size={32} className="mb-2 opacity-50" />
               <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {favorites.map((fav) => (
+              {favorites.map((fav, index) => (
                 <div
                   key={fav.id}
                   className="group flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--accent)]"
                 >
                   <button
                     type="button"
-                    aria-label={`Select ${fav.hex}`}
+                    aria-label={t('tools.color.swatch.use', { hex: fav.hex })}
                     className="h-20 w-full cursor-pointer relative focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: fav.hex }}
                     onClick={() => setCurrentHex(fav.hex, 'favorites')}
                   >
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
                       <Pipette size={16} className="text-white drop-shadow-sm" />
                     </div>
                   </button>
@@ -128,12 +214,41 @@ export function FavoritesView() {
                       <span className="font-mono text-[length:var(--text-12)] font-bold text-[var(--text-primary)] uppercase">
                         {fav.hex}
                       </span>
-                      <div className="flex items-center gap-0.5">
+                      <div className="flex flex-wrap items-center justify-end gap-0.5">
+                        <Tooltip label={t('tools.color.edit.action')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.action')}
+                            onClick={() => openEditFavorite(fav.id)}
+                          >
+                            <Pencil size={12} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip label={t('tools.color.edit.move_up')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.move_up')}
+                            disabled={index === 0}
+                            onClick={() => moveFavorite(fav.id, -1)}
+                          >
+                            <ArrowUp size={12} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip label={t('tools.color.edit.move_down')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.move_down')}
+                            disabled={index === favorites.length - 1}
+                            onClick={() => moveFavorite(fav.id, 1)}
+                          >
+                            <ArrowDown size={12} />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip label={t('tools.color.studio.copy')}>
                           <IconButton
                             size="xs"
                             label={t('tools.color.studio.copy')}
-                            onClick={() => copyColor(fav.hex, fav.name)}
+                            onClick={() => copyColor(fav.hex, fav.name || t('tools.color.favorites.title'))}
                           >
                             <Copy size={12} />
                           </IconButton>
@@ -175,14 +290,24 @@ export function FavoritesView() {
             </Button>
           </div>
 
-          {palettes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--text-tertiary)]">
-              <Palette size={32} className="mb-2 opacity-50" />
-              <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty')}</p>
+          {isLoadingPalettes ? (
+            <p className="py-16 text-center text-[length:var(--text-14)] text-[var(--text-tertiary)]">
+              {t('tools.color.favorites.loading')}
+            </p>
+          ) : palettesLoadFailed ? (
+            <LoadFailed onRetry={fetchPalettes} />
+          ) : palettes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-[var(--text-tertiary)]">
+              <Palette size={32} className="opacity-50" />
+              <p className="text-[length:var(--text-14)]">{t('tools.color.favorites.empty_palettes')}</p>
+              <Button size="sm" variant="secondary" onClick={openCreatePaletteModal}>
+                <Plus size={14} className="mr-1.5" />
+                {t('tools.color.create_palette.title')}
+              </Button>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {palettes.map((p) => {
+              {palettes.map((p, index) => {
                 const hexList = p.colors.map((c) => c.hex)
                 return (
                   <div
@@ -195,9 +320,9 @@ export function FavoritesView() {
                         <button
                           key={i}
                           type="button"
-                          aria-label={`Select color ${c.hex}`}
-                          className="flex-1 h-full cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
-                          style={{ backgroundColor: c.hex }}
+                          aria-label={t('tools.color.swatch.use', { hex: c.hex })}
+                          className="h-full min-w-4 cursor-pointer transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]"
+                          style={{ backgroundColor: c.hex, flexGrow: c.ratio && c.ratio > 0 ? c.ratio : 1 }}
                           title={c.hex}
                           onClick={() => setCurrentHex(c.hex, 'palette')}
                         />
@@ -229,6 +354,7 @@ export function FavoritesView() {
                           {p.description}
                         </p>
                       )}
+                      <PaletteHealthSummary colors={hexList} />
 
                       <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)]">
                         <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)] uppercase font-mono">
@@ -237,7 +363,36 @@ export function FavoritesView() {
                             count: p.colors.length,
                           })}
                         </span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                          <Tooltip label={t('tools.color.edit.action')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.action')}
+                              onClick={() => openEditPalette(p.id)}
+                            >
+                              <Pencil size={12} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip label={t('tools.color.edit.move_up')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.move_up')}
+                              disabled={index === 0}
+                              onClick={() => movePalette(p.id, -1)}
+                            >
+                              <ArrowUp size={12} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip label={t('tools.color.edit.move_down')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.move_down')}
+                              disabled={index === palettes.length - 1}
+                              onClick={() => movePalette(p.id, 1)}
+                            >
+                              <ArrowDown size={12} />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip label={t('tools.color.export.title')}>
                             <IconButton
                               size="xs"
@@ -301,7 +456,7 @@ export function FavoritesView() {
                 >
                   <button
                     type="button"
-                    aria-label={`Select color ${item.hex}`}
+                    aria-label={t('tools.color.swatch.use', { hex: item.hex })}
                     className="h-12 w-full rounded-[var(--radius-xs)] cursor-pointer shadow-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     style={{ backgroundColor: item.hex }}
                     onClick={() => setCurrentHex(item.hex, 'history')}

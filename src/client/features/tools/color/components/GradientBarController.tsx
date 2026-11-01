@@ -1,11 +1,17 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { buildCssGradient } from '@shared/tools/color/oklab'
+import { COLOR_PALETTE_MAX_COLORS } from '@shared/tools/color/contract'
 import type { GradientColorStop, GradientConfig, GradientType } from '@shared/tools/color/types'
 import { Button, IconButton } from '../../../../components/primitives'
+import { Input, Slider } from '../../../../components/form'
 import { Tooltip } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { parseHexInput } from '../lib/hex-input'
+
+/** A gradient needs two ends; the ceiling is what the palette API will store. */
+const MIN_STOPS = 2
 
 export interface GradientBarControllerProps {
   config: GradientConfig
@@ -22,9 +28,16 @@ export function GradientBarController({
 }: GradientBarControllerProps) {
   const trackRef = useRef<HTMLButtonElement | null>(null)
   const currentHex = useColorStudioStore((s) => s.currentHex)
+  // The hex box keeps what the reader typed: writing an unfinished value into the stop would repaint the
+  // gradient with black, and normalizing it silently would accept anything.
+  const [hexDraft, setHexDraft] = useState<{ id: string; text: string } | null>(null)
 
   const sortedStops = [...config.stops].sort((a, b) => a.offset - b.offset)
   const activeStop = config.stops.find((s) => s.id === activeStopId) || sortedStops[0]
+  const draftText =
+    hexDraft && activeStop && hexDraft.id === activeStop.id ? hexDraft.text : (activeStop?.color ?? '')
+  const draftParsed = parseHexInput(draftText)
+  const atMaxStops = config.stops.length >= COLOR_PALETTE_MAX_COLORS
 
   const handleTrackClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (!trackRef.current) return
@@ -32,10 +45,18 @@ export function GradientBarController({
     const clickX = e.clientX - rect.left
     const percent = Math.min(100, Math.max(0, Math.round((clickX / rect.width) * 100)))
 
-    // Generate unique ID
-    const newId = `stop_${Date.now()}`
+    // A click that lands on an existing stop selects it. Without this, nudging a stop by clicking beside it
+    // stacked a second stop on the same offset, and the only way to move one was the offset slider.
+    const hit = config.stops.find((stop) => Math.abs(stop.offset - percent) <= 1)
+    if (hit) {
+      onSelectStop(hit.id)
+      return
+    }
+
+    if (config.stops.length >= COLOR_PALETTE_MAX_COLORS) return
+
     const newStop: GradientColorStop = {
-      id: newId,
+      id: crypto.randomUUID(),
       color: currentHex,
       offset: percent,
     }
@@ -44,7 +65,7 @@ export function GradientBarController({
       ...config,
       stops: [...config.stops, newStop],
     })
-    onSelectStop(newId)
+    onSelectStop(newStop.id)
   }
 
   const handleStopOffsetChange = (id: string, offset: number) => {
@@ -58,21 +79,25 @@ export function GradientBarController({
   }
 
   const handleRemoveStop = (id: string) => {
-    if (config.stops.length <= 2) return // Keep at least 2 stops
-    const updated = config.stops.filter((s) => s.id !== id)
+    if (config.stops.length <= MIN_STOPS) return
+    const index = sortedStops.findIndex((stop) => stop.id === id)
+    const updated = config.stops.filter((stop) => stop.id !== id)
     onChange({ ...config, stops: updated })
-    const nextActive = updated[0]?.id || ''
-    onSelectStop(nextActive)
+    // Keep the selection next to where the reader was working instead of jumping to the first stop.
+    const next = sortedStops[index + 1]?.id ?? sortedStops[index - 1]?.id ?? updated[0]?.id ?? ''
+    onSelectStop(next)
   }
 
   const handleAddStop = () => {
-    const newId = `stop_${Date.now()}`
-    const offset = Math.min(100, (sortedStops[sortedStops.length - 1]?.offset || 50) + 10)
+    if (config.stops.length >= COLOR_PALETTE_MAX_COLORS) return
+    const id = crypto.randomUUID()
+    const last = sortedStops[sortedStops.length - 1]
+    const offset = Math.min(100, (last?.offset ?? 50) + 10)
     onChange({
       ...config,
-      stops: [...config.stops, { id: newId, color: currentHex, offset }],
+      stops: [...config.stops, { id, color: currentHex, offset }],
     })
-    onSelectStop(newId)
+    onSelectStop(id)
   }
 
   const linearCss = buildCssGradient({
@@ -101,7 +126,7 @@ export function GradientBarController({
             style={{ backgroundImage: linearCss }}
           />
 
-          {/* Draggable Stop Markers */}
+          {/* Stop markers, selected by click and moved with the offset slider */}
           {config.stops.map((stop) => {
             const isSelected = stop.id === activeStop?.id
             return (
@@ -116,7 +141,7 @@ export function GradientBarController({
                   isSelected ? 'z-20 scale-110' : 'z-10 hover:scale-105'
                 }`}
                 style={{ left: `${stop.offset}%` }}
-                aria-label={`Color stop at ${stop.offset}%: ${stop.color}`}
+                aria-label={t('tools.color.gradient.stop_at', { offset: stop.offset, hex: stop.color })}
               >
                 <div
                   className={`h-7 w-4 rounded-full border-2 shadow-md ${
@@ -127,7 +152,7 @@ export function GradientBarController({
                 <span
                   className={`mt-1 font-mono text-[length:var(--text-10)] font-semibold px-1 rounded-sm ${
                     isSelected
-                      ? 'bg-[var(--accent)] text-white'
+                      ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                       : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
                   }`}
                 >
@@ -148,16 +173,26 @@ export function GradientBarController({
               style={{ backgroundColor: activeStop.color }}
             />
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={activeStop.color}
-                onChange={(e) => handleStopColorChange(activeStop.id, e.target.value)}
-                className="w-24 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 font-mono text-[length:var(--text-12)] uppercase text-[var(--text-primary)]"
+              <Input
+                value={draftText}
+                onChange={(e) => {
+                  const text = e.target.value
+                  setHexDraft({ id: activeStop.id, text })
+                  const parsed = parseHexInput(text)
+                  if (parsed) handleStopColorChange(activeStop.id, parsed)
+                }}
+                aria-label={t('tools.color.gradient.stop_hex_label')}
+                aria-invalid={draftParsed === null || undefined}
+                maxLength={7}
+                className="w-24 font-mono text-[length:var(--text-12)] uppercase"
               />
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => handleStopColorChange(activeStop.id, currentHex)}
+                onClick={() => {
+                  setHexDraft(null)
+                  handleStopColorChange(activeStop.id, currentHex)
+                }}
               >
                 {t('tools.color.gradient.set_current_hex')}
               </Button>
@@ -167,13 +202,13 @@ export function GradientBarController({
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('tools.color.gradient.offset')}</span>
-              <input
-                type="range"
+              <Slider
+                value={activeStop.offset}
                 min={0}
                 max={100}
-                value={activeStop.offset}
-                onChange={(e) => handleStopOffsetChange(activeStop.id, Number(e.target.value))}
-                className="h-1.5 w-24 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
+                onChange={(offset) => handleStopOffsetChange(activeStop.id, offset)}
+                label={t('tools.color.gradient.offset')}
+                className="w-24"
               />
               <span className="w-8 font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {activeStop.offset}%
@@ -181,8 +216,15 @@ export function GradientBarController({
             </div>
 
             <div className="flex items-center gap-1.5 border-l border-[var(--border-subtle)] pl-3">
-              <Tooltip label={t('tools.color.gradient.add_stop_label')}>
-                <IconButton size="sm" label={t('tools.color.gradient.add_stop_label')} onClick={handleAddStop}>
+              <Tooltip
+                label={atMaxStops ? t('tools.color.gradient.stops_max', { max: COLOR_PALETTE_MAX_COLORS }) : t('tools.color.gradient.add_stop_label')}
+              >
+                <IconButton
+                  size="sm"
+                  label={t('tools.color.gradient.add_stop_label')}
+                  disabled={atMaxStops}
+                  onClick={handleAddStop}
+                >
                   <Plus size={14} />
                 </IconButton>
               </Tooltip>
@@ -190,7 +232,7 @@ export function GradientBarController({
                 <IconButton
                   size="sm"
                   label={t('tools.color.gradient.remove_stop_label')}
-                  disabled={config.stops.length <= 2}
+                  disabled={config.stops.length <= MIN_STOPS}
                   onClick={() => handleRemoveStop(activeStop.id)}
                 >
                   <Trash2 size={14} />
@@ -213,24 +255,24 @@ export function GradientBarController({
                 onClick={() => onChange({ ...config, type })}
                 className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-[var(--radius-sm)] transition-colors ${
                   config.type === type
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                {type}
+                {t(`tools.color.gradient.type.${type}`)}
               </button>
             ))}
           </div>
 
           {config.type !== 'radial' && (
             <div className="flex items-center gap-2">
-              <input
-                type="range"
+              <Slider
+                value={config.angle}
                 min={0}
                 max={360}
-                value={config.angle}
-                onChange={(e) => onChange({ ...config, angle: Number(e.target.value) })}
-                className="h-1.5 w-20 cursor-pointer rounded-lg bg-[var(--border-subtle)] accent-[var(--accent)]"
+                onChange={(angle) => onChange({ ...config, angle })}
+                label={t('tools.color.gradient.angle_label')}
+                className="w-20"
               />
               <span className="font-mono text-[length:var(--text-12)] text-[var(--text-primary)]">
                 {config.angle}°

@@ -2,11 +2,28 @@
  * Universal Palette Exporter Engine (ASE, CSS, SCSS, Tailwind, JSON)
  */
 
-import { hexToRgb } from '@shared/tools/color/spaces'
+import { hexToRgb, rgbToOklchString } from '@shared/tools/color/spaces'
+import type { MessageKey } from '@shared/locales/en-US'
 
 export interface PaletteExportData {
   title: string
   colors: string[] // hex values
+}
+
+/**
+ * A palette title turned into something that may stand inside an identifier, a variable name or a file name.
+ *
+ * Titles here are what the reader typed, and a third of them are written in characters this filter cannot
+ * keep: such a title used to survive as a run of hyphens, exporting `--color-----1` and a Tailwind key of
+ * `'-----'`. Whatever has no Latin letter or digit in it is named after the collection instead, after the
+ * separators are folded — which also stops two words from becoming `my--palette`.
+ */
+export function slugFromTitle(title: string): string {
+  const folded = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return folded || 'palette'
 }
 
 /**
@@ -121,7 +138,7 @@ export function exportToAseBlob(palette: PaletteExportData): Blob {
  * Builds CSS Variables format
  */
 export function exportToCssVariables(palette: PaletteExportData): string {
-  const prefix = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'palette'
+  const prefix = slugFromTitle(palette.title)
   const vars = palette.colors
     .map((hex, i) => `  --color-${prefix}-${i + 1}: ${hex.toLowerCase()};`)
     .join('\n')
@@ -132,7 +149,7 @@ export function exportToCssVariables(palette: PaletteExportData): string {
  * Builds SCSS Variables format
  */
 export function exportToScssVariables(palette: PaletteExportData): string {
-  const prefix = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'palette'
+  const prefix = slugFromTitle(palette.title)
   const vars = palette.colors
     .map((hex, i) => `$color-${prefix}-${i + 1}: ${hex.toLowerCase()};`)
     .join('\n')
@@ -143,7 +160,7 @@ export function exportToScssVariables(palette: PaletteExportData): string {
  * Builds Tailwind CSS config format
  */
 export function exportToTailwindConfig(palette: PaletteExportData): string {
-  const name = palette.title.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'custom'
+  const name = slugFromTitle(palette.title)
   const entries = palette.colors
     .map((hex, i) => `        '${(i + 1) * 100}': '${hex.toLowerCase()}',`)
     .join('\n')
@@ -169,8 +186,140 @@ export function exportToJson(palette: PaletteExportData): string {
 }
 
 /**
+ * Builds a Tailwind v4 `@theme` block.
+ *
+ * The v3 shape above exports a `module.exports` object, which a v4 stylesheet ignores: v4 takes its
+ * palette from CSS custom properties declared inside `@theme`.
+ */
+export function exportToTailwindV4Theme(palette: PaletteExportData): string {
+  const prefix = slugFromTitle(palette.title)
+  const entries = palette.colors
+    .map((hex, i) => `  --color-${prefix}-${i + 1}: ${hex.toLowerCase()};`)
+    .join('\n')
+  return `/* ${palette.title} — Tailwind v4 theme */\n@theme {\n${entries}\n}`
+}
+
+/**
+ * Builds CSS custom properties written in `oklch()` — the notation this app's own accent scale uses.
+ */
+export function exportToOklchCssVariables(palette: PaletteExportData): string {
+  const prefix = slugFromTitle(palette.title)
+  const vars = palette.colors
+    .map((hex, i) => `  --color-${prefix}-${i + 1}: ${rgbToOklchString(hexToRgb(hex))};`)
+    .join('\n')
+  return `/* ${palette.title} CSS Variables (OKLCH) */\n:root {\n${vars}\n}`
+}
+
+/**
+ * Builds a Design Tokens (DTCG) document, which is what Figma's token importer reads.
+ *
+ * The leaves are named by their place in the palette: renaming tokens is design-tool work, and a made-up
+ * English colour name would survive into the reader's file library.
+ */
+export function exportToFigmaTokens(palette: PaletteExportData): string {
+  const group = slugFromTitle(palette.title)
+  const leaves = palette.colors
+    .map((hex, i) => `    "${i + 1}": {\n      "$value": "${hex.toLowerCase()}"\n    }`)
+    .join(',\n')
+  return `{\n  "$type": "color",\n  "${group}": {\n${leaves}\n  }\n}`
+}
+
+/**
+ * Builds a GIMP palette (.gpl). GIMP stores channels as decimals, one colour per line.
+ */
+export function exportToGpl(palette: PaletteExportData): string {
+  const rows = palette.colors
+    .map((hex, i) => {
+      const { r, g, b } = hexToRgb(hex)
+      return `${String(r).padStart(3, ' ')} ${String(g).padStart(3, ' ')} ${String(b).padStart(3, ' ')}\t${i + 1}`
+    })
+    .join('\n')
+  return `GIMP Palette\nName: ${palette.title}\nColumns: ${Math.min(palette.colors.length, 8)}\n#\n${rows}\n`
+}
+
+/**
+ * Builds an Android `colors.xml`. Android writes the alpha channel first, and opaque is `FF`.
+ */
+export function exportToAndroidColors(palette: PaletteExportData): string {
+  const prefix = slugFromTitle(palette.title)
+  const items = palette.colors
+    .map((hex, i) => `    <color name="${prefix}_${i + 1}">#FF${hex.replace('#', '').toLowerCase()}</color>`)
+    .join('\n')
+  return `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${items}\n</resources>\n`
+}
+
+/**
+ * Builds the colour list an Xcode asset catalogue is generated from.
+ *
+ * sRGB components stay in 0..1 because that is what the catalogue stores; a hex would be re-parsed twice.
+ */
+export function exportToIosColors(palette: PaletteExportData): string {
+  return JSON.stringify(
+    {
+      colorSetName: slugFromTitle(palette.title),
+      colors: palette.colors.map((hex, index) => {
+        const { r, g, b } = hexToRgb(hex)
+        return {
+          idiom: 'universal',
+          name: `${slugFromTitle(palette.title)}-${index + 1}`,
+          hex: hex.toLowerCase(),
+          components: { red: r / 255, green: g / 255, blue: b / 255, alpha: 1 },
+        }
+      }),
+    },
+    null,
+    2,
+  )
+}
+
+/**
+ * What the export dialog offers.
+ *
+ * One table drives the picker, the preview, the file name and the download: the formats used to be listed
+ * three times over, which is how a new one could be added to the chips and still download nothing.
+ */
+export type ExportFormatId =
+  | 'css' | 'scss' | 'oklch' | 'tailwind' | 'tailwind_v4' | 'figma' | 'json' | 'gpl' | 'android' | 'ios' | 'ase'
+
+export interface ExportFormatSpec {
+  labelKey: MessageKey
+  /** The file-name tail after the palette slug. */
+  suffix: string
+  mime: string
+  /** A format whose bytes are not text: its preview is written by the dialog, not built here. */
+  binary?: boolean
+  build: (palette: PaletteExportData) => string
+}
+
+export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
+  css: { labelKey: 'tools.color.export.format_css', suffix: 'css', mime: 'text/css', build: exportToCssVariables },
+  scss: { labelKey: 'tools.color.export.format_scss', suffix: 'scss', mime: 'text/x-scss', build: exportToScssVariables },
+  oklch: { labelKey: 'tools.color.export.format_oklch', suffix: 'oklch.css', mime: 'text/css', build: exportToOklchCssVariables },
+  tailwind: { labelKey: 'tools.color.export.format_tailwind', suffix: 'tailwind.js', mime: 'text/javascript', build: exportToTailwindConfig },
+  tailwind_v4: { labelKey: 'tools.color.export.format_tailwind_v4', suffix: 'tailwind-v4.css', mime: 'text/css', build: exportToTailwindV4Theme },
+  figma: { labelKey: 'tools.color.export.format_figma', suffix: 'tokens.json', mime: 'application/json', build: exportToFigmaTokens },
+  json: { labelKey: 'tools.color.export.format_json', suffix: 'json', mime: 'application/json', build: exportToJson },
+  gpl: { labelKey: 'tools.color.export.format_gpl', suffix: 'gpl', mime: 'text/plain', build: exportToGpl },
+  android: { labelKey: 'tools.color.export.format_android', suffix: 'colors.xml', mime: 'text/xml', build: exportToAndroidColors },
+  ios: { labelKey: 'tools.color.export.format_ios', suffix: 'ios-colors.json', mime: 'application/json', build: exportToIosColors },
+  // Adobe's swatch file is bytes: nothing here builds its text, and the dialog says what the file is.
+  ase: { labelKey: 'tools.color.export.format_ase', suffix: 'ase', mime: 'application/octet-stream', binary: true, build: () => '' },
+}
+
+
+
+/** Every format id, in the order the dialog lists them. */
+export const EXPORT_FORMAT_IDS = Object.keys(EXPORT_FORMATS) as ExportFormatId[]
+
+/** The name a format's file gets: the slug decides the stem, the suffix keeps two formats apart. */
+export function exportFileName(format: ExportFormatId, palette: PaletteExportData): string {
+  return `${slugFromTitle(palette.title)}.${EXPORT_FORMATS[format].suffix}`
+}
+
+/**
  * Triggers browser download for text or binary Blob
  */
+
 export function triggerDownload(content: Blob | string, filename: string, mimeType = 'text/plain') {
   const blob = typeof content === 'string' ? new Blob([content], { type: mimeType }) : content
   const url = URL.createObjectURL(blob)

@@ -4,6 +4,7 @@
 
 import { create } from 'zustand'
 import { getColorSpaceValues, normalizeHex } from '@shared/tools/color/spaces'
+import { COLOR_HISTORY_WINDOW, DEFAULT_SEED_HEX, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
 import type {
   ColorHistoryItem,
   ColorSettings,
@@ -15,6 +16,8 @@ import type {
 import { useUi } from '../../../store/ui'
 import { t } from '../../../lib/i18n'
 import { colorApi } from './api'
+import { buildColorBackup, parseColorBackup } from '@shared/tools/color/backup'
+import { triggerDownload } from './lib/export-engine'
 
 /**
  * Family helper for dynamic translation key resolution.
@@ -25,7 +28,6 @@ export interface ColorStudioState {
   currentHex: string
   colorSpaceValues: ColorSpaceValues
   settings: ColorSettings
-  activeUiTab: string
   traditionalTab: 'chinese' | 'nippon'
   colorHuntTagFilter: string
 
@@ -34,21 +36,26 @@ export interface ColorStudioState {
   history: ColorHistoryItem[]
   isLoadingFavorites: boolean
   isLoadingPalettes: boolean
+  /** Which collection panel could not be read — an empty list and a failed one look the same otherwise. */
+  favoritesLoadFailed: boolean
+  palettesLoadFailed: boolean
 
   // Modals visibility
   isContrastModalOpen: boolean
   isTokenScaleModalOpen: boolean
-  isRealtimeColorsModalOpen: boolean
   isColorBlindnessModalOpen: boolean
   isCreatePaletteModalOpen: boolean
   isExportPaletteModalOpen: boolean
   exportTargetPalette: { title: string; colors: string[] } | null
 
+  /** The row whose editor is open, by id: the list stays the single source of what it says. */
+  editingFavoriteId: string | null
+  editingPaletteId: string | null
+
   // Actions
-  setCurrentHex: (hex: string, source?: string) => void
-  setCurrentColor: (hex: string, source?: string) => void
+  setCurrentHex: (hex: string, source?: ColorHistorySource) => void
+  setCurrentColor: (hex: string, source?: ColorHistorySource) => void
   copyColor: (value: string, label?: string) => Promise<void>
-  setActiveUiTab: (tab: string) => void
   setTraditionalTab: (tab: 'chinese' | 'nippon') => void
   setColorHuntTagFilter: (tag: string) => void
 
@@ -58,6 +65,8 @@ export interface ColorStudioState {
   fetchFavorites: () => Promise<void>
   addFavorite: (hex: string, name?: string, tags?: string[]) => Promise<void>
   removeFavorite: (id: string) => Promise<void>
+  updateFavorite: (id: string, patch: { name?: string; tags?: string[]; note?: string }) => Promise<boolean>
+  moveFavorite: (id: string, delta: number) => Promise<void>
 
   fetchPalettes: () => Promise<void>
   savePalette: (
@@ -66,29 +75,89 @@ export interface ColorStudioState {
     sourceType?: UserColorPalette['sourceType'],
     tags?: string[],
     description?: string,
-  ) => Promise<void>
+  ) => Promise<boolean>
   togglePaletteFavorite: (id: string) => Promise<void>
   removePalette: (id: string) => Promise<void>
+  updatePalette: (
+    id: string,
+    patch: { title?: string; description?: string; tags?: string[] },
+  ) => Promise<boolean>
+  movePalette: (id: string, delta: number) => Promise<void>
 
+  /** The loaded collection as a file, and that file back in. See `backupHint` for what "loaded" means. */
+  exportBackup: () => void
+  importBackup: (text: string) => Promise<{ favorites: number; palettes: number; skipped: number }>
   fetchHistory: () => Promise<void>
   clearHistory: () => Promise<void>
 
-  // Modal controls
+  // Modals controls
   openContrastModal: () => void
   closeContrastModal: () => void
   openTokenScaleModal: () => void
   closeTokenScaleModal: () => void
-  openRealtimeColorsModal: () => void
-  closeRealtimeColorsModal: () => void
   openColorBlindnessModal: () => void
   closeColorBlindnessModal: () => void
   openCreatePaletteModal: () => void
   closeCreatePaletteModal: () => void
   openExportPaletteModal: (palette: { title: string; colors: string[] }) => void
   closeExportPaletteModal: () => void
+  openEditFavorite: (id: string) => void
+  closeEditFavorite: () => void
+  openEditPalette: (id: string) => void
+  closeEditPalette: () => void
 }
 
-const DEFAULT_HEX = '#627486'
+const DEFAULT_HEX = DEFAULT_SEED_HEX
+
+/** How long the pointer has to rest before the color lands in the history. */
+const HISTORY_IDLE_MS = 600
+
+/**
+ * The pending history write, held outside the store on purpose.
+ *
+ * A drag of the hue slider calls `setCurrentHex` once per step, and each of those used to POST a row and
+ * then GET the whole list back — thirty-one steps measured twenty writes and twenty reads. Nothing in the
+ * interface shows a timer, so the schedule lives in module scope rather than in render-visible state, and
+ * only the last color of a burst is kept: the intermediate ones were never what the reader meant to pick.
+ */
+let pendingHistory: { hex: string, source: ColorHistorySource } | null = null
+let historyTimer: ReturnType<typeof setTimeout> | null = null
+let lastLoggedHex: string | null = null
+
+function queueHistoryWrite(hex: string, source: ColorHistorySource): void {
+  pendingHistory = { hex, source }
+  if (historyTimer) return
+
+  historyTimer = setTimeout(() => {
+    historyTimer = null
+    const entry = pendingHistory
+    pendingHistory = null
+    if (!entry || entry.hex === lastLoggedHex) return
+
+    lastLoggedHex = entry.hex
+    colorApi.addHistory(entry.hex, entry.source).then(() => {
+      useColorStudioStore.getState().fetchHistory()
+    }).catch((error: unknown) => {
+      // A history row is a convenience trail, not reader data: losing one must not interrupt picking
+      // colors. The hex is released so the next change over that color retries rather than being
+      // silently remembered as already saved.
+      lastLoggedHex = null
+      console.debug('[tools/color] history write failed', entry.hex, error)
+    })
+  }, HISTORY_IDLE_MS)
+}
+
+/** The list with `id` moved `delta` places, or null when it is already at that end. */
+function movedBefore<T extends { id: string }>(list: T[], id: string, delta: number): T[] | null {
+  const index = list.findIndex((item) => item.id === id)
+  const target = index + delta
+  if (index < 0 || target < 0 || target >= list.length) return null
+  const next = [...list]
+  const row = next[index]!
+  next.splice(index, 1)
+  next.splice(target, 0, row)
+  return next
+}
 
 export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   currentHex: DEFAULT_HEX,
@@ -96,11 +165,10 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   settings: {
     stripHash: false,
     defaultFormat: 'hex',
-    defaultUiTab: 'flat_ui',
+    defaultUiTab: DEFAULT_UI_TAB,
     autoSaveHistory: true,
     updatedAt: Date.now(),
   },
-  activeUiTab: 'flat',
   traditionalTab: 'chinese',
   colorHuntTagFilter: 'all',
 
@@ -109,32 +177,30 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   history: [],
   isLoadingFavorites: false,
   isLoadingPalettes: false,
+  favoritesLoadFailed: false,
+  palettesLoadFailed: false,
 
   isContrastModalOpen: false,
   isTokenScaleModalOpen: false,
-  isRealtimeColorsModalOpen: false,
   isColorBlindnessModalOpen: false,
+
   isCreatePaletteModalOpen: false,
   isExportPaletteModalOpen: false,
   exportTargetPalette: null,
+  editingFavoriteId: null,
+  editingPaletteId: null,
 
-  setCurrentHex: (hex: string, source = 'studio') => {
+  setCurrentHex: (hex: string, source: ColorHistorySource = 'studio') => {
     const norm = normalizeHex(hex, true)
     set({
       currentHex: norm,
       colorSpaceValues: getColorSpaceValues(norm),
     })
 
-    if (get().settings.autoSaveHistory) {
-      colorApi.addHistory(norm, source).then(() => {
-        get().fetchHistory()
-      }).catch(() => {
-        // Best effort
-      })
-    }
+    if (get().settings.autoSaveHistory) queueHistoryWrite(norm, source)
   },
 
-  setCurrentColor: (hex: string, source?: string) => {
+  setCurrentColor: (hex: string, source?: ColorHistorySource) => {
     get().setCurrentHex(hex, source)
   },
 
@@ -162,7 +228,6 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     }
   },
 
-  setActiveUiTab: (tab: string) => set({ activeUiTab: tab }),
   setTraditionalTab: (tab: 'chinese' | 'nippon') => set({ traditionalTab: tab }),
   setColorHuntTagFilter: (tag: string) => set({ colorHuntTagFilter: tag }),
 
@@ -196,9 +261,11 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isLoadingFavorites: true })
     try {
       const favorites = await colorApi.listFavorites()
-      set({ favorites, isLoadingFavorites: false })
+      set({ favorites, isLoadingFavorites: false, favoritesLoadFailed: false })
     } catch {
-      set({ isLoadingFavorites: false })
+      // Swallowing the reason silently showed "nothing saved yet" over a failed request, which reads as
+      // the collection being gone. The panel names the failure and offers the same fetch again.
+      set({ isLoadingFavorites: false, favoritesLoadFailed: true })
     }
   },
 
@@ -216,6 +283,36 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
         title: err.message || t('tools.color.toast.favorite_add_failed'),
         tone: 'danger',
       })
+    }
+  },
+
+  updateFavorite: async (id: string, patch) => {
+    try {
+      const updated = await colorApi.updateFavorite(id, patch)
+      set((state) => ({ favorites: state.favorites.map((f) => (f.id === id ? updated : f)) }))
+      useUi.getState().toast({ title: t('tools.color.toast.favorite_updated'), tone: 'success' })
+      return true
+    } catch (e: unknown) {
+      const err = e as Error
+      useUi.getState().toast({
+        title: err.message || t('tools.color.toast.favorite_update_failed'),
+        tone: 'danger',
+      })
+      return false
+    }
+  },
+
+  moveFavorite: async (id: string, delta: number) => {
+    const current = get().favorites
+    const next = movedBefore(current, id, delta)
+    if (!next) return
+    // Optimistic: a reorder that waits for the server before it paints looks like the click did nothing.
+    set({ favorites: next })
+    try {
+      set({ favorites: await colorApi.reorderFavorites(next.map((item) => item.id)) })
+    } catch {
+      set({ favorites: current })
+      useUi.getState().toast({ title: t('tools.color.toast.order_save_failed'), tone: 'danger' })
     }
   },
 
@@ -239,9 +336,9 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isLoadingPalettes: true })
     try {
       const palettes = await colorApi.listPalettes()
-      set({ palettes, isLoadingPalettes: false })
+      set({ palettes, isLoadingPalettes: false, palettesLoadFailed: false })
     } catch {
-      set({ isLoadingPalettes: false })
+      set({ isLoadingPalettes: false, palettesLoadFailed: true })
     }
   },
 
@@ -266,12 +363,43 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
         title: t('tools.color.toast.palette_saved', { title }),
         tone: 'success',
       })
+      return true
     } catch (e: unknown) {
       const err = e as Error
       useUi.getState().toast({
         title: err.message || t('tools.color.toast.palette_save_failed'),
         tone: 'danger',
       })
+      return false
+    }
+  },
+
+  updatePalette: async (id, patch) => {
+    try {
+      const updated = await colorApi.updatePalette(id, patch)
+      set((state) => ({ palettes: state.palettes.map((pal) => (pal.id === id ? updated : pal)) }))
+      useUi.getState().toast({ title: t('tools.color.toast.palette_updated'), tone: 'success' })
+      return true
+    } catch (e: unknown) {
+      const err = e as Error
+      useUi.getState().toast({
+        title: err.message || t('tools.color.toast.palette_update_failed'),
+        tone: 'danger',
+      })
+      return false
+    }
+  },
+
+  movePalette: async (id: string, delta: number) => {
+    const current = get().palettes
+    const next = movedBefore(current, id, delta)
+    if (!next) return
+    set({ palettes: next })
+    try {
+      set({ palettes: await colorApi.reorderPalettes(next.map((item) => item.id)) })
+    } catch {
+      set({ palettes: current })
+      useUi.getState().toast({ title: t('tools.color.toast.order_save_failed'), tone: 'danger' })
     }
   },
 
@@ -311,9 +439,64 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     }
   },
 
+  exportBackup: () => {
+    const { favorites, palettes } = get()
+    const name = `inkstone-colors-${new Date().toISOString().slice(0, 10)}.json`
+    triggerDownload(buildColorBackup({ favorites, palettes }), name, 'application/json')
+    useUi.getState().toast({
+      title: t('tools.color.backup.exported', { favorites: favorites.length, palettes: palettes.length }),
+      tone: 'success',
+    })
+  },
+
+  importBackup: async (text: string) => {
+    const backup = parseColorBackup(text)
+    if (!backup) {
+      throw new Error(t('tools.color.backup.rejected'))
+    }
+    let favorites = 0
+    let palettes = 0
+    let skipped = 0
+    // Rows arrive in small parallel batches: a whole backup is hundreds of requests, and one at a time
+    // would look like a frozen panel.
+    for (const row of backup.favorites) {
+      try {
+        await colorApi.createFavorite({
+          id: row.id,
+          hex: row.hex,
+          name: row.name,
+          tags: row.tags,
+          note: row.note,
+        })
+        favorites++
+      } catch {
+        // The same file imported twice answers 409, which is the row already being there.
+        skipped++
+      }
+    }
+    for (const row of backup.palettes) {
+      try {
+        await colorApi.createPalette({
+          id: row.id,
+          title: row.title,
+          colors: row.colors,
+          sourceType: row.sourceType,
+          description: row.description,
+          tags: row.tags,
+          isFavorite: row.isFavorite,
+        })
+        palettes++
+      } catch {
+        skipped++
+      }
+    }
+    await Promise.all([get().fetchFavorites(), get().fetchPalettes()])
+    return { favorites, palettes, skipped }
+  },
+
   fetchHistory: async () => {
     try {
-      const history = await colorApi.listHistory()
+      const history = await colorApi.listHistory(COLOR_HISTORY_WINDOW)
       set({ history })
     } catch {
       // Best effort
@@ -324,6 +507,8 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     try {
       await colorApi.clearHistory()
       set({ history: [] })
+      // The trail is empty now, so the next color is worth recording even if it was the last one logged.
+      lastLoggedHex = null
       useUi.getState().toast({
         title: t('tools.color.toast.history_cleared'),
         tone: 'default',
@@ -337,8 +522,6 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   closeContrastModal: () => set({ isContrastModalOpen: false }),
   openTokenScaleModal: () => set({ isTokenScaleModalOpen: true }),
   closeTokenScaleModal: () => set({ isTokenScaleModalOpen: false }),
-  openRealtimeColorsModal: () => set({ isRealtimeColorsModalOpen: true }),
-  closeRealtimeColorsModal: () => set({ isRealtimeColorsModalOpen: false }),
   openColorBlindnessModal: () => set({ isColorBlindnessModalOpen: true }),
   closeColorBlindnessModal: () => set({ isColorBlindnessModalOpen: false }),
   openCreatePaletteModal: () => set({ isCreatePaletteModalOpen: true }),
@@ -347,4 +530,9 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isExportPaletteModalOpen: true, exportTargetPalette: palette }),
   closeExportPaletteModal: () =>
     set({ isExportPaletteModalOpen: false, exportTargetPalette: null }),
+
+  openEditFavorite: (id: string) => set({ editingFavoriteId: id }),
+  closeEditFavorite: () => set({ editingFavoriteId: null }),
+  openEditPalette: (id: string) => set({ editingPaletteId: id }),
+  closeEditPalette: () => set({ editingPaletteId: null }),
 }))

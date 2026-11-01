@@ -423,7 +423,7 @@ const blogAdminCatalogFiles = {
     ],
 };
 const catalogFragments = {
-    en: [noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...blogAdminCatalogFiles.en, ...developmentCatalogFiles.en],
+    en: [[path.join(localeRoot, 'en-US.ts'), 'CORE_MESSAGES_TAIL'], noteTemplateBodyFiles.en, ...memoCatalogFiles.en, ...emailCatalogFiles.en, ...musicCatalogFiles.en, ...clouddriveCatalogFiles.en, ...imgbedCatalogFiles.en, ...navCatalogFiles.en, ...toolsCatalogFiles.en, ...youtubeCatalogFiles.en, ...calendarCatalogFiles.en, ...cloudflareCatalogFiles.en, ...inkCatalogFiles.en, ...inknoteCatalogFiles.en, ...blogAdminCatalogFiles.en, ...developmentCatalogFiles.en],
     zh: [noteTemplateBodyFiles.zh, ...memoCatalogFiles.zh, ...emailCatalogFiles.zh, ...musicCatalogFiles.zh, ...clouddriveCatalogFiles.zh, ...imgbedCatalogFiles.zh, ...navCatalogFiles.zh, ...toolsCatalogFiles.zh, ...youtubeCatalogFiles.zh, ...calendarCatalogFiles.zh, ...cloudflareCatalogFiles.zh, ...inkCatalogFiles.zh, ...inknoteCatalogFiles.zh, ...blogAdminCatalogFiles.zh, ...developmentCatalogFiles.zh],
 };
 // Chinese is legal in a zh locale catalog and nowhere else; every other file is held to English.
@@ -542,6 +542,15 @@ for (const file of walkSource(root)) {
             if (value && !isTechnicalPlaceholder(node.name.text, value))
                 report(node, `unlocalized ${node.name.text} attribute ${JSON.stringify(value)}`);
         }
+        // The same copy arrives through a template literal, where the substitution hides it from the rule
+        // above: `Select ${hex}` and `Copy ${label} value ${value}` are as unlocalized as a plain string,
+        // and both were in the colour tool until this check existed.
+        if (!isTestFile && ts.isJsxAttribute(node) && visibleAttributes.has(node.name.text) && node.initializer && ts.isJsxExpression(node.initializer))
+            rejectSentenceCopy(node.initializer.expression, `${node.name.text} attribute`);
+        if (!isTestFile &&
+            ts.isJsxExpression(node) &&
+            (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent)))
+            rejectSentenceCopy(node.expression, 'JSX text');
         if (!isTestFile &&
             (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
             /\p{Script=Han}/u.test(node.text) &&
@@ -554,6 +563,33 @@ for (const file of walkSource(root)) {
     function report(node, message) {
         const position = source.getLineAndCharacterOfPosition(node.getStart(source));
         failures.push(`${path.relative(process.cwd(), file)}:${position.line + 1}:${position.character + 1} ${message}`);
+    }
+    /**
+     * A template that speaks to a reader in English instead of speaking to the machine.
+     *
+     * Two space-separated words is the shape of a sentence, while a lone token is an identifier, a unit or
+     * a file name. Syntax a translator must not touch — function calls, lengths, custom properties, hex
+     * colours — is left alone, and so is a template that names a message family.
+     */
+    function rejectSentenceCopy(expression, where) {
+        if (!expression)
+            return;
+        const parts = ts.isTemplateExpression(expression)
+            ? [expression.head.text, ...expression.templateSpans.map((span) => span.literal.text)]
+            : ts.isNoSubstitutionTemplateLiteral(expression)
+                ? [expression.text]
+                : [];
+        if (!parts.length)
+            return;
+        const joined = parts.join(' ').trim();
+        if (!joined || /[()]|\bpx\b|\bem\b|var\(--|--|\d+(?:\.\d+)?%|#[0-9a-f]{3,8}/i.test(joined))
+            return;
+        const words = joined.split(/\s+/).filter((word) => /^[A-Za-z]{3,}$/.test(word));
+        if (words.length < 2)
+            return;
+        if (insideTranslationCall(expression) || insideInputVocabulary(expression) || insideRuleExample(expression))
+            return;
+        report(expression, `unlocalized ${where} template ${JSON.stringify(joined)}`);
     }
 }
 // The catalog is only worth shipping while every entry is reachable, so the keys are matched against

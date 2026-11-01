@@ -2,13 +2,14 @@
  * Color Assistant Client REST API
  */
 
+import type { ColorHistorySource } from '@shared/tools/color/contract'
 import type {
   AiPaletteRequest,
   AiPaletteResult,
   ColorHistoryItem,
   ColorSettings,
   PaletteColorItem,
-  PoeticColorInterpretation,
+  PoeticInterpretResult,
   UserColorFavorite,
   UserColorPalette,
 } from '@shared/tools/color/types'
@@ -62,7 +63,7 @@ export const colorApi = {
   // Favorites
   listFavorites: (tag?: string) =>
     request<UserColorFavorite[]>(`/favorites${tag ? `?tag=${encodeURIComponent(tag)}` : ''}`),
-  createFavorite: (data: { name?: string; hex: string; tags?: string[]; note?: string }) =>
+  createFavorite: (data: { id?: string; name?: string; hex: string; tags?: string[]; note?: string }) =>
     request<UserColorFavorite>('/favorites', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -72,6 +73,14 @@ export const colorApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  /**
+   * Save the order the reader put the collection in, as the whole list of ids from first to last.
+   *
+   * One request rather than one per moved row: two writes for a swap would land in whatever order the
+   * network chose, and the list would end up sorted by arrival instead of by the reader's drag.
+   */
+  reorderFavorites: (ids: string[]) =>
+    request<UserColorFavorite[]>('/favorites/-/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   deleteFavorite: (id: string) =>
     request<{ ok: boolean }>(`/favorites/${id}`, {
       method: 'DELETE',
@@ -87,6 +96,7 @@ export const colorApi = {
     return request<UserColorPalette[]>(`/palettes${qs ? `?${qs}` : ''}`)
   },
   createPalette: (data: {
+    id?: string
     title: string
     colors: PaletteColorItem[]
     sourceType?: UserColorPalette['sourceType']
@@ -118,6 +128,8 @@ export const colorApi = {
     request<{ ok: boolean }>(`/palettes/${id}`, {
       method: 'DELETE',
     }),
+  reorderPalettes: (ids: string[]) =>
+    request<UserColorPalette[]>('/palettes/-/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   togglePaletteFavorite: (id: string) =>
     request<UserColorPalette>(`/palettes/${id}/favorite`, {
       method: 'POST',
@@ -126,7 +138,7 @@ export const colorApi = {
   // History
   listHistory: (limit?: number) =>
     request<ColorHistoryItem[]>(`/history${limit ? `?limit=${limit}` : ''}`),
-  addHistory: (hex: string, source?: string) =>
+  addHistory: (hex: string, source?: ColorHistorySource) =>
     request<ColorHistoryItem>('/history', {
       method: 'POST',
       body: JSON.stringify({ hex, source }),
@@ -143,7 +155,7 @@ export const colorApi = {
       body: JSON.stringify(body),
     }),
   interpretColors: (colors: string[], theme?: string) =>
-    request<PoeticColorInterpretation[]>('/ai/interpret', {
+    request<PoeticInterpretResult>('/ai/interpret', {
       method: 'POST',
       body: JSON.stringify({ colors, theme }),
     }),

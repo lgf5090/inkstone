@@ -3,6 +3,21 @@
  */
 
 import { z } from 'zod'
+import {
+  COLOR_LIST_LIMIT,
+  COLOR_AI_INTERPRET_MAX,
+  COLOR_AI_PALETTE_MAX,
+  COLOR_AI_PALETTE_MIN,
+  COLOR_ASSET_MAX_ENCODED_CHARS,
+  COLOR_HISTORY_SOURCES,
+  COLOR_PALETTE_MAX_COLORS,
+} from './contract'
+
+/**
+ * Client-supplied row ids are optional, but they are also primary keys: an unbounded string here is an
+ * unbounded string in the index, and a duplicate answers as a constraint violation rather than a conflict.
+ */
+const AssetIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{3,39}$/i, 'Must be 4-40 letters, digits, _ or -')
 
 export const RgbColorSchema = z.object({
   r: z.number().int().min(0).max(255),
@@ -25,7 +40,7 @@ export const LabColorSchema = z.object({
 })
 
 export const CreateColorFavoriteSchema = z.object({
-  id: z.string().optional(),
+  id: AssetIdSchema.optional(),
   name: z.string().max(100).default(''),
   hex: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Must be a 6-digit hex color'),
   rgb: RgbColorSchema.optional(),
@@ -34,6 +49,16 @@ export const CreateColorFavoriteSchema = z.object({
   tags: z.array(z.string().max(50)).default([]),
   note: z.string().max(500).default(''),
   sort: z.number().int().default(0),
+})
+
+/**
+ * The order a reader put a collection in, sent as the full list of ids from first to last.
+ *
+ * A move has to be one request: two writes for a swap would leave the collection sorted by whichever
+ * arrived second, and a page of 200 saved colours cannot be renumbered 200 times per click.
+ */
+export const ReorderColorCollectionSchema = z.object({
+  ids: z.array(AssetIdSchema).min(1).max(COLOR_LIST_LIMIT),
 })
 
 export const UpdateColorFavoriteSchema = z.object({
@@ -50,9 +75,9 @@ export const PaletteColorItemSchema = z.object({
 })
 
 export const CreateColorPaletteSchema = z.object({
-  id: z.string().optional(),
+  id: AssetIdSchema.optional(),
   title: z.string().min(1).max(100),
-  colors: z.array(PaletteColorItemSchema).min(1).max(20),
+  colors: z.array(PaletteColorItemSchema).min(1).max(COLOR_PALETTE_MAX_COLORS),
   sourceType: z
     .enum(['custom', 'colorhunt', 'mycolorspace', 'ai', 'image', 'harmony'])
     .default('custom'),
@@ -66,7 +91,7 @@ export const CreateColorPaletteSchema = z.object({
 
 export const UpdateColorPaletteSchema = z.object({
   title: z.string().min(1).max(100).optional(),
-  colors: z.array(PaletteColorItemSchema).min(1).max(20).optional(),
+  colors: z.array(PaletteColorItemSchema).min(1).max(COLOR_PALETTE_MAX_COLORS).optional(),
   description: z.string().max(1000).optional(),
   tags: z.array(z.string().max(50)).optional(),
   likesCount: z.number().int().min(0).optional(),
@@ -84,25 +109,35 @@ export const UpdateColorSettingsSchema = z.object({
 
 export const AddColorHistorySchema = z.object({
   hex: z.string().regex(/^#?[0-9a-fA-F]{6}$/),
-  source: z.enum(['studio', 'eyedropper', 'image', 'algorithm', 'ai']).default('studio'),
+  source: z.enum(COLOR_HISTORY_SOURCES).default('studio'),
 })
 
 export const AiPaletteGenerateSchema = z.object({
   seedHex: z.string().regex(/^#?[0-9a-fA-F]{6}$/).optional(),
   style: z.string().max(100).optional(),
   tone: z.enum(['warm', 'cool', 'neutral', 'all']).default('all'),
-  count: z.number().int().min(3).max(8).default(5),
+  count: z.number().int().min(COLOR_AI_PALETTE_MIN).max(COLOR_AI_PALETTE_MAX).default(5),
   prompt: z.string().max(500).optional(),
 })
 
 export const AiPoeticInterpretSchema = z.object({
-  colors: z.array(z.string().regex(/^#?[0-9a-fA-F]{6}$/)).min(1).max(12),
+  colors: z
+    .array(z.string().regex(/^#?[0-9a-fA-F]{6}$/))
+    .min(1)
+    .max(COLOR_AI_INTERPRET_MAX),
   theme: z.string().max(200).optional(),
 })
 
+/** Metadata is stored as JSON and echoed back by the asset route; flat scalars only, and few of them. */
+const AssetMetadataSchema = z
+  .record(z.string(), z.union([z.string().max(200), z.number(), z.boolean()]))
+  .refine((value) => Object.keys(value).length <= 12, 'Metadata may carry at most 12 fields')
+
 export const UploadColorAssetSchema = z.object({
   assetType: z.enum(['image_card', 'palette_poster', 'gradient_export', 'ase']),
+  // The format is the only thing that decides the served Content-Type: a client that could name the MIME
+  // could hand back `text/html` from the application's own origin.
   fileFormat: z.enum(['png', 'jpg', 'svg', 'ase']),
-  data: z.string(), // Base64 data URL or raw SVG text
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  data: z.string().min(1).max(COLOR_ASSET_MAX_ENCODED_CHARS),
+  metadata: AssetMetadataSchema.optional(),
 })

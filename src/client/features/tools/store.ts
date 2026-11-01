@@ -48,6 +48,7 @@ export type ColorNavView =
   | 'gradient'
   | 'color_hunt'
   | 'favorites'
+  | 'settings'
 
 const STORAGE_KEY = 'inkstone.tools.layout'
 

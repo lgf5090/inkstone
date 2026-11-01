@@ -243,6 +243,8 @@ export const ACCENTS: { name: AccentName; swatch: string; foreground: string }[]
   { name: 'terracotta', swatch: 'oklch(68% 0.1 205)', foreground: 'oklch(16% 0.008 265)' },
   { name: 'wisteria', swatch: 'oklch(62% 0.16 300)', foreground: 'white' },
   { name: 'graphite', swatch: 'oklch(55% 0.035 250)', foreground: 'white' },
+  // The swatch a reader paints themselves; empty until they pick one, which is why it is last.
+  { name: 'custom', swatch: '', foreground: 'white' },
 ]
 
 export const PROSE_WIDTH_CH: Record<string, string> = {
@@ -318,6 +320,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     language: 'zh-CN',
     theme: 'system',
     accent: 'cinnabar',
+    accentColor: '',
     background: 'paper',
     density: 'comfortable',
     proseFont: 'sans',
@@ -1091,6 +1094,7 @@ export function mergeSettings(partial: unknown): UserSettings {
     base.appearance.language,
   )
   base.appearance.accent = enumValue(appearance.accent, ACCENT_NAMES, base.appearance.accent)
+  base.appearance.accentColor = accentColorValue(appearance.accentColor, base.appearance.accentColor)
   base.appearance.background = enumValue(
     appearance.background,
     BACKGROUND_NAMES,
@@ -2140,6 +2144,20 @@ function enumValue<T extends string>(
   fallback: T,
 ): T {
   return typeof value === 'string' && allowed.includes(value as T) ? (value as T) : fallback
+}
+
+/**
+ * A hand-typed accent colour, or the previous one.
+ *
+ * Settings arrive as JSON a reader can edit anywhere, so the value is matched rather than trusted: a stray
+ * `#` would otherwise reach `--accent` and silently leave the interface without a highlight colour.
+ */
+export function isAccentColor(value: unknown): value is string {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/.test(value.toLowerCase())
+}
+
+function accentColorValue(value: unknown, fallback: string): string {
+  return isAccentColor(value) ? value.toLowerCase() : fallback
 }
 
 function booleanValue(value: unknown, fallback: boolean): boolean {

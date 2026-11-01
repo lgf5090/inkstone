@@ -286,7 +286,10 @@ export function Segmented<T extends string>({
       aria-required={ariaRequired}
       aria-disabled={disabled || undefined}
       className={cn(
-        'relative inline-flex shrink-0 flex-wrap items-center gap-0.5 rounded-[var(--r-md)] bg-[var(--bg-inset)] p-[3px]',
+        // `shrink-0` keeps a Segmented from being squeezed by its siblings, but on a phone a long option list
+        // then pushed the whole control past the column it sits in (measured 606px inside 330px at 420px).
+        // `max-w-full` caps it at the container so the existing `flex-wrap` can do its job.
+        'relative inline-flex shrink-0 max-w-full flex-wrap items-center gap-0.5 rounded-[var(--r-md)] bg-[var(--bg-inset)] p-[3px]',
         'border border-[var(--border-subtle)]',
         className,
       )}

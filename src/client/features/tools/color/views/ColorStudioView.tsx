@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
 import {
   Copy,
+  Palette,
   Download,
   Eye,
   Heart,
@@ -9,8 +11,11 @@ import {
 } from 'lucide-react'
 import { hslToRgb, rgbToHex } from '@shared/tools/color/spaces'
 import { t } from '../../../../lib/i18n'
+import { useSession } from '../../../../store/session'
+import { useUi } from '../../../../store/ui'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
+import { parseHexInput } from '../lib/hex-input'
 import { Tooltip } from '../../../../components/overlay'
 import { ColorWheel } from '../components/ColorWheel'
 import { ColorSlider } from '../components/ColorSlider'
@@ -18,19 +23,24 @@ import { EyedropperButton } from '../components/EyedropperButton'
 import { HarmoniesPanel } from '../components/HarmoniesPanel'
 import { ColorSpaceDisplay } from '../components/ColorSpaceDisplay'
 import { useColorStudioStore } from '../store'
+import { formatColorValues } from '../lib/color-format'
 
 export function ColorStudioView() {
   const currentHex = useColorStudioStore((s) => s.currentHex)
   const colorSpaceValues = useColorStudioStore((s) => s.colorSpaceValues)
+  const settings = useColorStudioStore((s) => s.settings)
   const setCurrentColor = useColorStudioStore((s) => s.setCurrentColor)
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const addFavorite = useColorStudioStore((s) => s.addFavorite)
+  const updateAppearance = useSession((s) => s.updateSettings)
   const openContrastModal = useColorStudioStore((s) => s.openContrastModal)
   const openTokenScaleModal = useColorStudioStore((s) => s.openTokenScaleModal)
   const openColorBlindnessModal = useColorStudioStore((s) => s.openColorBlindnessModal)
   const openExportPaletteModal = useColorStudioStore((s) => s.openExportPaletteModal)
 
-  const { h, s, l } = colorSpaceValues.hsl
+  // The sliders rotate on the unrounded triple: rebuilding a hex from rounded HSL moved the channels the
+  // reader did not touch, so a hue nudge changed the saturation and lightness too.
+  const { h, s, l } = colorSpaceValues.hslExact
 
   const handleWheelChange = (newHue: number, newSat: number) => {
     const rgb = hslToRgb({ h: newHue, s: newSat, l })
@@ -61,14 +71,6 @@ export function ColorStudioView() {
     setCurrentColor(randomHex, 'random')
   }
 
-  const handleHexInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.trim()
-    if (!val.startsWith('#')) val = '#' + val
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-      setCurrentColor(val, 'input')
-    }
-  }
-
   // Slider gradients
   const hueGradient =
     'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
@@ -89,7 +91,7 @@ export function ColorStudioView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <EyedropperButton onPick={(hex) => setCurrentColor(hex, 'picker')} />
+          <EyedropperButton onPick={(hex) => setCurrentColor(hex, 'eyedropper')} />
           <Button
             variant="secondary"
             size="sm"
@@ -131,7 +133,7 @@ export function ColorStudioView() {
             size="sm"
             onClick={() =>
               openExportPaletteModal({
-                title: `Palette ${currentHex}`,
+                title: t('tools.color.studio.palette_of', { hex: currentHex }),
                 colors: [currentHex],
               })
             }
@@ -168,20 +170,20 @@ export function ColorStudioView() {
               <label className="block text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
                 {t('tools.color.studio.seed_color')}
               </label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  defaultValue={currentHex.toUpperCase()}
-                  key={currentHex}
-                  onChange={handleHexInputChange}
-                  className="w-28 font-mono text-[length:var(--text-14)] font-semibold uppercase h-8"
-                  maxLength={7}
-                  aria-label={t('tools.color.studio.hex_input_label')}
+              {/* Wraps on a phone: the 112px hex field plus three icon buttons measured 232px inside 203px at 420px. */}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <HexField
+                  value={currentHex}
+                  onCommit={(hex) => setCurrentColor(hex, 'input')}
                 />
                 <Tooltip label={t('tools.color.studio.copy_all')}>
                   <IconButton
                     label={t('tools.color.studio.copy_all')}
                     size="sm"
-                    onClick={() => copyColor(currentHex, 'HEX')}
+                    onClick={() => {
+                      const item = formatColorValues(colorSpaceValues, settings.defaultFormat)
+                      copyColor(item.value, item.label)
+                    }}
                   >
                     <Copy size={13} />
                   </IconButton>
@@ -193,6 +195,23 @@ export function ColorStudioView() {
                     onClick={() => addFavorite(currentHex)}
                   >
                     <Heart size={13} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip label={t('tools.color.studio.apply_accent')}>
+                  <IconButton
+                    label={t('tools.color.studio.apply_accent')}
+                    size="sm"
+                    onClick={() => {
+                      // The interface reads `--accent` from the cascade, so this writes the setting the same
+                      // way the appearance panel does and lets the derivation make it readable.
+                      updateAppearance({ appearance: { accent: 'custom', accentColor: currentHex } })
+                      useUi.getState().toast({
+                        title: t('tools.color.toast.accent_applied', { hex: currentHex }),
+                        tone: 'success',
+                      })
+                    }}
+                  >
+                    <Palette size={13} />
                   </IconButton>
                 </Tooltip>
               </div>
@@ -238,5 +257,58 @@ export function ColorStudioView() {
       {/* Harmonies Panel */}
       <HarmoniesPanel currentHex={currentHex} />
     </div>
+  )
+}
+
+/**
+ * The seed color's hex box.
+ *
+ * It used to be re-mounted on every committed color (`key={currentHex}`), which took the caret away the
+ * moment the sixth digit landed and threw away anything half-typed. The draft now lives here and only
+ * follows the store while the field is not being edited, and a value that is not a color says so instead
+ * of being ignored.
+ */
+function HexField({ value, onCommit }: { value: string; onCommit: (hex: string) => void }) {
+  const [draft, setDraft] = useState(() => value.toUpperCase())
+  const editing = useRef(false)
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value.toUpperCase())
+  }, [value])
+
+  const parsed = parseHexInput(draft)
+
+  return (
+    <span className="relative inline-flex flex-col">
+      <Input
+        value={draft}
+        onFocus={() => {
+          editing.current = true
+        }}
+        onBlur={() => {
+          editing.current = false
+          setDraft(value.toUpperCase())
+        }}
+        onChange={(e) => {
+          const raw = e.target.value
+          setDraft(raw)
+          const next = parseHexInput(raw)
+          if (next) onCommit(next)
+        }}
+        className="h-8 w-28 font-mono text-[length:var(--text-14)] font-semibold uppercase"
+        maxLength={7}
+        spellCheck={false}
+        aria-label={t('tools.color.studio.hex_input_label')}
+        aria-invalid={parsed === null || undefined}
+      />
+      {parsed === null && (
+        <span
+          role="status"
+          className="absolute top-full mt-0.5 whitespace-nowrap text-[length:var(--text-10)] text-[var(--danger)]"
+        >
+          {t('tools.color.contrast.invalid')}
+        </span>
+      )}
+    </span>
   )
 }

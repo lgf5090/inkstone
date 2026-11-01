@@ -4,7 +4,8 @@
  * multi-color palettes, history, settings, and assets.
  */
 
-import { hexToRgb, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
+import { COLOR_HISTORY_WINDOW, COLOR_LIST_LIMIT, DEFAULT_UI_TAB, type ColorHistorySource } from '@shared/tools/color/contract'
+import { hexToRgb, normalizeHex, rgbToCmyk, rgbToLab } from '@shared/tools/color/spaces'
 import type {
   ColorHistoryItem,
   ColorSettings,
@@ -40,7 +41,7 @@ export class ColorStore {
       return {
         stripHash: false,
         defaultFormat: 'hex',
-        defaultUiTab: 'flat_ui',
+        defaultUiTab: DEFAULT_UI_TAB,
         autoSaveHistory: true,
         updatedAt: Date.now(),
       }
@@ -49,7 +50,7 @@ export class ColorStore {
     return {
       stripHash: Boolean(row.strip_hash),
       defaultFormat: (row.default_format as ColorSettings['defaultFormat']) || 'hex',
-      defaultUiTab: row.default_ui_tab || 'flat_ui',
+      defaultUiTab: row.default_ui_tab || DEFAULT_UI_TAB,
       autoSaveHistory: Boolean(row.auto_save_history),
       updatedAt: row.updated_at,
     }
@@ -94,13 +95,14 @@ export class ColorStore {
   async listFavorites(tag?: string): Promise<UserColorFavorite[]> {
     const results = await this.db
       .prepare(
-        `SELECT * FROM tools_color_favorites
+        `SELECT id, name, hex, rgb_json, cmyk_json, lab_json, tags_json, note, sort, created_at, updated_at
+         FROM tools_color_favorites
          WHERE user_id = ?
-         ORDER BY sort ASC, created_at DESC`,
+         ORDER BY sort ASC, created_at DESC
+         LIMIT ?`,
       )
-      .bind(this.userId)
+      .bind(this.userId, COLOR_LIST_LIMIT)
       .all<{
-        user_id: string
         id: string
         name: string
         hex: string
@@ -310,6 +312,22 @@ export class ColorStore {
     }
   }
 
+  /**
+   * Write the reader's order into a collection: `sort` becomes the position in the list they just dragged.
+   *
+   * One batch, so a move either lands whole or not at all — two separate writes for the two swapped rows
+   * could be applied in either order and leave the list sorted by arrival.
+   */
+  async reorderFavorites(ids: string[]): Promise<void> {
+    await this.db.batch(
+      ids.map((id, index) =>
+        this.db
+          .prepare('UPDATE tools_color_favorites SET sort = ?, updated_at = ? WHERE user_id = ? AND id = ?')
+          .bind(index, Date.now(), this.userId, id),
+      ),
+    )
+  }
+
   async deleteFavorite(id: string): Promise<boolean> {
     const res = await this.db
       .prepare('DELETE FROM tools_color_favorites WHERE user_id = ? AND id = ?')
@@ -327,7 +345,9 @@ export class ColorStore {
     tag?: string
     onlyFavorites?: boolean
   }): Promise<UserColorPalette[]> {
-    let sql = `SELECT * FROM tools_color_palettes WHERE user_id = ?`
+    // `preview_svg` is left out on purpose: it holds up to 50 KB per row and no list view renders it.
+    let sql = `SELECT id, title, colors_json, source_type, description, tags_json, likes_count, is_favorite, sort, created_at, updated_at
+     FROM tools_color_palettes WHERE user_id = ?`
     const params: (string | number)[] = [this.userId]
 
     if (filter?.sourceType) {
@@ -339,13 +359,13 @@ export class ColorStore {
       sql += ` AND is_favorite = 1`
     }
 
-    sql += ` ORDER BY sort ASC, created_at DESC`
+    sql += ` ORDER BY sort ASC, created_at DESC LIMIT ?`
+    params.push(COLOR_LIST_LIMIT)
 
     const results = await this.db
       .prepare(sql)
       .bind(...params)
       .all<{
-        user_id: string
         id: string
         title: string
         colors_json: string
@@ -353,7 +373,6 @@ export class ColorStore {
         description: string
         tags_json: string
         likes_count: number
-        preview_svg: string
         is_favorite: number
         sort: number
         created_at: number
@@ -388,7 +407,7 @@ export class ColorStore {
         description: row.description,
         tags,
         likesCount: row.likes_count,
-        previewSvg: row.preview_svg,
+        previewSvg: '',
         isFavorite: Boolean(row.is_favorite),
         sort: row.sort,
         createdAt: row.created_at,
@@ -512,6 +531,17 @@ export class ColorStore {
     }
   }
 
+  /** The palette counterpart of `reorderFavorites`, for the same reason. */
+  async reorderPalettes(ids: string[]): Promise<void> {
+    await this.db.batch(
+      ids.map((id, index) =>
+        this.db
+          .prepare('UPDATE tools_color_palettes SET sort = ?, updated_at = ? WHERE user_id = ? AND id = ?')
+          .bind(index, Date.now(), this.userId, id),
+      ),
+    )
+  }
+
   async updatePalette(
     id: string,
     data: {
@@ -582,10 +612,10 @@ export class ColorStore {
   }
 
   // ==========================================
-  // History (Sliding window of last 100 entries)
+  // History (sliding window of COLOR_HISTORY_WINDOW entries)
   // ==========================================
 
-  async listHistory(limit = 60): Promise<ColorHistoryItem[]> {
+  async listHistory(limit = COLOR_HISTORY_WINDOW): Promise<ColorHistoryItem[]> {
     const results = await this.db
       .prepare(
         `SELECT * FROM tools_color_history
@@ -593,7 +623,7 @@ export class ColorStore {
          ORDER BY created_at DESC
          LIMIT ?`,
       )
-      .bind(this.userId, Math.min(100, Math.max(1, limit)))
+      .bind(this.userId, Math.min(COLOR_HISTORY_WINDOW, Math.max(1, limit)))
       .all<{
         user_id: string
         id: string
@@ -610,7 +640,28 @@ export class ColorStore {
     }))
   }
 
-  async addHistory(hex: string, source: ColorHistoryItem['source'] = 'studio'): Promise<ColorHistoryItem> {
+  async addHistory(hex: string, source: ColorHistorySource = 'studio'): Promise<ColorHistoryItem> {
+    const latest = await this.db
+      .prepare(
+        `SELECT id, hex, source, created_at FROM tools_color_history
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .bind(this.userId)
+      .first<{ id: string; hex: string; source: string; created_at: number }>()
+
+    // Re-picking the color that is already on top of the trail is not a new exploration. The client
+    // debounces a drag, but this is what keeps a second tab or a re-read page from re-inserting.
+    if (latest && normalizeHex(latest.hex, true) === normalizeHex(hex, true)) {
+      return {
+        id: latest.id,
+        hex: latest.hex,
+        source: (latest.source as ColorHistorySource) || 'studio',
+        createdAt: latest.created_at,
+      }
+    }
+
     const id = `col_hist_${crypto.randomUUID().slice(0, 12)}`
     const now = Date.now()
 
@@ -622,7 +673,7 @@ export class ColorStore {
       .bind(this.userId, id, hex, source, now)
       .run()
 
-    // Truncate sliding window if user has more than 100 history items
+    // Truncate sliding window if user has more than the retained history
     await this.db
       .prepare(
         `DELETE FROM tools_color_history
@@ -630,10 +681,10 @@ export class ColorStore {
            SELECT id FROM tools_color_history
            WHERE user_id = ?
            ORDER BY created_at DESC
-           LIMIT 100
+           LIMIT ?
          )`,
       )
-      .bind(this.userId, this.userId)
+      .bind(this.userId, this.userId, COLOR_HISTORY_WINDOW)
       .run()
 
     return {

@@ -252,17 +252,28 @@ describe('Color Assistant AI & Assets Routes', () => {
       body: { seedHex: '#627486', style: '现代简约', count: 5 },
     })
     expect(genRes.status).toBe(200)
-    const genData = await genRes.json<{ ok: boolean; data: { colors: Array<{ hex: string }> } }>()
-    expect(genData.data.colors.length).toBeGreaterThanOrEqual(4)
+    const genData = await genRes.json<{
+      ok: boolean
+      data: { colors: Array<{ hex: string }>; degraded: boolean; reason?: string }
+    }>()
+    // The fallback used to hand back one algorithmic group, which holds at most six colors: asking for
+    // five could return four. The count the reader picked is the count they get.
+    expect(genData.data.colors).toHaveLength(5)
+    // No assistant model is configured in this harness, so the answer must admit it was computed.
+    expect(genData.data.degraded).toBe(true)
+    expect(genData.data.reason).toBeTruthy()
 
     const interRes = await call('POST', '/api/tools/color/ai/interpret', {
       body: { colors: ['#627486', '#bad0bf'], theme: '山水画' },
     })
     expect(interRes.status).toBe(200)
-    const interData = await interRes.json<{ ok: boolean; data: Array<{ name: string; story: string }> }>()
-    expect(interData.data).toHaveLength(2)
-    expect(interData.data[0].name).toBeTruthy()
-    expect(interData.data[0].story).toBeTruthy()
+    const interData = await interRes.json<{
+      ok: boolean
+      data: { items: Array<{ name: string; story: string }>; degraded: boolean }
+    }>()
+    expect(interData.data.items).toHaveLength(2)
+    expect(interData.data.items[0].name).toBeTruthy()
+    expect(interData.data.degraded).toBe(true)
   })
 
   it('uploads color poster asset to R2 in canonical path and serves it', async () => {

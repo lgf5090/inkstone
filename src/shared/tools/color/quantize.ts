@@ -3,6 +3,7 @@
  * Extracts dominant color and harmonious palette matrix from image pixel data.
  */
 
+import { DEFAULT_SEED_HEX } from './contract'
 import { rgbToHex } from './spaces'
 import type { RgbColor } from './types'
 
@@ -222,9 +223,9 @@ export function extractPaletteFromPixels(
   if (rMin > rMax) {
     // Default fallback if transparent/blank image
     return {
-      dominant: '#627486',
+      dominant: DEFAULT_SEED_HEX,
       dominantRgb: { r: 98, g: 116, b: 134 },
-      palette: ['#627486', '#8aa1b1', '#475569', '#334155'],
+      palette: [DEFAULT_SEED_HEX, '#8aa1b1', '#475569', '#334155'],
     }
   }
 
@@ -252,7 +253,7 @@ export function extractPaletteFromPixels(
   const hexColors = rgbColors.map((rgb) => rgbToHex(rgb, true))
 
   const dominantRgb = rgbColors[0] || { r: 98, g: 116, b: 134 }
-  const dominant = hexColors[0] || '#627486'
+  const dominant = hexColors[0] || DEFAULT_SEED_HEX
   const palette = hexColors.slice(1, maxColors + 1)
 
   return {

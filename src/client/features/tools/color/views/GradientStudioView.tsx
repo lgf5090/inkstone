@@ -35,7 +35,7 @@ export function GradientStudioView() {
       setHasCopied(true)
       useUi.getState().toast({
         title: t('tools.color.toast.copied', {
-          label: 'CSS Gradient',
+          label: t('tools.color.gradient.format'),
           value: cssCode.slice(0, 30) + '...',
         }),
         tone: 'success',
@@ -57,15 +57,15 @@ export function GradientStudioView() {
   const handleSavePalette = async () => {
     const items = gradientConfig.stops.map((stop) => ({
       hex: stop.color,
-      name: `Stop ${stop.offset}%`,
+      name: t('tools.color.gradient.stop_name', { offset: stop.offset }),
       ratio: stop.offset,
     }))
     await savePalette(
-      'Gradient Scheme',
+      t('tools.color.gradient.palette_title'),
       items,
       'custom',
       ['gradient', gradientConfig.type],
-      `Gradient palette with ${gradientConfig.stops.length} stops`,
+      t('tools.color.gradient.palette_desc', { count: gradientConfig.stops.length }),
     )
   }
 
@@ -99,11 +99,13 @@ export function GradientStudioView() {
             className="relative flex h-72 sm:h-80 w-full items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border-subtle)] shadow-md transition-all"
             style={{ backgroundImage: buildCssGradient(gradientConfig) }}
           >
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1 text-white text-[length:var(--text-12)] font-mono">
-              <span>{gradientConfig.type}</span>
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-white text-[length:var(--text-12)] font-mono">
+              <span>{t(`tools.color.gradient.type.${gradientConfig.type}`)}</span>
               {gradientConfig.type !== 'radial' && <span>{gradientConfig.angle}°</span>}
               {gradientConfig.useOklabInterpolation && (
-                <span className="text-[var(--accent)] font-semibold">{'OKLab'}</span>
+                // The pill is always `bg-black/70`, so the accent is not a safe ink for it: with a custom
+                // accent this read 1.9:1 in Chromium. Its siblings are white; so is this.
+                <span className="font-semibold text-white">{'OKLab'}</span>
               )}
             </div>
           </div>
@@ -163,9 +165,9 @@ export function GradientStudioView() {
                 key={tag}
                 type="button"
                 onClick={() => setSelectedTag(tag)}
-                className={`px-2.5 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors ${
+                className={`min-h-9 px-2.5 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors ${
                   selectedTag === tag
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                     : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'
                 }`}
               >
@@ -191,8 +193,8 @@ export function GradientStudioView() {
                   style={{ backgroundImage: previewCss }}
                   onClick={() => handleLoadPreset(preset)}
                 >
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/20 transition-opacity">
-                    <span className="text-[length:var(--text-11)] font-semibold text-white bg-black/40 px-2 py-0.5 rounded-full">
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/60 transition-opacity">
+                    <span className="text-[length:var(--text-11)] font-semibold text-white bg-black/75 px-2 py-0.5 rounded-full">
                       {t('tools.color.gradient.apply')}
                     </span>
                   </div>

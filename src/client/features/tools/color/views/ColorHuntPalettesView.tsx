@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FilterInput } from '../../../../components/FilterInput'
-import { compileQuery } from '../../../../lib/query-match'
+import { compileQuery, queryKeeps, queryKeepsRows } from '../../../../lib/query-match'
+import { usePinyinVersion } from '../../../../lib/pinyin'
 import { COLOR_HUNT_PALETTES } from '@shared/tools/color/presets/color-hunt-curated'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
@@ -13,6 +14,10 @@ export function ColorHuntPalettesView() {
 
   const compiledQuery = useMemo(() => compileQuery(searchQuery), [searchQuery])
 
+  // The reading table arrives after the first paint on a cold cache: a listing filtered before it lands
+  // has to be filtered again once it is here, or the box keeps showing the answer typed before.
+  const pinyinVersion = usePinyinVersion()
+
   const tags = useMemo(() => {
     const set = new Set<string>()
     COLOR_HUNT_PALETTES.forEach((p) => p.tags.forEach((t) => set.add(t)))
@@ -20,18 +25,18 @@ export function ColorHuntPalettesView() {
   }, [])
 
   const filteredPalettes = useMemo(() => {
+    const keep = (subject: string) => queryKeeps(compiledQuery, subject)
     return COLOR_HUNT_PALETTES.filter((p) => {
       const matchTag = tagFilter === 'all' || p.tags.includes(tagFilter)
       if (!matchTag) return false
-
-      if (!searchQuery.trim()) return true
-      const q = searchQuery.toLowerCase().trim()
-      const titleMatch = p.title.toLowerCase().includes(q)
-      const colorMatch = p.colors.some((hex) => hex.toLowerCase().includes(q))
-      const tagMatch = p.tags.some((t) => t.toLowerCase().includes(q))
-      return titleMatch || colorMatch || tagMatch
+      if (queryKeepsRows(compiledQuery)) return true
+      return (
+        keep(p.title) ||
+        p.colors.some((hex) => keep(hex)) ||
+        p.tags.some((tag) => keep(tag))
+      )
     })
-  }, [tagFilter, searchQuery])
+  }, [tagFilter, compiledQuery, pinyinVersion])
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6 space-y-6 bg-[var(--bg-base)]">
@@ -56,9 +61,9 @@ export function ColorHuntPalettesView() {
                 key={tag}
                 type="button"
                 onClick={() => setTagFilter(tag)}
-                className={`px-3 py-1 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 min-h-9 text-[length:var(--text-12)] font-medium capitalize rounded-full transition-colors whitespace-nowrap ${
                   isSelected
-                    ? 'bg-[var(--accent)] text-white shadow-xs'
+                    ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-xs'
                     : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:border-[var(--accent)]'
                 }`}
               >

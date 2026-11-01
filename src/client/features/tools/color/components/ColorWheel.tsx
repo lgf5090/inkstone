@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { hslToRgb, rgbToHex } from '@shared/tools/color/spaces'
 import { t } from '../../../../lib/i18n'
+import { drawWheel } from '../lib/color-wheel'
 
 export interface ColorWheelProps {
   hue: number // 0-360
@@ -26,47 +27,7 @@ export function ColorWheel({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = size * dpr
-    canvas.height = size * dpr
-    ctx.scale(dpr, dpr)
-
-    const cx = size / 2
-    const cy = size / 2
-    const radius = size / 2 - 2
-
-    const imgData = ctx.createImageData(size, size)
-    const data = imgData.data
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = x - cx
-        const dy = y - cy
-        const dist = Math.hypot(dx, dy)
-        const pixelIdx = (y * size + x) * 4
-
-        if (dist <= radius) {
-          let angle = Math.atan2(dy, dx) * (180 / Math.PI)
-          if (angle < 0) angle += 360
-          const sat = Math.min(100, (dist / radius) * 100)
-          const rgb = hslToRgb({ h: angle, s: sat, l: lightness })
-
-          data[pixelIdx] = rgb.r
-          data[pixelIdx + 1] = rgb.g
-          data[pixelIdx + 2] = rgb.b
-          // Anti-aliased boundary
-          const edgeAlpha = Math.min(1, Math.max(0, radius - dist + 1))
-          data[pixelIdx + 3] = Math.round(edgeAlpha * 255)
-        } else {
-          data[pixelIdx + 3] = 0
-        }
-      }
-    }
-
-    ctx.putImageData(imgData, 0, 0)
+    drawWheel(canvas, size, lightness)
   }, [size, lightness])
 
   const updateFromPointer = useCallback(
@@ -156,11 +117,15 @@ export function ColorWheel({
     <div
       role="slider"
       tabIndex={disabled ? -1 : 0}
-      aria-label={t('tools.color.studio.subtitle')}
+      aria-label={t('tools.color.studio.color_wheel')}
+      aria-disabled={disabled || undefined}
       aria-valuenow={Math.round(hue)}
       aria-valuemin={0}
       aria-valuemax={360}
-      aria-valuetext={`Hue: ${Math.round(hue)}deg, Saturation: ${Math.round(saturation)}%`}
+      aria-valuetext={t('tools.color.studio.color_wheel_value', {
+        hue: Math.round(hue),
+        saturation: Math.round(saturation),
+      })}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
