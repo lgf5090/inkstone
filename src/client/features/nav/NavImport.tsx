@@ -14,6 +14,7 @@ import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
 import { navApi } from './api'
 import { useNavStore } from './nav-store'
+import { navErrorMessage, navErrorToast } from './errors'
 
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024
 const MAX_JSON_BYTES = NAV_LIMITS.restoreBytes
@@ -27,10 +28,6 @@ type JsonStatus = 'idle' | 'reading' | 'importing' | 'done' | 'error'
 type JsonPreview =
   | { kind: 'inkstone'; backup: NavBackup }
   | { kind: 'cloudnav'; parsed: CloudNavParseResult }
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : t('nav.error.generic')
-}
 
 function isBookmarkFile(file: File): boolean {
   const name = file.name.toLowerCase()
@@ -114,7 +111,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       text = await file.text()
     } catch (error) {
       setStatus('error')
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
       return
     }
     let parsed: ReturnType<typeof parseBookmarkHtml>
@@ -122,7 +119,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       parsed = parseBookmarkHtml(text, { uncategorizedName: t('nav.uncategorized') })
     } catch (error) {
       setStatus('error')
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
       return
     }
     if (!parsed.links.length) {
@@ -161,7 +158,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       await useNavStore.getState().load(true)
     } catch (error) {
       setStatus('error')
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     }
   }
 
@@ -230,7 +227,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       toast({ title: t('nav.export.done'), tone: 'success' })
     } catch (error) {
       setJsonStatus('error')
-      setJsonError(errorMessage(error))
+      setJsonError(navErrorMessage(error))
     }
   }
 
@@ -259,7 +256,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       await useNavStore.getState().load(true)
     } catch (error) {
       setJsonStatus('error')
-      setJsonError(errorMessage(error))
+      setJsonError(navErrorMessage(error))
     }
   }
 
@@ -296,7 +293,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       await useNavStore.getState().load(true)
     } catch (error) {
       setJsonStatus('error')
-      setJsonError(errorMessage(error))
+      setJsonError(navErrorMessage(error))
     }
   }
 
@@ -328,7 +325,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       downloadTextFile('bookmarks.html', html, 'text/html;charset=utf-8')
       toast({ title: t('nav.export.done'), tone: 'success' })
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     }
   }
 

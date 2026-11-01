@@ -17,6 +17,7 @@ import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { navApi } from './api'
 import { useNavStore } from './nav-store'
+import { navErrorToast } from './errors'
 
 interface ModalProps {
   open: boolean
@@ -84,7 +85,7 @@ export function NavSettingsModal({ open, onClose }: ModalProps) {
       }
       toast({ title: t('nav.settings.saved'), tone: 'success' })
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.generic'), tone: 'danger' })
+      toast({ ...navErrorToast(error) , tone: 'danger' })
     } finally {
       setSaving(false)
     }

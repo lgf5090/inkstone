@@ -640,6 +640,7 @@ const allowed = new Map([
     "/**\n * The control the reader was on before a surface took the caret away.\n *\n * A dialog that focuses a field of its own cannot ask `document.activeElement` where to go back to: by the\n * time the hook runs, `autoFocus` has already moved the caret inside the panel, and that node dies with the\n * panel — so every such dialog left the reader nowhere. This remembers the last focus that landed *outside*\n * a surface, which is the control the reader was using when the dialog opened. It listens from import time\n * because the trigger's own focus event arrives before any dialog exists: a listener installed when the\n * first dialog opened would miss exactly the one dialog it was installed for.\n */",
     "/** The caret a panel should hand back to: itself if it is outside the panel, else the trigger it stole from. */",
     "/** Padding belongs to the caller: a list wants it on the rows, a settings panel on the body. */",
+    "/**\n * Whether any dialog, drawer or menu currently owns the keyboard.\n *\n * Features that bind global shortcuts need this to avoid firing underneath an overlay, and reading the\n * DOM for `[role=\"dialog\"]` is a guess about someone else's markup: it breaks the moment a layer is\n * rendered without that role, and it silently stops guarding. This is the stack those components already\n * keep for their own focus trapping.\n */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -8016,6 +8017,10 @@ const allowed = new Map([
     "// The pinned band used to render every match, so the pagination ceiling the ordinary list got never",
     "// applied to an account that pins most of its bookmarks.",
     "/* Four stops per card made the list the longest tab ring in the app; the same two actions are\n              in the menu below, which is keyboard reachable and announces itself. */",
+    "// The handler closes over `openEditor`, which is rebuilt every render, so the latest one is parked in a",
+    "// ref and the listener itself is registered exactly once. It used to be re-added on every render, which",
+    "// meant a keypress per keystroke in the search box.",
+    "/* Named for what it actually switches: which search Enter submits to. Filtering the list is\n                always on, so the old pair read as a scope filter over the bookmarks themselves. */",
   ]],
   ["src/client/features/nav/NavCategories.tsx", [
     "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
@@ -8047,6 +8052,18 @@ const allowed = new Map([
   ]],
   ["src/client/features/nav/NavLinkEditor.tsx", [
     "// Automatic fetching is best-effort; the field stays empty and the reader can retry manually.",
+    "// Seeded on the closed→open edge only. This effect also depended on `categories` and `settings`, whose",
+    "// array identity changes on every store refresh — so an assistant write while the dialog was open",
+    "// wiped whatever the reader had typed. The category is backfilled by the effect below instead.",
+    "// Data can arrive after the dialog opens (the ?add_url deep link does exactly that), so the folder is",
+    "// filled in as soon as there is one — without re-seeding the fields the reader is typing into.",
+    "// `iconBroken` is the memory that a fetch already produced something this browser could not render.",
+    "// Without it, clearing the field on error re-armed this effect, and the two looped for as long as the",
+    "// dialog stayed open.",
+  ]],
+  ["src/client/features/nav/errors.ts", [
+    "/**\n * What a failed navigation request should say, in the reader's language.\n *\n * `navFetch` already turns a coded error into a localised line, but a request that never reached the\n * server rejects with a bare `TypeError: Failed to fetch`, and an unmapped code falls back to whatever\n * the route wrote in English. Both used to be shown as-is, and each call site had its own one-line\n * version of this rule.\n */",
+    "/**\n * The same failure as a toast payload, with the route's own sentence kept.\n *\n * A mapped code answers one line for every kind of mistake it covers — `nav_webdav_failed` says only\n * \"WebDAV request failed\" — while the route usually names what it could not reach. Dropping that made\n * the backup panel undiagnosable, so it rides along as the toast's description instead of replacing the\n * localised title.\n */",
   ]],
   ["src/client/features/nav/nav-store.ts", [
     "// A full session storage must not take the navigation app down; the tokens live in memory too.",
@@ -43139,11 +43156,18 @@ const allowed = new Map([
     "// @ts-expect-error duplex is required by the runtime when the body is a stream",
     "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
   ]],
+  ["tests/nav-errors.test.ts", [
+    "// The mapping used to swallow the reason, which left the backup panel saying one sentence for every",
+    "// possible mistake.",
+  ]],
   ["tests/nav-focus-a11y.test.tsx", [
     "// The overlay picks the `[data-autofocus]` target; React's own `autoFocus` was being overwritten by it,",
     "// which left keyboard users starting on the dialog's close button.",
     "// The enable box used to borrow the name of the text field beside it, so a reader heard \"Source name\"",
     "// twice in a row — once for a box, once for a box that is not a box.",
+    "// A nav write from the assistant re-fetches the bootstrap, which replaces `categories` wholesale.",
+    "// Clearing the value on error is what turned one failed image into an endless refetch loop, so the",
+    "// signal has to come from the preview element itself.",
   ]],
   ["tests/nav-host-guard.test.ts", [
     "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",

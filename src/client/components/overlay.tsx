@@ -151,6 +151,18 @@ export function useLockScroll(active: boolean): void {
     }, [active]);
 }
 const dialogStack: symbol[] = [];
+
+/**
+ * Whether any dialog, drawer or menu currently owns the keyboard.
+ *
+ * Features that bind global shortcuts need this to avoid firing underneath an overlay, and reading the
+ * DOM for `[role="dialog"]` is a guess about someone else's markup: it breaks the moment a layer is
+ * rendered without that role, and it silently stops guarding. This is the stack those components already
+ * keep for their own focus trapping.
+ */
+export function hasOpenLayer(): boolean {
+    return dialogStack.length > 0;
+}
 const FOCUSABLE_SELECTOR = [
     'a[href]',
     'button:not([disabled])',

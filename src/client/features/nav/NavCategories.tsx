@@ -13,15 +13,12 @@ import { searchEmojiIn } from '../../lib/emoji-catalog-core'
 import { usePinyinVersion } from '../../lib/pinyin'
 import { compileQuery, queryMatches } from '../../lib/query-match'
 import { categoryOptions } from './api'
+import { navErrorMessage, navErrorToast } from './errors'
 import { NavIcon } from './nav-icons'
 import { useNavStore } from './nav-store'
 
 const CATEGORY_NAME_LIMIT = 60
 const PASSWORD_MIN_LENGTH = 8
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : t('nav.error.generic')
-}
 
 type IconTab = 'emoji' | 'lucide'
 
@@ -418,7 +415,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       await reorderCategoryGroups(groups)
       toast({ title: t('nav.category.sorted'), tone: 'success' })
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -448,7 +445,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       }
       setEditor(null)
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -467,7 +464,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
     try {
       await reorderCategories(parentId, ordered)
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -490,7 +487,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       await deleteCategory(target.id, fallbackId)
       setDeleting(null)
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -519,7 +516,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
       await deleteCategory(target.id, fallback.id)
       setDeleting(null)
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -785,7 +782,7 @@ export function UnlockModal({ category, onClose }: { category: NavCategory | nul
       toast({ title: t('nav.unlock.success'), tone: 'success' })
       onClose()
     } catch (failure) {
-      const message = errorMessage(failure)
+      const message = navErrorMessage(failure)
       setError(message)
     } finally {
       setBusy(false)

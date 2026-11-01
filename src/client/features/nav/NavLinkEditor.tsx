@@ -9,6 +9,7 @@ import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { navApi, categoryOptions } from './api'
+import { navErrorToast } from './errors'
 import { useNavStore } from './nav-store'
 
 interface Props {
@@ -41,6 +42,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
   const [saving, setSaving] = useState(false)
   const [iconBusy, setIconBusy] = useState<'fetch' | 'detect' | 'upload' | null>(null)
   const [aiBusy, setAiBusy] = useState(false)
+  const [iconBroken, setIconBroken] = useState(false)
   const [aiAvailable, setAiAvailable] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const fetchSeq = useRef(0)
@@ -62,11 +64,27 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
     setSaving(false)
     setIconBusy(null)
     setAiBusy(false)
+    setIconBroken(false)
     void navApi.aiModels().then((result) => setAiAvailable(result.available)).catch(() => setAiAvailable(false))
-  }, [open, link, initial, categories, defaultCategoryId, settings.display.autoFetchIcon])
+    // Seeded on the closed→open edge only. This effect also depended on `categories` and `settings`, whose
+    // array identity changes on every store refresh — so an assistant write while the dialog was open
+    // wiped whatever the reader had typed. The category is backfilled by the effect below instead.
+  }, [open])
+
+  useEffect(() => {
+    // Data can arrive after the dialog opens (the ?add_url deep link does exactly that), so the folder is
+    // filled in as soon as there is one — without re-seeding the fields the reader is typing into.
+    if (!open || categoryId) return
+    const first = categories.find((category) => !category.parentId)?.id ?? ''
+    if (first) setCategoryId(first)
+  }, [open, categoryId, categories])
 
   useEffect(() => {
     if (!open || link || !autoFetch || icon.trim()) return
+    // `iconBroken` is the memory that a fetch already produced something this browser could not render.
+    // Without it, clearing the field on error re-armed this effect, and the two looped for as long as the
+    // dialog stayed open.
+    if (iconBroken) return
     if (!/^https?:\/\//i.test(url)) return
     const sequence = ++fetchSeq.current
     const timer = window.setTimeout(() => {
@@ -91,7 +109,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       })()
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [open, link, autoFetch, icon, url])
+  }, [open, link, autoFetch, icon, iconBroken, url])
 
   function validate(): string | null {
     if (!title.trim() || !url.trim()) return t('nav.link.required')
@@ -152,7 +170,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
         onClose()
       }
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.generic'), tone: 'danger' })
+      toast({ ...navErrorToast(error) , tone: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -165,7 +183,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
       await deleteLink(link.id)
       onClose()
     } catch (error) {
-      toast({ title: error instanceof Error ? error.message : t('nav.error.generic'), tone: 'danger' })
+      toast({ ...navErrorToast(error) , tone: 'danger' })
     }
   }
 
@@ -264,7 +282,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
           <div className="flex items-center gap-2">
             <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
               {iconPreview ? (
-                <img src={iconPreview} alt="" className="size-full object-contain" referrerPolicy="no-referrer" onError={() => setIcon('')} />
+                <img src={iconPreview} alt="" className="size-full object-contain" referrerPolicy="no-referrer" onError={() => setIconBroken(true)} />
               ) : (
                 <span className={cn('flex size-full items-center justify-center text-[length:var(--text-11)] font-semibold', iconPreview ? '' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)]')}>{initialFor(title, url)}</span>
               )}

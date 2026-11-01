@@ -10,6 +10,7 @@ import { useRelativeTime } from '../../lib/hooks'
 import { cn } from '../../lib/cn'
 import { navApi } from './api'
 import { useNavStore } from './nav-store'
+import { navErrorMessage } from './errors'
 
 interface ModalProps {
   open: boolean
@@ -25,10 +26,6 @@ const WEBDAV_PRESETS = [
 ]
 
 type BackupStatus = { kind: 'idle' } | { kind: 'loading'; text: string } | { kind: 'success'; text: string } | { kind: 'error'; text: string }
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : t('nav.error.generic')
-}
 
 function webdavTestMessage(message: string | undefined): string {
   const text = message ?? ''
@@ -85,7 +82,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       setPassword('')
       setEditing(!next.url || !next.username || !next.hasPassword)
     } catch (error) {
-      setLoadError(errorMessage(error))
+      setLoadError(navErrorMessage(error))
     } finally {
       setLoading(false)
     }
@@ -133,7 +130,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       setEditing(false)
       setStatus({ kind: 'success', text: t('nav.backup.saved') })
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
       setBusy(false)
     }
@@ -150,7 +147,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
         ? { kind: 'success', text: t('nav.backup.test_ok') }
         : { kind: 'error', text: webdavTestMessage(result.error) })
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
       setBusy(false)
     }
@@ -165,7 +162,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       setStatus({ kind: 'success', text: t('nav.backup.backup_ok', { name: result.filename }) })
       toast({ title: t('nav.backup.backup_ok', { name: result.filename }), tone: 'success' })
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
       setBusy(false)
     }
@@ -192,7 +189,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       })
       await useNavStore.getState().load(true)
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
       setBusy(false)
     }
@@ -210,7 +207,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       await refresh()
       setStatus({ kind: 'success', text: t('nav.backup.removed') })
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
       setBusy(false)
     }
@@ -223,7 +220,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
       const next = await navApi.saveBackupConfig(patch)
       setConfig(next)
     } catch (error) {
-      setStatus({ kind: 'error', text: errorMessage(error) })
+      setStatus({ kind: 'error', text: navErrorMessage(error) })
       await refresh()
     } finally {
       setBusy(false)

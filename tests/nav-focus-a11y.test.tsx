@@ -85,6 +85,72 @@ describe('navigation focus and accessible names', () => {
     expect(active?.getAttribute('aria-label')).not.toBe(t('nav.close'))
   })
 
+  it('keeps what the reader typed when the store refreshes behind the dialog', async () => {
+    rendered = renderElement(
+      <>
+        <NavLinkEditor open link={null} onClose={() => {}} />
+        <ConfirmHost />
+      </>,
+    )
+    await flush()
+    await flush()
+
+    const title = dialog().querySelector<HTMLInputElement>('input')!
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(title, '半张没写完的标题')
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+
+    // A nav write from the assistant re-fetches the bootstrap, which replaces `categories` wholesale.
+    act(() => {
+      useNavStore.setState({ categories: [{ ...CATEGORY, name: 'Tools renamed' }, { ...CATEGORY, id: 'cat-b', name: 'New' }] } as never)
+    })
+    await flush()
+    await flush()
+
+    expect((dialog().querySelector<HTMLInputElement>('input') as HTMLInputElement).value).toBe('半张没写完的标题')
+  })
+
+  it('leaves the typed icon alone when the preview cannot load', async () => {
+    rendered = renderElement(
+      <>
+        <NavLinkEditor open link={null} onClose={() => {}} />
+        <ConfirmHost />
+      </>,
+    )
+    await flush()
+    await flush()
+
+    const favicon = vi.spyOn(navApi, 'favicon').mockResolvedValue({ icon: '/api/nav/icons/broken-icon.png' })
+    const fields = [...dialog().querySelectorAll<HTMLInputElement>('input')]
+    const urlField = fields.find((field) => field.placeholder === 'https://example.com')!
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(urlField, 'https://slow.example.com/')
+      urlField.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await vi.waitFor(() => expect(favicon).toHaveBeenCalled())
+    await flush()
+
+    const iconField = [...dialog().querySelectorAll<HTMLInputElement>('input')].find((field) => field.value === '/api/nav/icons/broken-icon.png')
+    expect(iconField, 'the auto-fetched icon should be in the field').toBeTruthy()
+    // Clearing the value on error is what turned one failed image into an endless refetch loop, so the
+    // signal has to come from the preview element itself.
+    const preview = [...dialog().querySelectorAll<HTMLImageElement>('img')].find((image) => image.src.includes('broken-icon.png'))
+    expect(preview, 'the preview should be painting the fetched icon').toBeTruthy()
+    act(() => {
+      preview!.dispatchEvent(new Event('error'))
+    })
+    await flush()
+    await flush()
+
+    const after = [...dialog().querySelectorAll<HTMLInputElement>('input')].find((field) => field.value === '/api/nav/icons/broken-icon.png')
+    expect(after, 'a broken preview must not erase the value').toBeTruthy()
+    expect(favicon.mock.calls.length).toBeLessThanOrEqual(2)
+  })
+
   it('names the search-source enable box for what it does and ties its error to the field', async () => {
     rendered = renderElement(
       <>

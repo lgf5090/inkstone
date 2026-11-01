@@ -220,7 +220,7 @@ describe('LinkCheckerModal', () => {
     click(buttonByText(t('nav.checker.select_current')))
     expect(document.body.textContent).toContain(t('nav.checker.selected', { count: 1 }))
 
-    click(buttonByText(t('nav.checker.select_broken')))
+    click(buttonByText(t('nav.checker.select_broken_count', { count: 1 })))
     expect(document.body.textContent).toContain(t('nav.checker.selected', { count: 1 }))
 
     click(buttonByLabel(`${t('nav.edit')} ${BROKEN.title}`))
@@ -238,7 +238,7 @@ describe('LinkCheckerModal', () => {
     mount()
     await flush()
 
-    click(buttonByText(t('nav.checker.select_broken')))
+    click(buttonByText(t('nav.checker.select_broken_count', { count: 1 })))
     click(buttonByText(t('nav.checker.batch_delete')))
     click(buttonByText(t('nav.delete'), lastDialog()))
     await flush()

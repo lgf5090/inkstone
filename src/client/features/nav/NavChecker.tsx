@@ -28,6 +28,7 @@ import { Checkbox, Segmented, Select } from '../../components/form'
 import { Modal, confirm, prompt } from '../../components/overlay'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { categoryOptions, isNavCheckLevel, navApi } from './api'
+import { navErrorToast } from './errors'
 import { NavIcon } from './nav-icons'
 import { useNavStore } from './nav-store'
 
@@ -162,10 +163,6 @@ function toRow(result: NavCheckResult, checkedAt: number): CheckRow {
   if (result.errorCode) row.errorCode = result.errorCode
   if (result.finalUrl) row.finalUrl = result.finalUrl
   return row
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : t('nav.error.generic')
 }
 
 function levelLabel(level: NavCheckLevel): string {
@@ -532,7 +529,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       controller.abort()
       flushScanState()
       setPhase('cancelled')
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
       return
     }
     if (controller.signal.aborted) {
@@ -590,7 +587,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
         setLastCheckedAt(Date.now())
       }
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setChecking((current) => {
         const next = new Set(current)
@@ -618,7 +615,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
         return next
       })
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     }
   }
 
@@ -660,7 +657,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       clearResults(ids)
       setSelected(new Set())
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -681,7 +678,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       clearResults(ids)
       setSelected(new Set())
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -696,7 +693,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       setSelected(new Set())
       setMoveTarget('')
     } catch (error) {
-      toast({ title: errorMessage(error), tone: 'danger' })
+      toast({ ...navErrorToast(error), tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -896,7 +893,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
               </Button>
             )}
             <Button size="sm" variant="ghost" disabled={brokenLinks.length === 0} onClick={selectBroken}>
-              {t('nav.checker.select_broken')}
+              {t('nav.checker.select_broken_count', { count: brokenLinks.length })}
             </Button>
             <Button size="sm" variant="ghost" disabled={selected.size === 0} onClick={() => setSelected(new Set())}>
               {t('nav.checker.clear_selection')}

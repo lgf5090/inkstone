@@ -17,7 +17,7 @@ import { IS_DEMO_MODE } from '../../lib/runtime'
 import { Button, Badge, IconButton } from '../../components/primitives'
 import { Input, Segmented } from '../../components/form'
 import { Empty, LoadingBlock } from '../../components/feedback'
-import { Drawer, Menu, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Drawer, Menu, confirm, hasOpenLayer, useContextMenu, type MenuItem } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
 import { useUi } from '../../store/ui'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
@@ -27,6 +27,7 @@ import {
   type NavCategory, type NavLink,
 } from '@shared/nav/model'
 import type { NavAssistantContext } from '@shared/nav/assistant-context'
+import { navErrorToast } from './errors'
 import { requestTokens, useNavStore } from './nav-store'
 import { NavIcon } from './nav-icons'
 import { NavLinkEditor } from './NavLinkEditor'
@@ -348,26 +349,31 @@ export function NavApp() {
   useEffect(() => {
     setRenderPage((current) => current.key === pageKey ? current : { key: pageKey, limit: NAV_RENDER_PAGE })
   }, [pageKey])
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
-      if (document.querySelector('[role="dialog"], [role="menu"]')) return
-      if (event.key === '/') {
-        event.preventDefault()
-        searchRef.current?.focus()
-        searchRef.current?.select()
-        return
-      }
-      if (event.key.toLowerCase() === 'n') {
-        event.preventDefault()
-        openEditor()
-      }
+  // The handler closes over `openEditor`, which is rebuilt every render, so the latest one is parked in a
+  // ref and the listener itself is registered exactly once. It used to be re-added on every render, which
+  // meant a keypress per keystroke in the search box.
+  const shortcutRef = useRef<((event: KeyboardEvent) => void) | null>(null)
+  shortcutRef.current = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+    const target = event.target as HTMLElement | null
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+    if (hasOpenLayer()) return
+    if (event.key === '/') {
+      event.preventDefault()
+      searchRef.current?.focus()
+      searchRef.current?.select()
+      return
     }
+    if (event.key.toLowerCase() === 'n') {
+      event.preventDefault()
+      openEditor()
+    }
+  }
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => shortcutRef.current?.(event)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+  }, [])
 
   const selectedRoot = categories.find((category) => category.id === selectedCategory && !category.parentId) ?? null
   const subcategories = useMemo(() => selectedRoot ? categories.filter((category) => category.parentId === selectedRoot.id).sort((a, b) => a.sortOrder - b.sortOrder) : [], [categories, selectedRoot])
@@ -519,11 +525,11 @@ export function NavApp() {
 
   async function removeLink(link: NavLink): Promise<void> {
     if (!(await confirm({ title: t('nav.link.delete_confirm'), tone: 'danger', confirmLabel: t('nav.delete') }))) return
-    try { await deleteLink(link.id) } catch (reason) { toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' }) }
+    try { await deleteLink(link.id) } catch (reason) { toast({ ...navErrorToast(reason) , tone: 'danger' }) }
   }
 
   async function togglePin(link: NavLink): Promise<void> {
-    try { await updateLink(link.id, { pinned: !link.pinned }) } catch (reason) { toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' }) }
+    try { await updateLink(link.id, { pinned: !link.pinned }) } catch (reason) { toast({ ...navErrorToast(reason) , tone: 'danger' }) }
   }
 
   async function copyLink(link: NavLink): Promise<void> {
@@ -581,7 +587,7 @@ export function NavApp() {
     try {
       await reorderLinks(categoryId ? 'category' : 'pinned', next.map((item) => item.id), categoryId ?? undefined)
     } catch (reason) {
-      toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' })
+      toast({ ...navErrorToast(reason) , tone: 'danger' })
     }
   }
 
@@ -595,7 +601,7 @@ export function NavApp() {
     next.splice(to, 0, moved!)
     setDragId(null)
     void reorderLinks(categoryId ? 'category' : 'pinned', next.map((item) => item.id), categoryId ?? undefined).catch((reason) => {
-      toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' })
+      toast({ ...navErrorToast(reason) , tone: 'danger' })
     })
   }
 
@@ -612,15 +618,15 @@ export function NavApp() {
 
   function changeMode(mode: 'internal' | 'external'): void {
     const next = { ...settings.search, mode, selectedSourceId: settings.search.selectedSourceId ?? settings.search.sources.find((source) => source.enabled)?.id ?? null }
-    void saveSearch(next).catch((reason) => toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' }))
+    void saveSearch(next).catch((reason) => toast({ ...navErrorToast(reason) , tone: 'danger' }))
   }
 
   function changeEngine(id: string): void {
-    void saveSearch({ ...settings.search, selectedSourceId: id || null }).catch((reason) => toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' }))
+    void saveSearch({ ...settings.search, selectedSourceId: id || null }).catch((reason) => toast({ ...navErrorToast(reason) , tone: 'danger' }))
   }
 
   function toggleCardStyle(): void {
-    void saveDisplay({ ...settings.display, cardStyle: detailed ? 'simple' : 'detailed' }).catch((reason) => toast({ title: reason instanceof Error ? reason.message : t('nav.error.generic'), tone: 'danger' }))
+    void saveDisplay({ ...settings.display, cardStyle: detailed ? 'simple' : 'detailed' }).catch((reason) => toast({ ...navErrorToast(reason) , tone: 'danger' }))
   }
 
   const menuItems: MenuItem[] = menuLink ? [
@@ -711,6 +717,8 @@ export function NavApp() {
           {sidebarHidden && <IconButton label={t('nav.expand_sidebar')} className="hidden md:inline-flex" onClick={() => setSidebarHidden(false)}><PanelLeft size={16} /></IconButton>}
           <h1 className="min-w-0 max-w-[180px] truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{settings.display.navTitle || t('nav.title')}</h1>
           <form onSubmit={(event) => void submitSearch(event)} className="flex min-w-[240px] flex-1 flex-wrap items-center gap-1.5">
+            {/* Named for what it actually switches: which search Enter submits to. Filtering the list is
+                always on, so the old pair read as a scope filter over the bookmarks themselves. */}
             <Segmented size="sm" value={settings.search.mode} onChange={(value) => changeMode(value as 'internal' | 'external')} options={[{ value: 'internal', label: t('nav.search.internal') }, { value: 'external', label: t('nav.search.external') }]} label={t('nav.settings.mode')} />
             {settings.search.mode === 'external' && (
               <SelectMenu
