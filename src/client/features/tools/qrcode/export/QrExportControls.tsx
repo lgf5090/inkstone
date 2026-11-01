@@ -76,7 +76,6 @@ export function QrExportControls() {
       const engine = getEngine()
       const dataUrl = await exportQrToDataUrl(engine, { width: exportSize, format: 'png' })
       await saveQrRecord({
-        title: `QR-${new Date().toLocaleDateString()}`,
         contentType,
         contentRaw: payload,
         options,

@@ -18089,6 +18089,13 @@ const allowed = new Map([
     "// These land inside attribute values of a file someone else will open: escaping only the text nodes",
     "// would let a saved font family or colour close the attribute and add one of its own.",
   ]],
+  ["src/client/features/tools/qrcode/history/QrHistoryView.tsx", [
+    "// A stored title is a legacy of the old form; the payload is what identifies the code.",
+  ]],
+  ["src/client/features/tools/qrcode/history/payload-summary.ts", [
+    "/** Undo the escaping `encodeQrData` applies to the fields a Wi-Fi or vCard payload is built from. */",
+    "/**\n * The one line a history card prints for a stored payload. The raw string is what a phone reads, not\n * what a person wants to scan a list of: a Wi-Fi payload carries the network key in cleartext and a\n * vCard is a dozen lines, so each protocol contributes its identifying field instead.\n */",
+  ]],
   ["src/client/features/tools/qrcode/options/AiEffectsTab.tsx", [
     "/** One affordance per knob that has a non-default value, rather than a reset per row. */",
   ]],

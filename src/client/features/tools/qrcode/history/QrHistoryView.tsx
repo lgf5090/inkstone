@@ -9,6 +9,7 @@ import { Button, IconButton } from '../../../../components/primitives'
 import { confirm } from '../../../../components/overlay'
 import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { useUi } from '../../../../store/ui'
+import { summarizeQrPayload } from './payload-summary'
 import { t } from '../../../../lib/i18n'
 
 export function QrHistoryView() {
@@ -101,7 +102,10 @@ export function QrHistoryView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {records?.map((record) => (
+          {records?.map((record) => {
+            // A stored title is a legacy of the old form; the payload is what identifies the code.
+            const summary = record.title || summarizeQrPayload(record.contentType, record.contentRaw)
+            return (
             <div
               key={record.id}
               className="flex flex-col rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 shadow-xs"
@@ -118,7 +122,7 @@ export function QrHistoryView() {
               <div className="flex items-center justify-center bg-white rounded p-2 mb-2 h-36 overflow-hidden">
                 <img
                   src={`/api/tools/qrcode/records/${record.id}/file`}
-                  alt={record.title}
+                  alt={summary}
                   loading="lazy"
                   decoding="async"
                   className="h-full object-contain"
@@ -126,7 +130,7 @@ export function QrHistoryView() {
               </div>
 
               <div className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)] mb-1">
-                {record.title || record.contentRaw}
+                {summary}
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)] mt-auto">
@@ -162,7 +166,8 @@ export function QrHistoryView() {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
