@@ -584,6 +584,8 @@ export const ZH_CN_TOOLS = {
   'tools.color.toast.history_cleared': '历史记录已清空',
 
   'tools.color.studio.seed_color': '基准种子色',
+  'tools.color.studio.apply_accent': '设为界面主色',
+  'tools.color.toast.accent_applied': '界面主色已换成 {hex}',
   'tools.color.studio.eyedropper': '屏幕吸色',
   'tools.color.studio.eyedropper_unsupported': '当前浏览器不支持吸色器',
   'tools.color.studio.harmonies': '经典和弦调和',

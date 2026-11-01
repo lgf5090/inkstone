@@ -12741,6 +12741,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
+    "// The custom well paints whatever the reader chose; an unset one is an empty ring.",
   ]],
   ["src/client/features/settings/DataSettings.tsx", [
     "// An import rewrites the template library too, and that reload is reported exactly like the note",
@@ -12954,6 +12955,11 @@ const allowed = new Map([
     "// server's pending row cannot be confirmed by anyone: it is bound to this session and this token, and",
     "// `pending_expires_at` has passed for it by the time the confirm route would read it, which answers",
     "// `two_factor_setup_expired`. Nothing the reader can still do depends on this delete.",
+  ]],
+  ["src/client/features/settings/appearance-accent.test.tsx", [
+    "/**\n * The appearance panel's own door to a colour the reader picked.\n *\n * `tests/custom-accent-dom.test.ts` follows the value through the store and onto the root element; this is the\n * other half of the path — the eight swatches, the well that only appears once the custom accent is the chosen\n * one, and the setting the wheel writes back. A control the reader can see but not drive is the failure this\n * round already caught twice, so every arm here clicks or types rather than reading a prop.\n */",
+    "// The cascade reports a hex background as its rgb triple — both jsdom and a browser — so this reads what",
+    "// paints rather than what was typed into the attribute.",
   ]],
   ["src/client/features/settings/mcp-tools.test.ts", [
     "/**\n * The tool switches on the MCP settings screen.\n *\n * A switch here is not a local preference: it decides what the MCP server registers, so what is pinned is\n * that the press sends the whole switched-off list — the route refuses a name it does not recognise, which\n * it can only do against a complete list — and that a switch already off is drawn off when the screen opens.\n */",
@@ -17406,6 +17412,9 @@ const allowed = new Map([
     "// Current hex input check: the box uppercases what it shows, so read the value the",
     "// reader sees rather than matching the attribute (case-sensitivity of attribute",
     "// selectors is the DOM implementation's detail, not this view's contract).",
+    "// The button is the only way a palette reaches the app's own chrome, and it reaches it through the same",
+    "// setting the appearance panel writes — asserted as a call, because the session store would otherwise",
+    "// spend this test on a network round trip.",
   ]],
   ["src/client/features/tools/color/components/AiDegradedNotice.tsx", [
     "/**\n * Says out loud that no model answered.\n *\n * The color engine has always had an algorithmic fallback for palette generation and poetic naming, and\n * the result looked identical to a model's answer — including the \"AI\" in the panel title. This is the one\n * line that tells the reader which of the two they are looking at, and why.\n */",
@@ -17723,6 +17732,8 @@ const allowed = new Map([
     "// The sliders rotate on the unrounded triple: rebuilding a hex from rounded HSL moved the channels the",
     "// reader did not touch, so a hue nudge changed the saturation and lightness too.",
     "/**\n * The seed color's hex box.\n *\n * It used to be re-mounted on every committed color (`key={currentHex}`), which took the caret away the\n * moment the sixth digit landed and threw away anything half-typed. The draft now lives here and only\n * follows the store while the field is not being edited, and a value that is not a color says so instead\n * of being ignored.\n */",
+    "// The interface reads `--accent` from the cascade, so this writes the setting the same",
+    "// way the appearance panel does and lets the derivation make it readable.",
   ]],
   ["src/client/features/tools/color/views/FavoritesView.tsx", [
     "/* Header */",
@@ -19026,6 +19037,26 @@ const allowed = new Map([
   ]],
   ["src/client/lib/collator.ts", [
     "/** Cached Intl collator; constructing one per comparison dominates note-list sorting. */",
+  ]],
+  ["src/client/lib/custom-accent.ts", [
+    "/**\n * A reader's own colour, made into a working accent.\n *\n * The interface paints text and icons on `--accent`, on a 14% and a 7% wash of it, and on surfaces under that\n * wash. A colour picked for how it *looks* is not automatically readable in any of those places — the seven\n * shipped accents each needed a hand-tuned `--accent-on-soft` for exactly that reason — so the custom one is\n * walked until it clears AA instead of being written in as picked.\n */",
+    "/** The floor `AGENTS.md` rule 13 sets for body text. */",
+    "/** The surfaces an accent wash can land on, as `tests/accent-on-soft-contrast.test.ts` enumerates them. */",
+    "/** `--accent-soft` and `--accent-softer`, from tokens.css. */",
+    "/** Where the shipped accents sit: mid-dark on paper, mid-light on ink. */",
+    "/** The hover step, in the same direction each shipped accent moves. */",
+    "/**\n * The two inks the shipped cascade pairs with an accent: near-white on paper, near-ink on ink. Written in the\n * same form tokens.css uses, so a picked accent and a named one paint the same text colour.\n */",
+    "/** The surfaces arrive as whatever the cascade says — hex, `rgb()` or `oklch()`, all of which mean sRGB here. */",
+    "// `oklch(99% 0 0)` and `oklch(0.99 0 0)` are the same colour; `hexToRgb` would read the first as black.",
+    "/**\n * WCAG contrast between two CSS colours, unrounded.\n *\n * `getContrastRatio` rounds to two decimals because it feeds a label, and a walk that stops on a rounded\n * figure lets 4.4949 through as 4.5 — which is what let a sub-AA `--accent-on-soft` out of the old version.\n */",
+    "/** The three page colours an accent wash is seen against, read from the live cascade. */",
+    "// Rebuild through sRGB rather than emitting `oklch()`: the channels clamp, so the colour returned here is",
+    "// the colour that paints, which is what the contrast below has to be measured on.",
+    "/** The accent composited over a surface at the wash's alpha, as `color-mix(in oklab, ... transparent)` paints it. */",
+    "/**\n * The lowest contrast the on-soft colour has anywhere it is used: the accent composited at 14% and 7% over\n * each surface the theme paints. Text sitting directly on `--accent` is `--accent-contrast`'s job, so it is\n * not part of this figure — folding it in made the walk chase a pairing the token never paints.\n */",
+    "/**\n * The same hue and chroma as the accent, darkened (on paper) or lifted (on ink) until it carries body text\n * over every wash of the accent. The accent itself is the answer when it already clears the floor, which is\n * how the shipped `--accent-on-soft: var(--accent)` default behaves.\n */",
+    "/**\n * The accent, walked in the direction its theme reads (down on paper, up on ink) until a button label in the\n * theme's ink clears AA on it.\n *\n * `--accent-hover` is not part of the test: it always moves the *same* way the ink needs (darker under\n * near-white text, lighter under near-ink text), so an accent that carries its label already carries the\n * hovered button. That is a property of `ACCENT_HOVER_SHIFT`, and `tests/custom-accent-contrast.test.ts`\n * pins which side the hover step lands on rather than trusting it.\n */",
+    "/** Paint the reader's accent, or hand the cascade back to the named themes. */",
   ]],
   ["src/client/lib/dataview/ast.ts", [
     "/**\n * The two abstract syntax trees the query language is made of: expressions (`Field`) and the set of\n * notes an expression is evaluated over (`Source`).\n *\n * They live together because a `FROM` clause is a source expression and a `WHERE` clause is a field,\n * and both are read by the same evaluator. Names follow Dataview's own AST so a ported query reads the\n * same way in both projects.\n */",
@@ -28710,6 +28741,11 @@ const allowed = new Map([
     "/**\n   * Which application's attachment hub is open, or null while none is.\n   *\n   * A scope rather than a boolean because one host serves four applications and has to know which\n   * one to ask. Ephemeral on purpose: a hub reopened after a reload would be showing a listing\n   * whose counts have already moved.\n   */",
     "/**\n   * Markdown the attachment centre asked the open note to swallow.\n   *\n   * Carries the note it was meant for, and is applied only by the workspace holding that note: the\n   * centre is hosted above the container switch, so without the id a file inserted while reading\n   * one note could land in whichever note happens to be open when the request is next consumed.\n   */",
     "/**\n * Rendered template text the workspace editor should insert for one note, and where the caret goes.\n *\n * `cursor` carries two shapes because the two features that use this signal need two things. The `{{ }}`\n * gallery path hands back one offset counted from the start of the text it inserted. A Templater run writes\n * its whole document through the note store instead, so it arrives with no text and a *list* of absolute\n * offsets in the note as written — `tp.file.cursor(1)` may ask for several carets in one jump, and this\n * signal is the only channel that still works when the note's editor has not mounted yet.\n */",
+    "/** The colour behind `accent: 'custom'`; the derived variables are written from it on every apply. */",
+    "// Same guard the settings merge uses: a cached value that is not a plain hex would otherwise be read as",
+    "// black by the derivation, and a reader would see their accent change colour on reload with nothing said.",
+    "// A named accent is a selector; a custom one is four properties written over the cascade, refreshed on",
+    "// every theme change because the lightness it needs is different in each.",
   ]],
   ["src/client/store/update.ts", [
     "// Recording a dismissal the reader already got, and the read above answers a refused storage with null,",
@@ -29673,6 +29709,8 @@ const allowed = new Map([
     "/** A whole-minute focus length held to `TODO_FOCUS_MINUTES_RANGE`; see {@link todoFocusSettings}. */",
     "// A nested subgroup needs its own copy: a shallow spread would hand every clone the same",
     "// `pomodoro` object, and one reader's edit would show up in the next one's defaults.",
+    "// The swatch a reader paints themselves; empty until they pick one, which is why it is last.",
+    "/**\n * A hand-typed accent colour, or the previous one.\n *\n * Settings arrive as JSON a reader can edit anywhere, so the value is matched rather than trusted: a stray\n * `#` would otherwise reach `--accent` and silently leave the interface without a highlight colour.\n */",
   ]],
   ["src/shared/development/api-tester/mock-data.ts", [
     "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",
@@ -31587,6 +31625,7 @@ const allowed = new Map([
     "/** The length a countdown session takes when the task it was opened from names no remaining estimate. */",
     "/** Whether time entries keep running across a break, or the break is left out of the worklog. */",
     "/**\n   * How many minutes of work a day plans for, or null when the reader names none.\n   *\n   * This is the denominator the finish-day page divides its load by. Zero and an empty field both\n   * mean \"no plan\", stored as null so there is one spelling for it, exactly as {@link dailyGoal} does.\n   */",
+    "/**\n   * The colour behind `accent: 'custom'`, as `#rrggbb`.\n   *\n   * Only the *name* is an enum, so the picked colour has nowhere to live without this: a reader who chose\n   * their own accent on one device would get the default back on the next.\n   */",
   ]],
   ["src/shared/web-search-engines.ts", [
     "/** How the vendor wants its key presented on the wire. */",
@@ -41740,6 +41779,32 @@ const allowed = new Map([
   ["tests/credential-revocation.test.ts", [
     "// `revokeGrant(id, userId)` is a two-argument call; typing the fake that way is what lets the",
     "// assertion below read the grant id out of the recorded call.",
+  ]],
+  ["tests/custom-accent-contrast.test.ts", [
+    "/**\n * A reader's own colour, still readable.\n *\n * `deriveCustomAccent` walks the accent it was handed until it carries text, and the floor it has to clear is\n * the one `AGENTS.md` rule 13 sets. This measures the derived tokens the same way\n * `tests/accent-on-soft-contrast.test.ts` measures the seven shipped accents — the on-soft colour against the\n * accent's own wash on every surface, the on-accent colour against the accent and its hover step — so the\n * custom accent and the named ones are held to one standard and not two.\n */",
+    "/** How far outside that measured band a derived accent may sit before it counts as a different colour. */",
+    "/** The named theme whose surfaces the wash is seen against; the accent itself is the reader's own. */",
+    "/** Text against the accent's 14% and 7% wash, wherever that wash happens to sit. */",
+    "// Measured, not assumed: light/blue puts its accent at 4.60:1 on every wash, so the walk has nothing to",
+    "// correct. The shipped cascade says the same thing with `--accent-on-soft: var(--accent)`.",
+    "// `readSoftSurfaces` drops values the cascade reports in a form this cannot read; with nothing left the",
+    "// walk must not invent a colour, it must leave the token as the theme declares it.",
+    "// Measured from tokens.css rather than written down: the seven named accents sit between oklch 38% and 56%",
+    "// on paper, 66.5% and 80% on ink. A derived accent outside that band is no longer the colour that was",
+    "// picked, whatever it does to the contrast figures — this is the bound that stops a bad hover step from",
+    "// being \"fixed\" by walking the brand colour into near-black.",
+    "// The hover step goes the way the ink needs: darker under near-white text, lighter under near-ink.",
+    "// A vivid yellow has to give some of it up when it darkens (oklab chroma is not a cylinder in sRGB), but",
+    "// a washed-out grey is a different colour from the one that was picked. Measured floor: 0.56 of the seed's",
+    "// chroma, on the worst case in this list; seeds with no chroma to lose are not judged.",
+    "// Positive control: the accent as picked really does fail as text on its own tint, or the walk that",
+    "// produces `--accent-on-soft` is decoration and the plain accent would have been enough.",
+  ]],
+  ["tests/custom-accent-dom.test.ts", [
+    "/**\n * Where a picked accent reaches the interface.\n *\n * `tests/custom-accent-contrast.test.ts` judges the four numbers; this judges the three ways they arrive and\n * the one way they leave: painted onto the root element, recomputed when the theme flips under them, cleared\n * when the reader picks a named accent again, and refused at both doors a value can come through — the\n * settings merge and the locally cached copy of it.\n */",
+    "// An unread accent must not leave four inline properties the cascade cannot see through.",
+    "// jsdom resolves these tokens to nothing, so the walk has no surface to judge and must hand back the",
+    "// accent itself rather than invent a text colour.",
   ]],
   ["tests/d1-double-statement-kinds.test.ts", [
     "/**\n * The double has to answer the way D1 does, or a route tested against it proves nothing.\n *\n * Forty-odd suites build their database through `makeD1`, and the one decision it has to make for\n * them is the one node:sqlite does not: whether a statement is a read, which answers with rows, or a\n * write, which answers with `meta`. A common-table expression is the case that used to be misjudged,\n * because `WITH` opens the statement while the verb that follows decides its kind. Misjudge it and the\n * failure lands somewhere unrelated — a store reading `meta.changes` gets `undefined` and the caller\n * crashes on a line of production code that was never wrong.\n */",

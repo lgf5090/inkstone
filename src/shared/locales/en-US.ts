@@ -2535,6 +2535,7 @@ const CORE_MESSAGES = {
     "settings.accent.celadon": "Jade",
     "settings.accent.cinnabar": "Cinnabar",
     "settings.accent.graphite": "Slate",
+    "settings.accent.custom": "Custom colour",
     "settings.accent.indigo": "Deep sea",
     "settings.accent.terracotta": "Lagoon",
     "settings.accent.wisteria": "Iris",

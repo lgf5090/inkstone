@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Copy,
+  Palette,
   Download,
   Eye,
   Heart,
@@ -10,6 +11,8 @@ import {
 } from 'lucide-react'
 import { hslToRgb, rgbToHex } from '@shared/tools/color/spaces'
 import { t } from '../../../../lib/i18n'
+import { useSession } from '../../../../store/session'
+import { useUi } from '../../../../store/ui'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Input } from '../../../../components/form'
 import { parseHexInput } from '../lib/hex-input'
@@ -29,6 +32,7 @@ export function ColorStudioView() {
   const setCurrentColor = useColorStudioStore((s) => s.setCurrentColor)
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const addFavorite = useColorStudioStore((s) => s.addFavorite)
+  const updateAppearance = useSession((s) => s.updateSettings)
   const openContrastModal = useColorStudioStore((s) => s.openContrastModal)
   const openTokenScaleModal = useColorStudioStore((s) => s.openTokenScaleModal)
   const openColorBlindnessModal = useColorStudioStore((s) => s.openColorBlindnessModal)
@@ -190,6 +194,23 @@ export function ColorStudioView() {
                     onClick={() => addFavorite(currentHex)}
                   >
                     <Heart size={13} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip label={t('tools.color.studio.apply_accent')}>
+                  <IconButton
+                    label={t('tools.color.studio.apply_accent')}
+                    size="sm"
+                    onClick={() => {
+                      // The interface reads `--accent` from the cascade, so this writes the setting the same
+                      // way the appearance panel does and lets the derivation make it readable.
+                      updateAppearance({ appearance: { accent: 'custom', accentColor: currentHex } })
+                      useUi.getState().toast({
+                        title: t('tools.color.toast.accent_applied', { hex: currentHex }),
+                        tone: 'success',
+                      })
+                    }}
+                  >
+                    <Palette size={13} />
                   </IconButton>
                 </Tooltip>
               </div>

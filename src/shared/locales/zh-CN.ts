@@ -2529,6 +2529,7 @@ const ZH_CORE_MESSAGES = {
     "settings.accent.celadon": "翡翠绿",
     "settings.accent.cinnabar": "朱砂",
     "settings.accent.graphite": "雾岩灰",
+    "settings.accent.custom": "自定义颜色",
     "settings.accent.indigo": "深海蓝",
     "settings.accent.terracotta": "湖水青",
     "settings.accent.wisteria": "鸢尾紫",

@@ -4,6 +4,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { initI18n, t } from '../../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../../lib/test-render'
 import { useColorStudioStore } from './store'
+import { useSession } from '../../../store/session'
+import { useUi } from '../../../store/ui'
 import { ColorStudioView } from './views/ColorStudioView'
 import { HarmoniesPanel } from './components/HarmoniesPanel'
 import { ContrastCheckerModal } from './components/modals/ContrastCheckerModal'
@@ -137,6 +139,37 @@ describe('ColorStudio UI & State Suite', () => {
       expect(rgbLabel).toContain('HSV')
       expect(rgbLabel).toContain('CMYK')
       expect(rgbLabel).toContain('LAB')
+    })
+
+    it('sends the colour on the dial to the interface accent', () => {
+      // The button is the only way a palette reaches the app's own chrome, and it reaches it through the same
+      // setting the appearance panel writes — asserted as a call, because the session store would otherwise
+      // spend this test on a network round trip.
+      const updateSettings = vi.fn()
+      const sessionSpy = vi.spyOn(useSession.getState(), 'updateSettings').mockImplementation(updateSettings)
+      const uiSpy = vi.spyOn(useUi.getState(), 'toast').mockReturnValue('toast-1')
+      try {
+        rendered = renderElement(createElement(ColorStudioView))
+        act(() => {
+          useColorStudioStore.getState().setCurrentColor('#123456', 'palette')
+        })
+        const button = rendered.container.querySelector<HTMLButtonElement>(
+          `button[aria-label="${t('tools.color.studio.apply_accent')}"]`,
+        )
+        expect(button, 'no apply-accent button in the studio').toBeTruthy()
+        act(() => {
+          button!.click()
+        })
+        expect(updateSettings).toHaveBeenCalledWith({ appearance: { accent: 'custom', accentColor: '#123456' } })
+        expect(uiSpy).toHaveBeenCalledTimes(1)
+        expect(uiSpy.mock.calls[0][0]).toMatchObject({
+          title: t('tools.color.toast.accent_applied', { hex: '#123456' }),
+          tone: 'success',
+        })
+      } finally {
+        sessionSpy.mockRestore()
+        uiSpy.mockRestore()
+      }
     })
   })
 

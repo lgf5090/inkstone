@@ -584,6 +584,8 @@ export const EN_US_TOOLS = {
   'tools.color.toast.history_cleared': 'Color history cleared',
 
   'tools.color.studio.seed_color': 'Seed Color',
+  'tools.color.studio.apply_accent': 'Use as the interface accent',
+  'tools.color.toast.accent_applied': 'Interface accent is now {hex}',
   'tools.color.studio.eyedropper': 'Eyedropper',
   'tools.color.studio.eyedropper_unsupported': 'Eyedropper not supported by browser',
   'tools.color.studio.harmonies': 'Classical Color Harmonies',

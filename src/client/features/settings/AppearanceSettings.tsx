@@ -4,6 +4,7 @@ import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { Segmented, SettingRow, Slider, Switch } from '../../components/form'
 import { Tooltip } from '../../components/overlay'
+import { ColorWellField } from '../../components/color-field'
 import { YearGrid, type YearGridMonth } from '../../components/calendar-grids'
 import { buildYearHeatMeta, heatCell, yearHeatLevel } from '../../components/activity-calendar'
 import { buildActivityProjectionCached } from '../../lib/calendar-activity'
@@ -23,6 +24,7 @@ const ACCENT_MESSAGE_KEYS: Record<AccentName, MessageKey> = {
   terracotta: 'settings.accent.terracotta',
   wisteria: 'settings.accent.wisteria',
   graphite: 'settings.accent.graphite',
+  custom: 'settings.accent.custom',
 }
 
 export function AppearanceSettings({
@@ -79,7 +81,8 @@ export function AppearanceSettings({
                     'hover:scale-110 active:scale-95',
                     appearance.accent === accent.name && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
                   )}
-                  style={{ background: accent.swatch, color: accent.foreground }}
+                  // The custom well paints whatever the reader chose; an unset one is an empty ring.
+                  style={{ background: accent.name === 'custom' ? appearance.accentColor || 'transparent' : accent.swatch, color: accent.foreground }}
                 >
                   {appearance.accent === accent.name && (
                     <Check size={12} strokeWidth={3} className="drop-shadow-sm" />
@@ -87,6 +90,13 @@ export function AppearanceSettings({
                 </button>
               </Tooltip>
             ))}
+            {appearance.accent === 'custom' && (
+              <ColorWellField
+                label={t('settings.accent.custom')}
+                value={appearance.accentColor || null}
+                onChange={(accentColor) => void update({ appearance: { accent: 'custom', accentColor } })}
+              />
+            )}
           </div>
         </SettingRow>
 
