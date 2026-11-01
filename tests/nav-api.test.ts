@@ -9,7 +9,7 @@ import { runScheduledNavBackups } from '../src/worker/nav/backup-scheduler'
 import { navDataRoutes, navSettingsRoutes } from '../src/worker/nav/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import { sha256Hex } from '../src/worker/lib/encoding'
-import { NAV_LIMITS, newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
+import { DEFAULT_NAV_SETTINGS, NAV_LIMITS, newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -509,7 +509,7 @@ describe('category passwords and unlock tokens', () => {
         { id: stolen.id, title: 'Foreign link', url: 'https://stolen.example.com/', icon: null, description: null, categoryId: mine.id, pinned: false, pinnedOrder: 0, sortOrder: 1, createdAt: 1 },
       ],
       visits: {},
-      settings: { display: {} as never, search: {} as never, ai: {} as never },
+      settings: DEFAULT_NAV_SETTINGS,
     }
     const restored = await json<{ restoredLinks: number; restoredCategories: number }>(
       await call('POST', '/api/nav/backup/restore', { body: backup }),

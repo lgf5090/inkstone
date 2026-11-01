@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PublicUser } from '../src/shared/types'
 import { DEFAULT_NAV_SETTINGS, type NavBootstrap, type NavCategory, type NavLink } from '../src/shared/nav/model'
 import { NavLinkEditor } from '../src/client/features/nav/NavLinkEditor'
 import { IconPicker } from '../src/client/features/nav/NavCategories'
@@ -20,6 +21,10 @@ const CATEGORY: NavCategory = {
 const LINK: NavLink = {
   id: 'link-a', title: 'Example', url: 'https://example.com/', icon: null, description: null,
   categoryId: CATEGORY.id, pinned: false, pinnedOrder: 0, sortOrder: 0, createdAt: 1, updatedAt: 1,
+}
+
+const USER: PublicUser = {
+  id: 'user-1', login: 'user-1', name: 'user-1', avatarUrl: '', role: 'member', createdAt: 0, username: 'user-1',
 }
 
 let rendered: RenderedElement | null = null
@@ -50,15 +55,15 @@ beforeEach(() => {
   vi.restoreAllMocks()
   window.localStorage.clear()
   window.sessionStorage.clear()
-  useSession.setState({ user: { id: 'user-1' } as never })
+  useSession.setState({ user: USER })
   useUi.setState({ toasts: [] })
   vi.spyOn(navApi, 'aiModels').mockResolvedValue({ models: [], selected: '', available: false, reason: 'no_model' })
   useNavStore.setState({
     status: 'ready', error: null, categories: [CATEGORY], links: [LINK], visits: {},
     counts: { total: 1, byCategory: { [CATEGORY.id]: 1 } },
-    settings: DEFAULT_NAV_SETTINGS, webdav: { url: '', username: '', hasPassword: false },
+    settings: DEFAULT_NAV_SETTINGS,
     sync: 'idle', unlocks: {}, selectedCategory: null, selectedSubcategory: null, query: '',
-  } as never)
+  })
 })
 
 afterEach(() => {
@@ -105,7 +110,7 @@ describe('navigation focus and accessible names', () => {
 
     // A nav write from the assistant re-fetches the bootstrap, which replaces `categories` wholesale.
     act(() => {
-      useNavStore.setState({ categories: [{ ...CATEGORY, name: 'Tools renamed' }, { ...CATEGORY, id: 'cat-b', name: 'New' }] } as never)
+      useNavStore.setState({ categories: [{ ...CATEGORY, name: 'Tools renamed' }, { ...CATEGORY, id: 'cat-b', name: 'New' }] })
     })
     await flush()
     await flush()

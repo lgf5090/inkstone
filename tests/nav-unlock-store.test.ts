@@ -1,15 +1,25 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { NAV_LIMITS } from '../src/shared/nav/model'
+import type { PublicUser } from '../src/shared/types'
+import { DEFAULT_NAV_SETTINGS, NAV_LIMITS, type NavBootstrap } from '../src/shared/nav/model'
 import { navApi } from '../src/client/features/nav/api'
 import { useSession } from '../src/client/store/session'
 import { requestTokens, useNavStore } from '../src/client/features/nav/nav-store'
+
+const BOOTSTRAP: NavBootstrap = {
+  categories: [], links: [], visits: {}, settings: DEFAULT_NAV_SETTINGS,
+  webdav: { url: '', username: '', hasPassword: false }, counts: { total: 0, byCategory: {} }, serverTime: 1,
+}
+
+const USER: PublicUser = {
+  id: 'user-1', login: 'user-1', name: 'user-1', avatarUrl: '', role: 'member', createdAt: 0, username: 'user-1',
+}
 
 describe('navigation unlock store', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     window.sessionStorage.clear()
-    useSession.setState({ user: { id: 'user-1' } as never })
+    useSession.setState({ user: USER })
     useNavStore.setState({ unlocks: {}, status: 'ready' })
   })
 
@@ -21,10 +31,7 @@ describe('navigation unlock store', () => {
     for (let index = 0; index < count; index += 1) {
       const expiresAt = 1_000_000 + index * 1_000
       vi.spyOn(navApi, 'unlockCategory').mockResolvedValue({ token: `token-${index}`, expiresAt })
-      vi.spyOn(navApi, 'bootstrap').mockResolvedValue({
-        categories: [], links: [], visits: {}, settings: { display: {}, search: {}, ai: {} },
-        webdav: { url: '', username: '', hasPassword: false }, counts: { total: 0, byCategory: {} }, serverTime: 1,
-      } as never)
+      vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
       await useNavStore.getState().unlock(`cat-${index}`, 'password')
     }
   }
@@ -44,10 +51,7 @@ describe('navigation unlock store', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2000))
     vi.spyOn(navApi, 'unlockCategory').mockResolvedValue({ token: 'soon-gone', expiresAt: 5000 })
-    vi.spyOn(navApi, 'bootstrap').mockResolvedValue({
-      categories: [], links: [], visits: {}, settings: { display: {}, search: {}, ai: {} },
-      webdav: { url: '', username: '', hasPassword: false }, counts: { total: 0, byCategory: {} }, serverTime: 1,
-    } as never)
+    vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
     await useNavStore.getState().unlock('cat-x', 'password')
     expect(useNavStore.getState().unlocks['cat-x']).toBeDefined()
 
@@ -58,10 +62,7 @@ describe('navigation unlock store', () => {
 
   it('ignores entries left by the older token-only format', async () => {
     window.sessionStorage.setItem('inkstone.nav.unlocks.user-1', JSON.stringify({ 'cat-old': 'bare-token' }))
-    vi.spyOn(navApi, 'bootstrap').mockResolvedValue({
-      categories: [], links: [], visits: {}, settings: { display: {}, search: {}, ai: {} },
-      webdav: { url: '', username: '', hasPassword: false }, counts: { total: 0, byCategory: {} }, serverTime: 1,
-    } as never)
+    vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
     await useNavStore.getState().load(true)
     expect(useNavStore.getState().unlocks['cat-old']).toBeUndefined()
     expect(requestTokens(useNavStore.getState().unlocks)).toEqual([])
