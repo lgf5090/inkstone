@@ -6,9 +6,20 @@
 
 export const TOKENS_PATH = 'src/client/styles/tokens.css'
 
+// `paper` is what the theme paints unless the reader opts into `data-background='white'`,
+// so it is a real surface, not the absence of one. `themeVars` keeps answering to the
+// white cascade because that is the palette the existing text-ladder gates were measured
+// against; gates that care about both ask for them by name.
+export const BACKGROUNDS = ['paper', 'white']
+
 const THEME_SELECTORS = {
   light: [':root', ":root[data-theme='light']", ":root[data-theme='light'][data-background='white']"],
   dark: [':root', ":root[data-theme='dark']", ":root[data-theme='dark'][data-background='white']"],
+}
+
+const BASE_SELECTORS = {
+  light: [':root', ":root[data-theme='light']"],
+  dark: [':root', ":root[data-theme='dark']"],
 }
 
 function escapeRegExp(value) {
@@ -38,8 +49,8 @@ function declarations(source, selector) {
   return map
 }
 
-export function themeVars(theme, source) {
-  const selectors = THEME_SELECTORS[theme]
+export function themeVars(theme, source, background = 'white') {
+  const selectors = background === 'paper' ? BASE_SELECTORS[theme] : THEME_SELECTORS[theme]
   if (!selectors) throw new Error(`unknown theme ${theme}`)
   for (const selector of selectors) if (!hasSelector(source, selector)) throw new Error(`missing ${selector}`)
   return selectors.reduce((acc, selector) => {
@@ -54,9 +65,9 @@ export function accentNames(source) {
   return [...new Set([...source.matchAll(/\[data-accent='([\w-]+)'\]/g)].map((match) => match[1]))]
 }
 
-export function accentVars(theme, accent, source) {
+export function accentVars(theme, accent, source, background = 'white') {
   const selector = `:root[data-accent='${accent}'][data-theme='${theme}'] {`
   if (!source.includes(selector)) throw new Error(`missing ${selector}`)
   // Two attribute selectors beat the plain `:root` default that follows them.
-  return new Map([...themeVars(theme, source), ...declarations(source, selector)])
+  return new Map([...themeVars(theme, source, background), ...declarations(source, selector)])
 }

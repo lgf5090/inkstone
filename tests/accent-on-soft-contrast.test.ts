@@ -1,7 +1,7 @@
 // @vitest-environment node
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { accentNames, accentVars } from '../scripts/lib/theme-tokens.mjs'
+import { accentNames, accentVars, BACKGROUNDS } from '../scripts/lib/theme-tokens.mjs'
 import { contrastRatio, over, parseColor } from '../scripts/lib/contrast.mjs'
 
 /**
@@ -43,7 +43,8 @@ function ratios(text: number[], accent: number[], vars: Map<string, string>): nu
 }
 
 describe('accent text on an accent tint stays AA', () => {
-  const cases = (['light', 'dark'] as const).flatMap((theme) => accentNames(TOKENS).map((accent) => ({ theme, accent })))
+  const cases = (['light', 'dark'] as const).flatMap((theme) => accentNames(TOKENS)
+    .flatMap((accent) => BACKGROUNDS.map((background) => ({ theme, accent, background }))))
 
   it('declares the token in the base block, not only where it is overridden', () => {
     // `--text-20` was referenced by components for months without ever being declared, and nothing
@@ -51,19 +52,35 @@ describe('accent text on an accent tint stays AA', () => {
     expect(TOKENS).toMatch(/:root\s*\{[\s\S]*?--accent-on-soft:\s*var\(--accent\);/)
   })
 
-  it.each(cases)('$theme $accent: text clears AA on its own wash on every surface', ({ theme, accent }) => {
-    const vars = accentVars(theme, accent, TOKENS)
+  it.each(cases)('$theme $accent on $background: text clears AA on its own wash on every surface', ({ theme, accent, background }) => {
+    const vars = accentVars(theme, accent, TOKENS, background)
     const worst = Math.min(...ratios(onSoft(vars, theme, accent), rgbOf(vars.get('--accent'), `${theme}/${accent} --accent`), vars))
-    expect(worst, `${theme}/${accent} paints ${worst.toFixed(2)}:1 as text on its own tint`).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(worst, `${theme}/${accent} on ${background} paints ${worst.toFixed(2)}:1 as text on its own tint`).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('measures the paper palette, not only the white-background opt-in', () => {
+    // The gate used to fold `data-background='white'` into every theme, so it read the brightest
+    // possible page and called it the light theme: five light accents sat at 4.35–4.46:1 on the
+    // paper surfaces most readers actually use while the gate stayed green.
+    for (const theme of ['light', 'dark'] as const) {
+      for (const accent of accentNames(TOKENS)) {
+        const paper = accentVars(theme, accent, TOKENS, 'paper')
+        const white = accentVars(theme, accent, TOKENS, 'white')
+        for (const surface of SURFACES) {
+          if (paper.get(surface) === undefined) continue
+          expect(paper.get(surface), `${theme}/${accent} ${surface} differs between the two backgrounds`).not.toBe(white.get(surface))
+        }
+      }
+    }
   })
 
   it('is not a gate that would pass without the override', () => {
     // Positive control: the plain accent really does fail somewhere, or the token above is decoration.
-    const plain = (['light', 'dark'] as const).flatMap((theme) => accentNames(TOKENS).map((accent) => {
-      const vars = accentVars(theme, accent, TOKENS)
+    const plain = (['light', 'dark'] as const).flatMap((theme) => accentNames(TOKENS).flatMap((accent) => BACKGROUNDS.map((background) => {
+      const vars = accentVars(theme, accent, TOKENS, background)
       const colour = rgbOf(vars.get('--accent'), `${theme}/${accent}`)
-      return { label: `${theme}/${accent}`, worst: Math.min(...ratios(colour, colour, vars)) }
-    }))
+      return { label: `${theme}/${accent}/${background}`, worst: Math.min(...ratios(colour, colour, vars)) }
+    })))
     const failing = plain.filter((entry) => entry.worst < AA_NORMAL)
     expect(failing.length, 'no accent fails as text on its own tint any more — re-measure before keeping the override').toBeGreaterThan(0)
   })

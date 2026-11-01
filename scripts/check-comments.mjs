@@ -183,6 +183,10 @@ const allowed = new Map([
     "// The accent is a choice the user makes, so text drawn on it has to hold for",
     "// every one the stylesheet offers, not just the default.",
     "// Two attribute selectors beat the plain `:root` default that follows them.",
+    "// `paper` is what the theme paints unless the reader opts into `data-background='white'`,",
+    "// so it is a real surface, not the absence of one. `themeVars` keeps answering to the",
+    "// white cascade because that is the palette the existing text-ladder gates were measured",
+    "// against; gates that care about both ask for them by name.",
   ]],
   ["src/blog-runtime/katex-stub.css", [
     "/* The blog entry already ships KaTeX's stylesheet; the runtime must not inline its fonts a second time. */",
@@ -13890,6 +13894,8 @@ const allowed = new Map([
     "// without a wall-clock budget; the expanded arm above keeps the case honest by",
     "// proving the same commit does read the vault when the block is open.",
     "// The diary was filed while the interface was Chinese, and is looked up in English.",
+    "// The grid paints the cursor month, which is the reader's real today unless the clock is",
+    "// pinned; every fixture in this block is October 2026.",
   ]],
   ["src/client/features/sidebar/sidebar-calendar.tsx", [
     "// The whole-vault projection, the diary lookup and every click handler live here so",
@@ -15748,6 +15754,10 @@ const allowed = new Map([
     "/** When set, the listing answers this `total` instead of its own row count, to model a truncated page. */",
     "// The route caps one listing at MAX_TASKS_PER_QUERY; when the month holds more than a page, the",
     "// calendar must not draw it as if the whole window were on screen.",
+    "/** The three numbers of a `YYYY-MM-DD` day key, for feeding to `Date.UTC`. */",
+    "// A bar is drawn once per grid row, so the two fixture days have to land in the same row: the",
+    "// week start comes from the locale and the cursor month from the real clock, so hardcoded day",
+    "// numbers straddle a row boundary in some months and the second piece made this red.",
   ]],
   ["src/client/features/todos/counters-view.test.tsx", [
     "/**\n * The habits screen: what a row says it holds, and what a press actually writes.\n *\n * The rules worth pinning are the ones a screen can get wrong while looking right. A tap must land on the\n * day the answer named, not on the machine's today; the number under a row must come from the re-read\n * rather than from what the press asked for; a streak must count the target and not \"anything happened\";\n * and a control that cannot do what it says — taking a tap back from a day that holds none — is not drawn\n * as if it could.\n *\n * The fake below keeps habits and their days in one mutable array and rebuilds the whole answer on every\n * read, the way the endpoint does. A fake that replayed one fixed answer would let a screen that never\n * re-read pass every case here.\n */",
@@ -40269,6 +40279,9 @@ const allowed = new Map([
     "// `--text-20` was referenced by components for months without ever being declared, and nothing",
     "// noticed because the class simply painted nothing. A token that resolves to nothing is silent.",
     "// Positive control: the plain accent really does fail somewhere, or the token above is decoration.",
+    "// The gate used to fold `data-background='white'` into every theme, so it read the brightest",
+    "// possible page and called it the light theme: five light accents sat at 4.35–4.46:1 on the",
+    "// paper surfaces most readers actually use while the gate stayed green.",
   ]],
   ["tests/activity-heat-contrast.test.ts", [
     "// The percentages come from the calendar's own module, so this file runs under the browser",
