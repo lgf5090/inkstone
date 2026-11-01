@@ -77,7 +77,7 @@ function seed(links: NavLink[]): void {
     settings: DEFAULT_NAV_SETTINGS,
     webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
-    unlockTokens: {},
+    unlocks: {},
     selectedCategory: null,
     selectedSubcategory: null,
     query: '',
@@ -279,6 +279,50 @@ describe('LinkCheckerModal', () => {
     await flush()
     expect(document.querySelectorAll('tbody tr')).toHaveLength(250)
     expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes(t('nav.load_more', { shown: 200, total: 250 })))).toBe(false)
+  })
+
+  it('skips links whose cached verdict is still fresh and re-checks them only on demand', async () => {
+    seed([BROKEN, WARNING])
+    window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({
+      [BROKEN.id]: { status: 404, ok: false, level: 'broken', durationMs: 9, checkedAt: Date.now() },
+    }))
+    mount()
+    await flush()
+
+    click(buttonByText(t('nav.checker.scan_stale')))
+    await flush()
+    expect(checkSpy).toHaveBeenCalledTimes(1)
+    expect(checkSpy.mock.calls[0]?.[0]).toEqual([WARNING.url])
+
+    click(buttonByText(t('nav.checker.restart')))
+    await flush()
+    expect(checkSpy).toHaveBeenCalledTimes(2)
+    expect(checkSpy.mock.calls[1]?.[0]).toEqual([BROKEN.url, WARNING.url])
+  })
+
+  it('says so when everything already has a recent verdict', async () => {
+    seed([BROKEN, WARNING])
+    const now = Date.now()
+    window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({
+      [BROKEN.id]: { status: 404, ok: false, level: 'broken', durationMs: 9, checkedAt: now },
+      [WARNING.id]: { status: 403, ok: false, level: 'warning', durationMs: 9, checkedAt: now },
+    }))
+    mount()
+    await flush()
+
+    click(buttonByText(t('nav.checker.scan_stale')))
+    await flush()
+    expect(checkSpy).not.toHaveBeenCalled()
+    expect(useUi.getState().toasts.map((toast) => toast.title)).toContain(t('nav.checker.all_fresh'))
+  })
+
+  it('renders the rows once rather than a table and a list side by side', async () => {
+    seed([BROKEN, WARNING, OK])
+    mount()
+    await flush()
+    const dialog = lastDialog()
+    expect(dialog.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(dialog.querySelectorAll('ul li')).toHaveLength(0)
   })
 
   it('selects the rendered page unless asked for every filtered result', async () => {

@@ -21,6 +21,7 @@ import {
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
+import { ApiError } from '../../lib/api'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { Checkbox, Segmented, Select } from '../../components/form'
@@ -41,6 +42,10 @@ const SCAN_DEADLINE_MS = 10 * 60_000
 const CACHE_LIMIT = 20_000
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MODAL_WIDTH = 960
+/** A 429 is a window, not a verdict: wait it out rather than cancel a long scan. */
+const RATE_LIMIT_RETRY_MS = 20_000
+const RATE_LIMIT_RETRIES = 3
+const DESKTOP_QUERY = '(min-width: 768px)'
 
 type CheckPhase = 'idle' | 'scanning' | 'done' | 'cancelled'
 type CheckFilter = 'all' | 'broken' | 'warning' | 'ok'
@@ -64,6 +69,18 @@ const CHECK_ERRORS: ReadonlySet<string> = new Set<NavCheckError>([
   'too_many_redirects',
   'http_error',
 ])
+
+/** One tree or the other, never both: the table and the list used to mount the same rows twice. */
+function useIsDesktop(): boolean {
+  const [desktop, setDesktop] = useState(() => (typeof window === 'undefined' ? true : window.matchMedia(DESKTOP_QUERY).matches))
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_QUERY)
+    const onChange = (): void => setDesktop(media.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+  return desktop
+}
 
 function cacheKey(): string | null {
   const userId = useSession.getState().user?.id
@@ -268,6 +285,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
   const [renderPage, setRenderPage] = useState({ key: 'all', limit: CHECK_RENDER_PAGE })
   const [busy, setBusy] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
+  const isDesktop = useIsDesktop()
 
   const abortRef = useRef<AbortController | null>(null)
   const resultsRef = useRef<Record<string, CheckRow>>({})
@@ -420,10 +438,18 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     writeCache(next)
   }
 
-  async function startScan(targets: NavLink[]): Promise<void> {
-    const queue = targets.filter((link) => isHttpUrl(link.url))
+  async function startScan(targets: NavLink[], force = false): Promise<void> {
+    const at = Date.now()
+    const queue = targets.filter((link) => {
+      if (!isHttpUrl(link.url)) return false
+      if (force) return true
+      // A verdict still inside the cache window is the answer already. Re-fetching every link on each
+      // press is how a ten-thousand bookmark scan reaches its own rate limit before it finishes.
+      const row = resultsRef.current[link.id]
+      return !row || at - row.checkedAt >= CACHE_TTL_MS
+    })
     if (!queue.length) {
-      toast({ title: t('nav.checker.none') })
+      toast({ title: targets.length ? t('nav.checker.all_fresh') : t('nav.checker.none') })
       return
     }
     abortRef.current?.abort()
@@ -453,6 +479,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
     let nextChunk = 0
 
     const worker = async (): Promise<void> => {
+      let rateLimitWaits = 0
       while (!controller.signal.aborted) {
         if (Date.now() - startedAt > SCAN_DEADLINE_MS) {
           deadlineHitRef.current = true
@@ -460,7 +487,6 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
           return
         }
         const chunk = chunks[nextChunk]
-        nextChunk += 1
         if (!chunk) return
         try {
           const urls = [...new Set(chunk.map((link) => link.url))]
@@ -473,6 +499,8 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
             const result = byUrl.get(link.url)
             if (result) rows[link.id] = toRow(result, now)
           }
+          nextChunk += 1
+          rateLimitWaits = 0
           applyResults(rows)
           checkedRef.current += chunk.length
           for (const link of chunk) checkingRef.current.delete(link.id)
@@ -484,6 +512,14 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
           }
         } catch (error) {
           if (controller.signal.aborted) return
+          // The per-minute budget is shared with the rest of the account's traffic, so a full scan of a
+          // large library will touch it. Waiting the window out keeps the results gathered so far and
+          // resumes the same chunk instead of cancelling the run.
+          if (error instanceof ApiError && error.status === 429 && rateLimitWaits < RATE_LIMIT_RETRIES) {
+            rateLimitWaits += 1
+            await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_RETRY_MS))
+            continue
+          }
           throw error
         }
       }
@@ -735,14 +771,21 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
               {t('nav.checker.stop')}
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              icon={<RefreshCw size={13} />}
-              disabled={busy}
-              onClick={() => void startScan(links)}
-            >
-              {hasResults ? t('nav.checker.restart') : t('nav.checker.start')}
-            </Button>
+            <>
+              <Button
+                variant="primary"
+                icon={<RefreshCw size={13} />}
+                disabled={busy}
+                onClick={() => void startScan(links)}
+              >
+                {hasResults ? t('nav.checker.scan_stale') : t('nav.checker.start')}
+              </Button>
+              {hasResults && (
+                <Button variant="ghost" disabled={busy} onClick={() => void startScan(links, true)}>
+                  {t('nav.checker.restart')}
+                </Button>
+              )}
+            </>
           )}
         </>
       }
@@ -912,7 +955,8 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                   {t('nav.checker.showing', { shown: renderedLinks.length, total: visibleLinks.length })}
                 </p>
               )}
-              <div className="hidden md:block">
+              {isDesktop ? (
+                <div>
                 <table className="w-full table-fixed border-collapse text-left">
                   <caption className="sr-only">{t('nav.checker.title')}</caption>
                   <thead>
@@ -967,9 +1011,9 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              <ul className="flex flex-col gap-2 md:hidden">
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-2">
                 {renderedLinks.map((link) => (
                   <li
                     key={link.id}
@@ -1005,7 +1049,8 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                     </div>
                   </li>
                 ))}
-              </ul>
+                </ul>
+              )}
               {hasMoreRows && (
                 <div className="mt-2 flex justify-center">
                   <Button size="sm" variant="secondary" onClick={() => setRenderPage({ key: filter, limit: renderLimit + CHECK_RENDER_PAGE })}>

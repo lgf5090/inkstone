@@ -9,7 +9,7 @@ import type {
   NavVisit,
   NavWebdavSettings,
 } from '@shared/nav/model'
-import { DEFAULT_NAV_SETTINGS } from '@shared/nav/model'
+import { DEFAULT_NAV_SETTINGS, NAV_LIMITS } from '@shared/nav/model'
 import { useSession } from '../../store/session'
 import { navApi } from './api'
 
@@ -26,7 +26,7 @@ interface NavState {
   settings: NavBootstrap['settings']
   webdav: NavWebdavSettings
   sync: NavSyncState
-  unlockTokens: Record<string, string>
+  unlocks: Record<string, StoredUnlock>
   selectedCategory: string | null
   selectedSubcategory: string | null
   query: string
@@ -56,6 +56,12 @@ interface CacheEntry {
   data: NavBootstrap
 }
 
+/** A persisted unlock, with the expiry the server answered with so a stale entry can be dropped on read. */
+interface StoredUnlock {
+  token: string
+  expiresAt: number
+}
+
 let cache: CacheEntry | null = null
 let visitTimer: ReturnType<typeof setTimeout> | null = null
 let pendingVisits = new Map<string, number>()
@@ -69,29 +75,57 @@ function unlockKey(userId: string): string {
   return `inkstone.nav.unlocks.${userId}`
 }
 
-function readUnlockTokens(userId: string): Record<string, string> {
+/**
+ * The unlocks to keep, newest first and no more than the server will accept.
+ *
+ * `parseUnlockTokens` answers a longer list by taking the first `NAV_LIMITS.unlockTokens` entries, so a
+ * client that stores more silently loses the ones it just granted — the folder reads as unlocked, shows no
+ * lock, and then lists nothing. Trimming here keeps the store and the server agreeing on which twenty.
+ */
+function trimUnlocks(entries: Record<string, StoredUnlock>): Record<string, StoredUnlock> {
+  const sorted = Object.entries(entries).sort((left, right) => right[1].expiresAt - left[1].expiresAt)
+  return Object.fromEntries(sorted.slice(0, NAV_LIMITS.unlockTokens))
+}
+
+function readUnlocks(userId: string): Record<string, StoredUnlock> {
   if (typeof window === 'undefined') return {}
   try {
     const raw = window.sessionStorage.getItem(unlockKey(userId))
     const parsed = raw ? JSON.parse(raw) as unknown : null
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    const out: Record<string, string> = {}
+    const now = Date.now()
+    const out: Record<string, StoredUnlock> = {}
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value === 'string') out[key] = value
+      // A token the server has already expired still reads as unlocked on this client, which is how a
+      // protected folder ends up looking empty rather than locked.
+      if (typeof value === 'string') continue
+      if (!value || typeof value !== 'object') continue
+      const entry = value as { token?: unknown; expiresAt?: unknown }
+      if (typeof entry.token !== 'string' || typeof entry.expiresAt !== 'number') continue
+      if (entry.expiresAt <= now) continue
+      out[key] = { token: entry.token, expiresAt: entry.expiresAt }
     }
-    return out
+    return trimUnlocks(out)
   } catch {
     return {}
   }
 }
 
-function writeUnlockTokens(userId: string, tokens: Record<string, string>): void {
+function writeUnlocks(userId: string, unlocks: Record<string, StoredUnlock>): void {
   if (typeof window === 'undefined') return
   try {
-    window.sessionStorage.setItem(unlockKey(userId), JSON.stringify(tokens))
+    window.sessionStorage.setItem(unlockKey(userId), JSON.stringify(unlocks))
   } catch {
     // A full session storage must not take the navigation app down; the tokens live in memory too.
   }
+}
+
+/** The header value: at most the newest `NAV_LIMITS.unlockTokens` tokens, matching what is in the store. */
+export function requestTokens(unlocks: Record<string, StoredUnlock>): string[] {
+  return Object.values(unlocks)
+    .sort((left, right) => right.expiresAt - left.expiresAt)
+    .slice(0, NAV_LIMITS.unlockTokens)
+    .map((entry) => entry.token)
 }
 
 function installVisitFlush(): void {
@@ -143,10 +177,10 @@ export const useNavStore = create<NavState>((set, get) => {
       set({ status: 'error', error: 'unauthenticated' })
       return
     }
-    const tokens = { ...get().unlockTokens, ...readUnlockTokens(user) }
-    const data = await navApi.bootstrap(Object.values(tokens))
+    const unlocks = { ...get().unlocks, ...readUnlocks(user) }
+    const data = await navApi.bootstrap(requestTokens(unlocks))
     cache = { userId: user, data }
-    set({ ...applyBootstrap(data), unlockTokens: tokens })
+    set({ ...applyBootstrap(data), unlocks })
   }
 
   return {
@@ -159,7 +193,7 @@ export const useNavStore = create<NavState>((set, get) => {
     settings: DEFAULT_NAV_SETTINGS,
     webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
-    unlockTokens: {},
+    unlocks: {},
     selectedCategory: null,
     selectedSubcategory: null,
     query: '',
@@ -171,16 +205,16 @@ export const useNavStore = create<NavState>((set, get) => {
         set({ status: 'error', error: 'unauthenticated' })
         return
       }
-      const tokens = readUnlockTokens(user)
+      const unlocks = readUnlocks(user)
       if (!force && cache?.userId === user) {
-        set({ ...applyBootstrap(cache.data), unlockTokens: tokens })
+        set({ ...applyBootstrap(cache.data), unlocks })
       } else {
         set({ status: 'loading', error: null })
       }
       try {
-        const data = await navApi.bootstrap(Object.values(tokens))
+        const data = await navApi.bootstrap(requestTokens(unlocks))
         cache = { userId: user, data }
-        set({ ...applyBootstrap(data), unlockTokens: tokens })
+        set({ ...applyBootstrap(data), unlocks })
       } catch (error) {
         if (cache?.userId === user) {
           set({ status: 'ready', error: error instanceof Error ? error.message : 'load_failed' })
@@ -193,10 +227,11 @@ export const useNavStore = create<NavState>((set, get) => {
     async unlock(categoryId, password) {
       const user = currentUserId()
       if (!user) throw new Error('unauthenticated')
-      const { token } = await run(() => navApi.unlockCategory(categoryId, password))
-      const tokens = { ...get().unlockTokens, [categoryId]: token }
-      writeUnlockTokens(user, tokens)
-      set({ unlockTokens: tokens })
+      const { token, expiresAt } = await run(() => navApi.unlockCategory(categoryId, password))
+      // Trimmed on write as well as on read, so the store can never hold more than the server reads back.
+      const unlocks = trimUnlocks({ ...get().unlocks, [categoryId]: { token, expiresAt } })
+      writeUnlocks(user, unlocks)
+      set({ unlocks })
       await refresh()
     },
 
@@ -241,29 +276,29 @@ export const useNavStore = create<NavState>((set, get) => {
     },
 
     async createLink(body) {
-      const { link } = await run(() => navApi.createLink(body, Object.values(get().unlockTokens)))
+      const { link } = await run(() => navApi.createLink(body, requestTokens(get().unlocks)))
       await refresh()
       return link
     },
 
     async updateLink(id, body) {
-      const { link } = await run(() => navApi.updateLink(id, body, Object.values(get().unlockTokens)))
+      const { link } = await run(() => navApi.updateLink(id, body, requestTokens(get().unlocks)))
       await refresh()
       return link
     },
 
     async deleteLink(id) {
-      await run(() => navApi.deleteLink(id, Object.values(get().unlockTokens)))
+      await run(() => navApi.deleteLink(id, requestTokens(get().unlocks)))
       await refresh()
     },
 
     async reorderLinks(scope, orderedIds, categoryId) {
-      await run(() => navApi.orderLinks({ scope, categoryId, orderedIds }, Object.values(get().unlockTokens)))
+      await run(() => navApi.orderLinks({ scope, categoryId, orderedIds }, requestTokens(get().unlocks)))
       await refresh()
     },
 
     async batch(body) {
-      const unlocks = Object.values(get().unlockTokens)
+      const unlocks = requestTokens(get().unlocks)
       await run(async () => {
         for (let index = 0; index < body.ids.length; index += BATCH_CHUNK) {
           await navApi.batch({ ...body, ids: body.ids.slice(index, index + BATCH_CHUNK) }, unlocks)
@@ -338,7 +373,7 @@ export function clearNavSessionState(): void {
     settings: DEFAULT_NAV_SETTINGS,
     webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
-    unlockTokens: {},
+    unlocks: {},
     selectedCategory: null,
     selectedSubcategory: null,
     query: '',

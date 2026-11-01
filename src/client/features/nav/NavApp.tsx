@@ -27,7 +27,7 @@ import {
   type NavCategory, type NavLink,
 } from '@shared/nav/model'
 import type { NavAssistantContext } from '@shared/nav/assistant-context'
-import { useNavStore } from './nav-store'
+import { requestTokens, useNavStore } from './nav-store'
 import { NavIcon } from './nav-icons'
 import { NavLinkEditor } from './NavLinkEditor'
 import { NavSettingsModal } from './NavSettings'
@@ -275,7 +275,7 @@ export function NavApp() {
   const counts = useNavStore((state) => state.counts)
   const settings = useNavStore((state) => state.settings)
   const sync = useNavStore((state) => state.sync)
-  const unlockTokens = useNavStore((state) => state.unlockTokens)
+  const unlocks = useNavStore((state) => state.unlocks)
   const selectedCategory = useNavStore((state) => state.selectedCategory)
   const selectedSubcategory = useNavStore((state) => state.selectedSubcategory)
   const query = useNavStore((state) => state.query)
@@ -437,11 +437,15 @@ export function NavApp() {
     visibleLinks: scopedLinks.length,
     pinnedCount: pinned.length,
     lockedCategories: categories.filter((category) => category.hasPassword).length,
-    unlockTokens: Object.values(unlockTokens),
-  }), [selectedCategory, selectedRoot?.name, selectedSubcategory, selectedSubcategoryName, query, links.length, scopedLinks.length, pinned.length, categories, unlockTokens])
+    unlockTokens: requestTokens(unlocks),
+  }), [selectedCategory, selectedRoot?.name, selectedSubcategory, selectedSubcategoryName, query, links.length, scopedLinks.length, pinned.length, categories, unlocks])
   const normal = useMemo(() => scopedLinks.filter((link) => !link.pinned).sort((a, b) => a.sortOrder - b.sortOrder), [scopedLinks])
   const visibleNormal = normal.slice(0, renderLimit)
   const hasMoreNormal = visibleNormal.length < normal.length
+  // The pinned band used to render every match, so the pagination ceiling the ordinary list got never
+  // applied to an account that pins most of its bookmarks.
+  const visiblePinned = pinned.slice(0, renderLimit)
+  const hasMorePinned = visiblePinned.length < pinned.length
   useEffect(() => {
     const node = loadMoreRef.current
     if (!node || renderLimit >= AUTO_LOAD_LIMIT) return
@@ -465,12 +469,12 @@ export function NavApp() {
   const categoryCount = useCallback((category: NavCategory): number | null => {
     // A locked folder's size is not sent to this client at all, so say nothing rather than show a confident
     // zero — an empty-looking protected folder reads as a bug.
-    if (category.hasPassword && !unlockTokens[category.id]) return null
+    if (category.hasPassword && !unlocks[category.id]) return null
     const own = counts.byCategory[category.id] ?? 0
     if (category.parentId) return own
     return own + categories.filter((child) => child.parentId === category.id).reduce((sum, child) => sum + (counts.byCategory[child.id] ?? 0), 0)
-  }, [counts.byCategory, categories, unlockTokens])
-  const isLocked = (category: NavCategory): boolean => category.hasPassword && !unlockTokens[category.id]
+  }, [counts.byCategory, categories, unlocks])
+  const isLocked = (category: NavCategory): boolean => category.hasPassword && !unlocks[category.id]
 
   function openEditor(link: NavLink | null = null, initial: { title: string; url: string } | null = null): void {
     setEditor({ open: true, link, initial, defaultCategoryId: selectedSubcategory ?? selectedCategory ?? undefined })
@@ -810,8 +814,15 @@ export function NavApp() {
                 action={canSortPinned ? <Button size="sm" variant={sortingPinned ? 'primary' : 'ghost'} icon={<GripVertical size={13} />} onClick={() => setSortingPinned(!sortingPinned)}>{sortingPinned ? t('nav.sort_done') : t('nav.sort')}</Button> : undefined}
               />
               <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                {pinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
+                {visiblePinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
               </div>
+              {hasMorePinned && (
+                <div className="mt-3 flex justify-center">
+                  <Button size="sm" variant="secondary" onClick={() => setRenderPage({ key: pageKey, limit: renderLimit + NAV_RENDER_PAGE })}>
+                    {t('nav.load_more', { shown: visiblePinned.length, total: pinned.length })}
+                  </Button>
+                </div>
+              )}
             </section>
           )}
 
@@ -862,7 +873,7 @@ export function NavApp() {
         onClose={() => {
           const locked = unlockCategory
           setUnlockCategory(null)
-          if (locked && useNavStore.getState().unlockTokens[locked.id]) {
+          if (locked && useNavStore.getState().unlocks[locked.id]) {
             if (locked.parentId) selectCategory(locked.parentId, locked.id)
             else selectCategory(locked.id, null)
           }

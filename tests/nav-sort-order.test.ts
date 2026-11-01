@@ -23,12 +23,16 @@ afterEach(() => {
   useSession.setState({ user: null })
 })
 
+function at(token: string): { token: string; expiresAt: number } {
+  return { token, expiresAt: Date.now() + 60_000 }
+}
+
 describe('nav reorder requests', () => {
   it('passes every unlocked category with a pinned reorder', async () => {
     useSession.setState({ user: USER })
     const order = vi.spyOn(navApi, 'orderLinks').mockResolvedValue({ ok: true })
     vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
-    useNavStore.setState({ status: 'ready', unlockTokens: { 'cat-a': 'token-a', 'cat-b': 'token-b' } })
+    useNavStore.setState({ status: 'ready', unlocks: { 'cat-a': at('token-a'), 'cat-b': at('token-b') } })
     const ids = ['a'.repeat(26), 'b'.repeat(26)]
 
     await useNavStore.getState().reorderLinks('pinned', ids)
@@ -39,7 +43,7 @@ describe('nav reorder requests', () => {
     useSession.setState({ user: USER })
     const order = vi.spyOn(navApi, 'orderLinks').mockResolvedValue({ ok: true })
     vi.spyOn(navApi, 'bootstrap').mockResolvedValue(BOOTSTRAP)
-    useNavStore.setState({ status: 'ready', unlockTokens: { 'cat-a': 'token-a' } })
+    useNavStore.setState({ status: 'ready', unlocks: { 'cat-a': at('token-a') } })
     const ids = ['a'.repeat(26), 'b'.repeat(26)]
 
     await useNavStore.getState().reorderLinks('category', ids, 'c'.repeat(26))

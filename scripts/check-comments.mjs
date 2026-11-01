@@ -8013,6 +8013,8 @@ const allowed = new Map([
     "/* ignore */",
     "// A locked folder's size is not sent to this client at all, so say nothing rather than show a confident",
     "// zero — an empty-looking protected folder reads as a bug.",
+    "// The pinned band used to render every match, so the pagination ceiling the ordinary list got never",
+    "// applied to an account that pins most of its bookmarks.",
   ]],
   ["src/client/features/nav/NavCategories.tsx", [
     "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
@@ -8025,6 +8027,13 @@ const allowed = new Map([
     "// A corrupt cache only costs a rescan; opening the checker must never fail because of it.",
     "// The scan itself still worked; a full or unavailable storage only loses the cache.",
     "/**\n * The link checker: every bookmark scanned in small batches, filtered and selectively acted on.\n *\n * The panel only holds what the reader is looking at — results live in a per-user cache keyed by link\n * id, so a refresh within a day brings the last verdicts back without touching the network.\n */",
+    "/** A 429 is a window, not a verdict: wait it out rather than cancel a long scan. */",
+    "/** One tree or the other, never both: the table and the list used to mount the same rows twice. */",
+    "// A verdict still inside the cache window is the answer already. Re-fetching every link on each",
+    "// press is how a ten-thousand bookmark scan reaches its own rate limit before it finishes.",
+    "// The per-minute budget is shared with the rest of the account's traffic, so a full scan of a",
+    "// large library will touch it. Waiting the window out keeps the results gathered so far and",
+    "// resumes the same chunk instead of cancelling the run.",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -8040,6 +8049,12 @@ const allowed = new Map([
     "// The store is a module singleton, so this listener is intentionally never removed; a page is the",
     "// lifetime of this app and a second one after a full reload starts from a new module graph.",
     "// Storage may be unavailable in private windows; the in-memory state below still clears.",
+    "/** A persisted unlock, with the expiry the server answered with so a stale entry can be dropped on read. */",
+    "/**\n * The unlocks to keep, newest first and no more than the server will accept.\n *\n * `parseUnlockTokens` answers a longer list by taking the first `NAV_LIMITS.unlockTokens` entries, so a\n * client that stores more silently loses the ones it just granted — the folder reads as unlocked, shows no\n * lock, and then lists nothing. Trimming here keeps the store and the server agreeing on which twenty.\n */",
+    "// A token the server has already expired still reads as unlocked on this client, which is how a",
+    "// protected folder ends up looking empty rather than locked.",
+    "/** The header value: at most the newest `NAV_LIMITS.unlockTokens` tokens, matching what is in the store. */",
+    "// Trimmed on write as well as on read, so the store can never hold more than the server reads back.",
   ]],
   ["src/client/features/notes/NotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
@@ -43131,6 +43146,10 @@ const allowed = new Map([
   ["tests/nav-shared.test.ts", [
     "// The URL is the same value the prompt interpolates, so it carries the same rule a stored link does.",
     "// Categories are read from the store server-side now, so a caller cannot name folders for the model.",
+  ]],
+  ["tests/nav-unlock-store.test.ts", [
+    "// The twenty with the furthest expiry, not the twenty unlocked first: the server takes the head of the",
+    "// list it is sent, so keeping the oldest silently dropped whichever folder had just been opened.",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",

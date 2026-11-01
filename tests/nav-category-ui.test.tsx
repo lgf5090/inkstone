@@ -78,7 +78,7 @@ function seed(categories: NavCategory[], links: NavLink[] = []): void {
     settings: DEFAULT_NAV_SETTINGS,
     webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
-    unlockTokens: {},
+    unlocks: {},
     selectedCategory: null,
     selectedSubcategory: null,
     query: '',
