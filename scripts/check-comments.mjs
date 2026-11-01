@@ -17803,6 +17803,7 @@ const allowed = new Map([
     "// The same file picked twice must re-run: without the reset the change event never fires.",
     "// Not `hidden`: a `display:none` input cannot open a picker in every engine, and the drop zone",
     "// above is the control the reader actually uses, so this stays out of the tab order and the tree.",
+    "/* Four labelled buttons: measured 494px inside a 372px card at 420px, so they wrap. */",
   ]],
   ["src/client/features/tools/color/views/TraditionalColorView.tsx", [
     "// Extract distinct series",
@@ -44807,6 +44808,7 @@ const allowed = new Map([
     "// `shrink-0` alone is what pushed this 606px wide inside a 330px column at 420px.",
     "// Class names alone would not have caught this: the fix is a CSS declaration, not a utility.",
     "// The rows above were edited; the i18n gate is the one that keeps that true, and it runs as a script.",
+    "// Measured in Chromium: 494px of buttons inside a 372px card at 420px.",
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",
