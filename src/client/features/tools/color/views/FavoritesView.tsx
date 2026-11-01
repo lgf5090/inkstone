@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import {
+  ArrowDown,
+  ArrowUp,
   Clock,
   Copy,
   Download,
   Heart,
   Palette,
+  Pencil,
   Pipette,
   Plus,
   Trash2,
@@ -14,6 +17,8 @@ import { Segmented } from '../../../../components/form'
 import { Tooltip, confirm } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
+import { EditFavoriteModal } from '../components/modals/EditFavoriteModal'
+import { EditPaletteModal } from '../components/modals/EditPaletteModal'
 
 type FavoritesSubTab = 'colors' | 'palettes' | 'history'
 
@@ -74,6 +79,10 @@ export function FavoritesView() {
   const copyColor = useColorStudioStore((s) => s.copyColor)
   const openCreatePaletteModal = useColorStudioStore((s) => s.openCreatePaletteModal)
   const openExportPaletteModal = useColorStudioStore((s) => s.openExportPaletteModal)
+  const openEditFavorite = useColorStudioStore((s) => s.openEditFavorite)
+  const openEditPalette = useColorStudioStore((s) => s.openEditPalette)
+  const moveFavorite = useColorStudioStore((s) => s.moveFavorite)
+  const movePalette = useColorStudioStore((s) => s.movePalette)
 
   useEffect(() => {
     fetchFavorites()
@@ -108,6 +117,10 @@ export function FavoritesView() {
         />
       </div>
 
+      {/* The editors are reached only from these cards, so they live with the panel that opens them. */}
+      <EditFavoriteModal />
+      <EditPaletteModal />
+
       {/* Tab 1: Colors */}
       {activeTab === 'colors' && (
         <div className="space-y-4">
@@ -124,7 +137,7 @@ export function FavoritesView() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {favorites.map((fav) => (
+              {favorites.map((fav, index) => (
                 <div
                   key={fav.id}
                   className="group flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-xs transition-all hover:border-[var(--accent)]"
@@ -145,7 +158,36 @@ export function FavoritesView() {
                       <span className="font-mono text-[length:var(--text-12)] font-bold text-[var(--text-primary)] uppercase">
                         {fav.hex}
                       </span>
-                      <div className="flex items-center gap-0.5">
+                      <div className="flex flex-wrap items-center justify-end gap-0.5">
+                        <Tooltip label={t('tools.color.edit.action')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.action')}
+                            onClick={() => openEditFavorite(fav.id)}
+                          >
+                            <Pencil size={12} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip label={t('tools.color.edit.move_up')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.move_up')}
+                            disabled={index === 0}
+                            onClick={() => moveFavorite(fav.id, -1)}
+                          >
+                            <ArrowUp size={12} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip label={t('tools.color.edit.move_down')}>
+                          <IconButton
+                            size="xs"
+                            label={t('tools.color.edit.move_down')}
+                            disabled={index === favorites.length - 1}
+                            onClick={() => moveFavorite(fav.id, 1)}
+                          >
+                            <ArrowDown size={12} />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip label={t('tools.color.studio.copy')}>
                           <IconButton
                             size="xs"
@@ -209,7 +251,7 @@ export function FavoritesView() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {palettes.map((p) => {
+              {palettes.map((p, index) => {
                 const hexList = p.colors.map((c) => c.hex)
                 return (
                   <div
@@ -264,7 +306,36 @@ export function FavoritesView() {
                             count: p.colors.length,
                           })}
                         </span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center justify-end gap-1">
+                          <Tooltip label={t('tools.color.edit.action')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.action')}
+                              onClick={() => openEditPalette(p.id)}
+                            >
+                              <Pencil size={12} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip label={t('tools.color.edit.move_up')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.move_up')}
+                              disabled={index === 0}
+                              onClick={() => movePalette(p.id, -1)}
+                            >
+                              <ArrowUp size={12} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip label={t('tools.color.edit.move_down')}>
+                            <IconButton
+                              size="xs"
+                              label={t('tools.color.edit.move_down')}
+                              disabled={index === palettes.length - 1}
+                              onClick={() => movePalette(p.id, 1)}
+                            >
+                              <ArrowDown size={12} />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip label={t('tools.color.export.title')}>
                             <IconButton
                               size="xs"

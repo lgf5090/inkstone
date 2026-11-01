@@ -11,6 +11,7 @@ import {
   AiPoeticInterpretSchema,
   CreateColorFavoriteSchema,
   CreateColorPaletteSchema,
+  ReorderColorCollectionSchema,
   UpdateColorFavoriteSchema,
   UpdateColorPaletteSchema,
   UpdateColorSettingsSchema,
@@ -155,6 +156,13 @@ function isUniqueConstraint(error: unknown): boolean {
   return /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(String((error as Error)?.message ?? error))
 }
 
+toolsColorRoutes.put('/favorites/-/order', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, ReorderColorCollectionSchema)
+  await store.reorderFavorites(body.ids)
+  return c.json({ ok: true, data: await store.listFavorites() })
+})
+
 toolsColorRoutes.put('/favorites/:id', async (c) => {
   const store = getStore(c)
   const id = c.req.param('id')
@@ -204,6 +212,13 @@ toolsColorRoutes.post('/palettes', async (c) => {
     if (isUniqueConstraint(error)) throw ApiError.conflict('That palette id is already saved')
     throw error
   }
+})
+
+toolsColorRoutes.put('/palettes/-/order', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, ReorderColorCollectionSchema)
+  await store.reorderPalettes(body.ids)
+  return c.json({ ok: true, data: await store.listPalettes() })
 })
 
 toolsColorRoutes.put('/palettes/:id', async (c) => {

@@ -312,6 +312,22 @@ export class ColorStore {
     }
   }
 
+  /**
+   * Write the reader's order into a collection: `sort` becomes the position in the list they just dragged.
+   *
+   * One batch, so a move either lands whole or not at all — two separate writes for the two swapped rows
+   * could be applied in either order and leave the list sorted by arrival.
+   */
+  async reorderFavorites(ids: string[]): Promise<void> {
+    await this.db.batch(
+      ids.map((id, index) =>
+        this.db
+          .prepare('UPDATE tools_color_favorites SET sort = ?, updated_at = ? WHERE user_id = ? AND id = ?')
+          .bind(index, Date.now(), this.userId, id),
+      ),
+    )
+  }
+
   async deleteFavorite(id: string): Promise<boolean> {
     const res = await this.db
       .prepare('DELETE FROM tools_color_favorites WHERE user_id = ? AND id = ?')
@@ -513,6 +529,17 @@ export class ColorStore {
       createdAt: now,
       updatedAt: now,
     }
+  }
+
+  /** The palette counterpart of `reorderFavorites`, for the same reason. */
+  async reorderPalettes(ids: string[]): Promise<void> {
+    await this.db.batch(
+      ids.map((id, index) =>
+        this.db
+          .prepare('UPDATE tools_color_palettes SET sort = ?, updated_at = ? WHERE user_id = ? AND id = ?')
+          .bind(index, Date.now(), this.userId, id),
+      ),
+    )
   }
 
   async updatePalette(

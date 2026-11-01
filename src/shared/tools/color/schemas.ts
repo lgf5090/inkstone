@@ -4,6 +4,7 @@
 
 import { z } from 'zod'
 import {
+  COLOR_LIST_LIMIT,
   COLOR_AI_INTERPRET_MAX,
   COLOR_AI_PALETTE_MAX,
   COLOR_AI_PALETTE_MIN,
@@ -48,6 +49,16 @@ export const CreateColorFavoriteSchema = z.object({
   tags: z.array(z.string().max(50)).default([]),
   note: z.string().max(500).default(''),
   sort: z.number().int().default(0),
+})
+
+/**
+ * The order a reader put a collection in, sent as the full list of ids from first to last.
+ *
+ * A move has to be one request: two writes for a swap would leave the collection sorted by whichever
+ * arrived second, and a page of 200 saved colours cannot be renumbered 200 times per click.
+ */
+export const ReorderColorCollectionSchema = z.object({
+  ids: z.array(AssetIdSchema).min(1).max(COLOR_LIST_LIMIT),
 })
 
 export const UpdateColorFavoriteSchema = z.object({

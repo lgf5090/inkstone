@@ -17371,6 +17371,20 @@ const allowed = new Map([
     "// History",
     "// AI",
     "// Assets (R2)",
+    "/**\n   * Save the order the reader put the collection in, as the whole list of ids from first to last.\n   *\n   * One request rather than one per moved row: two writes for a swap would land in whatever order the\n   * network chose, and the list would end up sorted by arrival instead of by the reader's drag.\n   */",
+  ]],
+  ["src/client/features/tools/color/collection-edit.test.tsx", [
+    "/**\n * A saved colour is not write-once.\n *\n * The name, tags, note and order columns were in the table from the first migration, the update endpoints\n * were written, and nothing in the interface could reach any of them — so a colour saved from a swatch was\n * stuck with the label that button happened to send, in creation order, forever.\n */",
+    "/** What the API doubles answer for the lists, so the update doubles can return a plausible row. */",
+    "// Read inside the test: at module scope the locale is not loaded yet, and every one of these would be a key.",
+    "/** Every control carrying that accessible name, in document order. */",
+    "// Closing and opening another row is the case that used to keep the first row's text in the boxes.",
+    "// The reader must be able to fix the row, not retype it: closing on failure would lose the draft.",
+    "// A reorder that waits for the server before it repaints looks, at network speed, like the click was",
+    "// ignored — so the move has to be visible while the request is still out.",
+    "// The server's order wins over the optimistic one, since it is the one that was written.",
+    "// The middle row can go either way, so the ends are the only inert controls.",
+    "// The server wants a title; a blank one is a disabled button rather than a 400 toast.",
   ]],
   ["src/client/features/tools/color/collection-states.test.tsx", [
     "/**\n * The three states the collection panels owe the reader.\n *\n * `FavoritesView` rendered its empty state from `list.length === 0` alone, so a request that failed and a\n * reader who has never saved a colour produced the same screen — a \"nothing saved yet\" line over a network\n * error reads as \"my colours are gone\", and the obvious next move is to save the same hex a second time.\n */",
@@ -17476,6 +17490,16 @@ const allowed = new Map([
     "// booted rather than the one on screen now.",
     "// Only a saved palette may close the window: the store reports a failed write as a toast and used to",
     "// resolve anyway, so the editor shut and the reader's colors were gone.",
+  ]],
+  ["src/client/features/tools/color/components/modals/EditFavoriteModal.tsx", [
+    "/** Split a comma-separated box the way the create dialog does, without leaving blanks behind. */",
+    "/**\n * Rename a saved colour, tag it, and leave a note on it.\n *\n * The row was write-once before this: the name, tags, note and order columns existed, the update endpoint\n * existed, and nothing in the interface could reach any of them — so a saved colour was stuck with whatever\n * name the button that saved it happened to send.\n */",
+    "// Seeded per row, not once: the second editor used to open holding the first row's text.",
+    "// A refused save keeps the dialog and its text: the reader has to be able to fix it, not retype it.",
+  ]],
+  ["src/client/features/tools/color/components/modals/EditPaletteModal.tsx", [
+    "/**\n * Rename a saved palette, describe it, and tag it.\n *\n * A palette is the only copy of its colours — there is no trash and no export list to restore it from — so\n * what the reader calls it is the only thing that makes it findable later. The title, description, tags and\n * order columns had no way in from the interface until here.\n */",
+    "// The server wants at least one character of title and no tag longer than 50.",
   ]],
   ["src/client/features/tools/color/components/modals/ExportPaletteModal.tsx", [
     "/* Swatches preview strip */",
@@ -17633,6 +17657,9 @@ const allowed = new Map([
     "/** Which collection panel could not be read — an empty list and a failed one look the same otherwise. */",
     "// Swallowing the reason silently showed \"nothing saved yet\" over a failed request, which reads as",
     "// the collection being gone. The panel names the failure and offers the same fetch again.",
+    "/** The row whose editor is open, by id: the list stays the single source of what it says. */",
+    "/** The list with `id` moved `delta` places, or null when it is already at that end. */",
+    "// Optimistic: a reorder that waits for the server before it paints looks like the click did nothing.",
   ]],
   ["src/client/features/tools/color/views/AiPaletteView.tsx", [
     "/* Header */",
@@ -17691,6 +17718,7 @@ const allowed = new Map([
     "/* Tab 3: History */",
     "/**\n * A list the server refused, shown apart from a list that came back empty.\n *\n * Both used to render \"nothing saved yet\", which tells a reader on a flaky connection that their colors\n * are gone — and invites them to save the same hex a second time.\n */",
     "// A favorite is the only copy: there is no trash and no export, so deletion asks first.",
+    "/* The editors are reached only from these cards, so they live with the panel that opens them. */",
   ]],
   ["src/client/features/tools/color/views/GradientStudioView.tsx", [
     "// Tags filter",
@@ -31249,6 +31277,7 @@ const allowed = new Map([
     "/** Metadata is stored as JSON and echoed back by the asset route; flat scalars only, and few of them. */",
     "// The format is the only thing that decides the served Content-Type: a client that could name the MIME",
     "// could hand back `text/html` from the application's own origin.",
+    "/**\n * The order a reader put a collection in, sent as the full list of ids from first to last.\n *\n * A move has to be one request: two writes for a swap would leave the collection sorted by whichever\n * arrived second, and a page of 200 saved colours cannot be renumbered 200 times per click.\n */",
   ]],
   ["src/shared/tools/color/spaces.ts", [
     "/**\n * High-precision mathematical conversions across modern color spaces:\n * HEX, RGB, HSV, HSL, CMYK, HSI, CIE-LAB, and OKLab.\n */",
@@ -39425,6 +39454,8 @@ const allowed = new Map([
     "// Re-picking the color that is already on top of the trail is not a new exploration. The client",
     "// debounces a drag, but this is what keeps a second tab or a re-read page from re-inserting.",
     "// `preview_svg` is left out on purpose: it holds up to 50 KB per row and no list view renders it.",
+    "/**\n   * Write the reader's order into a collection: `sort` becomes the position in the list they just dragged.\n   *\n   * One batch, so a move either lands whole or not at all — two separate writes for the two swapped rows\n   * could be applied in either order and leave the list sorted by arrival.\n   */",
+    "/** The palette counterpart of `reorderFavorites`, for the same reason. */",
   ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
@@ -44635,6 +44666,10 @@ const allowed = new Map([
   ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",
+  ]],
+  ["tests/tools-color-reorder.test.ts", [
+    "/**\n * Moving a saved colour or palette to a new place in the list.\n *\n * The `sort` column and the `ORDER BY sort` read were there from the start, and the update endpoints could\n * already write it — nothing in the interface ever asked to, so the whole ordering machinery was dead and a\n * reader's collection stayed in creation order forever.\n */",
+    "// The other account never ordered anything, so its row keeps the default position.",
   ]],
   ["tests/tools-color-security.test.ts", [
     "/**\n * The color module's upload and quota surface.\n *\n * These are the checks the reviewer could only describe as \"the client decides\" before: what content type\n * a stored poster answers with, how big it may be, and how often one account may ask for a model.\n */",

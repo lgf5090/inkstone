@@ -73,6 +73,14 @@ export const colorApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  /**
+   * Save the order the reader put the collection in, as the whole list of ids from first to last.
+   *
+   * One request rather than one per moved row: two writes for a swap would land in whatever order the
+   * network chose, and the list would end up sorted by arrival instead of by the reader's drag.
+   */
+  reorderFavorites: (ids: string[]) =>
+    request<UserColorFavorite[]>('/favorites/-/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   deleteFavorite: (id: string) =>
     request<{ ok: boolean }>(`/favorites/${id}`, {
       method: 'DELETE',
@@ -119,6 +127,8 @@ export const colorApi = {
     request<{ ok: boolean }>(`/palettes/${id}`, {
       method: 'DELETE',
     }),
+  reorderPalettes: (ids: string[]) =>
+    request<UserColorPalette[]>('/palettes/-/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
   togglePaletteFavorite: (id: string) =>
     request<UserColorPalette>(`/palettes/${id}/favorite`, {
       method: 'POST',

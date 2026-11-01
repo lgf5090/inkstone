@@ -46,6 +46,10 @@ export interface ColorStudioState {
   isExportPaletteModalOpen: boolean
   exportTargetPalette: { title: string; colors: string[] } | null
 
+  /** The row whose editor is open, by id: the list stays the single source of what it says. */
+  editingFavoriteId: string | null
+  editingPaletteId: string | null
+
   // Actions
   setCurrentHex: (hex: string, source?: ColorHistorySource) => void
   setCurrentColor: (hex: string, source?: ColorHistorySource) => void
@@ -59,6 +63,8 @@ export interface ColorStudioState {
   fetchFavorites: () => Promise<void>
   addFavorite: (hex: string, name?: string, tags?: string[]) => Promise<void>
   removeFavorite: (id: string) => Promise<void>
+  updateFavorite: (id: string, patch: { name?: string; tags?: string[]; note?: string }) => Promise<boolean>
+  moveFavorite: (id: string, delta: number) => Promise<void>
 
   fetchPalettes: () => Promise<void>
   savePalette: (
@@ -70,6 +76,11 @@ export interface ColorStudioState {
   ) => Promise<boolean>
   togglePaletteFavorite: (id: string) => Promise<void>
   removePalette: (id: string) => Promise<void>
+  updatePalette: (
+    id: string,
+    patch: { title?: string; description?: string; tags?: string[] },
+  ) => Promise<boolean>
+  movePalette: (id: string, delta: number) => Promise<void>
 
   fetchHistory: () => Promise<void>
   clearHistory: () => Promise<void>
@@ -85,6 +96,10 @@ export interface ColorStudioState {
   closeCreatePaletteModal: () => void
   openExportPaletteModal: (palette: { title: string; colors: string[] }) => void
   closeExportPaletteModal: () => void
+  openEditFavorite: (id: string) => void
+  closeEditFavorite: () => void
+  openEditPalette: (id: string) => void
+  closeEditPalette: () => void
 }
 
 const DEFAULT_HEX = DEFAULT_SEED_HEX
@@ -127,6 +142,18 @@ function queueHistoryWrite(hex: string, source: ColorHistorySource): void {
   }, HISTORY_IDLE_MS)
 }
 
+/** The list with `id` moved `delta` places, or null when it is already at that end. */
+function movedBefore<T extends { id: string }>(list: T[], id: string, delta: number): T[] | null {
+  const index = list.findIndex((item) => item.id === id)
+  const target = index + delta
+  if (index < 0 || target < 0 || target >= list.length) return null
+  const next = [...list]
+  const row = next[index]!
+  next.splice(index, 1)
+  next.splice(target, 0, row)
+  return next
+}
+
 export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   currentHex: DEFAULT_HEX,
   colorSpaceValues: getColorSpaceValues(DEFAULT_HEX),
@@ -155,6 +182,8 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
   isCreatePaletteModalOpen: false,
   isExportPaletteModalOpen: false,
   exportTargetPalette: null,
+  editingFavoriteId: null,
+  editingPaletteId: null,
 
   setCurrentHex: (hex: string, source: ColorHistorySource = 'studio') => {
     const norm = normalizeHex(hex, true)
@@ -252,6 +281,36 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     }
   },
 
+  updateFavorite: async (id: string, patch) => {
+    try {
+      const updated = await colorApi.updateFavorite(id, patch)
+      set((state) => ({ favorites: state.favorites.map((f) => (f.id === id ? updated : f)) }))
+      useUi.getState().toast({ title: t('tools.color.toast.favorite_updated'), tone: 'success' })
+      return true
+    } catch (e: unknown) {
+      const err = e as Error
+      useUi.getState().toast({
+        title: err.message || t('tools.color.toast.favorite_update_failed'),
+        tone: 'danger',
+      })
+      return false
+    }
+  },
+
+  moveFavorite: async (id: string, delta: number) => {
+    const current = get().favorites
+    const next = movedBefore(current, id, delta)
+    if (!next) return
+    // Optimistic: a reorder that waits for the server before it paints looks like the click did nothing.
+    set({ favorites: next })
+    try {
+      set({ favorites: await colorApi.reorderFavorites(next.map((item) => item.id)) })
+    } catch {
+      set({ favorites: current })
+      useUi.getState().toast({ title: t('tools.color.toast.order_save_failed'), tone: 'danger' })
+    }
+  },
+
   removeFavorite: async (id: string) => {
     try {
       await colorApi.deleteFavorite(id)
@@ -307,6 +366,35 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
         tone: 'danger',
       })
       return false
+    }
+  },
+
+  updatePalette: async (id, patch) => {
+    try {
+      const updated = await colorApi.updatePalette(id, patch)
+      set((state) => ({ palettes: state.palettes.map((pal) => (pal.id === id ? updated : pal)) }))
+      useUi.getState().toast({ title: t('tools.color.toast.palette_updated'), tone: 'success' })
+      return true
+    } catch (e: unknown) {
+      const err = e as Error
+      useUi.getState().toast({
+        title: err.message || t('tools.color.toast.palette_update_failed'),
+        tone: 'danger',
+      })
+      return false
+    }
+  },
+
+  movePalette: async (id: string, delta: number) => {
+    const current = get().palettes
+    const next = movedBefore(current, id, delta)
+    if (!next) return
+    set({ palettes: next })
+    try {
+      set({ palettes: await colorApi.reorderPalettes(next.map((item) => item.id)) })
+    } catch {
+      set({ palettes: current })
+      useUi.getState().toast({ title: t('tools.color.toast.order_save_failed'), tone: 'danger' })
     }
   },
 
@@ -382,4 +470,9 @@ export const useColorStudioStore = create<ColorStudioState>((set, get) => ({
     set({ isExportPaletteModalOpen: true, exportTargetPalette: palette }),
   closeExportPaletteModal: () =>
     set({ isExportPaletteModalOpen: false, exportTargetPalette: null }),
+
+  openEditFavorite: (id: string) => set({ editingFavoriteId: id }),
+  closeEditFavorite: () => set({ editingFavoriteId: null }),
+  openEditPalette: (id: string) => set({ editingPaletteId: id }),
+  closeEditPalette: () => set({ editingPaletteId: null }),
 }))
