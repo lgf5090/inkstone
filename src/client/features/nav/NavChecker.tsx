@@ -49,7 +49,7 @@ const RATE_LIMIT_RETRIES = 3
 const DESKTOP_QUERY = '(min-width: 768px)'
 
 type CheckPhase = 'idle' | 'scanning' | 'done' | 'cancelled'
-type CheckFilter = 'all' | 'broken' | 'warning' | 'ok'
+type CheckFilter = 'all' | 'broken' | 'warning' | 'ok' | 'skipped'
 
 interface CheckRow {
   status: number | null
@@ -443,6 +443,10 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
       // A verdict still inside the cache window is the answer already. Re-fetching every link on each
       // press is how a ten-thousand bookmark scan reaches its own rate limit before it finishes.
       const row = resultsRef.current[link.id]
+      // `skipped` is the one verdict that says nothing about the bookmark — it means our own resolver
+      // could not answer — so caching it as an answer would freeze the whole library at "unknown" after
+      // one outage and neither rescan button would ever retry it.
+      if (row?.level === 'skipped') return true
       return !row || at - row.checkedAt >= CACHE_TTL_MS
     })
     if (!queue.length) {
@@ -829,6 +833,9 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                 { value: 'broken', label: `${t('nav.checker.broken')} (${counts.broken})` },
                 { value: 'warning', label: `${t('nav.checker.warning')} (${counts.warning})` },
                 { value: 'ok', label: `${t('nav.checker.ok')} (${counts.ok})` },
+                // Only when there is something to show: a fifth segment would crowd the phone header for
+                // a state most scans never produce.
+                ...(counts.skipped > 0 ? [{ value: 'skipped' as const, label: `${t('nav.checker.skipped')} (${counts.skipped})` }] : []),
               ]}
             />
             {lastCheckedAt !== null && (

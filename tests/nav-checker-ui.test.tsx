@@ -351,6 +351,53 @@ describe('LinkCheckerModal', () => {
     expect(checkSpy.mock.calls[1]?.[0]).toEqual([BROKEN.url, WARNING.url])
   })
 
+  it('re-checks a skipped verdict instead of treating it as an answer', async () => {
+    // `skipped` means the checker's own resolver could not answer, which says nothing about the
+    // bookmark. Caching it as a verdict would freeze a whole library at "unknown" after one outage,
+    // with neither rescan button willing to try again.
+    seed([BROKEN, WARNING])
+    const now = Date.now()
+    window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({
+      [BROKEN.id]: { status: null, ok: false, level: 'skipped', durationMs: 3, errorCode: 'dns_unavailable', checkedAt: now },
+      [WARNING.id]: { status: 403, ok: false, level: 'warning', durationMs: 9, checkedAt: now },
+    }))
+    mount()
+    await flush()
+
+    click(buttonByText(t('nav.checker.scan_stale')))
+    await flush()
+    expect(checkSpy).toHaveBeenCalledTimes(1)
+    expect(checkSpy.mock.calls[0]?.[0]).toEqual([BROKEN.url])
+  })
+
+  it('offers the skipped filter only once something has actually been skipped', async () => {
+    const skipped = makeLink({ id: 'link-skip-only', title: 'Skip me', url: 'https://skip.example/' })
+    seed([OK, skipped])
+    checkSpy.mockResolvedValue({
+      results: [
+        { url: OK.url, status: 200, ok: true, level: 'ok', durationMs: 8 },
+        { url: skipped.url, status: null, ok: false, level: 'skipped', durationMs: 2, errorCode: 'dns_unavailable' },
+      ],
+    })
+
+    mount()
+    click(buttonByText(t('nav.checker.start')))
+    await flush()
+    await flush()
+
+    const segments = [...lastDialog().querySelectorAll('[role="radio"]')].map((el) => el.textContent?.trim())
+    expect(segments).toContain(`${t('nav.checker.skipped')} (1)`)
+    expect(segments).toContain(`${t('nav.checker.ok')} (1)`)
+
+    click(buttonByText(`${t('nav.checker.skipped')} (1)`, lastDialog()))
+    await flush()
+    // jsdom has no innerText, and the row prints its url, which is what distinguishes them here.
+    const visible = lastDialog().textContent ?? ''
+    expect(visible.includes(skipped.url), 'the skipped filter must show only what was skipped').toBe(true)
+    expect(visible.includes(OK.url)).toBe(false)
+    expect(lastDialog().textContent).toContain(t('nav.checker.error.dns_unavailable'))
+  })
+
   it('says so when everything already has a recent verdict', async () => {
     seed([BROKEN, WARNING])
     const now = Date.now()

@@ -8072,6 +8072,11 @@ const allowed = new Map([
     "// A worker owns its chunk until it finishes with it. Reading the cursor and only advancing it",
     "// after the await let all three workers claim the same chunk: those bookmarks were fetched three",
     "// times while the skipped chunks were never checked at all, and the progress bar ran past 100%.",
+    "// `skipped` is the one verdict that says nothing about the bookmark — it means our own resolver",
+    "// could not answer — so caching it as an answer would freeze the whole library at \"unknown\" after",
+    "// one outage and neither rescan button would ever retry it.",
+    "// Only when there is something to show: a fifth segment would crowd the phone header for",
+    "// a state most scans never produce.",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -43222,6 +43227,10 @@ const allowed = new Map([
     "// shared cursor and only advancing it after the await let all three workers claim chunk 0: those",
     "// eight bookmarks were fetched three times, chunks 1 and 2 were never requested at all, and the",
     "// progress bar counted past its own total.",
+    "// `skipped` means the checker's own resolver could not answer, which says nothing about the",
+    "// bookmark. Caching it as a verdict would freeze a whole library at \"unknown\" after one outage,",
+    "// with neither rescan button willing to try again.",
+    "// jsdom has no innerText, and the row prints its url, which is what distinguishes them here.",
   ]],
   ["tests/nav-errors.test.ts", [
     "// The mapping used to swallow the reason, which left the backup panel saying one sentence for every",
