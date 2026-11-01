@@ -282,7 +282,9 @@ navDataRoutes.post('/import', async (c) => {
     throw ApiError.notFound('Category not found')
   }
   const result = await nav.importData(input.categories, links, input.skipExisting !== false)
-  return c.json(result)
+  // The store also reports how many categories landed, which the restore path needs; the import response
+  // keeps to the two fields its readers were built against.
+  return c.json({ imported: result.imported, skipped: result.skipped })
 })
 
 navDataRoutes.post('/links/batch', async (c) => {

@@ -478,6 +478,81 @@ describe('category passwords and unlock tokens', () => {
     expect(statuses[5]).toBe(429)
   })
 
+  it('refuses a second restore while one holds the lease', async () => {
+    const category = await createCategory(USER_A, 'Lease folder')
+    await createLink(USER_A, category.id, 'Lease link')
+    const backup = await json<NavBackup>(await call('GET', '/api/nav/backup'))
+    const [first, second] = await Promise.all([
+      call('POST', '/api/nav/backup/restore', { body: backup }),
+      call('POST', '/api/nav/backup/restore', { body: backup }),
+    ])
+    expect([first.status, second.status].sort()).toEqual([200, 409])
+    // The lease is given back on the way out, so a later restore is not locked out for its whole TTL.
+    expect((await call('POST', '/api/nav/backup/restore', { body: backup })).status).toBe(200)
+  })
+
+  it('reports only the rows a restore actually wrote', async () => {
+    const mine = await createCategory(USER_A, 'Mine')
+    const link = await createLink(USER_A, mine.id, 'Kept link')
+    const theirs = await createCategory(USER_B, 'Theirs')
+    const stolen = await createLink(USER_B, theirs.id, 'Foreign link')
+    const backup: NavBackup = {
+      format: 'inkstone-nav-backup',
+      version: 1,
+      createdAt: Date.now(),
+      categories: [
+        { id: mine.id, name: 'Mine', icon: 'folder', parentId: null, sortOrder: 0, createdAt: 1, hasPassword: false, passwordMode: 'none' },
+        { id: theirs.id, name: 'Theirs', icon: 'folder', parentId: null, sortOrder: 1, createdAt: 1, hasPassword: false, passwordMode: 'none' },
+      ],
+      links: [
+        { id: link.id, title: 'Kept link', url: 'https://kept.example.com/', icon: null, description: null, categoryId: mine.id, pinned: false, pinnedOrder: 0, sortOrder: 0, createdAt: 1 },
+        { id: stolen.id, title: 'Foreign link', url: 'https://stolen.example.com/', icon: null, description: null, categoryId: mine.id, pinned: false, pinnedOrder: 0, sortOrder: 1, createdAt: 1 },
+      ],
+      visits: {},
+      settings: { display: {} as never, search: {} as never, ai: {} as never },
+    }
+    const restored = await json<{ restoredLinks: number; restoredCategories: number }>(
+      await call('POST', '/api/nav/backup/restore', { body: backup }),
+    )
+    // The foreign rows are dropped rather than adopted, so claiming them would describe a database that
+    // does not contain them.
+    expect(restored.restoredLinks).toBe(1)
+    expect(restored.restoredCategories).toBe(1)
+    expect(linkRow(stolen.id)).toBeDefined()
+  })
+
+  it('rewrites more links than one batch may carry', async () => {
+    const category = await createCategory(USER_A, 'Rewrite many')
+    const ids: string[] = []
+    for (let index = 0; index < 120; index += 1) {
+      const link = await createLink(USER_A, category.id, `Rewrite ${index}`)
+      ids.push(link.id)
+    }
+    const result = await json<{ updated: { id: string }[]; failed: string[] }>(
+      await call('POST', '/api/nav/links/batch', { body: { action: 'rewrite', ids, template: 'https://rewritten.example.com/{old_host}' } }),
+    )
+    expect(result.failed).toEqual([])
+    expect(result.updated.length).toBe(120)
+    // The first and the last row of the run both landed: a chunk loop that stops early or overshoots
+    // shows up here, because 120 links is more than one batch may carry.
+    expect(String(linkRow(ids[0])!.url)).toBe('https://rewritten.example.com/rewrite-0.example.com')
+    expect(String(linkRow(ids[119])!.url)).toBe('https://rewritten.example.com/rewrite-119.example.com')
+  })
+
+  it('gives two links created at the same moment different positions', async () => {
+    const category = await createCategory(USER_A, 'Concurrent sort')
+    const created = await Promise.all([
+      call('POST', '/api/nav/links', { body: { title: 'Racer one', url: 'https://racer-one.example.com/', categoryId: category.id } }),
+      call('POST', '/api/nav/links', { body: { title: 'Racer two', url: 'https://racer-two.example.com/', categoryId: category.id } }),
+      call('POST', '/api/nav/links', { body: { title: 'Racer three', url: 'https://racer-three.example.com/', categoryId: category.id } }),
+    ])
+    expect(created.every((response) => response.status === 200)).toBe(true)
+    const data = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    const orders = data.links.map((link) => link.sortOrder).sort((left, right) => left - right)
+    expect(new Set(orders).size).toBe(orders.length)
+    expect(orders).toEqual([0, 1, 2])
+  })
+
   it('refuses hidden category writes until the category is unlocked', async () => {
     const locked = await createCategory(USER_A, 'Locked folder', {
       passwordMode: 'custom',
@@ -887,8 +962,9 @@ describe('link CRUD, pinning and ordering', () => {
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'pinned', orderedIds: [pinnedTwo.id, pinned.id] },
     })).status).toBe(200)
-    expect(linkRow(pinnedTwo.id)!.pinned_order).toBe(0)
-    expect(linkRow(pinned.id)!.pinned_order).toBe(1)
+    // The head of the pinned list takes 1, because 0 is what every unpinned row already carries.
+    expect(linkRow(pinnedTwo.id)!.pinned_order).toBe(1)
+    expect(linkRow(pinned.id)!.pinned_order).toBe(2)
 
     expect((await call('POST', '/api/nav/links/order', {
       body: { scope: 'pinned', orderedIds: [pinnedTwo.id] },

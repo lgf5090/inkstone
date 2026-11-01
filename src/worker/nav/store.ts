@@ -1,4 +1,5 @@
 import { ApiError } from '../lib/errors'
+import { acquireLease } from '../lib/lease'
 import { newId } from '../lib/id'
 import {
   normalizeLinkUrl,
@@ -78,6 +79,22 @@ export interface NavLinkPatch {
   description?: string | null
   categoryId?: string
   pinned?: boolean
+}
+
+/**
+ * Statements per `db.batch()` call.
+ *
+ * D1 bounds how much one batch may carry, and this repo cannot see that bound from its tests: the
+ * node:sqlite double happily accepts a batch of any size, so an unbounded `batch()` stays green here and
+ * fails in the field. Every write path whose length follows the user's data chunks through this number —
+ * including the ones that already look safe at a few dozen bookmarks.
+ */
+const MAX_BATCH_STATEMENTS = 50
+
+function inChunks<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size))
+  return chunks
 }
 
 export function hiddenCategories(categories: readonly NavCategory[], unlocked: ReadonlySet<string>): Set<string> {
@@ -373,7 +390,7 @@ export class NavStore {
       .map((id, index) =>
         this.db.prepare('UPDATE nav_categories SET sort_order = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4').bind(index, Date.now(), this.userId, id),
       )
-    await this.db.batch(statements)
+    for (const chunk of inChunks(statements, MAX_BATCH_STATEMENTS)) await this.db.batch(chunk)
   }
 
   async createLink(input: NavLinkInput): Promise<NavLink> {
@@ -381,13 +398,16 @@ export class NavStore {
     if (!category) throw ApiError.badRequest('Category not found')
     const id = input.id ?? newId()
     if (await this.db.prepare('SELECT 1 FROM nav_links WHERE user_id = ?1 AND id = ?2').bind(this.userId, id).first()) throw ApiError.conflict('Link already exists')
-    const sortOrder = await this.nextLinkSort(input.categoryId)
-    const pinnedOrder = input.pinned ? await this.nextPinnedOrder() : 0
     const now = Date.now()
+    // The neighbour position is computed inside the INSERT instead of being read first: two tabs creating
+    // a link at the same moment otherwise both observe the same MAX and both claim it.
     await this.db
       .prepare(`INSERT INTO nav_links (id, user_id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
-      .bind(id, this.userId, input.title, input.url, input.icon, input.description, input.categoryId, input.pinned ? 1 : 0, pinnedOrder, sortOrder, now, now)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+          CASE WHEN ?8 = 1 THEN (SELECT COALESCE(MAX(pinned_order), -1) + 1 FROM nav_links WHERE user_id = ?2 AND pinned = 1) ELSE 0 END,
+          (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM nav_links WHERE user_id = ?2 AND category_id = ?7),
+          ?9, ?9)`)
+      .bind(id, this.userId, input.title, input.url, input.icon, input.description, input.categoryId, input.pinned ? 1 : 0, now)
       .run()
     return rowToLink((await this.linkRow(id))!)
   }
@@ -453,10 +473,13 @@ export class NavStore {
       : rows.filter((row) => row.category_id === categoryId && row.pinned === 0).map((row) => row.id)
     if (!sameSet(group, orderedIds)) throw new ApiError(409, 'nav_order_mismatch', 'The list changed; refresh and try again')
     const column = scope === 'pinned' ? 'pinned_order' : 'sort_order'
+    // `0` already answers "not pinned" for every unpinned row, so the head of the pinned list takes 1
+    // rather than sharing one value with two meanings.
+    const offset = scope === 'pinned' ? 1 : 0
     const statements = orderedIds.map((id, index) =>
-      this.db.prepare(`UPDATE nav_links SET ${column} = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4`).bind(index, Date.now(), this.userId, id),
+      this.db.prepare(`UPDATE nav_links SET ${column} = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4`).bind(index + offset, Date.now(), this.userId, id),
     )
-    await this.db.batch(statements)
+    for (const chunk of inChunks(statements, MAX_BATCH_STATEMENTS)) await this.db.batch(chunk)
   }
 
   async recordVisits(entries: readonly { linkId: string; count: number }[]): Promise<void> {
@@ -469,14 +492,15 @@ export class NavStore {
         .prepare(`INSERT INTO nav_link_visits (user_id, link_id, last_visited_at, visit_count) VALUES (?1, ?2, ?3, ?4)
           ON CONFLICT(user_id, link_id) DO UPDATE SET visit_count = visit_count + excluded.visit_count, last_visited_at = MAX(last_visited_at, excluded.last_visited_at)`)
         .bind(this.userId, entry.linkId, now, entry.count))
-    if (statements.length) await this.db.batch(statements)
+    for (const chunk of inChunks(statements, MAX_BATCH_STATEMENTS)) await this.db.batch(chunk)
   }
 
   async deleteLinks(ids: readonly string[]): Promise<{ deleted: number; failed: string[] }> {
     const owned = new Set((await this.linkRows()).map((row) => row.id))
     const valid = ids.filter((id) => owned.has(id))
-    for (let index = 0; index < valid.length; index += 100) {
-      const chunk = valid.slice(index, index + 100)
+    // Two statements per link — the visit row and the link itself — so the id chunk is halved against the
+    // batch ceiling rather than measured in the wrong unit.
+    for (const chunk of inChunks(valid, Math.floor(MAX_BATCH_STATEMENTS / 2))) {
       await this.db.batch(chunk.flatMap((id) => [
         this.db.prepare('DELETE FROM nav_link_visits WHERE user_id = ?1 AND link_id = ?2').bind(this.userId, id),
         this.db.prepare('DELETE FROM nav_links WHERE user_id = ?1 AND id = ?2').bind(this.userId, id),
@@ -492,9 +516,10 @@ export class NavStore {
     if (valid.length) {
       const base = await this.nextLinkSort(categoryId)
       const now = Date.now()
-      await this.db.batch(valid.map((id, index) => this.db
+      const statements = valid.map((id, index) => this.db
         .prepare('UPDATE nav_links SET category_id = ?1, sort_order = ?2, updated_at = ?3 WHERE user_id = ?4 AND id = ?5')
-        .bind(categoryId, base + index, now, this.userId, id)))
+        .bind(categoryId, base + index, now, this.userId, id))
+      for (const chunk of inChunks(statements, MAX_BATCH_STATEMENTS)) await this.db.batch(chunk)
     }
     return { moved: valid.length, failed: ids.filter((id) => !owned.has(id)) }
   }
@@ -503,6 +528,8 @@ export class NavStore {
     const rows = new Map((await this.linkRows()).map((row) => [row.id, row]))
     const updated: { id: string; url: string }[] = []
     const failed: { id: string; error: string }[] = []
+    const statements: D1PreparedStatement[] = []
+    const now = Date.now()
     for (const id of ids) {
       const row = rows.get(id)
       if (!row) {
@@ -528,9 +555,14 @@ export class NavStore {
         failed.push({ id, error: 'invalid_url' })
         continue
       }
-      await this.db.prepare('UPDATE nav_links SET url = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4').bind(normalized, Date.now(), this.userId, id).run()
+      // One await per link would turn a 500-link rewrite into 500 round trips; the statements are
+      // collected here and shipped in bounded batches below.
+      statements.push(this.db
+        .prepare('UPDATE nav_links SET url = ?1, updated_at = ?2 WHERE user_id = ?3 AND id = ?4')
+        .bind(normalized, now, this.userId, id))
       updated.push({ id, url: normalized })
     }
+    for (const chunk of inChunks(statements, MAX_BATCH_STATEMENTS)) await this.db.batch(chunk)
     return { updated, failed }
   }
 
@@ -563,7 +595,7 @@ export class NavStore {
     links: readonly NavImportLink[],
     skipExisting: boolean,
     checkMergedNesting = true,
-  ): Promise<{ imported: number; skipped: number }> {
+  ): Promise<{ imported: number; importedCategories: number; skipped: number }> {
     if (checkMergedNesting) await this.assertTwoLevelTree(categories)
     const existingUrls = skipExisting ? new Set((await this.linkRows()).map((row) => row.url)) : new Set<string>()
     const foreignCategories = await this.idsOwnedByAnotherUser('nav_categories', categories.map((category) => category.id))
@@ -571,8 +603,7 @@ export class NavStore {
     let skipped = foreignCategories.size + foreignLinks.size
     const now = Date.now()
     const insertableCategories = categories.filter((category) => !foreignCategories.has(category.id))
-    for (let index = 0; index < insertableCategories.length; index += 100) {
-      const chunk = insertableCategories.slice(index, index + 100)
+    for (const chunk of inChunks(insertableCategories, MAX_BATCH_STATEMENTS)) {
       await this.db.batch(chunk.map((category) => this.db
         .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
           VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6, ?7, ?7, ?8)
@@ -594,8 +625,7 @@ export class NavStore {
       }
       return true
     })
-    for (let index = 0; index < keep.length; index += 100) {
-      const chunk = keep.slice(index, index + 100)
+    for (const chunk of inChunks(keep, MAX_BATCH_STATEMENTS)) {
       await this.db.batch(chunk.map((link) => this.db
         .prepare(`INSERT INTO nav_links (id, user_id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at)
           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -603,7 +633,7 @@ export class NavStore {
           WHERE nav_links.user_id = excluded.user_id`)
         .bind(link.id, this.userId, link.title, link.url, link.icon, link.description, link.categoryId, link.pinned ? 1 : 0, link.pinnedOrder, link.sortOrder, link.createdAt, now)))
     }
-    return { imported: keep.length, skipped }
+    return { imported: keep.length, importedCategories: insertableCategories.length, skipped }
   }
 
   async idsOwnedByAnotherUser(table: 'nav_categories' | 'nav_links', ids: readonly string[]): Promise<Set<string>> {
@@ -621,33 +651,53 @@ export class NavStore {
     return out
   }
 
+  /**
+   * Replace the whole tree with a snapshot, one restore at a time per account.
+   *
+   * A restore writes the incoming rows first and only then deletes what the snapshot does not contain, so a
+   * failure part-way through leaves a superset — old rows still alongside the new — and a retry reconciles
+   * it. What must not happen is two restores interleaving, or a restore racing a scheduled backup, which
+   * would let each delete the other's work. The backup path already holds a lease; this is the same guard
+   * on the entry point that writes.
+   */
   async restore(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategoryNames: string[] }> {
+    const release = await acquireLease(
+      this.db,
+      `nav-restore:${this.userId}`,
+      30 * 60_000,
+      'A navigation restore is already running',
+    )
+    try {
+      return await this.restoreSnapshot(backup)
+    } finally {
+      await release()
+    }
+  }
+
+  private async restoreSnapshot(backup: NavBackup): Promise<{ restoredLinks: number; restoredCategories: number; restoredVisits: number; unlockedCategoryNames: string[] }> {
     const previousCategories = await this.categoryRows()
     const previousCategoryIds = new Set(previousCategories.map((row) => row.id))
     // A snapshot replaces the tree wholesale and `NavBackupSchema` already proved it nests one level, so
     // the merged check would only see rows this very call is about to delete.
-    await this.importData(backup.categories, backup.links, false, false)
+    const written = await this.importData(backup.categories, backup.links, false, false)
     const categoryIds = new Set(backup.categories.map((category) => category.id))
     const linkIds = new Set(backup.links.map((link) => link.id))
     const existingCategories = await this.categoryRows()
     const existingLinks = await this.linkRows()
     const removeCategories = existingCategories.map((row) => row.id).filter((id) => !categoryIds.has(id))
     const removeLinks = existingLinks.map((row) => row.id).filter((id) => !linkIds.has(id))
-    for (let index = 0; index < removeLinks.length; index += 100) {
-      const chunk = removeLinks.slice(index, index + 100)
+    for (const chunk of inChunks(removeLinks, Math.floor(MAX_BATCH_STATEMENTS / 2))) {
       await this.db.batch(chunk.flatMap((id) => [
         this.db.prepare('DELETE FROM nav_link_visits WHERE user_id = ?1 AND link_id = ?2').bind(this.userId, id),
         this.db.prepare('DELETE FROM nav_links WHERE user_id = ?1 AND id = ?2').bind(this.userId, id),
       ]))
     }
-    for (let index = 0; index < removeCategories.length; index += 100) {
-      const chunk = removeCategories.slice(index, index + 100)
+    for (const chunk of inChunks(removeCategories, MAX_BATCH_STATEMENTS)) {
       await this.db.batch(chunk.map((id) => this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id)))
     }
     const visits = Object.entries(backup.visits ?? {}).filter(([id]) => linkIds.has(id))
     if (visits.length) {
-      for (let index = 0; index < visits.length; index += 100) {
-        const chunk = visits.slice(index, index + 100)
+      for (const chunk of inChunks(visits, MAX_BATCH_STATEMENTS)) {
         await this.db.batch(chunk.map(([linkId, visit]) => this.db
           .prepare(`INSERT INTO nav_link_visits (user_id, link_id, last_visited_at, visit_count) VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(user_id, link_id) DO UPDATE SET visit_count = MAX(visit_count, excluded.visit_count), last_visited_at = MAX(last_visited_at, excluded.last_visited_at)`)
@@ -655,7 +705,14 @@ export class NavStore {
       }
     }
     const unlocked = backup.categories.filter((category) => category.hasPassword && !previousCategoryIds.has(category.id)).map((category) => category.name)
-    return { restoredLinks: backup.links.length, restoredCategories: backup.categories.length, restoredVisits: visits.length, unlockedCategoryNames: unlocked }
+    // Report what actually landed: `importData` drops rows owned by another account, and a restore that
+    // claims to have brought them back would be describing a state the database does not have.
+    return {
+      restoredLinks: written.imported,
+      restoredCategories: written.importedCategories,
+      restoredVisits: visits.length,
+      unlockedCategoryNames: unlocked,
+    }
   }
 }
 
