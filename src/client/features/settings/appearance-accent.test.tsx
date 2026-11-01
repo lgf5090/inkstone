@@ -10,6 +10,7 @@
 import { act, createElement } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ACCENTS, mergeSettings } from '@shared/constants'
+import { contrastRatio, parseColor } from '../../../../scripts/lib/contrast.mjs'
 import { initI18n, t } from '../../lib/i18n'
 import { installTestGlobals, renderElement, type RenderedElement } from '../../lib/test-render'
 import { useSession } from '../../store/session'
@@ -96,5 +97,36 @@ describe('the accent row', () => {
     // The cascade reports a hex background as its rgb triple — both jsdom and a browser — so this reads what
     // paints rather than what was typed into the attribute.
     expect(custom.style.background).toBe('rgb(51, 102, 153)')
+  })
+
+  it('keeps the selected mark readable on whatever colour was picked', () => {
+    // Measured in Chromium first: with `#ffee00` stored the mark was pure white on it, 1.2:1, so the row
+    // showed no selected state at all. The mark has to follow the colour it sits on, which is the same
+    // question every swatch label in this app asks.
+    for (const hex of ['#ffee00', '#c12a2a', '#ffffff', '#000000', '#808080']) {
+      seedSettings({ appearance: { accent: 'custom', accentColor: hex } })
+      rendered = renderElement(createElement(AppearanceSettings, { accents: ACCENTS }))
+      const custom = rendered.container.querySelector<HTMLButtonElement>(`button[aria-label="${CUSTOM()}"]`)!
+      const tick = custom.querySelector('svg')
+      expect(tick, `${hex} was selected without a mark`).toBeTruthy()
+      const ink = parseColor(getComputedStyle(tick!).color)
+      const swatch = parseColor(hex)
+      expect(ink, `${getComputedStyle(tick!).color} is not a colour this gate can read`).toBeTruthy()
+      const ratio = contrastRatio(ink!.rgb, swatch!.rgb)
+      // 3:1 is the WCAG floor for a graphic that carries state; text on it would need 4.5.
+      expect(ratio, `${hex} paints its mark at ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)
+      rendered.unmount()
+      rendered = null
+    }
+  })
+
+  it('marks an empty custom swatch with the theme ink, not with white', () => {
+    // An unset colour paints no background at all, so the mark sits on the page: it has to take a token that
+    // the theme can make dark or light, the way every other empty affordance in the app does.
+    seedSettings({ appearance: { accent: 'custom', accentColor: '' } })
+    rendered = renderElement(createElement(AppearanceSettings, { accents: ACCENTS }))
+    const custom = rendered.container.querySelector<HTMLButtonElement>(`button[aria-label="${CUSTOM()}"]`)!
+    expect(custom.style.background).toBe('transparent')
+    expect(custom.style.color).toBe('var(--text-secondary)')
   })
 })

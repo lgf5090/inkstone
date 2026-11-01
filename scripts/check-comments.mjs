@@ -12741,7 +12741,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
-    "// The custom well paints whatever the reader chose; an unset one is an empty ring.",
+    "// The custom well paints whatever the reader chose; an unset one is an empty ring. The tick",
+    "// has to follow that colour: it is the only thing saying this swatch is the active one, and a",
+    "// white one on a picked yellow measured 1.2:1 in Chromium.",
   ]],
   ["src/client/features/settings/DataSettings.tsx", [
     "// An import rewrites the template library too, and that reload is reported exactly like the note",
@@ -12960,6 +12962,12 @@ const allowed = new Map([
     "/**\n * The appearance panel's own door to a colour the reader picked.\n *\n * `tests/custom-accent-dom.test.ts` follows the value through the store and onto the root element; this is the\n * other half of the path — the eight swatches, the well that only appears once the custom accent is the chosen\n * one, and the setting the wheel writes back. A control the reader can see but not drive is the failure this\n * round already caught twice, so every arm here clicks or types rather than reading a prop.\n */",
     "// The cascade reports a hex background as its rgb triple — both jsdom and a browser — so this reads what",
     "// paints rather than what was typed into the attribute.",
+    "// Measured in Chromium first: with `#ffee00` stored the mark was pure white on it, 1.2:1, so the row",
+    "// showed no selected state at all. The mark has to follow the colour it sits on, which is the same",
+    "// question every swatch label in this app asks.",
+    "// 3:1 is the WCAG floor for a graphic that carries state; text on it would need 4.5.",
+    "// An unset colour paints no background at all, so the mark sits on the page: it has to take a token that",
+    "// the theme can make dark or light, the way every other empty affordance in the app does.",
   ]],
   ["src/client/features/settings/mcp-tools.test.ts", [
     "/**\n * The tool switches on the MCP settings screen.\n *\n * A switch here is not a local preference: it decides what the MCP server registers, so what is pinned is\n * that the press sends the whole switched-off list — the route refuses a name it does not recognise, which\n * it can only do against a complete list — and that a switch already off is drawn off when the screen opens.\n */",
@@ -41805,6 +41813,7 @@ const allowed = new Map([
     "// An unread accent must not leave four inline properties the cascade cannot see through.",
     "// jsdom resolves these tokens to nothing, so the walk has no surface to judge and must hand back the",
     "// accent itself rather than invent a text colour.",
+    "/** The state `applyThemeToDom` reads, taken from the function itself so nothing here needs a cast. */",
   ]],
   ["tests/d1-double-statement-kinds.test.ts", [
     "/**\n * The double has to answer the way D1 does, or a route tested against it proves nothing.\n *\n * Forty-odd suites build their database through `makeD1`, and the one decision it has to make for\n * them is the one node:sqlite does not: whether a statement is a read, which answers with rows, or a\n * write, which answers with `meta`. A common-table expression is the case that used to be misjudged,\n * because `WITH` opens the statement while the verb that follows decides its kind. Misjudge it and the\n * failure lands somewhere unrelated — a store reading `meta.changes` gets `undefined` and the caller\n * crashes on a line of production code that was never wrong.\n */",

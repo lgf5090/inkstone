@@ -1,4 +1,5 @@
 import type { AccentName, AppLocale, BackgroundName, ProseFont, ProseWidth, ThemePref, UiDensity } from '@shared/types'
+import { recommendedTextColor } from '@shared/tools/color/a11y'
 import { useMemo } from 'react'
 import { Check, Monitor, Moon, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
@@ -81,8 +82,15 @@ export function AppearanceSettings({
                     'hover:scale-110 active:scale-95',
                     appearance.accent === accent.name && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
                   )}
-                  // The custom well paints whatever the reader chose; an unset one is an empty ring.
-                  style={{ background: accent.name === 'custom' ? appearance.accentColor || 'transparent' : accent.swatch, color: accent.foreground }}
+                  // The custom well paints whatever the reader chose; an unset one is an empty ring. The tick
+                  // has to follow that colour: it is the only thing saying this swatch is the active one, and a
+                  // white one on a picked yellow measured 1.2:1 in Chromium.
+                  style={{
+                    background: accent.name === 'custom' ? appearance.accentColor || 'transparent' : accent.swatch,
+                    color: accent.name === 'custom'
+                      ? (appearance.accentColor ? recommendedTextColor(appearance.accentColor) : 'var(--text-secondary)')
+                      : accent.foreground,
+                  }}
                 >
                   {appearance.accent === accent.name && (
                     <Check size={12} strokeWidth={3} className="drop-shadow-sm" />
