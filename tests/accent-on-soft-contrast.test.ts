@@ -15,12 +15,14 @@ import { contrastRatio, over, parseColor } from '../scripts/lib/contrast.mjs'
  * the floor, a darkened or lifted variant of it (same oklab chroma and hue) where it does not.
  *
  * The surfaces are enumerated because the wash lands on different backgrounds — a chip on the sunken
- * rail is not a chip on a card — and a gate that checked only one of them would pass while another
- * one failed.
+ * rail is not a chip on a card, and the icon tile a dialog picks is on `--bg-overlay` — and a gate
+ * that checked only one of them would pass while another one failed. Both `data-background` palettes
+ * are enumerated for the same reason: folding the opt-in white override into "light" measured the
+ * brightest page the theme can paint and let the default paper palette go untested.
  */
 const AA_NORMAL = 4.5
 const TOKENS = fs.readFileSync('src/client/styles/tokens.css', 'utf8')
-const SURFACES = ['--bg-surface', '--bg-inset', '--bg-base', '--bg-sunken', '--bg-raised']
+const SURFACES = ['--bg-surface', '--bg-inset', '--bg-base', '--bg-sunken', '--bg-raised', '--bg-overlay', '--bg-editor']
 const TINTS = [0.14, 0.07]
 
 function rgbOf(value: string | undefined, what: string): number[] {
