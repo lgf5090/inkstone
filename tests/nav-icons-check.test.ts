@@ -360,18 +360,36 @@ describe('link check classification', () => {
     stubFetch((url) => {
       if (url === 'https://ok.example.com/') return new Response(null, { status: 200 })
       if (url === 'https://missing.example.com/') return new Response(null, { status: 404 })
+      if (url === 'https://gone.example.com/') return new Response(null, { status: 410 })
+      if (url === 'https://blocked.example.com/') return new Response(null, { status: 403 })
       return new Response(null, { status: 500 })
     })
     const response = await call('POST', '/api/nav/check', {
-      body: { urls: ['https://ok.example.com/', 'https://missing.example.com/', 'https://down.example.com/'] },
+      body: {
+        urls: [
+          'https://ok.example.com/',
+          'https://missing.example.com/',
+          'https://down.example.com/',
+          'https://gone.example.com/',
+          'https://blocked.example.com/',
+        ],
+      },
     })
     expect(response.status).toBe(200)
     const body = await json<NavCheckResponse>(response)
-    expect(body.results).toHaveLength(3)
+    expect(body.results).toHaveLength(5)
     expect(body.results[0]).toMatchObject({ url: 'https://ok.example.com/', status: 200, ok: true, level: 'ok' })
-    expect(body.results[1]).toMatchObject({ url: 'https://missing.example.com/', status: 404, ok: false, level: 'warning' })
+    // A bookmark that answers 404 or 410 is gone, not merely suspicious: the "broken" filter, "recheck
+    // broken" and the bulk delete all lean on this being classified as broken.
+    expect(body.results[1]).toMatchObject({ url: 'https://missing.example.com/', status: 404, ok: false, level: 'broken', errorCode: 'http_error' })
+    expect(body.results[3]).toMatchObject({ url: 'https://gone.example.com/', status: 410, ok: false, level: 'broken', errorCode: 'http_error' })
     expect(body.results[2]).toMatchObject({ url: 'https://down.example.com/', status: 500, ok: false, level: 'broken', errorCode: 'http_error' })
-    expect(fetchCalls.map((entry) => entry.init.method)).toEqual(['HEAD', 'HEAD', 'HEAD'])
+    // A 403 is still a warning: it is as often the checker being refused as the page being dead.
+    expect(body.results[4]).toMatchObject({ url: 'https://blocked.example.com/', status: 403, ok: false, level: 'warning' })
+    // Every probe starts as HEAD; only the 403 earns a second, GET, because a refusal is as often the
+    // checker being turned away as the page being dead.
+    expect(fetchCalls).toHaveLength(6)
+    expect(fetchCalls.filter((entry) => entry.init.method === 'GET').map((entry) => entry.url)).toEqual(['https://blocked.example.com/'])
     expect(fetchCalls[0]!.init.redirect).toBe('manual')
   })
 

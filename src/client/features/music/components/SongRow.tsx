@@ -509,6 +509,7 @@ export function SongRow({
           {favoriteEntry?.pinnedAt && (
             <Pin
               size={11}
+              role="img"
               aria-label={musicText('music.song.pinned')}
               className="ms-1 inline-block text-[var(--accent)] align-[-1px]"
             />

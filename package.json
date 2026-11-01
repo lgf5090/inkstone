@@ -42,6 +42,8 @@
     "test:watch": "vitest --config vitest.config.ts",
     "i18n:check": "node scripts/check-i18n.mjs",
     "comments:check": "node scripts/check-comments.mjs",
+    "hooks:check": "node scripts/check-hooks.mjs",
+    "a11y:check": "node scripts/check-a11y.mjs",
     "test:e2e": "node scripts/e2e.mjs",
     "cf-typegen": "wrangler types",
     "cf-typegen:kv": "wrangler types --config wrangler.kv.toml",

@@ -36,6 +36,10 @@ navCheckRoutes.post('/', async (c) => {
 
 function levelFor(status: number): NavCheckLevel {
   if (status >= 200 && status < 400) return 'ok'
+  // 404 and 410 are not "suspicious", they are the two commonest ways a bookmark stops existing. The old
+  // blanket 4xx → warning left them out of the "broken" filter, so "recheck broken" and the bulk delete
+  // both skipped precisely the links a reader opened this panel to find.
+  if (status === 404 || status === 410) return 'broken'
   if (status >= 400 && status < 500) return 'warning'
   return 'broken'
 }

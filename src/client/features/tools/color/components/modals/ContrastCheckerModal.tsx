@@ -235,9 +235,9 @@ function Criterion({ title, rows }: { title: string; rows: Array<[string, boolea
           <div key={label} className="flex items-center justify-between">
             <span>{label}</span>
             {passes ? (
-              <CheckCircle2 size={14} className="text-[var(--success)]" aria-label={t('tools.color.contrast.pass')} />
+              <CheckCircle2 size={14} className="text-[var(--success)]" aria-label={t('tools.color.contrast.pass')} role="img" />
             ) : (
-              <XCircle size={14} className="text-[var(--danger)]" aria-label={t('tools.color.contrast.fail')} />
+              <XCircle size={14} className="text-[var(--danger)]" aria-label={t('tools.color.contrast.fail')} role="img" />
             )}
           </div>
         ))}

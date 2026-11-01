@@ -135,7 +135,7 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
         <LinkIcon link={link} size={detailed ? 40 : 32} />
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-9 [@media(hover:hover)]:pr-0">
           <span id={titleId} className={cn('min-w-0 truncate font-medium text-[var(--text-primary)]', detailed ? 'text-[length:var(--text-14)]' : 'text-[length:var(--text-13)]')}>{link.title}</span>
-          {link.pinned && <Pin size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.pinned')} />}
+          {link.pinned && <Pin size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.pinned')} role="img" />}
           {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="shrink-0 whitespace-nowrap">{tCount('nav.visit_count', visitCount)}</Badge>}
         </div>
         <div className={cn('pointer-events-auto absolute right-0.5 top-0.5 z-20 flex items-center gap-0.5', !sorting && 'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100')}>
@@ -145,8 +145,10 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
           <IconButton label={t('nav.more')} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(link, { x: rect.right, y: rect.bottom }) }}><MoreHorizontal size={14} /></IconButton>
         </div>
       </div>
-      {detailed && link.description && (
-        <p className="pointer-events-none relative z-10 mt-0.5 line-clamp-2 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{link.description}</p>
+      {/* Reserved even when empty, and clamped to one line: with a two-line clamp and an optional row the
+          same band rendered 86, 112 and 131 pixel cards side by side, which reads as a broken grid. */}
+      {detailed && (
+        <p className="pointer-events-none relative z-10 mt-0.5 line-clamp-1 text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]">{link.description || '\u00A0'}</p>
       )}
       {detailed && (
         <p className="pointer-events-none relative z-10 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{link.url}</p>
@@ -263,7 +265,7 @@ function CategoryRow({ label, icon, count, active, locked, small, expanded, hasC
       >
         <NavIcon name={icon} size={small ? 13 : 15} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        {locked && <Lock size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.locked')} />}
+        {locked && <Lock size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.locked')} role="img" />}
         <span className={cn('shrink-0 text-[length:var(--text-10)]', active ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-quaternary)]')}>{count === null ? <span aria-hidden="true">—</span> : count}</span>
       </button>
     </div>

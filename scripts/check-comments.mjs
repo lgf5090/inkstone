@@ -18,10 +18,18 @@ const MAP_TAIL = '\n])\n'
 const ALLOWLIST_CJK = /[\p{Script=Han}\u3000-\u303f\uff00-\uffef]/u
 
 const allowed = new Map([
+  ["scripts/check-a11y.mjs", [
+    "/**\n * Static accessibility rules for the things a green suite cannot see.\n *\n * Round 2 found a status icon carrying `aria-label` on a bare `<svg>` — a name on an element the\n * accessibility tree may never surface — and a progress bar whose value was announced only once the scan\n * had already been cancelled. Neither is visible to `tsc`, and both survived every gate at the time.\n *\n * The icon rule is scoped to components imported from `lucide-react` on purpose: `<Input aria-label>` and\n * friends name themselves correctly without a role, and a rule that swept them up would have been\n * silenced on its first run.\n */",
+    "/**\n * Findings outside the navigation app, registered so the rules can land without adjudicating nine other\n * features in the change that introduced them. Each is `file:line`, so editing the surrounding code\n * retires the entry and the site has to be looked at again.\n */",
+  ]],
   ["scripts/check-comments.mjs", [
     "// The rebuild rewrites this gate’s own allowlist, so it has to be armed explicitly and",
     "// cannot be reached by a plain flag; the summary makes the diff reviewable afterwards.",
     "/**\n * The character class `check-i18n.mjs` rejects, taken unchanged so this cannot be looser or tighter\n * than the gate it protects. This script holds its allowlist as string literals and `check-i18n`\n * scans this file, so a Chinese character that was only ever a comment somewhere else arrives here as\n * text in an allowlisted entry and fails there — reported against this script, with no hint of which\n * source comment carried it. Reading the same class here names both, at the gate that writes it.\n */",
+  ]],
+  ["scripts/check-hooks.mjs", [
+    "/**\n * `useEffect` has to say when it re-runs.\n *\n * `tsc -b` is the only static gate this repo runs on source, and there is no ESLint, so nothing checked\n * hook dependency arrays: one navigation shortcut registered and removed its global `keydown` listener on\n * every render (round 2, C2-01) and stayed green through typecheck, i18n, comments and the full suite.\n *\n * A missing second argument is not always wrong — running after every render is a real technique — so the\n * exemptions below are per file and per line, and a new bare `useEffect` fails until someone says so\n * deliberately.\n */",
+    "/**\n * Files still carrying an unreviewed bare `useEffect`.\n *\n * Registered per file, the same way `check-i18n.mjs` registers its Chinese exemptions: the point is to\n * stop the number growing, not to adjudicate nineteen other features in the change that introduced the\n * gate. Removing an entry means that file has been looked through.\n */",
   ]],
   ["scripts/check-i18n.mjs", [
     "// The OAuth consent page is a self-contained HTML document with its own",
@@ -8025,6 +8033,7 @@ const allowed = new Map([
     "// meant a keypress per keystroke in the search box.",
     "/* Named for what it actually switches: which search Enter submits to. Filtering the list is\n                always on, so the old pair read as a scope filter over the bookmarks themselves. */",
     "/** How much of a letter avatar's plate is the chart colour itself; the rest is the card surface. */",
+    "/* Reserved even when empty, and clamped to one line: with a two-line clamp and an optional row the\n          same band rendered 86, 112 and 131 pixel cards side by side, which reads as a broken grid. */",
   ]],
   ["src/client/features/nav/NavBackupPanel.tsx", [
     "/**\n * The storage layer answers in English whatever the interface language is, and the shared catalogue\n * already keys those sentences by their exact text. Re-deriving a navigation-only list of regular\n * expressions here meant two tables to keep in step — and the panel's own \"last failure\" line bypassed\n * both and printed the raw English.\n */",
@@ -37257,6 +37266,11 @@ const allowed = new Map([
     "// The declared header is the client's own account of its body — a chunked request carries no",
     "// `content-length` at all — so measuring the bytes is the only way the limit means anything.",
   ]],
+  ["src/worker/nav/check.ts", [
+    "// 404 and 410 are not \"suspicious\", they are the two commonest ways a bookmark stops existing. The old",
+    "// blanket 4xx → warning left them out of the \"broken\" filter, so \"recheck broken\" and the bulk delete",
+    "// both skipped precisely the links a reader opened this panel to find.",
+  ]],
   ["src/worker/nav/icons.ts", [
     "/** Candidates are probed this many at a time, and only until the whole walk runs out of budget. */",
     "/**\n * Find the site's own logo by asking the candidate paths from here instead of from the reader's browser.\n *\n * The client used to walk the whole candidate list with `new Image()`, which meant up to 76 requests\n * straight from the reader to a third-party origin: their IP and browsing exposed, no way to cancel, and —\n * because a browser request never passes the host guard — a free intranet port probe for anyone who typed\n * a private address into the URL field. Doing it here puts every candidate behind the same resolver check\n * and budget as the rest of the outbound surface, and answers in one round trip.\n */",
@@ -43203,6 +43217,11 @@ const allowed = new Map([
   ["tests/nav-icons-check.test.ts", [
     "// The domain cache is written in the same call, so the next bookmark on that host costs no probing.",
     "// Each batch advances the clock past the budget, so the walk must not keep going.",
+    "// A bookmark that answers 404 or 410 is gone, not merely suspicious: the \"broken\" filter, \"recheck",
+    "// broken\" and the bulk delete all lean on this being classified as broken.",
+    "// A 403 is still a warning: it is as often the checker being refused as the page being dead.",
+    "// Every probe starts as HEAD; only the 403 earns a second, GET, because a refusal is as often the",
+    "// checker being turned away as the page being dead.",
   ]],
   ["tests/nav-shared.test.ts", [
     "// The URL is the same value the prompt interpolates, so it carries the same rule a stored link does.",
