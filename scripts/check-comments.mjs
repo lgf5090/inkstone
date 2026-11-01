@@ -18003,12 +18003,15 @@ const allowed = new Map([
     "// Fisher-Yates shuffle",
   ]],
   ["src/client/features/tools/qrcode/ImageDropZone.tsx", [
-    "/** Beyond this an image is not something a browser should decode just to look for one code. */",
     "/**\n * A file picker with the two other ways people actually get an image here: dropping it, and pasting it\n * (the page-level paste listener lives with the view that owns the result).\n *\n * The drop target is a container, not the control: the clickable affordance is the button below, so a\n * keyboard reaches it and a screen reader announces a button rather than an area that happens to answer\n * clicks.\n */",
   ]],
   ["src/client/features/tools/qrcode/QrCodeApp.tsx", [
     "// Unreachable preferences leave the workbench on its built-in starting values, and the flag",
     "// stays clear so the next visit asks again.",
+  ]],
+  ["src/client/features/tools/qrcode/accept-qr-image.ts", [
+    "/** Beyond this an image is not something a browser should decode just to look for one code. */",
+    "/**\n * The one gate every image that enters the workshop passes: dropped, picked, or pasted. Returns the\n * file when it can be decoded here, and tells the reader why it cannot otherwise.\n */",
   ]],
   ["src/client/features/tools/qrcode/batch/QrBatchView.tsx", [
     "/* Header */",
@@ -44643,6 +44646,7 @@ const allowed = new Map([
     "// 'none' plus the eight styles frame-decorator's switch can render",
     "// Without a frame there is nothing to caption, so the field must not pretend to be usable.",
     "// A scale that names a value the handle cannot reach reads as a working control that lies.",
+    "// jsdom hands the FileReader result back over several task turns, so wait on the value, not one tick.",
   ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",

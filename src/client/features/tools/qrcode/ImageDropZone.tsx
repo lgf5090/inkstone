@@ -1,12 +1,9 @@
 import { useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 import { Button } from '../../../components/primitives'
-import { useUi } from '../../../store/ui'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
-
-/** Beyond this an image is not something a browser should decode just to look for one code. */
-const MAX_SCAN_IMAGE_BYTES = 20 * 1024 * 1024
+import { acceptQrImageFile } from './accept-qr-image'
 
 /**
  * A file picker with the two other ways people actually get an image here: dropping it, and pasting it
@@ -33,16 +30,8 @@ export function ImageDropZone({
   const [over, setOver] = useState(false)
 
   const accept = (file: File | undefined) => {
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      useUi.getState().toast({ title: t('tools.qrcode.scanner.not_image'), tone: 'danger' })
-      return
-    }
-    if (file.size > MAX_SCAN_IMAGE_BYTES) {
-      useUi.getState().toast({ title: t('tools.qrcode.scanner.too_large'), tone: 'danger' })
-      return
-    }
-    onFile(file)
+    const usable = acceptQrImageFile(file)
+    if (usable) onFile(usable)
   }
 
   return (

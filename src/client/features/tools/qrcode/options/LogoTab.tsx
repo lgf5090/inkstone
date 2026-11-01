@@ -1,8 +1,9 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { ONLINE_LOGOS } from '../../../../../shared/tools/qrcode/online-logos'
 import type { QrLogoShape } from '../../../../../shared/tools/qrcode/types'
 import { useQrCodeStore } from '../store'
+import { acceptQrImageFile } from '../accept-qr-image'
 import { Field, Segmented, Slider, Switch } from '../../../../components/form'
 import { IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
@@ -17,6 +18,7 @@ const LOGO_SHAPES = [
 
 export function LogoTab() {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [dropOver, setDropOver] = useState(false)
   const options = useQrCodeStore((s) => s.options)
   const setOptions = useQrCodeStore((s) => s.setOptions)
 
@@ -33,10 +35,7 @@ export function LogoTab() {
     })
   }
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  const readLogoFile = (file: File) => {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
@@ -50,6 +49,19 @@ export function LogoTab() {
       })
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = acceptQrImageFile(e.target.files?.[0])
+    if (file) readLogoFile(file)
+    e.target.value = ''
+  }
+
+  const handleLogoDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDropOver(false)
+    const file = acceptQrImageFile(e.dataTransfer.files?.[0])
+    if (file) readLogoFile(file)
   }
 
   const handleRemoveLogo = () => {
@@ -130,9 +142,16 @@ export function LogoTab() {
             type="button"
             aria-label={t('tools.qrcode.logo.upload_logo')}
             onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDropOver(true)
+            }}
+            onDragLeave={() => setDropOver(false)}
+            onDrop={handleLogoDrop}
             className={cn(
               'flex h-14 w-14 items-center justify-center rounded-[var(--r-md)] border-2 border-dashed border-[var(--border-default)]',
               'transition-colors hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]',
+              dropOver && 'border-[var(--accent)] bg-[var(--bg-hover)]',
               logoOptions.src && 'border-solid border-[var(--accent)] p-1'
             )}
           >

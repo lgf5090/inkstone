@@ -15,6 +15,7 @@ import {
   EXPORT_SIZE_MIN,
 } from '../src/client/features/tools/qrcode/store'
 import { useToolsStore } from '../src/client/features/tools/store'
+import { useUi } from '../src/client/store/ui'
 import { QrEngine, DEFAULT_QR_OPTIONS } from '../src/client/features/tools/qrcode/engine/qr-engine'
 
 // A view that fails partway never reaches its unmount call, and a mounted workbench keeps a live
@@ -278,6 +279,52 @@ describe('QR Code Studio UI Integration Tests', () => {
     })
     expect(useQrCodeStore.getState().options.frameOptions?.color).toBe('#ff0000')
     expect((dot as HTMLElement).style.backgroundColor).toBe('rgb(255, 0, 0)')
+  })
+
+  it('accepts a dropped logo and refuses a dropped non-image', async () => {
+    const view = await renderElement(<QrCodeApp />)
+    openViews.push(view)
+    useUi.setState({ toasts: [] })
+
+    const beautifySection = view.container.querySelector(
+      `section[aria-label="${t('tools.qrcode.beautify.accordion_title')}"]`
+    )
+    expect(beautifySection).not.toBeNull()
+    const logoTabBtn = Array.from(beautifySection!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === t('tools.qrcode.beautify.tab_logo')
+    )
+    act(() => {
+      logoTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const tile = view.container.querySelector(
+      `button[aria-label="${t('tools.qrcode.logo.upload_logo')}"]`
+    )
+    expect(tile, 'the logo tile is missing').not.toBeNull()
+
+    const drop = (file: File) => {
+      const event = new Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'dataTransfer', { value: { files: [file] } })
+      act(() => {
+        tile!.dispatchEvent(event)
+      })
+    }
+
+    drop(new File(['plain text'], 'notes.txt', { type: 'text/plain' }))
+    expect(useUi.getState().toasts.map((x) => x.title)).toContain(t('tools.qrcode.scanner.not_image'))
+    expect(useQrCodeStore.getState().options.logoOptions?.src).toBeFalsy()
+
+    drop(new File(['logo bytes'], 'logo.png', { type: 'image/png' }))
+    // jsdom hands the FileReader result back over several task turns, so wait on the value, not one tick.
+    await act(async () => {
+      for (let i = 0; i < 20 && !useQrCodeStore.getState().options.logoOptions?.src; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+    const src = useQrCodeStore.getState().options.logoOptions?.src
+    expect(typeof src === 'string' && src.startsWith('data:'), 'dropped logo never reached the options: ' + String(src)).toBe(
+      true
+    )
   })
 
   it('opens and closes QR technical details modal from preview panel', async () => {

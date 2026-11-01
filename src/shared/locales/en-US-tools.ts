@@ -319,7 +319,7 @@ export const EN_US_TOOLS = {
   'tools.qrcode.eye.pointed': 'Pointed Leaf Eye',
   'tools.qrcode.logo.online_logos': 'Online Logos',
   'tools.qrcode.logo.upload_logo': 'Upload Logo',
-  'tools.qrcode.logo.upload_tip': 'Supports PNG, JPG, SVG, and WEBP formats',
+  'tools.qrcode.logo.upload_tip': 'Drop an image onto the frame, or click to choose a PNG, JPG, SVG, or WEBP file',
   'tools.qrcode.logo.uploaded_alt': 'Uploaded logo',
   'tools.qrcode.logo.remove_logo': 'Remove Logo',
   'tools.qrcode.logo.shape_label': 'Logo Shape',

@@ -319,7 +319,7 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.eye.pointed': '尖角叶形',
   'tools.qrcode.logo.online_logos': '在线Logo',
   'tools.qrcode.logo.upload_logo': '上传Logo',
-  'tools.qrcode.logo.upload_tip': '支持 PNG/JPG/SVG/WEBP 格式图片',
+  'tools.qrcode.logo.upload_tip': '可拖拽图片到此框，或点击选择 PNG/JPG/SVG/WEBP',
   'tools.qrcode.logo.uploaded_alt': '已上传Logo',
   'tools.qrcode.logo.remove_logo': '移除Logo',
   'tools.qrcode.logo.shape_label': 'Logo形状',
