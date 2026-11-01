@@ -281,6 +281,26 @@ describe('LinkCheckerModal', () => {
     expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes(t('nav.load_more', { shown: 200, total: 250 })))).toBe(false)
   })
 
+  it('announces scan progress rather than only the cancelled line', async () => {
+    let release: (() => void) | null = null
+    checkSpy.mockImplementation((urls: string[]) => new Promise((resolve) => {
+      release = () => resolve({ results: urls.map((url) => ({ url, status: 200, ok: true, level: 'ok', durationMs: 5 })) })
+    }))
+    mount()
+    click(buttonByText(t('nav.checker.start')))
+    await flush()
+
+    const bar = document.querySelector('[role="progressbar"]')
+    expect(bar?.getAttribute('aria-valuetext')).toBe(t('nav.checker.checked', { checked: 0, total: 4 }))
+    const live = document.querySelector('[role="status"][aria-live="polite"]')
+    expect(live, 'progress should be announced while the scan runs').toBeTruthy()
+    expect(live?.textContent).toContain(t('nav.checker.checked', { checked: 0, total: 4 }))
+
+    act(() => release?.())
+    await flush()
+    await flush()
+  })
+
   it('skips links whose cached verdict is still fresh and re-checks them only on demand', async () => {
     seed([BROKEN, WARNING])
     window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({

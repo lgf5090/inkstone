@@ -44,6 +44,32 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
     return needle ? NAV_ICON_NAMES.filter((name) => name.includes(needle)) : NAV_ICON_NAMES
   }, [query])
   const total = tab === 'emoji' ? emojiEntries.length : lucideNames.length
+
+  // One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of
+  // the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.
+  const gridEntryIndex = tab === 'emoji'
+    ? emojiEntries.findIndex((entry) => entry.char === value)
+    : lucideNames.indexOf(normalized)
+  const roving = (index: number, selected: boolean): number => (selected || index === Math.max(gridEntryIndex, 0) ? 0 : -1)
+
+  function moveWithinGrid(event: React.KeyboardEvent<HTMLDivElement>): void {
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+      ? 1
+      : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+        ? -1
+        : 0
+    if (!step && event.key !== 'Home' && event.key !== 'End') return
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]
+    if (!buttons.length) return
+    event.preventDefault()
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : Math.min(buttons.length - 1, Math.max(0, (at < 0 ? 0 : at) + step))
+    buttons[next]?.focus()
+  }
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -73,7 +99,33 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
           <NavIcon name={value} size={15} />
         </span>
         <span className="text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('nav.icon.current')}</span>
-        <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-12)] text-[var(--text-secondary)]">
+        <span className="min-w-0 flex-1 truncate text-right text-[length:var(--text-12)] text-[var(--t
+  // One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of
+  // the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.
+  const gridEntryIndex = tab === 'emoji'
+    ? emojiEntries.findIndex((entry) => entry.char === value)
+    : lucideNames.indexOf(normalized)
+  const roving = (index: number, selected: boolean): number => (selected || index === Math.max(gridEntryIndex, 0) ? 0 : -1)
+
+  function moveWithinGrid(event: React.KeyboardEvent<HTMLDivElement>): void {
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+      ? 1
+      : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+        ? -1
+        : 0
+    if (!step && event.key !== 'Home' && event.key !== 'End') return
+    const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]
+    if (!buttons.length) return
+    event.preventDefault()
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : Math.min(buttons.length - 1, Math.max(0, (at < 0 ? 0 : at) + step))
+    buttons[next]?.focus()
+  }
+ext-secondary)]">
           {isEmojiIcon(value) ? value : normalized}
         </span>
       </div>
@@ -85,6 +137,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
         <div
           role="group"
           aria-label={tab === 'emoji' ? t('nav.icon.emoji') : t('nav.icon.lucide')}
+          onKeyDown={moveWithinGrid}
           className="grid max-h-56 grid-cols-[repeat(auto-fill,minmax(2.5rem,1fr))] content-start gap-1 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1.5"
         >
           {tab === 'emoji'
@@ -96,6 +149,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
                     type="button"
                     aria-label={entry.char}
                     aria-pressed={active}
+                    tabIndex={roving(emojiEntries.findIndex((item) => item.char === entry.char), value === entry.char)}
                     title={entry.keys}
                     onClick={() => onChange(entry.char)}
                     className={cn(
@@ -115,6 +169,7 @@ export function IconPicker({ value, onChange }: { value: string; onChange: (valu
                   <button
                     key={name}
                     type="button"
+                    tabIndex={roving(lucideNames.indexOf(name), normalized === name)}
                     aria-label={name}
                     aria-pressed={active}
                     title={name}
@@ -548,7 +603,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
                   onChange={(event) => setEditor((current) => (current ? { ...current, name: event.target.value } : current))}
                   maxLength={CATEGORY_NAME_LIMIT}
                   required
-                  autoFocus
+                  data-autofocus
                 />
               </Field>
               <div className="space-y-1.5">

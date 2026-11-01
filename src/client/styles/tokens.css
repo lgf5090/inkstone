@@ -489,7 +489,7 @@
 }
 
 
-:root[data-accent='cinnabar'][data-theme='dark'] { --accent: oklch(66.5% 0.15 32); --accent-hover: oklch(71% 0.145 32); --accent-on-soft: #eb755f; }
+:root[data-accent='cinnabar'][data-theme='dark'] { --accent: oklch(66.5% 0.15 32); --accent-hover: oklch(71% 0.145 32); --accent-on-soft: #f27b65; }
 :root[data-accent='cinnabar'][data-theme='light'] { --accent: oklch(54% 0.15 30); --accent-hover: oklch(48.5% 0.155 30); --accent-on-soft: #ab3b2d; }
 
 :root[data-accent='indigo'][data-theme='dark'] { --accent: oklch(72% 0.13 252); --accent-hover: oklch(77% 0.125 252); }

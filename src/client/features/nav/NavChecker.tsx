@@ -864,6 +864,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                 aria-valuemin={0}
                 aria-valuemax={progress.total}
                 aria-valuenow={progress.checked}
+                aria-valuetext={t('nav.checker.checked', { checked: progress.checked, total: progress.total })}
                 className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-inset)]"
               >
                 <div
@@ -871,8 +872,12 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                   style={{ width: `${percent}%` }}
                 />
               </div>
+              {/* A scan runs for minutes behind a modal; without a live region a reader gets no progress
+                  at all until the one line that happens to be marked as a status arrives. */}
               <p
-                role={phase === 'cancelled' ? 'status' : undefined}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
                 className="mt-1 text-[length:var(--text-10-5)] tabular text-[var(--text-tertiary)]"
               >
                 {t('nav.checker.checked', { checked: progress.checked, total: progress.total })} · {percent}%

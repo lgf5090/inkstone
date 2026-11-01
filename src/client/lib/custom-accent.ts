@@ -14,8 +14,14 @@ import type { RgbColor } from '@shared/tools/color/types'
 /** The floor `AGENTS.md` rule 13 sets for body text. */
 const AA_NORMAL = 4.5
 
-/** The surfaces an accent wash can land on, as `tests/accent-on-soft-contrast.test.ts` enumerates them. */
-const SOFT_SURFACES = ['--bg-surface', '--bg-inset', '--bg-base'] as const
+/**
+ * The surfaces an accent wash can land on, as `tests/accent-on-soft-contrast.test.ts` enumerates them.
+ *
+ * The sunken and raised plates are here because the navigation sidebar paints its selected row on
+ * `--bg-sunken`: a guarantee that walked only the three lighter surfaces let a shipped accent sit at 4.47:1
+ * on the one surface a real reader looks at.
+ */
+const SOFT_SURFACES = ['--bg-surface', '--bg-inset', '--bg-base', '--bg-sunken', '--bg-raised'] as const
 
 /** `--accent-soft` and `--accent-softer`, from tokens.css. */
 const SOFT_TINTS = [0.14, 0.07]

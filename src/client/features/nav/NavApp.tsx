@@ -134,7 +134,9 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
           {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="shrink-0 whitespace-nowrap">{t('nav.visit_count', { count: visitCount })}</Badge>}
         </div>
         <div className={cn('pointer-events-auto absolute right-0.5 top-0.5 z-20 flex items-center gap-0.5', !sorting && 'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100')}>
-          <span className="hidden [@media(hover:hover)]:inline-flex"><IconButton label={t('nav.edit')} onClick={() => onEdit(link)}><Pencil size={13} /></IconButton><IconButton label={t('nav.delete')} onClick={() => onDelete(link)}><Trash2 size={13} /></IconButton></span>
+          {/* Four stops per card made the list the longest tab ring in the app; the same two actions are
+              in the menu below, which is keyboard reachable and announces itself. */}
+          <span className="hidden [@media(hover:hover)]:inline-flex"><IconButton label={t('nav.edit')} tabIndex={-1} onClick={() => onEdit(link)}><Pencil size={13} /></IconButton><IconButton label={t('nav.delete')} tabIndex={-1} onClick={() => onDelete(link)}><Trash2 size={13} /></IconButton></span>
           <IconButton label={t('nav.more')} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(link, { x: rect.right, y: rect.bottom }) }}><MoreHorizontal size={14} /></IconButton>
         </div>
       </div>
@@ -257,7 +259,7 @@ function CategoryRow({ label, icon, count, active, locked, small, expanded, hasC
         <NavIcon name={icon} size={small ? 13 : 15} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {locked && <Lock size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.locked')} />}
-        <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]">{count === null ? <span aria-hidden="true">—</span> : count}</span>
+        <span className={cn('shrink-0 text-[length:var(--text-10)]', active ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-quaternary)]')}>{count === null ? <span aria-hidden="true">—</span> : count}</span>
       </button>
     </div>
   )
@@ -705,7 +707,7 @@ export function NavApp() {
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-nav-app="">
       <header className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-2 sm:px-3">
         <div className="flex flex-wrap items-center gap-2">
-          <IconButton label={t('nav.categories')} className="md:hidden" onClick={() => setMobileOpen(true)}><PanelLeft size={16} /></IconButton>
+          <IconButton label={t('nav.categories')} className="min-h-11 min-w-11 md:hidden" onClick={() => setMobileOpen(true)}><PanelLeft size={16} /></IconButton>
           {sidebarHidden && <IconButton label={t('nav.expand_sidebar')} className="hidden md:inline-flex" onClick={() => setSidebarHidden(false)}><PanelLeft size={16} /></IconButton>}
           <h1 className="min-w-0 max-w-[180px] truncate text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">{settings.display.navTitle || t('nav.title')}</h1>
           <form onSubmit={(event) => void submitSearch(event)} className="flex min-w-[240px] flex-1 flex-wrap items-center gap-1.5">
@@ -742,13 +744,13 @@ export function NavApp() {
           </form>
           <SyncBadge status={sync} />
           <div className="ml-auto flex items-center gap-1">
-            <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<FolderCog size={14} />} onClick={() => openCategoryManager()} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
+            <Button size="sm" variant="secondary" className="hidden min-h-11 sm:inline-flex" icon={<FolderCog size={14} />} onClick={() => openCategoryManager()} title={t('nav.category_manager')}><span className="hidden sm:inline">{t('nav.category_manager')}</span></Button>
             <Button size="sm" variant="secondary" className="hidden sm:inline-flex" icon={<Cloud size={14} />} onClick={() => setBackupOpen(true)} title={t('nav.backup.title')}><span className="hidden sm:inline">{t('nav.backup.title')}</span></Button>
-            <Button size="sm" variant="secondary" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_switch_simple') : t('nav.card_switch_detailed')}</span></Button>
-            <Button size="sm" variant="secondary" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
-            <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
-            <IconButton label={t('nav.ai.open')} active={assistantDockOpen} onClick={() => setAssistantDock(!assistantDockOpen)}><Bot size={15} /></IconButton>
-            <IconButton ref={settingsAnchor} label={t('nav.settings')} onClick={() => setSettingsMenuOpen(true)}><Settings size={15} /></IconButton>
+            <Button size="sm" variant="secondary" className="min-h-11 md:min-h-0" icon={detailed ? <Rows3 size={14} /> : <LayoutGrid size={14} />} onClick={toggleCardStyle} title={t('nav.card_style')}><span className="hidden sm:inline">{detailed ? t('nav.card_switch_simple') : t('nav.card_switch_detailed')}</span></Button>
+            <Button size="sm" variant="secondary" className="min-h-11 md:min-h-0" icon={<Unplug size={14} />} onClick={() => setCheckerOpen(true)} title={t('nav.checker')}><span className="hidden sm:inline">{t('nav.checker')}</span></Button>
+            <Button size="sm" variant="primary" className="min-h-11 md:min-h-0" icon={<Plus size={14} />} onClick={() => openEditor()}>{t('nav.add')}</Button>
+            <IconButton label={t('nav.ai.open')} className="min-h-11 min-w-11 md:min-h-0 md:min-w-0" active={assistantDockOpen} onClick={() => setAssistantDock(!assistantDockOpen)}><Bot size={15} /></IconButton>
+            <IconButton ref={settingsAnchor} label={t('nav.settings')} className="min-h-11 min-w-11 md:min-h-0 md:min-w-0" onClick={() => setSettingsMenuOpen(true)}><Settings size={15} /></IconButton>
           </div>
         </div>
       </header>
@@ -777,11 +779,11 @@ export function NavApp() {
         <main className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3">
           {subcategories.length > 0 && (
             <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] pb-2">
-              <button type="button" onClick={() => selectCategory(selectedRoot!.id, null)} className={cn('rounded-full px-2.5 py-1 text-[length:var(--text-11-5)]', !selectedSubcategory ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
+              <button type="button" aria-current={!selectedSubcategory ? 'true' : undefined} onClick={() => selectCategory(selectedRoot!.id, null)} className={cn('min-h-11 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)] md:min-h-0', !selectedSubcategory ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
                 {t('nav.all')}<span className="ml-1 opacity-70">{categoryCount(selectedRoot!) ?? '—'}</span>
               </button>
               {subcategories.map((sub) => (
-                <button key={sub.id} type="button" onClick={() => void chooseCategory(selectedRoot, sub.id)} className={cn('flex items-center gap-1 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)]', selectedSubcategory === sub.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
+                <button key={sub.id} type="button" aria-current={selectedSubcategory === sub.id ? 'true' : undefined} onClick={() => void chooseCategory(selectedRoot, sub.id)} className={cn('flex min-h-11 items-center gap-1 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)] md:min-h-0', selectedSubcategory === sub.id ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
                   <NavIcon name={sub.icon} size={12} />{sub.name}{isLocked(sub) && <Lock size={10} className="text-[var(--warning)]" aria-label={t('nav.locked')} role="img" />}<span className="opacity-70">{categoryCount(sub) ?? '—'}</span>
                 </button>
               ))}

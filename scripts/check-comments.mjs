@@ -8015,12 +8015,15 @@ const allowed = new Map([
     "// zero — an empty-looking protected folder reads as a bug.",
     "// The pinned band used to render every match, so the pagination ceiling the ordinary list got never",
     "// applied to an account that pins most of its bookmarks.",
+    "/* Four stops per card made the list the longest tab ring in the app; the same two actions are\n              in the menu below, which is keyboard reachable and announces itself. */",
   ]],
   ["src/client/features/nav/NavCategories.tsx", [
     "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
     "/** Editing a category that already carries a custom password: a blank field means \"keep it\". */",
     "/**\n * Category management: roots with their direct children, each group reorderable with buttons that\n * work from a keyboard and a touch screen. The form edits one category at a time, and a delete asks\n * for the category that receives the orphaned links before the confirmation dialog opens.\n */",
     "/**\n * Unlocks one protected category for the tab's session. The dialog owns the in-flight state so a\n * refused password leaves the field where the reader can correct it, and a success closes it.\n */",
+    "// One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of",
+    "// the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.",
   ]],
   ["src/client/features/nav/NavChecker.tsx", [
     "/** The reference implementation scans eight links per request and keeps three requests in flight. */",
@@ -8034,6 +8037,7 @@ const allowed = new Map([
     "// The per-minute budget is shared with the rest of the account's traffic, so a full scan of a",
     "// large library will touch it. Waiting the window out keeps the results gathered so far and",
     "// resumes the same chunk instead of cancelling the run.",
+    "/* A scan runs for minutes behind a modal; without a live region a reader gets no progress\n                  at all until the one line that happens to be marked as a status arrives. */",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -19316,7 +19320,6 @@ const allowed = new Map([
   ["src/client/lib/custom-accent.ts", [
     "/**\n * A reader's own colour, made into a working accent.\n *\n * The interface paints text and icons on `--accent`, on a 14% and a 7% wash of it, and on surfaces under that\n * wash. A colour picked for how it *looks* is not automatically readable in any of those places — the seven\n * shipped accents each needed a hand-tuned `--accent-on-soft` for exactly that reason — so the custom one is\n * walked until it clears AA instead of being written in as picked.\n */",
     "/** The floor `AGENTS.md` rule 13 sets for body text. */",
-    "/** The surfaces an accent wash can land on, as `tests/accent-on-soft-contrast.test.ts` enumerates them. */",
     "/** `--accent-soft` and `--accent-softer`, from tokens.css. */",
     "/** Where the shipped accents sit: mid-dark on paper, mid-light on ink. */",
     "/** The hover step, in the same direction each shipped accent moves. */",
@@ -19332,6 +19335,7 @@ const allowed = new Map([
     "/**\n * The same hue and chroma as the accent, darkened (on paper) or lifted (on ink) until it carries body text\n * over every wash of the accent. The accent itself is the answer when it already clears the floor, which is\n * how the shipped `--accent-on-soft: var(--accent)` default behaves.\n */",
     "/**\n * The accent, walked in the direction its theme reads (down on paper, up on ink) until a button label in the\n * theme's ink clears AA on it.\n *\n * `--accent-hover` is not part of the test: it always moves the *same* way the ink needs (darker under\n * near-white text, lighter under near-ink text), so an accent that carries its label already carries the\n * hovered button. That is a property of `ACCENT_HOVER_SHIFT`, and `tests/custom-accent-contrast.test.ts`\n * pins which side the hover step lands on rather than trusting it.\n */",
     "/** Paint the reader's accent, or hand the cascade back to the named themes. */",
+    "/**\n * The surfaces an accent wash can land on, as `tests/accent-on-soft-contrast.test.ts` enumerates them.\n *\n * The sunken and raised plates are here because the navigation sidebar paints its selected row on\n * `--bg-sunken`: a guarantee that walked only the three lighter surfaces let a shipped accent sit at 4.47:1\n * on the one surface a real reader looks at.\n */",
   ]],
   ["src/client/lib/dataview/ast.ts", [
     "/**\n * The two abstract syntax trees the query language is made of: expressions (`Field`) and the set of\n * notes an expression is evaluated over (`Source`).\n *\n * They live together because a `FROM` clause is a source expression and a `WHERE` clause is a field,\n * and both are read by the same evaluator. Names follow Dataview's own AST so a ported query reads the\n * same way in both projects.\n */",
@@ -43134,6 +43138,12 @@ const allowed = new Map([
     "// waved the body straight through to `json()`.",
     "// @ts-expect-error duplex is required by the runtime when the body is a stream",
     "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
+  ]],
+  ["tests/nav-focus-a11y.test.tsx", [
+    "// The overlay picks the `[data-autofocus]` target; React's own `autoFocus` was being overwritten by it,",
+    "// which left keyboard users starting on the dialog's close button.",
+    "// The enable box used to borrow the name of the text field beside it, so a reader heard \"Source name\"",
+    "// twice in a row — once for a box, once for a box that is not a box.",
   ]],
   ["tests/nav-host-guard.test.ts", [
     "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",

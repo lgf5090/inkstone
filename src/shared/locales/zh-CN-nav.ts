@@ -296,6 +296,8 @@ export const ZH_CN_NAV = {
   'nav.settings.sources': '搜索引擎',
   'nav.settings.add_source': '新增搜索引擎',
   'nav.settings.source_name': '名称',
+  'nav.settings.source_enabled': '外部搜索时包含该来源',
+  'nav.settings.source_url_error': '地址必须是 http(s) 且包含 {query}',
   'nav.settings.source_url': '包含 {query} 的 URL 模板',
   'nav.settings.source_icon': '图标 URL（选填）',
   'nav.settings.selected_source': '默认搜索引擎',

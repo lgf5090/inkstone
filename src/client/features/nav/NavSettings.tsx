@@ -164,15 +164,22 @@ export function NavSettingsModal({ open, onClose }: ModalProps) {
                 <div key={source.id} className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2">
                   <div className="grid gap-2 sm:grid-cols-[1fr_1.6fr_auto]">
                     <Input value={source.name} onChange={(event) => patchSource(source.id, { name: event.target.value })} placeholder={t('nav.settings.source_name')} maxLength={NAV_LIMITS.searchSourceName} aria-label={t('nav.settings.source_name')} />
-                    <Input value={source.url} onChange={(event) => patchSource(source.id, { url: event.target.value })} placeholder="https://example.com/search?q={query}" aria-label={t('nav.settings.source_url')} />
+                    <Input
+                      value={source.url}
+                      onChange={(event) => patchSource(source.id, { url: event.target.value })}
+                      placeholder="https://example.com/search?q={query}"
+                      aria-label={t('nav.settings.source_url')}
+                      aria-invalid={source.url && !(isHttpUrl(source.url) && source.url.includes('{query}')) ? true : undefined}
+                      aria-describedby={source.url && !(isHttpUrl(source.url) && source.url.includes('{query}')) ? `nav-source-url-${source.id}` : undefined}
+                    />
                     <div className="flex items-center gap-1">
-                      <Checkbox checked={source.enabled} onChange={(checked) => patchSource(source.id, { enabled: checked })} ariaLabel={t('nav.settings.source_name')} />
+                      <Checkbox checked={source.enabled} onChange={(checked) => patchSource(source.id, { enabled: checked })} ariaLabel={t('nav.settings.source_enabled')} />
                       <IconButton label={t('nav.settings.remove_source')} onClick={() => removeSource(source.id)}><Trash2 size={14} /></IconButton>
                     </div>
                   </div>
                   <Input className="mt-2" value={source.icon ?? ''} onChange={(event) => patchSource(source.id, { icon: event.target.value || null })} placeholder={t('nav.settings.source_icon')} aria-label={t('nav.settings.source_icon')} />
                   {source.url && !(isHttpUrl(source.url) && source.url.includes('{query}')) && (
-                    <p className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">{t('nav.settings.source_url')}</p>
+                    <p id={`nav-source-url-${source.id}`} role="alert" className="mt-1 text-[length:var(--text-11)] text-[var(--danger)]">{t('nav.settings.source_url_error')}</p>
                   )}
                 </div>
               ))}

@@ -296,6 +296,8 @@ export const EN_US_NAV = {
   'nav.settings.sources': 'Search engines',
   'nav.settings.add_source': 'Add engine',
   'nav.settings.source_name': 'Name',
+  'nav.settings.source_enabled': 'Include this source when searching externally',
+  'nav.settings.source_url_error': 'The URL must be http(s) and must contain {query}',
   'nav.settings.source_url': 'URL template with {query}',
   'nav.settings.source_icon': 'Icon URL (optional)',
   'nav.settings.selected_source': 'Default engine',

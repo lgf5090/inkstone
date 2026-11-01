@@ -255,7 +255,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
           )}
         </div>
         <Field label={t('nav.link.title')}>
-          <Input value={title} onChange={(event) => setTitle(event.target.value)} autoFocus placeholder="Example" />
+          <Input value={title} onChange={(event) => setTitle(event.target.value)} data-autofocus placeholder="Example" />
         </Field>
         <Field label={t('nav.link.url')}>
           <Input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com" />

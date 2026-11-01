@@ -20,7 +20,7 @@ import { contrastRatio, over, parseColor } from '../scripts/lib/contrast.mjs'
  */
 const AA_NORMAL = 4.5
 const TOKENS = fs.readFileSync('src/client/styles/tokens.css', 'utf8')
-const SURFACES = ['--bg-surface', '--bg-inset', '--bg-base']
+const SURFACES = ['--bg-surface', '--bg-inset', '--bg-base', '--bg-sunken', '--bg-raised']
 const TINTS = [0.14, 0.07]
 
 function rgbOf(value: string | undefined, what: string): number[] {
