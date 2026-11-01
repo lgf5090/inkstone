@@ -16,8 +16,11 @@ import { UI_STORAGE_KEY } from '../src/client/lib/runtime'
 const CUSTOM_VARS = ['--accent', '--accent-hover', '--accent-contrast', '--accent-on-soft'] as const
 const SEED = '#c12a2a'
 
-function appearance(accent: string, accentColor: string, theme = 'light') {
-  return { theme: theme as 'light' | 'dark', accent: accent as never, accentColor, background: 'paper' as never, fontScale: 16 }
+/** The state `applyThemeToDom` reads, taken from the function itself so nothing here needs a cast. */
+type ThemeState = Parameters<typeof applyThemeToDom>[0]
+
+function appearance(accent: ThemeState['accent'], accentColor: string, theme: ThemeState['theme'] = 'light'): ThemeState {
+  return { theme, accent, accentColor, background: 'paper', fontScale: 16 }
 }
 
 beforeEach(() => {
