@@ -1,13 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Eye, Grid, Maximize2, UserCheck } from 'lucide-react'
+import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
 import { useIdPhotoStore } from '../store'
+import { specLabel } from '../spec-label'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
+import { estimateHeadBox, toHeadBoxRatios } from '../engine/head-estimate'
+
+const GUIDE_BASE = 'absolute left-0 right-0 border-t border-dashed'
+
+const GUIDE_LINES = [
+  { top: '12%', tone: 'border-[var(--accent)]' },
+  { top: '42%', tone: 'border-[var(--warning)]' },
+  { top: '78%', tone: 'border-[var(--accent)]' },
+] as const
 
 export function IdPhotoPreviewCard() {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const renderGeneration = useRef(0)
+  const [renderFailed, setRenderFailed] = useState(false)
   const [comparingOriginal, setComparingOriginal] = useState(false)
 
   const imageSrc = useIdPhotoStore((s) => s.imageSrc)
@@ -17,32 +30,66 @@ export function IdPhotoPreviewCard() {
   const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
   const guidesVisible = useIdPhotoStore((s) => s.guidesVisible)
   const toggleGuides = useIdPhotoStore((s) => s.toggleGuides)
+  const headBox = useIdPhotoStore((s) => s.headBox)
+  const setHeadBox = useIdPhotoStore((s) => s.setHeadBox)
   const setFullscreenModalOpen = useIdPhotoStore((s) => s.setFullscreenModalOpen)
+  const panByRatio = useIdPhotoStore((s) => s.panByRatio)
 
   const activeSpec = getActiveSpec()
 
+  const drag = useRef<{ pointerId: number; x: number; y: number; width: number; height: number } | null>(null)
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!imageElement || comparingOriginal) return
+    const box = event.currentTarget.getBoundingClientRect()
+    if (box.width === 0 || box.height === 0) return
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, width: box.width, height: box.height }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = drag.current
+    if (!state || state.pointerId !== event.pointerId) return
+    const dx = (event.clientX - state.x) / state.width
+    const dy = (event.clientY - state.y) / state.height
+    state.x = event.clientX
+    state.y = event.clientY
+    if (dx !== 0 || dy !== 0) panByRatio(dx, dy)
+  }
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId === event.pointerId) drag.current = null
+  }
+
   useEffect(() => {
-    if (!imageElement || !containerRef.current) return
-
-    const engine = new IdPhotoEngine(activeSpec, adjustOptions)
-    let isMounted = true
-
-    engine.renderCanvas(imageElement).then((canvas) => {
-      if (isMounted && containerRef.current) {
-        containerRef.current.innerHTML = ''
-        canvas.style.maxWidth = '100%'
-        canvas.style.maxHeight = '360px'
-        canvas.style.height = 'auto'
-        canvas.style.borderRadius = 'var(--r-md)'
-        canvas.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.08)'
-        containerRef.current.appendChild(canvas)
-      }
-    })
-
-    return () => {
-      isMounted = false
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (!imageElement) {
+      canvas.width = 0
+      canvas.height = 0
+      setHeadBox(null)
+      return
     }
-  }, [imageElement, activeSpec, adjustOptions])
+
+    const generation = ++renderGeneration.current
+    const engine = new IdPhotoEngine(activeSpec, adjustOptions)
+    engine
+      .renderCanvas(imageElement)
+      .then((rendered) => {
+        if (generation !== renderGeneration.current) return
+        canvas.width = rendered.width
+        canvas.height = rendered.height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(rendered, 0, 0)
+        const sample = ctx.getImageData(0, 0, rendered.width, rendered.height)
+        setHeadBox(toHeadBoxRatios(estimateHeadBox(sample.data, rendered.width, rendered.height), rendered.width, rendered.height))
+      })
+      .catch(() => {
+        if (generation !== renderGeneration.current) return
+        setRenderFailed(true)
+      })
+  }, [imageElement, activeSpec, adjustOptions, setHeadBox])
 
   return (
     <div className="relative flex flex-col items-center justify-center rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4 shadow-sm min-h-[380px]">
@@ -63,12 +110,15 @@ export function IdPhotoPreviewCard() {
           <Tooltip label={t('tools.id_photo.preview.compare_original')}>
             <IconButton
               size="sm"
+              active={comparingOriginal}
               label={t('tools.id_photo.preview.compare_original')}
+              aria-pressed={comparingOriginal}
               onMouseDown={() => setComparingOriginal(true)}
               onMouseUp={() => setComparingOriginal(false)}
               onMouseLeave={() => setComparingOriginal(false)}
               onTouchStart={() => setComparingOriginal(true)}
               onTouchEnd={() => setComparingOriginal(false)}
+              onClick={() => setComparingOriginal((current) => !current)}
             >
               <Eye size={15} />
             </IconButton>
@@ -110,29 +160,66 @@ export function IdPhotoPreviewCard() {
               className="max-h-[360px] max-w-full rounded-[var(--r-md)] object-contain shadow-sm"
             />
           ) : (
-            <div className="relative">
-              <div ref={containerRef} className="flex items-center justify-center" />
+            <div
+              className="relative touch-none"
+              data-framing-drag
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerEnd}
+              onPointerCancel={handlePointerEnd}
+            >
+              <canvas
+                ref={canvasRef}
+                role="img"
+                aria-label={t('tools.id_photo.common.thumbnail')}
+                className={cn(
+                  'max-h-[360px] w-auto max-w-full rounded-[var(--r-md)] shadow-[var(--shadow-pop)]',
+                  imageElement && 'cursor-grab',
+                )}
+              />
+              {renderFailed && (
+                <p className="absolute inset-0 flex items-center justify-center text-center text-[length:var(--text-12)] font-medium text-[var(--danger)]">
+                  {t('tools.id_photo.preview.render_failed')}
+                </p>
+              )}
 
               {/* Standard Alignment Guides Overlay */}
               {guidesVisible && (
                 <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-2">
-                  {/* Top crown line */}
                   <div
-                    style={{ top: '12%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-cyan-400/80"
+                    style={{ top: GUIDE_LINES[0].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[0].tone)}
                   />
-                  {/* Eye horizontal center line */}
                   <div
-                    style={{ top: '42%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-amber-400/80"
+                    style={{ top: GUIDE_LINES[1].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[1].tone)}
                   />
-                  {/* Chin bottom line */}
                   <div
-                    style={{ top: '78%' }}
-                    className="absolute left-0 right-0 border-t border-dashed border-cyan-400/80"
+                    style={{ top: GUIDE_LINES[2].top }}
+                    className={cn(GUIDE_BASE, GUIDE_LINES[2].tone)}
                   />
-                  {/* Vertical Center line */}
-                  <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l border-dashed border-red-400/80" />
+                  <div
+                    style={{ left: '50%' }}
+                    className="absolute top-0 bottom-0 border-l border-dashed border-[var(--danger)]"
+                  />
+                </div>
+              )}
+
+              {guidesVisible && headBox && (
+                <div
+                  aria-hidden
+                  data-head-box
+                  className="pointer-events-none absolute rounded-[2px] border border-[var(--success)]"
+                  style={{
+                    left: `${headBox.x * 100}%`,
+                    top: `${headBox.y * 100}%`,
+                    width: `${headBox.width * 100}%`,
+                    height: `${headBox.height * 100}%`,
+                  }}
+                >
+                  <span className="absolute -top-4 left-0 rounded-[2px] bg-[var(--success)] px-1 text-[length:var(--text-10)] leading-[14px] text-[var(--bg-base)]">
+                    {t('tools.id_photo.preview.head_box_estimate')}
+                  </span>
                 </div>
               )}
             </div>
@@ -146,7 +233,7 @@ export function IdPhotoPreviewCard() {
           <span className="text-sm leading-none">{activeSpec.flagEmoji}</span>
         )}
         <span className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
-          {activeSpec.nameKey ? t(activeSpec.nameKey as any) : activeSpec.name}
+          {specLabel(activeSpec)}
         </span>
         <span className="text-[var(--text-tertiary)] text-[length:var(--text-11)] font-mono">
           {activeSpec.widthMm}×{activeSpec.heightMm}{t('tools.id_photo.unit.mm')} ({activeSpec.widthPx}×{activeSpec.heightPx}{t('tools.id_photo.unit.px')} @ {activeSpec.dpi}{t('tools.id_photo.unit.dpi')})

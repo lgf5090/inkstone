@@ -17590,29 +17590,15 @@ const allowed = new Map([
     "/* Tabs and Search Bar */",
     "/* Swatch Grids */",
   ]],
-  ["src/client/features/tools/id-photo/IdPhotoApp.tsx", [
-    "/* Mobile Top Preview */",
-    "/* Left / Middle Settings and Image Setup Area */",
-    "/* Right Preview and Export Controls on Large Screens */",
-  ]],
   ["src/client/features/tools/id-photo/api.ts", [
     "// fallback",
   ]],
-  ["src/client/features/tools/id-photo/batch/IdPhotoBatchView.tsx", [
-    "/* Header */",
-    "/* Batch Cards Grid */",
+  ["src/client/features/tools/id-photo/compare/compare-model.ts", [
+    "/** The strip always holds at least two frames, so the active spec is joined by its neighbours. */",
   ]],
-  ["src/client/features/tools/id-photo/compliance/IdPhotoComplianceView.tsx", [
-    "/* Header */",
-    "/* Checks Grid */",
-    "/* Suggestions Card */",
-  ]],
-  ["src/client/features/tools/id-photo/content/IdPhotoUploadCard.tsx", [
-    "// Auto-orient based on EXIF tag",
-    "// EXIF read error fallback",
-    "// Adjust initial rotation if orientation was EXIF 6 or 8",
-    "// Fallback direct read",
-    "// Paste listener for Ctrl+V",
+  ["src/client/features/tools/id-photo/draft-store.ts", [
+    "// A draft is a portrait, so two accounts sharing a browser must not share one.",
+    "// A torn write in localStorage must not look like a crash: the draft simply is not there.",
   ]],
   ["src/client/features/tools/id-photo/engine/background-matting.ts", [
     "/**\n * Renders ID photo background (solid or smooth vertical gradient) onto a 2D Canvas context.\n */",
@@ -17621,13 +17607,6 @@ const allowed = new Map([
     "// 0 to 100",
     "// Whitening / brightness boost",
     "// Contrast",
-  ]],
-  ["src/client/features/tools/id-photo/engine/compliance-engine.ts", [
-    "// 1. Resolution & Dimension check",
-    "// 2. File size constraint check (if specified by standard)",
-    "// 3. Head & Face Proportion check",
-    "// 4. Face horizontal centering check",
-    "// 5. Background color check",
   ]],
   ["src/client/features/tools/id-photo/engine/face-align.ts", [
     "/**\n * Calculates optimal crop rectangle based on image aspect ratio, face bounding box,\n * and standard passport/ID photo head ratio rules (head accounts for target ratio of total height).\n */",
@@ -17639,15 +17618,12 @@ const allowed = new Map([
     "// Position: top margin typically 10-15% of crop height above crown",
     "// Bounds checks",
   ]],
+  ["src/client/features/tools/id-photo/engine/head-estimate.ts", [
+    "// The full row extent, not just the widest run: an ear sits beside it.",
+    "/** Normalises a pixel box to the frame it came from, so any later size can redraw it. */",
+  ]],
   ["src/client/features/tools/id-photo/engine/id-photo-engine.ts", [
     "/**\n   * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.\n   */",
-    "// 1. Draw Background",
-    "// 2. Compute Crop Frame",
-    "// 3. Draw Portrait",
-    "// 4. Pixel Filters (brightness, contrast, whitening)",
-    "// 5. Attire Overlay (if selected)",
-    "/**\n   * Exports rendered canvas as data URL with optional adaptive JPEG quality to meet KB limits.\n   */",
-    "// Adaptive compression for government portals requiring < MaxKB",
     "/**\n   * Exports rendered photo as a downloadable Blob.\n   */",
     "/**\n   * Copies the photo to system clipboard.\n   */",
   ]],
@@ -17656,21 +17632,13 @@ const allowed = new Map([
     "/**\n * Renders complete multi-up photo print sheet with optional cut guides.\n */",
     "// 1. Pure white photo paper background",
     "// 2. Draw photo grid",
-    "// Light border to define photo edge",
-    "// 3. Optional cut guides (dashed lines or corner marks)",
-    "// Top & Bottom tick guides",
-    "// Top left",
-    "// Bottom right",
+  ]],
+  ["src/client/features/tools/id-photo/engine/retouch-pipeline.ts", [
+    "/**\n * The YCbCr skin gamut the retouch step works in: smoothing has to flatten speckle on a face\n * without dragging the backdrop colour across the shoulder line, and a plain wall or a white\n * shirt falls out of this range while lit skin stays inside it.\n */",
   ]],
   ["src/client/features/tools/id-photo/export/IdPhotoExportControls.tsx", [
     "/* Target Max KB input and Format Selector */",
     "/* Main Action Buttons */",
-  ]],
-  ["src/client/features/tools/id-photo/history/IdPhotoHistoryView.tsx", [
-    "// ignore",
-    "// fallback",
-    "/* Header */",
-    "/* History Grid */",
   ]],
   ["src/client/features/tools/id-photo/options/AttireTab.tsx", [
     "/* Attire Template Selection */",
@@ -17692,10 +17660,6 @@ const allowed = new Map([
     "/* Top action toolbar */",
     "/* Main Preview Container */",
     "/* Standard Alignment Guides Overlay */",
-    "/* Top crown line */",
-    "/* Eye horizontal center line */",
-    "/* Chin bottom line */",
-    "/* Vertical Center line */",
     "/* Bottom Spec Meta Tag */",
   ]],
   ["src/client/features/tools/id-photo/print/IdPhotoPrintView.tsx", [
@@ -17707,17 +17671,16 @@ const allowed = new Map([
     "/* Download Button */",
     "/* Right Print Preview Canvas */",
   ]],
-  ["src/client/features/tools/id-photo/settings/IdPhotoSettingsView.tsx", [
-    "// fallback",
-    "/* Header */",
-    "/* Default Spec */",
-    "/* Default Background */",
-    "/* Toggles */",
+  ["src/client/features/tools/id-photo/specs/CustomSpecModal.tsx", [
+    "// Empty means \"no published ceiling\", which is a different answer from an unreadable one.",
   ]],
   ["src/client/features/tools/id-photo/specs/IdPhotoSpecsView.tsx", [
     "/* Header */",
     "/* Filter and Search */",
     "/* Specifications Grid */",
+  ]],
+  ["src/client/features/tools/id-photo/specs/size-limit.ts", [
+    "/** A locale-neutral description of the file-size window a specification publishes, or null. */",
   ]],
   ["src/client/features/tools/id-photo/store.ts", [
     "// Navigation & Tabs",
@@ -17727,7 +17690,7 @@ const allowed = new Map([
     "// Print Sheet Options",
     "// Export Settings",
     "// View toggles",
-    "// Best effort load",
+    "// A draft is a convenience, so a device whose storage refuses does not break the studio.",
   ]],
   ["src/client/features/tools/password/AccountArea.tsx", [
     "/* Desktop side-by-side view */",
@@ -29872,6 +29835,9 @@ const allowed = new Map([
     "// Specs library view",
     "// Settings view",
     "// Shortlinks Module (tools/shortlinks)",
+    "// Framing tab",
+    "// Compare strip",
+    "// Local draft",
   ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
@@ -29955,6 +29921,9 @@ const allowed = new Map([
     "// History view",
     "// Spec library view",
     "// Preferences view",
+    "// Framing tab",
+    "// Compare strip",
+    "// Local draft",
   ]],
   ["src/shared/markdown-utils.test.ts", [
     "// Greek drops the tonos when a word is capitalised, so `ΑΘΗΝΑ` differs from `Αθήνα` by",
@@ -31405,9 +31374,6 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/id-photo/presets.ts", [
     "// SVG path representation for lightweight offline formal wear rendering",
-  ]],
-  ["src/shared/tools/id-photo/schemas.ts", [
-    "// base64 / data-url",
   ]],
   ["src/shared/tools/id-photo/specs.ts", [
     "// 1. China Standards",
@@ -38360,6 +38326,12 @@ const allowed = new Map([
     "// AI Palette Studio & Poetic Interpretation",
     "// Assets (R2 upload / download)",
   ]],
+  ["src/worker/routes/tools-id-photo.ts", [
+    "/**\n * The declared fileType is a client claim, so the bytes decide what a stored portrait really is:\n * a mislabelled upload would otherwise be served back with a content type it does not match.\n */",
+    "// The caller keeps the key on the queue, so a refused delete is recorded rather than dropped.",
+    "/**\n * A storage object is only really gone once R2 confirms it. The record row is dropped first, so a\n * key whose delete refused goes on the queue and the next archive read retries it instead of leaving\n * the bytes billed forever.\n */",
+    "// Opening the archive is the cheapest moment to finish an interrupted delete.",
+  ]],
   ["src/worker/routes/tools-password.ts", [
     "/**\n * Password Manager API routes (`/api/tools/password/*`).\n */",
     "// ---------------------------------------------------------------- Vault",
@@ -39555,8 +39527,13 @@ const allowed = new Map([
     "// Truncate sliding window if user has more than 100 history items",
     "// Assets",
   ]],
+  ["src/worker/tools/id-photo/schema.ts", [
+    "/**\n * Storage objects whose delete failed. Kept apart from the record statements so an applied migration\n * stays exactly what it was when it ran; this batch is added by its own version.\n */",
+  ]],
   ["src/worker/tools/id-photo/store.ts", [
     "// fallback",
+    "// Each batch item needs its own prepared statement: binding one statement twice leaves every",
+    "// row bound to the last value.",
   ]],
   ["src/worker/tools/password/favicon.ts", [
     "/**\n * The host a favicon may be fetched for: a bare DNS name, nothing else.\n *\n * Accepting a URL would let the caller pick a scheme, a path or a port, and the point of this\n * endpoint is that it only ever asks one host for `/favicon.ico`. `checkTarget` then applies the\n * same private-address refusal the rest of the deployment uses.\n */",
@@ -44787,12 +44764,58 @@ const allowed = new Map([
     "// Settings API",
     "// User B's settings remain untouched",
     "// Delete custom spec",
+    "// The server trims, so what the client sends and what the list later shows agree.",
+  ]],
+  ["tests/tools-id-photo-compare-ui.test.tsx", [
+    "// At two frames the strip has nothing left to give up.",
+  ]],
+  ["tests/tools-id-photo-draft.test.tsx", [
+    "// A microtask keeps the decode independent of the draft debounce timer under fake clocks.",
+    "// Clearing the second account\\'s draft must leave the first one intact.",
   ]],
   ["tests/tools-id-photo-engine.test.ts", [
     "// National standards should have flag emojis",
-    "// head ~ 71% of 413",
     "// 1:1 instead of 5:7",
     "// 250KB exceeds 100KB limit",
+  ]],
+  ["tests/tools-id-photo-framing-ui.test.tsx", [
+    "/** Lets the preview engine's pending render promise settle inside an act scope. */",
+    "// cn_one_inch is 295x413 px (taller than the layer-relative 1200x1600), so the frame is height-bound.",
+    "// A frame that already spans the layer on one axis has nowhere to travel, so that axis",
+    "// reports the neutral centre rather than the number it was handed.",
+    "// React tracks the node's value itself, so a plain assignment reads as \"nothing changed\" and",
+    "// the change event is dropped. The prototype setter is what a real keystroke goes through.",
+    "// The shared slider coalesces a drag into one write per frame, so the frame is the handoff.",
+    "// The row shows one number, in the unit the user thinks in: 100% means no crop at all.",
+    "// The attire swatches are SVG blobs, so jsdom needs the object-URL pair to exist.",
+    "// The positioning sliders only exist once an outfit is on the portrait.",
+  ]],
+  ["tests/tools-id-photo-head-ui.test.tsx", [
+    "// A preview with no image to draw reports back \"no head\", so the case that keeps a box needs a",
+    "// source element mounted; jsdom answers its 2D context as null, which stops before the estimate.",
+    "// 0.4 of the frame height times the crown factor is exactly 50% for a 413px tall spec.",
+    "// Only the file size stays unknown before an export; the two head rows now carry numbers.",
+  ]],
+  ["tests/tools-id-photo-head.test.ts", [
+    "/** The face is an ellipse, so the rasterised bounds the estimator should recover are known to the pixel. */",
+    "// The ellipse runs to y=90 and the neck to y=150; the estimate must stop near the chin.",
+  ]],
+  ["tests/tools-id-photo-orphans.test.ts", [
+    "// A real bucket refuses the whole call, so nothing is removed on a refused delete.",
+    "// The row is gone but the bytes are still billed, which is exactly what the queue remembers.",
+    "// Bob reading his archive must not clear (or keep) Alice\\'s object.",
+  ]],
+  ["tests/tools-id-photo-rename-ui.test.tsx", [
+    "// A dialog lives in a portal, so an unmounted view would leave it in the document for the next case.",
+    "// The field starts from what the archive already says.",
+    "// The list shows the new name without a reload, and the dialog is gone.",
+  ]],
+  ["tests/tools-id-photo-sizelimit.test.tsx", [
+    "// Every other call is a list (specs, records, settings) and the store iterates what comes back.",
+    "// The modal renders through a portal, so its fields live outside the mounted container.",
+    "// The studio's own \"Add Custom\" button carries the same caption, so the submit is the form's own.",
+    "// A ceiling outside the accepted range blocks the submit instead of silently dropping it.",
+    "// Leaving the field empty is a different answer from an unreadable one: no key is sent at all.",
   ]],
   ["tests/tools-id-photo-ui.test.tsx", [
     "// Upload & Options panel headers",

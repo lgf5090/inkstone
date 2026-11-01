@@ -8,8 +8,12 @@ import { Button } from '../../../../components/primitives'
 import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 import { IdPhotoEngine } from '../engine/id-photo-engine'
+import { specLabel } from '../spec-label'
+import { describeSizeLimit } from '../specs/size-limit'
 import { renderPrintSheet } from '../engine/print-layout-engine'
 import { createIdPhotoRecord } from '../api'
+
+const kbOf = (bytes: number) => Math.round(bytes / 1024)
 
 export function IdPhotoExportControls() {
   const [downloading, setDownloading] = useState(false)
@@ -26,6 +30,8 @@ export function IdPhotoExportControls() {
   const setExportFormat = useIdPhotoStore((s) => s.setExportFormat)
   const targetMaxKb = useIdPhotoStore((s) => s.targetMaxKb)
   const setTargetMaxKb = useIdPhotoStore((s) => s.setTargetMaxKb)
+  const lastExport = useIdPhotoStore((s) => s.lastExport)
+  const setLastExport = useIdPhotoStore((s) => s.setLastExport)
 
   const activeSpec = getActiveSpec()
   const hasImage = Boolean(imageElement)
@@ -37,15 +43,28 @@ export function IdPhotoExportControls() {
     setDownloading(true)
     try {
       const engine = getEngine()
-      const dataUrl = await engine.exportDataUrl(imageElement, exportFormat, targetMaxKb)
+      const result = await engine.exportDataUrl(imageElement, exportFormat, targetMaxKb)
+      setLastExport({
+        bytes: result.bytes,
+        format: exportFormat,
+        ...(targetMaxKb ? { targetKb: targetMaxKb } : {}),
+        exceededTarget: !result.targetMet,
+      })
       const a = document.createElement('a')
-      a.href = dataUrl
+      a.href = result.dataUrl
       a.download = `idphoto-${activeSpec.id}-${Date.now()}.${exportFormat === 'jpeg' ? 'jpg' : exportFormat}`
       a.click()
-      useUi.getState().toast({
-        title: t('tools.id_photo.export.download_photo'),
-        tone: 'success',
-      })
+      useUi.getState().toast(
+        result.targetMet
+          ? { title: t('tools.id_photo.export.download_photo'), tone: 'success' }
+          : {
+              title: t('tools.id_photo.export.over_target', {
+                size: kbOf(result.bytes),
+                target: String(targetMaxKb ?? 0),
+              }),
+              tone: 'warning',
+            },
+      )
     } catch {
       useUi.getState().toast({
         title: t('tools.id_photo.export.save_error'),
@@ -124,8 +143,14 @@ export function IdPhotoExportControls() {
     setSavingCloud(true)
     try {
       const engine = getEngine()
-      const photoDataUrl = await engine.exportDataUrl(imageElement, exportFormat, targetMaxKb)
       const photoCanvas = await engine.renderCanvas(imageElement)
+      const photoExport = engine.encodeCanvas(photoCanvas, exportFormat, targetMaxKb)
+      setLastExport({
+        bytes: photoExport.bytes,
+        format: exportFormat,
+        ...(targetMaxKb ? { targetKb: targetMaxKb } : {}),
+        exceededTarget: !photoExport.targetMet,
+      })
       const printCanvas = renderPrintSheet(
         photoCanvas,
         printOptions,
@@ -135,9 +160,9 @@ export function IdPhotoExportControls() {
       const printDataUrl = printCanvas.toDataURL('image/jpeg', 0.92)
 
       await createIdPhotoRecord({
-        title: `${activeSpec.name} - ${new Date().toLocaleDateString()}`,
+        title: `${specLabel(activeSpec)} - ${new Date().toLocaleDateString()}`,
         specId: activeSpec.id,
-        specName: activeSpec.name,
+        specName: specLabel(activeSpec),
         widthPx: activeSpec.widthPx,
         heightPx: activeSpec.heightPx,
         widthMm: activeSpec.widthMm,
@@ -145,7 +170,7 @@ export function IdPhotoExportControls() {
         dpi: activeSpec.dpi,
         bgColor: adjustOptions.bgColor,
         options: adjustOptions as unknown as Record<string, unknown>,
-        fileData: photoDataUrl,
+        fileData: photoExport.dataUrl,
         printFileData: printDataUrl,
         fileType: exportFormat,
       })
@@ -195,6 +220,11 @@ export function IdPhotoExportControls() {
             placeholder={t('tools.id_photo.export.target_size_placeholder')}
             aria-label={t('tools.id_photo.export.target_size_label')}
           />
+          <p data-export-spec-limit className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            {describeSizeLimit(activeSpec)
+              ? t('tools.id_photo.export.spec_limit', { spec: specLabel(activeSpec), limit: describeSizeLimit(activeSpec)! })
+              : t('tools.id_photo.export.spec_limit_unknown', { spec: specLabel(activeSpec) })}
+          </p>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -224,6 +254,20 @@ export function IdPhotoExportControls() {
           </div>
         </div>
       </div>
+
+      {lastExport && (
+        <p
+          className={cn(
+            'text-[length:var(--text-11)] font-medium',
+            lastExport.exceededTarget ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]',
+          )}
+        >
+          {t('tools.id_photo.export.actual_size', { size: kbOf(lastExport.bytes) })}
+          {lastExport.targetKb
+            ? ` · ${t('tools.id_photo.export.size_limit', { target: lastExport.targetKb })}`
+            : ''}
+        </p>
+      )}
 
       {/* Main Action Buttons */}
       <div className="flex flex-col gap-2 pt-2">

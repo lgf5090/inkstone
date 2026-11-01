@@ -1,16 +1,27 @@
 import { ID_PHOTO_BG_PRESETS } from '@shared/tools/id-photo/presets'
+import { parseHexColor } from '../engine/background-matting'
 import { Check } from 'lucide-react'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
+import { ColorWellField } from '../../../../components/color-field'
 import { Field, Slider, Switch } from '../../../../components/form'
 import { useIdPhotoStore } from '../store'
+import { specLabel } from '../spec-label'
+
+function contrastSafeInk(hex: string): string {
+  const { r, g, b } = parseHexColor(hex)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? '#000000' : '#ffffff'
+}
 
 export function ColorTab() {
   const adjustOptions = useIdPhotoStore((s) => s.adjustOptions)
   const setAdjustOptions = useIdPhotoStore((s) => s.setAdjustOptions)
   const setBgColor = useIdPhotoStore((s) => s.setBgColor)
 
+  const getActiveSpec = useIdPhotoStore((s) => s.getActiveSpec)
   const isGradient = adjustOptions.bgType === 'gradient'
+  const recommendedColors = [...getActiveSpec().recommendedBgColors]
 
   return (
     <div className="flex flex-col gap-4">
@@ -45,18 +56,19 @@ export function ColorTab() {
                       ? `linear-gradient(to bottom, ${preset.color}, ${preset.endColor})`
                       : preset.color,
                   }}
-                  className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-black/10 dark:border-white/20 shadow-xs"
+                  className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border-strong)] shadow-xs"
                 >
                   {isSelected && (
                     <Check
                       size={12}
                       strokeWidth={3}
-                      className={preset.color === '#ffffff' ? 'text-black' : 'text-white'}
+                      className="text-[var(--accent-contrast)]"
+                      style={{ color: contrastSafeInk(preset.color) }}
                     />
                   )}
                 </div>
-                <span className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
-                  {t(preset.nameKey as any)}
+                <span className="min-w-0 truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+                  {t(preset.nameKey)}
                 </span>
               </button>
             )
@@ -83,39 +95,44 @@ export function ColorTab() {
           />
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex flex-1 items-center gap-2">
-            <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-              {isGradient ? t('tools.id_photo.common.top_label') : t('tools.id_photo.common.color_label')}:
-            </span>
-            <input
-              type="color"
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[140px] flex-1">
+            <ColorWellField
+              label={isGradient ? t('tools.id_photo.common.top_label') : t('tools.id_photo.common.color_label')}
               value={adjustOptions.bgColor}
-              onChange={(e) => setAdjustOptions({ bgColor: e.target.value })}
-              className="h-8 w-14 cursor-pointer rounded border border-[var(--border-subtle)] bg-transparent p-0.5"
+              onChange={(value) => setAdjustOptions({ bgColor: value })}
             />
-            <span className="font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-              {adjustOptions.bgColor}
-            </span>
           </div>
 
           {isGradient && (
-            <div className="flex flex-1 items-center gap-2">
-              <span className="text-[length:var(--text-12)] text-[var(--text-tertiary)]">
-                {t('tools.id_photo.common.bottom_label')}:
-              </span>
-              <input
-                type="color"
-                value={adjustOptions.bgGradientEndColor ?? '#000000'}
-                onChange={(e) => setAdjustOptions({ bgGradientEndColor: e.target.value })}
-                className="h-8 w-14 cursor-pointer rounded border border-[var(--border-subtle)] bg-transparent p-0.5"
+            <div className="min-w-[140px] flex-1">
+              <ColorWellField
+                label={t('tools.id_photo.common.bottom_label')}
+                value={adjustOptions.bgGradientEndColor ?? '#1E3A8A'}
+                onChange={(value) => setAdjustOptions({ bgGradientEndColor: value })}
               />
-              <span className="font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                {adjustOptions.bgGradientEndColor}
-              </span>
             </div>
           )}
         </div>
+
+        {recommendedColors.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
+            <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+              {t('tools.id_photo.color.recommend', { spec: specLabel(getActiveSpec()) })}
+            </span>
+            {recommendedColors.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={color}
+                aria-pressed={adjustOptions.bgColor.toLowerCase() === color.toLowerCase()}
+                onClick={() => setBgColor(color, false)}
+                style={{ backgroundColor: color }}
+                className="h-6 w-6 rounded-full border border-[var(--border-strong)] transition-transform hover:scale-110"
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Feathering Slider */}
@@ -123,19 +140,13 @@ export function ColorTab() {
         label={t('tools.id_photo.color.feathering_label')}
         hint={t('tools.id_photo.color.feathering_hint')}
       >
-        <div className="flex items-center gap-3 pt-1">
-          <Slider
-            min={0}
-            max={50}
-            step={1}
-            value={adjustOptions.feathering}
-            onChange={(val) => setAdjustOptions({ feathering: val })}
-            className="flex-1"
-          />
-          <span className="w-8 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            {adjustOptions.feathering}
-          </span>
-        </div>
+        <Slider
+          min={0}
+          max={50}
+          step={1}
+          value={adjustOptions.feathering}
+          onChange={(val) => setAdjustOptions({ feathering: val })}
+        />
       </Field>
     </div>
   )

@@ -1,14 +1,81 @@
 import { create } from 'zustand'
+import { useSession } from '../../../store/session'
+import { PRINT_SHEET_PRESETS } from '@shared/tools/id-photo/presets'
 import { BUILTIN_ID_PHOTO_SPECS } from '@shared/tools/id-photo/specs'
 import type {
   IdPhotoAdjustOptions,
   IdPhotoExportFormat,
   IdPhotoSpec,
+  IdPhotoUserSettings,
   PrintSheetOptions,
 } from '@shared/tools/id-photo/types'
-import { listCustomSpecs } from './api'
+import { getIdPhotoSettings, listCustomSpecs } from './api'
+import {
+  clearDraft as clearStoredDraft,
+  draftSource,
+  loadDraft,
+  readDraftMeta,
+  saveDraft,
+  type IdPhotoDraftMeta,
+} from './draft-store'
+import { defaultCompareIds, toggleCompareId } from './compare/compare-model'
+import {
+  panCrop,
+  panPercent,
+  percentToCrop,
+  rotatedBounds,
+  zoomPercentOf,
+  type CropRect,
+  type Size,
+} from './engine/framing'
 
-export type IdPhotoOptionsTab = 'spec' | 'color' | 'retouch' | 'attire' | 'print'
+export type IdPhotoOptionsTab = 'spec' | 'color' | 'framing' | 'retouch' | 'attire'
+
+export interface HeadBoxRatios {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const MAX_WORKING_EDGE = 2048
+
+export function planSourceResize(width: number, height: number): { width: number; height: number } | null {
+  const longest = Math.max(width, height)
+  if (!(longest > MAX_WORKING_EDGE) || !(width > 0) || !(height > 0)) return null
+  const ratio = MAX_WORKING_EDGE / longest
+  return {
+    width: Math.max(1, Math.round(width * ratio)),
+    height: Math.max(1, Math.round(height * ratio)),
+  }
+}
+
+function clampCropFn(rect: CropRect, layer: Size): CropRect {
+  return {
+    cropX: Math.min(layer.width - rect.cropWidth, Math.max(0, rect.cropX)),
+    cropY: Math.min(layer.height - rect.cropHeight, Math.max(0, rect.cropY)),
+    cropWidth: rect.cropWidth,
+    cropHeight: rect.cropHeight,
+  }
+}
+
+function cropRectOf(adjustOptions: IdPhotoAdjustOptions, layer: Size): CropRect | null {
+  const { cropX, cropY, cropWidth, cropHeight } = adjustOptions
+  if (cropX === undefined || cropY === undefined || !cropWidth || !cropHeight) return null
+  return clampCropFn({ cropX, cropY, cropWidth, cropHeight }, layer)
+}
+
+function downscale(image: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable while preparing the working image')
+  }
+  ctx.drawImage(image, 0, 0, width, height)
+  return canvas
+}
 
 export const DEFAULT_ADJUST_OPTIONS: IdPhotoAdjustOptions = {
   specId: 'cn_one_inch',
@@ -31,6 +98,11 @@ export const DEFAULT_ADJUST_OPTIONS: IdPhotoAdjustOptions = {
   rotation: 0,
 }
 
+const PAPER_SIZES = PRINT_SHEET_PRESETS.map((preset) => preset.id)
+
+const EXPORT_FORMATS: readonly IdPhotoExportFormat[] = ['jpg', 'jpeg', 'png', 'webp']
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
 export const DEFAULT_PRINT_OPTIONS: PrintSheetOptions = {
   paperSize: '6inch',
   orientation: 'portrait',
@@ -38,6 +110,13 @@ export const DEFAULT_PRINT_OPTIONS: PrintSheetOptions = {
   marginMm: 4,
   showCropMarks: true,
   dpi: 300,
+}
+
+export interface IdPhotoExportResult {
+  bytes: number
+  format: IdPhotoExportFormat
+  targetKb?: number
+  exceededTarget: boolean
 }
 
 export interface IdPhotoState {
@@ -50,15 +129,30 @@ export interface IdPhotoState {
   // Image Source
   imageSrc: string | null
   originalImageSrc: string | null
-  imageElement: HTMLImageElement | null
-  setImageSrc: (src: string | null) => void
+  imageElement: HTMLImageElement | HTMLCanvasElement | null
+  sourceSize: { width: number; height: number } | null
+  workingSize: Size | null
+  framingLayer: () => Size | null
+  cropRect: () => CropRect | null
+  headBox: HeadBoxRatios | null
+  setHeadBox: (box: HeadBoxRatios | null) => void
+  cropPercents: () => { zoom: number; x: number; y: number } | null
+  setCropPercents: (zoom: number, x: number, y: number) => void
+  panByRatio: (dx: number, dy: number) => void
+  resetCrop: () => void
+  setImageSrc: (src: string | null) => Promise<boolean>
 
   // Spec Selection
   selectedSpecId: string
   customSpecs: IdPhotoSpec[]
+  compareSpecIds: string[] | null
+  toggleCompareSpec: (specId: string) => 'none' | 'min' | 'max'
+  resetCompareSpecs: () => void
   setSelectedSpecId: (specId: string) => void
   getActiveSpec: () => IdPhotoSpec
   loadCustomSpecs: () => Promise<void>
+  loadPreferences: () => Promise<void>
+  applyUserSettings: (settings: IdPhotoUserSettings) => void
 
   // Adjust Options
   adjustOptions: IdPhotoAdjustOptions
@@ -77,9 +171,17 @@ export interface IdPhotoState {
   targetMaxKb: number | undefined
   setTargetMaxKb: (kb: number | undefined) => void
 
+  lastExport: IdPhotoExportResult | null
+  setLastExport: (result: IdPhotoExportResult | null) => void
+
   // View toggles
   guidesVisible: boolean
   toggleGuides: () => void
+  draftMeta: IdPhotoDraftMeta | null
+  draftStatus: 'idle' | 'pending' | 'saved' | 'too_large' | 'failed'
+  refreshDraftMeta: () => void
+  clearDraft: () => Promise<void>
+  restoreDraft: () => Promise<boolean>
   fullscreenModalOpen: boolean
   setFullscreenModalOpen: (open: boolean) => void
   customSpecModalOpen: boolean
@@ -95,20 +197,47 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   imageSrc: null,
   originalImageSrc: null,
   imageElement: null,
+  sourceSize: null,
   setImageSrc: (src) => {
+    const uncrop = (options: IdPhotoAdjustOptions): IdPhotoAdjustOptions => ({
+      ...options,
+      cropX: undefined,
+      cropY: undefined,
+      cropWidth: undefined,
+      cropHeight: undefined,
+    })
     if (!src) {
-      set({ imageSrc: null, originalImageSrc: null, imageElement: null })
-      return
+      set((s) => ({
+        imageSrc: null,
+        originalImageSrc: null,
+        imageElement: null,
+        sourceSize: null,
+        workingSize: null,
+        lastExport: null,
+        headBox: null,
+        adjustOptions: uncrop(s.adjustOptions),
+      }))
+      return Promise.resolve(false)
     }
-    const img = new Image()
-    img.onload = () => {
-      set({
-        imageSrc: src,
-        originalImageSrc: get().originalImageSrc ?? src,
-        imageElement: img,
-      })
-    }
-    img.src = src
+    return new Promise<boolean>((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const plan = planSourceResize(img.naturalWidth, img.naturalHeight)
+        const working = plan ? downscale(img, plan.width, plan.height) : img
+        set((s) => ({
+          imageSrc: src,
+          originalImageSrc: src,
+          imageElement: working,
+          sourceSize: { width: img.naturalWidth, height: img.naturalHeight },
+          workingSize: { width: working.width, height: working.height },
+          lastExport: null,
+          adjustOptions: uncrop(s.adjustOptions),
+        }))
+        resolve(true)
+      }
+      img.onerror = () => resolve(false)
+      img.src = src
+    })
   },
 
   selectedSpecId: 'cn_one_inch',
@@ -118,13 +247,12 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
       get().customSpecs.find((s) => s.id === selectedSpecId) ??
       BUILTIN_ID_PHOTO_SPECS.find((s) => s.id === selectedSpecId)
 
-    const defaultBg = spec?.recommendedBgColors?.[0] ?? '#ffffff'
     set((s) => ({
       selectedSpecId,
+      ...(spec?.fileSizeMaxKb ? { targetMaxKb: spec.fileSizeMaxKb } : {}),
       adjustOptions: {
         ...s.adjustOptions,
         specId: selectedSpecId,
-        bgColor: defaultBg,
         cropX: undefined,
         cropY: undefined,
         cropWidth: undefined,
@@ -141,14 +269,105 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
     return builtin ?? BUILTIN_ID_PHOTO_SPECS[0]
   },
 
-  loadCustomSpecs: async () => {
-    try {
-      const specs = await listCustomSpecs()
-      set({ customSpecs: specs })
-    } catch {
-      // Best effort load
-    }
+  workingSize: null,
+
+  headBox: null,
+  setHeadBox: (headBox) => set({ headBox }),
+
+  framingLayer: () => {
+    const { workingSize, adjustOptions } = get()
+    if (!workingSize) return null
+    return rotatedBounds(workingSize.width, workingSize.height, adjustOptions.rotation ?? 0)
   },
+
+  cropRect: () => {
+    const layer = get().framingLayer()
+    if (!layer) return null
+    const manual = cropRectOf(get().adjustOptions, layer)
+    if (manual) return manual
+    const spec = get().getActiveSpec()
+    return percentToCrop(layer, spec.widthPx / spec.heightPx, 0, 50, 50)
+  },
+
+  cropPercents: () => {
+    const layer = get().framingLayer()
+    if (!layer) return null
+    const rect = cropRectOf(get().adjustOptions, layer)
+    if (!rect) return { zoom: 0, x: 50, y: 50 }
+    return { zoom: zoomPercentOf(rect, layer, rect.cropWidth / rect.cropHeight), ...panPercent(rect, layer) }
+  },
+
+  panByRatio: (dx, dy) => {
+    const layer = get().framingLayer()
+    const rect = get().cropRect()
+    if (!layer || !rect) return
+    set((s) => ({ adjustOptions: { ...s.adjustOptions, ...panCrop(rect, layer, dx * rect.cropWidth, dy * rect.cropHeight) } }))
+  },
+
+  setCropPercents: (zoom, x, y) =>
+    set((s) => {
+      const layer = s.framingLayer()
+      if (!layer) return s
+      const rect = percentToCrop(layer, s.getActiveSpec().widthPx / s.getActiveSpec().heightPx, zoom, x, y)
+      return { adjustOptions: { ...s.adjustOptions, ...rect } }
+    }),
+
+  resetCrop: () =>
+    set((s) => ({
+      adjustOptions: {
+        ...s.adjustOptions,
+        cropX: undefined,
+        cropY: undefined,
+        cropWidth: undefined,
+        cropHeight: undefined,
+      },
+    })),
+
+  compareSpecIds: null,
+
+  toggleCompareSpec: (specId) => {
+    const { compareSpecIds, selectedSpecId, customSpecs } = get()
+    const current = compareSpecIds ?? defaultCompareIds(selectedSpecId, [...customSpecs, ...BUILTIN_ID_PHOTO_SPECS])
+    const next = toggleCompareId(current, specId)
+    if (next.refused !== 'none') return next.refused
+    set({ compareSpecIds: next.ids })
+    return 'none'
+  },
+
+  resetCompareSpecs: () => set({ compareSpecIds: null }),
+
+  loadCustomSpecs: async () => {
+    set({ customSpecs: await listCustomSpecs() })
+  },
+
+  loadPreferences: async () => {
+    get().applyUserSettings(await getIdPhotoSettings())
+  },
+
+  applyUserSettings: (settings) =>
+    set((s) => {
+      if (s.imageSrc) return {}
+      const knownSpec = [
+        ...s.customSpecs,
+        ...BUILTIN_ID_PHOTO_SPECS,
+      ].some((spec) => spec.id === settings.defaultSpecId)
+      const selectedSpecId = knownSpec ? settings.defaultSpecId : s.selectedSpecId
+      const bgColor = HEX_COLOR.test(settings.defaultBgColor)
+        ? settings.defaultBgColor
+        : s.adjustOptions.bgColor
+      const defaultFormat = settings.defaultExportFormat as IdPhotoExportFormat
+      const exportFormat = EXPORT_FORMATS.includes(defaultFormat) ? defaultFormat : s.exportFormat
+      const paperSize = PAPER_SIZES.includes(settings.printPaperSize)
+        ? settings.printPaperSize
+        : s.printOptions.paperSize
+
+      return {
+        selectedSpecId,
+        adjustOptions: { ...s.adjustOptions, specId: selectedSpecId, bgColor },
+        exportFormat,
+        printOptions: { ...s.printOptions, paperSize },
+      }
+    }),
 
   adjustOptions: { ...DEFAULT_ADJUST_OPTIONS },
   setAdjustOptions: (patch) =>
@@ -192,6 +411,9 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
       printOptions: { ...s.printOptions, ...patch },
     })),
 
+  lastExport: null,
+  setLastExport: (lastExport) => set({ lastExport }),
+
   exportFormat: 'jpg',
   setExportFormat: (exportFormat) => set({ exportFormat }),
   targetMaxKb: undefined,
@@ -203,4 +425,73 @@ export const useIdPhotoStore = create<IdPhotoState>((set, get) => ({
   setFullscreenModalOpen: (fullscreenModalOpen) => set({ fullscreenModalOpen }),
   customSpecModalOpen: false,
   setCustomSpecModalOpen: (customSpecModalOpen) => set({ customSpecModalOpen }),
+
+  draftMeta: null,
+  draftStatus: 'idle',
+  refreshDraftMeta: () => set({ draftMeta: readDraftMeta(draftScope()) }),
+  clearDraft: async () => {
+    await clearStoredDraft(draftScope())
+    set({ draftMeta: null, draftStatus: 'idle' })
+  },
+  restoreDraft: async () => {
+    const draft = await loadDraft(draftScope())
+    if (!draft) {
+      set({ draftMeta: null })
+      return false
+    }
+    if (!(await get().setImageSrc(draft.src))) return false
+    const known = [...get().customSpecs, ...BUILTIN_ID_PHOTO_SPECS].some((spec) => spec.id === draft.specId)
+    set((s) => ({
+      adjustOptions: {
+        ...s.adjustOptions,
+        ...draft.options,
+        ...(known ? { specId: draft.specId } : {}),
+      },
+      ...(known ? { selectedSpecId: draft.specId } : {}),
+      draftStatus: 'saved',
+    }))
+    return true
+  },
 }))
+
+const DRAFT_DEBOUNCE_MS = 1200
+
+function draftScope(): string {
+  return useSession.getState().user?.id ?? ''
+}
+
+let draftTimer: ReturnType<typeof setTimeout> | null = null
+
+function writeDraftNow(): void {
+  draftTimer = null
+  const state = useIdPhotoStore.getState()
+  const src = draftSource(state.imageSrc)
+  if (!src) return
+  void saveDraft({ src, specId: state.selectedSpecId, options: state.adjustOptions, scope: draftScope() })
+    .then((result) => {
+      const store = useIdPhotoStore.getState()
+      if (result.ok) {
+        store.refreshDraftMeta()
+        useIdPhotoStore.setState({ draftStatus: 'saved' })
+      } else {
+        useIdPhotoStore.setState({ draftStatus: 'too_large' })
+      }
+    })
+    .catch(() => {
+      // A draft is a convenience, so a device whose storage refuses does not break the studio.
+      useIdPhotoStore.setState({ draftStatus: 'failed' })
+    })
+}
+
+useIdPhotoStore.subscribe((state, previous) => {
+  if (state.imageSrc === previous.imageSrc && state.adjustOptions === previous.adjustOptions && state.selectedSpecId === previous.selectedSpecId) return
+  if (!state.imageSrc) {
+    if (draftTimer) clearTimeout(draftTimer)
+    draftTimer = null
+    useIdPhotoStore.setState({ draftStatus: 'idle' })
+    return
+  }
+  useIdPhotoStore.setState({ draftStatus: 'pending' })
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = setTimeout(writeDraftNow, DRAFT_DEBOUNCE_MS)
+})

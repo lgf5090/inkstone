@@ -8,6 +8,7 @@ import {
   Camera,
   CheckSquare,
   ChevronRight,
+  Columns2,
   Compass,
   FolderArchive,
   FolderTree,
@@ -77,6 +78,7 @@ interface ColorNavSlot {
 const ID_PHOTO_NAV_SLOTS: readonly IdPhotoNavSlot[] = [
   { id: 'studio', labelKey: 'tools.id_photo.nav.studio', icon: Camera },
   { id: 'compliance', labelKey: 'tools.id_photo.nav.compliance', icon: ShieldCheck },
+  { id: 'compare', labelKey: 'tools.id_photo.nav.compare', icon: Columns2 },
   { id: 'print', labelKey: 'tools.id_photo.nav.print', icon: Printer },
   { id: 'batch', labelKey: 'tools.id_photo.nav.batch', icon: Layers },
   { id: 'specs', labelKey: 'tools.id_photo.nav.specs', icon: Award },

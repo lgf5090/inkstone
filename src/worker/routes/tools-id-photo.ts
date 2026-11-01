@@ -2,17 +2,20 @@ import { Hono, type Context } from 'hono'
 import { z } from 'zod'
 import {
   CreateCustomSpecSchema,
+  UpdateCustomSpecSchema,
   CreateIdPhotoRecordSchema,
+  RenameIdPhotoRecordSchema,
+  MAX_RECORDS_PER_USER,
   QueryIdPhotoRecordsSchema,
   UpdateIdPhotoSettingsSchema,
 } from '@shared/tools/id-photo/schemas'
-import type { AppBindings } from '../env'
+import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { requireAuth } from '../middleware/auth'
+import { createMinuteBudget } from '../lib/rate-limit'
 import {
   deleteIdPhotoFromR2,
   getIdPhotoContentType,
-  normalizeIdPhotoFormat,
   readIdPhotoFromR2,
   uploadIdPhotoToR2,
 } from '../tools/id-photo/r2'
@@ -51,6 +54,66 @@ async function parseBody<T>(c: Context<AppBindings>, schema: z.ZodType<T>): Prom
   return result.data
 }
 
+const recordsWriteBudget = createMinuteBudget(24, 'Too many archived photos in one minute, try again shortly')
+const specsWriteBudget = createMinuteBudget(30, 'Too many specifications created in one minute, try again shortly')
+
+const ORPHAN_DRAIN_LIMIT = 8
+
+async function deleteStorageObject(env: Env, key: string): Promise<boolean> {
+  try {
+    await deleteIdPhotoFromR2(env.FILES, key)
+    return true
+  } catch {
+    // The caller keeps the key on the queue, so a refused delete is recorded rather than dropped.
+    return false
+  }
+}
+
+/**
+ * A storage object is only really gone once R2 confirms it. The record row is dropped first, so a
+ * key whose delete refused goes on the queue and the next archive read retries it instead of leaving
+ * the bytes billed forever.
+ */
+async function deleteOrQueue(
+  env: Env,
+  store: IdPhotoStore,
+  keys: readonly string[],
+): Promise<{ cleaned: number; queued: number }> {
+  const wanted = keys.filter((key) => key.length > 0)
+  const failed: string[] = []
+  for (const key of wanted) {
+    if (!(await deleteStorageObject(env, key))) failed.push(key)
+  }
+  const queued = await store.queueOrphans(failed)
+  return { cleaned: wanted.length - failed.length, queued }
+}
+
+async function drainOrphans(env: Env, store: IdPhotoStore): Promise<number> {
+  const keys = await store.listOrphans(ORPHAN_DRAIN_LIMIT)
+  if (keys.length === 0) return 0
+  const cleared: string[] = []
+  for (const key of keys) {
+    if (await deleteStorageObject(env, key)) cleared.push(key)
+  }
+  await store.forgetOrphans(cleared)
+  return cleared.length
+}
+
+/**
+ * The declared fileType is a client claim, so the bytes decide what a stored portrait really is:
+ * a mislabelled upload would otherwise be served back with a content type it does not match.
+ */
+function sniffImageFormat(bytes: Uint8Array): 'png' | 'jpg' | 'webp' | null {
+  if (bytes.length > 12 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png'
+  if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg'
+  if (
+    bytes.length > 15 &&
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) return 'webp'
+  return null
+}
+
 function decodeBase64OrDataUrl(data: string): { bytes: Uint8Array; contentType?: string } {
   let raw = data
   let contentType: string | undefined
@@ -72,6 +135,18 @@ function decodeBase64OrDataUrl(data: string): { bytes: Uint8Array; contentType?:
   }
 }
 
+function fileHeaders(c: Context<AppBindings>, name: string, fileType: string): Headers {
+  const headers = new Headers()
+  headers.set('Content-Type', getIdPhotoContentType(fileType))
+  headers.set('Cache-Control', 'private, no-store')
+  headers.set('X-Content-Type-Options', 'nosniff')
+  headers.set('Referrer-Policy', 'no-referrer')
+  if (c.req.query('download')) {
+    headers.set('Content-Disposition', `attachment; filename="idphoto-${name}.${fileType}"`)
+  }
+  return headers
+}
+
 toolsIdPhotoRoutes.get('/records', async (c) => {
   const store = getStore(c)
   const query = QueryIdPhotoRecordsSchema.safeParse(c.req.query())
@@ -82,67 +157,68 @@ toolsIdPhotoRoutes.get('/records', async (c) => {
   }
 
   const result = await store.listRecords(query.data)
-  return c.json({ ok: true, data: result })
+  // Opening the archive is the cheapest moment to finish an interrupted delete.
+  await drainOrphans(c.env, store)
+  return c.json({ ok: true, data: { ...result, orphansPending: await store.countOrphans() } })
 })
 
 toolsIdPhotoRoutes.post('/records', async (c) => {
   const store = getStore(c)
   const body = await parseBody(c, CreateIdPhotoRecordSchema)
-
-  const recordId = `idp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
   const userId = getUserId(c)
-  const format = normalizeIdPhotoFormat(body.fileType)
 
+  recordsWriteBudget(userId)
+  if ((await store.countRecords()) >= MAX_RECORDS_PER_USER) {
+    throw new ApiError(409, 'conflict', `The archive holds at most ${MAX_RECORDS_PER_USER} photos`)
+  }
+
+  const photo = decodeBase64OrDataUrl(body.fileData)
+  const format = sniffImageFormat(photo.bytes)
+  if (!format) {
+    throw ApiError.badRequest('Only PNG, JPEG and WebP images can be archived')
+  }
+
+  const recordId = `idp_${crypto.randomUUID()}`
+  const fileSize = photo.bytes.byteLength
   let r2Key = ''
   let printR2Key = ''
-  let fileSize = 0
 
-  if (body.fileData) {
-    const decoded = decodeBase64OrDataUrl(body.fileData)
-    const uploaded = await uploadIdPhotoToR2(
-      c.env.FILES,
-      userId,
-      recordId,
-      format,
-      decoded.bytes,
-      false,
-    )
-    r2Key = uploaded.key
-    fileSize = uploaded.size
+  try {
+    r2Key = (await uploadIdPhotoToR2(c.env.FILES, userId, recordId, format, photo.bytes, false)).key
+
+    if (body.printFileData) {
+      const printPhoto = decodeBase64OrDataUrl(body.printFileData)
+      if (sniffImageFormat(printPhoto.bytes) !== format) {
+        throw ApiError.badRequest('The print sheet must use the same image format as the photo')
+      }
+      printR2Key = (
+        await uploadIdPhotoToR2(c.env.FILES, userId, recordId, format, printPhoto.bytes, true)
+      ).key
+    }
+
+    const record = await store.createRecord({
+      id: recordId,
+      title: body.title || `${body.specName || 'ID Photo'} - ${new Date().toLocaleDateString()}`,
+      specId: body.specId,
+      specName: body.specName,
+      widthPx: body.widthPx,
+      heightPx: body.heightPx,
+      widthMm: body.widthMm,
+      heightMm: body.heightMm,
+      dpi: body.dpi,
+      bgColor: body.bgColor,
+      optionsJson: JSON.stringify(body.options),
+      r2Key,
+      printR2Key,
+      fileType: format,
+      fileSize,
+    })
+
+    return c.json({ ok: true, data: record }, 201)
+  } catch (error) {
+    await deleteOrQueue(c.env, store, [r2Key, printR2Key])
+    throw error
   }
-
-  if (body.printFileData) {
-    const decodedPrint = decodeBase64OrDataUrl(body.printFileData)
-    const uploadedPrint = await uploadIdPhotoToR2(
-      c.env.FILES,
-      userId,
-      recordId,
-      format,
-      decodedPrint.bytes,
-      true,
-    )
-    printR2Key = uploadedPrint.key
-  }
-
-  const record = await store.createRecord({
-    id: recordId,
-    title: body.title || `${body.specName || 'ID Photo'} - ${new Date().toLocaleDateString()}`,
-    specId: body.specId,
-    specName: body.specName,
-    widthPx: body.widthPx,
-    heightPx: body.heightPx,
-    widthMm: body.widthMm,
-    heightMm: body.heightMm,
-    dpi: body.dpi,
-    bgColor: body.bgColor,
-    optionsJson: JSON.stringify(body.options),
-    r2Key,
-    printR2Key,
-    fileType: format,
-    fileSize,
-  })
-
-  return c.json({ ok: true, data: record }, 201)
 })
 
 toolsIdPhotoRoutes.get('/records/:id', async (c) => {
@@ -163,14 +239,27 @@ toolsIdPhotoRoutes.delete('/records/:id', async (c) => {
     throw ApiError.notFound('Record not found')
   }
 
-  if (keys.r2Key) {
-    await deleteIdPhotoFromR2(c.env.FILES, keys.r2Key)
-  }
-  if (keys.printR2Key) {
-    await deleteIdPhotoFromR2(c.env.FILES, keys.printR2Key)
-  }
+  const outcome = await deleteOrQueue(c.env, store, [keys.r2Key, keys.printR2Key])
 
-  return c.json({ ok: true, data: { deleted: true } })
+  return c.json({
+    ok: true,
+    data: {
+      deleted: true,
+      storageCleaned: outcome.queued === 0,
+      orphansQueued: outcome.queued,
+    },
+  })
+})
+
+toolsIdPhotoRoutes.patch('/records/:id', async (c) => {
+  const store = getStore(c)
+  recordsWriteBudget(getUserId(c))
+  const body = await parseBody(c, RenameIdPhotoRecordSchema)
+  const record = await store.updateRecordTitle(c.req.param('id'), body.title)
+  if (!record) {
+    throw ApiError.notFound('Record not found')
+  }
+  return c.json({ ok: true, data: record })
 })
 
 toolsIdPhotoRoutes.get('/records/:id/file', async (c) => {
@@ -186,15 +275,7 @@ toolsIdPhotoRoutes.get('/records/:id/file', async (c) => {
     throw ApiError.notFound('File not found in storage')
   }
 
-  const contentType = getIdPhotoContentType(record.fileType)
-  const headers = new Headers()
-  headers.set('Content-Type', contentType)
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable')
-  headers.set(
-    'Content-Disposition',
-    `attachment; filename="idphoto-${record.id}.${record.fileType}"`,
-  )
-
+  const headers = fileHeaders(c, record.id, record.fileType)
   return new Response(obj.body, { status: 200, headers })
 })
 
@@ -211,15 +292,7 @@ toolsIdPhotoRoutes.get('/records/:id/print-file', async (c) => {
     throw ApiError.notFound('Print sheet not found in storage')
   }
 
-  const contentType = getIdPhotoContentType(record.fileType)
-  const headers = new Headers()
-  headers.set('Content-Type', contentType)
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable')
-  headers.set(
-    'Content-Disposition',
-    `attachment; filename="idphoto-${record.id}-print.${record.fileType}"`,
-  )
-
+  const headers = fileHeaders(c, `${record.id}-print`, record.fileType)
   return new Response(obj.body, { status: 200, headers })
 })
 
@@ -231,8 +304,9 @@ toolsIdPhotoRoutes.get('/specs', async (c) => {
 
 toolsIdPhotoRoutes.post('/specs', async (c) => {
   const store = getStore(c)
+  specsWriteBudget(getUserId(c))
   const body = await parseBody(c, CreateCustomSpecSchema)
-  const specId = `spec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+  const specId = `spec_${crypto.randomUUID()}`
 
   const widthPx = Math.round((body.widthMm / 25.4) * body.dpi)
   const heightPx = Math.round((body.heightMm / 25.4) * body.dpi)
@@ -254,6 +328,16 @@ toolsIdPhotoRoutes.post('/specs', async (c) => {
   })
 
   return c.json({ ok: true, data: spec }, 201)
+})
+
+toolsIdPhotoRoutes.patch('/specs/:id', async (c) => {
+  const store = getStore(c)
+  const body = await parseBody(c, UpdateCustomSpecSchema)
+  const spec = await store.updateSpec(c.req.param('id'), body)
+  if (!spec) {
+    throw ApiError.notFound('Spec not found')
+  }
+  return c.json({ ok: true, data: spec })
 })
 
 toolsIdPhotoRoutes.delete('/specs/:id', async (c) => {

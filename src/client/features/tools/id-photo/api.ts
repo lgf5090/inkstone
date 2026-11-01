@@ -34,7 +34,7 @@ export async function listIdPhotoRecords(query: {
   limit?: number
   offset?: number
   search?: string
-} = {}): Promise<{ records: IdPhotoRecord[]; total: number }> {
+} = {}): Promise<{ records: IdPhotoRecord[]; total: number; orphansPending?: number }> {
   const params = new URLSearchParams()
   if (query.specId) params.set('specId', query.specId)
   if (query.limit) params.set('limit', String(query.limit))
@@ -42,7 +42,7 @@ export async function listIdPhotoRecords(query: {
   if (query.search) params.set('search', query.search)
 
   const qs = params.toString()
-  return request<{ records: IdPhotoRecord[]; total: number }>(
+  return request<{ records: IdPhotoRecord[]; total: number; orphansPending?: number }>(
     `/api/tools/id-photo/records${qs ? `?${qs}` : ''}`,
   )
 }
@@ -68,9 +68,18 @@ export async function createIdPhotoRecord(payload: {
   })
 }
 
-export async function deleteIdPhotoRecord(id: string): Promise<void> {
-  await request<{ deleted: boolean }>(`/api/tools/id-photo/records/${id}`, {
+export async function deleteIdPhotoRecord(
+  id: string,
+): Promise<{ deleted: boolean; storageCleaned: boolean }> {
+  return request<{ deleted: boolean; storageCleaned: boolean }>(`/api/tools/id-photo/records/${id}`, {
     method: 'DELETE',
+  })
+}
+
+export async function renameIdPhotoRecord(id: string, title: string): Promise<IdPhotoRecord> {
+  return request<IdPhotoRecord>(`/api/tools/id-photo/records/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
   })
 }
 
@@ -93,6 +102,16 @@ export async function createCustomSpec(spec: {
   return request<IdPhotoSpec>('/api/tools/id-photo/specs', {
     method: 'POST',
     body: JSON.stringify(spec),
+  })
+}
+
+export async function updateCustomSpec(
+  id: string,
+  patch: { name?: string; isFavorite?: boolean },
+): Promise<IdPhotoSpec> {
+  return request<IdPhotoSpec>(`/api/tools/id-photo/specs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   })
 }
 

@@ -13,6 +13,7 @@ export type ShortlinksNavView = 'dashboard' | 'links' | 'bundles' | 'settings'
 export type IdPhotoNavView =
   | 'studio'
   | 'compliance'
+  | 'compare'
   | 'print'
   | 'batch'
   | 'specs'

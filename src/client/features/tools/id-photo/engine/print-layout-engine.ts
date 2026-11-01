@@ -1,4 +1,12 @@
 import { PRINT_SHEET_PRESETS } from '@shared/tools/id-photo/presets'
+
+const MM_PER_INCH = 25.4
+const PAPER_COLOR = '#ffffff'
+const PHOTO_EDGE_COLOR = '#e2e8f0'
+const CROP_MARK_COLOR = '#94a3b8'
+const CROP_MARK_LENGTH = 8
+const MAX_CANVAS_PIXELS = 20_000_000
+const MIN_PRINT_DPI = 72
 import type { PrintSheetOptions } from '@shared/tools/id-photo/types'
 
 export interface PrintLayoutGrid {
@@ -13,6 +21,16 @@ export interface PrintLayoutGrid {
   gapYPx: number
   paperWidthPx: number
   paperHeightPx: number
+  fits: boolean
+  dpi: number
+  dpiReduced: boolean
+}
+
+export function fitPrintDpi(paperWidthMm: number, paperHeightMm: number, requestedDpi: number): number {
+  const pixels = (paperWidthMm / MM_PER_INCH * requestedDpi) * (paperHeightMm / MM_PER_INCH * requestedDpi)
+  if (pixels <= MAX_CANVAS_PIXELS) return requestedDpi
+  const scaled = Math.floor(Math.sqrt(MAX_CANVAS_PIXELS / (paperWidthMm * paperHeightMm)) * MM_PER_INCH)
+  return Math.max(MIN_PRINT_DPI, scaled)
 }
 
 /**
@@ -35,7 +53,8 @@ export function calculatePrintLayout(
     paperHeightMm = temp
   }
 
-  const mmToPx = options.dpi / 25.4
+  const dpi = fitPrintDpi(paperWidthMm, paperHeightMm, options.dpi)
+  const mmToPx = dpi / MM_PER_INCH
   const paperWidthPx = Math.round(paperWidthMm * mmToPx)
   const paperHeightPx = Math.round(paperHeightMm * mmToPx)
 
@@ -48,8 +67,9 @@ export function calculatePrintLayout(
   const availableWidth = paperWidthPx - 2 * marginPx
   const availableHeight = paperHeightPx - 2 * marginPx
 
-  const cols = Math.max(1, Math.floor((availableWidth + gapPx) / (itemWidthPx + gapPx)))
-  const rows = Math.max(1, Math.floor((availableHeight + gapPx) / (itemHeightPx + gapPx)))
+  const cols = Math.floor((availableWidth + gapPx) / (itemWidthPx + gapPx))
+  const rows = Math.floor((availableHeight + gapPx) / (itemHeightPx + gapPx))
+  const fits = cols >= 1 && rows >= 1
 
   const totalGridWidth = cols * itemWidthPx + (cols - 1) * gapPx
   const totalGridHeight = rows * itemHeightPx + (rows - 1) * gapPx
@@ -58,13 +78,16 @@ export function calculatePrintLayout(
   const startY = Math.round((paperHeightPx - totalGridHeight) / 2)
 
   return {
-    rows,
-    cols,
-    totalCount: rows * cols,
+    rows: Math.max(0, rows),
+    cols: Math.max(0, cols),
+    totalCount: Math.max(0, rows * cols),
+    fits,
+    dpi,
+    dpiReduced: dpi !== options.dpi,
     itemWidthPx,
     itemHeightPx,
-    startX,
-    startY,
+    startX: fits ? startX : 0,
+    startY: fits ? startY : 0,
     gapXPx: gapPx,
     gapYPx: gapPx,
     paperWidthPx,
@@ -86,11 +109,17 @@ export function renderPrintSheet(
   canvas.width = layout.paperWidthPx
   canvas.height = layout.paperHeightPx
 
+  if (!layout.fits) {
+    throw new Error('The photo does not fit the selected paper')
+  }
+
   const ctx = canvas.getContext('2d')
-  if (!ctx) return canvas
+  if (!ctx) {
+    throw new Error('Canvas 2D context unavailable while rendering the print sheet')
+  }
 
   // 1. Pure white photo paper background
-  ctx.fillStyle = '#ffffff'
+  ctx.fillStyle = PAPER_COLOR
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   // 2. Draw photo grid
@@ -101,41 +130,45 @@ export function renderPrintSheet(
 
       ctx.drawImage(photoCanvas, x, y, layout.itemWidthPx, layout.itemHeightPx)
 
-      // Light border to define photo edge
-      ctx.strokeStyle = '#e2e8f0'
+      ctx.strokeStyle = PHOTO_EDGE_COLOR
       ctx.lineWidth = 1
       ctx.strokeRect(x, y, layout.itemWidthPx, layout.itemHeightPx)
 
-      // 3. Optional cut guides (dashed lines or corner marks)
       if (options.showCropMarks) {
-        ctx.strokeStyle = '#94a3b8'
-        ctx.lineWidth = 1
-        ctx.setLineDash([4, 4])
-
-        // Top & Bottom tick guides
-        const markLen = 8
-        // Top left
-        ctx.beginPath()
-        ctx.moveTo(x - markLen, y)
-        ctx.lineTo(x, y)
-        ctx.moveTo(x, y - markLen)
-        ctx.lineTo(x, y)
-        ctx.stroke()
-
-        // Bottom right
-        const rx = x + layout.itemWidthPx
-        const by = y + layout.itemHeightPx
-        ctx.beginPath()
-        ctx.moveTo(rx + markLen, by)
-        ctx.lineTo(rx, by)
-        ctx.moveTo(rx, by + markLen)
-        ctx.lineTo(rx, by)
-        ctx.stroke()
-
-        ctx.setLineDash([])
+        drawCropMarks(ctx, x, y, layout.itemWidthPx, layout.itemHeightPx)
       }
     }
   }
 
   return canvas
+}
+
+function drawCropMarks(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const right = x + width
+  const bottom = y + height
+  const corners: Array<[number, number, number, number]> = [
+    [x, y, -CROP_MARK_LENGTH, -CROP_MARK_LENGTH],
+    [right, y, CROP_MARK_LENGTH, -CROP_MARK_LENGTH],
+    [x, bottom, -CROP_MARK_LENGTH, CROP_MARK_LENGTH],
+    [right, bottom, CROP_MARK_LENGTH, CROP_MARK_LENGTH],
+  ]
+
+  ctx.strokeStyle = CROP_MARK_COLOR
+  ctx.lineWidth = 1
+  ctx.setLineDash([4, 4])
+  corners.forEach(([cornerX, cornerY, outwardX, outwardY]) => {
+    ctx.beginPath()
+    ctx.moveTo(cornerX + outwardX, cornerY)
+    ctx.lineTo(cornerX, cornerY)
+    ctx.moveTo(cornerX, cornerY + outwardY)
+    ctx.lineTo(cornerX, cornerY)
+    ctx.stroke()
+  })
+  ctx.setLineDash([])
 }

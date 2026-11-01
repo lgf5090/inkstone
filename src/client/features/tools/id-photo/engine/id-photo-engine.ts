@@ -1,13 +1,90 @@
 import { ATTIRE_PRESETS } from '@shared/tools/id-photo/presets'
 import type { IdPhotoAdjustOptions, IdPhotoExportFormat, IdPhotoSpec } from '@shared/tools/id-photo/types'
-import { applyImageFilters, renderBackground } from './background-matting'
+import { applyBackdropMatte, applyImageFilters, renderBackground } from './background-matting'
 import { calculateOptimalCrop } from './face-align'
+import { clampCrop, rotatedBounds } from './framing'
+import { applySharpening, applySkinSmoothing } from './retouch-pipeline'
+
+export interface ExportedPhoto {
+  dataUrl: string
+  bytes: number
+  targetMet: boolean
+}
+
+export function svgViewBoxAspect(svg: string): number {
+  const box = /viewBox=["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/.exec(svg)
+  const width = box ? Number(box[1]) : 0
+  const height = box ? Number(box[2]) : 0
+  if (!(width > 0) || !(height > 0)) return ATTIRE_FALLBACK_ASPECT
+  return width / height
+}
+
+export function attireRect(
+  frameWidth: number,
+  frameHeight: number,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  aspect: number,
+): { x: number; y: number; width: number; height: number } {
+  const width = frameWidth * scale
+  const height = width / (aspect > 0 ? aspect : ATTIRE_FALLBACK_ASPECT)
+  return {
+    width,
+    height,
+    x: (frameWidth - width) / 2 + offsetX,
+    y: frameHeight - height + offsetY,
+  }
+}
+
+export function dataUrlByteLength(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',')
+  const payload = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
+}
+
+const ATTIRE_FALLBACK_ASPECT = 4 / 3
+const MIN_JPEG_QUALITY = 0.3
+const MAX_JPEG_QUALITY = 0.95
+const QUALITY_SEARCH_STEPS = 4
 
 export class IdPhotoEngine {
   constructor(
     private readonly spec: IdPhotoSpec,
     private readonly options: IdPhotoAdjustOptions,
   ) {}
+
+  private requireContext(canvas: HTMLCanvasElement, what: string): CanvasRenderingContext2D {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) {
+      throw new Error(`Canvas 2D context unavailable while rendering ${what}`)
+    }
+    return ctx
+  }
+
+  private rotateSourceLayer(
+    sourceImage: HTMLImageElement | HTMLCanvasElement,
+  ): HTMLImageElement | HTMLCanvasElement {
+    const rotation = this.options.rotation ?? 0
+    if (!rotation) return sourceImage
+
+    const sourceWidth = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width
+    const sourceHeight =
+      'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height
+
+    const radians = (rotation * Math.PI) / 180
+    const bounds = rotatedBounds(sourceWidth, sourceHeight, rotation)
+    const layer = document.createElement('canvas')
+    layer.width = bounds.width
+    layer.height = bounds.height
+
+    const ctx = this.requireContext(layer, 'the rotated source layer')
+    ctx.translate(layer.width / 2, layer.height / 2)
+    ctx.rotate(radians)
+    ctx.drawImage(sourceImage, -sourceWidth / 2, -sourceHeight / 2)
+    return layer
+  }
 
   /**
    * Renders the ID photo onto an HTMLCanvasElement with target dimensions and full adjustments.
@@ -20,27 +97,9 @@ export class IdPhotoEngine {
     const targetWidth = overrideWidth ?? this.spec.widthPx
     const targetHeight = overrideHeight ?? this.spec.heightPx
 
-    const canvas = document.createElement('canvas')
-    canvas.width = targetWidth
-    canvas.height = targetHeight
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return canvas
-
-    // 1. Draw Background
-    renderBackground(
-      ctx,
-      targetWidth,
-      targetHeight,
-      this.options.bgColor,
-      this.options.bgType === 'gradient',
-      this.options.bgGradientEndColor,
-    )
-
-    // 2. Compute Crop Frame
-    const sourceWidth = 'naturalWidth' in sourceImage ? sourceImage.naturalWidth : sourceImage.width
-    const sourceHeight =
-      'naturalHeight' in sourceImage ? sourceImage.naturalHeight : sourceImage.height
+    const layer = this.rotateSourceLayer(sourceImage)
+    const layerWidth = 'naturalWidth' in layer ? layer.naturalWidth : layer.width
+    const layerHeight = 'naturalHeight' in layer ? layer.naturalHeight : layer.height
 
     let cropX = this.options.cropX
     let cropY = this.options.cropY
@@ -49,8 +108,8 @@ export class IdPhotoEngine {
 
     if (cropX === undefined || cropY === undefined || !cropW || !cropH) {
       const optimal = calculateOptimalCrop(
-        sourceWidth,
-        sourceHeight,
+        layerWidth,
+        layerHeight,
         targetWidth,
         targetHeight,
         undefined,
@@ -60,27 +119,60 @@ export class IdPhotoEngine {
       cropY = optimal.cropY
       cropW = optimal.cropWidth
       cropH = optimal.cropHeight
+    } else {
+      const bounded = clampCrop(
+        { cropX, cropY, cropWidth: cropW, cropHeight: cropH },
+        { width: layerWidth, height: layerHeight },
+      )
+      cropX = bounded.cropX
+      cropY = bounded.cropY
+      cropW = bounded.cropWidth
+      cropH = bounded.cropHeight
     }
 
-    // 3. Draw Portrait
-    ctx.save()
-    if (this.options.rotation) {
-      ctx.translate(targetWidth / 2, targetHeight / 2)
-      ctx.rotate((this.options.rotation * Math.PI) / 180)
-      ctx.translate(-targetWidth / 2, -targetHeight / 2)
-    }
+    const portrait = document.createElement('canvas')
+    portrait.width = targetWidth
+    portrait.height = targetHeight
+    const portraitCtx = this.requireContext(portrait, 'the portrait layer')
 
-    ctx.drawImage(sourceImage, cropX, cropY, cropW, cropH, 0, 0, targetWidth, targetHeight)
-    ctx.restore()
+    portraitCtx.drawImage(layer, cropX, cropY, cropW, cropH, 0, 0, targetWidth, targetHeight)
 
-    // 4. Pixel Filters (brightness, contrast, whitening)
-    applyImageFilters(ctx, targetWidth, targetHeight, {
+    applyImageFilters(portraitCtx, targetWidth, targetHeight, {
       brightness: this.options.brightness,
       contrast: this.options.contrast,
       whitening: this.options.whitening,
     })
 
-    // 5. Attire Overlay (if selected)
+    const matte = portraitCtx.getImageData(0, 0, targetWidth, targetHeight)
+    applySkinSmoothing(matte.data, targetWidth, targetHeight, this.options.smoothness)
+    applySharpening(matte.data, targetWidth, targetHeight, this.options.sharpness)
+    applyBackdropMatte({
+      data: matte.data,
+      width: targetWidth,
+      height: targetHeight,
+      feather: this.options.feathering,
+    })
+    portraitCtx.putImageData(matte, 0, 0)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = targetWidth
+    canvas.height = targetHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('Canvas 2D context unavailable while compositing the ID photo')
+    }
+
+    renderBackground(
+      ctx,
+      targetWidth,
+      targetHeight,
+      this.options.bgColor,
+      this.options.bgType === 'gradient',
+      this.options.bgGradientEndColor,
+    )
+
+    ctx.drawImage(portrait, 0, 0)
+
     if (this.options.attireId) {
       await this.drawAttire(ctx, targetWidth, targetHeight)
     }
@@ -102,16 +194,16 @@ export class IdPhotoEngine {
 
     await new Promise<void>((resolve) => {
       img.onload = () => {
-        const scale = this.options.attireScale ?? 1.0
-        const offsetX = this.options.attireOffsetX ?? 0
-        const offsetY = this.options.attireOffsetY ?? 0
+        const rect = attireRect(
+          width,
+          height,
+          this.options.attireScale ?? 1,
+          this.options.attireOffsetX ?? 0,
+          this.options.attireOffsetY ?? 0,
+          svgViewBoxAspect(attire.previewSvg),
+        )
 
-        const attireW = width * scale
-        const attireH = (height * 0.5) * scale
-        const attireX = (width - attireW) / 2 + offsetX
-        const attireY = height - attireH + offsetY
-
-        ctx.drawImage(img, attireX, attireY, attireW, attireH)
+        ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height)
         URL.revokeObjectURL(url)
         resolve()
       }
@@ -123,32 +215,36 @@ export class IdPhotoEngine {
     })
   }
 
-  /**
-   * Exports rendered canvas as data URL with optional adaptive JPEG quality to meet KB limits.
-   */
   async exportDataUrl(
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     format: IdPhotoExportFormat = 'jpg',
     targetMaxKb?: number,
-  ): Promise<string> {
-    const canvas = await this.renderCanvas(sourceImage)
+  ): Promise<ExportedPhoto> {
+    return this.encodeCanvas(await this.renderCanvas(sourceImage), format, targetMaxKb)
+  }
+
+  encodeCanvas(
+    canvas: HTMLCanvasElement,
+    format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
+  ): ExportedPhoto {
     const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
 
     if (format === 'png' || !targetMaxKb) {
-      return canvas.toDataURL(mime, 0.92)
+      const dataUrl = canvas.toDataURL(mime, 0.92)
+      const bytes = dataUrlByteLength(dataUrl)
+      return { dataUrl, bytes, targetMet: !targetMaxKb || bytes <= targetMaxKb * 1024 }
     }
 
-    // Adaptive compression for government portals requiring < MaxKB
-    let minQ = 0.3
-    let maxQ = 0.95
+    const limitBytes = targetMaxKb * 1024
+    let minQ = MIN_JPEG_QUALITY
+    let maxQ = MAX_JPEG_QUALITY
     let bestUrl = canvas.toDataURL(mime, maxQ)
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < QUALITY_SEARCH_STEPS; i++) {
       const midQ = (minQ + maxQ) / 2
       const candidate = canvas.toDataURL(mime, midQ)
-      const approxKb = Math.round((candidate.length * 3) / 4 / 1024)
-
-      if (approxKb <= targetMaxKb) {
+      if (dataUrlByteLength(candidate) <= limitBytes) {
         bestUrl = candidate
         minQ = midQ
       } else {
@@ -156,7 +252,8 @@ export class IdPhotoEngine {
       }
     }
 
-    return bestUrl
+    const bytes = dataUrlByteLength(bestUrl)
+    return { dataUrl: bestUrl, bytes, targetMet: bytes <= limitBytes }
   }
 
   /**
@@ -165,20 +262,50 @@ export class IdPhotoEngine {
   async exportBlob(
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
   ): Promise<Blob> {
-    const canvas = await this.renderCanvas(sourceImage)
-    const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
+    return this.encodeBlob(await this.renderCanvas(sourceImage), format, targetMaxKb)
+  }
 
-    return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob)
-          else reject(new Error('Canvas toBlob failed'))
-        },
-        mime,
-        0.92,
-      )
-    })
+  async encodeBlob(
+    canvas: HTMLCanvasElement,
+    format: IdPhotoExportFormat = 'jpg',
+    targetMaxKb?: number,
+  ): Promise<Blob> {
+    const mime = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg'
+    const encode = (quality: number) =>
+      new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob)
+            else reject(new Error('Canvas toBlob failed'))
+          },
+          mime,
+          quality,
+        )
+      })
+
+    if (!targetMaxKb || format === 'png') return encode(0.92)
+
+    const limitBytes = targetMaxKb * 1024
+    let minQ = MIN_JPEG_QUALITY
+    let maxQ = MAX_JPEG_QUALITY
+    let best = await encode(maxQ)
+    if (best.size <= limitBytes) return best
+
+    for (let step = 0; step < QUALITY_SEARCH_STEPS; step++) {
+      const midQ = (minQ + maxQ) / 2
+      const candidate = await encode(midQ)
+      if (candidate.size <= limitBytes) {
+        best = candidate
+        minQ = midQ
+      } else {
+        maxQ = midQ
+        best = candidate
+      }
+    }
+
+    return best
   }
 
   /**

@@ -6,11 +6,11 @@ import {
   Trash2,
   UploadCloud,
 } from 'lucide-react'
-import exifr from 'exifr'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
+import { useUi } from '../../../../store/ui'
 import { useIdPhotoStore } from '../store'
 
 export function IdPhotoUploadCard() {
@@ -23,56 +23,36 @@ export function IdPhotoUploadCard() {
   const resetAdjustOptions = useIdPhotoStore((s) => s.resetAdjustOptions)
   const rotation = useIdPhotoStore((s) => s.adjustOptions.rotation ?? 0)
 
-  const handleFile = async (file: File) => {
+  const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) return
 
-    try {
-      // Auto-orient based on EXIF tag
-      let orientation = 1
-      try {
-        const exifData = await exifr.parse(file, ['Orientation'])
-        if (exifData?.Orientation) {
-          orientation = exifData.Orientation
-        }
-      } catch {
-        // EXIF read error fallback
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string
+      if (!dataUrl) return
+      if (await setImageSrc(dataUrl)) {
+        resetAdjustOptions()
+        return
       }
-
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string
-        if (dataUrl) {
-          setImageSrc(dataUrl)
-          resetAdjustOptions()
-          // Adjust initial rotation if orientation was EXIF 6 or 8
-          if (orientation === 6) rotateImage(90)
-          else if (orientation === 8) rotateImage(-90)
-          else if (orientation === 3) rotateImage(180)
-        }
-      }
-      reader.readAsDataURL(file)
-    } catch {
-      // Fallback direct read
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (e.target?.result) setImageSrc(e.target.result as string)
-      }
-      reader.readAsDataURL(file)
+      useUi.getState().toast({ title: t('tools.id_photo.content.decode_failed'), tone: 'danger' })
     }
+    reader.onerror = () => {
+      useUi.getState().toast({ title: t('tools.id_photo.content.decode_failed'), tone: 'danger' })
+    }
+    reader.readAsDataURL(file)
   }
 
-  // Paste listener for Ctrl+V
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile()
-          if (file) handleFile(file)
-          break
-        }
-      }
+      const target = e.target as HTMLElement | null
+      if (target && (target.isContentEditable || /input|textarea|select/i.test(target.tagName))) return
+      if (document.querySelector('[role="dialog"]')) return
+      const image = Array.from(e.clipboardData?.items ?? []).find((item) => item.type.startsWith('image/'))
+      if (!image) return
+      const file = image.getAsFile()
+      if (!file) return
+      e.preventDefault()
+      handleFile(file)
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
@@ -93,7 +73,7 @@ export function IdPhotoUploadCard() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/jpg"
+        accept="image/png,image/jpeg,image/webp"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0]
@@ -139,11 +119,11 @@ export function IdPhotoUploadCard() {
                 <UploadCloud size={15} />
               </IconButton>
             </Tooltip>
-            <Tooltip label={t('tools.id_photo.content.crop_reset')}>
+            <Tooltip label={t('tools.id_photo.content.remove_photo')}>
               <IconButton
                 size="sm"
                 variant="danger"
-                label={t('tools.id_photo.content.crop_reset')}
+                label={t('tools.id_photo.content.remove_photo')}
                 onClick={() => setImageSrc(null)}
               >
                 <Trash2 size={15} />
@@ -159,7 +139,10 @@ export function IdPhotoUploadCard() {
             e.preventDefault()
             setIsDragging(true)
           }}
-          onDragLeave={() => setIsDragging(false)}
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+            setIsDragging(false)
+          }}
           onDrop={handleDrop}
           className={cn(
             'relative flex flex-col items-center justify-center gap-2.5 rounded-[var(--r-md)] border-2 border-dashed p-6 text-center cursor-pointer select-none',

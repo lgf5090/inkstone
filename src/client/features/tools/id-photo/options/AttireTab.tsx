@@ -1,9 +1,31 @@
+import { useEffect, useState } from 'react'
 import { ATTIRE_PRESETS } from '@shared/tools/id-photo/presets'
 import { Ban, Check } from 'lucide-react'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 import { Field, Slider } from '../../../../components/form'
 import { useIdPhotoStore } from '../store'
+
+function AttirePreview({ svg, name }: { svg: string; name: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const blobUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
+    setUrl(blobUrl)
+    return () => URL.revokeObjectURL(blobUrl)
+  }, [svg])
+
+  if (!url) return <div className="h-12 w-full" />
+  return (
+    <img
+      src={url}
+      alt={name}
+      width={400}
+      height={300}
+      className="h-12 w-full object-contain"
+    />
+  )
+}
 
 export function AttireTab() {
   const adjustOptions = useIdPhotoStore((s) => s.adjustOptions)
@@ -51,15 +73,12 @@ export function AttireTab() {
                   : 'border-[var(--border-subtle)] bg-[var(--bg-base)] hover:bg-[var(--bg-hover)]',
               )}
             >
-              <div
-                className="h-12 w-full flex items-center justify-center overflow-hidden"
-                dangerouslySetInnerHTML={{ __html: preset.previewSvg }}
-              />
+              <AttirePreview svg={preset.previewSvg} name={t(preset.nameKey)} />
               <div className="flex items-center gap-1">
                 <span className="truncate text-[length:var(--text-11)] font-medium text-[var(--text-primary)]">
-                  {t(preset.nameKey as any)}
+                  {t(preset.nameKey)}
                 </span>
-                {isSelected && <Check size={11} className="text-[var(--accent)]" />}
+                {isSelected && <Check size={11} className="text-[var(--accent-on-soft)]" />}
               </div>
             </button>
           )
@@ -70,35 +89,25 @@ export function AttireTab() {
       {selectedAttireId && (
         <div className="flex flex-col gap-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3">
           <Field label={t('tools.id_photo.attire.scale')}>
-            <div className="flex items-center gap-3 pt-1">
-              <Slider
-                min={0.8}
-                max={1.4}
-                step={0.02}
-                value={adjustOptions.attireScale ?? 1.0}
-                onChange={(val) => setAdjustOptions({ attireScale: val })}
-                className="flex-1"
-              />
-              <span className="w-10 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                {Math.round((adjustOptions.attireScale ?? 1.0) * 100)}%
-              </span>
-            </div>
+            <Slider
+              min={80}
+              max={140}
+              step={2}
+              suffix="%"
+              value={Math.round((adjustOptions.attireScale ?? 1) * 100)}
+              onChange={(val) => setAdjustOptions({ attireScale: val / 100 })}
+            />
           </Field>
 
           <Field label={t('tools.id_photo.attire.offset_y')}>
-            <div className="flex items-center gap-3 pt-1">
-              <Slider
-                min={-40}
-                max={40}
-                step={1}
-                value={adjustOptions.attireOffsetY ?? 0}
-                onChange={(val) => setAdjustOptions({ attireOffsetY: val })}
-                className="flex-1"
-              />
-              <span className="w-10 text-right font-mono text-[length:var(--text-12)] text-[var(--text-secondary)]">
-                {adjustOptions.attireOffsetY ?? 0} {t('tools.id_photo.unit.px')}
-              </span>
-            </div>
+            <Slider
+              min={-40}
+              max={40}
+              step={1}
+              suffix={` ${t('tools.id_photo.unit.px')}`}
+              value={adjustOptions.attireOffsetY ?? 0}
+              onChange={(val) => setAdjustOptions({ attireOffsetY: val })}
+            />
           </Field>
         </div>
       )}
