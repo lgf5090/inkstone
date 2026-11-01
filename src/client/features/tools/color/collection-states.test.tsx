@@ -143,6 +143,23 @@ describe('collection loading', () => {
   })
 })
 
+describe('the backup picker door', () => {
+  it('stays rendered but off the tab ring', async () => {
+    // Same rule as the image panel: a `display:none` input is not a door any engine guarantees to open, and
+    // a nameless stop on the tab ring is a trap. The import-backup button beside it is the control.
+    rendered = mountView()
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input, 'the backup picker vanished from the tree').toBeTruthy()
+    expect(input!.className).not.toContain('hidden')
+    expect(input!.className).toContain('sr-only')
+    expect(input!.getAttribute('aria-hidden')).toBe('true')
+    expect(input!.tabIndex).toBe(-1)
+  })
+})
+
 describe('destructive actions', () => {
   it('asks before deleting the only copy of a saved colour', async () => {
     listFavorites.mockResolvedValue([

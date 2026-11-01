@@ -625,7 +625,7 @@ export const ZH_CN_TOOLS = {
   'tools.color.ui.subtitle': '涵盖 Tailwind CSS、Ant Design、Fluent UI、Flat UI、Open Color 权威规范',
 
   'tools.color.traditional.title': '传统东方色彩图谱',
-  'tools.color.traditional.subtitle': '收录故宫 24 节气 384 种中国传统色与 250 种日本和色体系',
+  'tools.color.traditional.subtitle': '收录故宫 24 节气 {chinese} 种中国传统色与 {nippon} 种日本和色体系',
   'tools.color.traditional.tab_chinese': '故宫 24 节气中国传统色',
   'tools.color.traditional.tab_nippon': '大和传统和色',
   'tools.color.traditional.search_placeholder': '搜索色名、拼音、罗马音、HEX...',

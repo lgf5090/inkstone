@@ -103,7 +103,9 @@ export function GradientStudioView() {
               <span>{t(`tools.color.gradient.type.${gradientConfig.type}`)}</span>
               {gradientConfig.type !== 'radial' && <span>{gradientConfig.angle}°</span>}
               {gradientConfig.useOklabInterpolation && (
-                <span className="text-[var(--accent)] font-semibold">{'OKLab'}</span>
+                // The pill is always `bg-black/70`, so the accent is not a safe ink for it: with a custom
+                // accent this read 1.9:1 in Chromium. Its siblings are white; so is this.
+                <span className="font-semibold text-white">{'OKLab'}</span>
               )}
             </div>
           </div>

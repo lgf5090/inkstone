@@ -67,7 +67,7 @@ export function TraditionalColorView() {
           {t('tools.color.traditional.title')}
         </h2>
         <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
-          {t('tools.color.traditional.subtitle')}
+          {t('tools.color.traditional.subtitle', { chinese: TRADITIONAL_CHINESE_COLORS.length, nippon: TRADITIONAL_NIPPON_COLORS.length })}
         </p>
       </div>
 

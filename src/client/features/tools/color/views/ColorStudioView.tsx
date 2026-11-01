@@ -170,7 +170,8 @@ export function ColorStudioView() {
               <label className="block text-[length:var(--text-11)] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
                 {t('tools.color.studio.seed_color')}
               </label>
-              <div className="mt-1 flex items-center gap-2">
+              {/* Wraps on a phone: the 112px hex field plus three icon buttons measured 232px inside 203px at 420px. */}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
                 <HexField
                   value={currentHex}
                   onCommit={(hex) => setCurrentColor(hex, 'input')}

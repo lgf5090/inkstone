@@ -162,7 +162,7 @@ export function FavoritesView() {
           ref={backupInputRef}
           type="file"
           accept="application/json,.json"
-          className="hidden"
+          className="sr-only"
           aria-hidden="true"
           tabIndex={-1}
           onChange={(e) => {

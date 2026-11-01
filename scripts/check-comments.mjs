@@ -523,6 +523,9 @@ const allowed = new Map([
     "// The desktop track is drawn 20px tall to sit in a dense row, which is under the 24px pointer",
     "// floor; the pad buys the missing area back without repainting the switch.",
     "/** A control that cannot be answered yet: shown, named, and skipped by the keyboard. */",
+    "// `shrink-0` keeps a Segmented from being squeezed by its siblings, but on a phone a long option list",
+    "// then pushed the whole control past the column it sits in (measured 606px inside 330px at 420px).",
+    "// `max-w-full` caps it at the container so the existing `flex-wrap` can do its job.",
   ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
@@ -17409,6 +17412,8 @@ const allowed = new Map([
     "// The shared \"no favorites yet\" line must not stand in for the palette tab any more.",
     "// Single click must only open the question.",
     "/** The short lines a panel offers when it has nothing to show — not the whole body text. */",
+    "// Same rule as the image panel: a `display:none` input is not a door any engine guarantees to open, and",
+    "// a nameless stop on the tab ring is a trap. The import-backup button beside it is the control.",
   ]],
   ["src/client/features/tools/color/color-studio.test.tsx", [
     "// Reset Zustand store state to defaults",
@@ -17493,6 +17498,7 @@ const allowed = new Map([
   ["src/client/features/tools/color/components/TraditionalColorCard.tsx", [
     "/* Color Top Banner */",
     "/* Info Section */",
+    "/**\n * The plate a solar-term chip sits on, chosen against the ink the swatch earned.\n *\n * A 10% black veil left the 10px label at 3.86–4.11:1 on the mid-tone traditional colours (measured in\n * Chromium over the whole 634-colour set), which is under the floor `AGENTS.md` rule 13 sets. An\n * almost-opaque plate of the ink's own family clears 4.5 whatever is painted underneath: black on 86% white\n * is 15.2:1 against the worst substrate, white on 62% black is 6.3:1.\n */",
   ]],
   ["src/client/features/tools/color/components/modals/ColorBlindnessModal.tsx", [
     "/* Swatch & Simulated Hex */",
@@ -17566,6 +17572,9 @@ const allowed = new Map([
     "// changed — so the recorder is the only way to see the reset the browser actually depends on.",
     "// The browser compares values: leaving the rejected name in place means a second pick of the same file",
     "// fires no change event, and the panel stays showing the picture the reader already replaced.",
+    "// `hidden` is `display:none`, and an input that is not laid out cannot open a dialog in every engine.",
+    "// It must stay invisible-but-rendered, and it must not become a second, nameless stop on the tab ring:",
+    "// the drop zone and the upload button are the controls a reader meets.",
   ]],
   ["src/client/features/tools/color/lib/color-format.ts", [
     "/**\n * The spaces the studio shows, in the order the panel lists them.\n *\n * The formatting used to live in the panel while `getColorSpaceValues` built the same strings again in a\n * different shape, so the value a reader copied was not the value the shared module had computed.\n */",
@@ -17726,6 +17735,7 @@ const allowed = new Map([
     "/* Header Banner */",
     "/* Seed indicator */",
     "/* Palette rows */",
+    "/* Wraps on a phone: seed chip plus two buttons measured 362px inside a 330px column at 420px. */",
   ]],
   ["src/client/features/tools/color/views/ColorStudioView.tsx", [
     "// Slider gradients",
@@ -17742,6 +17752,7 @@ const allowed = new Map([
     "/**\n * The seed color's hex box.\n *\n * It used to be re-mounted on every committed color (`key={currentHex}`), which took the caret away the\n * moment the sixth digit landed and threw away anything half-typed. The draft now lives here and only\n * follows the store while the field is not being edited, and a value that is not a color says so instead\n * of being ignored.\n */",
     "// The interface reads `--accent` from the cascade, so this writes the setting the same",
     "// way the appearance panel does and lets the derivation make it readable.",
+    "/* Wraps on a phone: the 112px hex field plus three icon buttons measured 232px inside 203px at 420px. */",
   ]],
   ["src/client/features/tools/color/views/FavoritesView.tsx", [
     "/* Header */",
@@ -17766,6 +17777,8 @@ const allowed = new Map([
     "/* Preset Inspirations Gallery */",
     "/* Tag filters */",
     "/* Grid of presets */",
+    "// The pill is always `bg-black/70`, so the accent is not a safe ink for it: with a custom",
+    "// accent this read 1.9:1 in Chromium. Its siblings are white; so is this.",
   ]],
   ["src/client/features/tools/color/views/ImagePaletteView.tsx", [
     "// Pre-packaged SVG sample image for quick testing",
@@ -17788,6 +17801,8 @@ const allowed = new Map([
     "// per step, and a slow decode of an earlier image could answer after a later one.",
     "// A picture from another origin taints the canvas; the sample and every local file do not.",
     "// The same file picked twice must re-run: without the reset the change event never fires.",
+    "// Not `hidden`: a `display:none` input cannot open a picker in every engine, and the drop zone",
+    "// above is the control the reader actually uses, so this stays out of the tab order and the tree.",
   ]],
   ["src/client/features/tools/color/views/TraditionalColorView.tsx", [
     "// Extract distinct series",
@@ -28998,6 +29013,7 @@ const allowed = new Map([
   ]],
   ["src/client/styles/ui-primitives.css", [
     "/*\n * Shared floating-surface primitives.\n *\n * Kept out of app.css so the blog reading runtime can carry the same viewport, popover, utility and\n * animation rules without importing the whole application stylesheet. Both entries import this file;\n * the note app and a published article therefore draw a toast, a lightbox or a menu with one skin.\n */",
+    "/* A range input carries a UA minimum of ~129px, and a flex item's automatic minimum size is that\n       minimum, so `flex-1` sliders widened their row instead of shrinking (measured 129px inside 112px). */",
   ]],
   ["src/client/styles/ui-theme.css", [
     "/* Theme tokens shared by the application shell and the blog reading runtime. */",
@@ -44786,6 +44802,12 @@ const allowed = new Map([
     "// The stored JSON blobs are decoded, not handed over raw.",
     "// The column is unread by the list, not unread by the account: a single read still returns it.",
   ]],
+  ["tests/tools-color-narrow-layout.test.tsx", [
+    "/**\n * What a narrow screen is allowed to do with these rows.\n *\n * A real Chromium run at 420/1280/1600 measured five places where content escaped the box it sat in — a\n * range input whose UA minimum (129px) is bigger than the 112px column holding it, a segmented track that\n * refused to shrink, and three header rows that would not wrap. jsdom has no layout, so this file pins the\n * class that grants the behaviour and the CSS rule that carries it; the measurement itself is the browser\n * sweep in the ledger, and both have to agree.\n */",
+    "// `shrink-0` alone is what pushed this 606px wide inside a 330px column at 420px.",
+    "// Class names alone would not have caught this: the fix is a CSS declaration, not a utility.",
+    "// The rows above were edited; the i18n gate is the one that keeps that true, and it runs as a script.",
+  ]],
   ["tests/tools-color-presets.test.ts", [
     "// 50 to 950",
   ]],
@@ -44811,6 +44833,13 @@ const allowed = new Map([
   ]],
   ["tests/tools-color-swatch.test.tsx", [
     "/**\n * The swatch overlay contract.\n *\n * jsdom has no layout and no pointer-event resolution, so it cannot show that a click lands; what it can\n * pin is the class contract that decides it, which is exactly what the four copies of this markup used to\n * get wrong in four different ways. The contrast half runs on the real preset corpus.\n */",
+  ]],
+  ["tests/tools-color-traditional-chip.test.ts", [
+    "/**\n * What the traditional-colour page says, and what it actually paints.\n *\n * A Chromium sweep over every view found three things the unit suite could not see: a 10px solar-term chip\n * whose 10% veil left it at 3.86:1 on mid-tone colours, an interpolation badge that took the accent as its\n * ink while sitting on a permanently black pill (1.9:1 with a picked olive), and a subtitle that claimed\n * 384 and 250 colours while the tabs next to it printed 82 and 47.\n */",
+    "/** The worst substrate a chip can land on: pure white or pure black, whichever hurts the pair more. */",
+    "// An empty list would make the two tests below vacuously green.",
+    "// And the call site must feed it, or the braces would print literally.",
+    "// The old markup was `bg-black/10`, which measured 3.86:1 for the sage-green card's chip in Chromium.",
   ]],
   ["tests/tools-color-wheel.test.ts", [
     "/**\n * Geometry of the color wheel's field and blit.\n *\n * jsdom answers `getContext('2d')` with null here, so the blit itself is verified in a real browser (see\n * the ledger's round-2 record for the device-pixel readback); what these cases pin is the two decisions\n * that failure turned on: the disk is built centred in its own square, and the backing store is sized by\n * the device pixel ratio while the drawing stays in CSS units.\n */",

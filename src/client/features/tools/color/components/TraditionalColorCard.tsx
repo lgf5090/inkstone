@@ -9,6 +9,18 @@ export interface TraditionalColorCardProps {
   color: TraditionalColorItem
 }
 
+/**
+ * The plate a solar-term chip sits on, chosen against the ink the swatch earned.
+ *
+ * A 10% black veil left the 10px label at 3.86–4.11:1 on the mid-tone traditional colours (measured in
+ * Chromium over the whole 634-colour set), which is under the floor `AGENTS.md` rule 13 sets. An
+ * almost-opaque plate of the ink's own family clears 4.5 whatever is painted underneath: black on 86% white
+ * is 15.2:1 against the worst substrate, white on 62% black is 6.3:1.
+ */
+export function solarTermPlate(ink: string): string {
+  return ink === '#ffffff' ? 'rgba(0, 0, 0, 0.62)' : 'rgba(255, 255, 255, 0.86)'
+}
+
 export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
   const setCurrentColor = useColorStudioStore((s) => s.setCurrentColor)
   const copyColor = useColorStudioStore((s) => s.copyColor)
@@ -51,8 +63,8 @@ export function TraditionalColorCard({ color }: TraditionalColorCardProps) {
 
         {color.solarTerm && (
           <span
-            style={{ color: recommendedTextColor(color.hex) }}
-            className="text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded bg-black/10"
+            style={{ color: recommendedTextColor(color.hex), backgroundColor: solarTermPlate(recommendedTextColor(color.hex)) }}
+            className="text-[length:var(--text-10)] font-medium px-1.5 py-0.5 rounded"
           >
             {color.solarTerm}
           </span>

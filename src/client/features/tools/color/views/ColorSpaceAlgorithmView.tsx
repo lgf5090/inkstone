@@ -33,7 +33,8 @@ export function ColorSpaceAlgorithmView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Wraps on a phone: seed chip plus two buttons measured 362px inside a 330px column at 420px. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {/* Seed indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)]">
             <div

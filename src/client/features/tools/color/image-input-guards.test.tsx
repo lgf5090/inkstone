@@ -92,6 +92,22 @@ describe('source file guard', () => {
 })
 
 describe('picker', () => {
+  it('keeps the file input rendered, unnamed and out of the tab order', async () => {
+    // `hidden` is `display:none`, and an input that is not laid out cannot open a dialog in every engine.
+    // It must stay invisible-but-rendered, and it must not become a second, nameless stop on the tab ring:
+    // the drop zone and the upload button are the controls a reader meets.
+    rendered = renderElement(createElement(ImagePaletteView))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(input, 'the picker vanished from the tree').toBeTruthy()
+    expect(input!.className, 'the picker is display:none again').not.toContain('hidden')
+    expect(input!.className).toContain('sr-only')
+    expect(input!.getAttribute('aria-hidden')).toBe('true')
+    expect(input!.tabIndex).toBe(-1)
+  })
+
   it('clears the input so the same file can be chosen twice', async () => {
     rendered = renderElement(createElement(ImagePaletteView))
     await act(async () => {

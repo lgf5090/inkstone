@@ -625,7 +625,7 @@ export const EN_US_TOOLS = {
   'tools.color.ui.subtitle': 'Authoritative palettes from Tailwind CSS, Ant Design, Fluent UI, Flat UI, and Open Color',
 
   'tools.color.traditional.title': 'Traditional Oriental Color Atlas',
-  'tools.color.traditional.subtitle': '384 Forbidden City Solar Term Chinese colors and 250 Nippon traditional colors',
+  'tools.color.traditional.subtitle': '{chinese} Forbidden City Solar Term Chinese colors and {nippon} Nippon traditional colors',
   'tools.color.traditional.tab_chinese': 'Forbidden City 24 Solar Terms',
   'tools.color.traditional.tab_nippon': 'Yamato Nippon Traditional Colors',
   'tools.color.traditional.search_placeholder': 'Search color name, pinyin, romaji, HEX...',

@@ -317,7 +317,11 @@ export function ImagePaletteView() {
               type="file"
               accept="image/png,image/jpeg,image/webp,image/svg+xml"
               onChange={handleFileChange}
-              className="hidden"
+              // Not `hidden`: a `display:none` input cannot open a picker in every engine, and the drop zone
+              // above is the control the reader actually uses, so this stays out of the tab order and the tree.
+              className="sr-only"
+              aria-hidden="true"
+              tabIndex={-1}
             />
           </div>
 
@@ -343,7 +347,7 @@ export function ImagePaletteView() {
         <div className="lg:col-span-7 flex flex-col space-y-6">
           {/* Dominant color hero card */}
           <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
               <span className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {t('tools.color.image.dominant')}
               </span>
@@ -396,7 +400,7 @@ export function ImagePaletteView() {
 
           {/* Palette grid */}
           <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-subtle)]">
               <span className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {t('tools.color.image.palette')} ({extractedPalette.length})
               </span>
