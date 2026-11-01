@@ -95,6 +95,12 @@ function dayKey(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
+/** The three numbers of a `YYYY-MM-DD` day key, for feeding to `Date.UTC`. */
+function startParts(key: string): [number, number, number] {
+  const [year, month, day] = key.split('-').map((part) => Number.parseInt(part, 10))
+  return [year!, month! - 1, day!]
+}
+
 const now = new Date()
 const YEAR = now.getFullYear()
 const MONTH = now.getMonth()
@@ -203,8 +209,13 @@ describe('the month grid', () => {
 
   it('draws one bar across the days a task covers, not a title per day', async () => {
     stubBreakpoint(true)
-    const start = Date.UTC(YEAR, MONTH, 5, 9)
-    const end = Date.UTC(YEAR, MONTH, 8, 17)
+    // A bar is drawn once per grid row, so the two fixture days have to land in the same row: the
+    // week start comes from the locale and the cursor month from the real clock, so hardcoded day
+    // numbers straddle a row boundary in some months and the second piece made this red.
+    const cells = buildMonthGridCells(YEAR, MONTH, weekStartFor(localeTag()))
+    const firstRow = cells.slice(0, 7)
+    const start = Date.UTC(...startParts(firstRow[0]!.key), 9)
+    const end = Date.UTC(...startParts(firstRow[Math.min(3, firstRow.length - 1)]!.key), 17)
     service.rows = [row('span', 'Conference', end, { startAt: start })]
 
     const container = await mount()
