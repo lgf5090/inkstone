@@ -42,6 +42,9 @@ describe('the sidebar calendar block', () => {
       openNote: vi.fn(async () => undefined),
     })
     useUi.setState({ ...originalUi, view: 'all', folderId: null, dateFilter: null, calendarJump: null, toasts: [] })
+    // The grid paints the cursor month, which is the reader's real today unless the clock is
+    // pinned; every fixture in this block is October 2026.
+    vi.useFakeTimers({ now: new Date(2026, 9, 4, 12, 0, 0).getTime(), toFake: ['Date'] })
     rendered = renderElement(createElement(SidebarCalendar))
     container = rendered.container
   })
@@ -52,6 +55,7 @@ describe('the sidebar calendar block', () => {
     useUi.setState(originalUi, true)
     localStorage.clear()
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   const dayButton = (key: string) => container.querySelector<HTMLButtonElement>(`[data-day-key="${key}"]`)
@@ -218,6 +222,9 @@ describe('the diary lookup is not the display language', () => {
     })
     await setLocaleAsync('en-US')
     useUi.setState({ ...originalUi, view: 'all', folderId: null, dateFilter: null, calendarJump: null, toasts: [] })
+    // The grid paints the cursor month, which is the reader's real today unless the clock is
+    // pinned; every fixture in this block is October 2026.
+    vi.useFakeTimers({ now: new Date(2026, 9, 4, 12, 0, 0).getTime(), toFake: ['Date'] })
     rendered = renderElement(createElement(SidebarCalendar))
     container = rendered.container
   })
@@ -228,6 +235,7 @@ describe('the diary lookup is not the display language', () => {
     useUi.setState(originalUi, true)
     localStorage.clear()
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it('reopens the diary that was filed in the other language', () => {
