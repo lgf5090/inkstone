@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { QrGradient } from '../../../../../shared/tools/qrcode/types'
 import { useQrCodeStore } from '../store'
-import { ColorWheelTrigger } from '../../../../components/color-field'
+import { ColorWellField } from '../../../../components/color-field'
 import { cn } from '../../../../lib/cn'
 import { t } from '../../../../lib/i18n'
 
@@ -160,11 +160,10 @@ export function ColorTab() {
         <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
           {t('tools.qrcode.color.custom_color')}
         </label>
-        <ColorWheelTrigger
+        <ColorWellField
           value={options.dotsOptions.color || '#000000'}
           label={t('tools.qrcode.color.custom_color')}
           onChange={(color) => handleSolidColorSelect(color)}
-          onCommit={(color) => handleSolidColorSelect(color)}
         />
       </div>
 
@@ -203,18 +202,10 @@ export function ColorTab() {
         <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
           {t('tools.qrcode.color.eye_outer')}
         </label>
-        <ColorWheelTrigger
+        <ColorWellField
           value={options.cornersSquareOptions?.color || options.dotsOptions.color || '#000000'}
           label={t('tools.qrcode.color.eye_outer')}
           onChange={(color) =>
-            setOptions({
-              cornersSquareOptions: {
-                ...options.cornersSquareOptions,
-                color,
-              },
-            })
-          }
-          onCommit={(color) =>
             setOptions({
               cornersSquareOptions: {
                 ...options.cornersSquareOptions,
@@ -229,18 +220,10 @@ export function ColorTab() {
         <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
           {t('tools.qrcode.color.eye_inner')}
         </label>
-        <ColorWheelTrigger
+        <ColorWellField
           value={options.cornersDotOptions?.color || options.dotsOptions.color || '#000000'}
           label={t('tools.qrcode.color.eye_inner')}
           onChange={(color) =>
-            setOptions({
-              cornersDotOptions: {
-                ...options.cornersDotOptions,
-                color,
-              },
-            })
-          }
-          onCommit={(color) =>
             setOptions({
               cornersDotOptions: {
                 ...options.cornersDotOptions,
@@ -255,18 +238,10 @@ export function ColorTab() {
         <label className="text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
           {t('tools.qrcode.color.background_color')}
         </label>
-        <ColorWheelTrigger
+        <ColorWellField
           value={options.backgroundOptions?.color || '#ffffff'}
           label={t('tools.qrcode.color.background_color')}
           onChange={(color) =>
-            setOptions({
-              backgroundOptions: {
-                ...options.backgroundOptions,
-                color,
-              },
-            })
-          }
-          onCommit={(color) =>
             setOptions({
               backgroundOptions: {
                 ...options.backgroundOptions,

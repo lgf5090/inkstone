@@ -2,18 +2,21 @@ import { useEffect, useState } from 'react'
 import { Download, RefreshCw, Trash2, Undo2 } from 'lucide-react'
 import type { QrCodeRecord } from '../../../../../shared/tools/qrcode/types'
 import { deleteQrRecord, fetchQrRecords } from '../api'
+import { saveUrlAsFile } from '../engine/export-pipeline'
 import { useQrCodeStore } from '../store'
 import { useToolsStore } from '../../store'
 import { Button, IconButton } from '../../../../components/primitives'
 import { confirm } from '../../../../components/overlay'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 import { useUi } from '../../../../store/ui'
+import { summarizeQrPayload } from './payload-summary'
 import { t } from '../../../../lib/i18n'
 
 export function QrHistoryView() {
   const [records, setRecords] = useState<QrCodeRecord[]>([])
   const [loading, setLoading] = useState(false)
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setContentType = useQrCodeStore((s) => s.setContentType)
   const setTextContent = useQrCodeStore((s) => s.setTextContent)
   const setUrlContent = useQrCodeStore((s) => s.setUrlContent)
@@ -43,12 +46,13 @@ export function QrHistoryView() {
       setTextContent(record.contentRaw)
     }
     try {
-      const parsedOptions = JSON.parse(record.optionsJson)
-      setOptions(parsedOptions)
+      const validated = parseQrStylingOptions(JSON.parse(record.optionsJson))
+      if (validated) setOptions(validated)
+      else useUi.getState().toast({ title: t('tools.qrcode.history.options_invalid'), tone: 'danger' })
     } catch {
+      useUi.getState().toast({ title: t('tools.qrcode.history.options_invalid'), tone: 'danger' })
     }
-    setActiveView('generator')
-    useToolsStore.getState().setActiveQrCodeView('generator')
+    setActiveQrCodeView('generator')
     useUi.getState().toast({ title: t('tools.qrcode.history.restored'), tone: 'success' })
   }
 
@@ -98,7 +102,10 @@ export function QrHistoryView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {records?.map((record) => (
+          {records?.map((record) => {
+            // A stored title is a legacy of the old form; the payload is what identifies the code.
+            const summary = record.title || summarizeQrPayload(record.contentType, record.contentRaw)
+            return (
             <div
               key={record.id}
               className="flex flex-col rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 shadow-xs"
@@ -115,13 +122,15 @@ export function QrHistoryView() {
               <div className="flex items-center justify-center bg-white rounded p-2 mb-2 h-36 overflow-hidden">
                 <img
                   src={`/api/tools/qrcode/records/${record.id}/file`}
-                  alt={record.title}
+                  alt={summary}
+                  loading="lazy"
+                  decoding="async"
                   className="h-full object-contain"
                 />
               </div>
 
               <div className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-primary)] mb-1">
-                {record.title || record.contentRaw}
+                {summary}
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)] mt-auto">
@@ -135,15 +144,18 @@ export function QrHistoryView() {
                 </Button>
 
                 <div className="flex items-center gap-1">
-                  <a
-                    href={`/api/tools/qrcode/records/${record.id}/file`}
-                    download={`qrcode-${record.id}.${record.fileType}`}
-                    className="inline-flex"
+                  <IconButton
+                    size="sm"
+                    label={t('tools.qrcode.history.download')}
+                    onClick={() =>
+                      saveUrlAsFile(
+                        `/api/tools/qrcode/records/${record.id}/file`,
+                        `qrcode-${record.id}.${record.fileType}`
+                      )
+                    }
                   >
-                    <IconButton size="sm" label={t('tools.qrcode.history.download')}>
-                      <Download size={14} />
-                    </IconButton>
-                  </a>
+                    <Download size={14} />
+                  </IconButton>
                   <IconButton
                     size="sm"
                     label={t('tools.qrcode.history.delete')}
@@ -154,7 +166,8 @@ export function QrHistoryView() {
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

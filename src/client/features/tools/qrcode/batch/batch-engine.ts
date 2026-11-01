@@ -1,4 +1,4 @@
-import { zipSync } from 'fflate'
+import { zip } from 'fflate'
 import type {
   QrExportFormat,
   QrStylingOptions,
@@ -13,6 +13,9 @@ export interface BatchItemConfig {
   filename: string
 }
 
+/** A guard rail, not a quota: this many canvases is already minutes of main-thread work. */
+export const MAX_BATCH_ITEMS = 500
+
 export interface BatchGenerateOptions {
   items: BatchItemConfig[]
   size?: number
@@ -20,6 +23,8 @@ export interface BatchGenerateOptions {
   randomizeStyle?: boolean
   baseOptions: QrStylingOptions
   onProgress?: (current: number, total: number) => void
+  /** Checked before each item, so a runaway batch can be stopped mid-run. */
+  isCancelled?: () => boolean
 }
 
 const RANDOM_PIXELS: QrToolkitPixelStyle[] = [
@@ -58,10 +63,22 @@ export function generateRandomString(length: number): string {
 }
 
 export async function runBatchGeneration(options: BatchGenerateOptions): Promise<Blob> {
-  const { items, size = 600, format = 'png', randomizeStyle = false, baseOptions, onProgress } = options
+  const {
+    items,
+    size = 600,
+    format = 'png',
+    randomizeStyle = false,
+    baseOptions,
+    onProgress,
+    isCancelled,
+  } = options
+  if (items.length > MAX_BATCH_ITEMS) {
+    throw new Error(`batch limit exceeded: ${MAX_BATCH_ITEMS}`)
+  }
   const zipFiles: Record<string, Uint8Array> = {}
 
   for (let i = 0; i < items.length; i++) {
+    if (isCancelled?.()) throw new Error('BATCH_CANCELLED')
     const item = items[i]
     let itemOptions = { ...baseOptions }
 
@@ -108,8 +125,15 @@ export async function runBatchGeneration(options: BatchGenerateOptions): Promise
     }
 
     onProgress?.(i + 1, items.length)
+    // Rendering, encoding and base64 decoding all run here; without a yield the page is frozen for
+    // the whole batch and the progress line never repaints.
+    await new Promise((resolve) => setTimeout(resolve, 0))
   }
 
-  const zipped = zipSync(zipFiles)
-  return new Blob([zipped as any], { type: 'application/zip' })
+  const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+    zip(zipFiles, (err, data) => (err ? reject(err) : resolve(data)))
+  })
+  const buffer: ArrayBuffer =
+    zipped.buffer instanceof ArrayBuffer ? zipped.buffer : zipped.slice().buffer
+  return new Blob([buffer], { type: 'application/zip' })
 }

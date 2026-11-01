@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, type RefObject } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -7,11 +7,13 @@ import {
   Grid,
   Layers,
   Sparkles,
-  Upload,
 } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
-import { useQrCodeStore } from '../store'
+import { useQrCodeStore, useQrPayload } from '../store'
+import { useUi } from '../../../../store/ui'
 import { QrEngine } from '../engine/qr-engine'
+import { ImageDropZone } from '../ImageDropZone'
+import { Button } from '../../../../components/primitives'
 import { GridAlignModal } from './GridAlignModal'
 import {
   compareSegments,
@@ -35,19 +37,45 @@ export const QrCompareView: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState<boolean>(false)
   const [alignModalOpen, setAlignModalOpen] = useState<boolean>(false)
 
-  const aiInputRef = useRef<HTMLInputElement>(null)
-  const refInputRef = useRef<HTMLInputElement>(null)
   const displayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const aiUrlRef = useRef<string | null>(null)
+  const refUrlRef = useRef<string | null>(null)
+  const showFile = (slot: RefObject<string | null>, setUrl: (url: string) => void) => (file: File) => {
+    if (slot.current) URL.revokeObjectURL(slot.current)
+    const url = URL.createObjectURL(file)
+    slot.current = url
+    setUrl(url)
+  }
+  const clearFile = (slot: RefObject<string | null>, setUrl: (url: string | null) => void) => () => {
+    if (slot.current) URL.revokeObjectURL(slot.current)
+    slot.current = null
+    setUrl(null)
+  }
+  useEffect(
+    () => () => {
+      for (const url of [aiUrlRef.current, refUrlRef.current]) {
+        if (url) URL.revokeObjectURL(url)
+      }
+    },
+    []
+  )
 
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
+  const payload = useQrPayload()
   const options = useQrCodeStore((s) => s.options)
 
   // Use current generator QR as initial reference QR if empty
   const handleUseCurrentGeneratorAsRef = async () => {
-    const payload = getEncodedPayload() || 'https://inkstone.app'
-    const engine = new QrEngine(options, payload)
-    const canvas = await engine.renderCanvas(800, 800)
-    setRefImageUrl(canvas.toDataURL('image/png'))
+    if (!payload.trim()) {
+      useUi.getState().toast({ title: t('tools.qrcode.compare.no_content'), tone: 'danger' })
+      return
+    }
+    try {
+      const engine = new QrEngine(options, payload)
+      const canvas = await engine.renderCanvas(800, 800)
+      setRefImageUrl(canvas.toDataURL('image/png'))
+    } catch {
+      useUi.getState().toast({ title: t('tools.qrcode.preview.render_error'), tone: 'danger' })
+    }
   }
 
   // Segment and compare whenever images or grid sizes change
@@ -162,97 +190,70 @@ export const QrCompareView: React.FC = () => {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* AI Image Upload */}
           <div className="flex flex-col gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
-            <input
-              ref={aiInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) setAiImageUrl(URL.createObjectURL(f))
-              }}
-              className="hidden"
-            />
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-[var(--text-primary)]">
+              <span className="text-[length:var(--text-12)] font-semibold text-[var(--text-primary)]">
                 {t('tools.qrcode.compare.ai_image_label')}
               </span>
-              <button
-                type="button"
-                onClick={() => aiInputRef.current?.click()}
-                className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-              >
-                <Upload size={12} />
-                <span>{aiImageUrl ? t('tools.qrcode.compare.edit') : t('tools.qrcode.scanner.upload_prompt')}</span>
-              </button>
+              {aiImageUrl && (
+                <Button variant="subtle" size="sm" onClick={clearFile(aiUrlRef, setAiImageUrl)}>
+                  {t('tools.qrcode.scanner.clear_image')}
+                </Button>
+              )}
             </div>
 
             {aiImageUrl ? (
-              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-neutral-900">
-                <img src={aiImageUrl} alt="" className="h-full w-full object-contain" />
+              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)]">
+                <img
+                  src={aiImageUrl}
+                  alt={t('tools.qrcode.compare.ai_image_label')}
+                  className="h-full w-full object-contain"
+                />
               </div>
             ) : (
-              <div
-                onClick={() => aiInputRef.current?.click()}
-                className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[var(--border-subtle)] text-center hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]"
-              >
-                <Upload size={24} className="text-[var(--text-tertiary)]" />
-                <span className="mt-2 text-xs text-[var(--text-tertiary)]">
-                  {t('tools.qrcode.compare.upload_ai_prompt')}
-                </span>
-              </div>
+              <ImageDropZone
+                className="aspect-square"
+                label={t('tools.qrcode.compare.upload_ai_prompt')}
+                onFile={showFile(aiUrlRef, setAiImageUrl)}
+              />
             )}
           </div>
 
           {/* Reference QR Upload / Generator Hook */}
           <div className="flex flex-col gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
-            <input
-              ref={refInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) setRefImageUrl(URL.createObjectURL(f))
-              }}
-              className="hidden"
-            />
+
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-[var(--text-primary)]">
                 {t('tools.qrcode.compare.reference_qr_label')}
               </span>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleUseCurrentGeneratorAsRef}
-                  className="flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-                >
-                  <Sparkles size={12} />
-                  <span>{t('tools.qrcode.compare.use_current')}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => refInputRef.current?.click()}
-                  className="flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:underline"
-                >
-                  <Upload size={12} />
-                  <span>{t('tools.qrcode.compare.edit')}</span>
-                </button>
+                <Button variant="subtle" size="sm" onClick={handleUseCurrentGeneratorAsRef} icon={<Sparkles size={12} />}>
+                  {t('tools.qrcode.compare.use_current')}
+                </Button>
               </div>
             </div>
 
             {refImageUrl ? (
-              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-neutral-900">
-                <img src={refImageUrl} alt="" className="h-full w-full object-contain" />
+              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-[var(--bg-inset)]">
+                <img
+                  src={refImageUrl}
+                  alt={t('tools.qrcode.compare.reference_qr_label')}
+                  className="h-full w-full object-contain"
+                />
+                <Button
+                  className="absolute right-2 bottom-2"
+                  variant="secondary"
+                  size="sm"
+                  onClick={clearFile(refUrlRef, setRefImageUrl)}
+                >
+                  {t('tools.qrcode.scanner.clear_image')}
+                </Button>
               </div>
             ) : (
-              <div
-                onClick={() => refInputRef.current?.click()}
-                className="flex aspect-square w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-[var(--border-subtle)] text-center hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]"
-              >
-                <Upload size={24} className="text-[var(--text-tertiary)]" />
-                <span className="mt-2 text-xs text-[var(--text-tertiary)]">
-                  {t('tools.qrcode.compare.upload_ref_prompt')}
-                </span>
-              </div>
+              <ImageDropZone
+                className="aspect-square"
+                label={t('tools.qrcode.compare.upload_ref_prompt')}
+                onFile={showFile(refUrlRef, setRefImageUrl)}
+              />
             )}
           </div>
         </div>
@@ -361,9 +362,9 @@ export const QrCompareView: React.FC = () => {
                         </span>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {diffResult.scanabilityScore >= 75 ? (
-                            <CheckCircle2 size={16} className="text-green-500" />
+                            <CheckCircle2 size={16} className="text-success" />
                           ) : (
-                            <AlertCircle size={16} className="text-amber-500" />
+                            <AlertCircle size={16} className="text-warning" />
                           )}
                           <span className="font-bold text-sm text-[var(--text-primary)]">
                             {diffResult.scanabilityScore}%
@@ -375,7 +376,7 @@ export const QrCompareView: React.FC = () => {
                         <span className="text-xs text-[var(--text-tertiary)]">
                           {t('tools.qrcode.compare.mismatch_count')}
                         </span>
-                        <p className="font-mono text-sm font-bold text-red-500 mt-0.5">
+                        <p className="font-mono text-[length:var(--text-14)] font-bold text-danger mt-0.5">
                           {diffResult.mismatchCount}
                         </p>
                       </div>
@@ -386,7 +387,7 @@ export const QrCompareView: React.FC = () => {
                         <span className="text-[var(--text-tertiary)]">
                           {t('tools.qrcode.compare.mismatch_dark')}
                         </span>
-                        <p className="font-mono font-medium text-red-400 mt-0.5">
+                        <p className="font-mono font-medium text-danger mt-0.5">
                           {diffResult.mismatchDark.length}
                         </p>
                       </div>

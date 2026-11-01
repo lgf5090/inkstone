@@ -15,6 +15,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
   const [isScanning, setIsScanning] = useState<boolean>(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const onScanRef = useRef(onScan)
+  const preprocessRef = useRef(preprocessOptions)
+  onScanRef.current = onScan
+  preprocessRef.current = preprocessOptions
 
   useEffect(() => {
     let isMounted = true
@@ -75,7 +80,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
       }
     }
 
-    startStream()
+    if (isScanning) startStream()
 
     return () => {
       isMounted = false
@@ -83,8 +88,11 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
         streamRef.current.getTracks().forEach((track) => track.stop())
         streamRef.current = null
       }
+      // A paused camera has to look paused: leaving the last frame on the element reads as a live feed
+      // while the reader's record light has already gone out.
+      if (videoRef.current) videoRef.current.srcObject = null
     }
-  }, [selectedDeviceId])
+  }, [selectedDeviceId, isScanning])
 
   useEffect(() => {
     let timer: number
@@ -93,10 +101,16 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
     async function tick() {
       if (!isCancelled && isScanning && videoRef.current && videoRef.current.readyState >= 2) {
         try {
-          const processedCanvas = preprocessImageToCanvas(videoRef.current, preprocessOptions)
+          // Four canvases a second were allocated, decoded and dropped; one is reused instead.
+          if (!scratchCanvasRef.current) scratchCanvasRef.current = document.createElement('canvas')
+          const processedCanvas = preprocessImageToCanvas(
+            videoRef.current,
+            preprocessRef.current,
+            scratchCanvasRef.current
+          )
           const result = await scanCanvas(processedCanvas)
           if (result && !isCancelled) {
-            onScan(result)
+            onScanRef.current(result)
           }
         } catch {
           // Ignore frame decode errors
@@ -113,7 +127,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
       isCancelled = true
       clearTimeout(timer)
     }
-  }, [isScanning, onScan, preprocessOptions])
+  }, [isScanning])
 
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
@@ -127,15 +141,15 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
 
         {isScanning && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="relative h-60 w-60 rounded-xl border-2 border-primary-500/80 shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-              <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary-400 animate-pulse shadow-md" />
+            <div className="relative h-60 w-60 rounded-[var(--r-xl)] border-2 border-[var(--accent)]">
+              <div className="absolute inset-x-0 top-0 h-[2px] bg-[var(--accent)] animate-pulse" />
             </div>
           </div>
         )}
 
         {errorMessage && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-4 text-center text-xs text-red-300">
-            <CameraOff size={32} className="mb-2 text-red-400" />
+            <CameraOff size={32} className="mb-2 text-danger" />
             <p>{errorMessage}</p>
           </div>
         )}

@@ -1,12 +1,14 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import type {
+  QrCodeSettings,
   QrContentType,
   QrEmailContent,
+  QrErrorCorrectionLevel,
   QrExportFormat,
   QrEyeShape,
   QrPhoneContent,
   QrPreset,
-  QrRecord,
   QrStylingOptions,
   QrToolkitOptions,
   QrVCardContent,
@@ -14,18 +16,23 @@ import type {
 } from '../../../../shared/tools/qrcode/types'
 import { DEFAULT_QR_OPTIONS } from './engine/qr-engine'
 
-export type BeautifyTab = 'template' | 'shape' | 'logo' | 'text' | 'color' | 'ai'
-export type QrNavView =
-  | 'generator'
-  | 'scanner'
-  | 'compare'
-  | 'batch'
-  | 'history'
-  | 'templates'
-  | 'settings'
+export type BeautifyTab =
+  | 'template'
+  | 'shape'
+  | 'logo'
+  | 'frame'
+  | 'text'
+  | 'color'
+  | 'ai'
 
+// The export size the slider offers and the workbench accepts; server defaults are clamped into it.
+export const EXPORT_SIZE_MIN = 300
+export const EXPORT_SIZE_MAX = 2000
+export const EXPORT_SIZE_STEP = 100
+export const EXPORT_SIZE_DEFAULT = 1000
+
+export const QR_ECC_LEVELS: QrErrorCorrectionLevel[] = ['L', 'M', 'Q', 'H']
 export interface QrCodeState {
-  activeView: QrNavView
   contentAccordionOpen: boolean
   beautifyAccordionOpen: boolean
   activeBeautifyTab: BeautifyTab
@@ -43,12 +50,11 @@ export interface QrCodeState {
 
   exportSize: number
   exportFormat: QrExportFormat
+  defaultsApplied: boolean
 
-  selectedRecord: QrRecord | null
   infoModalOpen: boolean
   fullscreenModalOpen: boolean
 
-  setActiveView: (view: QrNavView) => void
   toggleContentAccordion: () => void
   setContentAccordionOpen: (open: boolean) => void
   toggleBeautifyAccordion: () => void
@@ -72,12 +78,29 @@ export interface QrCodeState {
 
   setExportSize: (size: number) => void
   setExportFormat: (format: QrExportFormat) => void
+  applyServerDefaults: (settings: QrCodeSettings) => void
 
-  setSelectedRecord: (record: QrRecord | null) => void
   setInfoModalOpen: (open: boolean) => void
   setFullscreenModalOpen: (open: boolean) => void
+}
 
-  getEncodedPayload: () => string
+/** vCard TEXT values escape backslash, comma, semicolon and colon before they join a line. */
+function escapeVCardText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+    .replace(/:/g, '\\:')
+    .replace(/\r?\n/g, '\\n')
+}
+
+/** Payload fields are line-oriented, so a break typed into a value would forge extra fields. */
+function toSingleLine(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ')
+}
+
+function isHanText(value: string): boolean {
+  return /[\p{Script=Han}]/u.test(value)
 }
 
 export function encodeQrData(
@@ -97,63 +120,77 @@ export function encodeQrData(
     case 'url': {
       const url = state.urlContent.trim()
       if (!url) return ''
-      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) return url
-      return `https://${url}`
+      const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url) ? url : `https://${url}`
+      try {
+        // Parsing percent-encodes spaces and punycodes international hosts; a bare space truncates the
+        // payload on several readers, so the encoded form is the one that survives the round trip.
+        return new URL(withScheme).toString()
+      } catch {
+        return withScheme
+      }
     }
     case 'wifi': {
       const { ssid, password, encryption, hidden } = state.wifiContent
       if (!ssid.trim()) return ''
       const enc = encryption === 'none' ? 'nopass' : encryption.toUpperCase()
-      const esc = (val: string) => val.replace(/([\\;,:"])/g, '\\$1')
+      const esc = (val: string) => toSingleLine(val).replace(/([\\;,:"])/g, '\\$1')
       return `WIFI:S:${esc(ssid)};T:${enc};P:${esc(password || '')};H:${hidden ? 'true' : 'false'};;`
     }
     case 'vcard': {
       const vcard = state.vcardContent || {}
-      const firstName = (vcard.firstName || '').trim()
-      const lastName = (vcard.lastName || '').trim()
-      const phone = (vcard.phone || '').trim()
-      const mobile = (vcard.mobile || '').trim()
-      const email = (vcard.email || '').trim()
-      const organization = (vcard.organization || '').trim()
-      const title = (vcard.title || '').trim()
-      const url = (vcard.url || '').trim()
-      const address = (vcard.address || '').trim()
-      const fullName = `${lastName}${firstName}`.trim() || firstName || lastName
+      const firstName = toSingleLine(vcard.firstName || '').trim()
+      const lastName = toSingleLine(vcard.lastName || '').trim()
+      const phone = toSingleLine(vcard.phone || '').trim()
+      const mobile = toSingleLine(vcard.mobile || '').trim()
+      const email = toSingleLine(vcard.email || '').trim()
+      const organization = toSingleLine(vcard.organization || '').trim()
+      const title = toSingleLine(vcard.title || '').trim()
+      const url = toSingleLine(vcard.url || '').trim()
+      const address = toSingleLine(vcard.address || '').trim()
+      // Surname-then-given with no space is how a Han reader signs a card; everyone else expects the
+      // two parts separated, which blind concatenation never gives them.
+      const nameParts = [lastName, firstName].filter(Boolean)
+      const fullName = !nameParts.length
+        ? ''
+        : isHanText(lastName + firstName)
+          ? lastName + firstName
+          : nameParts.join(' ')
       if (!fullName && !phone && !email && !mobile) return ''
       const lines = [
         'BEGIN:VCARD',
         'VERSION:3.0',
-        fullName ? `FN:${fullName}` : '',
-        `N:${lastName};${firstName};;;`,
-        organization ? `ORG:${organization}` : '',
-        title ? `TITLE:${title}` : '',
-        phone ? `TEL;TYPE=WORK,VOICE:${phone}` : '',
-        mobile ? `TEL;TYPE=CELL,VOICE:${mobile}` : '',
-        email ? `EMAIL;TYPE=PREF,INTERNET:${email}` : '',
+        fullName ? `FN:${escapeVCardText(fullName)}` : '',
+        `N:${escapeVCardText(lastName)};${escapeVCardText(firstName)};;;`,
+        organization ? `ORG:${escapeVCardText(organization)}` : '',
+        title ? `TITLE:${escapeVCardText(title)}` : '',
+        phone ? `TEL;TYPE=WORK,VOICE:${escapeVCardText(phone)}` : '',
+        mobile ? `TEL;TYPE=CELL,VOICE:${escapeVCardText(mobile)}` : '',
+        email ? `EMAIL;TYPE=PREF,INTERNET:${escapeVCardText(email)}` : '',
         url ? `URL:${url}` : '',
-        address ? `ADR;TYPE=WORK:;;${address};;;;` : '',
+        address ? `ADR;TYPE=WORK:;;${escapeVCardText(address)};;;;` : '',
         'END:VCARD',
       ].filter(Boolean)
       return lines.join('\n')
     }
     case 'email': {
       const email = state.emailContent || {}
-      const to = (email.to || '').trim()
+      const to = toSingleLine(email.to || '').trim().replace(/\s+/g, '')
       if (!to) return ''
-      const params = new URLSearchParams()
-      if (email.subject?.trim()) params.set('subject', email.subject.trim())
-      if (email.body?.trim()) params.set('body', email.body.trim())
-      const query = params.toString()
-      return `mailto:${encodeURIComponent(to)}${query ? `?${query}` : ''}`
+      // RFC 6068 keeps the addr-spec literal and writes a space as %20; URLSearchParams percent-encodes
+      // the @ and spells spaces '+', which several readers hand to the mail app as typed.
+      const params: string[] = []
+      const subject = email.subject?.trim()
+      const body = email.body?.trim()
+      if (subject) params.push(`subject=${encodeURIComponent(subject)}`)
+      if (body) params.push(`body=${encodeURIComponent(body)}`)
+      return `mailto:${to}${params.length ? `?${params.join('&')}` : ''}`
     }
     case 'phone': {
-      const phoneContent = state.phoneContent || {}
-      const phone = (phoneContent.phone || (phoneContent as any).number || '').trim()
+      const content = state.phoneContent || {}
+      const phone = toSingleLine(content.phone || '').trim()
       if (!phone) return ''
-      const message = (phoneContent.message || '').trim()
-      if (message) {
-        return `smsto:${phone}:${message}`
-      }
+      const message = toSingleLine(content.message || '').trim()
+      if (message) return `smsto:${phone}:${message}`
       return `tel:${phone}`
     }
     default:
@@ -162,7 +199,6 @@ export function encodeQrData(
 }
 
 export const useQrCodeStore = create<QrCodeState>((set, get) => ({
-  activeView: 'generator',
   contentAccordionOpen: true,
   beautifyAccordionOpen: true,
   activeBeautifyTab: 'template',
@@ -200,14 +236,13 @@ export const useQrCodeStore = create<QrCodeState>((set, get) => ({
   options: { ...DEFAULT_QR_OPTIONS },
   currentEyeShape: 'square',
 
-  exportSize: 1000,
+  exportSize: EXPORT_SIZE_DEFAULT,
   exportFormat: 'png',
+  defaultsApplied: false,
 
-  selectedRecord: null,
   infoModalOpen: false,
   fullscreenModalOpen: false,
 
-  setActiveView: (view) => set({ activeView: view }),
   toggleContentAccordion: () => set((s) => ({ contentAccordionOpen: !s.contentAccordionOpen })),
   setContentAccordionOpen: (open) => set({ contentAccordionOpen: open }),
   toggleBeautifyAccordion: () => set((s) => ({ beautifyAccordionOpen: !s.beautifyAccordionOpen })),
@@ -276,22 +311,43 @@ export const useQrCodeStore = create<QrCodeState>((set, get) => ({
 
   resetOptions: () => set({ options: { ...DEFAULT_QR_OPTIONS }, currentEyeShape: 'square' }),
 
-  setExportSize: (size) => set({ exportSize: size }),
+  setExportSize: (size) =>
+    set({ exportSize: Math.min(EXPORT_SIZE_MAX, Math.max(EXPORT_SIZE_MIN, Math.round(size))) }),
   setExportFormat: (format) => set({ exportFormat: format }),
 
-  setSelectedRecord: (record) => set({ selectedRecord: record }),
+  applyServerDefaults: (settings) => {
+    // Starting values land once per session: re-applying them on every visit to the tools tab would
+    // overwrite styling the reader already changed in this workbench.
+    if (get().defaultsApplied) return
+    const size = Math.min(EXPORT_SIZE_MAX, Math.max(EXPORT_SIZE_MIN, Math.round(settings.defaultSize)))
+    const eccKnown = QR_ECC_LEVELS.includes(settings.defaultErrorCorrection)
+    set((s) => ({
+      defaultsApplied: true,
+      exportSize: size,
+      exportFormat: settings.defaultFormat,
+      options: eccKnown ? { ...s.options, errorCorrectionLevel: settings.defaultErrorCorrection } : s.options,
+    }))
+  },
+
   setInfoModalOpen: (open) => set({ infoModalOpen: open }),
   setFullscreenModalOpen: (open) => set({ fullscreenModalOpen: open }),
-
-  getEncodedPayload: () => {
-    const s = get()
-    return encodeQrData(s.contentType, {
-      textContent: s.textContent,
-      urlContent: s.urlContent,
-      wifiContent: s.wifiContent,
-      vcardContent: s.vcardContent,
-      emailContent: s.emailContent,
-      phoneContent: s.phoneContent,
-    })
-  },
 }))
+
+/**
+ * The encoded payload as a render-time value. A component that read it through a store getter during
+ * render stayed stale: the getter is a stable function reference, so editing the content never
+ * re-rendered the panel and it kept drawing — and exporting — the previous payload.
+ */
+export function useQrPayload(): string {
+  const contentType = useQrCodeStore((s) => s.contentType)
+  const textContent = useQrCodeStore((s) => s.textContent)
+  const urlContent = useQrCodeStore((s) => s.urlContent)
+  const wifiContent = useQrCodeStore((s) => s.wifiContent)
+  const vcardContent = useQrCodeStore((s) => s.vcardContent)
+  const emailContent = useQrCodeStore((s) => s.emailContent)
+  const phoneContent = useQrCodeStore((s) => s.phoneContent)
+  return useMemo(
+    () => encodeQrData(contentType, { textContent, urlContent, wifiContent, vcardContent, emailContent, phoneContent }),
+    [contentType, textContent, urlContent, wifiContent, vcardContent, emailContent, phoneContent],
+  )
+}

@@ -11,6 +11,7 @@ import { useUi } from '../../../../store/ui'
 import { t, type MessageKey } from '../../../../lib/i18n'
 import { cn } from '../../../../lib/cn'
 import { TemplateThumbnail } from './TemplateThumbnail'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
 
 const CATEGORIES: readonly { id: 'all' | QrTemplateCategory | 'custom'; labelKey: MessageKey }[] = [
   { id: 'all', labelKey: 'tools.qrcode.templates.cat_all' },
@@ -26,7 +27,7 @@ export function QrTemplatesView() {
   const [loading, setLoading] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<'all' | QrTemplateCategory | 'custom'>('all')
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setOptions = useQrCodeStore((s) => s.setOptions)
   const currentOptions = useQrCodeStore((s) => s.options)
 
@@ -49,17 +50,16 @@ export function QrTemplatesView() {
 
   const handleApplyPreset = (preset: QrPreset) => {
     useQrCodeStore.getState().applyPreset(preset)
-    setActiveView('generator')
-    useToolsStore.getState().setActiveQrCodeView('generator')
+    setActiveQrCodeView('generator')
     useUi.getState().toast({ title: t('tools.qrcode.templates.applied'), tone: 'success' })
   }
 
   const handleApplyCustom = (tpl: QrCodeTemplate) => {
     try {
-      const parsed = JSON.parse(tpl.optionsJson)
-      setOptions(parsed)
-      setActiveView('generator')
-      useToolsStore.getState().setActiveQrCodeView('generator')
+      const validated = parseQrStylingOptions(JSON.parse(tpl.optionsJson))
+      if (!validated) throw new Error('template options rejected')
+      setOptions(validated)
+      setActiveQrCodeView('generator')
       useUi.getState().toast({ title: t('tools.qrcode.templates.applied'), tone: 'success' })
     } catch {
       useUi.getState().toast({ title: t('tools.qrcode.templates.apply_error'), tone: 'danger' })
@@ -105,7 +105,8 @@ export function QrTemplatesView() {
 
   const parseCustomOptions = (json: string): QrStylingOptions => {
     try {
-      return JSON.parse(json)
+      const validated = parseQrStylingOptions(JSON.parse(json))
+      return validated ? { ...currentOptions, ...validated } : currentOptions
     } catch {
       return currentOptions
     }
@@ -243,7 +244,7 @@ export function QrTemplatesView() {
 
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <span className="text-[length:var(--text-13)] font-semibold text-[var(--text-primary)] truncate">
-                      {preset.name}
+                      {t(preset.nameKey)}
                     </span>
                     <span className="shrink-0 rounded bg-[var(--bg-sunken)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                       {preset.category === 'minimal' && t('tools.qrcode.templates.cat_minimal')}
@@ -254,7 +255,7 @@ export function QrTemplatesView() {
                   </div>
 
                   <p className="text-[length:var(--text-11)] text-[var(--text-secondary)] line-clamp-2 mb-3 min-h-[30px]">
-                    {preset.description}
+                    {t(preset.descriptionKey)}
                   </p>
 
                   <div className="mt-auto">

@@ -13,7 +13,10 @@ import {
 } from 'lucide-react'
 import { t } from '../../../../lib/i18n'
 import { useQrCodeStore } from '../store'
+import { useToolsStore } from '../../store'
 import { CameraScanner } from './CameraScanner'
+import { ImageDropZone } from '../ImageDropZone'
+import { Button } from '../../../../components/primitives'
 import {
   preprocessImageToCanvas,
   scanCanvas,
@@ -38,8 +41,24 @@ export const QrScannerView: React.FC = () => {
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // A picked or pasted image only has to outlive the decode; without releasing it the page kept one
+  // blob URL alive per file for the rest of the session.
+  const objectUrlRef = useRef<string | null>(null)
+  const showImage = (file: File) => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    const url = URL.createObjectURL(file)
+    objectUrlRef.current = url
+    setUploadedImageUrl(url)
+    setMode('file')
+  }
+  useEffect(
+    () => () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    },
+    []
+  )
 
-  const setActiveView = useQrCodeStore((s) => s.setActiveView)
+  const setActiveQrCodeView = useToolsStore((s) => s.setActiveQrCodeView)
   const setTextContent = useQrCodeStore((s) => s.setTextContent)
   const setContentType = useQrCodeStore((s) => s.setContentType)
 
@@ -51,11 +70,7 @@ export const QrScannerView: React.FC = () => {
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile()
-          if (file) {
-            const url = URL.createObjectURL(file)
-            setUploadedImageUrl(url)
-            setMode('file')
-          }
+          if (file) showImage(file)
         }
       }
     }
@@ -120,10 +135,7 @@ export const QrScannerView: React.FC = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      setUploadedImageUrl(url)
-    }
+    if (file) showImage(file)
   }
 
   const handleCopy = () => {
@@ -143,11 +155,11 @@ export const QrScannerView: React.FC = () => {
       setContentType('text')
       setTextContent(text)
     }
-    setActiveView('generator')
+    setActiveQrCodeView('generator')
   }
 
   const handleSendToCompare = () => {
-    setActiveView('compare' as any)
+    setActiveQrCodeView('compare')
   }
 
   const resetFilters = () => {
@@ -222,20 +234,12 @@ export const QrScannerView: React.FC = () => {
               />
 
               {!uploadedImageUrl ? (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-6 text-center transition-all hover:border-[var(--accent)] hover:bg-[var(--bg-hover)]"
-                >
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
-                    <Upload size={28} />
-                  </div>
-                  <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">
-                    {t('tools.qrcode.scanner.upload_prompt')}
-                  </h3>
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)] max-w-sm">
-                    {t('tools.qrcode.scanner.paste_hint')}
-                  </p>
-                </div>
+                <ImageDropZone
+                  className="min-h-[300px] bg-[var(--bg-sunken)]"
+                  label={t('tools.qrcode.scanner.upload_prompt')}
+                  hint={t('tools.qrcode.scanner.paste_hint')}
+                  onFile={showImage}
+                />
               ) : (
                 <div className="relative flex flex-col items-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4">
                   <canvas
@@ -243,21 +247,26 @@ export const QrScannerView: React.FC = () => {
                     className="max-h-[420px] w-auto max-w-full rounded-lg object-contain shadow-xs"
                   />
                   <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                      icon={<Upload size={13} />}
                     >
-                      <Upload size={13} />
-                      <span>{t('tools.qrcode.scanner.change_image')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUploadedImageUrl(null)}
-                      className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20"
+                      {t('tools.qrcode.scanner.change_image')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+                        objectUrlRef.current = null
+                        setUploadedImageUrl(null)
+                        setScanResult(null)
+                      }}
                     >
-                      <span>{t('tools.qrcode.scanner.clear_image')}</span>
-                    </button>
+                      {t('tools.qrcode.scanner.clear_image')}
+                    </Button>
                   </div>
                 </div>
               )}
@@ -363,7 +372,7 @@ export const QrScannerView: React.FC = () => {
                     </h3>
                   </div>
                   {scanResult && (
-                    <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[length:var(--text-11)] font-mono text-green-600 dark:text-green-400">
+                    <span className="rounded-full bg-success/10 px-2 py-0.5 text-[length:var(--text-11)] font-mono text-success">
                       {`${scanResult.durationMs}ms`}
                     </span>
                   )}
@@ -388,7 +397,7 @@ export const QrScannerView: React.FC = () => {
                         onClick={handleCopy}
                         className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                       >
-                        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                        {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
                         <span>{copied ? t('tools.qrcode.export.copied') : t('tools.qrcode.scanner.copy_result')}</span>
                       </button>
 

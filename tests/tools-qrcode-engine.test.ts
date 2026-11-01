@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initI18nForReading, t } from '../src/client/lib/i18n'
 import {
   exportQrToBlob,
   exportQrToDataUrl,
@@ -151,7 +152,6 @@ describe('QR Code Engine & Beautification System', () => {
       for (const id of expectedIds) {
         const found = ONLINE_LOGOS.find((l) => l.id === id)
         expect(found).toBeDefined()
-        expect(found?.name).toBeTruthy()
         expect(found?.nameKey).toContain('tools.qrcode.logos.')
         expect(found?.svg).toContain('<svg')
         expect(found?.svg).toContain('</svg>')
@@ -161,7 +161,7 @@ describe('QR Code Engine & Beautification System', () => {
 
     it('retrieves logo by id and returns undefined for unknown id', () => {
       const wechat = getOnlineLogoById('wechat')
-      expect(wechat?.name).toBe('WeChat')
+      expect(wechat?.nameKey).toBe('tools.qrcode.logos.wechat')
       expect(getOnlineLogoById('non-existent')).toBeUndefined()
     })
 
@@ -210,7 +210,7 @@ describe('QR Code Engine & Beautification System', () => {
     it('retrieves preset by ID correctly', () => {
       const wecom = getPresetById('wecom')
       expect(wecom).toBeDefined()
-      expect(wecom?.name).toBe('WeCom')
+      expect(wecom?.nameKey).toBe('tools.qrcode.presets.wecom')
       expect(wecom?.options.dotsOptions.color).toBe('#1877f2')
 
       expect(getPresetById('unknown')).toBeUndefined()
@@ -399,6 +399,22 @@ describe('QR Code Engine & Beautification System', () => {
         expect(ctx.fillText).toHaveBeenCalled()
       })
     }
+
+    it('draws the catalogue caption when the reader left the field empty', async () => {
+      await initI18nForReading('zh-CN')
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = 400
+      sourceCanvas.height = 400
+
+      const framed = applyFrame(sourceCanvas, { type: 'dark-green' })
+      const drawn = ((framed.getContext('2d') as any).fillText.mock.calls as unknown[][]).map((call) =>
+        String(call[0])
+      )
+      expect(drawn).toContain(t('tools.qrcode.frame.default_dark_green'))
+      expect(drawn).not.toContain('SCAN TO LEARN MORE')
+
+      await initI18nForReading('en-US')
+    })
 
     it('allows clearing the frame label by providing empty string', () => {
       const sourceCanvas = document.createElement('canvas')
@@ -643,10 +659,14 @@ describe('QR Code Engine & Beautification System', () => {
       })
 
       expect(createObjectURLSpy).toHaveBeenCalled()
-      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test-url')
       expect(clickSpy).toHaveBeenCalled()
       expect(appendSpy).toHaveBeenCalled()
       expect(removeSpy).toHaveBeenCalled()
+      // The release waits for the task after the click: revoking inside the same tick is what cut a
+      // download short, so the anchor must go first and the URL still has to be freed afterwards.
+      expect(revokeObjectURLSpy).not.toHaveBeenCalled()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:test-url')
 
       clickSpy.mockRestore()
       createObjectURLSpy.mockRestore()
@@ -673,6 +693,72 @@ describe('QR Code Engine & Beautification System', () => {
       const success = await copyQrCodeToClipboard(engine)
       expect(success).toBe(true)
       expect(writeMock).toHaveBeenCalled()
+    })
+  })
+
+  describe('Quiet zone (margin) measured in modules', () => {
+    const ONE_CHAR_MODULES = 21
+
+    it('clamps a missing or absurd margin to the module range the slider offers', async () => {
+      const { resolveQuietZoneCells, MAX_QR_MARGIN_CELLS } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-engine'
+      )
+      expect(resolveQuietZoneCells(undefined)).toBe(4)
+      expect(resolveQuietZoneCells(-3)).toBe(0)
+      expect(resolveQuietZoneCells(99)).toBe(MAX_QR_MARGIN_CELLS)
+    })
+
+    it('reads the module count the encoder reports, not a guess from the canvas', async () => {
+      const { getQrModuleCount } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-toolkit-engine'
+      )
+      // Version 1 holds a single alphanumeric character, so the symbol is 21 modules wide.
+      expect(getQrModuleCount('a', 'L')).toBe(ONE_CHAR_MODULES)
+      expect(getQrModuleCount('a', 'H')).toBe(ONE_CHAR_MODULES)
+      expect(getQrModuleCount('https://inkstone.example/some/longer/path', 'H')).toBeGreaterThan(
+        ONE_CHAR_MODULES
+      )
+    })
+
+    it('grows the canvas by exactly the requested number of module rows on each side', async () => {
+      const { QrEngine, resolveQuietZoneCells } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-engine'
+      )
+      const { getQrModuleCount } = await import(
+        '../src/client/features/tools/qrcode/engine/qr-toolkit-engine'
+      )
+      const data = 'a'
+      const modules = getQrModuleCount(data, 'Q')
+      const cells = resolveQuietZoneCells(4)
+      const engine = new QrEngine({ margin: 4 }, data)
+      const canvas = await engine.renderCanvas(420, 420)
+      const modulePx = Math.floor(420 / (modules + cells * 2))
+      expect(canvas.width).toBe((modules + cells * 2) * modulePx)
+      expect(canvas.height).toBe((modules + cells * 2) * modulePx)
+    })
+
+    it('gives the styled and toolkit paths the same quiet zone for one setting', async () => {
+      const { QrEngine } = await import('../src/client/features/tools/qrcode/engine/qr-engine')
+      const styled = await new QrEngine({ margin: 4 }, 'a').renderCanvas(420, 420)
+      const toolkit = await new QrEngine(
+        { margin: 4, toolkitOptions: { enabled: true, pixelStyle: 'square' } },
+        'a'
+      ).renderCanvas(420, 420)
+      // Before the unit was unified the styled path read 4 as pixels and the toolkit as modules, so
+      // the same configuration produced two different symbols.
+      expect(toolkit.width).toBe(styled.width)
+      expect(toolkit.height).toBe(styled.height)
+    })
+
+    it('wraps an SVG in the same module quiet zone the canvas path gets', async () => {
+      const { wrapSvgQuietZone } = await import('../src/client/features/tools/qrcode/engine/qr-engine')
+      const inner =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="84" height="84" viewBox="0 0 84 84"><rect width="84" height="84"/></svg>'
+      const wrapped = wrapSvgQuietZone(inner, 4, 4, '#ffffff')
+      expect(wrapped).toContain('width="116"')
+      expect(wrapped).toContain('transform="translate(16, 16)"')
+      expect(wrapped).toContain('<rect width="116" height="116" fill="#ffffff"/>')
+      expect(wrapSvgQuietZone(inner, 0, 4, '#ffffff')).toBe(inner)
     })
   })
 })

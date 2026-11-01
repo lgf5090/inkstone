@@ -18,7 +18,7 @@ export function VCardContentForm() {
         </Field>
         <Field label={t('tools.qrcode.content.vcard_first_name')}>
           <Input
-            value={vcardContent.firstName}
+            value={vcardContent.firstName || ''}
             onChange={(e) => setVcardContent({ firstName: e.target.value })}
             placeholder={t('tools.qrcode.content.vcard_first_name')}
           />
@@ -26,6 +26,14 @@ export function VCardContentForm() {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
+        <Field label={t('tools.qrcode.content.vcard_phone')}>
+          <Input
+            type="tel"
+            value={vcardContent.phone || ''}
+            onChange={(e) => setVcardContent({ phone: e.target.value })}
+            placeholder={t('tools.qrcode.content.vcard_phone')}
+          />
+        </Field>
         <Field label={t('tools.qrcode.content.vcard_mobile')}>
           <Input
             type="tel"
@@ -34,15 +42,16 @@ export function VCardContentForm() {
             placeholder="13800138000"
           />
         </Field>
-        <Field label={t('tools.qrcode.content.vcard_email')}>
-          <Input
-            type="email"
-            value={vcardContent.email || ''}
-            onChange={(e) => setVcardContent({ email: e.target.value })}
-            placeholder={t('tools.qrcode.content.vcard_email_placeholder')}
-          />
-        </Field>
       </div>
+
+      <Field label={t('tools.qrcode.content.vcard_email')}>
+        <Input
+          type="email"
+          value={vcardContent.email || ''}
+          onChange={(e) => setVcardContent({ email: e.target.value })}
+          placeholder={t('tools.qrcode.content.vcard_email_placeholder')}
+        />
+      </Field>
 
       <div className="grid grid-cols-2 gap-2">
         <Field label={t('tools.qrcode.content.vcard_organization')}>

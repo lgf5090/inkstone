@@ -56,7 +56,7 @@ export async function fetchQrRecords(params?: {
 }): Promise<{ items: QrCodeRecord[]; records: QrCodeRecord[]; total: number }> {
   const query = new URLSearchParams()
   if (params?.contentType) query.set('contentType', params.contentType)
-  if (params?.query) query.set('query', params.query)
+  if (params?.query) query.set('search', params.query)
   if (params?.limit) query.set('limit', String(params.limit))
   if (params?.offset) query.set('offset', String(params.offset))
 

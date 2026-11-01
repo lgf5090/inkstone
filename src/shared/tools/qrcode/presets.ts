@@ -6,10 +6,9 @@ const taobaoLogo = ONLINE_LOGOS.find((l) => l.id === 'taobao')?.dataUrl
 export const QR_PRESETS: QrPreset[] = [
   {
     id: 'default',
-    name: 'Default',
     nameKey: 'tools.qrcode.presets.default',
     category: 'minimal',
-    description: 'Standard black and white square, classic high-contrast scanning',
+    descriptionKey: 'tools.qrcode.presets.default_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -34,10 +33,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'wecom',
-    name: 'WeCom',
     nameKey: 'tools.qrcode.presets.wecom',
     category: 'minimal',
-    description: 'Corporate blue connected dots with balanced eyes',
+    descriptionKey: 'tools.qrcode.presets.wecom_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -62,10 +60,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'simple-dots',
-    name: 'Simple Dots',
     nameKey: 'tools.qrcode.presets.simple_dots',
     category: 'minimal',
-    description: 'Lightweight circular dots with minimalist eye shapes',
+    descriptionKey: 'tools.qrcode.presets.simple_dots_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -90,10 +87,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'liquid-gradient',
-    name: 'Liquid Gradient',
     nameKey: 'tools.qrcode.presets.liquid_gradient',
     category: 'minimal',
-    description: 'Blue-cyan linear gradient with smooth fluid aesthetic',
+    descriptionKey: 'tools.qrcode.presets.liquid_gradient_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -132,10 +128,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'bar-gradient',
-    name: 'Bar Gradient',
     nameKey: 'tools.qrcode.presets.bar_gradient',
     category: 'minimal',
-    description: 'Sunset orange to pink horizontal gradient bars',
+    descriptionKey: 'tools.qrcode.presets.bar_gradient_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -167,10 +162,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'square-jump',
-    name: 'Square Jump',
     nameKey: 'tools.qrcode.presets.square_jump',
     category: 'minimal',
-    description: 'Emerald to teal diagonal geometric rhythm',
+    descriptionKey: 'tools.qrcode.presets.square_jump_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -202,10 +196,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'dark-green-frame',
-    name: 'Dark Green Frame',
     nameKey: 'tools.qrcode.presets.dark_green_frame',
     category: 'frame',
-    description: 'Classic dark green ornamental frame with scan banner',
+    descriptionKey: 'tools.qrcode.presets.dark_green_frame_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -233,10 +226,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'red-blue-gradient',
-    name: 'Red Blue Gradient',
     nameKey: 'tools.qrcode.presets.red_blue_gradient',
     category: 'frame',
-    description: 'Fluid dual-gradient border card, bold and eye-catching',
+    descriptionKey: 'tools.qrcode.presets.red_blue_gradient_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -271,10 +263,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'three-color-card',
-    name: 'Three Color Card',
     nameKey: 'tools.qrcode.presets.three_color_card',
     category: 'frame',
-    description: 'Memphis-inspired tri-color business card border',
+    descriptionKey: 'tools.qrcode.presets.three_color_card_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -302,10 +293,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'heart-border',
-    name: 'Heart Border',
     nameKey: 'tools.qrcode.presets.heart_border',
     category: 'frame',
-    description: 'Romantic pink heart adorned border for couples and holidays',
+    descriptionKey: 'tools.qrcode.presets.heart_border_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -333,10 +323,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'liquid-stamp',
-    name: 'Liquid Stamp',
     nameKey: 'tools.qrcode.presets.liquid_stamp',
     category: 'frame',
-    description: 'Cinnabar red fluid seal stamp frame with authentic badge',
+    descriptionKey: 'tools.qrcode.presets.liquid_stamp_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -364,10 +353,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'pacman',
-    name: 'Pacman',
     nameKey: 'tools.qrcode.presets.pacman',
     category: 'artistic',
-    description: 'Retro arcade dark neon pixel frame',
+    descriptionKey: 'tools.qrcode.presets.pacman_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -395,10 +383,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'taobao',
-    name: 'Taobao',
     nameKey: 'tools.qrcode.presets.taobao',
     category: 'scenario',
-    description: 'E-commerce vibrant orange with embedded Taobao logo',
+    descriptionKey: 'tools.qrcode.presets.taobao_desc',
     options: {
       errorCorrectionLevel: 'H',
       dotsOptions: {
@@ -432,10 +419,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'meme-bubble',
-    name: 'Meme Bubble',
     nameKey: 'tools.qrcode.presets.meme_bubble',
     category: 'scenario',
-    description: 'Fun cartoon callout bubble guiding users to scan',
+    descriptionKey: 'tools.qrcode.presets.meme_bubble_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {
@@ -463,10 +449,9 @@ export const QR_PRESETS: QrPreset[] = [
   },
   {
     id: 'mushroom-meme',
-    name: 'Mushroom Meme',
     nameKey: 'tools.qrcode.presets.mushroom_meme',
     category: 'scenario',
-    description: 'Classic playful meme character style with scan bubble',
+    descriptionKey: 'tools.qrcode.presets.mushroom_meme_desc',
     options: {
       errorCorrectionLevel: 'Q',
       dotsOptions: {

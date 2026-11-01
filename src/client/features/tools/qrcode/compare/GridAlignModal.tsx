@@ -1,6 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { Grid, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '../../../../lib/i18n'
+import { Field, Slider } from '../../../../components/form'
+import { Button } from '../../../../components/primitives'
+import { Modal } from '../../../../components/overlay'
+
+const PREVIEW_SIZE = 500
 
 interface GridAlignModalProps {
   open: boolean
@@ -11,163 +15,157 @@ interface GridAlignModalProps {
   onApply: (gridSize: number, marginSize: number) => void
 }
 
-export const GridAlignModal: React.FC<GridAlignModalProps> = ({
+export function GridAlignModal({
   open,
   imageUrl,
   initialGridSize,
   initialMarginSize,
   onClose,
   onApply,
-}) => {
+}: GridAlignModalProps) {
   const [gridSize, setGridSize] = useState(initialGridSize)
   const [marginSize, setMarginSize] = useState(initialMarginSize)
+  const [failed, setFailed] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
 
   useEffect(() => {
     if (!open) return
     setGridSize(initialGridSize)
     setMarginSize(initialMarginSize)
+    setFailed(false)
   }, [open, initialGridSize, initialMarginSize])
 
-  useEffect(() => {
-    if (!open || !canvasRef.current || !imageUrl) return
-
+  const draw = useCallback(() => {
     const canvas = canvasRef.current
+    const img = imageRef.current
+    if (!canvas || !img) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.src = imageUrl
-    img.onload = () => {
-      const size = 500
-      canvas.width = size
-      canvas.height = size
+    canvas.width = PREVIEW_SIZE
+    canvas.height = PREVIEW_SIZE
+    const minSide = Math.min(img.width, img.height)
+    ctx.clearRect(0, 0, PREVIEW_SIZE, PREVIEW_SIZE)
+    ctx.drawImage(
+      img,
+      (img.width - minSide) / 2,
+      (img.height - minSide) / 2,
+      minSide,
+      minSide,
+      0,
+      0,
+      PREVIEW_SIZE,
+      PREVIEW_SIZE
+    )
 
-      const minSide = Math.min(img.width, img.height)
-      ctx.drawImage(
-        img,
-        (img.width - minSide) / 2,
-        (img.height - minSide) / 2,
-        minSide,
-        minSide,
-        0,
-        0,
-        size,
-        size
-      )
-
-      // Draw Grid Lines (Red)
-      const cellSize = size / gridSize
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)'
-      ctx.lineWidth = 1
-
-      for (let i = 0; i <= gridSize; i++) {
-        const pos = i * cellSize
-        ctx.beginPath()
-        ctx.moveTo(pos, 0)
-        ctx.lineTo(pos, size)
-        ctx.stroke()
-
-        ctx.beginPath()
-        ctx.moveTo(0, pos)
-        ctx.lineTo(size, pos)
-        ctx.stroke()
-      }
-
-      // Draw Margin Box (Lime)
-      const mOffset = marginSize * cellSize
-      const mWidth = size - mOffset * 2
-      ctx.strokeStyle = '#84cc16'
-      ctx.lineWidth = 2.5
-      ctx.strokeRect(mOffset, mOffset, mWidth, mWidth)
+    const cellSize = PREVIEW_SIZE / gridSize
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= gridSize; i++) {
+      const pos = i * cellSize
+      ctx.beginPath()
+      ctx.moveTo(pos, 0)
+      ctx.lineTo(pos, PREVIEW_SIZE)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(0, pos)
+      ctx.lineTo(PREVIEW_SIZE, pos)
+      ctx.stroke()
     }
-  }, [open, imageUrl, gridSize, marginSize])
 
-  if (!open) return null
+    const offset = marginSize * cellSize
+    ctx.strokeStyle = '#84cc16'
+    ctx.lineWidth = 2.5
+    ctx.strokeRect(offset, offset, PREVIEW_SIZE - offset * 2, PREVIEW_SIZE - offset * 2)
+  }, [gridSize, marginSize])
+
+  useEffect(() => {
+    if (!open || !imageUrl) return
+    let cancelled = false
+    // One decode for the whole session with the grid being dragged over it: loading it inside the draw
+    // effect re-fetched and re-decoded the same picture on every slider step.
+    const img = new Image()
+    img.onload = () => {
+      if (cancelled) return
+      imageRef.current = img
+      draw()
+    }
+    img.onerror = () => {
+      if (cancelled) return
+      imageRef.current = null
+      setFailed(true)
+    }
+    img.src = imageUrl
+    return () => {
+      cancelled = true
+    }
+  }, [open, imageUrl, draw])
+
+  useEffect(() => {
+    if (open) draw()
+  }, [open, draw])
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('tools.qrcode.compare.align_grid_title')}
+      width={560}
     >
-      <div className="flex w-full max-w-lg flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-5 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
-          <div className="flex items-center gap-2">
-            <Grid size={18} className="text-[var(--accent)]" />
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-              {t('tools.qrcode.compare.align_grid_title')}
-            </h3>
+      <div className="flex flex-col gap-4 p-4">
+        {failed ? (
+          <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">
+            {t('tools.qrcode.compare.image_failed')}
+          </p>
+        ) : (
+          <div className="flex justify-center">
+            <canvas
+              ref={canvasRef}
+              role="img"
+              aria-label={t('tools.qrcode.compare.align_preview_label')}
+              className="h-72 w-72 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] object-contain"
+            />
           </div>
-          <button
-            type="button"
-            aria-label={t('common.close')}
-            onClick={onClose}
-            className="rounded p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-          >
-            <X size={16} />
-          </button>
+        )}
+
+        <div className="flex flex-wrap items-center justify-center gap-4 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-0.5 w-4 bg-[#ef4444]" />
+            {t('tools.qrcode.compare.legend_grid')}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block h-0.5 w-4 bg-[#84cc16]" />
+            {t('tools.qrcode.compare.legend_margin')}
+          </span>
         </div>
 
-        <div className="my-4 flex justify-center">
-          <canvas
-            ref={canvasRef}
-            className="h-72 w-72 rounded-lg border border-[var(--border-subtle)] bg-neutral-900 object-contain shadow-inner"
+        <Field label={`${t('tools.qrcode.compare.grid_modules')}: ${gridSize} × ${gridSize}`}>
+          <Slider
+            value={gridSize}
+            min={17}
+            max={65}
+            onChange={setGridSize}
           />
-        </div>
+        </Field>
 
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs text-[var(--text-secondary)]">
-              <span>{t('tools.qrcode.compare.grid_modules')}</span>
-              <span className="font-mono text-[var(--text-primary)]">{`${gridSize} × ${gridSize}`}</span>
-            </div>
-            <input
-              type="range"
-              min={17}
-              max={65}
-              step={1}
-              value={gridSize}
-              onChange={(e) => setGridSize(Number(e.target.value))}
-              className="h-1.5 w-full cursor-pointer accent-[var(--accent)]"
-            />
-          </div>
+        <Field label={`${t('tools.qrcode.compare.margin_modules')}: ${marginSize}`}>
+          <Slider value={marginSize} min={0} max={8} onChange={setMarginSize} />
+        </Field>
 
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs text-[var(--text-secondary)]">
-              <span>{t('tools.qrcode.compare.margin_modules')}</span>
-              <span className="font-mono text-[var(--text-primary)]">{`${marginSize} cells`}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={8}
-              step={1}
-              value={marginSize}
-              onChange={(e) => setMarginSize(Number(e.target.value))}
-              className="h-1.5 w-full cursor-pointer accent-[var(--accent)]"
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-[var(--border-subtle)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-          >
+        <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
+          <Button variant="secondary" onClick={onClose}>
             {t('tools.qrcode.compare.cancel')}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
+            disabled={failed}
             onClick={() => onApply(gridSize, marginSize)}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white shadow-xs hover:opacity-95"
           >
             {t('tools.qrcode.compare.apply')}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

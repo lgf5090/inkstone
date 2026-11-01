@@ -1,3 +1,5 @@
+import type { MessageKey } from '../../locales/en-US'
+
 export type QrContentType = 'text' | 'url' | 'wifi' | 'vcard' | 'email' | 'phone'
 
 export interface QrWifiContent {
@@ -236,6 +238,7 @@ export interface QrToolkitOptions {
 export interface QrStylingOptions {
   width?: number
   height?: number
+  /** Quiet zone in modules (ISO/IEC 18004 recommends 4). */
   margin?: number
   errorCorrectionLevel: QrErrorCorrectionLevel
   dotsOptions: QrDotsOptions
@@ -256,8 +259,7 @@ export type QrCodeOptions = QrStylingOptions
 
 export interface OnlineLogo {
   id: string
-  name: string
-  nameKey: string
+  nameKey: MessageKey
   category?: 'social' | 'payment' | 'util'
   svg: string
   dataUrl: string
@@ -265,11 +267,9 @@ export interface OnlineLogo {
 
 export interface QrPreset {
   id: string
-  name: string
-  nameKey: string
+  nameKey: MessageKey
   category: QrPresetCategory
-  description?: string
-  previewSvg?: string
+  descriptionKey: MessageKey
   options: QrStylingOptions
 }
 

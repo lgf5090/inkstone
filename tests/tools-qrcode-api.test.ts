@@ -16,6 +16,9 @@ import { makeD1 } from './doubles/d1-sqlite'
 
 const USER_A = 'user-alice'
 const USER_B = 'user-bob'
+/** A real 1×1 PNG: the storage guard checks signatures, so fixtures have to carry actual image bytes. */
+const PNG_1PX1_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
 interface CallOptions {
   user?: string | null
@@ -364,7 +367,8 @@ describe('Logo Upload API', () => {
 
   it('uploads logo via multipart/form-data', async () => {
     const formData = new FormData()
-    const blob = new Blob(['test-logo-bytes'], { type: 'image/png' })
+    const pngBytes = Uint8Array.from(atob(PNG_1PX1_BASE64), (ch) => ch.charCodeAt(0))
+    const blob = new Blob([pngBytes], { type: 'image/png' })
     formData.append('file', blob, 'avatar.png')
 
     const uploadRes = await call('POST', '/api/tools/qrcode/upload-logo', {
@@ -373,7 +377,7 @@ describe('Logo Upload API', () => {
     })
     expect(uploadRes.status).toBe(201)
     const uploaded = await json<{ data: { key: string; size: number; logoId: string } }>(uploadRes)
-    expect(uploaded.data.size).toBe(15)
+    expect(uploaded.data.size).toBe(pngBytes.length)
   })
 
   it('fails gracefully with 503 if R2 storage is unavailable', async () => {
@@ -390,5 +394,88 @@ describe('Logo Upload API', () => {
     expect(uploadRes.status).toBe(503)
     const err = await json<{ error: { code: string } }>(uploadRes)
     expect(err.error.code).toBe('storage_unavailable')
+  })
+})
+describe('QR storage guards', () => {
+  it('refuses bytes that do not match the image they claim to be', async () => {
+    const res = await call('POST', '/api/tools/qrcode/records', {
+      body: {
+        title: 'Not a png',
+        contentType: 'url',
+        contentRaw: 'https://inkstone.example.com',
+        fileType: 'png',
+        fileData: 'data:image/png;base64,' + btoa('obviously-not-png-bytes'),
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('refuses an oversized payload before decoding it', async () => {
+    const res = await call('POST', '/api/tools/qrcode/records', {
+      body: {
+        title: 'Huge',
+        contentType: 'url',
+        contentRaw: 'https://inkstone.example.com',
+        fileType: 'png',
+        fileData: 'data:image/png;base64,' + 'A'.repeat(8 * 1024 * 1024),
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('refuses an id that is not an id', async () => {
+    for (const bad of ['../../etc/passwd', 'a/b', 'x'.repeat(80)]) {
+      const res = await call('GET', '/api/tools/qrcode/records/' + encodeURIComponent(bad) + '/file')
+      expect(res.status, bad).toBe(400)
+    }
+    // A well-formed id that simply does not exist stays a 404 rather than leaking into a 400.
+    const missing = await call('GET', '/api/tools/qrcode/records/00000000-0000-4000-8000-000000000000/file')
+    expect(missing.status).toBe(404)
+  })
+
+  it('serves a member file as private and un-sniffable', async () => {
+    const createRes = await call('POST', '/api/tools/qrcode/records', {
+      body: {
+        title: 'Raster QR',
+        contentType: 'url',
+        contentRaw: 'https://inkstone.example.com',
+        fileType: 'png',
+        fileData: 'data:image/png;base64,' + PNG_1PX1_BASE64,
+      },
+    })
+    expect(createRes.status).toBe(201)
+    const created = await json<{ data: { id: string } }>(createRes)
+
+    const fileRes = await call('GET', '/api/tools/qrcode/records/' + created.data.id + '/file')
+    expect(fileRes.status).toBe(200)
+    expect(fileRes.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(fileRes.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  })
+
+  it('sandboxes a stored SVG so it has no script context', async () => {
+    const createRes = await call('POST', '/api/tools/qrcode/records', {
+      body: {
+        title: 'Vector guard',
+        contentType: 'url',
+        contentRaw: 'https://inkstone.example.com',
+        fileType: 'svg',
+        fileData: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>',
+      },
+    })
+    expect(createRes.status).toBe(201)
+    const created = await json<{ data: { id: string } }>(createRes)
+
+    const fileRes = await call('GET', '/api/tools/qrcode/records/' + created.data.id + '/file')
+    expect(fileRes.headers.get('Content-Type')).toBe('image/svg+xml')
+    expect(fileRes.headers.get('Content-Security-Policy')).toContain('sandbox')
+  })
+
+  it('does not hand schema internals back to the caller', async () => {
+    const res = await call('POST', '/api/tools/qrcode/records', {
+      body: { contentType: 'telepathy', contentRaw: '' },
+    })
+    expect(res.status).toBe(400)
+    const text = await res.text()
+    expect(text).not.toContain('contentRaw')
   })
 })

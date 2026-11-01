@@ -1,21 +1,33 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Download, Info, Maximize2, QrCode, Upload } from 'lucide-react'
-import { useQrCodeStore } from '../store'
+import { useQrCodeStore, useQrPayload } from '../store'
 import { QrEngine } from '../engine/qr-engine'
-import { IconButton } from '../../../../components/primitives'
+import { assessScannability, decodeRenderedCode, type DecodeCheck } from '../engine/scannability'
+import { saveBlobAsFile } from '../engine/export-pipeline'
+import { parseQrStylingOptions } from '../../../../../shared/tools/qrcode/schemas'
+import { Button, IconButton } from '../../../../components/primitives'
 import { Tooltip } from '../../../../components/overlay'
+import { useUi } from '../../../../store/ui'
 import { t } from '../../../../lib/i18n'
+
+const PREVIEW_SIZE = 320
+// Past 2× the extra backing-store pixels are not visible, and a 4K canvas per keystroke is not free.
+const PREVIEW_MAX_DPR = 2
 
 export function QrPreviewPanel() {
   const containerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const getEncodedPayload = useQrCodeStore((s) => s.getEncodedPayload)
   const options = useQrCodeStore((s) => s.options)
   const setOptions = useQrCodeStore((s) => s.setOptions)
   const setInfoModalOpen = useQrCodeStore((s) => s.setInfoModalOpen)
   const setFullscreenModalOpen = useQrCodeStore((s) => s.setFullscreenModalOpen)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const [rendering, setRendering] = useState(false)
+  const [retryToken, setRetryToken] = useState(0)
+  const [decode, setDecode] = useState<DecodeCheck>('unknown')
+  const exportSize = useQrCodeStore((s) => s.exportSize)
 
-  const payload = getEncodedPayload()
+  const payload = useQrPayload()
   const hasContent = Boolean(payload.trim())
 
   const tk = options.toolkitOptions ?? {}
@@ -34,13 +46,10 @@ export function QrPreviewPanel() {
       version: '1.0',
       options,
     }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `qr-config-${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlobAsFile(
+      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+      `qr-config-${Date.now()}.json`
+    )
   }
 
   const handleUploadState = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,13 +59,14 @@ export function QrPreviewPanel() {
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target?.result as string)
-        if (parsed.options) {
-          setOptions(parsed.options)
-        } else {
-          setOptions(parsed)
+        const validated = parseQrStylingOptions(parsed && parsed.options ? parsed.options : parsed)
+        if (!validated) {
+          useUi.getState().toast({ title: t('tools.qrcode.preview.import_error'), tone: 'danger' })
+          return
         }
+        setOptions(validated)
       } catch {
-        // Safe fallback
+        useUi.getState().toast({ title: t('tools.qrcode.preview.import_error'), tone: 'danger' })
       }
     }
     reader.readAsText(file)
@@ -64,24 +74,50 @@ export function QrPreviewPanel() {
   }
 
   useEffect(() => {
-    if (!hasContent || !containerRef.current) return
+    const container = containerRef.current
+    if (!hasContent) {
+      container?.replaceChildren()
+      setRenderError(null)
+      return
+    }
+    if (!container) return
 
+    // A superseded render must not paint over a newer one: the cleanup below marks every in-flight
+    // promise stale, which is what keeps a slow 2000px effect from resurrecting an old payload.
+    let stale = false
+    setRendering(true)
+    const dpr = Math.min(window.devicePixelRatio || 1, PREVIEW_MAX_DPR)
     const engine = new QrEngine(options, payload)
-    let isMounted = true
 
-    engine.renderCanvas(320, 320).then((canvas) => {
-      if (isMounted && containerRef.current) {
-        containerRef.current.innerHTML = ''
-        canvas.style.maxWidth = '100%'
-        canvas.style.height = 'auto'
-        containerRef.current.appendChild(canvas)
-      }
+    engine.renderCanvas(PREVIEW_SIZE * dpr, PREVIEW_SIZE * dpr).then((canvas) => {
+      if (stale) return
+      canvas.style.width = `${PREVIEW_SIZE}px`
+      canvas.style.maxWidth = '100%'
+      canvas.style.height = 'auto'
+      canvas.setAttribute('role', 'img')
+      canvas.setAttribute('aria-label', t('tools.qrcode.preview.canvas_label'))
+      container.replaceChildren(canvas)
+      // The verdict is measured on what was actually drawn; where pixels cannot be read the
+      // helper answers unknown and the strip stays quiet rather than guessing.
+      setDecode(decodeRenderedCode(canvas))
+      setRenderError(null)
+    }).catch((err: unknown) => {
+      if (stale) return
+      container.replaceChildren()
+      setRenderError(err instanceof Error ? err.message : String(err))
+    }).finally(() => {
+      if (!stale) setRendering(false)
     })
 
     return () => {
-      isMounted = false
+      stale = true
     }
-  }, [hasContent, payload, options])
+  }, [hasContent, payload, options, retryToken])
+
+  const report = useMemo(
+    () => assessScannability(options, payload, exportSize),
+    [options, payload, exportSize]
+  )
 
   return (
     <div className="relative flex flex-col items-center justify-center rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-4 shadow-sm min-h-[360px]">
@@ -137,13 +173,41 @@ export function QrPreviewPanel() {
           <div
             ref={containerRef}
             data-testid="qrcode-preview-canvas-container"
+            aria-busy={rendering}
             className="flex min-h-[240px] md:min-h-[280px] w-full items-center justify-center rounded-[var(--r-md)] bg-white p-3 md:p-4 shadow-xs"
           />
 
-          {mayNotScannable && (
-            <div className="flex w-full items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          {renderError && (
+            <div
+              role="alert"
+              className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2"
+            >
+              <AlertTriangle size={14} className="shrink-0 text-[var(--danger)]" />
+              <span className="flex-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                {t('tools.qrcode.preview.render_error')}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => setRetryToken((n) => n + 1)}>
+                {t('tools.qrcode.preview.retry')}
+              </Button>
+            </div>
+          )}
+
+          {(decode === 'unreadable' || mayNotScannable || report.issues.length > 0) && (
+            <div
+              role="status"
+              className="flex w-full items-center gap-2 rounded-[var(--r-md)] border border-warning/30 bg-warning/10 px-3 py-2 text-[length:var(--text-12)] text-warning"
+            >
               <AlertTriangle size={14} className="shrink-0" />
-              <span>{t('tools.qrcode.preview.scannable_warning')}</span>
+              <span className="flex-1">
+                {decode === 'unreadable'
+                  ? t('tools.qrcode.check.unreadable')
+                  : mayNotScannable
+                    ? t('tools.qrcode.preview.scannable_warning')
+                    : t('tools.qrcode.preview.has_issues')}
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => setInfoModalOpen(true)}>
+                {t('tools.qrcode.preview.view_checks')}
+              </Button>
             </div>
           )}
         </div>

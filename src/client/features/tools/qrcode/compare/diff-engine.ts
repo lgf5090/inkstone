@@ -21,21 +21,41 @@ export interface DiffResult {
   scanabilityScore: number
 }
 
-function getAverageColor(data: ImageData): [number, number, number, number] {
+
+/** Mean RGBA of one grid cell, read out of an already-acquired full-canvas ImageData. */
+function averageCell(
+  image: ImageData,
+  originX: number,
+  originY: number,
+  cellSize: number,
+  canvasSize: number
+): [number, number, number, number] {
+  const fromX = Math.max(0, Math.floor(originX))
+  const fromY = Math.max(0, Math.floor(originY))
+  const toX = Math.min(canvasSize, Math.ceil(originX + cellSize))
+  const toY = Math.min(canvasSize, Math.ceil(originY + cellSize))
   let r = 0
   let g = 0
   let b = 0
   let a = 0
-  const total = data.data.length / 4
-
-  for (let i = 0; i < data.data.length; i += 4) {
-    r += data.data[i]
-    g += data.data[i + 1]
-    b += data.data[i + 2]
-    a += data.data[i + 3]
+  let total = 0
+  for (let y = fromY; y < toY; y++) {
+    for (let x = fromX; x < toX; x++) {
+      const offset = (y * canvasSize + x) * 4
+      r += image.data[offset]
+      g += image.data[offset + 1]
+      b += image.data[offset + 2]
+      a += image.data[offset + 3]
+      total += 1
+    }
   }
-
-  return [Math.round(r / total), Math.round(g / total), Math.round(b / total), Math.round(a / total)]
+  if (!total) return [0, 0, 0, 0]
+  return [
+    Math.round(r / total),
+    Math.round(g / total),
+    Math.round(b / total),
+    Math.round(a / total),
+  ]
 }
 
 export async function segmentImageFromDataUrl(dataUrl: string, gridSize = 25): Promise<Segment[]> {
@@ -69,11 +89,14 @@ export async function segmentImageFromDataUrl(dataUrl: string, gridSize = 25): P
   const cellSize = canvasSize / gridSize
   const cells: Segment[] = []
 
+  // One readback for the whole canvas: per-cell getImageData meant gridSize-squared GPU syncs
+  // (up to ~4k of them) on every slider tick.
+  const image = ctx.getImageData(0, 0, canvasSize, canvasSize)
+
   for (let i = 0; i < gridSize * gridSize; i++) {
     const x = i % gridSize
     const y = Math.floor(i / gridSize)
-    const cellData = ctx.getImageData(x * cellSize, y * cellSize, cellSize, cellSize)
-    const color = getAverageColor(cellData)
+    const color = averageCell(image, x * cellSize, y * cellSize, cellSize, canvasSize)
     const luminance = Math.round(((color[0] * 299 + color[1] * 587 + color[2] * 114) / 1000) * (color[3] / 255))
 
     cells.push({
