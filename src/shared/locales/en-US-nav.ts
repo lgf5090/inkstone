@@ -243,6 +243,8 @@ export const EN_US_NAV = {
   'nav.checker.title': 'Check links',
   'nav.checker.start': 'Start check',
   'nav.checker.restart': 'Check all again',
+  'nav.checker.scan_stale': 'Scan unchecked and stale links',
+  'nav.checker.all_fresh': 'Every link already has a recent check',
   'nav.checker.stop': 'Stop',
   'nav.checker.recheck_broken': 'Recheck broken',
   'nav.checker.all': 'All',

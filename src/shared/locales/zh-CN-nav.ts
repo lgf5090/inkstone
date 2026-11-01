@@ -243,6 +243,8 @@ export const ZH_CN_NAV = {
   'nav.checker.title': '检测链接',
   'nav.checker.start': '开始检测',
   'nav.checker.restart': '重新检测全部',
+  'nav.checker.scan_stale': '扫描未检查与已过期的链接',
+  'nav.checker.all_fresh': '所有链接都已有新鲜的检查结果',
   'nav.checker.stop': '停止检测',
   'nav.checker.recheck_broken': '重测失效项',
   'nav.checker.all': '全部',
