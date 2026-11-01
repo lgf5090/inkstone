@@ -118,6 +118,30 @@ describe('navigation focus and accessible names', () => {
     expect((dialog().querySelector<HTMLInputElement>('input') as HTMLInputElement).value).toBe('半张没写完的标题')
   })
 
+  it('pulls the caret back into the dialog when a busy button drops it to the document', async () => {
+    rendered = renderElement(
+      <>
+        <NavLinkEditor open link={null} onClose={() => {}} />
+        <ConfirmHost />
+      </>,
+    )
+    await flush()
+    await flush()
+
+    const field = dialog().querySelector<HTMLInputElement>('input[data-autofocus]')
+    expect(document.activeElement).toBe(field)
+
+    // Chromium drops the caret from a focused button the moment it becomes `disabled`, and every
+    // primary Button renders `disabled` while `loading` — so a submit spent the whole request with
+    // focus on <body>, outside the panel the Tab guard watches. Simulate that drop and require the
+    // trap to hand the caret back rather than leave the dialog unreachable.
+    act(() => { field?.blur() })
+    await flush()
+
+    expect(document.activeElement).not.toBe(document.body)
+    expect((document.activeElement as HTMLElement).closest('[role="dialog"]')).not.toBeNull()
+  })
+
   it('leaves the typed icon alone when the preview cannot load', async () => {
     rendered = renderElement(
       <>

@@ -189,6 +189,41 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
             : [...(panel?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [])]
                 .find(isAvailableFocusTarget);
         (initial ?? panel)?.focus({ preventScroll: true });
+        // A `loading` primary Button renders `disabled`, and Chromium drops the caret from a button it
+        // has just disabled, so the whole request would otherwise be spent with focus on `<body>` —
+        // outside this panel, where the Tab guard below cannot see it, so Tab walks the page behind the
+        // open dialog. Any caret that escapes to the document is pulled back, preferring the field the
+        // reader was last in, because that is where a refused submit has to be corrected.
+        let lastCaret: HTMLElement | null = null;
+        let lastField: HTMLElement | null = null;
+        const onFocusIn = (event: FocusEvent) => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement) || !panelRef.current?.contains(target) || !isAvailableFocusTarget(target))
+                return;
+            lastCaret = target;
+            if (/^(input|textarea|select)$/.test(target.tagName.toLowerCase()) || target.isContentEditable)
+                lastField = target;
+        };
+        const keepCaretInside = () => {
+            queueMicrotask(() => {
+                if (dialogStack[dialogStack.length - 1] !== token)
+                    return;
+                const current = document.activeElement;
+                if (current && current !== document.body && current !== document.documentElement)
+                    return;
+                const live = panelRef.current;
+                if (!live?.isConnected)
+                    return;
+                const takesFocus = (element: HTMLElement | null | undefined): element is HTMLElement =>
+                    element !== undefined && element !== null && live.contains(element) && element.isConnected && isAvailableFocusTarget(element);
+                const available = [...live.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(isAvailableFocusTarget);
+                const back = takesFocus(lastCaret) ? lastCaret
+                    : takesFocus(lastField) ? lastField
+                        : takesFocus(initial) ? initial
+                            : available[0] ?? live;
+                back.focus({ preventScroll: true });
+            });
+        };
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Tab' || dialogStack[dialogStack.length - 1] !== token)
                 return;
@@ -216,8 +251,12 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
             }
         };
         document.addEventListener('keydown', onKeyDown, true);
+        document.addEventListener('focusin', onFocusIn, true);
+        document.addEventListener('focusout', keepCaretInside, true);
         return () => {
             document.removeEventListener('keydown', onKeyDown, true);
+            document.removeEventListener('focusin', onFocusIn, true);
+            document.removeEventListener('focusout', keepCaretInside, true);
             const index = dialogStack.indexOf(token);
             if (index >= 0)
                 dialogStack.splice(index, 1);

@@ -656,6 +656,11 @@ const allowed = new Map([
     "/** The caret a panel should hand back to: itself if it is outside the panel, else the trigger it stole from. */",
     "/** Padding belongs to the caller: a list wants it on the rows, a settings panel on the body. */",
     "/**\n * Whether any dialog, drawer or menu currently owns the keyboard.\n *\n * Features that bind global shortcuts need this to avoid firing underneath an overlay, and reading the\n * DOM for `[role=\"dialog\"]` is a guess about someone else's markup: it breaks the moment a layer is\n * rendered without that role, and it silently stops guarding. This is the stack those components already\n * keep for their own focus trapping.\n */",
+    "// A `loading` primary Button renders `disabled`, and Chromium drops the caret from a button it",
+    "// has just disabled, so the whole request would otherwise be spent with focus on `<body>` —",
+    "// outside this panel, where the Tab guard below cannot see it, so Tab walks the page behind the",
+    "// open dialog. Any caret that escapes to the document is pulled back, preferring the field the",
+    "// reader was last in, because that is where a refused submit has to be corrected.",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -43222,6 +43227,10 @@ const allowed = new Map([
     "// A nav write from the assistant re-fetches the bootstrap, which replaces `categories` wholesale.",
     "// Clearing the value on error is what turned one failed image into an endless refetch loop, so the",
     "// signal has to come from the preview element itself.",
+    "// Chromium drops the caret from a focused button the moment it becomes `disabled`, and every",
+    "// primary Button renders `disabled` while `loading` — so a submit spent the whole request with",
+    "// focus on <body>, outside the panel the Tab guard watches. Simulate that drop and require the",
+    "// trap to hand the caret back rather than leave the dialog unreachable.",
   ]],
   ["tests/nav-host-guard.test.ts", [
     "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",
