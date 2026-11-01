@@ -8011,6 +8011,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/nav/NavApp.tsx", [
     "/* ignore */",
+    "// A locked folder's size is not sent to this client at all, so say nothing rather than show a confident",
+    "// zero — an empty-looking protected folder reads as a bug.",
   ]],
   ["src/client/features/nav/NavCategories.tsx", [
     "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
@@ -30369,6 +30371,10 @@ const allowed = new Map([
     "/** A URL a bookmark may store, or null. Mail and phone links are kept but never fetched. */",
     "/** Reserved categories the blog projects; every other category stays private to the nav app. */",
   ]],
+  ["src/shared/nav/validation.ts", [
+    "/**\n * The structural rules a self-contained category/link payload must satisfy.\n *\n * A backup is a whole snapshot, so every reference in it has to resolve inside it. The bookmark import is\n * different — it deliberately files links under categories that already exist in the database — so it runs\n * only the checks that are meaningful per-payload and gets its nesting rule enforced where the full tree is\n * actually visible (`importData`, which both entry points share).\n */",
+    "/** Duplicate ids would silently last-write-wins through the upsert, so both bulk paths reject them. */",
+  ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
   ]],
@@ -37160,6 +37166,37 @@ const allowed = new Map([
     "/**\n   * Take the one completion slot for an upload. Clearing `upload_id` is the claim: a second request\n   * that read the same snapshot can no longer find a multipart session to complete, and a request\n   * that arrives after the claim sees the empty id. This is what keeps two retries from racing.\n   */",
     "/**\n * Merge the parts, verify the bytes, then publish the track and its ledger row.\n *\n * The quota lease is taken before the merge and held until the ledger row exists. If anything after\n * the merge fails, the object is discarded and the task is marked failed; a failed task is not\n * resumable because its multipart session is gone.\n */",
   ]],
+  ["src/worker/nav/routes.ts", [
+    "// Renaming a protected folder discloses nothing its name was not already doing, but changing its password",
+    "// mode is the lock itself — so that one patch, and only that one, has to prove the key. Without this the",
+    "// whole feature is bypassable by anyone holding the session: `passwordMode:'none'` and the folder is open.",
+    "// Deleting a locked folder would move every hidden link into the fallback, which is a one-call way to",
+    "// unhide a whole branch; the fallback itself must not be a hidden folder either way.",
+    "// An import upserts by id, so a payload naming a locked category would rewrite its name and parent — or",
+    "// file someone else's links into it — without ever asking for the key.",
+  ]],
+  ["src/worker/nav/store.ts", [
+    "// Walk the whole parent chain rather than one hop: a category is hidden when *any* ancestor is locked.",
+    "// The one-level rule is enforced on every write path, but a tree that predates it — or one built by a",
+    "// bulk import — must not silently leak a grandchild's links behind a locked root.",
+    "/** Per-category totals over the links a reader may actually see; a hidden folder gets no entry at all. */",
+    "// Counted from the links the reader may see, never from the table: how many bookmarks a locked",
+    "// folder holds is exactly what its password exists to keep from a session without the key.",
+    "// Naming something that is not in this group is still an error — that is how a request carrying another",
+    "// tenant's id gets refused — and a repeated id would silently collapse the order.",
+    "// A reader who cannot see a locked category cannot order it either, so completeness is judged over the",
+    "// visible group; locked siblings keep the position they already have.",
+    "/**\n   * The \"categories nest only one level\" rule, checked against the tree as it will stand after the upsert.\n   *\n   * `createCategory` refuses a third level per request, but the bulk upsert writes `parent_id` straight\n   * through, and the lock's visibility rule walks a bounded number of parent hops. A three-level branch\n   * would therefore leave the deepest folder's links readable behind a locked root, so both bulk entry\n   * points have to be held to the same shape as the single-item one.\n   */",
+    "// A snapshot replaces the tree wholesale and `NavBackupSchema` already proved it nests one level, so",
+    "// the merged check would only see rows this very call is about to delete.",
+  ]],
+  ["src/worker/nav/tools.ts", [
+    "// A protected folder's name, icon, parent and size are exactly what its password is for, and this view",
+    "// is what the assistant pastes into a third-party model's context. Say only that something is behind a",
+    "// key; every read tool already refuses to work inside it.",
+    "// A count of what is locked away is itself a disclosure (\"13 entries in that folder\"), so this reports",
+    "// only that something is hidden.",
+  ]],
   ["src/worker/notes/store.ts", [
     "/**\n * Every read and write the notes HTTP routes make against D1.\n *\n * The shape follows `assistant/store.ts`, the one place in this worker where a route holds no SQL at\n * all: a store built per request from the account it serves, methods that take already-validated\n * input and hand back rows or the record the route needs to answer with, and nothing in between that\n * knows about HTTP. Two rules hold throughout, both inherited from that file:\n *  - every statement carries `user_id`, so one reader's notes can never surface in another's listing,\n *    and the few statements that cannot (a cross-account id collision probe, a join through a note id\n *    that the scoped statement already resolved) are the deliberate exceptions, written next to the\n *    scoped statement that put the id in play;\n *  - a mutation's statements stay in one D1 batch. The guards inside them (`rev`, `content_hash`,\n *    `updated_at`) only mean \"nobody changed this row between my read and my write\" while the whole\n *    batch lands together, so splitting a batch into sequential runs would turn an atomic edit into a\n *    lost update that no test would notice.\n *\n * Change records (`changes.seq`) come back to the caller rather than being broadcast here: the cursor\n * belongs to the response and the background drain to the request context, both of which are the\n * route's business.\n */",
     "/**\n * The last row of a page, in the order the listing sorted it.\n *\n * A keyset cursor is a row's sort position, not an offset, so a page turn cannot shift when another\n * note is edited in between; the offset form below only exists for links minted before that was true.\n */",
@@ -43005,6 +43042,20 @@ const allowed = new Map([
   ["tests/music-tool-effects.test.ts", [
     "/**\n * The bridge between a worker tool and this tab's player.\n *\n * Two promises are under test. The worker turns an effect envelope into activity metadata without\n * handing the envelope to the model; the browser runs that effect once, on a local turn only, and\n * never from a thread opened later. The runner half is exercised with the same wire stub the other\n * assistant tests use, because \"the model read {ok:true} and the row kept the effect\" is a claim about\n * both bodies and cannot be read off either one alone.\n */",
     "// The two overlays are mutually exclusive in the UI store, so they are opened one at a time.",
+  ]],
+  ["tests/nav-api.test.ts", [
+    "// Changing the lock is the one patch that has to prove the key, so clearing it needs an unlock first.",
+    "// A protected folder's size is withheld: the totals cover only what this session may read.",
+    "// Taking a lock off has to require the key, otherwise the lock protects nothing.",
+    "// Renaming discloses nothing the name was not already disclosing, so it stays available while locked.",
+    "// Deleting a locked folder would move every hidden link into a readable one.",
+    "// And filing visible links into a hidden folder must not make them disappear either.",
+    "// Reordering inside a hidden folder is a write into it.",
+    "// The lock itself is untouched: still protected, still holding its hidden link.",
+    "// The client never learns the locked folder's id once counts and names are withheld, so a complete set",
+    "// over the *visible* group is the only thing an ordering request can possibly carry.",
+    "// The write paths refuse a third level, so reach one the way legacy data would: re-parent after creation.",
+    "// A folder the expired token no longer opens contributes nothing to the totals either.",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",
