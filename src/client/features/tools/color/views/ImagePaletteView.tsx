@@ -404,7 +404,8 @@ export function ImagePaletteView() {
               <span className="text-[length:var(--text-14)] font-semibold text-[var(--text-primary)]">
                 {t('tools.color.image.palette')} ({extractedPalette.length})
               </span>
-              <div className="flex items-center gap-2">
+              {/* Four labelled buttons: measured 494px inside a 372px card at 420px, so they wrap. */}
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
                   size="sm"
                   variant="secondary"

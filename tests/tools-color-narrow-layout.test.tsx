@@ -81,6 +81,13 @@ describe('the rows that measured wider than their column', () => {
     expect(rows, 'the dominant-colour and palette rows both need to wrap').toBe(2)
   })
 
+  it('wraps the four-button row under the extracted palette', () => {
+    // Measured in Chromium: 494px of buttons inside a 372px card at 420px.
+    const src = fs.readFileSync('src/client/features/tools/color/views/ImagePaletteView.tsx', 'utf8')
+    expect(src.split('flex flex-wrap items-center justify-end gap-2').length - 1).toBeGreaterThanOrEqual(1)
+    expect(src, 'the bare four-button row is back').not.toContain('<div className="flex items-center gap-2">\n                <Button')
+  })
+
   it('says nothing in English that the locale files do not already hold', () => {
     // The rows above were edited; the i18n gate is the one that keeps that true, and it runs as a script.
     expect(t('tools.color.studio.seed_color').length).toBeGreaterThan(0)
