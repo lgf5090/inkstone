@@ -8069,6 +8069,9 @@ const allowed = new Map([
     "// large library will touch it. Waiting the window out keeps the results gathered so far and",
     "// resumes the same chunk instead of cancelling the run.",
     "/* A scan runs for minutes behind a modal; without a live region a reader gets no progress\n                  at all until the one line that happens to be marked as a status arrives. */",
+    "// A worker owns its chunk until it finishes with it. Reading the cursor and only advancing it",
+    "// after the await let all three workers claim the same chunk: those bookmarks were fetched three",
+    "// times while the skipped chunks were never checked at all, and the progress bar ran past 100%.",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -43213,6 +43216,12 @@ const allowed = new Map([
     "// waved the body straight through to `json()`.",
     "// @ts-expect-error duplex is required by the runtime when the body is a stream",
     "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
+  ]],
+  ["tests/nav-checker-ui.test.tsx", [
+    "// CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the",
+    "// shared cursor and only advancing it after the await let all three workers claim chunk 0: those",
+    "// eight bookmarks were fetched three times, chunks 1 and 2 were never requested at all, and the",
+    "// progress bar counted past its own total.",
   ]],
   ["tests/nav-errors.test.ts", [
     "// The mapping used to swallow the reason, which left the backup panel saying one sentence for every",

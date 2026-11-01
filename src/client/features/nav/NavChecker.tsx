@@ -477,14 +477,22 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
 
     const worker = async (): Promise<void> => {
       let rateLimitWaits = 0
+      // A worker owns its chunk until it finishes with it. Reading the cursor and only advancing it
+      // after the await let all three workers claim the same chunk: those bookmarks were fetched three
+      // times while the skipped chunks were never checked at all, and the progress bar ran past 100%.
+      let pending: NavLink[] | null = null
       while (!controller.signal.aborted) {
         if (Date.now() - startedAt > SCAN_DEADLINE_MS) {
           deadlineHitRef.current = true
           controller.abort()
           return
         }
-        const chunk = chunks[nextChunk]
-        if (!chunk) return
+        if (pending === null) {
+          pending = chunks[nextChunk] ?? null
+          nextChunk += 1
+          if (pending === null) return
+        }
+        const chunk = pending
         try {
           const urls = [...new Set(chunk.map((link) => link.url))]
           const { results: batchRows } = await navApi.check(urls, controller.signal)
@@ -496,7 +504,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
             const result = byUrl.get(link.url)
             if (result) rows[link.id] = toRow(result, now)
           }
-          nextChunk += 1
+          pending = null
           rateLimitWaits = 0
           applyResults(rows)
           checkedRef.current += chunk.length

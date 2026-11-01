@@ -198,6 +198,38 @@ describe('LinkCheckerModal', () => {
     expect(cached[SKIPPED.id]?.level).toBe('skipped')
   })
 
+  it('hands each bookmark to exactly one worker when the scan runs concurrently', async () => {
+    // CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the
+    // shared cursor and only advancing it after the await let all three workers claim chunk 0: those
+    // eight bookmarks were fetched three times, chunks 1 and 2 were never requested at all, and the
+    // progress bar counted past its own total.
+    const many = Array.from({ length: 20 }, (_, index) => makeLink({
+      id: `link-many-${index}`, title: `Site ${index}`, url: `https://many${index}.example/`,
+    }))
+    seed(many)
+    const requested: string[] = []
+    checkSpy.mockImplementation(async (urls: string[]) => {
+      requested.push(...urls)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return { results: urls.map((url) => ({ url, status: 200, ok: true, level: 'ok', durationMs: 5 })) }
+    })
+
+    mount()
+    click(buttonByText(t('nav.checker.start')))
+    await vi.waitFor(() => expect(requested.length).toBe(20), { timeout: 10_000 })
+    await flush()
+    await flush()
+
+    expect([...new Set(requested)].sort()).toEqual(many.map((link) => link.url).sort())
+    expect(requested.length, 'no bookmark may be checked twice').toBe(new Set(requested).size)
+    const bar = document.querySelector('[role="progressbar"]')
+    if (bar) {
+      const now = Number(bar.getAttribute('aria-valuenow'))
+      const max = Number(bar.getAttribute('aria-valuemax'))
+      expect(now, 'the progress bar cannot count past the scan it announced').toBeLessThanOrEqual(max)
+    }
+  })
+
   it('filters rows and selects the visible or broken ones', async () => {
     window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify({
       [BROKEN.id]: cacheRow('broken', Date.now()),
