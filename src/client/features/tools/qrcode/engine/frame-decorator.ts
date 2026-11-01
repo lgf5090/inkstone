@@ -1,4 +1,5 @@
-import type { QrFrameOptions } from '../../../../../shared/tools/qrcode/types'
+import type { QrFrameOptions, QrFrameType } from '../../../../../shared/tools/qrcode/types'
+import { t, type MessageKey } from '../../../../lib/i18n'
 
 export function drawRoundRect(
   ctx: CanvasRenderingContext2D,
@@ -106,10 +107,25 @@ export function applyFrame(
   }
 }
 
-function resolveLabel(options: QrFrameOptions, defaultText: string): string {
+/**
+ * The caption a frame draws when the reader left the field empty. These are UI copy, so they come out
+ * of the catalogue: an English badge on a Chinese workbench is a translation gap, not a default.
+ */
+const FRAME_DEFAULT_LABEL_KEYS: Record<Exclude<QrFrameType, 'none'>, MessageKey> = {
+  'dark-green': 'tools.qrcode.frame.default_dark_green',
+  'red-blue': 'tools.qrcode.frame.default_red_blue',
+  'three-color': 'tools.qrcode.frame.default_three_color',
+  heart: 'tools.qrcode.frame.default_heart',
+  'liquid-stamp': 'tools.qrcode.frame.default_liquid_stamp',
+  pacman: 'tools.qrcode.frame.default_pacman',
+  'meme-bubble': 'tools.qrcode.frame.default_meme_bubble',
+  mushroom: 'tools.qrcode.frame.default_mushroom',
+}
+
+function resolveLabel(options: QrFrameOptions, type: Exclude<QrFrameType, 'none'>): string {
   if (options.label !== undefined) return options.label
   if (options.text !== undefined) return options.text
-  return defaultText
+  return t(FRAME_DEFAULT_LABEL_KEYS[type])
 }
 
 function renderDarkGreenFrame(
@@ -149,7 +165,7 @@ function renderDarkGreenFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, 'SCAN TO LEARN MORE')
+  const label = resolveLabel(options, 'dark-green')
   if (label) {
     const badgeW = Math.round(totalW * 0.65)
     const badgeH = Math.round(footerH * 0.6)
@@ -208,7 +224,7 @@ function renderRedBlueFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, 'SCAN TO VIEW')
+  const label = resolveLabel(options, 'red-blue')
   if (label) {
     const fontSize = Math.max(13, Math.round(footerH * 0.32))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
@@ -265,7 +281,7 @@ function renderThreeColorFrame(
 
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  const label = resolveLabel(options, 'SCAN ME')
+  const label = resolveLabel(options, 'three-color')
   if (label) {
     const btnW = Math.round(totalW * 0.6)
     const btnH = Math.round(footerH * 0.58)
@@ -334,7 +350,7 @@ function renderHeartFrame(
 
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  const label = resolveLabel(options, 'LOVE & SCAN')
+  const label = resolveLabel(options, 'heart')
   if (label) {
     const badgeW = Math.round(totalW * 0.6)
     const badgeH = Math.round(footerH * 0.6)
@@ -402,7 +418,7 @@ function renderLiquidStampFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, '★ AUTHENTIC ★')
+  const label = resolveLabel(options, 'liquid-stamp')
   if (label) {
     const fontSize = Math.max(11, Math.round(pad * 0.32))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`
@@ -465,7 +481,7 @@ function renderPacmanFrame(
 
   ctx.drawImage(qrCanvas, pad, pad + headerH)
 
-  const label = resolveLabel(options, 'READY! 1UP')
+  const label = resolveLabel(options, 'pacman')
   if (label) {
     const fontSize = Math.max(12, Math.round(footerH * 0.35))
     ctx.font = `bold ${fontSize}px monospace, 'Courier New', sans-serif`
@@ -501,7 +517,7 @@ function renderMemeBubbleFrame(
   ctx.fillStyle = bg || '#ffffff'
   ctx.fillRect(0, 0, totalW, totalH)
 
-  const label = resolveLabel(options, 'SCAN ME!')
+  const label = resolveLabel(options, 'meme-bubble')
   if (label) {
     const bW = Math.round(totalW * 0.68)
     const bH = Math.round(bubbleH * 0.65)
@@ -575,7 +591,7 @@ function renderMushroomFrame(
 
   ctx.drawImage(qrCanvas, pad, pad)
 
-  const label = resolveLabel(options, 'SCAN ME')
+  const label = resolveLabel(options, 'mushroom')
   if (label) {
     const fontSize = Math.max(14, Math.round(footerH * 0.42))
     ctx.font = `bold ${fontSize}px 'PingFang SC', sans-serif`

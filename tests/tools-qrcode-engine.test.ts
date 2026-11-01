@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initI18nForReading, t } from '../src/client/lib/i18n'
 import {
   exportQrToBlob,
   exportQrToDataUrl,
@@ -398,6 +399,22 @@ describe('QR Code Engine & Beautification System', () => {
         expect(ctx.fillText).toHaveBeenCalled()
       })
     }
+
+    it('draws the catalogue caption when the reader left the field empty', async () => {
+      await initI18nForReading('zh-CN')
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = 400
+      sourceCanvas.height = 400
+
+      const framed = applyFrame(sourceCanvas, { type: 'dark-green' })
+      const drawn = ((framed.getContext('2d') as any).fillText.mock.calls as unknown[][]).map((call) =>
+        String(call[0])
+      )
+      expect(drawn).toContain(t('tools.qrcode.frame.default_dark_green'))
+      expect(drawn).not.toContain('SCAN TO LEARN MORE')
+
+      await initI18nForReading('en-US')
+    })
 
     it('allows clearing the frame label by providing empty string', () => {
       const sourceCanvas = document.createElement('canvas')

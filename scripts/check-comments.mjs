@@ -18059,6 +18059,9 @@ const allowed = new Map([
     "/**\n * Saves a blob through a temporary anchor. Revoking in the same tick as the click is what cut\n * downloads short on some browsers, so the revoke waits for the task that follows.\n */",
     "/** Same-origin files (a stored record's own image) download through the anchor's own name. */",
   ]],
+  ["src/client/features/tools/qrcode/engine/frame-decorator.ts", [
+    "/**\n * The caption a frame draws when the reader left the field empty. These are UI copy, so they come out\n * of the catalogue: an English badge on a Chinese workbench is a translation gap, not a default.\n */",
+  ]],
   ["src/client/features/tools/qrcode/engine/qr-engine.ts", [
     "// A blank canvas here would export a code nothing can scan, and the preview would look",
     "// healthy. Fail loudly instead so the surface can show it and offer a retry.",
