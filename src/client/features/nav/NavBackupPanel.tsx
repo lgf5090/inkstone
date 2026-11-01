@@ -5,7 +5,7 @@ import { Modal, confirm } from '../../components/overlay'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Select, SettingRow } from '../../components/form'
 import { useUi } from '../../store/ui'
-import { t } from '../../lib/i18n'
+import { t, tCount, translateServiceMessage } from '../../lib/i18n'
 import { useRelativeTime } from '../../lib/hooks'
 import { cn } from '../../lib/cn'
 import { navApi } from './api'
@@ -25,20 +25,17 @@ const WEBDAV_PRESETS = [
   { label: 'Box', url: 'https://dav.box.com/dav/' },
 ]
 
-type BackupStatus = { kind: 'idle' } | { kind: 'loading'; text: string } | { kind: 'success'; text: string } | { kind: 'error'; text: string }
-
-function webdavTestMessage(message: string | undefined): string {
-  const text = message ?? ''
-  if (/incorrect username|password/i.test(text)) return t('nav.backup.test_error.auth')
-  if (/path does not exist|path not found/i.test(text)) return t('nav.backup.test_error.path_missing')
-  if (/write access is missing/i.test(text)) return t('nav.backup.test_error.write_forbidden')
-  if (/read access is missing/i.test(text)) return t('nav.backup.test_error.read_forbidden')
-  if (/out of storage/i.test(text)) return t('nav.backup.test_error.storage')
-  if (/redirect/i.test(text)) return t('nav.backup.test_error.redirect')
-  if (/publicly reachable/i.test(text)) return t('nav.backup.test_error.connect')
-  if (/could not connect|connection|network/i.test(text)) return t('nav.backup.test_error.connect')
-  return t('nav.backup.test_error.generic')
+/**
+ * The storage layer answers in English whatever the interface language is, and the shared catalogue
+ * already keys those sentences by their exact text. Re-deriving a navigation-only list of regular
+ * expressions here meant two tables to keep in step — and the panel's own "last failure" line bypassed
+ * both and printed the raw English.
+ */
+function serviceMessage(message: string | undefined): string {
+  return translateServiceMessage(message) || t('nav.backup.test_error.generic')
 }
+
+type BackupStatus = { kind: 'idle' } | { kind: 'loading'; text: string } | { kind: 'success'; text: string } | { kind: 'error'; text: string }
 
 const FREQUENCIES: NavBackupSchedule[] = ['off', 'hourly', 'sixHourly', 'daily', 'weekly']
 const RETENTIONS = [0, 7, 14, 30, 90, 365]
@@ -145,7 +142,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
         : {})
       setStatus(result.ok
         ? { kind: 'success', text: t('nav.backup.test_ok') }
-        : { kind: 'error', text: webdavTestMessage(result.error) })
+        : { kind: 'error', text: serviceMessage(result.error) })
     } catch (error) {
       setStatus({ kind: 'error', text: navErrorMessage(error) })
     } finally {
@@ -336,7 +333,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
                           : t('nav.backup.never')}
                     </p>
                     {config!.lastError && config!.lastStatus === 'failed' && (
-                      <p className="mt-1 break-words text-[length:var(--text-10-5)] text-[var(--danger)]">{config!.lastError}</p>
+                      <p className="mt-1 break-words text-[length:var(--text-10-5)] text-[var(--danger)]">{serviceMessage(config!.lastError)}</p>
                     )}
                     {config!.lastFilename && (
                       <p className="mt-1 truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('nav.backup.last_file', { name: config!.lastFilename })}</p>
@@ -379,7 +376,7 @@ export function NavBackupModal({ open, onClose }: ModalProps) {
                   onChange={(event) => void updateSetting({ retention: Number(event.target.value) })}
                 >
                   {RETENTIONS.map((count) => (
-                    <option key={count} value={count}>{count === 0 ? t('nav.backup.retention_all') : t('nav.backup.retention_n', { count })}</option>
+                    <option key={count} value={count}>{count === 0 ? t('nav.backup.retention_all') : tCount('nav.backup.retention_n', count)}</option>
                   ))}
                 </Select>
               </SettingRow>

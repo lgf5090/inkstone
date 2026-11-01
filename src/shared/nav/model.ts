@@ -314,6 +314,20 @@ export function normalizeIconName(raw: string): string {
     .toLowerCase()
 }
 
+/**
+ * The reserved name of the folder the app creates when a bookmark has nowhere to go.
+ *
+ * Storing a translated word froze whichever language the reader happened to be using into the data: the
+ * folder kept answering in Chinese after the interface switched to English. The marker is stored instead,
+ * and rendered through the message table by `categoryDisplayName`.
+ */
+export const NAV_UNCATEGORIZED = '@uncategorized'
+
+/** Whether a stored category name is the marker rather than a folder the reader named. */
+export function isUncategorizedName(name: string): boolean {
+  return name === NAV_UNCATEGORIZED
+}
+
 export function normalizeCategoryName(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ')
 }

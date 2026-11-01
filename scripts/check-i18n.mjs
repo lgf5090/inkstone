@@ -613,6 +613,13 @@ for (const file of englishOnlyPaths.flatMap((target) => fs.existsSync(target) ? 
         referenced.add(match[1]);
     for (const match of text.matchAll(keyFamily))
         families.add(match[1] ?? match[3]);
+    // `tCount` builds its key from a base plus the plural arm, so the base it is handed has to register
+    // both arms — otherwise the gate reads a pluralised message as two unreferenced keys and the honest
+    // fix would be to stop pluralising.
+    for (const match of text.matchAll(/\btCount\(\s*['"`]([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)['"`]/g)) {
+        referenced.add(`${match[1]}_one`);
+        referenced.add(`${match[1]}_other`);
+    }
 }
 // A backup error is thrown as English text by the code that talks to the storage service, and
 // `translateServiceMessage` answers a reader's language by finding that text's key in the catalog by

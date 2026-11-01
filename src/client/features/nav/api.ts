@@ -13,10 +13,10 @@ import type {
   NavImportResponse,
   NavLinkResponse,
   NavRestoreResponse,
-  NavSettingsResponse,
   NavWebdavBackupResponse,
   NavWebdavTestResponse,
 } from '@shared/nav/api'
+import { NAV_UNCATEGORIZED } from '@shared/nav/model'
 import type {
   NavBackup,
   NavCategory,
@@ -100,9 +100,8 @@ export const navApi = {
   deleteLink: (id: string, unlocks?: readonly string[]) => navFetch<{ ok: true }>(`/api/nav/links/${id}`, { method: 'DELETE', unlocks }),
   orderLinks: (body: { scope: 'pinned' | 'category'; categoryId?: string; orderedIds: string[] }, unlocks?: readonly string[]) => navFetch<{ ok: true }>('/api/nav/links/order', { method: 'POST', body, unlocks }),
   visits: (visits: { linkId: string; count: number }[], keepalive = false) => navFetch<{ ok: true }>('/api/nav/visits', { method: 'POST', body: { visits }, keepalive }),
-  importBookmarks: (body: { categories: NavImportCategory[]; links: NavImportLink[]; skipExisting?: boolean }) => navFetch<NavImportResponse>('/api/nav/import', { method: 'POST', body: { ...body, fallbackCategoryName: t('nav.link.default_category') } }),
+  importBookmarks: (body: { categories: NavImportCategory[]; links: NavImportLink[]; skipExisting?: boolean }) => navFetch<NavImportResponse>('/api/nav/import', { method: 'POST', body: { ...body, fallbackCategoryName: NAV_UNCATEGORIZED } }),
   batch: (body: { action: 'delete' | 'move' | 'rewrite'; ids: string[]; fallbackCategoryId?: string; template?: string }, unlocks?: readonly string[]) => navFetch<Record<string, unknown>>('/api/nav/links/batch', { method: 'POST', body, unlocks }),
-  settings: () => navFetch<NavSettingsResponse>('/api/nav/settings'),
   saveSettings: <K extends keyof NavSettings>(group: K, value: NavSettings[K]) => navFetch<{ value: NavSettings[K] }>(`/api/nav/settings/${group}`, { method: 'PUT', body: value }),
   backupConfig: () => navFetch<NavBackupConfigResponse>('/api/nav/webdav/config'),
   saveBackupConfig: (body: { url?: string; username?: string; password?: string; schedule?: string; retention?: number }) => navFetch<NavBackupConfigResponse>('/api/nav/webdav/config', { method: 'PUT', body }),
@@ -127,17 +126,23 @@ export const navApi = {
   check: (urls: string[], signal?: AbortSignal) => navFetch<NavCheckResponse>('/api/nav/check', { method: 'POST', body: { urls }, signal }),
 }
 
-export function unlockHeader(tokens: ReadonlyMap<string, string>): string[] {
-  return [...tokens.values()]
+/**
+ * A stored category name, in the language the reader is reading in.
+ *
+ * The automatic folder is stored as `NAV_UNCATEGORIZED` precisely so this one lookup can translate it;
+ * anything the reader typed themselves comes back unchanged.
+ */
+export function categoryDisplayName(name: string): string {
+  return name === NAV_UNCATEGORIZED ? t('nav.uncategorized') : name
 }
 
 export function categoryOptions(categories: readonly NavCategory[]): { value: string; label: string }[] {
   const roots = categories.filter((category) => !category.parentId)
   const out: { value: string; label: string }[] = []
   for (const root of roots) {
-    out.push({ value: root.id, label: root.name })
+    out.push({ value: root.id, label: categoryDisplayName(root.name) })
     for (const child of categories.filter((category) => category.parentId === root.id)) {
-      out.push({ value: child.id, label: `${root.name} / ${child.name}` })
+      out.push({ value: child.id, label: `${categoryDisplayName(root.name)} / ${categoryDisplayName(child.name)}` })
     }
   }
   return out

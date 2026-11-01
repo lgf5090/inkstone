@@ -40,23 +40,27 @@ export function rowToCategory(row: NavCategoryRow): NavCategory {
 
 export const UNLOCK_TTL_MS = 12 * 60 * 60 * 1000
 
-function unlockTargets(userId: string, categoryId: string, clientIp: string) {
+function unlockTargets(userId: string, categoryId: string, clientIp: string, sharedSecret: boolean) {
   return [
     { key: `nav-unlock:${userId}:${categoryId}`, freeFails: 5 },
     { key: `nav-unlock-ip:${clientIp}`, freeFails: 20 },
+    // A `default` folder is opened by the deployment's own password, which every such folder shares. The
+    // per-category budget would let that one secret be tried against folder after folder; this counter is
+    // the one that has to answer for it.
+    ...(sharedSecret ? [{ key: 'nav-unlock-default', freeFails: 30 }] : []),
   ]
 }
 
-export async function assertUnlockAllowed(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
-  await assertAttemptBudget(() => assertNotLocked(db, unlockTargets(userId, categoryId, clientIp)))
+export async function assertUnlockAllowed(db: D1Database, userId: string, categoryId: string, clientIp: string, sharedSecret = false): Promise<void> {
+  await assertAttemptBudget(() => assertNotLocked(db, unlockTargets(userId, categoryId, clientIp, sharedSecret)))
 }
 
-export async function recordUnlockFailure(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
-  await recordLoginFailure(db, unlockTargets(userId, categoryId, clientIp))
+export async function recordUnlockFailure(db: D1Database, userId: string, categoryId: string, clientIp: string, sharedSecret = false): Promise<void> {
+  await recordLoginFailure(db, unlockTargets(userId, categoryId, clientIp, sharedSecret))
 }
 
-export async function clearUnlockFailures(db: D1Database, userId: string, categoryId: string, clientIp: string): Promise<void> {
-  await clearLoginFailures(db, unlockTargets(userId, categoryId, clientIp))
+export async function clearUnlockFailures(db: D1Database, userId: string, categoryId: string, clientIp: string, sharedSecret = false): Promise<void> {
+  await clearLoginFailures(db, unlockTargets(userId, categoryId, clientIp, sharedSecret))
 }
 
 export async function verifyCategoryPassword(

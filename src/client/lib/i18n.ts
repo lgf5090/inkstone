@@ -175,6 +175,16 @@ function interpolate(template: string, params?: Params): string {
         return value == null ? whole : String(value);
     });
 }
+/**
+ * A count-bearing message in its `_one` / `_other` form.
+ *
+ * The catalogue has no plural engine, so every site that needed this grew a `count === 1 ? … : …`
+ * expression by hand — and the navigation app shipped ten messages that read "1 visits".
+ */
+export function tCount(baseKey: string, count: number, params?: Params): string {
+    const key = `${baseKey}_${count === 1 ? 'one' : 'other'}` as MessageKey;
+    return t(key, { ...params, count });
+}
 export function localizedTexts(key: MessageKey): string[] {
     const order: AppLocale[] = locale === 'zh-CN' ? ['zh-CN', 'en-US'] : ['en-US', 'zh-CN'];
     const out: string[] = [];

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_NAV_SETTINGS, type NavBootstrap, type NavCategory, type NavLink } from '../src/shared/nav/model'
+import { DEFAULT_NAV_SETTINGS, NAV_UNCATEGORIZED, type NavBootstrap, type NavCategory, type NavLink } from '../src/shared/nav/model'
 import { useNavStore } from '../src/client/features/nav/nav-store'
 import { useSession } from '../src/client/store/session'
 import { useUi } from '../src/client/store/ui'
@@ -76,7 +76,6 @@ function seed(categories: NavCategory[], links: NavLink[] = []): void {
     visits: {},
     counts: { total: links.length, byCategory: {} },
     settings: DEFAULT_NAV_SETTINGS,
-    webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
     unlocks: {},
     selectedCategory: null,
@@ -394,7 +393,7 @@ describe('CategoryManagerModal', () => {
   it('creates an uncategorized fallback before deleting the last category', async () => {
     seed([GAMMA], [])
     spies.create.mockResolvedValue({
-      category: makeCategory({ id: 'cat-fallback', name: t('nav.category.create_fallback') }),
+      category: makeCategory({ id: 'cat-fallback', name: NAV_UNCATEGORIZED }),
     })
     mountManager()
 
@@ -406,7 +405,7 @@ describe('CategoryManagerModal', () => {
     await flush()
 
     expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({
-      name: t('nav.category.create_fallback'),
+      name: NAV_UNCATEGORIZED,
       icon: 'folder',
       parentId: null,
       passwordMode: 'none',

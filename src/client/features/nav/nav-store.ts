@@ -7,7 +7,6 @@ import type {
   NavLink,
   NavSearchSettings,
   NavVisit,
-  NavWebdavSettings,
 } from '@shared/nav/model'
 import { DEFAULT_NAV_SETTINGS, NAV_LIMITS } from '@shared/nav/model'
 import { useSession } from '../../store/session'
@@ -24,7 +23,6 @@ interface NavState {
   visits: Record<string, NavVisit>
   counts: NavCounts
   settings: NavBootstrap['settings']
-  webdav: NavWebdavSettings
   sync: NavSyncState
   unlocks: Record<string, StoredUnlock>
   selectedCategory: string | null
@@ -149,7 +147,6 @@ function applyBootstrap(data: NavBootstrap): Partial<NavState> {
     visits: data.visits,
     counts: data.counts,
     settings: data.settings,
-    webdav: data.webdav,
   }
 }
 
@@ -191,7 +188,6 @@ export const useNavStore = create<NavState>((set, get) => {
     visits: {},
     counts: { total: 0, byCategory: {} },
     settings: DEFAULT_NAV_SETTINGS,
-    webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
     unlocks: {},
     selectedCategory: null,
@@ -371,7 +367,6 @@ export function clearNavSessionState(): void {
     visits: {},
     counts: { total: 0, byCategory: {} },
     settings: DEFAULT_NAV_SETTINGS,
-    webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
     unlocks: {},
     selectedCategory: null,

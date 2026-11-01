@@ -27,7 +27,7 @@ import { useUi } from '../../store/ui'
 import { Checkbox, Segmented, Select } from '../../components/form'
 import { Modal, confirm, prompt } from '../../components/overlay'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { categoryOptions, isNavCheckLevel, navApi } from './api'
+import { categoryDisplayName, categoryOptions, isNavCheckLevel, navApi } from './api'
 import { navErrorToast } from './errors'
 import { NavIcon } from './nav-icons'
 import { useNavStore } from './nav-store'
@@ -999,7 +999,7 @@ export function LinkCheckerModal({ open, onClose, onEditLink }: {
                                 {link.url}
                               </a>
                               <span className="block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-                                {categoryNames.get(link.categoryId) ?? t('nav.uncategorized')}
+                                {categoryNames.get(link.categoryId) ? categoryDisplayName(categoryNames.get(link.categoryId)!) : t('nav.uncategorized')}
                               </span>
                               {rowDetails(link)}
                             </div>

@@ -214,7 +214,7 @@ export class NavStore {
       .prepare('SELECT value FROM nav_settings WHERE user_id = ?1 AND key = ?2')
       .bind(this.userId, key)
       .first<{ value: string }>()
-    const raw = row ? safeJson(row.value) : null
+    const raw = row ? safeJson(row.value, `settings ${key}`) : null
     if (key === 'display') return parseDisplaySettings(raw)
     if (key === 'search') return parseSearchSettings(raw)
     return parseAiSettings(raw)
@@ -242,7 +242,7 @@ export class NavStore {
       .prepare("SELECT value FROM nav_settings WHERE user_id = ?1 AND key = 'webdav'")
       .bind(this.userId)
       .first<{ value: string }>()
-    const raw = row ? safeJson(row.value) : null
+    const raw = row ? safeJson(row.value, 'webdav settings') : null
     const value = raw && typeof raw === 'object' ? raw as { url?: unknown; username?: unknown } : {}
     return {
       url: typeof value.url === 'string' ? value.url.slice(0, 2048) : '',
@@ -288,7 +288,7 @@ export class NavStore {
       .prepare("SELECT value FROM nav_settings WHERE user_id = ?1 AND key = 'backup'")
       .bind(this.userId)
       .first<{ value: string }>()
-    return parseNavBackupState(row ? safeJson(row.value) : null)
+    return parseNavBackupState(row ? safeJson(row.value, 'backup state') : null)
   }
 
   async saveBackupState(state: NavBackupState): Promise<void> {
@@ -722,6 +722,13 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
   return b.every((id) => set.has(id)) && new Set(b).size === b.length
 }
 
-function safeJson(value: string): unknown {
-  try { return JSON.parse(value) } catch { return null }
+function safeJson(value: string, context: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    // Without this line a damaged row and an unset one look identical from the outside: the reader finds
+    // their preferences quietly back at their defaults with no way to tell which happened.
+    console.warn(`[inkstone] Navigation ${context} is not valid JSON; falling back to defaults`)
+    return null
+  }
 }

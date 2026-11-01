@@ -107,7 +107,7 @@ const searchSourceSchema = z.object({
   id: z.string().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(NAV_LIMITS.searchSourceName),
   url: z.string().trim().max(NAV_LIMITS.url).refine((value) => isHttpUrl(value) && value.includes('{query}'), 'url must be http(s) and contain {query}'),
-  icon: z.string().max(NAV_LIMITS.url).nullable().optional(),
+  icon: z.union([z.string().trim().max(NAV_LIMITS.url).refine(isSafeIconValue, 'unsupported icon'), z.null()]).optional(),
   enabled: z.boolean().optional(),
   createdAt: z.number().int().nonnegative().optional(),
 })
@@ -131,6 +131,17 @@ export const NavAiSettingsSchema = z.object({ modelId: z.string().max(64).defaul
 export const NavWebdavSettingsSchema = z.object({
   url: z.string().trim().max(NAV_LIMITS.url).default(''),
   username: z.string().trim().max(200).default(''),
+})
+
+/**
+ * What a `PUT /settings/webdav` body has to carry.
+ *
+ * The reader is saving a target, so a request that omits one of the two is a mistake rather than a
+ * request to clear it — the defaults on `NavWebdavSettingsSchema` exist for reading a stored row back.
+ */
+export const NavWebdavSettingsPutSchema = z.object({
+  url: z.string().trim().max(NAV_LIMITS.url),
+  username: z.string().trim().max(200),
 })
 
 /**

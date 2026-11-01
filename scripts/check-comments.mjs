@@ -103,6 +103,9 @@ const allowed = new Map([
     "// above: `Select ${hex}` and `Copy ${label} value ${value}` are as unlocalized as a plain string,",
     "// and both were in the colour tool until this check existed.",
     "/**\n     * A template that speaks to a reader in English instead of speaking to the machine.\n     *\n     * Two space-separated words is the shape of a sentence, while a lone token is an identifier, a unit or\n     * a file name. Syntax a translator must not touch — function calls, lengths, custom properties, hex\n     * colours — is left alone, and so is a template that names a message family.\n     */",
+    "// `tCount` builds its key from a base plus the plural arm, so the base it is handed has to register",
+    "// both arms — otherwise the gate reads a pluralised message as two unreferenced keys and the honest",
+    "// fix would be to stop pluralising.",
   ]],
   ["scripts/e2e.mjs", [
     "// The route counts the body while it streams, under a ceiling of 25 MiB plus a 512 KiB form",
@@ -8021,6 +8024,10 @@ const allowed = new Map([
     "// ref and the listener itself is registered exactly once. It used to be re-added on every render, which",
     "// meant a keypress per keystroke in the search box.",
     "/* Named for what it actually switches: which search Enter submits to. Filtering the list is\n                always on, so the old pair read as a scope filter over the bookmarks themselves. */",
+    "/** How much of a letter avatar's plate is the chart colour itself; the rest is the card surface. */",
+  ]],
+  ["src/client/features/nav/NavBackupPanel.tsx", [
+    "/**\n * The storage layer answers in English whatever the interface language is, and the shared catalogue\n * already keys those sentences by their exact text. Re-deriving a navigation-only list of regular\n * expressions here meant two tables to keep in step — and the panel's own \"last failure\" line bypassed\n * both and printed the raw English.\n */",
   ]],
   ["src/client/features/nav/NavCategories.tsx", [
     "/**\n * The category icon picker: the curated Lucide set and the emoji catalogue, with one search box\n * narrowing whichever tab is showing. Every tile is a button that names itself, and the current\n * value stays visible above the grid so a pick is confirmed without leaving the form.\n */",
@@ -8029,6 +8036,7 @@ const allowed = new Map([
     "/**\n * Unlocks one protected category for the tab's session. The dialog owns the in-flight state so a\n * refused password leaves the field where the reader can correct it, and a success closes it.\n */",
     "// One tab stop for the whole grid: a few hundred buttons in the tab ring made the keyboard walk out of",
     "// the dialog before reaching the fields below it. Arrows move the cursor inside the grid instead.",
+    "/**\n * One comparator for both places that order categories by name.\n *\n * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so\n * an English reader got pinyin order and then saw it disagree with the stored sequence. `Intl.Collator`\n * is cached per locale because a fresh one per comparison is measurably slower on a large tree.\n */",
   ]],
   ["src/client/features/nav/NavChecker.tsx", [
     "/** The reference implementation scans eight links per request and keeps three requests in flight. */",
@@ -8049,6 +8057,9 @@ const allowed = new Map([
     "/**\n * Netscape bookmark import and export.\n *\n * Import is chunked so a large file never becomes one oversized request and the progress line stays\n * truthful between chunks; export walks the same format so a file this app writes can be read back by\n * this app or by a browser.\n */",
     "// Entries the parser had to drop (unsupported schemes, malformed hrefs) count as skipped too.",
     "/**\n * The link as a code a phone camera can read. The plate stays white in both themes, because a dark\n * frame would cut into the quiet zone the scanner needs around the code.\n */",
+    "/**\n * Send one parsed tree in `IMPORT_CHUNK` pieces, reporting the running totals as they go.\n *\n * The bookmark file and the CloudNav backup used to carry their own copy of this loop, their own counter\n * pair and their own finish sequence; the two had already drifted in how they seeded `skipped`.\n */",
+    "// Categories ride with the first piece only: the endpoint upserts, and repeating them per chunk",
+    "// would resend the whole tree once per page of links.",
   ]],
   ["src/client/features/nav/NavLinkEditor.tsx", [
     "// Automatic fetching is best-effort; the field stays empty and the reader can retry manually.",
@@ -8060,6 +8071,9 @@ const allowed = new Map([
     "// `iconBroken` is the memory that a fetch already produced something this browser could not render.",
     "// Without it, clearing the field on error re-armed this effect, and the two looped for as long as the",
     "// dialog stayed open.",
+  ]],
+  ["src/client/features/nav/api.ts", [
+    "/**\n * A stored category name, in the language the reader is reading in.\n *\n * The automatic folder is stored as `NAV_UNCATEGORIZED` precisely so this one lookup can translate it;\n * anything the reader typed themselves comes back unchanged.\n */",
   ]],
   ["src/client/features/nav/errors.ts", [
     "/**\n * What a failed navigation request should say, in the reader's language.\n *\n * `navFetch` already turns a coded error into a localised line, but a request that never reached the\n * server rejects with a bare `TypeError: Failed to fetch`, and an unmapped code falls back to whatever\n * the route wrote in English. Both used to be shown as-is, and each call site had its own one-line\n * version of this rule.\n */",
@@ -20115,6 +20129,7 @@ const allowed = new Map([
     "// client store under the node environment: the locale it reads is the one already in memory, so",
     "// there is nothing here for such a caller to want.",
     "/**\n * Locale boot for a surface that renders one language and no switcher.\n *\n * The app's own `initI18n` also preloads the other shipped locale for an instant switch; a public\n * reading surface has no switch, so that background chunk is traffic nobody asked for.\n */",
+    "/**\n * A count-bearing message in its `_one` / `_other` form.\n *\n * The catalogue has no plural engine, so every site that needed this grew a `count === 1 ? … : …`\n * expression by hand — and the navigation app shipped ten messages that read \"1 visits\".\n */",
   ]],
   ["src/client/lib/ime.ts", [
     "/**\n * The keyCode an IME keystroke carries: 229 means \"Process\", i.e. the input method owns this key.\n *\n * `isComposing` is false on the keystroke that *accepts* a candidate in some browsers, which is exactly\n * the one that used to run the action underneath - the classic \"Enter picks the word and submits the\n * form\" bug. Checking the keyCode catches that frame even when the flag has already been cleared.\n */",
@@ -29283,6 +29298,7 @@ const allowed = new Map([
     "/* Carried as small text — counts, warnings, the over-budget figure — on the darkest light surface\n     (#f1efe9), where these three measured 2.19 / 1.90 / 3.21. Each is now the lightest value in its own\n     hue and chroma that clears 5:1, which leaves a point of margin over the AA floor of 4.5:1. The dark\n     theme already passed and is untouched. See tests/contrast-light-semantic-colors.test.ts. */",
     "/* The warning's own wash, same recipe as the accent's: `--warning` is per scheme and per accent\n     theme, so a fixed colour here would be wrong in one of them. Only the text on it is chosen to\n     clear AA — `--warning` on `--bg-raised` is not measured, so a badge never relies on colour alone\n     to say what it means. */",
     "/* Chart series. The Cloudflare app's graphs are the first screens here that draw more than one\n     series, so the palette is a token rather than a component's own list: `--chart-1` follows the\n     reader's accent, and the other four are hue-separated at the same lightness so no series is\n     told apart by brightness alone. */",
+    "/* A plate that has to stay light whatever the theme: a QR code's quiet zone loses scannability when a\n     dark surface eats its contrast, so this is a design decision rather than a theme colour. */",
   ]],
   ["src/client/styles/ui-primitives.css", [
     "/*\n * Shared floating-surface primitives.\n *\n * Kept out of app.css so the blog reading runtime can carry the same viewport, popover, utility and\n * animation rules without importing the whole application stylesheet. Both entries import this file;\n * the note app and a published article therefore draw a toast, a lightbox or a menu with one skin.\n */",
@@ -30407,6 +30423,8 @@ const allowed = new Map([
     "/** A URL a bookmark may store, or null. Mail and phone links are kept but never fetched. */",
     "/** Reserved categories the blog projects; every other category stays private to the nav app. */",
     "/** The resolvers could not be reached, so nothing is known about the address. Not a verdict on the link. */",
+    "/**\n * The reserved name of the folder the app creates when a bookmark has nowhere to go.\n *\n * Storing a translated word froze whichever language the reader happened to be using into the data: the\n * folder kept answering in Chinese after the interface switched to English. The marker is stored instead,\n * and rendered through the message table by `categoryDisplayName`.\n */",
+    "/** Whether a stored category name is the marker rather than a folder the reader named. */",
   ]],
   ["src/shared/nav/validation.ts", [
     "/**\n * The structural rules a self-contained category/link payload must satisfy.\n *\n * A backup is a whole snapshot, so every reference in it has to resolve inside it. The bookmark import is\n * different — it deliberately files links under categories that already exist in the database — so it runs\n * only the checks that are meaningful per-payload and gets its nesting rule enforced where the full tree is\n * actually visible (`importData`, which both entry points share).\n */",
@@ -30418,6 +30436,7 @@ const allowed = new Map([
     "/**\n * The body a WebDAV call may carry.\n *\n * Every field is optional because a saved config supplies them, but they still have to arrive as strings:\n * the handler used to cast the parsed JSON and call `.trim()` on whatever came back, so `{\"url\":123}`\n * answered with a TypeError instead of a 400.\n */",
     "// Keyed by link id, so the cap follows the link cap: without it a single document could carry millions",
     "// of visit entries that survive parsing and only get dropped later, one Map lookup at a time.",
+    "/**\n * What a `PUT /settings/webdav` body has to carry.\n *\n * The reader is saving a target, so a request that omits one of the two is a mistake rather than a\n * request to clear it — the defaults on `NavWebdavSettingsSchema` exist for reading a stored row back.\n */",
   ]],
   ["src/shared/note-template-render.test.ts", [
     "// The offset is the place the answer goes, in the content that was actually saved.",
@@ -37219,6 +37238,11 @@ const allowed = new Map([
     "/**\n   * Take the one completion slot for an upload. Clearing `upload_id` is the claim: a second request\n   * that read the same snapshot can no longer find a multipart session to complete, and a request\n   * that arrives after the claim sees the empty id. This is what keeps two retries from racing.\n   */",
     "/**\n * Merge the parts, verify the bytes, then publish the track and its ledger row.\n *\n * The quota lease is taken before the merge and held until the ledger row exists. If anything after\n * the merge fails, the object is discarded and the task is marked failed; a failed task is not\n * resumable because its multipart session is gone.\n */",
   ]],
+  ["src/worker/nav/access.ts", [
+    "// A `default` folder is opened by the deployment's own password, which every such folder shares. The",
+    "// per-category budget would let that one secret be tried against folder after folder; this counter is",
+    "// the one that has to answer for it.",
+  ]],
   ["src/worker/nav/ai.ts", [
     "// Each call spends the account's own model quota, so it is metered like the outbound endpoints that",
     "// cost the deployment something.",
@@ -37277,6 +37301,8 @@ const allowed = new Map([
     "/**\n   * Replace the whole tree with a snapshot, one restore at a time per account.\n   *\n   * A restore writes the incoming rows first and only then deletes what the snapshot does not contain, so a\n   * failure part-way through leaves a superset — old rows still alongside the new — and a retry reconciles\n   * it. What must not happen is two restores interleaving, or a restore racing a scheduled backup, which\n   * would let each delete the other's work. The backup path already holds a lease; this is the same guard\n   * on the entry point that writes.\n   */",
     "// Report what actually landed: `importData` drops rows owned by another account, and a restore that",
     "// claims to have brought them back would be describing a state the database does not have.",
+    "// Without this line a damaged row and an unset one look identical from the outside: the reader finds",
+    "// their preferences quietly back at their defaults with no way to tell which happened.",
   ]],
   ["src/worker/nav/tools.ts", [
     "// A protected folder's name, icon, parent and size are exactly what its password is for, and this view",
@@ -43159,6 +43185,7 @@ const allowed = new Map([
   ["tests/nav-errors.test.ts", [
     "// The mapping used to swallow the reason, which left the backup panel saying one sentence for every",
     "// possible mistake.",
+    "// Every base the app pluralises must carry both arms, or one count renders a bare key.",
   ]],
   ["tests/nav-focus-a11y.test.tsx", [
     "// The overlay picks the `[data-autofocus]` target; React's own `autoFocus` was being overwritten by it,",

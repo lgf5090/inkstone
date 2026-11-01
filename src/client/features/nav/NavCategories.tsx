@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, FolderPlus, Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react'
-import { isEmojiIcon, normalizeCategoryName, normalizeIconName, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
+import { getLocale } from '../../lib/i18n'
+import { isEmojiIcon, NAV_UNCATEGORIZED, normalizeCategoryName, normalizeIconName, type NavCategory, type NavPasswordMode } from '@shared/nav/model'
 import { NAV_ICON_NAMES } from '@shared/nav/icon-catalog'
 import { Modal, confirm } from '../../components/overlay'
 import { Button, IconButton } from '../../components/primitives'
@@ -27,6 +28,20 @@ type IconTab = 'emoji' | 'lucide'
  * narrowing whichever tab is showing. Every tile is a button that names itself, and the current
  * value stays visible above the grid so a pick is confirmed without leaving the form.
  */
+/**
+ * One comparator for both places that order categories by name.
+ *
+ * The drag-sort button persisted a `zh-CN` collation while the list rendered with the runtime default, so
+ * an English reader got pinyin order and then saw it disagree with the stored sequence. `Intl.Collator`
+ * is cached per locale because a fresh one per comparison is measurably slower on a large tree.
+ */
+let collatorCache: { locale: string; collator: Intl.Collator } | null = null
+function collatorFor(locale: string): Intl.Collator {
+  if (!collatorCache || collatorCache.locale !== locale) collatorCache = { locale, collator: new Intl.Collator(locale, { sensitivity: 'base' }) }
+  return collatorCache.collator
+}
+const collator = collatorFor(getLocale())
+
 export function IconPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [tab, setTab] = useState<IconTab>(() => (isEmojiIcon(value) ? 'emoji' : 'lucide'))
   const [query, setQuery] = useState('')
@@ -302,7 +317,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   const targetKey = `${initialEditId ?? ''}|${initialParentId === undefined ? 'none' : initialParentId ?? 'root'}|${initialDeleteId ?? ''}`
 
   const tree = useMemo(() => {
-    const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    const sorted = [...categories].sort((a, b) => a.sortOrder - b.sortOrder || collator.compare(a.name, b.name))
     const roots = sorted.filter((category) => !category.parentId)
     const children = new Map<string, NavCategory[]>()
     for (const category of sorted) {
@@ -401,7 +416,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
   async function sortByName(): Promise<void> {
     if (rowsLocked) return
     const byName = (left: NavCategory, right: NavCategory): number =>
-      left.name.localeCompare(right.name, 'zh-CN') || left.sortOrder - right.sortOrder
+      collator.compare(left.name, right.name) || left.sortOrder - right.sortOrder
     const groups: { parentId: string | null; orderedIds: string[] }[] = []
     const roots = categories.filter((category) => !category.parentId).sort(byName)
     if (roots.length > 1) groups.push({ parentId: null, orderedIds: roots.map((category) => category.id) })
@@ -507,7 +522,7 @@ export function CategoryManagerModal({ open, onClose, initialEditId = null, init
     setBusy(true)
     try {
       const fallback = await createCategory({
-        name: t('nav.category.create_fallback'),
+        name: NAV_UNCATEGORIZED,
         icon: 'folder',
         parentId: null,
         passwordMode: 'none',

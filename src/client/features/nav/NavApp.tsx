@@ -8,7 +8,7 @@ import {
   Trash2, TrendingUp, Unplug, Upload, X,
 } from 'lucide-react'
 import { compileQuery, queryMatches } from '../../lib/query-match'
-import { t } from '../../lib/i18n'
+import { t, tCount } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { copyText } from '../../lib/clipboard'
 import { usePinyinVersion } from '../../lib/pinyin'
@@ -27,6 +27,7 @@ import {
   type NavCategory, type NavLink,
 } from '@shared/nav/model'
 import type { NavAssistantContext } from '@shared/nav/assistant-context'
+import { categoryDisplayName } from './api'
 import { navErrorToast } from './errors'
 import { requestTokens, useNavStore } from './nav-store'
 import { NavIcon } from './nav-icons'
@@ -50,6 +51,9 @@ const NAV_WRITE_TOOLS = new Set([
 ])
 
 const NAV_RENDER_PAGE = 120
+/** How much of a letter avatar's plate is the chart colour itself; the rest is the card surface. */
+const AVATAR_TINT_MIX = 18
+const AVATAR_GLYPH_RATIO = 0.38
 const AUTO_LOAD_LIMIT = 600
 
 function createMatcher(query: string): (link: NavLink) => boolean {
@@ -76,7 +80,7 @@ function LinkIcon({ link, size = 40 }: { link: NavLink; size?: number }) {
     )
   }
   return (
-    <span className="flex shrink-0 items-center justify-center rounded-[var(--r-md)] font-semibold text-[var(--text-primary)]" style={{ width: size, height: size, fontSize: size * 0.38, backgroundColor: 'var(--bg-inset)', background: `color-mix(in oklab, ${avatarTint(link.title || link.url)} 18%, var(--bg-surface))` }} aria-hidden>
+    <span className="flex shrink-0 items-center justify-center rounded-[var(--r-md)] font-semibold text-[var(--text-primary)]" style={{ width: size, height: size, fontSize: size * AVATAR_GLYPH_RATIO, background: `color-mix(in oklab, ${avatarTint(link.title || link.url)} ${AVATAR_TINT_MIX}%, var(--bg-surface))` }} aria-hidden>
       {initialFor(link.title, link.url)}
     </span>
   )
@@ -132,7 +136,7 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-9 [@media(hover:hover)]:pr-0">
           <span id={titleId} className={cn('min-w-0 truncate font-medium text-[var(--text-primary)]', detailed ? 'text-[length:var(--text-14)]' : 'text-[length:var(--text-13)]')}>{link.title}</span>
           {link.pinned && <Pin size={11} className="shrink-0 text-[var(--warning)]" aria-label={t('nav.pinned')} />}
-          {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="shrink-0 whitespace-nowrap">{t('nav.visit_count', { count: visitCount })}</Badge>}
+          {typeof visitCount === 'number' && visitCount > 0 && <Badge tone="neutral" className="shrink-0 whitespace-nowrap">{tCount('nav.visit_count', visitCount)}</Badge>}
         </div>
         <div className={cn('pointer-events-auto absolute right-0.5 top-0.5 z-20 flex items-center gap-0.5', !sorting && 'opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100')}>
           {/* Four stops per card made the list the longest tab ring in the app; the same two actions are
@@ -498,7 +502,7 @@ export function NavApp() {
     setCategoryManagerTarget(null)
   }
 
-  async function chooseCategory(category: NavCategory | null, subcategory: string | null = null): Promise<void> {
+  function chooseCategory(category: NavCategory | null, subcategory: string | null = null): void {
     setMobileOpen(false)
     if (category && isLocked(category)) {
       setUnlockCategory(category)
@@ -519,7 +523,7 @@ export function NavApp() {
     selectCategory(category?.id ?? null, subcategory)
   }
 
-  async function recordOpen(link: NavLink): Promise<void> {
+  function recordOpen(link: NavLink): void {
     useNavStore.getState().recordVisit(link)
   }
 
@@ -563,7 +567,7 @@ export function NavApp() {
     }
     const hasChildren = categories.some((item) => item.parentId === category.id)
     return [
-      { id: 'open', label: t('nav.open'), icon: <ExternalLink size={13} />, onSelect: () => void chooseCategory(category) },
+      { id: 'open', label: t('nav.open'), icon: <ExternalLink size={13} />, onSelect: () => chooseCategory(category) },
       ...(category.parentId ? [] : [{
         id: 'child', label: t('nav.category.add_child', { name: category.name }), icon: <FolderPlus size={13} />, onSelect: () => openCategoryManager({ parentId: category.id }),
       }]),
@@ -630,7 +634,7 @@ export function NavApp() {
   }
 
   const menuItems: MenuItem[] = menuLink ? [
-    { id: 'open', label: t('nav.open'), icon: <ExternalLink size={13} />, onSelect: () => { void recordOpen(menuLink); window.open(menuLink.url, '_blank', 'noopener,noreferrer') } },
+    { id: 'open', label: t('nav.open'), icon: <ExternalLink size={13} />, onSelect: () => { recordOpen(menuLink); window.open(menuLink.url, '_blank', 'noopener,noreferrer') } },
     { id: 'copy', label: t('nav.copy'), icon: <Copy size={13} />, onSelect: () => void copyLink(menuLink) },
     { id: 'qr', label: t('nav.qr'), icon: <QrCode size={13} />, onSelect: () => setQr({ url: menuLink.url, title: menuLink.title }) },
     { id: 'pin', label: menuLink.pinned ? t('nav.unpin') : t('nav.pin'), icon: <Pin size={13} />, onSelect: () => void togglePin(menuLink) },
@@ -661,7 +665,7 @@ export function NavApp() {
             </IconButton>
           )}
         </div>
-        <CategoryRow label={t('nav.all')} icon="layout-grid" count={counts.total} active={!selectedCategory} locked={false} onSelect={() => void chooseCategory(null)} onContextMenu={(event) => openCategoryMenu(event, null)} onMenuAt={(point) => setCategoryMenu({ category: null, point })} />
+        <CategoryRow label={t('nav.all')} icon="layout-grid" count={counts.total} active={!selectedCategory} locked={false} onSelect={() => chooseCategory(null)} onContextMenu={(event) => openCategoryMenu(event, null)} onMenuAt={(point) => setCategoryMenu({ category: null, point })} />
         {sidebarTree.roots.length === 0 && sidebarTree.filtering && (
           <p className="px-2 py-3 text-center text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('nav.category.no_match')}</p>
         )}
@@ -672,7 +676,7 @@ export function NavApp() {
           return (
             <div key={root.id}>
               <CategoryRow
-                label={root.name}
+                label={categoryDisplayName(root.name)}
                 icon={root.icon}
                 count={categoryCount(root)}
                 active={selectedCategory === root.id && !selectedSubcategory}
@@ -680,19 +684,19 @@ export function NavApp() {
                 hasChildren={!sidebarTree.filtering && fullChildren.length > 0}
                 expanded={open}
                 onToggle={() => setExpanded((current) => { const next = new Set(current); if (next.has(root.id)) next.delete(root.id); else next.add(root.id); return next })}
-                onSelect={() => void chooseCategory(root)}
+                onSelect={() => chooseCategory(root)}
                 onContextMenu={(event) => openCategoryMenu(event, root)} onMenuAt={(point) => setCategoryMenu({ category: root, point })}
               />
               {open && children.map((child) => (
                 <div key={child.id} className="ml-3 border-l border-[var(--border-subtle)] pl-1">
                   <CategoryRow
-                    label={child.name}
+                    label={categoryDisplayName(child.name)}
                     icon={child.icon}
                     count={categoryCount(child)}
                     active={selectedSubcategory === child.id}
                     locked={isLocked(child)}
                     small
-                    onSelect={() => void chooseCategory(root, child.id)}
+                    onSelect={() => chooseCategory(root, child.id)}
                     onContextMenu={(event) => openCategoryMenu(event, child)} onMenuAt={(point) => setCategoryMenu({ category: child, point })}
                   />
                 </div>
@@ -791,8 +795,8 @@ export function NavApp() {
                 {t('nav.all')}<span className="ml-1 opacity-70">{categoryCount(selectedRoot!) ?? '—'}</span>
               </button>
               {subcategories.map((sub) => (
-                <button key={sub.id} type="button" aria-current={selectedSubcategory === sub.id ? 'true' : undefined} onClick={() => void chooseCategory(selectedRoot, sub.id)} className={cn('flex min-h-11 items-center gap-1 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)] md:min-h-0', selectedSubcategory === sub.id ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
-                  <NavIcon name={sub.icon} size={12} />{sub.name}{isLocked(sub) && <Lock size={10} className="text-[var(--warning)]" aria-label={t('nav.locked')} role="img" />}<span className="opacity-70">{categoryCount(sub) ?? '—'}</span>
+                <button key={sub.id} type="button" aria-current={selectedSubcategory === sub.id ? 'true' : undefined} onClick={() => chooseCategory(selectedRoot, sub.id)} className={cn('flex min-h-11 items-center gap-1 rounded-full px-2.5 py-1 text-[length:var(--text-11-5)] md:min-h-0', selectedSubcategory === sub.id ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]' : 'bg-[var(--bg-raised)] text-[var(--text-secondary)]')}>
+                  <NavIcon name={sub.icon} size={12} />{categoryDisplayName(sub.name)}{isLocked(sub) && <Lock size={10} className="text-[var(--warning)]" aria-label={t('nav.locked')} role="img" />}<span className="opacity-70">{categoryCount(sub) ?? '—'}</span>
                 </button>
               ))}
             </div>
@@ -802,7 +806,7 @@ export function NavApp() {
             <section className="mb-5">
               <SectionTitle icon={<History size={14} />} title={t('nav.recent')} count={recent.length} action={<span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('nav.recent_quota', { shown: recent.length, quota: settings.display.recentLinksCount })}</span>} />
               <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                {recent.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={false} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
+                {recent.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={false} onOpen={recordOpen} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
               </div>
             </section>
           )}
@@ -810,7 +814,7 @@ export function NavApp() {
             <section className="mb-5">
               <SectionTitle icon={<TrendingUp size={14} />} title={t('nav.frequent')} count={frequent.length} action={<span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('nav.frequent_quota', { shown: frequent.length, quota: settings.display.frequentLinksCount })}</span>} />
               <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                {frequent.map(({ link, count }) => <LinkCard key={link.id} link={link} detailed={detailed} visitCount={count} sorting={false} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
+                {frequent.map(({ link, count }) => <LinkCard key={link.id} link={link} detailed={detailed} visitCount={count} sorting={false} onOpen={recordOpen} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={() => {}} onDropOn={() => {}} />)}
               </div>
             </section>
           )}
@@ -824,7 +828,7 @@ export function NavApp() {
                 action={canSortPinned ? <Button size="sm" variant={sortingPinned ? 'primary' : 'ghost'} icon={<GripVertical size={13} />} onClick={() => setSortingPinned(!sortingPinned)}>{sortingPinned ? t('nav.sort_done') : t('nav.sort')}</Button> : undefined}
               />
               <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                {visiblePinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
+                {visiblePinned.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingPinned} onOpen={recordOpen} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(pinned, item, direction, null)} onDropOn={(target) => dropOn(pinned, target, null)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
               </div>
               {hasMorePinned && (
                 <div className="mt-3 flex justify-center">
@@ -839,7 +843,7 @@ export function NavApp() {
           <section>
             <SectionTitle
               icon={<List size={14} />}
-              title={selectedSubcategory ? categories.find((category) => category.id === selectedSubcategory)?.name ?? t('nav.all') : selectedRoot?.name ?? t('nav.all')}
+              title={selectedSubcategory ? categoryDisplayName(categories.find((category) => category.id === selectedSubcategory)?.name ?? '') : selectedRoot?.name ? categoryDisplayName(selectedRoot.name) : t('nav.all')}
               count={normal.length}
               action={canSortNormal ? <Button size="sm" variant={sortingNormal ? 'primary' : 'ghost'} icon={<GripVertical size={13} />} onClick={() => setSortingNormal(!sortingNormal)}>{sortingNormal ? t('nav.sort_done') : t('nav.sort')}</Button> : undefined}
             />
@@ -850,7 +854,7 @@ export function NavApp() {
             ) : (
               <>
                 <div className={cn('grid items-start [grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr))]', detailed ? 'gap-3' : 'gap-2')}>
-                  {visibleNormal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={(item) => void recordOpen(item)} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
+                  {visibleNormal.map((link) => <LinkCard key={link.id} link={link} detailed={detailed} sorting={sortingNormal} onOpen={recordOpen} onEdit={openEditor} onDelete={(item) => void removeLink(item)} onMenu={openMenu} onMove={(item, direction) => void moveWithin(normal, item, direction, normalScopeId)} onDropOn={(target) => dropOn(normal, target, normalScopeId)} onDragStart={(item) => setDragId(item.id)} onDragEnd={() => setDragId(null)} />)}
                 </div>
                 {hasMoreNormal && (
                   <div ref={loadMoreRef} className="mt-3 flex justify-center">

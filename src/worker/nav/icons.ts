@@ -265,10 +265,13 @@ export async function pruneOrphanIcons(env: AppBindings['Bindings']): Promise<nu
     WHERE i.created_at < ?1
       AND NOT EXISTS (SELECT 1 FROM nav_links l WHERE l.user_id = i.user_id AND l.icon = '/api/nav/icons/' || i.id)
       AND NOT EXISTS (SELECT 1 FROM nav_categories c WHERE c.user_id = i.user_id AND c.icon = '/api/nav/icons/' || i.id)
+      -- A favicon-cache reference is a use. Without it the prune deleted the icon, then deleted the row
+      -- that pointed at it, and the next bookmark on that host paid for a fresh outbound capture.
+      AND NOT EXISTS (SELECT 1 FROM nav_favicons f WHERE f.user_id = i.user_id AND f.icon = '/api/nav/icons/' || i.id)
     LIMIT 100`).bind(cutoff).all<{ user_id: string; id: string; object_key: string }>()
   for (const row of results) {
     await deleteNavObject(env, kind, row.object_key).catch(() => null)
-    await env.DB.prepare("DELETE FROM nav_favicons WHERE icon = ?1").bind(`/api/nav/icons/${row.id}`).run().catch(() => null)
+    await env.DB.prepare('DELETE FROM nav_favicons WHERE user_id = ?1 AND icon = ?2').bind(row.user_id, iconUrl(row.id)).run().catch(() => null)
     await env.DB.prepare('DELETE FROM nav_icons WHERE user_id = ?1 AND id = ?2').bind(row.user_id, row.id).run().catch(() => null)
   }
   return results.length

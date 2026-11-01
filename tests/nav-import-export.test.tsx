@@ -14,7 +14,7 @@ import { useUi } from '../src/client/store/ui'
 import { navApi } from '../src/client/features/nav/api'
 import { ImportExportModal, QrModal } from '../src/client/features/nav/NavImport'
 import { ConfirmHost } from '../src/client/components/overlay'
-import { initI18n, t } from '../src/client/lib/i18n'
+import { initI18n, t, tCount } from '../src/client/lib/i18n'
 import { renderElement, type RenderedElement } from '../src/client/lib/test-render'
 
 const BOOTSTRAP: NavBootstrap = {
@@ -61,7 +61,6 @@ function seed(categories: NavCategory[], links: NavLink[]): void {
     visits: {},
     counts: { total: links.length, byCategory: {} },
     settings: DEFAULT_NAV_SETTINGS,
-    webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
     unlocks: {},
     selectedCategory: null,
@@ -218,7 +217,7 @@ describe('ImportExportModal', () => {
 
     rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
 
-    expect(document.body.textContent).toContain(t('nav.import.locked_hint', { count: 1 }))
+    expect(document.body.textContent).toContain(tCount('nav.import.locked_hint', 1))
     expect(document.body.textContent).toContain(t('nav.export'))
   })
 })
@@ -322,8 +321,8 @@ describe('JSON backup import', () => {
     })
 
     expect(document.body.textContent).toContain(t('nav.json.preview_cloudnav', { categories: 2, links: 1 }))
-    expect(document.body.textContent).toContain(t('nav.json.warn_passwords', { count: 1 }))
-    expect(document.body.textContent).toContain(t('nav.json.warn_invalid', { count: 1 }))
+    expect(document.body.textContent).toContain(tCount('nav.json.warn_passwords', 1))
+    expect(document.body.textContent).toContain(tCount('nav.json.warn_invalid', 1))
     const merge = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === t('nav.json.merge'))
     if (!merge) throw new Error('No merge button')
     act(() => merge.click())

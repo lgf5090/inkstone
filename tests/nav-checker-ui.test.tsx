@@ -75,7 +75,6 @@ function seed(links: NavLink[]): void {
     visits: {},
     counts: { total: links.length, byCategory: { [CATEGORY.id]: links.length } },
     settings: DEFAULT_NAV_SETTINGS,
-    webdav: { url: '', username: '', hasPassword: false },
     sync: 'idle',
     unlocks: {},
     selectedCategory: null,

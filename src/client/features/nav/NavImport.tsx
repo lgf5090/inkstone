@@ -4,11 +4,11 @@ import { QRCodeSVG } from 'qrcode.react'
 import { exportBookmarkHtml, parseBookmarkHtml } from '@shared/nav/bookmark'
 import { parseCloudNavBackup, type CloudNavParseResult } from '@shared/nav/cloudnav'
 import { NavBackupSchema } from '@shared/nav/validation'
-import { NAV_LIMITS, type NavBackup } from '@shared/nav/model'
+import { NAV_LIMITS, NAV_UNCATEGORIZED, type NavBackup } from '@shared/nav/model'
 import { Modal, confirm } from '../../components/overlay'
 import { Button } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
-import { t } from '../../lib/i18n'
+import { t, tCount } from '../../lib/i18n'
 import { downloadTextFile } from '../../lib/export-note'
 import { cn } from '../../lib/cn'
 import { useUi } from '../../store/ui'
@@ -55,6 +55,37 @@ function absoluteUrl(raw: string): string {
  * truthful between chunks; export walks the same format so a file this app writes can be read back by
  * this app or by a browser.
  */
+/**
+ * Send one parsed tree in `IMPORT_CHUNK` pieces, reporting the running totals as they go.
+ *
+ * The bookmark file and the CloudNav backup used to carry their own copy of this loop, their own counter
+ * pair and their own finish sequence; the two had already drifted in how they seeded `skipped`.
+ */
+async function runChunkedImport(
+  links: Parameters<typeof navApi.importBookmarks>[0]['links'],
+  categories: Parameters<typeof navApi.importBookmarks>[0]['categories'],
+  skipExisting: boolean,
+  initialSkipped: number,
+  onProgress: (counts: { imported: number; skipped: number }) => void,
+): Promise<{ imported: number; skipped: number }> {
+  let imported = 0
+  let skipped = initialSkipped
+  onProgress({ imported, skipped })
+  for (let index = 0; index < links.length; index += IMPORT_CHUNK) {
+    const result = await navApi.importBookmarks({
+      // Categories ride with the first piece only: the endpoint upserts, and repeating them per chunk
+      // would resend the whole tree once per page of links.
+      categories: index === 0 ? categories : [],
+      links: links.slice(index, index + IMPORT_CHUNK),
+      skipExisting,
+    })
+    imported += result.imported
+    skipped += result.skipped
+    onProgress({ imported, skipped })
+  }
+  return { imported, skipped }
+}
+
 export function ImportExportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const links = useNavStore((state) => state.links)
   const categories = useNavStore((state) => state.categories)
@@ -116,7 +147,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     }
     let parsed: ReturnType<typeof parseBookmarkHtml>
     try {
-      parsed = parseBookmarkHtml(text, { uncategorizedName: t('nav.uncategorized') })
+      parsed = parseBookmarkHtml(text, { uncategorizedName: NAV_UNCATEGORIZED })
     } catch (error) {
       setStatus('error')
       toast({ ...navErrorToast(error), tone: 'danger' })
@@ -132,22 +163,9 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       return
     }
     setStatus('importing')
-    let imported = 0
-    // Entries the parser had to drop (unsupported schemes, malformed hrefs) count as skipped too.
-    let skipped = parsed.skipped
-    setCounts({ imported, skipped })
     try {
-      for (let index = 0; index < parsed.links.length; index += IMPORT_CHUNK) {
-        const chunk = parsed.links.slice(index, index + IMPORT_CHUNK)
-        const result = await navApi.importBookmarks({
-          categories: index === 0 ? parsed.categories : [],
-          links: chunk,
-          skipExisting,
-        })
-        imported += result.imported
-        skipped += result.skipped
-        setCounts({ imported, skipped })
-      }
+      // Entries the parser had to drop (unsupported schemes, malformed hrefs) count as skipped too.
+      const { imported, skipped } = await runChunkedImport(parsed.links, parsed.categories, skipExisting, parsed.skipped, setCounts)
       setStatus('done')
       toast({
         title: t('nav.import.done'),
@@ -204,7 +222,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     }
     if (record && record.format === undefined && Array.isArray(record.categories) && Array.isArray(record.links)) {
       try {
-        setJsonPreview({ kind: 'cloudnav', parsed: parseCloudNavBackup(record, { uncategorizedName: t('nav.uncategorized') }) })
+        setJsonPreview({ kind: 'cloudnav', parsed: parseCloudNavBackup(record, { uncategorizedName: NAV_UNCATEGORIZED }) })
         setJsonStatus('idle')
       } catch {
         setJsonStatus('error')
@@ -267,21 +285,8 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     }
     setJsonStatus('importing')
     setJsonError(null)
-    let imported = 0
-    let skipped = parsed.stats.skippedLinks
-    setJsonCounts({ imported, skipped })
     try {
-      for (let index = 0; index < parsed.links.length; index += IMPORT_CHUNK) {
-        const chunk = parsed.links.slice(index, index + IMPORT_CHUNK)
-        const result = await navApi.importBookmarks({
-          categories: index === 0 ? parsed.categories : [],
-          links: chunk,
-          skipExisting: skipExistingJson,
-        })
-        imported += result.imported
-        skipped += result.skipped
-        setJsonCounts({ imported, skipped })
-      }
+      const { imported, skipped } = await runChunkedImport(parsed.links, parsed.categories, skipExistingJson, parsed.stats.skippedLinks, setJsonCounts)
       setJsonStatus('done')
       setJsonPreview(null)
       toast({
@@ -299,13 +304,13 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
 
   function cloudNavWarnings(parsed: CloudNavParseResult): string[] {
     const warnings: string[] = []
-    if (parsed.stats.passwordsSkipped) warnings.push(t('nav.json.warn_passwords', { count: parsed.stats.passwordsSkipped }))
-    if (parsed.stats.repairedUrls) warnings.push(t('nav.json.warn_repaired', { count: parsed.stats.repairedUrls }))
-    if (parsed.stats.invalidUrls) warnings.push(t('nav.json.warn_invalid', { count: parsed.stats.invalidUrls }))
-    if (parsed.stats.duplicateUrls) warnings.push(t('nav.json.warn_duplicates', { count: parsed.stats.duplicateUrls }))
-    if (parsed.stats.orphanLinks) warnings.push(t('nav.json.warn_orphans', { count: parsed.stats.orphanLinks }))
-    if (parsed.stats.flattenedCategories) warnings.push(t('nav.json.warn_flattened', { count: parsed.stats.flattenedCategories }))
-    if (parsed.stats.iconFallbacks) warnings.push(t('nav.json.warn_icons', { count: parsed.stats.iconFallbacks }))
+    if (parsed.stats.passwordsSkipped) warnings.push(tCount('nav.json.warn_passwords', parsed.stats.passwordsSkipped))
+    if (parsed.stats.repairedUrls) warnings.push(tCount('nav.json.warn_repaired', parsed.stats.repairedUrls))
+    if (parsed.stats.invalidUrls) warnings.push(tCount('nav.json.warn_invalid', parsed.stats.invalidUrls))
+    if (parsed.stats.duplicateUrls) warnings.push(tCount('nav.json.warn_duplicates', parsed.stats.duplicateUrls))
+    if (parsed.stats.orphanLinks) warnings.push(tCount('nav.json.warn_orphans', parsed.stats.orphanLinks, { folder: t('nav.uncategorized') }))
+    if (parsed.stats.flattenedCategories) warnings.push(tCount('nav.json.warn_flattened', parsed.stats.flattenedCategories))
+    if (parsed.stats.iconFallbacks) warnings.push(tCount('nav.json.warn_icons', parsed.stats.iconFallbacks))
     return warnings
   }
 
@@ -320,7 +325,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     try {
       const html = exportBookmarkHtml(links, categories, {
         origin: window.location.origin,
-        uncategorizedName: t('nav.uncategorized'),
+        uncategorizedName: NAV_UNCATEGORIZED,
       })
       downloadTextFile('bookmarks.html', html, 'text/html;charset=utf-8')
       toast({ title: t('nav.export.done'), tone: 'success' })
@@ -419,7 +424,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
                   <>
                     <li>{t('nav.json.replace_warning')}</li>
                     {jsonPreview.backup.categories.some((category) => category.hasPassword) && (
-                      <li>{t('nav.json.warn_locked', { count: jsonPreview.backup.categories.filter((category) => category.hasPassword).length })}</li>
+                      <li>{tCount('nav.json.warn_locked', jsonPreview.backup.categories.filter((category) => category.hasPassword).length)}</li>
                     )}
                   </>
                 ) : (
@@ -520,7 +525,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
           </Button>
           {lockedCount > 0 && (
             <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--warning)]">
-              {t('nav.import.locked_hint', { count: lockedCount })}
+              {tCount('nav.import.locked_hint', lockedCount)}
             </p>
           )}
         </section>
@@ -549,7 +554,7 @@ export function QrModal({ open, onClose, url, title }: {
       width={QR_WIDTH}
     >
       <div className="flex flex-col items-center gap-3 py-2">
-        <div className="rounded-[var(--r-xl)] border border-[var(--border-default)] bg-white p-4 shadow-[var(--shadow-soft)]">
+        <div className="rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--plate-lightest)] p-4 shadow-[var(--shadow-soft)]">
           <QRCodeSVG
             value={value}
             size={QR_SIZE}

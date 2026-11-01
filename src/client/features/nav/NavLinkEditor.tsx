@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImagePlus, Loader2, Pin, Sparkles, Trash2, Wand2, X } from 'lucide-react'
 import type { NavLink } from '@shared/nav/model'
-import { extractDomain, initialFor, normalizeLinkUrl } from '@shared/nav/model'
+import { extractDomain, initialFor, NAV_UNCATEGORIZED, normalizeLinkUrl } from '@shared/nav/model'
 import { Modal, confirm } from '../../components/overlay'
 import { Button, IconButton } from '../../components/primitives'
 import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
@@ -119,7 +119,7 @@ export function NavLinkEditor({ open, link, initial, defaultCategoryId, onClose 
 
   async function ensureCategory(): Promise<string> {
     if (categoryId && categories.some((category) => category.id === categoryId)) return categoryId
-    const created = await createCategory({ name: t('nav.link.default_category'), icon: 'bookmark', parentId: null, passwordMode: 'none' })
+    const created = await createCategory({ name: NAV_UNCATEGORIZED, icon: 'bookmark', parentId: null, passwordMode: 'none' })
     return created.id
   }
 

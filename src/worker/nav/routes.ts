@@ -18,6 +18,7 @@ import {
   NavAiSettingsSchema,
   NavDisplaySettingsSchema,
   NavSearchSettingsSchema,
+  NavWebdavSettingsPutSchema,
 } from '@shared/nav/validation'
 import { normalizeLinkUrl } from '@shared/nav/model'
 import { NavStore, hiddenCategories } from './store'
@@ -179,14 +180,15 @@ navDataRoutes.post('/categories/:id/unlock', async (c) => {
   const category = await nav.category(id)
   if (!category) throw ApiError.notFound('Category not found')
   const clientIp = requestClientIp(c)
-  await assertUnlockAllowed(c.env.DB, user, id, clientIp)
+  const sharedSecret = Boolean(category.use_default_password)
+  await assertUnlockAllowed(c.env.DB, user, id, clientIp, sharedSecret)
   const input = await body(c, zod(NavUnlockSchema))
   const ok = await verifyCategoryPassword(category, input.password, c.env.NAV_DEFAULT_CATEGORY_PASSWORD)
   if (!ok) {
-    await recordUnlockFailure(c.env.DB, user, id, clientIp)
+    await recordUnlockFailure(c.env.DB, user, id, clientIp, sharedSecret)
     throw new ApiError(401, 'wrong_password', 'Wrong category password')
   }
-  await clearUnlockFailures(c.env.DB, user, id, clientIp)
+  await clearUnlockFailures(c.env.DB, user, id, clientIp, sharedSecret)
   const unlock = await createCategoryUnlock(c.env.DB, user, id)
   return c.json(unlock)
 })
@@ -319,9 +321,9 @@ navSettingsRoutes.put('/:group', async (c) => {
   const group = c.req.param('group')
   const nav = store(c)
   if (group === 'webdav') {
-    const raw = await c.req.json().catch(() => null) as { url?: unknown; username?: unknown } | null
-    if (!raw || typeof raw.url !== 'string' || typeof raw.username !== 'string') throw ApiError.badRequest('url and username are required')
-    await nav.saveWebdavConfig(raw.url.trim().slice(0, 2048), raw.username.trim().slice(0, 200))
+    const raw = await c.req.json().catch(() => null)
+    const value = zod(NavWebdavSettingsPutSchema)(raw)
+    await nav.saveWebdavConfig(value.url, value.username)
     return c.json(await nav.webdavSettings())
   }
   if (group !== 'display' && group !== 'search' && group !== 'ai') throw ApiError.notFound('Unknown settings group')

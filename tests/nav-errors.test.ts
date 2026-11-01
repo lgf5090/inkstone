@@ -24,3 +24,27 @@ describe('navigation error wording', () => {
     expect(navErrorMessage(null)).toBe(t('nav.error.generic'))
   })
 })
+
+describe('navigation copy rules', () => {
+  it('pluralises a count-bearing message instead of writing "1 visits"', async () => {
+    const { tCount } = await import('../src/client/lib/i18n')
+    expect(tCount('nav.visit_count', 1)).not.toBe(tCount('nav.visit_count', 2))
+    expect(tCount('nav.visit_count', 1)).toMatch(/\b1 visit$/)
+    expect(tCount('nav.visit_count', 2)).toMatch(/\b2 visits$/)
+    // Every base the app pluralises must carry both arms, or one count renders a bare key.
+    for (const base of ['nav.import.locked_hint', 'nav.backup.retention_n', 'nav.json.warn_passwords',
+      'nav.json.warn_invalid', 'nav.json.warn_repaired', 'nav.json.warn_duplicates', 'nav.json.warn_orphans',
+      'nav.json.warn_flattened', 'nav.json.warn_icons', 'nav.json.warn_locked']) {
+      expect(tCount(base, 1)).not.toBe(`${base}_one`)
+      expect(tCount(base, 3)).not.toBe(`${base}_other`)
+    }
+  })
+
+  it('renders the automatic folder from the marker rather than a frozen word', async () => {
+    const { NAV_UNCATEGORIZED } = await import('../src/shared/nav/model')
+    const { categoryDisplayName } = await import('../src/client/features/nav/api')
+    const { t } = await import('../src/client/lib/i18n')
+    expect(categoryDisplayName(NAV_UNCATEGORIZED)).toBe(t('nav.uncategorized'))
+    expect(categoryDisplayName('Reading list')).toBe('Reading list')
+  })
+})
