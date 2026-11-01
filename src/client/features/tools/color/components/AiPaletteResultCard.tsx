@@ -4,6 +4,7 @@ import { recommendedTextColor } from '@shared/tools/color/a11y'
 import { t } from '../../../../lib/i18n'
 import { Button } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
+import { PaletteHealthSummary } from './PaletteHealthSummary'
 import { AiDegradedNotice } from './AiDegradedNotice'
 import { SwatchActions } from './SwatchActions'
 
@@ -52,6 +53,7 @@ export function AiPaletteResultCard({ result }: AiPaletteResultCardProps) {
               ))}
             </div>
           )}
+          <PaletteHealthSummary colors={result.colors.map((color) => color.hex)} />
         </div>
 
         <Button

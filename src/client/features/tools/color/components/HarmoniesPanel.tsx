@@ -6,6 +6,7 @@ import { IconButton } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
 import { SwatchActions } from './SwatchActions'
 import { harmonyDescription, harmonyName } from '../lib/display-names'
+import { PaletteHealthSummary } from './PaletteHealthSummary'
 
 export interface HarmoniesPanelProps {
   currentHex: string
@@ -43,6 +44,7 @@ export function HarmoniesPanel({ currentHex }: HarmoniesPanelProps) {
                 <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)] line-clamp-1">
                   {harmonyDescription(harmony.type)}
                 </p>
+                <PaletteHealthSummary colors={harmony.colors} />
               </div>
               <Tooltip label={t('tools.color.algorithm.save_palette')}>
                 <IconButton

@@ -7,6 +7,7 @@ import { IconButton } from '../../../../components/primitives'
 import { useColorStudioStore } from '../store'
 import { SwatchActions } from './SwatchActions'
 import { algorithmDescription, algorithmName } from '../lib/display-names'
+import { PaletteHealthSummary } from './PaletteHealthSummary'
 
 export interface AlgorithmPaletteRowProps {
   palette: AlgorithmicPalette
@@ -28,6 +29,7 @@ export function AlgorithmPaletteRow({ palette }: AlgorithmPaletteRowProps) {
           <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)] mt-0.5">
             {algorithmDescription(palette.id)}
           </p>
+          <PaletteHealthSummary colors={palette.colors} />
         </div>
         <Tooltip label={t('tools.color.algorithm.save_palette')}>
           <IconButton

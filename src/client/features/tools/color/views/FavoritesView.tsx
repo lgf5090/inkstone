@@ -18,6 +18,7 @@ import { Tooltip, confirm } from '../../../../components/overlay'
 import { t } from '../../../../lib/i18n'
 import { useColorStudioStore } from '../store'
 import { EditFavoriteModal } from '../components/modals/EditFavoriteModal'
+import { PaletteHealthSummary } from '../components/PaletteHealthSummary'
 import { EditPaletteModal } from '../components/modals/EditPaletteModal'
 
 type FavoritesSubTab = 'colors' | 'palettes' | 'history'
@@ -298,6 +299,7 @@ export function FavoritesView() {
                           {p.description}
                         </p>
                       )}
+                      <PaletteHealthSummary colors={hexList} />
 
                       <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)]">
                         <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)] uppercase font-mono">

@@ -17463,6 +17463,10 @@ const allowed = new Map([
     "// Keep the selection next to where the reader was working instead of jumping to the first stop.",
     "/* Stop markers, selected by click and moved with the offset slider */",
   ]],
+  ["src/client/features/tools/color/components/PaletteHealthSummary.tsx", [
+    "/** The scheme to judge, in the order it is shown. */",
+    "/**\n * One line about whether a scheme works, with the reasons one click open.\n *\n * `<details>` rather than a tooltip: the finding is the kind of thing a reader has to be able to read on a\n * phone, at their own pace, with no hover to hold.\n */",
+  ]],
   ["src/client/features/tools/color/components/SwatchActions.tsx", [
     "/**\n * The small controls that sit on top of a color swatch.\n *\n * Every swatch surface used to write this markup itself, and the copies disagreed in ways only a pointer\n * could find: the harmony strip's overlay covered the whole swatch and answered the click with nothing, so\n * the swatch's own \"use this color\" button never fired; the UI palette grid lost its top strip the same\n * way; and because `group-hover` compiles inside `@media (hover: hover)`, a touch reader never saw the\n * controls at all. The wrapper therefore stays transparent to pointers and only the buttons answer, and\n * visibility is driven by hover, focus and a no-hover media query instead of hover alone.\n */",
   ]],
@@ -17517,6 +17521,11 @@ const allowed = new Map([
     "/**\n * The tool has to speak the reader's language.\n *\n * Every string named here used to live inside the module as English data — the harmony families, the five\n * colour-vision conditions, the AI style chips, the fallback palette title — which no gate could see\n * because they were never in a JSX attribute. A Chinese interface showed two languages on one screen, and\n * the English went into saved palettes.\n */",
     "// The value the model is asked for stays the English keyword the prompt is written with.",
     "// The fallback row is what the studio's own export button meets: a single colour, no saved title.",
+  ]],
+  ["src/client/features/tools/color/health-summary.test.tsx", [
+    "/**\n * The findings have to be readable, not just computed.\n *\n * A scheme that blurs together for a green-blind reader is a fact about the palette the tool already knew\n * how to measure and never said — this is the line that says it, and the list behind it that names the pair.\n */",
+    "// Named inside the disclosure, not in the one-line verdict: the summary stays readable on a phone.",
+    "// One readable pairing: white on black.",
   ]],
   ["src/client/features/tools/color/history-write.test.tsx", [
     "/**\n * How often a color change reaches the server.\n *\n * `setCurrentHex` used to POST a history row and then GET the whole list on every call, and a range slider\n * calls it once per step: a thirty-one step drag of the hue control measured twenty writes and twenty\n * reads. The history panel does not need a round trip per pixel of pointer movement, so the write is\n * debounced and a repeat of the color already on top of the trail is dropped.\n */",
@@ -31193,6 +31202,19 @@ const allowed = new Map([
     "// 4. Tetradic / Intermediate (±60°, ±90°)",
     "/**\n * The classical colour harmony schemes computed from one base colour.\n *\n * A group carries its machine type only: the name and the one-line explanation a reader sees come from the\n * message catalog, so a Chinese interface does not show English prose between two colour swatches.\n */",
   ]],
+  ["src/shared/tools/color/health.ts", [
+    "/**\n * Whether a colour scheme survives contact with real readers.\n *\n * The module already computed the pieces — a colour-blindness simulation, a CIE ΔE, a WCAG ratio — and never\n * compared one palette against another with them, so it could show a scheme and stay silent about the two\n * swatches in it that a green-blind reader sees as one, or the mid-grey that holds no readable text at all.\n */",
+    "/** Below this ΔE76, two swatches are one colour to the eye being simulated. */",
+    "/** The pairing the copy can promise without a picker: the most common deficiency. */",
+    "/** A pairing earns a recommendation only if body text clears AA. */",
+    "/**\n * The bar a swatch has to clear with *both* black and white to be usable anywhere in a scheme.\n *\n * Not AA: black/white always leaves one of them at AA on any colour (measured over 32,768 samples, none\n * failed both), so an AA test here could never report anything. AAA is the band that mid greys fall in.\n */",
+    "/** Index into the palette of the colour the text sits on. */",
+    "/** Pairs the simulated eye cannot separate, by their index in the palette. */",
+    "/** Pairs that carry body-size text, whichever way round they are used. */",
+    "/** Swatches where neither black nor white body text reaches AAA. */",
+    "// The comparison happens in the simulated space: what the reader sees, not what the file stores.",
+    "// Text belongs on the darker half, so the recommendation says which is which.",
+  ]],
   ["src/shared/tools/color/oklab.ts", [
     "/**\n * OKLab Perceptual Interpolation & Dead-Zone-Free Gradient Engine.\n * Eliminates dull gray midtones occurring in standard sRGB linear interpolation.\n */",
     "/**\n * Linearly interpolates two colors in OKLab perceptual color space\n * @param hex1 Start color hex\n * @param hex2 End color hex\n * @param t Interpolation progress (0.0 to 1.0)\n */",
@@ -44651,6 +44673,14 @@ const allowed = new Map([
     "// Android writes `#FF0f172a`, GIMP prints 15/23/42 and 245/158/11, OKLCH writes neither — so the",
     "// probe accepts any of the forms a faithful build has to contain.",
     "// Android reads #RRGGBB as transparent, so an omitted alpha is a silent wrong colour.",
+  ]],
+  ["tests/tools-color-health.test.ts", [
+    "/**\n * Judging a scheme instead of only drawing it.\n *\n * The colour-blindness simulation, the CIE ΔE and the WCAG ratio all existed and were never applied to a\n * palette as a whole, so the tool could show a scheme and stay silent about the pair a green-blind reader\n * sees as one colour, or the mid grey that carries no text at all.\n */",
+    "// Measured, not remembered: the pair is far apart to a trichromat and lands under the threshold once",
+    "// the green channel is gone. (The textbook \"red versus green\" does not — ΔE carries the lightness gap.)",
+    "// Same colour at the ends of the array, a different one in the middle.",
+    "// Text sits on the darker half: white on black, and not the unreadable way round.",
+    "/**\n   * Why AAA is the only honest bar for that last check: measured across a coarse sample of the cube, every\n   * colour leaves black or white at AA, so an AA test could never report anything.\n   */",
   ]],
   ["tests/tools-color-lazy-views.test.ts", [
     "/**\n * The colour tool stays one chunk per screen.\n *\n * Bundle shape is invisible to every other assertion in this suite: a single re-added static import puts\n * the preset families and the image quantizer back into the chunk that opens with the studio, and all the\n * behaviour tests stay green while the first paint doubles in bytes.\n */",
