@@ -8801,6 +8801,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.quick_ask.insert": "Insert",
     "assistant.quick_ask.copied": "Copied",
     "assistant.quick_ask.inserted": "Inserted at the cursor",
+    "assistant.quick_ask.stale": "The note changed while the answer was being written, so it was not inserted. Select the passage again.",
     "assistant.quick_ask.no_editor": "No open note editor to insert into.",
     "assistant.quick_ask.failed": "The answer could not be generated.",
     "assistant.composer.model_none": "No model yet",

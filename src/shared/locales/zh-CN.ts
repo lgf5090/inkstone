@@ -8793,6 +8793,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.quick_ask.insert": "插入",
     "assistant.quick_ask.copied": "已复制",
     "assistant.quick_ask.inserted": "已插入到光标处",
+    "assistant.quick_ask.stale": "写答案期间笔记已改动，因此没有插入；请重新选中这段文字。",
     "assistant.quick_ask.no_editor": "没有打开的笔记编辑器可插入。",
     "assistant.quick_ask.failed": "回答生成失败。",
     "assistant.composer.model_none": "还没配模型",

@@ -51,6 +51,10 @@ const REQUIRED_IN_PATCH = new Map<string, string>([
     'A project is picked by name in every scope menu, and the create path keys the dedupe on it (`findProjectByName`), so an empty name would make two projects indistinguishable; `description` and `instructions` beside it are optional.',
   ],
   [
+    'PATCH /knowledge-bases/:id # name',
+    'A knowledge base is chosen by name in the Agent’s search tool, and the create path keys its dedupe on it, so an empty name would make two collections indistinguishable; the description beside it is optional.',
+  ],
+  [
     'PATCH /providers/:id # label',
     'The label is what the usage screen and the model picker print for a provider, so an empty one leaves a row nobody can name; `baseUrl`, `endpoints` and `reasoningDialect` beside it have their own validators.',
   ],

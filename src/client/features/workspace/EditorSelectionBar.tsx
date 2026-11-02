@@ -66,7 +66,7 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
     <div
       role="toolbar"
       aria-label={t('assistant.selection.toolbar')}
-      className="fixed z-[var(--z-popover)] flex items-center gap-0.5 rounded-[var(--r-full)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-md)]"
+      className="fixed z-[var(--z-popover)] flex items-center gap-0.5 rounded-[var(--r-full)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-pop)]"
       style={{
         top: Math.max(8, selection.rect.top - 44),
         left: Math.max(8, Math.min(selection.rect.left, window.innerWidth - 300)),

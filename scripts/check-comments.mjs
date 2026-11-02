@@ -36296,9 +36296,8 @@ const allowed = new Map([
     "// Sealed TOTP secret per account. '' means the account has no second factor stored.",
     "// A short curated icon id per group; '' keeps the default folder picture.",
     "// A project is the app's Agent: the brief and knowledge range were already here; these columns are",
-    "// the persona, the tool/skill narrowing, the workspace exclusion and the context switches. One",
-    "// migration rather than nine because the columns only mean anything together, and a fresh database",
-    "// already gets them from the CREATE TABLE above.",
+    "// the persona, the tool/skill narrowing, the workspace exclusion and the context switches. Each",
+    "// column spends its own version because the migration ledger allows one new column per number.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

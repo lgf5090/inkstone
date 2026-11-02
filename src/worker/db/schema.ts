@@ -3180,28 +3180,61 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  // A project is the app's Agent: the brief and knowledge range were already here; these columns are
+  // the persona, the tool/skill narrowing, the workspace exclusion and the context switches. Each
+  // column spends its own version because the migration ledger allows one new column per number.
   {
-    // A project is the app's Agent: the brief and knowledge range were already here; these columns are
-    // the persona, the tool/skill narrowing, the workspace exclusion and the context switches. One
-    // migration rather than nine because the columns only mean anything together, and a fresh database
-    // already gets them from the CREATE TABLE above.
     version: 221,
     skipIfColumnExists: { table: 'chat_projects', column: 'icon' },
-    statements: [
-      `ALTER TABLE chat_projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
-      `ALTER TABLE chat_projects ADD COLUMN exclude_scope TEXT NOT NULL DEFAULT '[]'`,
-      `ALTER TABLE chat_projects ADD COLUMN tools TEXT NOT NULL DEFAULT '[]'`,
-      `ALTER TABLE chat_projects ADD COLUMN tools_limited INTEGER NOT NULL DEFAULT 0`,
-      `ALTER TABLE chat_projects ADD COLUMN tool_overrides TEXT NOT NULL DEFAULT '{}'`,
-      `ALTER TABLE chat_projects ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'`,
-      `ALTER TABLE chat_projects ADD COLUMN focus_sync INTEGER NOT NULL DEFAULT 1`,
-      `ALTER TABLE chat_projects ADD COLUMN time_aware INTEGER NOT NULL DEFAULT 1`,
-      `ALTER TABLE chat_projects ADD COLUMN read_project_instructions INTEGER NOT NULL DEFAULT 0`,
-      `ALTER TABLE chat_projects ADD COLUMN position REAL NOT NULL DEFAULT 0`,
-    ],
+    statements: [`ALTER TABLE chat_projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''`],
   },
   {
     version: 222,
+    skipIfColumnExists: { table: 'chat_projects', column: 'exclude_scope' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN exclude_scope TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 223,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tools' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tools TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 224,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tools_limited' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tools_limited INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 225,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tool_overrides' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tool_overrides TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 226,
+    skipIfColumnExists: { table: 'chat_projects', column: 'skill_ids' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 227,
+    skipIfColumnExists: { table: 'chat_projects', column: 'focus_sync' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN focus_sync INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 228,
+    skipIfColumnExists: { table: 'chat_projects', column: 'time_aware' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN time_aware INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 229,
+    skipIfColumnExists: { table: 'chat_projects', column: 'read_project_instructions' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN read_project_instructions INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 230,
+    skipIfColumnExists: { table: 'chat_projects', column: 'position' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN position REAL NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 231,
     statements: [
       `CREATE TABLE IF NOT EXISTS chat_knowledge_bases (
         user_id TEXT NOT NULL,

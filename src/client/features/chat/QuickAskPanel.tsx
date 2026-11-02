@@ -15,6 +15,7 @@ import { useUi } from '../../store/ui'
 import { getActiveEditorView } from '../../editor/commands'
 import { copyText } from '../../lib/clipboard'
 import { streamAssistantTurn } from './stream'
+import { editorAiAnchor, locateAnchor } from './editor-ai'
 import { useQuickAsk } from './quick-ask-store'
 
 const PANEL_WIDTH = 380
@@ -122,11 +123,23 @@ export function QuickAskPanel() {
       toast({ title: t('assistant.quick_ask.no_editor'), tone: 'warning' })
       return
     }
-    const from = Math.max(0, Math.min(context.from, view.state.doc.length))
-    const to = Math.max(from, Math.min(context.to, view.state.doc.length))
+    const doc = view.state.doc.toString()
+    let from = Math.min(context.from, doc.length)
+    let to = Math.min(context.to, doc.length)
+    if (context.selection.trim()) {
+      const anchor = editorAiAnchor(context.whole, context.from, context.to)
+      const at = locateAnchor(doc, anchor.lead, context.selection, anchor.trail)
+      if (at === null) {
+        toast({ title: t('assistant.quick_ask.stale'), tone: 'warning' })
+        return
+      }
+      from = at
+      to = at + context.selection.length
+    }
+    const body = answer.trim()
     view.dispatch({
-      changes: { from, to, insert: answer.trim() },
-      selection: { anchor: from + answer.trim().length },
+      changes: { from, to, insert: body },
+      selection: { anchor: from + body.length },
     })
     view.focus()
     toast({ title: t('assistant.quick_ask.inserted'), tone: 'success' })
@@ -140,7 +153,7 @@ export function QuickAskPanel() {
       aria-modal="false"
       aria-label={t('assistant.quick_ask.title')}
       data-quick-ask="1"
-      className="fixed z-[var(--z-popover)] flex max-h-[min(520px,80vh)] flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-lg)]"
+      className="fixed z-[var(--z-popover)] flex max-h-[min(520px,80vh)] flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)]"
       style={{ top: pos.top, left: pos.left, width: PANEL_WIDTH }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
