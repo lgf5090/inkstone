@@ -56,4 +56,17 @@ describe('navigation copy rules', () => {
     expect(categoryDisplayName(NAV_UNCATEGORIZED)).toBe(t('nav.uncategorized'))
     expect(categoryDisplayName('Reading list')).toBe('Reading list')
   })
+
+  it('keeps the toast in one language when the server only restates the limit', async () => {
+    const { ApiError } = await import('../src/client/lib/api')
+    const { navErrorToast } = await import('../src/client/features/nav/errors')
+    const { t } = await import('../src/client/lib/i18n')
+
+    const limited = new ApiError(413, 'nav_import_limit', t('nav.error.import_limit'), undefined, 'This account holds 20000 bookmarks and the limit is 20000; 2 more would not fit')
+    expect(navErrorToast(limited)).toEqual({ title: t('nav.error.import_limit') })
+
+    // The WebDAV sentence names the path that refused, which the localised line cannot know: that one stays.
+    const webdav = new ApiError(502, 'nav_webdav_failed', t('nav.error.webdav'), undefined, 'The path does not exist')
+    expect(navErrorToast(webdav).description).toBe('The path does not exist')
+  })
 })

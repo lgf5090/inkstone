@@ -27,9 +27,19 @@ export function navErrorMessage(error: unknown): string {
  * the backup panel undiagnosable, so it rides along as the toast's description instead of replacing the
  * localised title.
  */
+/**
+ * Codes whose localised line already says everything the route said.
+ *
+ * `nav_webdav_failed` rides along with the server's sentence because it names the path that refused. The
+ * limit answer restates a number the reader's own line already carries, so printing both turned a Chinese
+ * interface back into a bilingual one — the thing U2-02 was about. The text stays on the wire for the
+ * status strip and the console, where the numbers are the point.
+ */
+const SELF_EXPLANATORY_CODES = new Set(['nav_import_limit'])
+
 export function navErrorToast(error: unknown): { title: string; description?: string } {
   const title = navErrorMessage(error)
-  if (error instanceof ApiError && error.serverMessage && error.serverMessage !== title) {
+  if (error instanceof ApiError && error.serverMessage && error.serverMessage !== title && !SELF_EXPLANATORY_CODES.has(error.code)) {
     return { title, description: error.serverMessage }
   }
   return { title }
