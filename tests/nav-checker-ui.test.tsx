@@ -11,6 +11,7 @@ import {
 import { useNavStore } from '../src/client/features/nav/nav-store'
 import { useSession } from '../src/client/store/session'
 import { useUi } from '../src/client/store/ui'
+import { ApiError } from '../src/client/lib/api'
 import { navApi } from '../src/client/features/nav/api'
 import { LinkCheckerModal } from '../src/client/features/nav/NavChecker'
 import { ConfirmHost } from '../src/client/components/overlay'
@@ -228,6 +229,45 @@ describe('LinkCheckerModal', () => {
       const max = Number(bar.getAttribute('aria-valuemax'))
       expect(now, 'the progress bar cannot count past the scan it announced').toBeLessThanOrEqual(max)
     }
+  })
+
+  it('waits out a rate limit and retries the chunk it was refused on', async () => {
+    // The per-minute budget is shared with the rest of the account, so a long scan does hit it. The
+    // retry has to resume the same eight bookmarks: with the cursor claimed up front, a retry that
+    // fell through to the next chunk would quietly leave a page of links unchecked.
+    const many = Array.from({ length: 10 }, (_, index) => makeLink({
+      id: `link-rate-${index}`, title: `Rate ${index}`, url: `https://rate${index}.example/`,
+    }))
+    seed(many)
+    const requested: string[] = []
+    let refusals = 0
+    checkSpy.mockImplementation(async (urls: string[]) => {
+      requested.push(...urls)
+      if (refusals === 0) {
+        refusals += 1
+        throw new ApiError(429, 'too_many_attempts', t('nav.error.too_many'))
+      }
+      return { results: urls.map((url) => ({ url, status: 200, ok: true, level: 'ok', durationMs: 5 })) }
+    })
+
+    vi.useFakeTimers()
+    try {
+      mount()
+      click(buttonByText(t('nav.checker.start')))
+      // Step past the 20s backoff without reaching the 10-minute scan deadline, which would abort the
+      // run and make the retry unobservable.
+      for (let round = 0; round < 6; round += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_000)
+        })
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+    await flush()
+
+    expect([...new Set(requested)].sort()).toEqual(many.map((link) => link.url).sort())
+    expect(requested.filter((url) => url === 'https://rate0.example/'), 'the refused chunk must be retried, not skipped').toHaveLength(2)
   })
 
   it('swaps a rotted bookmark icon for the initial instead of a torn image', async () => {

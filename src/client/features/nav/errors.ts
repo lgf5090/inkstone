@@ -34,3 +34,15 @@ export function navErrorToast(error: unknown): { title: string; description?: st
   }
   return { title }
 }
+
+/**
+ * The same failure as one line, for the surfaces that carry a status strip instead of a toast.
+ *
+ * The backup panel reports inside the dialog, where there is no second line to put the route's
+ * sentence on — and without it, every rejected address reads as the same one generic "bad request"
+ * line, and the reader cannot tell that HTTPS was the problem.
+ */
+export function navErrorLine(error: unknown): string {
+  const toast = navErrorToast(error)
+  return toast.description ? `${toast.title} · ${toast.description}` : toast.title
+}

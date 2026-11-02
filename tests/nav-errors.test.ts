@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ApiError } from '../src/client/lib/api'
-import { navErrorMessage, navErrorToast } from '../src/client/features/nav/errors'
+import { navErrorMessage, navErrorLine, navErrorToast } from '../src/client/features/nav/errors'
 import { initI18n, t } from '../src/client/lib/i18n'
 
 beforeAll(async () => {
@@ -16,6 +16,15 @@ describe('navigation error wording', () => {
     // The mapping used to swallow the reason, which left the backup panel saying one sentence for every
     // possible mistake.
     expect(toast.description).toBe('PROPFIND failed: 409 Conflict on /nav/')
+  })
+
+  it('puts the reason on one line for a status strip that has no second line', () => {
+    const coded = new ApiError(400, 'bad_request', t('nav.error.bad_request'), undefined, 'WebDAV URL must use HTTPS')
+    expect(navErrorLine(coded)).toBe(`${t('nav.error.bad_request')} · WebDAV URL must use HTTPS`)
+    // Without a distinct sentence there is nothing to append, and the strip must not grow a dangling
+    // separator that looks like a truncated message.
+    const plain = new ApiError(400, 'bad_request', t('nav.error.bad_request'))
+    expect(navErrorLine(plain)).toBe(t('nav.error.bad_request'))
   })
 
   it('answers a request that never reached the server in the reader language', () => {

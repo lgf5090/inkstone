@@ -8107,6 +8107,7 @@ const allowed = new Map([
   ["src/client/features/nav/errors.ts", [
     "/**\n * What a failed navigation request should say, in the reader's language.\n *\n * `navFetch` already turns a coded error into a localised line, but a request that never reached the\n * server rejects with a bare `TypeError: Failed to fetch`, and an unmapped code falls back to whatever\n * the route wrote in English. Both used to be shown as-is, and each call site had its own one-line\n * version of this rule.\n */",
     "/**\n * The same failure as a toast payload, with the route's own sentence kept.\n *\n * A mapped code answers one line for every kind of mistake it covers — `nav_webdav_failed` says only\n * \"WebDAV request failed\" — while the route usually names what it could not reach. Dropping that made\n * the backup panel undiagnosable, so it rides along as the toast's description instead of replacing the\n * localised title.\n */",
+    "/**\n * The same failure as one line, for the surfaces that carry a status strip instead of a toast.\n *\n * The backup panel reports inside the dialog, where there is no second line to put the route's\n * sentence on — and without it, every rejected address reads as the same one generic \"bad request\"\n * line, and the reader cannot tell that HTTPS was the problem.\n */",
   ]],
   ["src/client/features/nav/nav-store.ts", [
     "// A full session storage must not take the navigation app down; the tokens live in memory too.",
@@ -43237,11 +43238,18 @@ const allowed = new Map([
     "// bookmark. Caching it as a verdict would freeze a whole library at \"unknown\" after one outage,",
     "// with neither rescan button willing to try again.",
     "// jsdom has no innerText, and the row prints its url, which is what distinguishes them here.",
+    "// The per-minute budget is shared with the rest of the account, so a long scan does hit it. The",
+    "// retry has to resume the same eight bookmarks: with the cursor claimed up front, a retry that",
+    "// fell through to the next chunk would quietly leave a page of links unchecked.",
+    "// Step past the 20s backoff without reaching the 10-minute scan deadline, which would abort the",
+    "// run and make the retry unobservable.",
   ]],
   ["tests/nav-errors.test.ts", [
     "// The mapping used to swallow the reason, which left the backup panel saying one sentence for every",
     "// possible mistake.",
     "// Every base the app pluralises must carry both arms, or one count renders a bare key.",
+    "// Without a distinct sentence there is nothing to append, and the strip must not grow a dangling",
+    "// separator that looks like a truncated message.",
   ]],
   ["tests/nav-focus-a11y.test.tsx", [
     "// The overlay picks the `[data-autofocus]` target; React's own `autoFocus` was being overwritten by it,",
