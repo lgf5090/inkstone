@@ -3332,6 +3332,31 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_prompts', column: 'position' },
     statements: [`ALTER TABLE chat_prompts ADD COLUMN position REAL NOT NULL DEFAULT 0`],
   },
+  {
+    version: 242,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_subagent_tasks (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        parent_conversation_id TEXT NOT NULL,
+        parent_message_id TEXT,
+        call_id TEXT,
+        description TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        model_id TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        result TEXT,
+        error TEXT,
+        tool_calls INTEGER NOT NULL DEFAULT 0,
+        tokens INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_subagent_tasks_parent
+         ON chat_subagent_tasks(user_id, parent_conversation_id, created_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

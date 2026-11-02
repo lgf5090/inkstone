@@ -30046,6 +30046,8 @@ const allowed = new Map([
     "/** A saved prompt or a Skill package. The body lives in `content` for both. */",
     "/** One line the catalog can show when the body is loaded on demand. */",
     "/** Whether the body is always injected or only named until the model asks for it. */",
+    "/** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */",
+    "/** The model child agents use; null follows the parent turn's model. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33369,6 +33371,12 @@ const allowed = new Map([
     "// would spend the very tokens the setting exists to save.",
     "// An on-demand Skill is named, not injected. Its description is what lets the model decide",
     "// whether the body is worth a call; `read_skill` is the only way to get the rest.",
+    "/** A child turn: it may not ask the reader or delegate again, and its approval policy is read-only. */",
+    "/** When present, only these tools exist for the turn. */",
+    "// The child is read-only and unwatched: a write or a deletion would need a card no one is looking at,",
+    "// and asking the reader a question from inside a tool call has no surface either.",
+    "// A child turn has no reader to ask, and a read-only child needs no approval card nobody can press;",
+    "// both are expressed by leaving the callbacks it would reach for out of its context.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34839,6 +34847,8 @@ const allowed = new Map([
     "// approval and the failure counter all belong to the real tool rather than to the door it came through.",
     "// A Skill from another account is simply not this reader's, and the model is told the same thing a",
     "// missing id says; distinguishing the two would confirm an id the caller never had.",
+    "/** Present only on a parent chat turn: runs one isolated child turn and returns what it produced. */",
+    "/** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -41703,6 +41713,9 @@ const allowed = new Map([
     "// An interval that outlives the turn is a writer on a closed stream, forever.",
     "// This one is a deliberate exception to the cases below: the reader's question belongs to the thread",
     "// and the reason belongs under it, so the failure stays where they are already looking.",
+  ]],
+  ["tests/assistant-subagent.test.ts", [
+    "// The child's own context has no runner to call, so it cannot delegate again.",
   ]],
   ["tests/assistant-subscription-mentions.test.ts", [
     "/**\n * What a `[[sub:…]]` mention brings into a turn.\n *\n * The interesting cases are the ones where a resolver could quietly answer the wrong question: two\n * subscriptions sharing a name, a mention pointing at a row that has since been purged, and a target the\n * note resolver would otherwise claim and report as a deleted note.\n */",

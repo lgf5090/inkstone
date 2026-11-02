@@ -17,6 +17,7 @@ import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
+  const models = useAssistant((state) => state.models)
   // A key arriving or leaving changes what the composer is allowed to promise about search, and the chip
   // reads that from the settings response rather than guessing: so the settings are re-read here.
   const loadSettings = useAssistant((state) => state.loadSettings)
@@ -32,7 +33,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setQuickAskTrigger(settings.quickAskTrigger), [settings.quickAskTrigger])
   const [autoTokens, setAutoTokens] = useState(String(settings.autoCompactTokens))
   useEffect(() => setAutoTokens(String(settings.autoCompactTokens)), [settings.autoCompactTokens])
-  const models = useAssistant((state) => state.models)
   const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   // The engine is a settings field; what it needs is not. A hosted engine's key lives in its own encrypted
   // row, so the state of that row has to be asked for — for the one engine the reader picked, and only when
@@ -432,6 +432,32 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             </Button>
           </div>
         </div>
+      </Group>
+
+      <Group title={t('assistant.settings.subagents')}>
+        <SettingRow title={t('assistant.settings.subagent_enabled')} description={t('assistant.settings.subagent_enabled_hint')}>
+          <Switch
+            checked={settings.subagentEnabled}
+            label={t('assistant.settings.subagent_enabled')}
+            onChange={(subagentEnabled) => void saveSettings({ subagentEnabled })}
+          />
+        </SettingRow>
+        {settings.subagentEnabled && (
+          <SettingRow title={t('assistant.settings.subagent_model')} description={t('assistant.settings.subagent_model_hint')} controlId="assistant-subagent-model">
+            <Select
+              id="assistant-subagent-model"
+              value={settings.subagentModelId ?? ''}
+              aria-label={t('assistant.settings.subagent_model')}
+              onChange={(event) => void saveSettings({ subagentModelId: event.target.value || null })}
+              className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+            >
+              <option value="">{t('assistant.conversation.settings.inherit')}</option>
+              {chatModels.map((model) => (
+                <option key={model.id} value={model.id}>{model.label || model.model}</option>
+              ))}
+            </Select>
+          </SettingRow>
+        )}
       </Group>
 
       <Group title={t('assistant.settings.tool_access')}>

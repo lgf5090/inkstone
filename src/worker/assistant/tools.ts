@@ -210,6 +210,10 @@ export interface ToolContext {
   signal?: AbortSignal
   /** Renews the turn's lease while a tool waits on the reader; false means the turn was stopped. */
   keepAlive?: () => Promise<boolean>
+  /** Present only on a parent chat turn: runs one isolated child turn and returns what it produced. */
+  runSubagent?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ text: string, toolCalls: number, tokens: number }>
+  /** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */
+  allowedTools?: readonly string[]
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
   /** The saved database connection the reader is looking at, so the tools can default to it. */
@@ -2379,6 +2383,26 @@ export const SKILL_TOOLS: ToolDefinition[] = [
       // missing id says; distinguishing the two would confirm an id the caller never had.
       if (!skill || skill.enabled === false) throw new ToolError('That skill is not available.')
       return { id: skill.id, title: skill.title, description: skill.description, content: skill.content }
+    },
+  }),
+  tool({
+    name: 'delegate_subagent',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Give one self-contained subtask to a child agent with its own context. The child cannot ask the reader anything or delegate further; it returns its result and a count of the tools it used.',
+    fields: {
+      description: { type: 'string', minLength: 1, maxLength: 200 },
+      prompt: { type: 'string', minLength: 1, maxLength: 8_000 },
+      modelId: { type: 'string', optional: true, maxLength: 64 },
+    },
+    requires: (_env, settings, ctx) => settings.subagentEnabled && Boolean(ctx.runSubagent),
+    async run(args, ctx) {
+      if (!ctx.runSubagent) throw new ToolError('Sub-agents are not available in this turn.')
+      return await ctx.runSubagent({
+        description: String(args.description),
+        prompt: String(args.prompt),
+        modelId: typeof args.modelId === 'string' ? args.modelId : null,
+      })
     },
   }),
 ]
@@ -5188,6 +5212,7 @@ export class ToolExecutor {
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
+    if (this.ctx.allowedTools && !this.ctx.allowedTools.includes(definition.name)) return false
     if (this.ctx.settings.toolSettings[definition.name]?.enabled === false) return false
     // An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the
     // runner passes `projectToolsLimited` beside the list.

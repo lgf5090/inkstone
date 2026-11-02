@@ -793,6 +793,10 @@ export interface AssistantSettings {
   autoCompactMode: 'off' | 'absolute' | 'ratio'
   autoCompactTokens: number
   autoCompactRatio: number
+  /** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */
+  subagentEnabled: boolean
+  /** The model child agents use; null follows the parent turn's model. */
+  subagentModelId: string | null
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -902,6 +906,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoCompactMode: 'off',
   autoCompactTokens: 100_000,
   autoCompactRatio: 0.8,
+  subagentEnabled: false,
+  subagentModelId: null,
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -1070,6 +1076,8 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoCompactMode: enumValue(raw.autoCompactMode, ['off', 'absolute', 'ratio'] as const, DEFAULT_ASSISTANT_SETTINGS.autoCompactMode),
     autoCompactTokens: numberInRange(raw.autoCompactTokens, 10_000, 2_000_000, DEFAULT_ASSISTANT_SETTINGS.autoCompactTokens),
     autoCompactRatio: numberInRange(raw.autoCompactRatio, 0.3, 0.95, DEFAULT_ASSISTANT_SETTINGS.autoCompactRatio),
+    subagentEnabled: booleanValue(raw.subagentEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentEnabled),
+    subagentModelId: typeof raw.subagentModelId === 'string' && raw.subagentModelId ? raw.subagentModelId.slice(0, 26) : null,
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
@@ -2416,6 +2424,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'ask_user_question', labelKey: 'assistant.tool.ask_user_question', permission: 'read' },
   { name: 'context_prune_tool_results', labelKey: 'assistant.tool.context_prune_tool_results', permission: 'read' },
   { name: 'read_skill', labelKey: 'assistant.tool.read_skill', permission: 'read' },
+  { name: 'delegate_subagent', labelKey: 'assistant.tool.delegate_subagent', permission: 'read' },
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
   { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },

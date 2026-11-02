@@ -2309,6 +2309,31 @@ export class AssistantStore {
     return changes > 0
   }
 
+  async createSubagentTask(input: {
+    parentConversationId: string
+    parentMessageId: string | null
+    callId: string | null
+    description: string
+    prompt: string
+    modelId: string | null
+  }): Promise<string> {
+    const id = newId()
+    await this.write(
+      `INSERT INTO chat_subagent_tasks (user_id, id, parent_conversation_id, parent_message_id, call_id, description, prompt, model_id, status, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)`,
+      this.userId, id, input.parentConversationId, input.parentMessageId, input.callId, input.description, input.prompt, input.modelId, Date.now(),
+    )
+    return id
+  }
+
+  async finishSubagentTask(id: string, result: { status: 'success' | 'error' | 'cancelled', result: string | null, error: string | null, toolCalls: number, tokens: number }): Promise<void> {
+    await this.write(
+      `UPDATE chat_subagent_tasks SET status = ?2, result = ?3, error = ?4, tool_calls = ?5, tokens = ?6, finished_at = ?7
+        WHERE user_id = ?1 AND id = ?8`,
+      result.status, result.result, result.error, result.toolCalls, result.tokens, Date.now(), id,
+    )
+  }
+
   /** Every attachment the reader has, newest first — the list the composer's picker walks. */
   async listChatAttachments(limit = 60): Promise<ChatAttachment[]> {
     const q = new Query(this.userId)

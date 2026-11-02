@@ -45,7 +45,7 @@ import { AutomationService } from './automations'
 import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
-import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
+import { ALL_TOOLS, parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
 import { AbortError, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
@@ -286,6 +286,10 @@ export interface TurnInput {
   ephemeral?: boolean
   /** Where a conversation this turn creates came from; absent means the reader started it. */
   origin?: AssistantConversationOrigin
+  /** A child turn: it may not ask the reader or delegate again, and its approval policy is read-only. */
+  subagent?: boolean
+  /** When present, only these tools exist for the turn. */
+  allowedTools?: readonly string[]
   retry?: boolean
   /**
    * Pick up the last answer where it stopped.
@@ -380,6 +384,8 @@ export class AssistantRunner {
   private turnModelId: string | null = null
   /** This conversation's overrides; empty for a thread that has none, which is every old row. */
   private conversationSettings: AssistantConversationSettings = {}
+  private turnAllowedTools: readonly string[] | null = null
+  private turnIsSubagent = false
   private webSearchRequested = false
   private webSearchNative = false
   /**
@@ -463,6 +469,8 @@ export class AssistantRunner {
     this.turnSignal = input.signal
     this.turnNoTools = input.noTools === true
     this.turnModelId = input.modelId ?? null
+    this.turnAllowedTools = input.allowedTools ?? null
+    this.turnIsSubagent = input.subagent === true
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
     // A turn that may call nothing keeps no pins either: the prompt would otherwise promise the model tools
@@ -2162,6 +2170,79 @@ export class AssistantRunner {
     return (results ?? []).map((row) => row.name)
   }
 
+  private async runSubagent(
+    input: { description: string, prompt: string, modelId?: string | null },
+    parentConversationId: string,
+  ): Promise<{ text: string, toolCalls: number, tokens: number }> {
+    const taskId = await this.store.createSubagentTask({
+      parentConversationId,
+      parentMessageId: null,
+      callId: null,
+      description: input.description.slice(0, 200),
+      prompt: input.prompt.slice(0, 8_000),
+      modelId: input.modelId ?? this.settings.subagentModelId,
+    })
+    // The child is read-only and unwatched: a write or a deletion would need a card no one is looking at,
+    // and asking the reader a question from inside a tool call has no surface either.
+    const allowedTools = ALL_TOOLS
+      .filter((definition) => definition.permission === 'read' && definition.name !== 'ask_user_question' && definition.name !== 'delegate_subagent')
+      .map((definition) => definition.name)
+    const childSettings: AssistantSettings = {
+      ...this.settings,
+      subagentEnabled: false,
+      toolModes: { ...this.settings.toolModes, read: 'auto' },
+      limits: {
+        ...this.settings.limits,
+        maxToolCalls: Math.min(this.settings.limits.maxToolCalls, 8),
+        maxAgentSteps: Math.min(this.settings.limits.maxAgentSteps, 12),
+      },
+    }
+    const child = new AssistantRunner({ ...this.deps, settings: childSettings, runToken: undefined })
+    const controller = new AbortController()
+    const onAbort = () => controller.abort(this.turnSignal?.reason)
+    this.turnSignal?.addEventListener('abort', onAbort, { once: true })
+    let text = ''
+    let error: string | null = null
+    let tokens = 0
+    let childConversationId: string | null = null
+    const toolIds = new Set<string>()
+    try {
+      for await (const event of child.chat({
+        message: input.prompt,
+        modelId: input.modelId ?? this.settings.subagentModelId,
+        ephemeral: true,
+        origin: 'subagent',
+        signal: controller.signal,
+        subagent: true,
+        allowedTools,
+      })) {
+        if (event.type === 'start' && event.conversationId) childConversationId = event.conversationId
+        if (event.type === 'text') text += event.delta ?? ''
+        if (event.type === 'tool' && event.tool) toolIds.add(event.tool.id)
+        if (event.type === 'usage' && event.usage) tokens = event.usage.inputTokens + event.usage.outputTokens
+        if (event.type === 'error') error = event.message ?? 'The sub-agent failed.'
+        if (event.type === 'done' && event.finalMessage?.status === 'complete' && event.finalMessage.content) text = event.finalMessage.content
+      }
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : 'The sub-agent failed.'
+    } finally {
+      this.turnSignal?.removeEventListener('abort', onAbort)
+      await this.store.finishSubagentTask(taskId, {
+        status: error ? (controller.signal.aborted ? 'cancelled' : 'error') : 'success',
+        result: error ? null : text.slice(0, 20_000),
+        error,
+        toolCalls: toolIds.size,
+        tokens,
+      })
+      if (childConversationId) {
+        await this.store.releaseRun(childConversationId)
+        await this.store.deleteConversation(childConversationId)
+      }
+    }
+    if (error) throw new ToolError(controller.signal.aborted ? 'The reader stopped the turn before the sub-agent finished.' : error)
+    return { text: text.slice(0, 20_000), toolCalls: toolIds.size, tokens }
+  }
+
   private async toolContext(conversationId?: string, generatedAttachments?: string[]): Promise<ToolContext> {
     const bounds = localDayBounds(this.settings.timezone)
     const store = this.store
@@ -2176,6 +2257,12 @@ export class AssistantRunner {
       dayEnd: bounds.end,
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
+      ...(this.turnAllowedTools ? { allowedTools: this.turnAllowedTools } : {}),
+      // A child turn has no reader to ask, and a read-only child needs no approval card nobody can press;
+      // both are expressed by leaving the callbacks it would reach for out of its context.
+      ...(conversationId && !this.turnIsSubagent && this.settings.subagentEnabled
+        ? { runSubagent: (input: { description: string, prompt: string, modelId?: string | null }) => this.runSubagent(input, conversationId) }
+        : {}),
       // A tool that waits on the reader has to stop when the turn does, and its wait has to keep the
       // run claim alive or a long question would look like a dead request and be reaped mid-question.
       ...(conversationId

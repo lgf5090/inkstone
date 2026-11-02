@@ -801,6 +801,26 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_cursor_commands_user
      ON chat_cursor_commands(user_id, position, created_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_subagent_tasks (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    parent_conversation_id TEXT NOT NULL,
+    parent_message_id TEXT,
+    call_id TEXT,
+    description TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    model_id TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    result TEXT,
+    error TEXT,
+    tool_calls INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_subagent_tasks_parent
+     ON chat_subagent_tasks(user_id, parent_conversation_id, created_at DESC)`,
 ]
 
 export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
@@ -834,6 +854,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_active_runs',
   'chat_questions',
   'chat_cursor_commands',
+  'chat_subagent_tasks',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -879,6 +900,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_active_runs_user',
   'idx_chat_questions_conversation',
   'idx_chat_cursor_commands_user',
+  'idx_chat_subagent_tasks_parent',
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
@@ -921,5 +943,6 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],
+  chat_subagent_tasks: ['user_id', 'id', 'parent_conversation_id', 'parent_message_id', 'call_id', 'description', 'prompt', 'model_id', 'status', 'result', 'error', 'tool_calls', 'tokens', 'created_at', 'finished_at'],
   chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'kind', 'description', 'load_mode', 'enabled', 'source', 'position', 'created_at', 'updated_at'],
 }
