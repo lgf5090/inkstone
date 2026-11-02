@@ -568,7 +568,7 @@ export function DatePicker({
         id={id}
         type='button'
         onClick={() => setOpen((o) => !o)}
-        className='flex flex-1 items-center gap-1.5 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]'
+        className='flex h-full flex-1 items-center gap-1.5 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]'
         aria-haspopup='dialog'
         aria-expanded={open}
         aria-labelledby={labelledBy}
