@@ -186,15 +186,19 @@ export function DriveSharePage({ slug }: { slug: string }) {
                   <div key={entry.path} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5">
                     {entry.kind === 'folder'
                       ? <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]" onClick={() => setSharePath(entry.path)}>{entry.name}</button>
-                      : (
-                        <a
-                          className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]"
-                          href={meta.allowDownload ? contentUrl(entry.path, true) : contentUrl(entry.path, false)}
-                          {...(meta.allowDownload ? { download: '' } : {})}
-                        >
-                          {entry.name}
-                        </a>
-                      )}
+                      : meta.allowDownload || isRenderable(entry.mime)
+                        ? (
+                          <a
+                            className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]"
+                            href={meta.allowDownload ? contentUrl(entry.path, true) : contentUrl(entry.path, false)}
+                            {...(meta.allowDownload ? { download: '' } : {})}
+                          >
+                            {entry.name}
+                          </a>
+                        )
+                        : (
+                          <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">{entry.name}</span>
+                        )}
                     {entry.kind === 'file' && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>}
                   </div>
                 ))}

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
@@ -38,6 +39,7 @@ function makeVault(): DurableObjectNamespace {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
@@ -90,7 +92,7 @@ describe('cloud drive folder metadata', () => {
       path: '/folder',
       header: '# Header',
       footer: 'Footer',
-      hidePatterns: ['^secret$'],
+      hidePatterns: ['secret'],
       password: 'folder-pass',
       inheritHeader: true,
       inheritFooter: true,
@@ -119,6 +121,34 @@ describe('cloud drive folder metadata', () => {
     expect(filtered.body.folders.map((entry: any) => entry.name)).toEqual(['sub', 'visible'])
     expect(filtered.body.total).toBe(0)
     expect(sub.id).toBeTruthy()
+  })
+
+  it('hides with wildcard rules and refuses the ones that could never match', async () => {
+    await request('GET', '/api/clouddrive/bootstrap')
+    await folder('/', 'Rules')
+    await folder('/Rules', 'draft1')
+    await folder('/Rules', 'drafting')
+    await folder('/Rules', 'a.tmp')
+    await folder('/Rules', 'b.tmpx')
+
+    const saved = await request('PUT', '/api/clouddrive/meta', {
+      mountId: 'primary', path: '/Rules', hidePatterns: ['draft?', '*.tmp'],
+    })
+    expect(saved.status).toBe(200)
+    const listing = await request('GET', '/api/clouddrive/files?mount=primary&path=%2FRules')
+    expect(listing.body.folders.map((entry: any) => entry.name)).toEqual(['b.tmpx', 'drafting'])
+
+    // A rule written as a regular expression cannot match anything here, so it is refused instead of
+    // quietly hiding one fewer file than the reader meant.
+    for (const pattern of ['^draft1$', '(a+)+$', 'sub/dir', 'x'.repeat(101)]) {
+      const rejected = await request('PUT', '/api/clouddrive/meta', {
+        mountId: 'primary', path: '/Rules', hidePatterns: [pattern],
+      })
+      expect(rejected.status).toBe(400)
+    }
+    const kept = await request('GET', '/api/clouddrive/meta')
+    const row = kept.body.meta.find((entry: any) => entry.path === '/Rules')
+    expect(row.hidePatterns).toEqual(['draft?', '*.tmp'])
   })
 
   it('does not leak a password to a child when inheritance is off', async () => {

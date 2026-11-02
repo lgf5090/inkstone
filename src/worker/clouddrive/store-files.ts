@@ -234,15 +234,6 @@ export async function listFolder(
   options: ListOptions,
 ): Promise<ListResult> {
   const folderWhere = buildWhere(userId, mountId, parentId, 'folder', options)
-  const { results: folderRows } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${folderWhere.sql}
-      ORDER BY ${orderBy(options.sort, options.dir)}
-      LIMIT ${CLOUDDRIVE_LIMITS.folderListMax + 1}`,
-  ).bind(...folderWhere.params).all<CloudDriveFileRow>()
-  const folders = (folderRows ?? []).slice(0, CLOUDDRIVE_LIMITS.folderListMax)
-  const foldersTruncated = (folderRows?.length ?? 0) > CLOUDDRIVE_LIMITS.folderListMax
-
   const fileWhere = buildWhere(userId, mountId, parentId, 'file', options)
   const conditions = [fileWhere.sql]
   const params = [...fileWhere.params]
@@ -252,18 +243,33 @@ export async function listFolder(
     conditions.push(condition.sql)
     params.push(...condition.params)
   }
-  const { results: fileRows } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY ${orderBy(options.sort, options.dir)}
-      LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
-  const files = fileRows ?? []
+
+  // One round trip for the two halves of the listing and the total: none of them reads the others'
+  // rows, and a folder open paid three sequential D1 trips for it.
+  const [folderQuery, fileQuery, total] = await Promise.all([
+    db.prepare(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${folderWhere.sql}
+        ORDER BY ${orderBy(options.sort, options.dir)}
+        LIMIT ${CLOUDDRIVE_LIMITS.folderListMax + 1}`,
+    ).bind(...folderWhere.params).all<CloudDriveFileRow>(),
+    db.prepare(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY ${orderBy(options.sort, options.dir)}
+        LIMIT ?`,
+    ).bind(...params, options.limit).all<CloudDriveFileRow>(),
+    countRows(db, fileWhere),
+  ])
+
+  const folderRows = folderQuery.results ?? []
+  const folders = folderRows.slice(0, CLOUDDRIVE_LIMITS.folderListMax)
+  const foldersTruncated = folderRows.length > CLOUDDRIVE_LIMITS.folderListMax
+  const files = fileQuery.results ?? []
   const last = files[files.length - 1]
   const cursor = last && files.length === options.limit
     ? encodeCursor(options.sort, cursorValue(options.sort, last), last.id)
     : null
-  const total = await countRows(db, fileWhere)
   return { folders, files, cursor, total, foldersTruncated }
 }
 
@@ -319,19 +325,29 @@ export async function listTrash(
     params.push(deletedAt, deletedAt, decoded.id)
   }
   const where = clauses.join(' AND ')
-  const { results } = await db.prepare(
-    `SELECT f.*, EXISTS (
-        SELECT 1 FROM CloudDrive_files d
-         WHERE d.user_id = f.user_id AND d.mount_id = f.mount_id AND d.deleted_at IS NOT NULL
-           AND f.kind = 'folder'
-           AND substr(d.path, 1, length(f.path) + 1) = f.path || '/'
-      ) AS descendant_trashed
-       FROM CloudDrive_files f
-      WHERE ${where}
-      ORDER BY f.deleted_at DESC, f.id DESC
-      LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow & { descendant_trashed: number | bigint }>()
-  const rows: CloudDriveTrashRow[] = (results ?? []).map((row) => ({
+  const [pageQuery, countQuery] = await Promise.all([
+    db.prepare(
+      `SELECT f.*, EXISTS (
+          SELECT 1 FROM CloudDrive_files d
+           WHERE d.user_id = f.user_id AND d.mount_id = f.mount_id AND d.deleted_at IS NOT NULL
+             AND f.kind = 'folder'
+             AND substr(d.path, 1, length(f.path) + 1) = f.path || '/'
+         ) AS descendant_trashed
+          FROM CloudDrive_files f
+         WHERE ${where}
+         ORDER BY f.deleted_at DESC, f.id DESC
+         LIMIT ?`,
+    ).bind(...params, options.limit).all<CloudDriveFileRow & { descendant_trashed: number | bigint }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM CloudDrive_files f
+        WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM CloudDrive_files p
+             WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
+          )`,
+    ).bind(userId, mountId).first<{ count: number }>(),
+  ])
+  const rows: CloudDriveTrashRow[] = (pageQuery.results ?? []).map((row) => ({
     ...row,
     descendantsTrashed: Number(row.descendant_trashed) === 1,
   }))
@@ -339,15 +355,7 @@ export async function listTrash(
   const cursor = last && rows.length === options.limit
     ? encodeCursor('uploaded', last.deleted_at ?? 0, last.id)
     : null
-  const count = await db.prepare(
-    `SELECT COUNT(*) AS count FROM CloudDrive_files f
-      WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM CloudDrive_files p
-           WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
-        )`,
-  ).bind(userId, mountId).first<{ count: number }>()
-  const total = (count?.count ?? 0) > LIST_TOTAL_CAP ? null : count?.count ?? 0
+  const total = (countQuery?.count ?? 0) > LIST_TOTAL_CAP ? null : countQuery?.count ?? 0
   return {
     folders: rows.filter((row) => row.kind === 'folder'),
     files: rows.filter((row) => row.kind === 'file'),
@@ -844,7 +852,18 @@ async function purgeRows(
   const rowStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
     `DELETE FROM CloudDrive_files WHERE user_id = ? AND id IN (${placeholders})`,
   ).bind(userId, ...chunk))
-  await db.batch([...tagStatements, ...versionStatements, ...rowStatements])
+  // A purged file must stop authorising: an ACL grant or a share link that outlives its row is a ghost
+  // that reads as a live permission to anything that joins on the id alone.
+  const now = Date.now()
+  const aclStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
+    `UPDATE CloudDrive_acl SET revoked_at = ?
+      WHERE owner_id = ? AND revoked_at IS NULL AND file_id IN (${placeholders})`,
+  ).bind(now, userId, ...chunk))
+  const shareStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
+    `UPDATE CloudDrive_shares SET revoked_at = ?
+      WHERE user_id = ? AND revoked_at IS NULL AND file_id IN (${placeholders})`,
+  ).bind(now, userId, ...chunk))
+  await db.batch([...tagStatements, ...versionStatements, ...aclStatements, ...shareStatements, ...rowStatements])
 
   const keys = [...new Set([
     ...targets.map((target) => target.storage_key),
@@ -1272,20 +1291,59 @@ export async function albumEntries(
   return { groups, cursor }
 }
 
-export async function listTags(
+export interface CloudDriveTagAssignment {
+  tag: string
+  tagFolded: string
+  color: string
+  fileId: string
+  name: string
+  path: string
+}
+
+/**
+ * Every tag assignment with the folder it hangs on, so the caller can drop the rows a locked or
+ * hidden directory took off the listing before it counts them. The aggregate has to happen after that
+ * filter, or a tag panel would leak how many files sit behind a passcode.
+ */
+export async function listTagAssignments(
   db: D1Database,
   userId: string,
   mountId: string,
-): Promise<{ name: string; color: string; count: number }[]> {
+): Promise<CloudDriveTagAssignment[]> {
   const { results } = await db.prepare(
-    `SELECT MAX(t.tag) AS name, MAX(t.color) AS color, COUNT(DISTINCT t.file_id) AS count
+    `SELECT t.tag AS tag, t.tag_folded AS tagFolded, t.color AS color, t.file_id AS fileId,
+            f.name AS name, f.path AS path
        FROM CloudDrive_file_tags t
        JOIN CloudDrive_files f ON f.user_id = t.user_id AND f.id = t.file_id
       WHERE t.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NULL
-      GROUP BY t.tag_folded
-      ORDER BY count DESC, t.tag_folded ASC`,
-  ).bind(userId, mountId).all<{ name: string; color: string; count: number }>()
-  return (results ?? []).map((row) => ({ name: row.name, color: row.color, count: row.count }))
+      ORDER BY t.tag_folded, t.tag`,
+  ).bind(userId, mountId).all<CloudDriveTagAssignment>()
+  return (results ?? []).map((row) => ({
+    tag: row.tag,
+    tagFolded: row.tagFolded,
+    color: row.color ?? '',
+    fileId: row.fileId,
+    name: row.name,
+    path: row.path,
+  }))
+}
+
+export function countVisibleTags(assignments: readonly CloudDriveTagAssignment[]): { name: string; color: string; count: number }[] {
+  const groups = new Map<string, { name: string; color: string; ids: Set<string> }>()
+  for (const row of assignments) {
+    const group = groups.get(row.tagFolded)
+    if (group) {
+      group.ids.add(row.fileId)
+      if (row.tag > group.name) group.name = row.tag
+      if (row.color > group.color) group.color = row.color
+    } else {
+      groups.set(row.tagFolded, { name: row.tag, color: row.color, ids: new Set([row.fileId]) })
+    }
+  }
+  return [...groups.entries()]
+    .map(([tagFolded, group]) => ({ name: group.name, color: group.color, count: group.ids.size, tagFolded }))
+    .sort((left, right) => right.count - left.count || left.tagFolded.localeCompare(right.tagFolded))
+    .map(({ name, color, count }) => ({ name, color, count }))
 }
 
 function normalizeTag(tag: string): { tag: string; tagFolded: string } {

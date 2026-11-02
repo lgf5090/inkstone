@@ -501,6 +501,7 @@ export const ZH_CN_CLOUDDRIVE = {
 
   'clouddrive.settings.trash': '回收站',
   'clouddrive.settings.webdav': 'WebDAV',
+  'clouddrive.settings.policy_locked': '这些是网盘整体策略，只有所有者可以修改；下面显示的是你上传时实际生效的值。',
 
 
   'clouddrive.error.bad_request': '请求被拒绝，请检查填写内容后重试。',
@@ -517,6 +518,9 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.error.share_expired': '此链接已达到访问上限。',
   'clouddrive.error.share_disabled': '链接不可用。',
   'clouddrive.error.too_many_attempts': '尝试次数过多，请稍后再试。',
+  'clouddrive.error.policy_readonly': '这些网盘设置只有所有者可以修改。',
+  'clouddrive.error.member_shares_disabled': '所有者已关闭成员的分享功能。',
+  'clouddrive.error.member_sync_disabled': '所有者已关闭成员的同步功能。',
   'clouddrive.error.payload_too_large': '文件或请求过大。',
   'clouddrive.error.internal': '服务器无法完成请求。',
 } as const

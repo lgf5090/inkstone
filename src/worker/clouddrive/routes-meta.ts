@@ -25,6 +25,7 @@ import {
   unlockMeta,
   upsertMetaRow,
   type CloudDriveMetaRow,
+  type EffectiveCloudDriveMeta,
 } from './meta'
 
 export const clouddriveMetaRoutes = new Hono<AppBindings>()
@@ -88,8 +89,8 @@ clouddriveMetaRoutes.put('/meta', requireOwner, async (c) => {
   let hidePatterns: string[]
   try {
     hidePatterns = normalizeMetaPatterns(body.hidePatterns)
-  } catch {
-    throw ApiError.badRequest('hidePatterns contains an invalid regular expression')
+  } catch (error) {
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'hidePatterns holds * and ? wildcards')
   }
   let password: { hash: string | null } | null = null
   if (body.clearPassword === true) password = { hash: '' }
@@ -144,7 +145,19 @@ export async function assertMetaAccess(
   mountId: string,
   path: string,
 ): Promise<void> {
-  const meta = await effectiveMeta(c.env.DB, userId, mountId, path)
+  await assertUnlockedMeta(c, userId, mountId, await effectiveMeta(c.env.DB, userId, mountId, path))
+}
+
+/**
+ * The same check for a caller that already resolved the effective metadata, so one request pays for
+ * one scan of the meta table instead of two.
+ */
+export async function assertUnlockedMeta(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  meta: EffectiveCloudDriveMeta,
+): Promise<void> {
   if (!meta.passwordHash || !meta.passwordPath) return
   const cookieName = await metaCookieName(mountId, meta.passwordPath)
   const token = getCookie(c, cookieName)

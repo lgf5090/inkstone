@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import {
   deleteExternalPath,
   externalDirectUrl,
@@ -53,6 +54,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
   fetchMock = vi.fn()

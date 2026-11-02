@@ -1,8 +1,10 @@
 import { Hono, type Context } from 'hono'
+import { parentPathOf } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { buildEntry, resolveMount, tagsForFiles, type CloudDriveFileRow } from './lib'
+import { assertMetaAccess } from './routes-meta'
 import { storageKeyReferenced } from './store-files'
 
 export const clouddriveVersionRoutes = new Hono<AppBindings>()
@@ -34,6 +36,9 @@ async function liveFile(c: Context<AppBindings>, id: string): Promise<CloudDrive
     `SELECT * FROM CloudDrive_files WHERE user_id = ? AND id = ? AND kind = 'file' AND deleted_at IS NULL`,
   ).bind(userIdOf(c), id).first<CloudDriveFileRow>()
   if (!row) throw ApiError.notFound('File not found')
+  // A version is the file's content under another name: without this the folder lock guarded the
+  // listing and the download but left the history panel wide open.
+  await assertMetaAccess(c, userIdOf(c), row.mount_id, parentPathOf(row.path))
   return row
 }
 

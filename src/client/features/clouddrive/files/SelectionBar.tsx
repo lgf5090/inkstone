@@ -44,7 +44,7 @@ export function SelectionBar({
       <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={onDownload} disabled={!canDownload || busy}>
         {t('clouddrive.action.download')}
       </Button>
-      <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={onShare} disabled={busy}>
+      <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={onShare} disabled={busy || external}>
         {t('clouddrive.action.share')}
       </Button>
       <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={onCopy} disabled={!writable || external || busy}>

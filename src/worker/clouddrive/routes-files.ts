@@ -33,17 +33,18 @@ import {
   type CloudDriveMountInfo,
 } from './lib'
 import { fileParts } from './distributed'
-import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
+import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName, normalizeMetaPatterns } from './meta'
 import { getCookie } from 'hono/cookie'
 import { assertMetaAccess } from './routes-meta'
 import {
   albumEntries,
   copyEntries,
+  countVisibleTags,
   createFolder,
   folderSize,
   getFileById,
   listFolder,
-  listTags,
+  listTagAssignments,
   listTrash,
   moveEntries,
   purgeAllTrash,
@@ -464,19 +465,11 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
         else delete metadata.note
       }
       if (body.hidePatterns !== undefined) {
-        if (!Array.isArray(body.hidePatterns) || body.hidePatterns.length > 20) {
-          throw ApiError.badRequest('hidePatterns holds at most 20 patterns')
+        try {
+          metadata.hidePatterns = normalizeMetaPatterns(body.hidePatterns)
+        } catch (error) {
+          throw ApiError.badRequest(error instanceof Error ? error.message : 'hidePatterns holds * and ? wildcards')
         }
-        const patterns: string[] = []
-        for (const pattern of body.hidePatterns) {
-          if (typeof pattern !== 'string') throw ApiError.badRequest('hidePatterns must contain strings')
-          const trimmed = pattern.trim()
-          if (!trimmed || trimmed.length > 100 || /[\u0000-\u001f]/.test(trimmed)) {
-            throw ApiError.badRequest('A hidden pattern must be 1-100 printable characters')
-          }
-          patterns.push(trimmed)
-        }
-        metadata.hidePatterns = [...new Set(patterns)]
       }
     }
     current = await setEntryFlags(c.env.DB, userId, mount.id, current, {
@@ -596,7 +589,8 @@ cloudDriveFilesRoutes.delete('/files/purge', async (c) => {
 cloudDriveFilesRoutes.get('/tags', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
-  return c.json({ tags: await listTags(c.env.DB, userId, mount.id) })
+  const visible = await filterMetaVisible(c, userId, mount.id, await listTagAssignments(c.env.DB, userId, mount.id))
+  return c.json({ tags: countVisibleTags(visible) })
 })
 
 cloudDriveFilesRoutes.post('/files/:id/tags', async (c) => {
@@ -615,6 +609,7 @@ cloudDriveFilesRoutes.post('/files/:id/tags', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
   assertWritable(mount)
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(row.path))
   await upsertTag(c.env.DB, userId, id, body.tag, color, Date.now())
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, row) })
 })
@@ -627,6 +622,7 @@ cloudDriveFilesRoutes.delete('/files/:id/tags/:tag', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
   assertWritable(mount)
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(row.path))
   await removeTag(c.env.DB, userId, id, c.req.param('tag'))
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, row) })
 })

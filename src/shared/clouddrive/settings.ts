@@ -116,6 +116,35 @@ export function cloudDriveSettingKey(key: keyof CloudDriveSettings): string {
   return SETTING_KEYS[key]
 }
 
+/**
+ * The settings that describe the deployment rather than the person: quota, upload ceilings, WebDAV,
+ * trash retention and the member switches. They are read from the owner's row and only the owner may
+ * write them, so a member cannot lift their own limits from the settings page.
+ */
+export const CLOUDDRIVE_POLICY_SETTINGS = [
+  'quotaDefaultBytes',
+  'uploadMaxFileBytes',
+  'uploadPartSizeBytes',
+  'uploadDistributedMinBytes',
+  'uploadConcurrentParts',
+  'shareAllowMemberShares',
+  'shareDefaultExpiryDays',
+  'shareMaxExpiryDays',
+  'trashRetentionDays',
+  'webdavEnabled',
+  'webdavUsername',
+  'webdavPasswordHash',
+  'syncAllowMemberSync',
+  'adminOwnerCanViewMemberFiles',
+] as const satisfies readonly (keyof CloudDriveSettings)[]
+
+export type CloudDrivePolicySetting = (typeof CLOUDDRIVE_POLICY_SETTINGS)[number]
+
+/** The storage-row names of the policy settings; anything else belongs to the person. */
+export const CLOUDDRIVE_POLICY_KEYS: ReadonlySet<string> = new Set(
+  CLOUDDRIVE_POLICY_SETTINGS.map((key) => SETTING_KEYS[key]),
+)
+
 function numberOrNull(value: unknown, min: number, max: number): number | null | undefined {
   if (value === null || value === '') return null
   const number = typeof value === 'number' ? value : Number(value)

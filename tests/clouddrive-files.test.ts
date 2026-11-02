@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { unzipSync } from 'fflate'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { initialsOf } from '../src/worker/clouddrive/lib'
 import { foldedName, type CloudDriveEntry, type CloudDriveListing } from '../src/shared/clouddrive/model'
@@ -24,6 +25,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -194,6 +196,31 @@ describe('clouddrive file API', () => {
     const child = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Notes')
     expect(child.status).toBe(200)
     expect(child.body.files.map((entry) => entry.path)).toEqual(['/Notes/a.txt'])
+  })
+
+  it('refuses tags, versions and the tag panel inside a locked folder', async () => {
+    const vault = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Vault',
+    })
+    const inner = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Vault', name: 'notes',
+    })
+    const fileId = await insertEntry({ path: '/Vault/todo.txt', name: 'todo.txt', parentId: vault.body.entry.id })
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${inner.body.entry.id}/tags`, { tag: 'internal' })).status).toBe(200)
+
+    const locked = await call(USER, 'PUT', '/api/clouddrive/meta', { mountId: 'primary', path: '/Vault', password: 'hunter2' })
+    expect(locked.status).toBe(200)
+
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${fileId}/tags`, { tag: 'leak' })).status).toBe(403)
+    expect((await call(USER, 'DELETE', `/api/clouddrive/files/${fileId}/tags/leak`)).status).toBe(403)
+    expect((await call(USER, 'GET', `/api/clouddrive/files/${fileId}/versions`)).status).toBe(403)
+    const panel = await call<{ tags: { name: string }[] }>(USER, 'GET', '/api/clouddrive/tags')
+    expect(panel.body.tags.map((tag) => tag.name)).not.toContain('internal')
+
+    // The locked folder is still listed in its parent, so its own tag stays in the panel.
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${vault.body.entry.id}/tags`, { tag: 'on-vault' })).status).toBe(200)
+    const after = await call<{ tags: { name: string }[] }>(USER, 'GET', '/api/clouddrive/tags')
+    expect(after.body.tags.map((tag) => tag.name)).toContain('on-vault')
   })
 
   it('trashes, restores and purges while keeping a shared object alive', async () => {

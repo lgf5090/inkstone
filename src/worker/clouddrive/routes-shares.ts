@@ -9,6 +9,7 @@ import { newId, newSlug } from '../lib/id'
 import { contentDisposition, isBrowserRenderable, parseByteRange } from '../lib/http-range'
 import { distributedStream, fileParts } from './distributed'
 import {
+  assertMemberAllowed,
   assertPasscodeAttemptsLeft,
   notePasscodeFailure,
   notePasscodeSuccess,
@@ -69,6 +70,7 @@ clouddriveShareRoutes.get('/shares', async (c) => {
 
 clouddriveShareRoutes.post('/shares', async (c) => {
   const userId = c.get('userId')
+  await assertMemberAllowed(c.env.DB, userId, c.get('user')?.role, 'shareAllowMemberShares')
   const body = await readJson(c)
   const targetKind = body.targetKind === 'folder' ? 'folder' : body.targetKind === 'file' ? 'file' : null
   if (!targetKind) throw ApiError.badRequest('Invalid share target')

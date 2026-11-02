@@ -24,6 +24,7 @@ import {
 import { clampInt, requestClientIp } from '../lib/request'
 import { ApiError } from '../lib/errors'
 import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
+import { readCloudDriveSettings } from './store'
 
 /** One `CloudDrive_files` row, by column name. */
 export interface CloudDriveFileRow {
@@ -517,4 +518,21 @@ export async function chunkedBatch(
   for (let offset = 0; offset < statements.length; offset += chunk) {
     await db.batch(statements.slice(offset, offset + chunk))
   }
+}
+
+/**
+ * The owner's member switches, enforced at the doors a member can knock on. Reading them from the
+ * owner's row is what makes the setting on the page a policy instead of a personal preference.
+ */
+export async function assertMemberAllowed(
+  db: D1Database,
+  userId: string,
+  role: string | undefined,
+  setting: 'shareAllowMemberShares' | 'syncAllowMemberSync',
+): Promise<void> {
+  if (role === 'owner') return
+  const settings = await readCloudDriveSettings(db, userId)
+  if (settings[setting]) return
+  const code = setting === 'shareAllowMemberShares' ? 'clouddrive_member_shares_disabled' : 'clouddrive_member_sync_disabled'
+  throw new ApiError(403, code, 'The owner has disabled this feature for members')
 }

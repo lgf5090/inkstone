@@ -257,7 +257,7 @@ export function Inspector({
             <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
               {t('clouddrive.inspector.total_size', { size: formatBytes(totalEntryBytes(entries)) })}
             </p>
-            <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={() => onShare(entries)} disabled={busy} className="mt-2 self-start">
+            <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={() => onShare(entries)} disabled={busy || entries.some((entry) => entry.storageKind === 'external')} className="mt-2 self-start">
               {t('clouddrive.action.share')}
             </Button>
           </div>
@@ -290,7 +290,7 @@ export function Inspector({
               <DetailRow label={t('clouddrive.inspector.share')}>
                 <span className="flex flex-wrap items-center gap-1.5">
                   <span>{shared ? t('clouddrive.inspector.shared') : t('clouddrive.inspector.not_shared')}</span>
-                  <Button size="sm" variant="ghost" icon={<Share2 size={12} />} onClick={() => onShare([single])} disabled={busy}>
+                  <Button size="sm" variant="ghost" icon={<Share2 size={12} />} onClick={() => onShare([single])} disabled={busy || single.storageKind === 'external'}>
                     {t('clouddrive.action.share')}
                   </Button>
                 </span>

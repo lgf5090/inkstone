@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { clouddriveDavRoutes } from '../src/worker/clouddrive/routes-dav'
 import { errorResponse } from '../src/worker/lib/errors'
@@ -39,6 +40,7 @@ function makeVault(): DurableObjectNamespace {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })

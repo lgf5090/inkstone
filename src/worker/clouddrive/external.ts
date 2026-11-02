@@ -124,7 +124,14 @@ export async function externalDirectUrl(
   const config = configOf(storage)
   const key = joinPath(String(config.rootPath ?? ''), path)
   const customHost = stringValue(config.customHost)
-  if (customHost) return `${customHost.replace(/\/$/, '')}/${encodeKey(key)}`
+  if (customHost) {
+    // The browser is told to fetch this address, so it goes through the same guard as a request the
+    // worker would make itself: a stored 127.0.0.1 would otherwise turn a share link into a probe.
+    const redirect = checkTarget(customHost)
+    if (!redirect.url) return null
+    const base = `${redirect.url.origin}${redirect.url.pathname.replace(/\/$/, '')}`
+    return `${base}/${encodeKey(key)}`
+  }
   const target = checkTarget(String(config.endpoint ?? ''))
   if (!target.url) return null
   const credentials = await credentialsOf(env, storage)
@@ -152,8 +159,10 @@ export async function externalProxyLocation(
   const config = configOf(storage)
   const proxy = stringValue(config.urlProxy)
   if (!proxy) return null
+  const redirect = checkTarget(proxy)
+  if (!redirect.url) return null
   const direct = await externalDirectUrl(env, db, mount, path)
-  if (direct) return appendProxyTarget(proxy, direct)
+  if (direct) return appendProxyTarget(redirect.url.toString(), direct)
   if (storage.type !== 'webdav') return null
   const target = checkTarget(stringValue(config.baseUrl))
   if (!target.url) return null
@@ -161,7 +170,7 @@ export async function externalProxyLocation(
   const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
   const relative = path.replace(/^\/+/, '')
   const source = `${base}/${[root, relative].filter(Boolean).join('/')}`
-  return appendProxyTarget(proxy, source)
+  return appendProxyTarget(redirect.url.toString(), source)
 }
 
 export async function externalCapacityBytes(

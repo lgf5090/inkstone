@@ -126,6 +126,9 @@ export function ContextMenu({
         id: 'share',
         label: t('clouddrive.action.share'),
         icon: <Share2 size={14} />,
+        // A share link resolves a `CloudDrive_files` row, and an external mount has only synthetic
+        // ids, so the server would answer 404 for every one of these.
+        disabled: external,
         onSelect: () => onShare(targets),
       },
       {

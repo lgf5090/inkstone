@@ -6,6 +6,7 @@ import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { readJson } from '../lib/request'
 import { parseFolderMeta, parsePath, type CloudDriveFileRow } from './lib'
 import { distributedStream, fileParts } from './distributed'
+import { hiddenByPatterns } from './meta'
 
 export const clouddriveAclRoutes = new Hono<AppBindings>()
 
@@ -165,15 +166,6 @@ clouddriveAclRoutes.get('/acl/shared', async (c) => {
   })
 })
 
-function hiddenBy(patterns: readonly string[], name: string): boolean {
-  const folded = name.normalize('NFC').toLocaleLowerCase()
-  return patterns.some((pattern) => {
-    const foldedPattern = pattern.normalize('NFC').toLocaleLowerCase()
-    const regex = new RegExp(`^${foldedPattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 'i')
-    return regex.test(folded)
-  })
-}
-
 clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
   const ownerId = c.req.param('ownerId')
   const fileId = c.req.param('fileId')
@@ -201,7 +193,7 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
     ownerId,
     path: requested,
     entries: (results ?? [])
-      .filter((row) => !hiddenBy(meta.hiddenPatterns, row.name))
+      .filter((row) => !hiddenByPatterns(row.name, meta.hiddenPatterns))
       .map((row) => ({
         ownerId,
         fileId: row.id,

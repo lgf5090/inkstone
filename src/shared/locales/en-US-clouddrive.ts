@@ -501,6 +501,7 @@ export const EN_US_CLOUDDRIVE = {
 
   'clouddrive.settings.trash': 'Trash',
   'clouddrive.settings.webdav': 'WebDAV',
+  'clouddrive.settings.policy_locked': 'These are drive-wide policies. Only the owner can change them; the values shown are the ones in force for your uploads.',
 
   'clouddrive.error.bad_request': 'The request was rejected. Check the values and try again.',
   'clouddrive.error.unauthenticated': 'Please sign in first.',
@@ -516,6 +517,9 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.error.share_expired': 'This link has reached its limit.',
   'clouddrive.error.share_disabled': 'This link is unavailable.',
   'clouddrive.error.too_many_attempts': 'Too many attempts. Please wait a moment and try again.',
+  'clouddrive.error.policy_readonly': 'Only the owner can change these CloudDrive settings.',
+  'clouddrive.error.member_shares_disabled': 'The owner has turned sharing off for members.',
+  'clouddrive.error.member_sync_disabled': 'The owner has turned sync off for members.',
   'clouddrive.error.payload_too_large': 'The file or request is too large.',
   'clouddrive.error.internal': 'The server could not complete the request.',
 } as const

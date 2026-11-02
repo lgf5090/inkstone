@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { initialsOf } from '../src/worker/clouddrive/lib'
 import { foldedName } from '../src/shared/clouddrive/model'
@@ -23,6 +24,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -203,9 +205,12 @@ describe('CloudDrive maintenance', () => {
       .toMatchObject([{ id, status: 'cancelled' }])
   })
 
-  it('skips a child whose parent is absent and a key another row owns', async () => {
+  it('skips a child whose parent is absent, a key another row owns and a key with no object', async () => {
     const taken = `CloudDrive/txt/${newId()}`
+    const free = `CloudDrive/txt/${newId()}`
+    const kept = `CloudDrive/txt/${newId()}`
     await insertEntry({ userId: OTHER, path: '/owned.txt', storageKey: taken })
+    await r2.put(kept, 'kept bytes')
     const manifest = {
       format: 'inkstone-clouddrive',
       version: 1,
@@ -214,14 +219,22 @@ describe('CloudDrive maintenance', () => {
       entries: [
         { path: '/missing/child.txt', name: 'child.txt', kind: 'file' },
         { path: '/claimed.txt', name: 'claimed.txt', kind: 'file', storageKey: taken },
+        // A key nobody references any more: an object a failed purge left behind. Attaching it would
+        // create a file whose bytes cannot be accounted for.
+        { path: '/ghost.txt', name: 'ghost.txt', kind: 'file', storageKey: free },
+        { path: '/kept.txt', name: 'kept.txt', kind: 'file', storageKey: kept, size: 10 },
       ],
     }
     const result = await call<{ imported: number; skipped: number; errors: { reason: string }[] }>(
       USER, 'POST', '/api/clouddrive/admin/maintenance/import', manifest,
     )
     expect(result.status).toBe(200)
-    expect(result.body.imported).toBe(0)
-    expect(result.body.skipped).toBe(2)
-    expect(result.body.errors.map((error) => error.reason).sort()).toEqual(['missing_parent', 'storage_key_taken'])
+    expect(result.body.imported).toBe(1)
+    expect(result.body.skipped).toBe(3)
+    expect(result.body.errors.map((error) => error.reason).sort()).toEqual([
+      'missing_parent', 'storage_key_missing', 'storage_key_taken',
+    ])
+    const listed = await call<{ files: { name: string; size: number }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2F')
+    expect(listed.body.files.map((file) => [file.name, file.size])).toEqual([['kept.txt', 10]])
   })
 })

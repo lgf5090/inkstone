@@ -3,7 +3,7 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
-import { parsePath, resolveMount } from './lib'
+import { assertMemberAllowed, parsePath, resolveMount } from './lib'
 
 export const clouddriveSyncRoutes = new Hono<AppBindings>()
 
@@ -89,6 +89,7 @@ clouddriveSyncRoutes.get('/sync/targets', async (c) => {
 
 clouddriveSyncRoutes.post('/sync/targets', async (c) => {
   const userId = userIdOf(c)
+  await assertMemberAllowed(c.env.DB, userId, c.get('user')?.role, 'syncAllowMemberSync')
   const body = await readJson<{ name?: unknown; localLabel?: unknown; mountId?: unknown; remotePath?: unknown }>(c, BODY_LIMIT)
   const name = cleanName(body.name)
   const mountId = await primaryMount(c, typeof body.mountId === 'string' ? body.mountId : 'primary')
@@ -161,6 +162,7 @@ clouddriveSyncRoutes.get('/sync/remote', async (c) => {
 })
 
 clouddriveSyncRoutes.post('/sync/targets/:id/report', async (c) => {
+  await assertMemberAllowed(c.env.DB, userIdOf(c), c.get('user')?.role, 'syncAllowMemberSync')
   const row = await targetById(c, c.req.param('id'))
   if (!row) throw ApiError.notFound('Sync target not found')
   const body = await readJson<{ status?: unknown; files?: unknown; bytes?: unknown; error?: unknown }>(c, BODY_LIMIT)

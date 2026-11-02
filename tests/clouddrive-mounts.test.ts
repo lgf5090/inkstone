@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { externalEntryId } from '../src/worker/clouddrive/external'
 import { decryptCloudDriveCredentials } from '../src/worker/lib/crypto'
@@ -39,6 +40,7 @@ function makeVault(): DurableObjectNamespace {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
 })
@@ -112,6 +114,41 @@ describe('cloud drive mounts', () => {
   it('rejects an unsupported storage type before touching credentials', async () => {
     const result = await call('POST', '/api/clouddrive/storages', { name: 'Nope', type: 'ftp', config: {}, credentials: {} })
     expect(result.status).toBe(400)
+  })
+
+  it('refuses a redirect target that aims at the private network', async () => {
+    const proxy = await call('POST', '/api/clouddrive/storages', {
+      name: 'proxy',
+      type: 'webdav',
+      config: { baseUrl: 'https://dav.example.com', urlProxy: 'http://127.0.0.1/proxy' },
+      credentials: {},
+    })
+    expect(proxy.status).toBe(400)
+
+    const metadata = await call('POST', '/api/clouddrive/storages', {
+      name: 'cdn',
+      type: 's3',
+      config: { endpoint: 'https://s3.example.com', bucketName: 'b', customHost: 'http://169.254.169.254' },
+      credentials: {},
+    })
+    expect(metadata.status).toBe(400)
+
+    // The storage endpoint itself may stay on the LAN — that is what a NAS is — only the address the
+    // visitor's browser is sent to is guarded.
+    const endpoint = await call('POST', '/api/clouddrive/storages', {
+      name: 'nas',
+      type: 'webdav',
+      config: { baseUrl: 'http://192.168.1.20:8080/dav' },
+      credentials: {},
+    })
+    expect(endpoint.status).toBe(200)
+    const publicHost = await call('POST', '/api/clouddrive/storages', {
+      name: 'ok',
+      type: 's3',
+      config: { endpoint: 'https://s3.example.com', bucketName: 'b', customHost: 'https://cdn.example.com/files' },
+      credentials: {},
+    })
+    expect(publicHost.status).toBe(200)
   })
 
   it('seals storage credentials and mounts a writable WebDAV storage', async () => {

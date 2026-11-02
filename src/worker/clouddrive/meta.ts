@@ -1,4 +1,4 @@
-import { parentPathOf } from '@shared/clouddrive/model'
+import { foldedName, parentPathOf } from '@shared/clouddrive/model'
 import { sha256Hex, toBase64Url } from '../lib/encoding'
 import { hashPassword, verifyPassword } from '../lib/password'
 
@@ -29,33 +29,79 @@ export interface EffectiveCloudDriveMeta {
 const META_TEXT_MAX = 20_000
 const META_PATTERN_MAX = 100
 const META_PATTERNS_MAX = 20
+const MAX_PATTERN_STARS = 8
 
 export function normalizeMetaText(value: unknown): string {
   if (typeof value !== 'string') return ''
   return value.slice(0, META_TEXT_MAX)
 }
 
+/**
+ * A hidden rule is a glob — `*.tmp`, `Thumbs.db`, `._?` — which is exactly what the inspector hints
+ * at. Treating it as a regular expression let a typo hide nothing at all and let `(a+)+$` turn a
+ * folder listing into a backtracking exercise, so no pattern is ever compiled here.
+ */
+export function hidePatternProblem(pattern: string): string | null {
+  if (!pattern) return 'A hidden pattern cannot be empty'
+  if (pattern.length > META_PATTERN_MAX) return `A hidden pattern holds at most ${META_PATTERN_MAX} characters`
+  if (/[\u0000-\u001f\u007f]/.test(pattern)) return 'A hidden pattern cannot contain control characters'
+  if (pattern.includes('/')) return 'A hidden pattern matches a name, not a path'
+  // `^` and `$` mean nothing here, but a reader who types them means a regular expression and would
+  // otherwise get a rule that silently hides one file fewer than they expected.
+  if (pattern.startsWith('^') || pattern.endsWith('$')) {
+    return 'A hidden pattern is a wildcard rule: drop the ^ and $ and use * or ?'
+  }
+  const stars = pattern.split('*').length - 1
+  if (stars > MAX_PATTERN_STARS) return `A hidden pattern holds at most ${MAX_PATTERN_STARS} wildcards`
+  return null
+}
+
+/** A rule the reader can be told about: the message is the reason, and it reaches the form. */
+export class MetaPatternError extends Error {}
+
 export function normalizeMetaPatterns(value: unknown): string[] {
   if (!Array.isArray(value)) return []
+  if (value.length > META_PATTERNS_MAX) throw new MetaPatternError(`A folder holds at most ${META_PATTERNS_MAX} hidden patterns`)
   const patterns: string[] = []
-  for (const item of value.slice(0, META_PATTERNS_MAX)) {
-    if (typeof item !== 'string') continue
-    const pattern = item.trim().slice(0, META_PATTERN_MAX)
-    if (!pattern) continue
-    try {
-      new RegExp(pattern)
-    } catch {
-      throw new Error('invalid_pattern')
-    }
+  for (const item of value) {
+    if (typeof item !== 'string') throw new MetaPatternError('hidePatterns must contain strings')
+    const pattern = item.trim()
+    const problem = hidePatternProblem(pattern)
+    if (problem) throw new MetaPatternError(problem)
     patterns.push(pattern)
   }
   return [...new Set(patterns)]
 }
 
+function globMatches(name: string, pattern: string): boolean {
+  let nameIndex = 0
+  let patternIndex = 0
+  let starIndex = -1
+  let matchIndex = 0
+  while (nameIndex < name.length) {
+    const token = pattern[patternIndex]
+    if (token === '?' || (token !== undefined && token === name[nameIndex])) {
+      nameIndex++
+      patternIndex++
+    } else if (token === '*') {
+      starIndex = patternIndex
+      patternIndex++
+      matchIndex = nameIndex
+    } else if (starIndex >= 0) {
+      patternIndex = starIndex + 1
+      matchIndex++
+      nameIndex = matchIndex
+    } else {
+      return false
+    }
+  }
+  while (pattern[patternIndex] === '*') patternIndex++
+  return patternIndex === pattern.length
+}
+
 export function hiddenByPatterns(name: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => {
-    try { return new RegExp(pattern).test(name) } catch { return false }
-  })
+  const folded = foldedName(name)
+  return patterns.some((pattern) => globMatches(folded, foldedName(pattern)))
 }
 
 function parsePatterns(value: string): string[] {
