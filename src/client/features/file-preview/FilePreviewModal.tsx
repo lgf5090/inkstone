@@ -19,7 +19,7 @@ interface LoadedPreview {
   native: File
 }
 
-export default function FilePreviewModal({ open, onClose, file }: FilePreviewModalProps) {
+export default function FilePreviewModal({ open, onClose, file, policy }: FilePreviewModalProps) {
   const { url, filename, mime, size } = file
   const toast = useUi((state) => state.toast)
 
@@ -45,7 +45,7 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
     setViewerLoading(true)
     setViewerFailed(false)
 
-    const loader = resolveFilePreviewLoader(target)
+    const loader = resolveFilePreviewLoader(target, policy)
     if (!loader) {
       setPhase('unsupported')
       return
@@ -79,7 +79,8 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
     }
     // `attempt` re-runs the same load on retry; `target` is rebuilt from primitives each render, so the
     // effect keys on the fields that actually identify a preview rather than on a fresh object identity.
-  }, [open, url, filename, mime, size, attempt, reportFailure])
+    // A host builds its `policy` once per settings read, so the object itself is a stable key here.
+  }, [open, url, filename, mime, size, attempt, reportFailure, policy])
 
   const handleStateChange = useCallback((state: ViewerState) => {
     setViewerLoading(state.loading)

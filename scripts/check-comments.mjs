@@ -5556,6 +5556,9 @@ const allowed = new Map([
     "/**\n * The drive opens on the file browser, so that page is loaded with the shell and every other one is\n * fetched when its tab is chosen: the admin console, the album, the sync planner and the share tables\n * are megabytes of code a member may never ask for.\n */",
     "/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */",
   ]],
+  ["src/client/features/clouddrive/admin/PreviewSettingsPage.tsx", [
+    "/** Extensions more than one rule claims; the viewer stops at the first one. */",
+  ]],
   ["src/client/features/clouddrive/admin/api-admin.ts", [
     "/**\n * Owner-only CloudDrive endpoints.\n *\n * Kept apart from `../api` so the file browser never pulls the admin surface into its chunk. The\n * request wrapper repeats the few lines of the shared one because `../api` does not export its\n * transport; the error type is the shared class, so callers can translate failures the same way.\n */",
   ]],
@@ -5649,6 +5652,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/prefs.ts", [
     "// A full or disabled localStorage only costs the preference, never the drive itself.",
+  ]],
+  ["src/client/features/clouddrive/preview-policy.ts", [
+    "/**\n * What one rule type means for the viewer. `office` and `native` both hand the file back: a Word,\n * spreadsheet and slide deck each need a different renderer, and only the built-in map knows which.\n */",
+    "/**\n * The drive's preview rules as a per-extension answer for the viewer. `parsePreviewRules` hands them\n * back sorted by descending priority, so the first rule naming an extension wins; an extension no\n * rule mentions keeps the viewer's own answer.\n */",
   ]],
   ["src/client/features/clouddrive/public/DriveSharePage.tsx", [
     "/** `path` is relative to the share root: the owner's own directory layout is never handed out. */",
@@ -6540,13 +6547,21 @@ const allowed = new Map([
     "// (`/api/files/<26-char id>`) carry no extension — so it fell back to synthesising",
     "// `preview.<mime>` and read the extension as `.image/png`, declaring every attachment",
     "// unsupported. Handing it a real File keeps the name authoritative instead.",
+    "// A host builds its `policy` once per settings read, so the object itself is a stable key here.",
   ]],
   ["src/client/features/file-preview/registry.ts", [
     "/**\n * A lazy loader for one renderer package. Each returns the package's default plugin, widened once\n * here: the packages type their handler to a narrower render target than the viewer registry's\n * default, so the plugin only fits the `renderers` option after this assertion.\n */",
     "/**\n * The one place that names which renderer package serves which file. Nothing here may import a\n * renderer statically: these functions are the sole entry points, so a PDF only ever pulls the PDF\n * chunk and never the spreadsheet, media or archive one.\n */",
     "/** Only the codecs `renderer-media` declares; mov/avi/mkv have no renderer here and stay unsupported. */",
     "/** OFD is China's national layout-document standard (GB/T 33190): e-invoices and archived official files. */",
-    "/**\n * Extension first: a stored attachment's mime is often the generic `application/octet-stream`, so its\n * name is the only reliable signal. The mime is the fallback for a nameless blob.\n */",
+    "// No prototype: a file genuinely named `a.constructor` must not resolve through `Object`'s members.",
+    "/**\n * Extension first: a stored attachment's mime is often the generic `application/octet-stream`, so its\n * name is the only reliable signal. The mime is the fallback for a nameless blob.\n *\n * A policy answers for the extensions it names before any of that: a renderer forces one, `null`\n * refuses a preview, and `native` hands the file back to the built-in answer.\n */",
+    "// An own-property test, because a rule may name an extension like `constructor` and the inherited",
+    "// member would otherwise read back as an answer.",
+  ]],
+  ["src/client/features/file-preview/types.ts", [
+    "/** Every renderer the viewer can load, named once so a policy and the registry cannot drift apart. */",
+    "/**\n * Per-extension answers a host application supplies for its own files, keyed by the lowercase\n * extension without the dot. `null` refuses a preview, and `native` hands the file back to the\n * viewer's own answer.\n */",
   ]],
   ["src/client/features/folders/FolderAppearanceMenus.tsx", [
     "// The folder guard only accepts a surface its own contrast maths can read, so it hands the walk",
@@ -30013,6 +30028,7 @@ const allowed = new Map([
     "/** Returns the rows to upsert for a patch, or a human-readable problem. */",
     "/**\n * The settings that describe the deployment rather than the person: quota, upload ceilings, WebDAV,\n * trash retention and the member switches. They are read from the owner's row and only the owner may\n * write them, so a member cannot lift their own limits from the settings page.\n */",
     "/** The storage-row names of the policy settings; anything else belongs to the person. */",
+    "/** The extension sets the shipped rules start from; only the rules themselves are configurable. */",
   ]],
   ["src/shared/cloudflare/model.ts", [
     "/**\n * The vocabulary the Cloudflare app shares between the worker and the browser.\n *\n * Field names keep the spelling Cloudflare's API uses (`auth_type`, `account_id`, `is_active`), which\n * is also the reference module's spelling. Translating every one of these at the API boundary would\n * add a mapping layer with no reader to serve: the values come from Cloudflare, are stored as they\n * arrive, and the screen that shows them is the only consumer.\n */",

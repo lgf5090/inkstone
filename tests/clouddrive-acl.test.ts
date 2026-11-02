@@ -167,7 +167,12 @@ describe('CloudDrive account ACL', () => {
     const password = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { webdavPassword: 'hunter2' })
     expect(password.status).toBe(403)
 
-    const personal = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { previewTextExtensions: ['txt'] })
+    const rules = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', {
+      previewRules: [{ id: 'block', priority: 95, type: 'none', extensions: ['txt'] }],
+    })
+    expect(rules.status).toBe(403)
+
+    const personal = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { storageDisplayQuotaBytes: 1024 * 1024 })
     expect(personal.status).toBe(200)
 
     // The ceiling a member uploads against is the owner's, not the one in their own row.

@@ -41,12 +41,12 @@ describe('cloud drive settings', () => {
   it('normalizes a patch into setting rows', () => {
     const result = normalizeCloudDriveSettingsPatch({
       uploadPartSizeBytes: 8 * 1024 * 1024,
-      previewTextExtensions: ['.MD', 'txt', 'md'],
+      previewRules: [{ id: 'block', priority: 95, type: 'none', extensions: ['.EXE', 'exe', 'msi'] }],
       shareDefaultExpiryDays: 0,
     })
     if ('error' in result) throw new Error(result.error)
     expect(result.rows['upload.partSizeBytes']).toBe(String(8 * 1024 * 1024))
-    expect(JSON.parse(result.rows['preview.textExtensions']!)).toEqual(['md', 'txt'])
+    expect(JSON.parse(result.rows['preview.rules']!)).toEqual([{ id: 'block', priority: 95, type: 'none', extensions: ['exe', 'msi'] }])
     expect(result.rows['share.defaultExpiryDays']).toBe('0')
   })
 

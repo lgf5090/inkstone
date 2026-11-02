@@ -1,5 +1,5 @@
 import type { FileViewerRendererPluginInput } from '@file-viewer/core'
-import type { FilePreviewTarget } from './types'
+import type { FilePreviewPolicy, FilePreviewRenderer, FilePreviewTarget } from './types'
 
 /**
  * A lazy loader for one renderer package. Each returns the package's default plugin, widened once
@@ -8,16 +8,7 @@ import type { FilePreviewTarget } from './types'
  */
 export type FilePreviewLoader = () => Promise<{ default: FileViewerRendererPluginInput }>
 
-type RendererKey =
-  | 'pdf'
-  | 'image'
-  | 'text'
-  | 'spreadsheet'
-  | 'word'
-  | 'presentation'
-  | 'media'
-  | 'archive'
-  | 'ofd'
+type RendererKey = FilePreviewRenderer
 
 /**
  * The one place that names which renderer package serves which file. Nothing here may import a
@@ -73,7 +64,8 @@ const ARCHIVE_EXTENSIONS = [
 ]
 
 function extensionMap(entries: ReadonlyArray<readonly [readonly string[], RendererKey]>): Record<string, RendererKey> {
-  const map: Record<string, RendererKey> = {}
+  // No prototype: a file genuinely named `a.constructor` must not resolve through `Object`'s members.
+  const map: Record<string, RendererKey> = Object.create(null)
   for (const [extensions, renderer] of entries) {
     for (const extension of extensions) {
       map[extension] = renderer
@@ -142,16 +134,30 @@ function extensionOf(filename: string): string {
 /**
  * Extension first: a stored attachment's mime is often the generic `application/octet-stream`, so its
  * name is the only reliable signal. The mime is the fallback for a nameless blob.
+ *
+ * A policy answers for the extensions it names before any of that: a renderer forces one, `null`
+ * refuses a preview, and `native` hands the file back to the built-in answer.
  */
-function rendererKeyFor(target: FilePreviewTarget): RendererKey | null {
+export function previewRendererFor(target: FilePreviewTarget, policy?: FilePreviewPolicy): RendererKey | null {
   const extension = extensionOf(target.filename)
+  // An own-property test, because a rule may name an extension like `constructor` and the inherited
+  // member would otherwise read back as an answer.
+  const chosen = policy && Object.prototype.hasOwnProperty.call(policy.byExtension, extension)
+    ? policy.byExtension[extension]
+    : undefined
+  if (chosen !== undefined && chosen !== 'native') {
+    return chosen
+  }
+
   const byExtension = EXTENSION_TO_RENDERER[extension]
   if (byExtension) {
     return byExtension
   }
 
   const normalizedMime = target.mime.toLowerCase().split(';', 1)[0].trim()
-  const byMime = MIME_TO_RENDERER[normalizedMime]
+  const byMime = Object.prototype.hasOwnProperty.call(MIME_TO_RENDERER, normalizedMime)
+    ? MIME_TO_RENDERER[normalizedMime]
+    : undefined
   if (byMime) {
     return byMime
   }
@@ -162,8 +168,11 @@ function rendererKeyFor(target: FilePreviewTarget): RendererKey | null {
   return null
 }
 
-export function resolveFilePreviewLoader(target: FilePreviewTarget): FilePreviewLoader | null {
-  const rendererKey = rendererKeyFor(target)
+export function resolveFilePreviewLoader(
+  target: FilePreviewTarget,
+  policy?: FilePreviewPolicy,
+): FilePreviewLoader | null {
+  const rendererKey = previewRendererFor(target, policy)
   if (!rendererKey) {
     return null
   }

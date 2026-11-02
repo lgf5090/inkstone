@@ -38,6 +38,8 @@ import { Drawer } from '../../components/overlay'
 import { FilePreviewModal } from '../file-preview'
 import { formatBytes } from '@shared/byte-format'
 import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './address'
+import { parsePreviewRules } from '@shared/clouddrive/settings'
+import { cloudDrivePreviewPolicy } from './preview-policy'
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
@@ -114,6 +116,10 @@ export function ClouddriveApp() {
   useEffect(() => { void load() }, [load])
 
   const vars = useMemo(() => cloudDriveCssVars(prefs), [prefs])
+  const previewPolicy = useMemo(
+    () => cloudDrivePreviewPolicy(parsePreviewRules(bootstrap?.settings.previewRules)),
+    [bootstrap],
+  )
   const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number } | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -306,6 +312,7 @@ export function ClouddriveApp() {
             key={preview.entries[preview.index]!.id}
             open
             onClose={() => setPreview(null)}
+            policy={previewPolicy}
             file={{
               url: `/api/clouddrive/files/${encodeURIComponent(preview.entries[preview.index]!.id)}/content`,
               filename: preview.entries[preview.index]!.name,
