@@ -53,7 +53,7 @@ function topLevelVerb(sql: string): string | null {
   return null
 }
 
-export function makeD1(sqlite: DatabaseSync, options: { maxBoundParameters?: number } = {}): D1Database {
+export function makeD1(sqlite: DatabaseSync, options: { maxBoundParameters?: number, maxBatchStatements?: number } = {}): D1Database {
   // D1 serializes transactions against one database; node:sqlite has a single connection, so two
   // overlapping `batch()` calls would nest BEGINs and fail with an error the platform never returns.
   let batchTail: Promise<unknown> = Promise.resolve()
@@ -100,6 +100,13 @@ export function makeD1(sqlite: DatabaseSync, options: { maxBoundParameters?: num
       // D1 runs a batch in one transaction: a later failing statement must not leave the
       // earlier writes applied.
       const run = async () => {
+        // The other half of D1's ceiling. A batch is one transaction and the platform bounds how many
+        // statements it may carry; node:sqlite will run hundreds without complaint, so a write path that
+        // forgets to chunk stays green here and fails in the field. Naming the limit makes the omission
+        // visible to whichever suites opt in.
+        if (options.maxBatchStatements !== undefined && statements.length > options.maxBatchStatements) {
+          throw new Error(`D1 accepts at most ${options.maxBatchStatements} statements per batch, got ${statements.length}`)
+        }
         const results = []
         sqlite.exec('BEGIN')
         try {

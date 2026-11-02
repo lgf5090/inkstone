@@ -355,19 +355,23 @@ export class NavStore {
     if (children.some((row) => row.id === fallbackCategoryId)) throw ApiError.badRequest('Fallback cannot be a child of the deleted category')
     const ids = [id, ...children.map((row) => row.id)]
     const now = Date.now()
-    const statements: D1PreparedStatement[] = []
+    // A batch is one transaction and D1 bounds it by statement count, so nothing here may grow with the
+    // tree. The two sweep statements ride on an id chunk of their own (the IN list is what binds), and the
+    // per-category deletes go out in their own chunks. A run interrupted between chunks leaves a superset
+    // — links partly moved, categories still there — and deleting again finishes it, which is the same
+    // contract the restore path documents.
     for (let index = 0; index < ids.length; index += 90) {
       const chunk = ids.slice(index, index + 90)
-      statements.push(
+      await this.db.batch([
         this.db.prepare(`UPDATE nav_links SET category_id = ?1, updated_at = ?2 WHERE user_id = ?3 AND category_id IN (${chunk.map((_, i) => `?${i + 4}`).join(', ')})`)
           .bind(fallbackCategoryId, now, this.userId, ...chunk),
         this.db.prepare(`DELETE FROM nav_category_unlocks WHERE user_id = ?1 AND category_id IN (${chunk.map((_, i) => `?${i + 2}`).join(', ')})`)
           .bind(this.userId, ...chunk),
-      )
+      ])
     }
-    statements.push(this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id))
-    for (const child of children) statements.push(this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, child.id))
-    await this.db.batch(statements)
+    for (const chunk of inChunks(ids, MAX_BATCH_STATEMENTS)) {
+      await this.db.batch(chunk.map((categoryId) => this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, categoryId)))
+    }
   }
 
   async reorderCategories(parentId: string | null, orderedIds: readonly string[], hiddenCategoryIds?: ReadonlySet<string>): Promise<void> {

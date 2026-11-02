@@ -164,7 +164,7 @@ beforeEach(() => {
   for (const statement of NAV_SCHEMA_STATEMENTS) sqlite.exec(statement)
   sqlite.exec('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
   sqlite.exec('CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, last_fail_at INTEGER NOT NULL, locked_until INTEGER)')
-  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100 }))
+  env = testBindings(makeD1(sqlite, { maxBoundParameters: 100, maxBatchStatements: 80 }))
 })
 
 afterEach(() => {
@@ -1255,6 +1255,29 @@ describe('bookmark import', () => {
     const body = await json<NavBootstrap>(await call('GET', '/api/nav'))
     expect(body.links).toHaveLength(150)
     expect(body.links.every((link) => link.categoryId === fallback.id)).toBe(true)
+  })
+
+  it('deletes a wide tree whose statements do not fit in one batch', async () => {
+    const fallback = await createCategory(USER_A, 'Fallback')
+    const rootId = newNavId()
+    const categories = [importCategory(rootId, 'Wide root')]
+    const links = []
+    for (let index = 0; index < 90; index += 1) {
+      const childId = newNavId()
+      categories.push(importCategory(childId, `Wide child ${index}`, rootId))
+      links.push(importLink(newNavId(), `https://wide.example.com/${index}`, childId))
+    }
+    expect((await call('POST', '/api/nav/import', { body: { categories, links, skipExisting: true } })).status).toBe(200)
+
+    // Two IN statements plus one DELETE per category: a folder this wide has never fit one batch, and the
+    // split must still leave nothing behind — the tail of the tree is deleted by a later chunk.
+    const removed = await call('DELETE', `/api/nav/categories/${rootId}`, { body: { fallbackCategoryId: fallback.id } })
+    expect(removed.status, await removed.text()).toBe(200)
+    expect(count('nav_categories')).toBe(1)
+    const body = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(body.links).toHaveLength(90)
+    expect(body.links.every((link) => link.categoryId === fallback.id)).toBe(true)
+    expect(body.categories.map((category) => category.id)).toEqual([fallback.id])
   })
 
   it('does not let one user overwrite another user\'s rows by reusing their ids', async () => {

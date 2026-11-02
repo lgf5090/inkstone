@@ -37546,6 +37546,11 @@ const allowed = new Map([
     "// claims to have brought them back would be describing a state the database does not have.",
     "// Without this line a damaged row and an unset one look identical from the outside: the reader finds",
     "// their preferences quietly back at their defaults with no way to tell which happened.",
+    "// A batch is one transaction and D1 bounds it by statement count, so nothing here may grow with the",
+    "// tree. The two sweep statements ride on an id chunk of their own (the IN list is what binds), and the",
+    "// per-category deletes go out in their own chunks. A run interrupted between chunks leaves a superset",
+    "// — links partly moved, categories still there — and deleting again finishes it, which is the same",
+    "// contract the restore path documents.",
   ]],
   ["src/worker/nav/tools.ts", [
     "// A protected folder's name, icon, parent and size are exactly what its password is for, and this view",
@@ -42747,6 +42752,10 @@ const allowed = new Map([
     "/**\n * The verb D1 would judge the statement by.\n *\n * A common-table expression is a prefix, not a statement kind: `WITH subtree AS (…) INSERT …` writes\n * and answers with `meta`, while `WITH subtree AS (…) SELECT …` reads. So the CTE body is skipped by\n * paren depth and the first verb outside it decides — which also means the word inside a literal\n * (`'delete'` written into the changes table) can never win, because the verb always comes first.\n */",
     "// D1 serializes transactions against one database; node:sqlite has a single connection, so two",
     "// overlapping `batch()` calls would nest BEGINs and fail with an error the platform never returns.",
+    "// The other half of D1's ceiling. A batch is one transaction and the platform bounds how many",
+    "// statements it may carry; node:sqlite will run hundreds without complaint, so a write path that",
+    "// forgets to chunk stays green here and fails in the field. Naming the limit makes the omission",
+    "// visible to whichever suites opt in.",
   ]],
   ["tests/doubles/naming-pass.ts", [
     "/**\n * The one thing a wire stub needs to know about the naming pass.\n *\n * Every answer that finishes whole is followed by one cheap call to the same model, asking what the reader\n * would want to ask next. It is not part of the turn's own traffic, so a test that counts what one question\n * cost — calls, steps, tokens, lease renewals — has to answer it and step over it. Recognising it by the\n * instructions it carries is the only reading that does not depend on ordering: it is the last call, yes,\n * but \"the last call\" is exactly what a test about retries cannot say.\n */",
@@ -43466,6 +43475,8 @@ const allowed = new Map([
     "// waved the body straight through to `json()`.",
     "// @ts-expect-error duplex is required by the runtime when the body is a stream",
     "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
+    "// Two IN statements plus one DELETE per category: a folder this wide has never fit one batch, and the",
+    "// split must still leave nothing behind — the tail of the tree is deleted by a later chunk.",
   ]],
   ["tests/nav-checker-ui.test.tsx", [
     "// CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the",
