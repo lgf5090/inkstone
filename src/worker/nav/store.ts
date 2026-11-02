@@ -714,8 +714,7 @@ export class NavStore {
       await this.db.batch(chunk.map((category) => this.db
         .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
           VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6, ?7, ?7, ?8)
-          ON CONFLICT(user_id, id) DO UPDATE SET name = excluded.name, icon = excluded.icon, parent_id = excluded.parent_id, sort_order = excluded.sort_order, kind = excluded.kind, updated_at = excluded.updated_at
-          WHERE nav_categories.user_id = excluded.user_id`)
+          ON CONFLICT(user_id, id) DO UPDATE SET name = excluded.name, icon = excluded.icon, parent_id = excluded.parent_id, sort_order = excluded.sort_order, kind = excluded.kind, updated_at = excluded.updated_at`)
         .bind(category.id, this.userId, category.name, category.icon, category.parentId, category.sortOrder, category.createdAt, category.kind ?? 'normal')))
     }
     const keep = links.filter((link) => {
@@ -736,8 +735,7 @@ export class NavStore {
       await this.db.batch(chunk.map((link) => this.db
         .prepare(`INSERT INTO nav_links (id, user_id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at)
           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-          ON CONFLICT(user_id, id) DO UPDATE SET title = excluded.title, url = excluded.url, icon = excluded.icon, description = excluded.description, category_id = excluded.category_id, pinned = excluded.pinned, pinned_order = excluded.pinned_order, sort_order = excluded.sort_order, updated_at = excluded.updated_at
-          WHERE nav_links.user_id = excluded.user_id`)
+          ON CONFLICT(user_id, id) DO UPDATE SET title = excluded.title, url = excluded.url, icon = excluded.icon, description = excluded.description, category_id = excluded.category_id, pinned = excluded.pinned, pinned_order = excluded.pinned_order, sort_order = excluded.sort_order, updated_at = excluded.updated_at`)
         .bind(link.id, this.userId, link.title, link.url, link.icon, link.description, link.categoryId, link.pinned ? 1 : 0, link.pinnedOrder, link.sortOrder, link.createdAt, now)))
     }
     return { imported: keep.length, importedCategories: insertableCategories.length, skipped }

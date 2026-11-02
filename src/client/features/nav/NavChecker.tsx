@@ -40,7 +40,10 @@ const LIVE_STATE_LIMIT = 400
 const PUBLISH_INTERVAL_MS = 250
 const CACHE_INTERVAL_MS = 2000
 const SCAN_DEADLINE_MS = 10 * 60_000
-const CACHE_LIMIT = 20_000
+// How much of the last scan survives a reload. Twenty thousand rows was a copy of the whole bookmark list
+// sitting in localStorage for a day; two thousand still covers every filter page a reader works through,
+// and what falls outside it is simply rescanned.
+const CACHE_LIMIT = 2_000
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MODAL_WIDTH = 960
 /** A 429 is a window, not a verdict: wait it out rather than cancel a long scan. */

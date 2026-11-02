@@ -4,7 +4,7 @@ import type { PublicUser } from '../src/shared/types'
 import { DEFAULT_NAV_SETTINGS, NAV_LIMITS, type NavBootstrap } from '../src/shared/nav/model'
 import { navApi } from '../src/client/features/nav/api'
 import { useSession } from '../src/client/store/session'
-import { requestTokens, useNavStore } from '../src/client/features/nav/nav-store'
+import { clearNavSessionState, requestTokens, useNavStore } from '../src/client/features/nav/nav-store'
 
 const BOOTSTRAP: NavBootstrap = {
   categories: [], links: [], visits: {}, settings: DEFAULT_NAV_SETTINGS,
@@ -66,5 +66,22 @@ describe('navigation unlock store', () => {
     await useNavStore.getState().load(true)
     expect(useNavStore.getState().unlocks['cat-old']).toBeUndefined()
     expect(requestTokens(useNavStore.getState().unlocks)).toEqual([])
+  })
+
+  it('leaves no scan cache or sidebar state behind when the session is cleared', () => {
+    window.localStorage.clear()
+    const scanned = { 'link-a': { status: 200, ok: true, level: 'ok', durationMs: 5, checkedAt: Date.now() } }
+    window.localStorage.setItem('inkstone.nav.linkCheck.user-1', JSON.stringify(scanned))
+    window.localStorage.setItem('inkstone.nav.linkCheck.other-account', JSON.stringify(scanned))
+    window.localStorage.setItem('inkstone.nav.sidebarHidden.user-1', '1')
+    window.localStorage.setItem('unrelated.app.key', 'keep me')
+    window.sessionStorage.setItem('inkstone.nav.unlocks.user-1', '[]')
+
+    clearNavSessionState()
+
+    // The scan cache holds bookmark URLs, so it has to go with the session rather than outlive it.
+    expect(Object.keys(window.localStorage).filter((key) => key.startsWith('inkstone.nav.'))).toEqual([])
+    expect(window.localStorage.getItem('unrelated.app.key')).toBe('keep me')
+    expect(window.sessionStorage.getItem('inkstone.nav.unlocks.user-1')).toBeNull()
   })
 })

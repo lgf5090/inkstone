@@ -351,6 +351,13 @@ export function clearNavSessionState(): void {
         const key = window.sessionStorage.key(index)
         if (key?.startsWith('inkstone.nav.unlocks.')) window.sessionStorage.removeItem(key)
       }
+      // The check cache is, in effect, a list of the reader's bookmarks with the address each one finally
+      // landed on. It exists to save a rescan, not to keep a record, so it goes with the session — the
+      // departed account's copy included, which nobody is left to read it.
+      for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+        const key = window.localStorage.key(index)
+        if (key?.startsWith('inkstone.nav.')) window.localStorage.removeItem(key)
+      }
     } catch {
       // Storage may be unavailable in private windows; the in-memory state below still clears.
     }

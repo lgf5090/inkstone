@@ -20,6 +20,7 @@ import { Empty, LoadingBlock } from '../../components/feedback'
 import { Drawer, Menu, confirm, hasOpenLayer, useContextMenu, type MenuItem } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
 import { useUi } from '../../store/ui'
+import { useSession } from '../../store/session'
 import { useAssistantToolRefresh } from '../chat/tool-refresh'
 import { AssistantDock } from '../chat/AssistantDock'
 import {
@@ -55,6 +56,22 @@ const NAV_RENDER_PAGE = 120
 const AVATAR_TINT_MIX = 18
 const AVATAR_GLYPH_RATIO = 0.38
 const AUTO_LOAD_LIMIT = 600
+
+const SIDEBAR_HIDDEN_PREFIX = 'inkstone.nav.sidebarHidden.'
+
+function sidebarHiddenKey(userId: string): string {
+  return `${SIDEBAR_HIDDEN_PREFIX}${userId}`
+}
+
+function readSidebarHidden(userId: string): boolean {
+  if (typeof window === 'undefined' || !userId) return false
+  try {
+    return window.localStorage.getItem(sidebarHiddenKey(userId)) === '1'
+  } catch {
+    // Private mode or a blocked store: the default — sidebar shown — is the only answer we can verify.
+    return false
+  }
+}
 
 function createMatcher(query: string): (link: NavLink) => boolean {
   const text = query.trim()
@@ -309,10 +326,11 @@ export function NavApp() {
   const pinyinVersion = usePinyinVersion()
   const deferredQuery = useDeferredValue(query)
   const matcher = useMemo(() => createMatcher(deferredQuery), [deferredQuery, pinyinVersion])
-  const [sidebarHidden, setSidebarHidden] = useState(() => {
-    if (typeof window === 'undefined') return false
-    try { return window.localStorage.getItem('inkstone.nav.sidebarHidden') === '1' } catch { return false }
-  })
+  const userId = useSession((state) => state.user?.id ?? '')
+  const [sidebarHidden, setSidebarHidden] = useState(() => readSidebarHidden(userId))
+  // The toggle belongs to the account whose session is loaded, so an account switch reads that account's
+  // own value instead of inheriting the one left on the screen.
+  useEffect(() => { setSidebarHidden(readSidebarHidden(userId)) }, [userId])
   const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [editor, setEditor] = useState<{ open: boolean; link: NavLink | null; initial: { title: string; url: string } | null; defaultCategoryId?: string }>({ open: false, link: null, initial: null })
@@ -341,9 +359,14 @@ export function NavApp() {
   useEffect(() => { void load() }, [load])
   useAssistantToolRefresh(NAV_WRITE_TOOLS, () => load(true))
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    try { window.localStorage.setItem('inkstone.nav.sidebarHidden', sidebarHidden ? '1' : '0') } catch { /* ignore */ }
-  }, [sidebarHidden])
+    if (typeof window === 'undefined' || !userId) return
+    try {
+      window.localStorage.setItem(sidebarHiddenKey(userId), sidebarHidden ? '1' : '0')
+    } catch {
+      // A full or blocked store costs the remembered value only: the panel still toggles for this session,
+      // and the next successful write replaces it.
+    }
+  }, [sidebarHidden, userId])
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)

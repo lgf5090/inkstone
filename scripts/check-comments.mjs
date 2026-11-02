@@ -8133,7 +8133,6 @@ const allowed = new Map([
     "/* The song wall: a still heading over one oversized plane of queue covers.\n   wall-layout.ts owns the geometry; this file only paints what the layout placed. */",
   ]],
   ["src/client/features/nav/NavApp.tsx", [
-    "/* ignore */",
     "// A locked folder's size is not sent to this client at all, so say nothing rather than show a confident",
     "// zero — an empty-looking protected folder reads as a bug.",
     "// The pinned band used to render every match, so the pagination ceiling the ordinary list got never",
@@ -8148,6 +8147,11 @@ const allowed = new Map([
     "// An off-screen card is skipped by `content-visibility: auto`, so only these numbers hold its place.",
     "// Both are the content box of a card that has really been laid out, measured in the browser: reserve",
     "// more and a band shows two heights while it scrolls in, reserve less and the rows jump as they render.",
+    "// Private mode or a blocked store: the default — sidebar shown — is the only answer we can verify.",
+    "// The toggle belongs to the account whose session is loaded, so an account switch reads that account's",
+    "// own value instead of inheriting the one left on the screen.",
+    "// A full or blocked store costs the remembered value only: the panel still toggles for this session,",
+    "// and the next successful write replaces it.",
   ]],
   ["src/client/features/nav/NavBackupPanel.tsx", [
     "/**\n * The storage layer answers in English whatever the interface language is, and the shared catalogue\n * already keys those sentences by their exact text. Re-deriving a navigation-only list of regular\n * expressions here meant two tables to keep in step — and the panel's own \"last failure\" line bypassed\n * both and printed the raw English.\n */",
@@ -8184,6 +8188,9 @@ const allowed = new Map([
     "// a state most scans never produce.",
     "// A bookmark's icon URL is reader-typed and rots; the card grid already answers that with the",
     "// initial, and this row was painting the browser's torn-image glyph instead. Same rule, same fallback.",
+    "// How much of the last scan survives a reload. Twenty thousand rows was a copy of the whole bookmark list",
+    "// sitting in localStorage for a day; two thousand still covers every filter page a reader works through,",
+    "// and what falls outside it is simply rescanned.",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -8228,6 +8235,9 @@ const allowed = new Map([
     "// protected folder ends up looking empty rather than locked.",
     "/** The header value: at most the newest `NAV_LIMITS.unlockTokens` tokens, matching what is in the store. */",
     "// Trimmed on write as well as on read, so the store can never hold more than the server reads back.",
+    "// The check cache is, in effect, a list of the reader's bookmarks with the address each one finally",
+    "// landed on. It exists to save a rescan, not to keep a record, so it goes with the session — the",
+    "// departed account's copy included, which nobody is left to read it.",
   ]],
   ["src/client/features/notes/NotePicker.test.ts", [
     "// Spied rather than replaced: the folder path is what the list shows under each title, and how",
@@ -43587,6 +43597,7 @@ const allowed = new Map([
   ["tests/nav-unlock-store.test.ts", [
     "// The twenty with the furthest expiry, not the twenty unlocked first: the server takes the head of the",
     "// list it is sent, so keeping the oldest silently dropped whichever folder had just been opened.",
+    "// The scan cache holds bookmark URLs, so it has to go with the session rather than outlive it.",
   ]],
   ["tests/no-native-dialogs.test.ts", [
     "// A method carries a body and a property carries an initializer; asking the union for both is what",
