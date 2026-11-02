@@ -196,6 +196,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
               min={70}
               max={150}
               step={5}
+              suffix="%"
               onChange={(percent) => void saveSettings({ chatScale: percent / 100 })}
             />
           </div>
