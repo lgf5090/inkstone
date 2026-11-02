@@ -132,21 +132,29 @@ export function printPeriod(
   date: Date,
   timeZone: string,
   weekStart: number,
+  agendaDays = 14,
 ): { fromMs: number; toMs: number } {
   const plain = Temporal.Instant.fromEpochMilliseconds(date.getTime())
     .toZonedDateTimeISO(timeZone)
     .toPlainDate()
-  const month = view === 'month' || view === 'year' || view === 'agenda' || view === 'list'
   const first = view === 'week'
     ? plain.add({ days: -((plain.dayOfWeek - weekStart + 7) % 7) })
-    : month
-      ? plain.with({ day: 1 })
-      : plain
+    : view === 'year'
+      ? plain.with({ month: 1, day: 1 })
+      : view === 'agenda' || view === 'list'
+        ? plain
+        : view === 'month'
+          ? plain.with({ day: 1 })
+          : plain
   const last = view === 'week'
     ? first.add({ days: 6 })
-    : month
-      ? first.add({ months: 1 }).subtract({ days: 1 })
-      : first
+    : view === 'year'
+      ? plain.with({ month: 12, day: 31 })
+      : view === 'agenda' || view === 'list'
+        ? first.add({ days: Math.max(1, agendaDays) - 1 })
+        : view === 'month'
+          ? first.add({ months: 1 }).subtract({ days: 1 })
+          : first
   return {
     fromMs: dayStartMillis(first.toString(), timeZone),
     toMs: dayStartMillis(last.toString(), timeZone) + 86_400_000 - 1,

@@ -113,14 +113,37 @@ export async function recordShareView(
     })
 }
 
+/**
+ * The feed's fingerprint, computed without reading or serializing any event text.
+ *
+ * Every event write bumps `rev` and `updated_at`; the calendar name and the display zone both change
+ * the document header, so both are part of the tag too.
+ */
+export async function sharedCalendarEtag(
+  db: AppBindings['Bindings']['DB'],
+  userId: string,
+  calendarId: string,
+): Promise<{ name: string; etag: string } | null> {
+  const store = new CalendarStore(db, userId)
+  const calendar = (await store.listCalendars()).find(entry => entry.id === calendarId)
+  if (!calendar) return null
+  const [revision, preferences] = await Promise.all([
+    store.eventsRevision(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId]),
+    store.preferences(),
+  ])
+  return {
+    name: calendar.name,
+    etag: `"${calendar.rev}-${revision.count}-${revision.revSum}-${revision.maxUpdatedAt}-${preferences.timeZone}"`,
+  }
+}
+
 /** The published document: the whole calendar, in the owner's zone, without the account's other data. */
 export async function sharedCalendarChunks(
   db: AppBindings['Bindings']['DB'],
   userId: string,
   calendarId: string,
   maxBytes: number,
-): Promise<{ chunks: Uint8Array[] | null; name: string }> {
-  const store = new CalendarStore(db, userId)
+): Promise<{ chunks: Uint8Array[] | null; name: string }> {  const store = new CalendarStore(db, userId)
   const calendar = (await store.listCalendars()).find(entry => entry.id === calendarId)
   if (!calendar) throw ApiError.notFound('Calendar not found')
   const size = await store.exportSizeFor(calendarId)
@@ -128,6 +151,7 @@ export async function sharedCalendarChunks(
     return { chunks: null, name: calendar.name }
   }
   const range = await store.listEvents(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, [calendarId])
+  if (range.truncated) return { chunks: null, name: calendar.name }
   const events: CalendarEventDto[] = range.events
   return {
     chunks: encodeIcsChunks({

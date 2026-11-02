@@ -9,13 +9,17 @@
 import { Temporal } from 'temporal-polyfill'
 import type { TemporalValue } from '@shared/calendar/model'
 
+let cachedTimeZones: string[] | null = null
+
 export function supportedTimeZones(): string[] {
+  if (cachedTimeZones) return cachedTimeZones
   try {
-    return Intl.supportedValuesOf('timeZone').slice().sort((a, b) => a.localeCompare(b))
+    cachedTimeZones = Intl.supportedValuesOf('timeZone').slice().sort((a, b) => a.localeCompare(b))
   } catch {
     // Older engines without `supportedValuesOf` still get the zone the account is already using.
-    return ['UTC', Intl.DateTimeFormat().resolvedOptions().timeZone].filter(Boolean)
+    cachedTimeZones = ['UTC', Intl.DateTimeFormat().resolvedOptions().timeZone].filter(Boolean)
   }
+  return cachedTimeZones
 }
 
 /** The zone an event happens in, or null when it is a whole day. */

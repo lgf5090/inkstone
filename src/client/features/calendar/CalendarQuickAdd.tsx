@@ -39,9 +39,10 @@ export function CalendarQuickAdd({ open, app, timeZone, onClose }: CalendarQuick
 
   const submit = (): void => {
     if (!parsed) return
-    const calendar = app.getCalendars().find(item => item.isDefault) ?? app.getCalendars()[0]
+    const calendars = app.getCalendars().filter(item => app.canMutateFromUI(item.id))
+    const calendar = calendars.find(item => item.isDefault) ?? calendars[0]
     if (!calendar) {
-      useUi.getState().toast({ title: t('calendar.error.load'), tone: 'danger' })
+      useUi.getState().toast({ title: t('calendar.event.no_writable_calendar'), tone: 'danger' })
       return
     }
     const event: Event = {
@@ -90,7 +91,7 @@ export function CalendarQuickAdd({ open, app, timeZone, onClose }: CalendarQuick
             }}
           />
         </Field>
-        <p className={`min-h-5 text-[length:var(--text-12)] ${parsed ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]'}`}>
+        <p aria-live="polite" className={`min-h-5 text-[length:var(--text-12)] ${parsed ? 'text-[var(--text-secondary)]' : 'text-[var(--text-quaternary)]'}`}>
           {parsed ? preview : t('calendar.quick_add.hint')}
         </p>
       </div>

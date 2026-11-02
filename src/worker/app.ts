@@ -103,12 +103,18 @@ import { navIconRoutes } from './nav/icons'
 import { navAiRoutes } from './nav/ai'
 import { navCheckRoutes } from './nav/check'
 import { calendarRoutes } from './routes/calendar'
+import { calendarContactRoutes } from './routes/calendar-contacts'
+import { calendarTemplateRoutes } from './routes/calendar-templates'
+import { calendarCsvRoutes } from './routes/calendar-csv'
+import { calendarMemberRoutes } from './routes/calendar-members'
+import { calendarResourceRoutes } from './routes/calendar-resources'
+import { calendarBookingPageRoutes, calendarBookingRoutes, calendarSchedulingRoutes } from './routes/calendar-scheduling'
 import { calendarIcsRoutes } from './routes/calendar-ics'
 import { calendarSubscriptionRoutes } from './routes/calendar-subscriptions'
 import { calendarSyncRoutes } from './routes/calendar-sync'
 import { calendarShareRoutes } from './routes/calendar-shares'
 import { calendarAttachmentRoutes } from './routes/calendar-attachments'
-import { calendarPublicRoutes } from './routes/calendar-public'
+import { calendarPublicRoutes, calendarSharePageRoutes } from './routes/calendar-public'
 import { musicSharePageRoutes, musicSharePublicRoutes } from './routes/music-share'
 import { emailSearchesRoutes } from './routes/email-searches'
 import { emailTemplatesRoutes } from './routes/email-templates'
@@ -206,6 +212,7 @@ export function createApp() {
   // Public reads and share-authorized files must be registered before the authenticated
   // `/api/memos` mounts: a mounted app's `use('*')` would otherwise turn an anonymous
   // share page into a 401 before these routes ever see it.
+  app.route('/api/public/calendar', calendarBookingRoutes)
   app.route('/api/memos/public', memoPublicDataRoutes)
   app.route('/api/memos/files', memoFileRoutes)
   app.route('/api/memos/spaces', memoSpaceRoutes)
@@ -234,6 +241,12 @@ export function createApp() {
   app.route('/api/calendar', calendarShareRoutes)
   app.route('/api/calendar', calendarAttachmentRoutes)
   app.route('/feeds', calendarPublicRoutes)
+  app.route('/api/calendar', calendarContactRoutes)
+  app.route('/api/calendar', calendarTemplateRoutes)
+  app.route('/api/calendar', calendarCsvRoutes)
+  app.route('/api/calendar', calendarMemberRoutes)
+  app.route('/api/calendar', calendarResourceRoutes)
+  app.route('/api/calendar', calendarSchedulingRoutes)
   app.route('/api/calendar', calendarRoutes)
   app.route('/api/nav/settings', navSettingsRoutes)
   app.route('/api/nav', navDataRoutes)
@@ -326,6 +339,8 @@ export function createApp() {
   app.route('/collections', publicCollectionPageRoutes)
   app.route('/feeds', todoFeedRoutes)
   app.route('/memos', memosPublicPageRoutes)
+  app.route('/schedule', calendarBookingPageRoutes)
+  app.route('/calendar-share', calendarSharePageRoutes)
   app.route('/d', clouddriveRawRoutes)
   app.route('/d', clouddriveSharePageRoutes)
   app.route('/r', clouddriveRequestPageRoutes)

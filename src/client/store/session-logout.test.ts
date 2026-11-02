@@ -67,4 +67,16 @@ describe('signing out with unsynced edits', () => {
     expect(confirmMock).not.toHaveBeenCalled()
     expect(api.logout).toHaveBeenCalledTimes(1)
   })
+
+  it('removes the calendar snapshots that belong to the account that left', async () => {
+    notes.pendingCount = 0
+    notes.flushFails = false
+    localStorage.setItem('inkstone.calendar.first-paint.v1:alice', '{}')
+    localStorage.setItem('inkstone.calendar.range.v1:alice', '{}')
+    localStorage.setItem('inkstone.ui', '{}')
+    await useSession.getState().logout()
+    expect(localStorage.getItem('inkstone.calendar.first-paint.v1:alice')).toBeNull()
+    expect(localStorage.getItem('inkstone.calendar.range.v1:alice')).toBeNull()
+    expect(localStorage.getItem('inkstone.ui')).toBe('{}')
+  })
 })

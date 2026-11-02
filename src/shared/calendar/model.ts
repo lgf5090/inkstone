@@ -1,5 +1,22 @@
 import { Temporal } from 'temporal-polyfill'
 
+/** Synthetic ids for calendars another account shares with this one; never stored in D1. */
+export const SHARED_CALENDAR_PREFIX = 'shared:'
+
+export function sharedCalendarId(ownerId: string, calendarId: string): string {
+  return `${SHARED_CALENDAR_PREFIX}${ownerId}:${calendarId}`
+}
+
+export function isSharedCalendarId(id: string): boolean {
+  return id.startsWith(SHARED_CALENDAR_PREFIX)
+}
+
+export function parseSharedCalendarId(id: string): { ownerId: string; calendarId: string } | null {
+  if (!isSharedCalendarId(id)) return null
+  const [, ownerId, calendarId] = id.split(':')
+  return ownerId && calendarId ? { ownerId, calendarId } : null
+}
+
 export const CALENDAR_SOURCES = ['local', 'ics', 'caldav', 'google', 'outlook'] as const
 export type CalendarSource = (typeof CALENDAR_SOURCES)[number]
 
@@ -102,6 +119,74 @@ export interface CalendarDto {
   subscriptionId: string | null
   position: number
   rev: number
+  /** Set on a calendar shared with this account; the synthetic id points at the owner's row. */
+  ownerName?: string | null
+  sharedRole?: 'reader' | 'writer'
+}
+
+export interface CalendarInviteDto {
+  ownerId: string
+  ownerName: string
+  calendarId: string
+  calendarName: string
+  role: 'reader' | 'writer'
+  status: 'pending' | 'accepted' | 'declined'
+  createdAt: number
+}
+
+export interface CalendarMemberDto {
+  memberId: string
+  username: string
+  name: string
+  role: 'reader' | 'writer'
+  status: 'pending' | 'accepted' | 'declined'
+  createdAt: number
+}
+
+export interface CalendarContactDto {
+  id: string
+  name: string
+  email: string
+  /** `YYYY-MM-DD`, or null when the reader did not record one. */
+  birthday: string | null
+  rev: number
+}
+
+export interface CalendarTemplateDto {
+  id: string
+  name: string
+  title: string
+  description: string
+  kind: CalendarEventKind
+  allDay: boolean
+  durationMinutes: number
+  color: string | null
+  rev: number
+}
+
+export interface CalendarResourceDto {
+  id: string
+  calendarId: string
+  name: string
+  capacity: number | null
+}
+
+export interface CalendarSchedulingLinkDto {
+  id: string
+  calendarId: string
+  slug: string
+  title: string
+  durationMinutes: number
+  days: number[]
+  startHour: number
+  endHour: number
+  enabled: boolean
+}
+
+export interface CalendarBusyBlock {
+  calendarId: string
+  startMs: number
+  endMs: number
 }
 
 export interface CalendarGroupDto {
@@ -169,7 +254,13 @@ export interface CalendarEventDto {
   calendarIds: string[]
   meta: Record<string, unknown>
   icon: boolean | null
+  color: string | null
   recurrenceRule: string | null
+  /** The series this row overrides; null for an ordinary event or a series master. */
+  recurrenceParentId: string | null
+  /** The original wall-clock start this exception replaces. */
+  recurrenceId: string | null
+  recurrenceCancelled: boolean
   rev: number
   source: CalendarSource
   externalId: string | null
@@ -189,7 +280,11 @@ export interface CalendarEventInput {
   calendarIds?: string[]
   meta?: Record<string, unknown>
   icon?: boolean | null
+  color?: string | null
   recurrenceRule?: string | null
+  recurrenceParentId?: string | null
+  recurrenceId?: string | null
+  recurrenceCancelled?: boolean
   rev?: number
   source?: CalendarSource
   externalId?: string | null
@@ -208,7 +303,9 @@ export interface CalendarEventPatch {
   calendarIds?: string[]
   meta?: Record<string, unknown>
   icon?: boolean | null
+  color?: string | null
   recurrenceRule?: string | null
+  recurrenceCancelled?: boolean
   rev: number
 }
 
@@ -249,13 +346,21 @@ export interface CalendarPreferences {
   showEventDots: boolean
   eventReminderMinutes: number
   workingHours: CalendarWorkingHours
+  /** Shown as ORGANIZER in exported ICS; empty means no organizer line. */
+  organizerEmail: string
+  emailReminders: boolean
+  /** Where cron sends the reminder copy; independent of the organizer address. */
+  reminderEmail: string
+  /** Offer a one-click switch to the browser's zone when it differs from the calendar's. */
+  travelMode: boolean
 }
 
 export interface CalendarSubscriptionDto {
   id: string
   calendarId: string
   kind: CalendarSubscriptionKind
-  url: string | null
+  /** The feed's hostname, for display only. The full address is a capability and stays server-side. */
+  urlHost: string | null
   enabled: boolean
   lastSyncAt: number | null
   lastErrorCode: string | null
@@ -267,9 +372,7 @@ export interface CalendarConnectionDto {
   id: string
   kind: CalendarConnectionKind
   label: string
-  baseUrl: string
   calendarHomeUrl: string | null
-  username: string | null
   scope: 'read' | 'write'
   writable: boolean
   status: 'connected' | 'error' | 'expired' | 'disconnected'
@@ -285,6 +388,10 @@ export interface CalendarMetaDto {
   preferences: CalendarPreferences
   /** False on the first load, so the client can seed the display timezone from the browser. */
   preferencesInitialized?: boolean
+  invites?: CalendarInviteDto[]
+  resources?: CalendarResourceDto[]
+  templates?: CalendarTemplateDto[]
+  schedulingLinks?: CalendarSchedulingLinkDto[]
 }
 
 export interface CalendarSearchResultDto {
@@ -411,6 +518,10 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     showEventDots: true,
     eventReminderMinutes: 0,
     workingHours: { enabled: false, startHour: 9, endHour: 18 },
+    organizerEmail: '',
+    emailReminders: false,
+    reminderEmail: '',
+    travelMode: false,
   }
 }
 
@@ -494,6 +605,10 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
       ? record.eventReminderMinutes as number
       : defaults.eventReminderMinutes,
     workingHours: workingHoursFrom(record, defaults.workingHours),
+    organizerEmail: typeof record.organizerEmail === 'string' ? record.organizerEmail.trim().slice(0, 254) : defaults.organizerEmail,
+    emailReminders: typeof record.emailReminders === 'boolean' ? record.emailReminders : defaults.emailReminders,
+    reminderEmail: typeof record.reminderEmail === 'string' ? record.reminderEmail.trim().slice(0, 254) : defaults.reminderEmail,
+    travelMode: typeof record.travelMode === 'boolean' ? record.travelMode : defaults.travelMode,
   }
 }
 

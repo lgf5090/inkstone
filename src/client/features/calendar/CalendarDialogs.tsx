@@ -6,8 +6,8 @@
  * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Copy, Link2 } from 'lucide-react'
-import type { CalendarDto, CalendarGroupDto, CalendarShareDto } from '@shared/calendar/model'
+import { AlertTriangle, Check, Copy, Link2, UserPlus, Trash2 } from 'lucide-react'
+import type { CalendarDto, CalendarGroupDto, CalendarMemberDto, CalendarShareDto } from '@shared/calendar/model'
 import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
@@ -15,11 +15,12 @@ import { copyText } from '../../lib/clipboard'
 import { fullTime } from '../../lib/time'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { useUi } from '../../store/ui'
-import { Button } from '../../components/primitives'
-import { Modal } from '../../components/overlay'
+import { Button, IconButton } from '../../components/primitives'
+import { Modal, confirm } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
 import { CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
+import { CalendarFilePicker } from './CalendarFilePicker'
 import * as api from './api'
 
 interface DialogBaseProps {
@@ -42,6 +43,33 @@ function DialogError({ children }: { children: ReactNode }) {
       <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </p>
+  )
+}
+
+interface CalendarWarning {
+  code: string
+  message: string
+  line?: number
+  uid?: string
+}
+
+function WarningList({ warnings }: { warnings: readonly CalendarWarning[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <section aria-label={t('calendar.import.warning_title', { count: warnings.length })} className="mt-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+      <h3 className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+        {t('calendar.import.warning_title', { count: warnings.length })}
+      </h3>
+      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+        {warnings.map((warning, index) => (
+          <li key={`${warning.code}-${warning.line ?? index}-${warning.uid ?? ''}`}>
+            {warning.line
+              ? t('calendar.import.warning_line', { line: warning.line, message: warning.message })
+              : warning.message}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -105,9 +133,13 @@ interface CalendarFormDialogProps extends DialogBaseProps {
   defaultGroupId?: string | null
 }
 
+/** Calendar data, not interface decoration: these are stored as the calendar's icon string. */
+const CALENDAR_ICON_PRESETS = ['📅', '💼', '🏠', '❤️', '⭐', '🎯', '🎓', '🎉', '✈️', '🏋️', '🧠', '🌱'] as const
+
 export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupId, onClose, onSaved }: CalendarFormDialogProps) {
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
+  const [icon, setIcon] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isDefault, setIsDefault] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -117,6 +149,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
     if (!open) return
     setName(mode === 'edit' ? calendar?.name ?? '' : '')
     setColor(mode === 'edit' ? calendar?.color ?? CALENDAR_COLOR_PRESETS[5] : CALENDAR_COLOR_PRESETS[5])
+    setIcon(mode === 'edit' ? calendar?.icon ?? '' : '')
     setGroupId(mode === 'edit' ? calendar?.groupId ?? '' : defaultGroupId ?? '')
     setIsDefault(false)
     setError(null)
@@ -137,6 +170,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
           name: trimmed,
           color,
           darkColor: deriveDarkColor(color),
+          icon: icon || null,
           groupId: groupId || null,
         }, calendar.rev)
         useUi.getState().toast({ title: t('calendar.calendar.updated'), tone: 'success' })
@@ -145,6 +179,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
           name: trimmed,
           color,
           darkColor: deriveDarkColor(color),
+          icon: icon || null,
           groupId: groupId || null,
           isDefault,
         })
@@ -193,6 +228,17 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
         </Field>
         <Field label={t('calendar.calendar.color')}>
           <div><ColorPresets value={color} onChange={setColor} /></div>
+        </Field>
+        <Field label={t('calendar.calendar.icon')}>
+          <Select value={icon} onChange={(event) => setIcon(event.target.value)}>
+            <option value="">{t('calendar.calendar.no_icon')}</option>
+            {icon && !(CALENDAR_ICON_PRESETS as readonly string[]).includes(icon) && (
+              <option value={icon}>{icon}</option>
+            )}
+            {CALENDAR_ICON_PRESETS.map(value => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </Select>
         </Field>
         <Field label={t('calendar.calendar.group')}>
           <Select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
@@ -385,6 +431,10 @@ interface ImportIcsDialogProps extends DialogBaseProps {
   defaultTimeZone: string
 }
 
+function isCsvFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.csv') || file.type === 'text/csv'
+}
+
 function isIcsFile(file: File): boolean {
   return file.name.toLowerCase().endsWith('.ics') || file.type === 'text/calendar'
 }
@@ -397,6 +447,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [warnings, setWarnings] = useState<CalendarWarning[]>([])
   const writableCalendars = calendars.filter(calendar => !calendar.readOnly)
 
   useEffect(() => {
@@ -408,6 +459,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
     setColor(CALENDAR_COLOR_PRESETS[5])
     setError(null)
     setSaving(false)
+    setWarnings([])
   }, [open, calendars])
 
   const submit = async (): Promise<void> => {
@@ -423,17 +475,29 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
     setError(null)
     try {
       const content = await file.text()
-      const result = await api.importIcs({
-        content,
-        ...(mode === 'existing' ? { targetCalendarId: targetId } : { newCalendar: { name: newName.trim() || file.name.replace(/\.ics$/i, ''), color } }),
-        defaultTimeZone,
-      })
+      const target = mode === 'existing'
+        ? { targetCalendarId: targetId }
+        : { newCalendar: { name: newName.trim() || file.name.replace(/\.(ics|csv)$/i, ''), color } }
+      const result = isCsvFile(file)
+        ? await api.importCsv({ content, ...target })
+        : await api.importIcs({ content, ...target, defaultTimeZone })
+      const found = result.warnings ?? []
+      setWarnings(found)
       useUi.getState().toast({
         title: t('calendar.import.done', { count: result.imported }),
-        description: result.warnings?.length ? t('calendar.import.warnings', { count: result.warnings.length }) : undefined,
-        tone: 'success',
+        description: found.length ? t('calendar.import.warning_title', { count: found.length }) : undefined,
+        tone: found.length ? 'warning' : 'success',
       })
-      await closeAfterRefresh(onSaved, onClose)
+      try {
+        await onSaved()
+      } catch (refreshError) {
+        useUi.getState().toast({
+          title: t('calendar.error.refresh'),
+          description: refreshError instanceof Error ? refreshError.message : undefined,
+          tone: 'danger',
+        })
+      }
+      if (found.length === 0) onClose()
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.import.failed'))
     } finally {
@@ -449,32 +513,32 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
       description={t('calendar.import.description')}
       width={460}
       dismissible={!saving}
-      footer={(
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={() => void submit()}>
-            {saving ? t('calendar.import.importing') : t('calendar.sidebar.import')}
-          </Button>
-        </>
-      )}
+      footer={warnings.length > 0
+        ? <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
+        : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" loading={saving} onClick={() => void submit()}>
+                {saving ? t('calendar.import.importing') : t('calendar.sidebar.import')}
+              </Button>
+            </>
+          )}
     >
       <div className="space-y-4 pt-1">
         <Field label={t('calendar.import.file')} hint={t('calendar.import.file_hint')} required>
-          <input
-            type="file"
-            accept=".ics,text/calendar"
-            data-autofocus
-            aria-label={t('calendar.import.file')}
-            className="block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-2 file:cursor-pointer file:rounded-[var(--r-sm)] file:border file:border-[var(--border-default)] file:bg-[var(--bg-raised)] file:px-2.5 file:py-1.5 file:text-[length:var(--text-12)] file:font-medium file:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
-            onChange={(event) => {
-              const picked = event.target.files?.[0] ?? null
+          <CalendarFilePicker
+            label={t('calendar.import.choose_file')}
+            accept=".ics,.csv,text/calendar,text/csv"
+            fileName={file?.name ?? null}
+            onPick={(files) => {
+              const picked = files[0] ?? null
               setError(null)
               if (picked && picked.size > MAX_ICS_BYTES) {
                 setFile(null)
                 setError(t('calendar.import.too_large'))
                 return
               }
-              if (picked && !isIcsFile(picked)) {
+              if (picked && !isIcsFile(picked) && !isCsvFile(picked)) {
                 setFile(null)
                 setError(t('calendar.import.invalid'))
                 return
@@ -522,6 +586,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
                 </Field>
               </>
             )}
+        <WarningList warnings={warnings} />
         {error && <DialogError>{error}</DialogError>}
       </div>
     </Modal>
@@ -536,6 +601,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [warnings, setWarnings] = useState<CalendarWarning[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -544,6 +610,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
     setColor(CALENDAR_COLOR_PRESETS[5])
     setError(null)
     setSaving(false)
+    setWarnings([])
   }, [open])
 
   const submit = async (): Promise<void> => {
@@ -561,13 +628,28 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
     setSaving(true)
     setError(null)
     try {
-      await api.createSubscription({
+      const result = await api.createSubscription({
         url: parsed.toString(),
         ...(name.trim() ? { name: name.trim() } : {}),
         color,
       })
-      useUi.getState().toast({ title: t('calendar.subscription.done'), tone: 'success' })
-      await closeAfterRefresh(onSaved, onClose)
+      const found = result.warnings ?? []
+      setWarnings(found)
+      useUi.getState().toast({
+        title: t('calendar.subscription.done'),
+        description: found.length ? t('calendar.import.warning_title', { count: found.length }) : undefined,
+        tone: found.length ? 'warning' : 'success',
+      })
+      try {
+        await onSaved()
+      } catch (refreshError) {
+        useUi.getState().toast({
+          title: t('calendar.error.refresh'),
+          description: refreshError instanceof Error ? refreshError.message : undefined,
+          tone: 'danger',
+        })
+      }
+      if (found.length === 0) onClose()
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.subscription.failed'))
     } finally {
@@ -583,14 +665,16 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
       description={t('calendar.subscription.description')}
       width={460}
       dismissible={!saving}
-      footer={(
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={() => void submit()}>
-            {saving ? t('calendar.subscription.working') : t('calendar.subscription.subscribe')}
-          </Button>
-        </>
-      )}
+      footer={warnings.length > 0
+        ? <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
+        : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" loading={saving} onClick={() => void submit()}>
+                {saving ? t('calendar.subscription.working') : t('calendar.subscription.subscribe')}
+              </Button>
+            </>
+          )}
     >
       <div className="space-y-4 pt-1">
         <Field label={t('calendar.subscription.url')} hint={t('calendar.subscription.url_hint')} required>
@@ -621,6 +705,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
         <Field label={t('calendar.calendar.color')}>
           <div><ColorPresets value={color} onChange={setColor} /></div>
         </Field>
+        <WarningList warnings={warnings} />
         {error && <DialogError>{error}</DialogError>}
       </div>
     </Modal>
@@ -652,6 +737,11 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [members, setMembers] = useState<CalendarMemberDto[]>([])
+  const [memberName, setMemberName] = useState('')
+  const [memberRole, setMemberRole] = useState<'reader' | 'writer'>('reader')
+  const [memberBusy, setMemberBusy] = useState(false)
+  const [memberError, setMemberError] = useState<string | null>(null)
   const copiedTimer = useRef(0)
 
   useEffect(() => {
@@ -664,6 +754,10 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     void api.getCalendarShare(calendar.id).then(
       (answer) => { if (!settled) setShare(answer) },
       (cause: unknown) => { if (!settled) setError(errorMessage(cause, 'calendar.share.load_failed')) },
+    )
+    void api.getCalendarMembers(calendar.id).then(
+      (answer) => { if (!settled) setMembers(answer) },
+      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')) },
     )
     return () => {
       settled = true
@@ -692,6 +786,45 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     }
   }
 
+  const revoke = async (): Promise<void> => {
+    const confirmed = await confirm({
+      title: t('calendar.share.stop_confirm_title'),
+      description: t('calendar.share.stop_confirm_body'),
+      confirmLabel: t('calendar.share.stop'),
+      tone: 'danger',
+    })
+    if (confirmed) await setLink('revoke')
+  }
+
+  const invite = async (): Promise<void> => {
+    const username = memberName.trim()
+    if (!username) return
+    setMemberBusy(true)
+    setMemberError(null)
+    try {
+      const answer = await api.addCalendarMember(calendar.id, { username, role: memberRole })
+      setMembers(current => [...current.filter(member => member.memberId !== answer.member.memberId), answer.member])
+      setMemberName('')
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : t('calendar.share.member_invite_failed'))
+    } finally {
+      setMemberBusy(false)
+    }
+  }
+
+  const removeMember = async (member: CalendarMemberDto): Promise<void> => {
+    setMemberBusy(true)
+    setMemberError(null)
+    try {
+      await api.removeCalendarMember(calendar.id, member.memberId)
+      setMembers(current => current.filter(item => item.memberId !== member.memberId))
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : t('calendar.share.member_remove_failed'))
+    } finally {
+      setMemberBusy(false)
+    }
+  }
+
   const copy = async (): Promise<void> => {
     if (!hasLink || !share) return
     if (!(await copyText(shareUrl(share.slug)))) {
@@ -714,7 +847,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
       footer={(
         <>
           {hasLink && (
-            <Button variant="danger" loading={busy} disabled={busy} onClick={() => void setLink('revoke')}>
+            <Button variant="danger" loading={busy} disabled={busy} onClick={() => void revoke()}>
               {busy ? t('calendar.share.stopping') : t('calendar.share.stop')}
             </Button>
           )}
@@ -761,6 +894,14 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
               {t('calendar.share.url_hint')}
             </p>
+            <a
+              href={`${window.location.origin}/calendar-share/${share.slug}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-block text-[length:var(--text-11)] text-[var(--accent)] underline-offset-2 hover:underline"
+            >
+              {t('calendar.share.open_page')}
+            </a>
             <p className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               <span>{t('calendar.share.views', { count: share.views })}</span>
               <span>{t('calendar.share.created_at', { time: fullTime(share.createdAt) })}</span>
@@ -770,6 +911,98 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             </p>
           </>
         )}
+        <div className="border-t border-[var(--border-subtle)] pt-3">
+          <h3 className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+            {t('calendar.share.members_title')}
+          </h3>
+          <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
+            {t('calendar.share.members_hint')}
+          </p>
+          <form
+            className="mt-2 flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void invite()
+            }}
+          >
+            <Input
+              value={memberName}
+              onChange={(event) => setMemberName(event.target.value)}
+              placeholder={t('calendar.share.member_username_placeholder')}
+              aria-label={t('calendar.share.member_username')}
+              autoComplete="off"
+              spellCheck={false}
+              className="min-w-0 flex-1"
+              disabled={memberBusy}
+            />
+            <Select
+              value={memberRole}
+              onChange={(event) => setMemberRole(event.target.value === 'writer' ? 'writer' : 'reader')}
+              aria-label={t('calendar.share.member_role')}
+              className="w-24 shrink-0"
+            >
+              <option value="reader">{t('calendar.share.member_reader')}</option>
+              <option value="writer">{t('calendar.share.member_writer')}</option>
+            </Select>
+            <Button
+              type="submit"
+              size="sm"
+              variant="secondary"
+              icon={<UserPlus size={12} />}
+              loading={memberBusy}
+              disabled={memberBusy || memberName.trim().length === 0}
+            >
+              {memberBusy ? t('calendar.share.member_inviting') : t('calendar.share.member_invite')}
+            </Button>
+          </form>
+          {memberError && <DialogError>{memberError}</DialogError>}
+          {members.length === 0
+            ? (
+                <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {t('calendar.share.member_empty')}
+                </p>
+              )
+            : (
+                <ul className="mt-2 space-y-1">
+                  {members.map(member => (
+                    <li
+                      key={member.memberId}
+                      className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                          {member.name || member.username}
+                        </span>
+                        <span className="block truncate text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                          @{member.username} · {t(member.role === 'writer' ? 'calendar.share.member_writer' : 'calendar.share.member_reader')}
+                        </span>
+                      </span>
+                      <span className={
+                        member.status === 'accepted'
+                          ? 'shrink-0 text-[length:var(--text-10)] text-[var(--success)]'
+                          : member.status === 'declined'
+                            ? 'shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]'
+                            : 'shrink-0 text-[length:var(--text-10)] text-[var(--warning)]'
+                      }>
+                        {t(member.status === 'accepted'
+                          ? 'calendar.share.member_accepted'
+                          : member.status === 'declined'
+                            ? 'calendar.share.member_declined'
+                            : 'calendar.share.member_pending')}
+                      </span>
+                      <IconButton
+                        size="xs"
+                        label={t('calendar.share.member_remove', { name: member.name || member.username })}
+                        disabled={memberBusy}
+                        onClick={() => void removeMember(member)}
+                      >
+                        <Trash2 size={12} />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              )}
+        </div>
         <p className="flex items-start gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
           <AlertTriangle size={13} className="mt-[2px] shrink-0 text-[var(--warning)]" aria-hidden="true" />
           <span>{t('calendar.share.warning')}</span>

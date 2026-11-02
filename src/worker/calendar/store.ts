@@ -23,9 +23,12 @@ import type {
   CalendarEventInput,
   CalendarEventKind,
   CalendarGroupDto,
+  CalendarInviteDto,
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
+  CalendarResourceDto,
+  CalendarSchedulingLinkDto,
   CalendarSearchResultDto,
   CalendarSource,
   CalendarSubscriptionDto,
@@ -39,7 +42,9 @@ import {
   isCalendarAttendeeStatus,
   isCalendarEntityId,
   isCalendarSource,
+  isSharedCalendarId,
   isTemporalKind,
+  parseSharedCalendarId,
   MAX_CALENDARS,
   MAX_CALENDAR_IDS_PER_EVENT,
   MAX_EVENTS_PER_BATCH,
@@ -48,10 +53,12 @@ import {
   MAX_REMINDERS_PER_EVENT,
   MAX_REMINDER_MINUTES,
   normalizeCalendarPreferences,
+  sharedCalendarId,
   temporalValueToEpochMs,
 } from '@shared/calendar/model'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
+import { Temporal } from 'temporal-polyfill'
 import { parseStoredJson, storedObject } from '../lib/json'
 import { eventAttachmentDeleteStatements } from './attachments'
 import { attachmentCleanupTargetSql } from '../attachments/keys'
@@ -104,9 +111,22 @@ type TimelineEventWrite = CalendarEventWriteInput & {
   calendarIds: string[]
   meta: Record<string, unknown>
   icon: boolean | null
+  color: string | null
   recurrenceRule: string | null
+  recurrenceParentId: string | null
+  recurrenceId: string | null
+  recurrenceCancelled: boolean
+  resourceId: string | null
   source: CalendarSource
   externalId: string | null
+}
+
+export interface RecurrenceChangeWrite {
+  occurrenceStart: TemporalValue
+  occurrenceEnd: TemporalValue
+  scope: 'this' | 'following' | 'all'
+  action: 'update' | 'cancel'
+  patch: CalendarEventPatchInput | null
 }
 
 export interface CalendarEventPatchInput {
@@ -124,7 +144,9 @@ export interface CalendarEventPatchInput {
   calendarIds?: string[]
   meta?: Record<string, unknown>
   icon?: boolean | null
+  color?: string | null
   recurrenceRule?: string | null
+  recurrenceCancelled?: boolean
 }
 
 export interface CalendarWriteInput {
@@ -179,6 +201,13 @@ interface CalendarRow {
   rev: number
 }
 
+interface SharedCalendarRow extends CalendarRow {
+  owner_user_id: string
+  owner_name: string | null
+  owner_username: string
+  member_role: string
+}
+
 interface GroupRow {
   id: string
   name: string
@@ -204,8 +233,13 @@ interface EventRow {
   end_ms: number
   all_day: number
   icon_json: string | null
+  color: string | null
   meta_json: string
   recurrence_rule: string | null
+  recurrence_parent_id: string | null
+  recurrence_id: string | null
+  recurrence_cancelled: number
+  resource_id: string | null
   calendar_source: string
   external_scope: string
   external_id: string | null
@@ -256,6 +290,15 @@ function rangeCalendarFilter(calendarIds?: readonly string[]): string {
     : ''
 }
 
+function subscriptionHost(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return null
+  }
+}
+
 function chunks<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = []
   for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size))
@@ -274,6 +317,56 @@ function conflictFromWrite(error: unknown, message: string): never {
 function temporalFromRow(value: string, type: string, timeZone: string | null): TemporalValue {
   const kind = isTemporalKind(type) ? type : 'datetime'
   return kind === 'zoned' && timeZone ? { value, type: kind, timeZone } : { value, type: kind }
+}
+
+function temporalKey(value: TemporalValue): string {
+  return value.value
+}
+
+function shiftTemporal(value: TemporalValue, deltaMs: number, fallbackZone: string): TemporalValue {
+  if (value.type === 'date') {
+    const days = Math.round(deltaMs / 86_400_000)
+    return { type: 'date', value: Temporal.PlainDate.from(value.value).add({ days }).toString() }
+  }
+  if (value.type === 'datetime') {
+    return {
+      type: 'datetime',
+      value: Temporal.PlainDateTime.from(value.value).add({ milliseconds: deltaMs })
+        .toString({ smallestUnit: 'second' }),
+    }
+  }
+  const zone = value.timeZone ?? fallbackZone
+  const zoned = value.value.includes('[')
+    ? Temporal.ZonedDateTime.from(value.value)
+    : Temporal.PlainDateTime.from(value.value).toZonedDateTime(zone)
+  return {
+    type: 'zoned',
+    value: zoned.add({ milliseconds: deltaMs }).toPlainDateTime().toString({ smallestUnit: 'second' }),
+    timeZone: zone,
+  }
+}
+
+function readMetaDates(meta: Record<string, unknown>, key: string): TemporalValue[] {
+  const raw = meta[key]
+  if (!Array.isArray(raw)) return []
+  return raw.filter((entry): entry is TemporalValue => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false
+    const record = entry as Record<string, unknown>
+    return typeof record.value === 'string' && isTemporalKind(record.type)
+  })
+}
+
+/** Turn a rule into one that stops before the occurrence, whichever end condition it carried. */
+function ruleBefore(rule: string, occurrenceStart: TemporalValue, occurrenceStartMs: number): string {
+  const parts = rule.split(';').map(part => part.trim()).filter(part => part.length > 0 && !/^(UNTIL|COUNT)=/i.test(part))
+  if (occurrenceStart.type === 'date') {
+    const previous = new Date(new Date(`${occurrenceStart.value}T00:00:00Z`).getTime() - 86_400_000)
+    parts.push(`UNTIL=${previous.toISOString().slice(0, 10).replaceAll('-', '')}`)
+  } else {
+    const previous = new Date(occurrenceStartMs - 1000)
+    parts.push(`UNTIL=${previous.toISOString().replaceAll('-', '').replaceAll(':', '').slice(0, 15)}Z`)
+  }
+  return parts.join(';')
 }
 
 function readCompletedAt(raw: string | null): TemporalValue | null {
@@ -357,7 +450,11 @@ function toEventDto(row: EventRow, calendarIds: readonly string[]): CalendarEven
     calendarIds: [...calendarIds],
     meta: storedObject(row.meta_json),
     icon: readIcon(row.icon_json),
+    color: row.color,
     recurrenceRule: row.recurrence_rule,
+    recurrenceParentId: row.recurrence_parent_id,
+    recurrenceId: row.recurrence_id,
+    recurrenceCancelled: row.recurrence_cancelled === 1,
     rev: row.rev,
     source: isCalendarSource(row.calendar_source) ? row.calendar_source : 'local',
     externalId: row.external_id,
@@ -369,7 +466,8 @@ const EVENT_WRITE_COLUMNS = [
   'title', 'description', 'kind', 'task_completed', 'task_completed_at',
   'task_completed_at_value', 'task_priority', 'conference_json', 'start_value', 'start_type',
   'time_zone', 'start_ms', 'end_value', 'end_type', 'end_ms', 'all_day', 'icon_json',
-  'meta_json', 'recurrence_rule', 'calendar_source', 'external_scope', 'external_id',
+  'color', 'meta_json', 'recurrence_rule', 'recurrence_parent_id', 'recurrence_id',
+  'recurrence_cancelled', 'resource_id', 'calendar_source', 'external_scope', 'external_id',
 ] as const
 
 export class CalendarStore {
@@ -387,7 +485,7 @@ export class CalendarStore {
    * do not both create a "Calendar". The default flag is the palette's first pair; a later create
    * that asks to be default clears the old one in the same batch.
    */
-  async ensureDefaultCalendar(): Promise<CalendarDto[]> {
+  async ensureDefaultCalendar(name = 'Calendar'): Promise<CalendarDto[]> {
     const existing = await this.listCalendars()
     if (existing.length > 0) return existing
     const now = Date.now()
@@ -397,9 +495,9 @@ export class CalendarStore {
          user_id, id, name, color, dark_color, icon, group_id, is_default, is_visible,
          read_only, source, subscription_id, position, created_at, updated_at, rev
        )
-       SELECT ?1, ?2, 'Calendar', ?3, ?4, NULL, NULL, 1, 1, 0, 'local', NULL, 0, ?5, ?5, 1
+       SELECT ?1, ?2, ?3, ?4, ?5, NULL, NULL, 1, 1, 0, 'local', NULL, 0, ?6, ?6, 1
         WHERE NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1)`,
-    ).bind(this.userId, newId(), palette.color, palette.darkColor, now).run()
+    ).bind(this.userId, newId(), name, palette.color, palette.darkColor, now).run()
     return this.listCalendars()
   }
 
@@ -414,16 +512,152 @@ export class CalendarStore {
     return (results ?? []).map(toCalendarDto)
   }
 
-  async meta(): Promise<CalendarMetaDto> {
-    const [calendars, groups, subscriptions, connections, preferences, preferencesInitialized] = await Promise.all([
-      this.ensureDefaultCalendar(),
+  /** Calendars another account accepted this account into, with a synthetic read-only id. */
+  private async listSharedCalendars(): Promise<CalendarDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT c.id, c.name, c.color, c.dark_color, c.icon, c.group_id, c.is_default, c.is_visible,
+              c.read_only, c.source, c.subscription_id, c.position, c.rev,
+              c.user_id AS owner_user_id, u.name AS owner_name, u.username AS owner_username,
+              mem.role AS member_role
+         FROM calendar_members mem
+         JOIN calendar_calendars c
+           ON c.user_id = mem.owner_user_id AND c.id = mem.calendar_id
+         JOIN users u ON u.id = mem.owner_user_id
+        WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+        ORDER BY mem.created_at ASC, c.position ASC, c.id ASC`,
+    ).bind(this.userId).all<SharedCalendarRow>()
+    return (results ?? []).map((row, index) => ({
+      ...toCalendarDto(row),
+      id: sharedCalendarId(row.owner_user_id, row.id),
+      ownerName: row.owner_name || row.owner_username,
+      sharedRole: row.member_role === 'writer' ? 'writer' : 'reader',
+      isDefault: false,
+      readOnly: row.member_role !== 'writer',
+      position: 10_000 + index,
+    }))
+  }
+
+  /** Which of an owner's calendars this account may write through a shared membership. */
+  async sharedWriterCalendarIds(ownerId: string, calendarIds: readonly string[]): Promise<Set<string>> {
+    const writable = new Set<string>()
+    for (const chunk of chunks(calendarIds, SQL_CHUNK)) {
+      const { results } = await this.db.prepare(
+        `SELECT calendar_id FROM calendar_members
+          WHERE owner_user_id = ? AND member_user_id = ? AND status = 'accepted' AND role = 'writer'
+            AND calendar_id IN (${placeholders(chunk.length)})`,
+      ).bind(ownerId, this.userId, ...chunk).all<{ calendar_id: string }>()
+      for (const row of results ?? []) writable.add(row.calendar_id)
+    }
+    return writable
+  }
+
+  private async listInvites(): Promise<CalendarInviteDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT mem.owner_user_id, mem.calendar_id, mem.role, mem.status, mem.created_at,
+              c.name AS calendar_name, u.name AS owner_name, u.username AS owner_username
+         FROM calendar_members mem
+         JOIN calendar_calendars c
+           ON c.user_id = mem.owner_user_id AND c.id = mem.calendar_id
+         JOIN users u ON u.id = mem.owner_user_id
+        WHERE mem.member_user_id = ? AND mem.status = 'pending'
+        ORDER BY mem.created_at ASC`,
+    ).bind(this.userId).all<{
+      owner_user_id: string
+      calendar_id: string
+      role: string
+      status: string
+      created_at: number
+      calendar_name: string
+      owner_name: string | null
+      owner_username: string
+    }>()
+    return (results ?? []).map(row => ({
+      ownerId: row.owner_user_id,
+      ownerName: row.owner_name || row.owner_username,
+      calendarId: row.calendar_id,
+      calendarName: row.calendar_name,
+      role: row.role === 'writer' ? 'writer' : 'reader',
+      status: 'pending',
+      createdAt: Number(row.created_at),
+    }))
+  }
+
+  async meta(defaultCalendarName?: string): Promise<CalendarMetaDto> {
+    const [owned, groups, subscriptions, connections, preferences, preferencesInitialized, shared, invites, resources, schedulingLinks] = await Promise.all([
+      this.ensureDefaultCalendar(defaultCalendarName),
       this.listGroups(),
       this.listSubscriptions(),
       this.listConnections(),
       this.preferences(),
       this.hasPreferences(),
+      this.listSharedCalendars(),
+      this.listInvites(),
+      this.listResources(),
+      this.listSchedulingLinks(),
     ])
-    return { calendars, groups, subscriptions, connections, preferences, preferencesInitialized }
+    return {
+      calendars: [...owned, ...shared],
+      groups,
+      subscriptions,
+      connections,
+      preferences,
+      preferencesInitialized,
+      invites,
+      resources,
+      schedulingLinks,
+    }
+  }
+
+  private async listResources(): Promise<CalendarResourceDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT id, calendar_id, name, capacity FROM calendar_resources
+        WHERE user_id = ? ORDER BY lower(name) ASC, id ASC`,
+    ).bind(this.userId).all<{ id: string; calendar_id: string; name: string; capacity: number | null }>()
+    return (results ?? []).map(row => ({
+      id: row.id,
+      calendarId: row.calendar_id,
+      name: row.name,
+      capacity: row.capacity === null ? null : Number(row.capacity),
+    }))
+  }
+
+  private async listSchedulingLinks(): Promise<CalendarSchedulingLinkDto[]> {
+    const { results } = await this.db.prepare(
+      `SELECT id, calendar_id, slug, title, duration_minutes, days_json, start_hour, end_hour, enabled
+         FROM calendar_scheduling_links WHERE user_id = ? ORDER BY created_at ASC, id ASC`,
+    ).bind(this.userId).all<{
+      id: string
+      calendar_id: string
+      slug: string
+      title: string
+      duration_minutes: number
+      days_json: string
+      start_hour: number
+      end_hour: number
+      enabled: number
+    }>()
+    return (results ?? []).map(row => {
+      let days: number[] = [1, 2, 3, 4, 5]
+      try {
+        const parsed: unknown = JSON.parse(row.days_json)
+        if (Array.isArray(parsed)) {
+          days = parsed.filter((day): day is number => typeof day === 'number' && day >= 0 && day <= 6)
+        }
+      } catch {
+        // A malformed window keeps the weekday default rather than hiding the link.
+      }
+      return {
+        id: row.id,
+        calendarId: row.calendar_id,
+        slug: row.slug,
+        title: row.title,
+        durationMinutes: Number(row.duration_minutes),
+        days,
+        startHour: Number(row.start_hour),
+        endHour: Number(row.end_hour),
+        enabled: row.enabled === 1,
+      }
+    })
   }
 
   private async hasPreferences(): Promise<boolean> {
@@ -799,38 +1033,83 @@ export class CalendarStore {
     toMs: number,
     calendarIds?: readonly string[],
   ): Promise<{ events: CalendarEventDto[]; truncated: boolean }> {
-    const filter = rangeCalendarFilter(calendarIds)
-    const { results } = await this.db.prepare(
-      `SELECT e.*, m.calendar_id AS membership_calendar_id
-         FROM (
-           SELECT * FROM calendar_events e
-            WHERE e.user_id = ?
-              AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-              ${filter}
-            ORDER BY e.start_ms ASC, e.id ASC
-            LIMIT ?
-         ) e
-         JOIN calendar_event_calendars m
-           ON m.user_id = e.user_id AND m.event_id = e.id
-        ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
-    ).bind(
-      this.userId,
-      toMs,
-      fromMs,
-      ...(calendarIds ?? []),
-      MAX_EVENTS_PER_QUERY + 1,
-    ).all<EventRow & { membership_calendar_id: string }>()
-    const groups = new Map<string, { row: EventRow; calendarIds: string[] }>()
-    for (const row of results ?? []) {
-      const group = groups.get(row.id)
-      if (group) group.calendarIds.push(row.membership_calendar_id)
-      else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
+    const requested = calendarIds ?? null
+    const requestedOwned = requested === null ? null : requested.filter(id => !isSharedCalendarId(id))
+    const requestedShared = requested === null ? [] : requested.filter(isSharedCalendarId)
+    const wantsOwned = requested === null || requestedOwned!.length > 0
+    const wantsShared = requested === null || requestedShared.length > 0
+    const groups = new Map<string, { row: EventRow; calendarIds: string[]; shared?: { ownerId: string } }>()
+
+    if (wantsOwned) {
+      const ownedIds = requestedOwned && requestedOwned.length > 0 ? requestedOwned : requested === null ? undefined : []
+      const filter = ownedIds === undefined || ownedIds.length > 0 ? rangeCalendarFilter(ownedIds) : 'AND 0'
+      const { results } = await this.db.prepare(
+        `SELECT e.*, m.calendar_id AS membership_calendar_id
+           FROM (
+             SELECT * FROM calendar_events e
+              WHERE e.user_id = ?
+                AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+                ${filter}
+              ORDER BY e.start_ms ASC, e.id ASC
+              LIMIT ?
+           ) e
+           JOIN calendar_event_calendars m
+             ON m.user_id = e.user_id AND m.event_id = e.id
+          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC`,
+      ).bind(
+        this.userId,
+        toMs,
+        fromMs,
+        ...(ownedIds ?? []),
+        MAX_EVENTS_PER_QUERY + 1,
+      ).all<EventRow & { membership_calendar_id: string }>()
+      for (const row of results ?? []) {
+        const group = groups.get(row.id)
+        if (group) group.calendarIds.push(row.membership_calendar_id)
+        else groups.set(row.id, { row, calendarIds: [row.membership_calendar_id] })
+      }
     }
-    const entries = [...groups.values()]
+
+    if (wantsShared) {
+      const { results } = await this.db.prepare(
+        `SELECT e.*, m.calendar_id AS shared_calendar_id, c.user_id AS shared_owner_id
+           FROM calendar_events e
+           JOIN calendar_event_calendars m
+             ON m.user_id = e.user_id AND m.event_id = e.id
+           JOIN calendar_calendars c
+             ON c.user_id = m.user_id AND c.id = m.calendar_id
+           JOIN calendar_members mem
+             ON mem.owner_user_id = c.user_id AND mem.calendar_id = c.id
+          WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+            AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+          ORDER BY e.start_ms ASC, e.id ASC, m.position ASC, m.calendar_id ASC
+          LIMIT ?`,
+      ).bind(this.userId, toMs, fromMs, MAX_EVENTS_PER_QUERY + 1)
+        .all<EventRow & { shared_calendar_id: string; shared_owner_id: string }>()
+      for (const row of results ?? []) {
+        const synthetic = sharedCalendarId(row.shared_owner_id, row.shared_calendar_id)
+        if (requestedShared.length > 0 && !requestedShared.includes(synthetic)) continue
+        const key = sharedCalendarId(row.shared_owner_id, row.id)
+        const group = groups.get(key)
+        if (group) {
+          if (!group.calendarIds.includes(synthetic)) group.calendarIds.push(synthetic)
+        } else {
+          groups.set(key, { row, calendarIds: [synthetic], shared: { ownerId: row.shared_owner_id } })
+        }
+      }
+    }
+
+    const entries = [...groups.entries()]
     const truncated = entries.length > MAX_EVENTS_PER_QUERY
     return {
       truncated,
-      events: entries.slice(0, MAX_EVENTS_PER_QUERY).map(({ row, calendarIds: ids }) => toEventDto(row, ids)),
+      events: entries.slice(0, MAX_EVENTS_PER_QUERY).map(([key, group]) => {
+        const ids = group.calendarIds
+        const dto = toEventDto(group.row, ids)
+        return group.shared
+          ? { ...dto, id: key, calendarId: ids[0] ?? '', calendarIds: [...ids] }
+          : dto
+      }),
     }
   }
 
@@ -847,23 +1126,52 @@ export class CalendarStore {
     toMs: number,
     calendarIds?: readonly string[],
   ): Promise<CalendarRangeRevisionDto> {
-    const row = await this.db.prepare(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(e.rev), 0) AS rev_sum, COALESCE(MAX(e.updated_at), 0) AS updated_at
-         FROM calendar_events e
-        WHERE e.user_id = ?
-          AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
-          ${rangeCalendarFilter(calendarIds)}`,
-    ).bind(
-      this.userId,
-      toMs,
-      fromMs,
-      ...(calendarIds ?? []),
-    ).first<{ count: number; rev_sum: number; updated_at: number }>()
-    return {
-      count: Number(row?.count ?? 0),
-      revSum: Number(row?.rev_sum ?? 0),
-      maxUpdatedAt: Number(row?.updated_at ?? 0),
+    const requested = calendarIds ?? null
+    const requestedOwned = requested === null ? null : requested.filter(id => !isSharedCalendarId(id))
+    const requestedShared = requested === null ? [] : requested.filter(isSharedCalendarId)
+    const wantsOwned = requested === null || requestedOwned!.length > 0
+    const wantsShared = requested === null || requestedShared.length > 0
+    let count = 0
+    let revSum = 0
+    let maxUpdatedAt = 0
+    if (wantsOwned) {
+      const ownedIds = requestedOwned && requestedOwned.length > 0 ? requestedOwned : requested === null ? undefined : []
+      const filter = ownedIds === undefined || ownedIds.length > 0 ? rangeCalendarFilter(ownedIds) : 'AND 0'
+      const row = await this.db.prepare(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(e.rev), 0) AS rev_sum,
+                COALESCE(MAX(e.updated_at), 0) AS updated_at
+           FROM calendar_events e
+          WHERE e.user_id = ?
+            AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+            ${filter}`,
+      ).bind(this.userId, toMs, fromMs, ...(ownedIds ?? []))
+        .first<{ count: number; rev_sum: number; updated_at: number }>()
+      count += Number(row?.count ?? 0)
+      revSum += Number(row?.rev_sum ?? 0)
+      maxUpdatedAt = Math.max(maxUpdatedAt, Number(row?.updated_at ?? 0))
     }
+    if (wantsShared) {
+      const row = await this.db.prepare(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(rev), 0) AS rev_sum,
+                COALESCE(MAX(updated_at), 0) AS updated_at
+           FROM (
+             SELECT e.user_id, e.id, e.rev, e.updated_at
+               FROM calendar_events e
+               JOIN calendar_event_calendars m
+                 ON m.user_id = e.user_id AND m.event_id = e.id
+               JOIN calendar_members mem
+                 ON mem.owner_user_id = e.user_id AND mem.calendar_id = m.calendar_id
+              WHERE mem.member_user_id = ? AND mem.status = 'accepted'
+                AND ((e.start_ms <= ? AND e.end_ms >= ?) OR e.recurrence_rule IS NOT NULL)
+              GROUP BY e.user_id, e.id
+           )`,
+      ).bind(this.userId, toMs, fromMs)
+        .first<{ count: number; rev_sum: number; updated_at: number }>()
+      count += Number(row?.count ?? 0)
+      revSum += Number(row?.rev_sum ?? 0)
+      maxUpdatedAt = Math.max(maxUpdatedAt, Number(row?.updated_at ?? 0))
+    }
+    return { count, revSum, maxUpdatedAt }
   }
 
   /**
@@ -915,6 +1223,40 @@ export class CalendarStore {
     const memberships = await this.membershipsFor([id])
     const ids = memberships.get(id) ?? []
     return ids.length > 0 ? toEventDto(row, ids) : null
+  }
+
+  /**
+   * Read one event through a shared calendar membership.
+   *
+   * The synthetic id names the owner and the event; the event's own memberships decide whether the
+   * guest may see it, so a guessed id for an unshared calendar answers null instead of leaking rows.
+   */
+  async sharedEvent(id: string): Promise<{ ownerId: string; eventId: string; event: CalendarEventDto } | null> {
+    const parsed = parseSharedCalendarId(id)
+    if (!parsed) return null
+    const owner = new CalendarStore(this.db, parsed.ownerId)
+    const event = await owner.getEvent(parsed.calendarId)
+    if (!event) return null
+    const visible = new Set<string>()
+    for (const chunk of chunks(event.calendarIds, SQL_CHUNK)) {
+      const { results } = await this.db.prepare(
+        `SELECT c.id
+           FROM calendar_members mem
+           JOIN calendar_calendars c
+             ON c.user_id = mem.owner_user_id AND c.id = mem.calendar_id
+          WHERE mem.owner_user_id = ? AND mem.member_user_id = ? AND mem.status = 'accepted'
+            AND c.id IN (${placeholders(chunk.length)})`,
+      ).bind(parsed.ownerId, this.userId, ...chunk).all<{ id: string }>()
+      for (const row of results ?? []) visible.add(row.id)
+    }
+    const calendarIds = event.calendarIds.filter(calendarId => visible.has(calendarId))
+    if (calendarIds.length === 0) return null
+    const synthetic = calendarIds.map(calendarId => sharedCalendarId(parsed.ownerId, calendarId))
+    return {
+      ownerId: parsed.ownerId,
+      eventId: event.id,
+      event: { ...event, id, calendarId: synthetic[0] ?? '', calendarIds: synthetic },
+    }
   }
 
   private async eventRow(id: string): Promise<EventRow | null> {
@@ -1042,7 +1384,12 @@ export class CalendarStore {
         calendarIds,
         meta,
         icon: input.icon ?? null,
+        color: input.color ?? null,
         recurrenceRule: input.recurrenceRule ?? metaRule,
+        recurrenceParentId: input.recurrenceParentId ?? null,
+        recurrenceId: input.recurrenceId ?? null,
+        recurrenceCancelled: input.recurrenceCancelled === true,
+        resourceId: typeof meta.resourceId === 'string' ? meta.resourceId : null,
         source: input.source ?? 'local',
         externalId: input.externalId ?? null,
       }
@@ -1287,6 +1634,7 @@ export class CalendarStore {
         ? this.readConference(row.conference_json)
         : null
     const icon = patch.icon !== undefined ? patch.icon : readIcon(row.icon_json)
+    const color = patch.color !== undefined ? patch.color : row.color
     const calendarIds = patch.calendarIds ?? (await this.membershipsFor([id])).get(id) ?? []
     if (patch.calendarIds) await this.assertCalendarsForWrite(patch.calendarIds, false)
 
@@ -1305,7 +1653,12 @@ export class CalendarStore {
       calendarIds,
       meta,
       icon,
+      color,
       recurrenceRule,
+      recurrenceParentId: row.recurrence_parent_id,
+      recurrenceId: row.recurrence_id,
+      recurrenceCancelled: patch.recurrenceCancelled ?? row.recurrence_cancelled === 1,
+      resourceId: row.resource_id,
       source: isCalendarSource(row.calendar_source) ? row.calendar_source : 'local',
       externalId: row.external_id,
     }
@@ -1359,6 +1712,185 @@ export class CalendarStore {
     if (!outcomes[outcomes.length - 1]?.meta.changes) {
       throw ApiError.conflict('The event changed elsewhere. Refresh and try again')
     }
+  }
+
+  /**
+   * Apply an edit aimed at one occurrence of a series.
+   *
+   * "This" writes an override row and hides the master occurrence with EXDATE; "following" truncates
+   * the master and starts a new series at the occurrence; "all" edits or deletes the master itself.
+   */
+  async applyRecurrenceChange(
+    masterId: string,
+    change: RecurrenceChangeWrite,
+  ): Promise<{ masterId: string | null }> {
+    const master = await this.getEvent(masterId)
+    if (!master) throw ApiError.notFound('Event not found')
+    if (!master.recurrenceRule) throw ApiError.badRequest('The event does not repeat')
+    await this.assertEventWritable(masterId)
+    const zone = (await this.preferences()).timeZone
+    const occurrenceStartMs = temporalValueToEpochMs(
+      change.occurrenceStart,
+      change.occurrenceStart.timeZone ?? zone,
+    )
+    const occurrenceEndMs = temporalValueToEpochMs(
+      change.occurrenceEnd,
+      change.occurrenceEnd.timeZone ?? change.occurrenceStart.timeZone ?? zone,
+    )
+    if (occurrenceEndMs < occurrenceStartMs) throw ApiError.badRequest('An event cannot end before it starts')
+    const key = temporalKey(change.occurrenceStart)
+    const overrides = await this.recurrenceOverrides(masterId)
+    const removeOverrides = async (rows: ReadonlyArray<{ id: string }>): Promise<void> => {
+      for (const row of rows) {
+        const event = await this.getEvent(row.id)
+        if (event) await this.deleteEvent(row.id, event.rev)
+      }
+    }
+
+    if (change.scope === 'all') {
+      if (change.action === 'cancel') {
+        await removeOverrides(overrides)
+        await this.deleteEvent(masterId, master.rev)
+        return { masterId: null }
+      }
+      const patch = { ...change.patch!, rev: master.rev }
+      if (change.patch?.start && change.patch.startMs !== undefined) {
+        const delta = change.patch.startMs - occurrenceStartMs
+        patch.start = shiftTemporal(master.start, delta, zone)
+        patch.startMs = temporalValueToEpochMs(master.start, zone) + delta
+        patch.end = shiftTemporal(master.end, delta, zone)
+        patch.endMs = temporalValueToEpochMs(master.end, zone) + delta
+      }
+      await this.updateEvent(masterId, patch)
+      return { masterId }
+    }
+
+    if (change.scope === 'this') {
+      if (change.action === 'cancel') {
+        await this.addExdate(master, change.occurrenceStart)
+        await removeOverrides(overrides.filter(row => row.recurrenceId === key))
+        return { masterId }
+      }
+      const patch = change.patch!
+      const meta: Record<string, unknown> = { ...master.meta, recurrenceId: change.occurrenceStart }
+      delete meta.recurrenceRule
+      delete meta.exdates
+      delete meta.rdates
+      const exception = await this.createEvent({
+        title: patch.title ?? master.title,
+        description: patch.description ?? master.description,
+        kind: patch.kind ?? master.kind,
+        task: master.task,
+        conference: patch.conference !== undefined ? patch.conference : master.conference,
+        start: patch.start ?? change.occurrenceStart,
+        end: patch.end ?? change.occurrenceEnd,
+        allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
+        calendarIds: master.calendarIds,
+        meta,
+        icon: master.icon,
+        color: patch.color !== undefined ? patch.color : master.color,
+        recurrenceParentId: masterId,
+        recurrenceId: key,
+        recurrenceRule: null,
+        source: 'local',
+      })
+      try {
+        await this.addExdate(master, change.occurrenceStart)
+      } catch (error) {
+        await this.deleteEvent(exception.id, exception.rev).catch(() => { /* The exception is the row the caller's failure already names. */ })
+        throw error
+      }
+      await removeOverrides(overrides.filter(row => row.recurrenceId === key))
+      return { masterId }
+    }
+
+    const rule = master.recurrenceRule.replace(/^RRULE:/i, '').trim()
+    const truncated = ruleBefore(rule, change.occurrenceStart, occurrenceStartMs)
+    const futureOverrides = overrides.filter(row => row.startMs >= occurrenceStartMs)
+    if (change.action === 'cancel') {
+      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
+      await removeOverrides(futureOverrides)
+      return { masterId }
+    }
+    const patch = change.patch!
+    const meta = { ...master.meta }
+    delete meta.exdates
+    delete meta.rdates
+    delete meta.recurrenceId
+    const series = await this.createEvent({
+      title: patch.title ?? master.title,
+      description: patch.description ?? master.description,
+      kind: patch.kind ?? master.kind,
+      task: master.task,
+      conference: patch.conference !== undefined ? patch.conference : master.conference,
+      start: patch.start ?? change.occurrenceStart,
+      end: patch.end ?? change.occurrenceEnd,
+      allDay: patch.allDay ?? change.occurrenceStart.type === 'date',
+      calendarIds: master.calendarIds,
+      meta,
+      icon: master.icon,
+      color: patch.color !== undefined ? patch.color : master.color,
+      recurrenceRule: rule,
+      source: 'local',
+    })
+    try {
+      await this.updateEvent(masterId, { rev: master.rev, recurrenceRule: truncated })
+    } catch (error) {
+      await this.deleteEvent(series.id, series.rev).catch(() => { /* The original failure is what the caller sees. */ })
+      throw error
+    }
+    if (futureOverrides.length > 0) {
+      const ids = futureOverrides.map(row => row.id)
+      for (const chunk of chunks(ids, SQL_CHUNK)) {
+        await this.db.prepare(
+          `UPDATE calendar_events
+              SET recurrence_parent_id = ?1, rev = rev + 1, updated_at = ?2
+            WHERE user_id = ?3 AND id IN (${placeholders(chunk.length)})`,
+        ).bind(series.id, Date.now(), this.userId, ...chunk).run()
+      }
+    }
+    return { masterId: series.id }
+  }
+
+  private async addExdate(master: CalendarEventDto, occurrenceStart: TemporalValue): Promise<void> {
+    const meta = { ...master.meta }
+    const exdates = readMetaDates(meta, 'exdates')
+    const key = temporalKey(occurrenceStart)
+    if (!exdates.some(value => temporalKey(value) === key)) exdates.push(occurrenceStart)
+    meta.exdates = exdates
+    await this.updateEvent(master.id, { rev: master.rev, meta })
+  }
+
+  private async recurrenceOverrides(
+    masterId: string,
+  ): Promise<Array<{ id: string; recurrenceId: string | null; startMs: number }>> {
+    const { results } = await this.db.prepare(
+      `SELECT id, recurrence_id, start_ms FROM calendar_events
+        WHERE user_id = ? AND recurrence_parent_id = ?`,
+    ).bind(this.userId, masterId).all<{ id: string; recurrence_id: string | null; start_ms: number }>()
+    return (results ?? []).map(row => ({
+      id: row.id,
+      recurrenceId: row.recurrence_id,
+      startMs: Number(row.start_ms),
+    }))
+  }
+
+  /** Park a one-off "remind me again" for an event. Replaces an earlier snooze on the same row. */
+  async snoozeEvent(id: string, minutes: number): Promise<{ notifyAt: number }> {
+    const event = await this.getEvent(id)
+    if (!event) throw ApiError.notFound('Event not found')
+    const now = Date.now()
+    const notifyAt = now + minutes * 60_000
+    await this.db.batch([
+      this.db.prepare(
+        'DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND event_id = ?2',
+      ).bind(this.userId, id),
+      this.db.prepare(
+        `INSERT INTO calendar_reminder_snoozes (user_id, id, event_id, notify_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)`,
+      ).bind(this.userId, newId(), id, notifyAt, now),
+    ])
+    return { notifyAt }
   }
 
   /** Minutes-before-start reminders set on these events, ascending, missing events left out. */
@@ -1429,6 +1961,28 @@ export class CalendarStore {
     return { event, reminders: unique }
   }
 
+  /** Guest lists for a page of events, one query per chunk rather than one per event. */
+  async eventAttendeesFor(eventIds: readonly string[]): Promise<Map<string, CalendarAttendeeDto[]>> {
+    const found = new Map<string, CalendarAttendeeDto[]>()
+    for (const chunk of chunks(eventIds, SQL_CHUNK)) {
+      const { results } = await this.db.prepare(
+        `SELECT event_id, email, name, status FROM calendar_event_attendees
+          WHERE user_id = ? AND event_id IN (${placeholders(chunk.length)})
+          ORDER BY event_id ASC, created_at ASC, email ASC`,
+      ).bind(this.userId, ...chunk).all<{ event_id: string; email: string; name: string; status: string }>()
+      for (const row of results ?? []) {
+        const list = found.get(row.event_id) ?? []
+        list.push({
+          email: row.email,
+          name: row.name,
+          status: isCalendarAttendeeStatus(row.status) ? row.status : 'needs-action',
+        })
+        found.set(row.event_id, list)
+      }
+    }
+    return found
+  }
+
   /** The guest list of one event, in the order the reader wrote it. */
   async eventAttendees(eventId: string): Promise<CalendarAttendeeDto[]> {
     const { results } = await this.db.prepare(
@@ -1494,7 +2048,16 @@ export class CalendarStore {
   async searchEvents(
     q: string,
     limit: number,
-    filters: { calendarIds?: readonly string[]; fromMs?: number; toMs?: number; kind?: 'event' | 'task' } = {},
+    filters: {
+      calendarIds?: readonly string[]
+      fromMs?: number
+      toMs?: number
+      kind?: 'event' | 'task'
+      attendee?: string
+      location?: string
+      recurring?: boolean
+      taskStatus?: 'open' | 'done'
+    } = {},
   ): Promise<{ results: CalendarSearchResultDto[]; truncated: boolean }> {
     const max = Math.min(Math.max(1, limit), 50)
     const conditions = ['user_id = ?']
@@ -1508,6 +2071,24 @@ export class CalendarStore {
       conditions.push('kind = ?')
       binds.push(filters.kind)
     }
+    if (filters.attendee) {
+      const pattern = `%${filters.attendee.replace(/[\\%_]/g, '\\$&')}%`
+      conditions.push(`EXISTS (
+        SELECT 1 FROM calendar_event_attendees a
+         WHERE a.user_id = calendar_events.user_id AND a.event_id = calendar_events.id
+           AND (a.email LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')
+      )`)
+      binds.push(pattern, pattern)
+    }
+    if (filters.location) {
+      const pattern = `%${filters.location.replace(/[\\%_]/g, '\\$&')}%`
+      conditions.push("(description LIKE ? ESCAPE '\\' OR meta_json LIKE ? ESCAPE '\\')")
+      binds.push(pattern, pattern)
+    }
+    if (filters.recurring === true) conditions.push('recurrence_rule IS NOT NULL')
+    if (filters.recurring === false) conditions.push('recurrence_rule IS NULL')
+    if (filters.taskStatus === 'done') conditions.push("(kind = 'task' AND task_completed = 1)")
+    if (filters.taskStatus === 'open') conditions.push("(kind = 'task' AND task_completed = 0)")
     if (filters.fromMs !== undefined) {
       conditions.push('start_ms >= ?')
       binds.push(filters.fromMs)
@@ -1524,11 +2105,12 @@ export class CalendarStore {
       )`)
       binds.push(...filters.calendarIds)
     }
-    binds.push(max + 1)
+    const now = Date.now()
+    binds.push(now, now, max + 1)
     const { results } = await this.db.prepare(
       `SELECT * FROM calendar_events
         WHERE ${conditions.join(' AND ')}
-        ORDER BY start_ms DESC, id ASC
+        ORDER BY CASE WHEN start_ms >= ? THEN 0 ELSE 1 END, ABS(start_ms - ?) ASC, start_ms ASC, id ASC
         LIMIT ?`,
     ).bind(...binds).all<EventRow>()
     const rows = results ?? []
@@ -1586,7 +2168,7 @@ export class CalendarStore {
       id: row.id,
       calendarId: row.calendar_id,
       kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'ics',
-      url: row.url,
+      urlHost: subscriptionHost(row.url),
       enabled: row.enabled === 1,
       lastSyncAt: row.last_sync_at,
       lastErrorCode: row.last_error_code,
@@ -1606,9 +2188,7 @@ export class CalendarStore {
       id: row.id,
       kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'caldav',
       label: row.label,
-      baseUrl: row.base_url,
       calendarHomeUrl: row.calendar_home_url,
-      username: row.username,
       scope: row.scope === 'write' ? 'write' : 'read',
       writable: row.writable === 1,
       status: row.status === 'error' || row.status === 'expired' || row.status === 'disconnected'
@@ -1640,8 +2220,13 @@ export class CalendarStore {
       input.endMs,
       input.allDay ? 1 : 0,
       input.icon === null ? null : JSON.stringify(input.icon),
+      input.color,
       JSON.stringify(input.meta),
       input.recurrenceRule,
+      input.recurrenceParentId,
+      input.recurrenceId,
+      input.recurrenceCancelled ? 1 : 0,
+      input.resourceId,
       input.source,
       input.calendarIds[0] ?? '',
       input.externalId,

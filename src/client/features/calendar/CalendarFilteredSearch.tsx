@@ -46,9 +46,14 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [kind, setKind] = useState<'' | 'event' | 'task'>('')
+  const [attendee, setAttendee] = useState('')
+  const [location, setLocation] = useState('')
+  const [recurring, setRecurring] = useState<'' | '1' | '0'>('')
+  const [taskStatus, setTaskStatus] = useState<'' | 'open' | 'done'>('')
   const [results, setResults] = useState<CalendarSearchResultDto[]>([])
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<CalendarSearchResultDto | null>(null)
 
@@ -67,8 +72,13 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
         ...(fromMs === undefined ? {} : { from: fromMs }),
         ...(toMs === undefined ? {} : { to: toMs }),
         ...(kind ? { kind } : {}),
+        ...(attendee.trim() ? { attendee: attendee.trim() } : {}),
+        ...(location.trim() ? { location: location.trim() } : {}),
+        ...(recurring === '' ? {} : { recurring: recurring === '1' }),
+        ...(taskStatus ? { taskStatus } : {}),
       })
       setResults(response.results)
+      setTruncated(response.truncated)
       setSearched(true)
     } catch (searchError) {
       setError(searchError instanceof Error && searchError.message ? searchError.message : t('calendar.search.failed'))
@@ -93,6 +103,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
             <Input
               data-autofocus
               value={keyword}
+              maxLength={100}
               placeholder={t('calendar.filtered_search.keyword_placeholder')}
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={(event) => {
@@ -129,6 +140,40 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
               <option value="task">{t('calendar.filtered_search.kind_task')}</option>
             </Select>
           </label>
+          <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+            <span className="font-medium">{t('calendar.filtered_search.attendee')}</span>
+            <Input
+              value={attendee}
+              maxLength={100}
+              placeholder={t('calendar.filtered_search.attendee_placeholder')}
+              onChange={(event) => setAttendee(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+            <span className="font-medium">{t('calendar.filtered_search.location')}</span>
+            <Input
+              value={location}
+              maxLength={100}
+              placeholder={t('calendar.filtered_search.location_placeholder')}
+              onChange={(event) => setLocation(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+            <span className="font-medium">{t('calendar.filtered_search.recurring')}</span>
+            <Select value={recurring} onChange={(event) => setRecurring(event.target.value as '' | '1' | '0')}>
+              <option value="">{t('calendar.filtered_search.any')}</option>
+              <option value="1">{t('calendar.filtered_search.recurring_yes')}</option>
+              <option value="0">{t('calendar.filtered_search.recurring_no')}</option>
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-[length:var(--text-12-5)] text-[var(--text-secondary)]">
+            <span className="font-medium">{t('calendar.filtered_search.task_status')}</span>
+            <Select value={taskStatus} onChange={(event) => setTaskStatus(event.target.value as '' | 'open' | 'done')}>
+              <option value="">{t('calendar.filtered_search.any')}</option>
+              <option value="open">{t('calendar.filtered_search.task_open')}</option>
+              <option value="done">{t('calendar.filtered_search.task_done')}</option>
+            </Select>
+          </label>
           <div className="flex items-end">
             <Button variant="primary" loading={loading} onClick={() => void submit()} icon={<CalendarSearch size={14} aria-hidden="true" />}>
               {t('calendar.filtered_search.submit')}
@@ -137,6 +182,12 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
         </div>
 
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+
+        {truncated && (
+          <p role="status" className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            {t('calendar.search.truncated', { count: results.length })}
+          </p>
+        )}
 
         {searched && (
           results.length === 0

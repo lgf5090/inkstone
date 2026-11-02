@@ -6,16 +6,18 @@
  * `app.reorderCalendars`; the surface's callbacks persist them, which keeps one write per gesture.
  */
 import { useEffect, useReducer, useState, type ReactNode } from 'react'
-import { ChevronDown, Lock, MoreHorizontal, Plus, Printer, RefreshCw, Rss, Search, Settings, Star, Trash2 } from 'lucide-react'
+import { ChevronDown, Keyboard, Lock, MoreHorizontal, Plus, Printer, Redo2, RefreshCw, Rss, Search, Settings, Star, Trash2, Undo2, Users } from 'lucide-react'
 import type { CalendarType, ICalendarApp } from '@dayflow/react'
-import type {
-  CalendarDto,
-  CalendarGroupDto,
-  CalendarMetaDto,
-  CalendarPreferences,
-  CalendarSubscriptionDto,
+import {
+  parseSharedCalendarId,
+  type CalendarDto,
+  type CalendarGroupDto,
+  type CalendarMetaDto,
+  type CalendarPreferences,
+  type CalendarSubscriptionDto,
 } from '@shared/calendar/model'
 import { cn } from '../../lib/cn'
+import { fullTime } from '../../lib/time'
 import { t, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
@@ -23,7 +25,6 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
-import { CalendarQuickAdd } from './CalendarQuickAdd'
 import {
   CalendarFormDialog,
   CalendarShareDialog,
@@ -53,14 +54,29 @@ interface CalendarSidebarProps {
   onClose: () => void
   onOpenSettings: () => void
   onOpenFilteredSearch: () => void
+  /** The single natural-language entry, owned by the surface so the header "+" can open it too. */
+  onOpenQuickAdd?: () => void
+  onOpenTemplates?: () => void
+  onOpenContacts?: () => void
+  onOpenFreeBusy?: () => void
+  onOpenResources?: () => void
+  onOpenScheduling?: () => void
+  onAddHolidays?: () => void
   /** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */
   onRefresh: (reloadEvents: boolean) => Promise<void>
   onSelectDate: (date: Date) => void
   onRequestRange?: (from: number, to: number) => void
   /** Per-event settings the DayFlow editor cannot host; shown above the footer in the full sidebar. */
   extras?: ReactNode
+  /** The task checklist for the loaded range. */
+  tasks?: ReactNode
   /** Hand the current period to the browser's print dialogue. */
   onPrint?: () => void
+  onUndo?: () => void
+  onRedo?: () => void
+  canUndo?: boolean
+  canRedo?: boolean
+  onOpenShortcuts?: () => void
 }
 
 function toastFailure(title: string, error: unknown): void {
@@ -69,15 +85,6 @@ function toastFailure(title: string, error: unknown): void {
     description: error instanceof Error && error.message ? error.message : undefined,
     tone: 'danger',
   })
-}
-
-function feedHost(raw: string | null): string | null {
-  if (!raw) return null
-  try {
-    return new URL(raw).hostname
-  } catch {
-    return null
-  }
 }
 
 function safeFileName(name: string): string {
@@ -97,12 +104,18 @@ function downloadIcs(name: string, content: string): void {
   URL.revokeObjectURL(url)
 }
 
-function AddMenu({ onPick, compact }: { onPick: (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick') => void; compact?: boolean }) {
+function AddMenu({ onPick, compact }: { onPick: (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick' | 'templates' | 'contacts' | 'holidays' | 'free-busy' | 'resources' | 'scheduling') => void; compact?: boolean }) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null)
   const items: MenuItem[] = [
     { id: 'quick-add', label: t('calendar.quick_add.menu'), onSelect: () => onPick('quick') },
     { id: 'new-calendar', label: t('calendar.sidebar.new_calendar'), onSelect: () => onPick('calendar') },
     { id: 'new-group', label: t('calendar.sidebar.new_group'), onSelect: () => onPick('group') },
+    { id: 'templates', label: t('calendar.sidebar.templates'), separatorBefore: true, onSelect: () => onPick('templates') },
+    { id: 'contacts', label: t('calendar.sidebar.contacts'), onSelect: () => onPick('contacts') },
+    { id: 'holidays', label: t('calendar.sidebar.holidays'), onSelect: () => onPick('holidays') },
+    { id: 'free-busy', label: t('calendar.sidebar.free_busy'), onSelect: () => onPick('free-busy') },
+    { id: 'resources', label: t('calendar.sidebar.resources'), onSelect: () => onPick('resources') },
+    { id: 'scheduling', label: t('calendar.sidebar.scheduling'), onSelect: () => onPick('scheduling') },
     { id: 'import', label: t('calendar.sidebar.import'), separatorBefore: true, onSelect: () => onPick('import') },
     { id: 'subscribe', label: t('calendar.sidebar.subscribe'), onSelect: () => onPick('subscribe') },
   ]
@@ -153,11 +166,24 @@ export function CalendarSidebar({
   onClose,
   onOpenSettings,
   onOpenFilteredSearch,
+  onOpenQuickAdd,
+  onOpenTemplates,
+  onOpenContacts,
+  onOpenFreeBusy,
+  onOpenResources,
+  onOpenScheduling,
+  onAddHolidays,
   onRefresh,
   onSelectDate,
   onRequestRange,
   extras,
+  tasks,
   onPrint,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
+  onOpenShortcuts,
 }: CalendarSidebarProps) {
   useLocaleRepaint()
   const dark = useThemeDark()
@@ -165,11 +191,12 @@ export function CalendarSidebar({
   const [dialog, setDialog] = useState<DialogState>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
-  const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [groupMenu, setGroupMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [inviteBusy, setInviteBusy] = useState<string | null>(null)
+  const invites = meta.invites ?? []
 
   useEffect(() => app.subscribe(() => bumpVersion()), [app])
 
@@ -181,12 +208,57 @@ export function CalendarSidebar({
   const calendarColor = (calendar: CalendarType): string =>
     app.getCalendarRegistry().resolveColors(calendar.id, dark ? 'dark' : 'light').eventColor
 
-  const openAddMenu = (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick'): void => {
-    if (kind === 'quick') setQuickAddOpen(true)
+  const openAddMenu = (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick' | 'templates' | 'contacts' | 'holidays' | 'free-busy' | 'resources' | 'scheduling'): void => {
+    if (kind === 'quick') onOpenQuickAdd?.()
     else if (kind === 'calendar') setDialog({ kind: 'create-calendar', groupId: null })
     else if (kind === 'group') setDialog({ kind: 'create-group' })
+    else if (kind === 'templates') onOpenTemplates?.()
+    else if (kind === 'contacts') onOpenContacts?.()
+    else if (kind === 'free-busy') onOpenFreeBusy?.()
+    else if (kind === 'resources') onOpenResources?.()
+    else if (kind === 'scheduling') onOpenScheduling?.()
+    else if (kind === 'holidays') onAddHolidays?.()
     else if (kind === 'import') setImportOpen(true)
     else setSubscribeOpen(true)
+  }
+
+  const answerInvite = async (
+    invite: NonNullable<CalendarMetaDto['invites']>[number],
+    status: 'accepted' | 'declined',
+  ): Promise<void> => {
+    const key = `${invite.ownerId}:${invite.calendarId}`
+    setInviteBusy(key)
+    try {
+      await api.respondInvite(invite.ownerId, invite.calendarId, status)
+      useUi.getState().toast({
+        title: t(status === 'accepted' ? 'calendar.invites.accepted' : 'calendar.invites.declined'),
+        tone: 'success',
+      })
+      await onRefresh(true)
+    } catch (error) {
+      toastFailure(t('calendar.invites.failed'), error)
+    } finally {
+      setInviteBusy(null)
+    }
+  }
+
+  const leaveShared = async (calendar: CalendarType): Promise<void> => {
+    const ids = parseSharedCalendarId(calendar.id)
+    if (!ids) return
+    const confirmed = await confirm({
+      title: t('calendar.share.leave'),
+      description: t('calendar.share.leave_confirm', { name: calendar.name }),
+      confirmLabel: t('calendar.share.leave'),
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    try {
+      await api.leaveSharedCalendar(ids.ownerId, ids.calendarId)
+      useUi.getState().toast({ title: t('calendar.share.left'), tone: 'success' })
+      await onRefresh(true)
+    } catch (error) {
+      toastFailure(t('calendar.share.leave_failed'), error)
+    }
   }
 
   const changeGroupOrder = async (group: CalendarGroupDto, delta: -1 | 1): Promise<void> => {
@@ -306,7 +378,7 @@ export function CalendarSidebar({
     const calendar = metaById.get(subscription.calendarId)
     const confirmed = await confirm({
       title: t('calendar.subscription.remove_title'),
-      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? feedHost(subscription.url) ?? subscription.kind }),
+      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? subscription.urlHost ?? subscription.kind }),
       confirmLabel: t('calendar.subscription.remove'),
       tone: 'danger',
     })
@@ -322,6 +394,16 @@ export function CalendarSidebar({
 
   const calendarMenu = (calendar: CalendarType): MenuItem[] => {
     const dto = metaById.get(calendar.id)
+    if (parseSharedCalendarId(calendar.id)) {
+      return [
+        {
+          id: 'leave',
+          label: t('calendar.share.leave'),
+          tone: 'danger',
+          onSelect: () => { void leaveShared(calendar) },
+        },
+      ]
+    }
     const items: MenuItem[] = [
       {
         id: 'default',
@@ -546,6 +628,47 @@ export function CalendarSidebar({
             </section>
           )}
 
+          {invites.length > 0 && (
+            <>
+              <SectionLabel>{t('calendar.invites.title')}</SectionLabel>
+              <ul className="mb-1 space-y-1 pb-1">
+                {invites.map(invite => {
+                  const key = `${invite.ownerId}:${invite.calendarId}`
+                  const busy = inviteBusy === key
+                  return (
+                    <li
+                      key={key}
+                      className="rounded-[var(--r-sm)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2 py-1.5"
+                    >
+                      <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+                        {t('calendar.invites.body', { owner: invite.ownerName, calendar: invite.calendarName })}
+                      </p>
+                      <div className="mt-1 flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          loading={busy}
+                          disabled={inviteBusy !== null}
+                          onClick={() => void answerInvite(invite, 'accepted')}
+                        >
+                          {t('calendar.invites.accept')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={inviteBusy !== null}
+                          onClick={() => void answerInvite(invite, 'declined')}
+                        >
+                          {t('calendar.invites.decline')}
+                        </Button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </>
+          )}
+
           {meta.subscriptions.length > 0 && (
             <>
               <SectionLabel>{t('calendar.sidebar.subscriptions')}</SectionLabel>
@@ -557,10 +680,26 @@ export function CalendarSidebar({
                       <Checkbox
                         checked={subscription.enabled}
                         onChange={enabled => void setSubscriptionEnabled(subscription, enabled)}
+                        ariaLabel={t('calendar.subscription.enabled_named', {
+                          name: calendar?.name ?? subscription.urlHost ?? subscription.kind,
+                        })}
                         label={<span className="sr-only">{t('calendar.subscription.enabled')}</span>}
                       />
                       <Rss size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">{calendar?.name ?? feedHost(subscription.url) ?? subscription.kind}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{calendar?.name ?? subscription.urlHost ?? subscription.kind}</span>
+                        {subscription.lastErrorCode
+                          ? (
+                              <span className="block truncate text-[length:var(--text-10)] text-[var(--danger)]">
+                                {t('calendar.subscription.last_error', { code: subscription.lastErrorCode })}
+                              </span>
+                            )
+                          : subscription.lastSyncAt !== null && (
+                              <span className="block truncate text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                                {t('calendar.subscription.last_sync', { time: fullTime(subscription.lastSyncAt) })}
+                              </span>
+                            )}
+                      </span>
                       {subscription.kind === 'ics' && (
                         <>
                           <IconButton
@@ -586,11 +725,33 @@ export function CalendarSidebar({
               </ul>
             </>
           )}
+          {tasks}
         </div>
       </div>
 
       {extras}
       <footer className="flex shrink-0 items-center gap-1 border-t border-[var(--border-subtle)] px-2 py-1.5">
+        {onUndo && (
+          <Tooltip label={t('calendar.history.undo')} side="top">
+            <IconButton size="sm" label={t('calendar.history.undo')} disabled={!canUndo} onClick={onUndo}>
+              <Undo2 size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onRedo && (
+          <Tooltip label={t('calendar.history.redo')} side="top">
+            <IconButton size="sm" label={t('calendar.history.redo')} disabled={!canRedo} onClick={onRedo}>
+              <Redo2 size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onOpenShortcuts && (
+          <Tooltip label={t('calendar.shortcuts.title')} side="top">
+            <IconButton size="sm" label={t('calendar.shortcuts.title')} onClick={onOpenShortcuts}>
+              <Keyboard size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -674,14 +835,6 @@ export function CalendarSidebar({
           onSaved={() => onRefresh(true)}
         />
       )}
-      {quickAddOpen && (
-        <CalendarQuickAdd
-          open
-          app={app}
-          timeZone={preferences.timeZone}
-          onClose={() => setQuickAddOpen(false)}
-        />
-      )}
       {subscribeOpen && (
         <SubscribeDialog
           open
@@ -695,6 +848,8 @@ export function CalendarSidebar({
   function renderCalendar(calendar: CalendarType): ReactNode {
     const visible = calendar.isVisible !== false
     const readOnly = calendar.readOnly === true
+    const shared = parseSharedCalendarId(calendar.id)
+    const sharedDto = shared ? metaById.get(calendar.id) : undefined
     const subscribed = subscriptionFor(calendar.id)
     const menuOpen = menu?.id === calendar.id
     return (
@@ -716,7 +871,7 @@ export function CalendarSidebar({
         <div className="group flex items-center gap-0.5 rounded-[var(--r-sm)] pr-0.5 hover:bg-[var(--bg-hover)]">
           <button
             type="button"
-            draggable
+            draggable={!shared}
             aria-label={t('calendar.sidebar.reorder_calendar', { name: calendar.name })}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = 'move'
@@ -728,6 +883,7 @@ export function CalendarSidebar({
               setDropId(null)
             }}
             onKeyDown={(event) => {
+              if (shared) return
               if (event.key === 'ArrowUp') {
                 event.preventDefault()
                 moveCalendar(calendar.id, -1)
@@ -736,7 +892,7 @@ export function CalendarSidebar({
                 moveCalendar(calendar.id, 1)
               }
             }}
-            className="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-quaternary)] opacity-40 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] active:cursor-grabbing"
+            className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-quaternary)] opacity-40 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] active:cursor-grabbing"
           >
             <span aria-hidden="true" className="text-[length:var(--text-10)] leading-none">⠿</span>
           </button>
@@ -758,6 +914,14 @@ export function CalendarSidebar({
                     <span className="shrink-0 text-[var(--text-quaternary)]">
                       <Lock size={10} aria-hidden="true" />
                       <span className="sr-only">{t('calendar.sidebar.read_only')}</span>
+                    </span>
+                  </Tooltip>
+                )}
+                {sharedDto && (
+                  <Tooltip label={t('calendar.sidebar.shared_by', { owner: sharedDto.ownerName ?? '' })}>
+                    <span className="shrink-0 text-[var(--text-quaternary)]">
+                      <Users size={10} aria-hidden="true" />
+                      <span className="sr-only">{t('calendar.sidebar.shared_by', { owner: sharedDto.ownerName ?? '' })}</span>
                     </span>
                   </Tooltip>
                 )}

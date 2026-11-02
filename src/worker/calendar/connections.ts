@@ -23,8 +23,23 @@ export type CalendarConnectionStatus = (typeof CALENDAR_CONNECTION_STATUSES)[num
 
 export type CalendarCredentialKind = 'basic' | 'oauth'
 
-/** The DTO is already sanitized and carries the home URL the proxy needs; the row maps to it. */
-export type CalendarConnectionRecord = CalendarConnectionDto
+/**
+ * The row as the server needs it. The browser-facing DTO deliberately drops `baseUrl` and
+ * `username`; the proxy and OAuth refresh still need them server-side.
+ */
+export interface CalendarConnectionRecord {
+  id: string
+  kind: CalendarConnectionKind
+  label: string
+  baseUrl: string
+  calendarHomeUrl: string | null
+  username: string | null
+  scope: 'read' | 'write'
+  writable: boolean
+  status: CalendarConnectionStatus
+  lastSyncedAt: number | null
+  lastErrorCode: string | null
+}
 
 export interface NewCalendarConnection {
   id: string
@@ -305,9 +320,7 @@ export function toCalendarConnectionDto(connection: CalendarConnectionRecord): C
     id: connection.id,
     kind: connection.kind,
     label: connection.label,
-    baseUrl: connection.baseUrl,
     calendarHomeUrl: connection.calendarHomeUrl,
-    username: connection.username,
     scope: connection.scope,
     writable: connection.writable,
     status: connection.status,

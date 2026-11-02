@@ -31,7 +31,7 @@ import {
 } from '@shared/calendar/model'
 
 /** How far around today the first fetch reaches. Navigation fetches more, padded by the same idea. */
-export const INITIAL_RANGE_DAYS = 90
+export const INITIAL_RANGE_DAYS = 14
 /** Extra days fetched on either side of a visible range, so a small scroll does not refetch. */
 export const RANGE_PADDING_DAYS = 30
 /** Events drawn per row in the month grid; the rest live behind DayFlow's "more" popup. */
@@ -69,6 +69,8 @@ const RENDER_ONLY_META_KEYS = new Set([
   '_originalEndHour',
   '_recurrenceMasterId',
   '_recurrenceKey',
+  /** A stored rule temporarily taken off a series that has exceptions; put back before any write. */
+  'seriesRule',
 ])
 
 export function stripRenderOnlyMeta(meta: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -174,6 +176,7 @@ export function missingRangeEventIds(input: {
     .filter(event => !input.fetched.has(event.id)
       && !isRecurrenceOccurrence(event)
       && !(typeof event.meta?.recurrenceRule === 'string' && event.meta.recurrenceRule)
+      && !(typeof event.meta?.seriesRule === 'string' && event.meta.seriesRule)
       && !input.hasPending(event.id)
       && temporalToEpochMs(event.start, input.timeZone) <= input.to
       && temporalToEpochMs(event.end, input.timeZone) >= input.from)
@@ -189,7 +192,12 @@ export function eventCalendarIds(event: Pick<Event, 'calendarId' | 'calendarIds'
 /** One API event as DayFlow draws it. */
 export function toDayFlowEvent(dto: CalendarEventDto, timeZone: string = defaultTimeZone()): Event {
   const meta = { ...dto.meta }
-  if (dto.recurrenceRule) meta.recurrenceRule = dto.recurrenceRule
+  const exdates = Array.isArray(meta.exdates) ? meta.exdates : []
+  const recurrenceRule = dto.recurrenceRule && exdates.length === 0 ? dto.recurrenceRule : null
+  if (dto.recurrenceRule && exdates.length > 0) meta.seriesRule = dto.recurrenceRule
+  if (recurrenceRule) meta.recurrenceRule = recurrenceRule
+  else delete meta.recurrenceRule
+  if (dto.color) meta.color = dto.color
   const calendarIds = [dto.calendarId, ...dto.calendarIds].filter((id, index, all) => id.length > 0 && all.indexOf(id) === index)
   return {
     id: dto.id,
@@ -273,10 +281,14 @@ export interface EventSerializationOptions {
 /** DayFlow event -> API create payload. */
 export function toEventInput(event: Event, options: EventSerializationOptions): CalendarEventInput {
   const calendarIds = eventCalendarIds(event)
+  const color = typeof event.meta?.color === 'string' ? event.meta.color : null
+  const seriesRule = typeof event.meta?.seriesRule === 'string' && event.meta.seriesRule.trim()
+    ? event.meta.seriesRule.trim()
+    : null
   const meta = stripRenderOnlyMeta(event.meta)
   const recurrenceRule = typeof meta.recurrenceRule === 'string' && meta.recurrenceRule.trim()
     ? meta.recurrenceRule.trim()
-    : null
+    : seriesRule
   const identity = providerEventIdentity(event)
   return {
     id: event.id,
@@ -292,6 +304,7 @@ export function toEventInput(event: Event, options: EventSerializationOptions): 
     calendarIds,
     meta,
     icon: typeof event.icon === 'boolean' ? event.icon : null,
+    color,
     recurrenceRule,
     ...(identity.source === 'local' ? {} : { source: identity.source }),
     ...(identity.externalId && isCalendarEntityId(identity.externalId) ? { externalId: identity.externalId } : {}),

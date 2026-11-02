@@ -37,4 +37,20 @@ describe('quick add parser', () => {
     expect(parse('明天 15:00')?.title).toBe('Untitled')
     expect(parse('   ')).toBeNull()
   })
+
+  it('applies Chinese afternoon and evening periods instead of leaving them in the title', () => {
+    const tomorrowAfternoon = parse('明天下午3点开会')
+    expect(tomorrowAfternoon?.title).toBe('开会')
+    expect(tomorrowAfternoon?.start.toString()).toBe('2026-10-27T15:00:00+08:00[Asia/Shanghai]')
+
+    const fridayEvening = parse('周五晚7点看电影')
+    expect(fridayEvening?.title).toBe('看电影')
+    expect(fridayEvening?.start.toString()).toBe('2026-10-30T19:00:00+08:00[Asia/Shanghai]')
+  })
+
+  it('keeps the period on a colon clock and honours half past', () => {
+    expect(parse('下午3:30 评审')?.start.toString()).toBe('2026-10-26T15:30:00+08:00[Asia/Shanghai]')
+    expect(parse('上午10点半 站会')?.start.toString()).toBe('2026-10-26T10:30:00+08:00[Asia/Shanghai]')
+    expect(parse('凌晨1点 值班')?.start.toString()).toBe('2026-10-26T01:00:00+08:00[Asia/Shanghai]')
+  })
 })

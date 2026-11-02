@@ -6,7 +6,7 @@
  * row, writes back with its revision, and hands the new revision to the surface so the write queue
  * does not send a stale PATCH afterwards.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
@@ -14,21 +14,31 @@ import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
   CalendarAttendeeStatus,
+  CalendarDto,
   CalendarEventDto,
 } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
+import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, Copy, FolderInput, BookmarkPlus, Video } from 'lucide-react'
 import * as api from './api'
+import { CALENDAR_COLOR_PRESETS } from './model'
+import { CalendarFilePicker } from './CalendarFilePicker'
+import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
+import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
+import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
-import { eventTimeZone, reanchorValue, supportedTimeZones } from './timezone'
+import { eventTimeZone, reanchorValue } from './timezone'
 
 interface CalendarEventExtrasProps {
   eventId: string
   /** The zone the calendar itself is read in; an event without a zone of its own uses it. */
   accountTimeZone: string
   locale: string
+  calendars: readonly CalendarDto[]
+  /** True when any member calendar is read-only; the server would refuse every write anyway. */
+  readOnly?: boolean
   onClose: () => void
   onRevision: (eventId: string, rev: number) => void
   /** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */
@@ -60,6 +70,8 @@ export function CalendarEventExtras({
   eventId,
   accountTimeZone,
   locale,
+  calendars,
+  readOnly = false,
   onClose,
   onRevision,
   onChanged,
@@ -69,37 +81,51 @@ export function CalendarEventExtras({
   const [attendees, setAttendees] = useState<CalendarAttendeeDto[]>([])
   const [files, setFiles] = useState<CalendarAttachmentDto[]>([])
   const [uploading, setUploading] = useState(false)
+  const sharedEvent = eventId.startsWith('shared:')
+  const [savingReminders, setSavingReminders] = useState(false)
+  const [savingAttendees, setSavingAttendees] = useState(false)
+  const [savingColor, setSavingColor] = useState(false)
+  const [savingConference, setSavingConference] = useState(false)
+  const [savingSnooze, setSavingSnooze] = useState(false)
+  const [contacts, setContacts] = useState<Array<{ name: string; email: string }>>([])
+  const contactListId = useId()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const zones = supportedTimeZones()
+  const [transfer, setTransfer] = useState<'copy' | 'move' | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const revisionRef = useRef(onRevision)
+  revisionRef.current = onRevision
 
   useEffect(() => {
     let cancelled = false
+    void api.getContacts().then((rows) => {
+      if (!cancelled) setContacts(rows.map(row => ({ name: row.name, email: row.email })))
+    }).catch(() => { /* The address book is a suggestion, not a requirement. */ })
     setEvent(null)
     setMinutes([])
     setAttendees([])
     setFiles([])
     setUploading(false)
+    setSavingReminders(false)
+    setSavingAttendees(false)
+    setSavingColor(false)
+    setSavingConference(false)
+    setSavingSnooze(false)
     setDraft('')
     setError(null)
     void (async () => {
       try {
-        const found = await api.getEvent(eventId)
+        const found = await api.getEventExtras(eventId)
         if (cancelled) return
         if (!found) {
           setError(t('calendar.extras.gone'))
           return
         }
-        const [saved, guests, attachments] = await Promise.all([
-          api.getEventReminders(found.id),
-          api.getEventAttendees(found.id),
-          api.getEventAttachments(found.id),
-        ])
-        if (cancelled) return
-        setEvent(found)
-        setMinutes(saved)
-        setAttendees(guests)
-        setFiles(attachments)
+        setEvent(found.event)
+        setMinutes(found.reminders)
+        setAttendees(found.attendees)
+        setFiles(found.attachments)
+        revisionRef.current(found.event.id, found.event.rev)
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error && loadError.message
           ? loadError.message
@@ -126,12 +152,13 @@ export function CalendarEventExtras({
   }
 
   const toggle = (lead: number): void => {
-    if (rev === null) return
+    if (rev === null || readOnly || savingReminders) return
     const previous = minutes
     const next = previous.includes(lead)
       ? previous.filter((value) => value !== lead)
       : [...previous, lead].sort((left, right) => left - right)
     setMinutes(next)
+    setSavingReminders(true)
     void (async () => {
       try {
         const answer = await api.setEventReminders(eventId, next, rev)
@@ -143,15 +170,18 @@ export function CalendarEventExtras({
         setError(saveError instanceof Error && saveError.message
           ? saveError.message
           : t('calendar.error.save_failed'))
+      } finally {
+        setSavingReminders(false)
       }
     })()
   }
 
   /** The whole list is replaced on every edit, so a failed write puts the previous one back. */
   const update = (next: CalendarAttendeeDto[]): void => {
-    if (rev === null) return
+    if (rev === null || readOnly || savingAttendees) return
     const previous = attendees
     setAttendees(next)
+    setSavingAttendees(true)
     void (async () => {
       try {
         const answer = await api.setEventAttendees(eventId, next, rev)
@@ -164,6 +194,8 @@ export function CalendarEventExtras({
         setError(saveError instanceof Error && saveError.message
           ? saveError.message
           : t('calendar.error.save_failed'))
+      } finally {
+        setSavingAttendees(false)
       }
     })()
   }
@@ -189,7 +221,7 @@ export function CalendarEventExtras({
    * as a courtesy — the route decides both for real.
    */
   const upload = (picked: FileList | null): void => {
-    if (!picked?.length || rev === null) return
+    if (!picked?.length || rev === null || readOnly) return
     const chosen = Array.from(picked)
     void (async () => {
       setUploading(true)
@@ -221,6 +253,7 @@ export function CalendarEventExtras({
   }
 
   const removeFile = (file: CalendarAttachmentDto): void => {
+    if (readOnly) return
     void (async () => {
       try {
         await api.removeEventAttachment(eventId, file.id)
@@ -234,8 +267,70 @@ export function CalendarEventExtras({
     })()
   }
 
+  const changeColor = (color: string | null): void => {
+    if (rev === null || readOnly || savingColor || event?.color === color) return
+    setSavingColor(true)
+    void (async () => {
+      try {
+        const saved = await api.updateEventPatch(eventId, { color }, rev)
+        setEvent(saved)
+        onRevision(eventId, saved.rev)
+        onChanged(eventId)
+        setError(null)
+      } catch (saveError) {
+        setError(saveError instanceof Error && saveError.message
+          ? saveError.message
+          : t('calendar.error.save_failed'))
+      } finally {
+        setSavingColor(false)
+      }
+    })()
+  }
+
+  const snooze = (minutes: number): void => {
+    if (rev === null || readOnly) return
+    setSavingSnooze(true)
+    void api.snoozeEvent(eventId, minutes).then(
+      (answer) => {
+        useUi.getState().toast({
+          title: t('calendar.extras.snoozed', { time: clockText(answer.notifyAt, accountTimeZone, locale) }),
+          tone: 'success',
+        })
+        setError(null)
+      },
+      (saveError: unknown) => {
+        setError(saveError instanceof Error && saveError.message ? saveError.message : t('calendar.error.save_failed'))
+      },
+    ).finally(() => setSavingSnooze(false))
+  }
+
+  const changeConference = (add: boolean): void => {
+    if (!event || rev === null || readOnly) return
+    setSavingConference(true)
+    void (async () => {
+      try {
+        const meetingId = `inkstone-${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+        const saved = await api.updateEventPatch(eventId, {
+          conference: add
+            ? { provider: 'jitsi', joinUrl: `https://meet.jit.si/${meetingId}`, meetingId }
+            : null,
+        }, rev)
+        setEvent(saved)
+        onRevision(eventId, saved.rev)
+        setError(null)
+      } catch (saveError) {
+        setError(saveError instanceof Error && saveError.message
+          ? saveError.message
+          : t('calendar.error.save_failed'))
+      } finally {
+        setSavingConference(false)
+      }
+    })()
+  }
+
+
   const changeZone = (zone: string): void => {
-    if (!event || rev === null || event.allDay) return
+    if (!event || rev === null || event.allDay || readOnly) return
     const previous = event
     const moved = {
       ...event,
@@ -253,14 +348,53 @@ export function CalendarEventExtras({
   const startMillis = event ? Number(temporalValueToEpochMs(event.start, accountTimeZone)) : 0
 
   return (
-    <section className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2.5">
+    <section className="max-h-[45vh] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)] px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {event?.title || t('calendar.event.untitled')}
         </h3>
+        <IconButton label={t('calendar.event.copy_to')} size="sm" disabled={!event} onClick={() => setTransfer('copy')}>
+          <Copy size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton label={t('calendar.event.move_to')} size="sm" disabled={readOnly || sharedEvent || !event} onClick={() => setTransfer('move')}>
+          <FolderInput size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton label={t('calendar.templates.save_current')} size="sm" disabled={!event} onClick={() => setTemplatesOpen(true)}>
+          <BookmarkPlus size={13} aria-hidden="true" />
+        </IconButton>
         <IconButton label={t('common.close')} size="sm" onClick={onClose}>
           <X size={14} aria-hidden="true" />
         </IconButton>
+      </div>
+      {readOnly && (
+        <p role="status" className="mt-1.5 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+          {t('calendar.extras.read_only')}
+        </p>
+      )}
+
+      <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('calendar.calendar.color')}</p>
+      <div role="group" aria-label={t('calendar.calendar.color')} className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant={event?.color ? 'secondary' : 'primary'}
+          aria-pressed={!event?.color}
+          disabled={rev === null || readOnly || savingColor}
+          onClick={() => changeColor(null)}
+        >
+          {t('calendar.event.no_color')}
+        </Button>
+        {CALENDAR_COLOR_PRESETS.map(color => (
+          <button
+            key={color}
+            type="button"
+            aria-label={color}
+            aria-pressed={event?.color?.toLowerCase() === color}
+            disabled={rev === null || readOnly || savingColor}
+            onClick={() => changeColor(color)}
+            className="size-6 rounded-full border border-[var(--border-subtle)] transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-45"
+            style={{ backgroundColor: color }}
+          />
+        ))}
       </div>
 
       <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
@@ -273,7 +407,7 @@ export function CalendarEventExtras({
             size="sm"
             variant={minutes.includes(lead) ? 'primary' : 'secondary'}
             aria-pressed={minutes.includes(lead)}
-            disabled={rev === null}
+            disabled={rev === null || readOnly || savingReminders}
             onClick={() => { toggle(lead) }}
           >
             {leadLabel(lead)}
@@ -285,6 +419,20 @@ export function CalendarEventExtras({
           {t('calendar.extras.follow_default')}
         </p>
       )}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('calendar.extras.snooze')}>
+        <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('calendar.extras.snooze')}</span>
+        {[5, 10, 30].map(snoozeMinutes => (
+          <Button
+            key={snoozeMinutes}
+            size="sm"
+            variant="ghost"
+            disabled={rev === null || readOnly || sharedEvent || savingSnooze}
+            onClick={() => snooze(snoozeMinutes)}
+          >
+            {t('calendar.extras.snooze_minutes', { minutes: snoozeMinutes })}
+          </Button>
+        ))}
+      </div>
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.extras.timezone')}
@@ -295,18 +443,13 @@ export function CalendarEventExtras({
         </p>
       ) : (
         <>
-          <Select
+          <CalendarTimeZoneField
             className="mt-1.5 w-full"
-            aria-label={t('calendar.extras.timezone')}
+            label={t('calendar.extras.timezone')}
             value={zone ?? accountTimeZone}
-            disabled={rev === null}
-            onChange={(change) => { changeZone(change.target.value) }}
-          >
-            {!zones.includes(zone ?? '') && zone && <option value={zone}>{zone}</option>}
-            {zones.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </Select>
+            disabled={rev === null || readOnly}
+            onChange={changeZone}
+          />
           <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
             {t('calendar.extras.timezone_shown', {
               local: clockText(startMillis, zone ?? accountTimeZone, locale),
@@ -315,6 +458,57 @@ export function CalendarEventExtras({
           </p>
         </>
       )}
+
+      <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+        {t('calendar.extras.conference')}
+      </p>
+      {event?.conference
+        ? (
+            <div className="mt-1 flex items-center gap-1.5">
+              <Video size={12} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+              <a
+                href={event.conference.joinUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                {event.conference.meetingId || event.conference.joinUrl}
+              </a>
+              <IconButton
+                size="xs"
+                label={t('common.copy')}
+                onClick={() => {
+                  void navigator.clipboard.writeText(event.conference?.joinUrl ?? '').then(
+                    () => useUi.getState().toast({ title: t('common.copied'), tone: 'success' }),
+                    () => useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' }),
+                  )
+                }}
+              >
+                <Copy size={11} />
+              </IconButton>
+              <IconButton
+                size="xs"
+                label={t('calendar.extras.remove_conference')}
+                disabled={rev === null || readOnly || savingConference}
+                onClick={() => changeConference(false)}
+              >
+                <Trash2 size={11} />
+              </IconButton>
+            </div>
+          )
+        : (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Video size={12} />}
+              className="mt-1.5"
+              disabled={rev === null || readOnly || savingConference}
+              loading={savingConference}
+              onClick={() => changeConference(true)}
+            >
+              {t('calendar.extras.add_conference')}
+            </Button>
+          )}
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.extras.attendees')}
@@ -334,7 +528,7 @@ export function CalendarEventExtras({
               className="w-auto min-w-24 text-[length:var(--text-11-5)]"
               aria-label={`${t('calendar.extras.attendee_status')}: ${attendee.email}`}
               value={attendee.status}
-              disabled={rev === null}
+              disabled={rev === null || readOnly || savingAttendees}
               onChange={(change) => { update(withAttendeeStatus(attendees, attendee.email, change.target.value as CalendarAttendeeStatus)) }}
             >
               {Object.entries(statusLabels()).map(([value, label]) => (
@@ -344,6 +538,7 @@ export function CalendarEventExtras({
             <IconButton
               label={t('calendar.extras.remove_attendee', { email: attendee.email })}
               size="sm"
+              disabled={readOnly || savingAttendees}
               onClick={() => { update(withoutAttendee(attendees, attendee.email)) }}
             >
               <Trash2 size={13} aria-hidden="true" />
@@ -359,15 +554,21 @@ export function CalendarEventExtras({
         <Input
           className="min-w-0 flex-1"
           type="email"
+          list={contactListId}
           value={draft}
           placeholder={t('calendar.extras.attendee_email')}
           aria-label={t('calendar.extras.attendee_email')}
-          disabled={rev === null}
+          disabled={rev === null || readOnly}
           onChange={(change) => { setDraft(change.target.value) }}
         />
-        <Button size="sm" variant="secondary" type="submit" disabled={rev === null || draft.trim().length === 0}>
+        <Button size="sm" variant="secondary" type="submit" disabled={rev === null || readOnly || savingAttendees || draft.trim().length === 0}>
           {t('calendar.extras.add_attendee')}
         </Button>
+        <datalist id={contactListId}>
+          {contacts.map(contact => (
+            <option key={contact.email} value={contact.email}>{contact.name}</option>
+          ))}
+        </datalist>
       </form>
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
@@ -395,6 +596,7 @@ export function CalendarEventExtras({
             <IconButton
               label={t('calendar.extras.remove_attachment', { name: file.filename })}
               size="sm"
+              disabled={readOnly || sharedEvent}
               onClick={() => { removeFile(file) }}
             >
               <Trash2 size={13} aria-hidden="true" />
@@ -402,18 +604,19 @@ export function CalendarEventExtras({
           </li>
         ))}
       </ul>
-      <input
-        type="file"
-        multiple
-        aria-label={t('calendar.extras.add_attachment')}
-        disabled={rev === null || uploading}
-        onChange={(change) => {
-          upload(change.target.files)
-          // The same file may be picked again after a refusal; an unchanged value fires no change event.
-          change.target.value = ''
-        }}
-        className="mt-1.5 block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-2 file:cursor-pointer file:rounded-[var(--r-sm)] file:border file:border-[var(--border-default)] file:bg-[var(--bg-raised)] file:px-2.5 file:py-1.5 file:text-[length:var(--text-12)] file:font-medium file:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-      />
+      <div className="mt-1.5">
+        <CalendarFilePicker
+          label={t('calendar.extras.add_attachment')}
+          multiple
+          disabled={rev === null || readOnly || uploading || sharedEvent}
+          onPick={upload}
+        />
+      </div>
+      {sharedEvent && (
+        <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('calendar.extras.attachments_shared')}
+        </p>
+      )}
       {uploading && (
         <p role="status" className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {t('calendar.extras.uploading')}
@@ -424,6 +627,27 @@ export function CalendarEventExtras({
         <p role="alert" className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
           {error}
         </p>
+      )}
+
+      {templatesOpen && event && (
+        <CalendarTemplatesDialog
+          open
+          event={event}
+          onClose={() => setTemplatesOpen(false)}
+        />
+      )}
+
+      {transfer && event && (
+        <CalendarEventTransferDialog
+          open
+          mode={transfer}
+          event={event}
+          calendars={calendars}
+          reminders={minutes}
+          attendees={attendees}
+          onClose={() => setTransfer(null)}
+          onDone={() => { setTransfer(null); onChanged(eventId) }}
+        />
       )}
     </section>
   )

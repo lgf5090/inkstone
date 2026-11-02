@@ -1346,6 +1346,9 @@ const allowed = new Map([
     "/**\n * The dialog a refused write opens.\n *\n * The queue parks an event whose revision went stale and asks here: the reader sees both versions of\n * every part they could have changed and picks which one survives. Nothing is written while the dialog\n * is open, and the row on the calendar stays as they left it, so a conflict is a choice rather than a\n * loss.\n */",
     "/** The parked write this dialog decides about: always an edit, because a delete is answered by `confirm`. */",
   ]],
+  ["src/client/features/calendar/CalendarContactsDialog.tsx", [
+    "/**\n * The address book behind guest autocomplete and birthday events.\n *\n * The dialog owns one list and one draft; a birthday is optional, so a contact can be a plain email\n * address. The birthday calendar is generated on request rather than on every keystroke.\n */",
+  ]],
   ["src/client/features/calendar/CalendarDialogs.tsx", [
     "/**\n * Calendar administration dialogs.\n *\n * Each dialog owns the request it makes, keeps its refusals inside the panel instead of closing it,\n * and calls `onSaved` so the container can refresh metadata and the DayFlow registry. The shell's\n * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.\n */",
     "/** The write already succeeded; a refresh failure must not present the write as failed or invite a retry. */",
@@ -1355,6 +1358,12 @@ const allowed = new Map([
     "// Revoking deletes the link, so a share is either on screen or it is not.",
     "// The server answers 204, so the dialog describes what the write just did: the address is gone,",
     "// and a fresh publish will hand out a different one.",
+    "/** Calendar data, not interface decoration: these are stored as the calendar's icon string. */",
+  ]],
+  ["src/client/features/calendar/CalendarEventDialog.tsx", [
+    "/**\n * The create-event form used by a double-click on empty grid space.\n *\n * DayFlow's own double-click creates a row before the reader has typed anything, and closing the\n * editor leaves that empty event behind. This form is the draft: nothing is written until Create,\n * and Cancel really cancels. The wall clock is interpreted in the account's time zone, not the\n * browser's, so a calendar read in Shanghai behaves the same on a laptop in Berlin.\n */",
+    "/** The instant the grid reported; its wall clock is read in `timeZone`. */",
+    "/** A reusable draft; its fields seed the form and the dates still come from the grid. */",
   ]],
   ["src/client/features/calendar/CalendarEventExtras.tsx", [
     "/**\n * The sidebar section for the event the reader just clicked.\n *\n * DayFlow's own editor owns the fields it renders, and it has no extension point that would let this\n * app add a row to it. Reminders are per event now, so they live here: the section reads the server's\n * row, writes back with its revision, and hands the new revision to the surface so the write queue\n * does not send a stale PATCH afterwards.\n */",
@@ -1362,13 +1371,33 @@ const allowed = new Map([
     "/** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */",
     "/** The whole list is replaced on every edit, so a failed write puts the previous one back. */",
     "/**\n   * Files go up one at a time: a hand of them fired together would race the account's hourly budget\n   * and report a failure count nobody could tie to a file. The size and the count are checked here only\n   * as a courtesy — the route decides both for real.\n   */",
-    "// The same file may be picked again after a refusal; an unchanged value fires no change event.",
+    "/** True when any member calendar is read-only; the server would refuse every write anyway. */",
+    "/* The address book is a suggestion, not a requirement. */",
+  ]],
+  ["src/client/features/calendar/CalendarEventTransferDialog.tsx", [
+    "/**\n * Copy or move one event to another calendar.\n *\n * Copy creates a new row and carries the guest list and reminders; files stay with the original\n * because their bytes are account files, not event data. Move reuses the existing multi-calendar\n * membership write, so revisions and the server's write checks stay in one place.\n */",
+  ]],
+  ["src/client/features/calendar/CalendarFilePicker.tsx", [
+    "/**\n * A file picker whose button is ours.\n *\n * The browser's native file control renders its button text in the browser's language, ignores the\n * app's type scale and can sit below the 24px pointer floor. The input stays in the DOM for the file\n * dialog; the visible control is a normal Button with an accessible name and a filename readout.\n */",
+    "// The same file may be picked again after a refusal; an unchanged value fires no change.",
   ]],
   ["src/client/features/calendar/CalendarFilteredSearch.tsx", [
     "/** A filtered calendar search: keyword, calendar, date span and kind, in one panel. */",
   ]],
+  ["src/client/features/calendar/CalendarFreeBusyDialog.tsx", [
+    "/**\n * A small \"find a time\" board: busy blocks from every selected calendar, and the open slots\n * between 09:00 and 18:00 the reader can start an event in.\n */",
+  ]],
   ["src/client/features/calendar/CalendarPrintSheet.tsx", [
     "/**\n * The paper the print dialogue gets.\n *\n * Rendered into `document.body` and hidden on screen, so the app's own layout never has to be fought\n * with: the print rules hide every other body child and show this one. The sheet is built from a range\n * read rather than from what is on screen, so printing from the year view still lists the appointments\n * the reader has, in the calendars they have visible.\n */",
+  ]],
+  ["src/client/features/calendar/CalendarRecurrenceDialog.tsx", [
+    "/**\n * The scope question a recurring-event edit raises.\n *\n * The library asks one event to stand for a whole series, so an edit aimed at one occurrence is\n * turned into a server-side exception (\"this\"), a split (\"following\") or a master edit (\"all\").\n * Nothing is written until the reader answers; the optimistic change was already reverted.\n */",
+  ]],
+  ["src/client/features/calendar/CalendarResourcesDialog.tsx", [
+    "/** Meeting rooms and shared equipment: each resource owns a calendar its reservations live in. */",
+  ]],
+  ["src/client/features/calendar/CalendarSchedulingDialog.tsx", [
+    "/** Owner side of booking links: the window, the target calendar, and the public address. */",
   ]],
   ["src/client/features/calendar/CalendarSettings.tsx", [
     "/**\n * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full\n * preference object and a partial write would silently reset the fields this panel does not show.\n */",
@@ -1377,6 +1406,9 @@ const allowed = new Map([
   ["src/client/features/calendar/CalendarShareDialog.test.tsx", [
     "/**\n * The share dialog's three read states and its two writes.\n *\n * The address is rebuilt from `window.location.origin`, the same rule the to-do feed screen follows:\n * behind a proxy the origin the worker saw may be one a reader cannot reach. The states are pinned\n * separately because the dialog is the only place the owner learns a link exists — a failed read that\n * renders as \"no link yet\" would invite them to mint a second one.\n */",
   ]],
+  ["src/client/features/calendar/CalendarShortcutsDialog.tsx", [
+    "/** The key map the calendar's keyboard plugin actually installs. */",
+  ]],
   ["src/client/features/calendar/CalendarSidebar.tsx", [
     "/**\n * The calendar sidebar: app-native React beside DayFlow rather than the library's sidebar plugin.\n *\n * It reads the live DayFlow registry for order, visibility and colours, and the API metadata for\n * grouping and revisions. Visibility and reordering go through `app.updateCalendar` /\n * `app.reorderCalendars`; the surface's callbacks persist them, which keeps one write per gesture.\n */",
     "/** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */",
@@ -1384,6 +1416,8 @@ const allowed = new Map([
     "/** Hand the current period to the browser's print dialogue. */",
     "// Dragging across a group boundary would reorder a calendar that stays in the other group; the",
     "// \"Move to group\" menu is the explicit way to change membership.",
+    "/** The single natural-language entry, owned by the surface so the header \"+\" can open it too. */",
+    "/** The task checklist for the loaded range. */",
   ]],
   ["src/client/features/calendar/CalendarSurface.tsx", [
     "/**\n * The live calendar surface: DayFlow, the plugins, the native sidebar and the write queue.\n *\n * Configuration is created once, because `useCalendarApp` builds its app from the first config. Later\n * preference changes go through `app.updateConfig`, which re-installs views without rebuilding the\n * app or losing the current selection. Range loading and persistence both apply server state with\n * `source: 'remote'` and a skip set, so a refresh never echoes back as a write.\n */",
@@ -1401,8 +1435,6 @@ const allowed = new Map([
     "/**\n   * The last complete answer, kept so it can be remembered once the account is known. The first one\n   * arrives from the app shell rather than from a read this component made, so it is seeded here.\n   */",
     "/**\n   * The account, readable at answer time.\n   *\n   * The session usually resolves while the first range read is still in flight, so the read started\n   * with no account in hand and the callback that started it can never learn one. This ref is what the\n   * answer reads when it lands, which is the moment the snapshot can actually be filed.\n   */",
     "// A complete range is a mirror: anything local that overlaps it and did not come back was deleted",
-    "// elsewhere. Recurring masters and generated occurrences are views, never rows of their own; a",
-    "// truncated page cannot prove absence, and a queued write must be allowed to reach the server.",
     "/**\n   * Ask the fingerprint before pulling the rows.\n   *\n   * Every fifth refresh reads them anyway: the triple is exact for anything that happened while the\n   * client was watching, and the periodic full read is the backstop for the one case it cannot see —\n   * a delete and a create whose totals cancel out in the same millisecond.\n   */",
     "// The probe is an optimisation; a refused or failed one means the rows are read as before.",
     "// A refresh with no write behind it is the one worth probing; a call naming an event is handling",
@@ -1420,6 +1452,30 @@ const allowed = new Map([
     "// reader closes it or picks another event.",
     "// A provider refresh replaces the meta object with the same values; rebuilding every view for",
     "// that defeats the point of updateConfig.",
+    "/** A double-click on an empty grid cell; the date is the cell the reader pointed at. */",
+    "// The runtime day view reads this callback even though its declaration omits it.",
+    "// elsewhere. A partial cached overlap is only a paint, not proof of absence. Recurring masters and",
+    "// generated occurrences are views, never rows of their own; a truncated page cannot prove absence,",
+    "// and a queued write must be allowed to reach the server.",
+    "/**\n   * DayFlow owns the grid, but not the interaction contract around it: on a desktop a click must\n   * select the event for our extras instead of opening its full-screen mobile sheet, every event\n   * needs a keyboard stop, and the compact header/add button must speak the reader's language.\n   * The bridge observes the library's re-renders so all three stay true after a view switch.\n   */",
+    "// A visible day/week already inside the shell's first page needs no padded refetch, even though",
+    "// the padded range would extend past it. This keeps the first week at one request.",
+    "// The shell fetches only a two-week first page. A month or year view still needs its own",
+    "// (padded) range, and waiting for the first scroll to ask for it would leave the grid empty.",
+    "// A truncated first page cannot prove that a smaller visible range is covered; let the surface",
+    "// fetch that range on its own instead of trusting a page that already hit its row ceiling.",
+    "// Visibility of a shared calendar is a local convenience; a full quota must not break the view.",
+    "/** Masters whose rule was just hidden by an exception; the next month read must expand them. */",
+  ]],
+  ["src/client/features/calendar/CalendarTasksPanel.tsx", [
+    "/**\n * The task events for the range the calendar has loaded, as a checklist.\n *\n * Tasks are ordinary events with `kind: 'task'`; this panel is a second view over the same rows, not\n * a second store. A checkbox writes the task field and asks the surface to refresh the range.\n */",
+  ]],
+  ["src/client/features/calendar/CalendarTemplatesDialog.tsx", [
+    "/**\n * Reusable event drafts, and the one place a current event becomes a template.\n *\n * A template stores only the fields an event starts with; dates are chosen again at use time. The\n * dialog is opened from the sidebar (list/use) and from the event card (save the current event).\n */",
+    "/** When present, the dialog can save this event as a template. */",
+  ]],
+  ["src/client/features/calendar/CalendarTimeZoneField.tsx", [
+    "/**\n * A time-zone field that can be typed into, not only scrolled.\n *\n * The IANA list is about four hundred entries; a native select makes a reader hunt through all of\n * them. The datalist keeps the same underlying value and lets the browser filter suggestions, while\n * the component only commits a zone the runtime recognises. An invalid draft is abandoned on blur.\n */",
   ]],
   ["src/client/features/calendar/MiniMonth.tsx", [
     "/**\n * The mini month: 42 cells, event dots in calendar colours, and a date that drives the main view.\n *\n * It reads DayFlow's registry and events directly rather than keeping a second copy of the data, so\n * a visibility toggle or a drag in the main grid is reflected here on the next app notification.\n */",
@@ -1436,19 +1492,33 @@ const allowed = new Map([
     "/** The export is a calendar document, not JSON; `request` hands back the body as text. */",
     "/** The calendar's public link, or null while it has never been shared. */",
     "/** Publish, or return the address the calendar already has. */",
+    "/** Month view expands recurring series in the library; it can skip the server's copy. */",
+    "/** One read for the sidebar card: reminders, guests and files all belong to one event. */",
+    "/** Expand only these masters (the month view's exception series). */",
+    "/** A partial PATCH for fields the extras card owns without re-sending the whole event. */",
+    "// ------------------------------------------------------------- contacts, birthdays, holidays",
+    "// ------------------------------------------------------------- event templates",
   ]],
   ["src/client/features/calendar/attendees.ts", [
     "/**\n * The guest list's client-side rules.\n *\n * The server re-checks all of this (`parseAttendeeList`); these helpers exist so the card can refuse a\n * half-typed address before it costs a round trip, and so it never offers the same guest twice.\n */",
     "/** The address as the list stores it, or null when the text is not one yet. */",
   ]],
+  ["src/client/features/calendar/calendar-chrome.ts", [
+    "/**\n * The browser-facing polish DayFlow does not own.\n *\n * Three jobs live here because all of them are about the library's DOM rather than our data:\n *  - a click on an event selects it and opens our extras, instead of the library's full-screen\n *    mobile drawer on desktop;\n *  - every event gets a keyboard stop and an accessible name;\n *  - the compact week header and the header's add button speak the reader's language.\n *\n * The library re-renders its grid, so every job is mirrored by a MutationObserver. We only write\n * attributes and text it does not read, so the mirror cannot fight its render.\n */",
+    "/** The gesture that opens the library's editor. */",
+    "/** Desktop only: on a touch layout the library's sheet is the right editor. */",
+    "/** The reader pointed at this event; the surface owns the extras card and its dismissed state. */",
+    "/** The name a screen reader gets for a grid event; the visual title/time are its only source. */",
+    "// A provider may carry a colour this build cannot parse; the calendar colour stays.",
+  ]],
   ["src/client/features/calendar/calendar.css", [
     "/*\n * DayFlow component styles arrive from the library; this file only maps its `--df-*` variables onto\n * Inkstone's semantic tokens and gives the calendar the height its flex parent promises.\n *\n * The mapping lives on `:root` because DayFlow portals menus and dialogs to the body, outside the\n * calendar element but still inside the document that reads these variables.\n */",
-    "/* The shell has no on-danger token; danger buttons already paint white text. */",
     "/* DayFlow's menu is positioned fixed at z-index 50 from inside the calendar; raise it to the shell's\n * popover band so it clears the app frame and the sidebar drawer without outranking public dialogs. */",
     "/* Occurrences are a rendered view of a series, never rows of their own: every interaction is refused,\n * so make that visible by keeping the pointer off them instead of letting a click open a dead panel. */",
     "/* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is\n   the only body child left, so none of the app's own layout has to be unwound to get a clean page. */",
     "/* Dark mode repaints the app with tokens; paper gets its own set so the sheet is ink on white. */",
     "/*\n * Year grids.\n *\n * DayFlow formats a day cell with `toLocaleDateString(locale, { day: 'numeric' })`, which in zh-CN\n * appends the day character (U+65E5); the fixed-week cell is about 34px wide, so the numeral and its\n * suffix broke onto two lines. The column header already names the weekday, so the cell only has to\n * keep this string on one line.\n */",
+    "/* The library's event blocks are divs; calendar-chrome gives them a keyboard stop, so the shell's\n * focus ring has to be visible on the grid as well. */",
   ]],
   ["src/client/features/calendar/conflict.ts", [
     "/**\n * Comparing the two versions of an event a write conflict landed between.\n *\n * A refused PATCH means somebody else — another tab, a phone, a provider sync — wrote the same event\n * first, and the queue used to answer that by reloading and losing whatever was just typed. This module\n * turns the two shapes into one comparable list of the parts a person can actually decide about, and\n * then builds the patched event from those decisions. Everything else on the row, including the\n * metadata a provider needs to keep recognising it, comes from the server copy.\n */",
@@ -1459,12 +1529,21 @@ const allowed = new Map([
     "/** The calendars and preferences the last visit showed, or null. */",
     "// Truncated or hand-edited: drop it rather than guess what the reader's calendars are.",
     "// Quota or a disabled store: the shell falls back to its skeleton, which is the old behaviour.",
+    "/** v1 stored the full `CalendarMetaDto`, including subscription URLs and connection usernames. */",
+    "// A storage that cannot remove the old entry also cannot have served it to us now.",
+  ]],
+  ["src/client/features/calendar/history.test.ts", [
+    "// The persistence queue reports the replay after the synchronous call has returned.",
   ]],
   ["src/client/features/calendar/history.ts", [
     "/**\n * Undo/redo for events, kept beside the persistence queue rather than inside DayFlow.\n *\n * DayFlow's own `undo()` only rewinds its in-memory snapshot, which would leave the server holding\n * the state the reader just undid. Every entry here is recorded after the queue has persisted its\n * change, and replaying one goes back through `applyEventsChanges(..., 'local')` so the queue and\n * the server see the replay like any other edit.\n */",
     "/** The event before the edit; null for a create. */",
     "/** The event after the edit; null for a delete. */",
     "/** Called after a change has reached the API; a replay of history never records again. */",
+    "/** Ids a replay touched; their echo through the write queue must not start a new history entry. */",
+  ]],
+  ["src/client/features/calendar/holidays.ts", [
+    "/**\n * A small, explicit holiday table.\n *\n * Lunar holidays need a real almanac and are not guessed here; the fixed-date holidays are the ones\n * a local calendar can state without pretending to know a year's official shifts. The client supplies\n * the labels so the generated calendar speaks the reader's language.\n */",
   ]],
   ["src/client/features/calendar/model.ts", [
     "/**\n * The seam between the calendar API's DTOs and DayFlow's in-memory types.\n *\n * DayFlow works with Temporal values and keeps its own render-only fields on an event; the API works\n * with `{ value, type, timeZone }` records and revisions. Everything that crosses that line goes\n * through this module so a field can never be dropped by one screen and remembered by another.\n */",
@@ -1491,6 +1570,16 @@ const allowed = new Map([
     "/**\n * A full mutable-field snapshot, used both to replace an event from the server and to replay an\n * undo entry through `app.applyEventsChanges`. Temporal values stay Temporal here: this never\n * crosses the API.\n */",
     "/** A search hit gets DayFlow's result colour, which is the owning calendar's line colour. */",
     "/** The plain date an event falls on in the account's display timezone. */",
+    "/** A stored rule temporarily taken off a series that has exceptions; put back before any write. */",
+  ]],
+  ["src/client/features/calendar/offline-outbox.ts", [
+    "/**\n * Writes made while the network was gone.\n *\n * The queue lives in localStorage so a reload does not lose the edit, keyed by account so one\n * profile cannot replay another's rows. Saves replay as an upsert because the first attempt may\n * have reached the server before the connection dropped; deletes keep the revision they read.\n */",
+    "// A full quota means the edit cannot be kept across reloads; the session still holds it.",
+    "/** One pending write per event: the newest intent replaces the older one. */",
+    "// Clearing is best-effort; a leftover queue replays as upserts on the next visit.",
+    "/** Stops at the first failure; only a transport failure leaves the rest queued. */",
+    "// A refusal this entry can never pass (gone, forbidden, stale) is dropped rather than",
+    "// replayed forever; the range reload shows the server's version.",
   ]],
   ["src/client/features/calendar/persistence.ts", [
     "/**\n * The event write queue.\n *\n * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those\n * announcements become API calls. Changes for the same event coalesce over a short debounce and are\n * then written one at a time, so a fast sequence of edits lands as its final state instead of a race\n * of PATCHes. A rejected write refreshes the affected range (the server is authoritative) or is\n * retried once and then reported — never dropped silently. A write refused for staleness parks the\n * edit and asks the reader which parts of it survive; see `resolveConflict`.\n */",
@@ -1512,6 +1601,11 @@ const allowed = new Map([
     "// Created and deleted before either reached the server: there is nothing to delete.",
     "/** Restore the last server-confirmed shape after a write that will not be retried. */",
     "/** Put an optimistic change back; the skip entry keeps its echo out of the write queue. */",
+    "/** An edit aimed at one occurrence, before it is turned into an exception or a split. */",
+    "/** A single occurrence was edited or deleted; the reader picks the scope. */",
+    "/** The write met a dead network; keeping it is the caller's call. */",
+    "/** Keep the optimistic row and hand the write to the account's durable queue. */",
+    "// The row never reached the server, so there is nothing for the queue to delete.",
   ]],
   ["src/client/features/calendar/print.ts", [
     "/**\n * The paper version of the calendar.\n *\n * Printing the live grid produces nothing usable: the columns are a fixed pixel height, the day bodies\n * scroll, and colour is the point of the screen rather than of the page. So the print surface is a\n * second document — one section per day, all-day items first, then the timed ones in order — built\n * from a range read of the server, which is why it does not depend on which view is showing.\n */",
@@ -1548,6 +1642,12 @@ const allowed = new Map([
     "// Quota or a disabled store: the cache is an optimisation, and the next load refetches.",
     "// Nothing to do: an unremovable entry is overwritten by the next successful save.",
     "/** Whether two fingerprints describe the same rows; every field must match. */",
+    "/** Whether this answer can be treated as a complete mirror of the requested range. */",
+    "/**\n * An entry that fully covers the requested range.\n *\n * A partial answer may be painted for speed, but it must never be mirrored as if it were complete:\n * events outside the cached sub-range would look deleted. The first paint and the mirror decision\n * both ask this question, not \"which entry overlaps most\".\n */",
+  ]],
+  ["src/client/features/calendar/session-cache.ts", [
+    "/**\n * Calendar snapshots that belong to the account, not to the browser.\n *\n * The range cache and first-paint metadata hold event titles and preferences so the next visit can\n * paint before the network answers. That is exactly why they must not outlive a sign-out: on a\n * shared browser the next person would be able to read the previous account's day.\n */",
+    "// A browser that refuses reads or writes will also refuse the data; there is nothing to clear.",
   ]],
   ["src/client/features/calendar/timezone.test.ts", [
     "// 2026-03-08 02:30 does not exist in New York; the value has to come back valid, not throw.",
@@ -29063,6 +29163,7 @@ const allowed = new Map([
     "// reader is reading. Written from the stored settings, so it survives a reload the same way the sizes do.",
     "// Feature-owned localStorage snapshots (the music queue and preferences) belong to the account",
     "// that just left; the reload would otherwise reveal them to the next login on this browser.",
+    "// Logout must still complete; the reload below would otherwise leave the reader signed in.",
   ]],
   ["src/client/store/ui.ts", [
     "// The subscriber fires on every notification, including the ones that change nothing",
@@ -29948,6 +30049,15 @@ const allowed = new Map([
     "/** False on the first load, so the client can seed the display timezone from the browser. */",
     "/** One calendar's public read link: the slug is the whole capability, so it never leaves the owner's session. */",
     "/**\n * The rows of one range, reduced to the numbers that change when any of them changes.\n *\n * `count` moves on insert and delete, `revSum` on every write, and `maxUpdatedAt` on the one race the\n * other two can miss (a delete and a create leaving both totals equal).\n */",
+    "/** The feed's hostname, for display only. The full address is a capability and stays server-side. */",
+    "/** Synthetic ids for calendars another account shares with this one; never stored in D1. */",
+    "/** Set on a calendar shared with this account; the synthetic id points at the owner's row. */",
+    "/** `YYYY-MM-DD`, or null when the reader did not record one. */",
+    "/** The series this row overrides; null for an ordinary event or a series master. */",
+    "/** The original wall-clock start this exception replaces. */",
+    "/** Shown as ORGANIZER in exported ICS; empty means no organizer line. */",
+    "/** Where cron sends the reminder copy; independent of the organizer address. */",
+    "/** Offer a one-click switch to the browser's zone when it differs from the calendar's. */",
   ]],
   ["src/shared/clouddrive/model.ts", [
     "/** Shared vocabulary for the CloudDrive app: paths, names, categories, listing and preferences. */",
@@ -30221,6 +30331,9 @@ const allowed = new Map([
   ["src/shared/locales/zh-CN-calculator.ts", [
     "// Generated from the reference calculator zh-CN resources.",
   ]],
+  ["src/shared/locales/zh-CN-calendar-csv.ts", [
+    "/** Header words a Chinese spreadsheet exports; data about the format, not interface copy. */",
+  ]],
   ["src/shared/locales/zh-CN-calendar-notify.ts", [
     "/** The twin of `en-US-calendar-notify.ts`; the two are proven against each other in the reminder test. */",
   ]],
@@ -30268,6 +30381,7 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-quick-add-keywords.ts", [
     "/** The Chinese words the quick-add parser reads. Data about the language, not interface copy. */",
+    "/** The words that shift a 12-hour wall clock into the afternoon/evening; data about the language. */",
   ]],
   ["src/shared/locales/zh-CN-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in Chinese.\n *\n * The twin of `en-US-subscriptions-notify.ts`; the two are proven against each other by key and by\n * placeholder in `tests/subscriptions-notify-copy.test.ts`. This file is registered as a catalog in\n * `scripts/check-i18n.mjs`, which is what lets it hold Chinese at all — every other source file is\n * held to English.\n */",
@@ -35028,10 +35142,13 @@ const allowed = new Map([
   ]],
   ["src/worker/calendar/connections.ts", [
     "/**\n * Calendar connections and the credentials behind them.\n *\n * A connection is the account-level half of remote sync: which provider, where its home collection\n * lives, what the reader may do there, and how the last attempt ended. The credential is a separate\n * row and exists only as vault ciphertext keyed to this connection's id, so listing connections never\n * touches a secret and a ciphertext copied to another connection cannot be read back.\n *\n * Every query carries `user_id`; a row that exists for another account is indistinguishable from one\n * that does not exist, which is the 404 the routes answer.\n */",
-    "/** The DTO is already sanitized and carries the home URL the proxy needs; the row maps to it. */",
     "/**\n * Insert a connection and its sealed credential together.\n *\n * D1 batches are transactional, so a credential the vault refused to encrypt can never leave behind a\n * connection that looks usable but has no secret. The caller encrypts first, then calls this once.\n */",
     "/**\n * Remove a connection and everything tied to its authorization.\n *\n * Pending OAuth states for the same provider are removed too, because they can no longer produce a\n * connection the reader asked for. Subscriptions and events are deliberately left alone: the route\n * and the sync layer own that policy, and deleting a connection must not silently delete a calendar.\n */",
     "/** Upsert the one credential row a connection may have for its kind. Reconnecting replaces it. */",
+    "/**\n * The row as the server needs it. The browser-facing DTO deliberately drops `baseUrl` and\n * `username`; the proxy and OAuth refresh still need them server-side.\n */",
+  ]],
+  ["src/worker/calendar/contacts.ts", [
+    "/**\n * The account's address book.\n *\n * Calendar guests and birthdays are the same person seen twice: a guest list stores an email, a\n * birthday stores a date. Keeping both in one row means the composer can suggest a known address\n * and the birthday sweep has a date to turn into a yearly event.\n */",
   ]],
   ["src/worker/calendar/discovery.ts", [
     "/**\n * CalDAV discovery, server-side.\n *\n * The password is typed by the reader but never leaves this worker: it signs the two PROPFIND calls\n * that find the principal and the calendar home, and that is the end of its life. Every address the\n * server hands back is checked again — same origin, or an Apple host when the server itself is Apple's —\n * because discovery is a redirect by another name, and a redirect that is followed without a check is\n * how a proxy ends up talking to a metadata endpoint.\n *\n * The XML reader is deliberately small: CalDAV answers are well-formed XML with a handful of known\n * elements, so namespace prefixes are normalized away and the first matching element is read. It is\n * not a general XML parser and never sees HTML.\n */",
@@ -35055,6 +35172,9 @@ const allowed = new Map([
     "/**\n * Expand a stored RRULE for one request range.\n *\n * The client renders non-month views from these rows; month keeps DayFlow's own expansion so a\n * series can still be edited there. Occurrence ids carry `::repeat-`, are never accepted by the API\n * as entity ids, and are skipped by the persistence queue.\n */",
     "/**\n * The document as separate text blocks: one header, one block per event, one footer.\n *\n * The export route measures and ships these blocks, so a heavy calendar is never held as one ICAL\n * tree and one string at the same time; that pair is what used to exhaust the isolate.\n */",
     "/**\n * The encoded blocks, or `null` once they grow past `maxBytes`.\n *\n * The size question is answered while the blocks are made, so an oversized calendar costs one\n * budget of work instead of building the whole file and only then noticing it does not fit. The\n * blocks go straight into the response stream, so the document never becomes one concatenated string.\n */",
+  ]],
+  ["src/worker/calendar/members.ts", [
+    "/** Calendar membership rows: the invitation, the permission and the guest's own answer. */",
   ]],
   ["src/worker/calendar/oauth.ts", [
     "/**\n * Google and Outlook authorization-code sign-in with PKCE.\n *\n * The browser leaves for the provider and comes back to one fixed callback. Nothing secret travels in\n * either direction's URL: the state is random, D1 stores only its SHA-256, the PKCE verifier is sealed\n * in the vault under that hash, and the tokens land in the credential column and nowhere else.\n *\n * The callback is a top-level browser navigation, so it is registered before `requireAuth` and relies\n * on the session loader that already ran. It consumes the state row atomically with `UPDATE … RETURNING`\n * before the code exchange, which is what makes a replay fail even when two requests race.\n */",
@@ -35103,6 +35223,13 @@ const allowed = new Map([
     "// The window is the furthest lead this account actually uses: an account with a 10-minute default",
     "// and no per-event reminders keeps scanning eleven minutes, not a week.",
     "// The fire log only needs to outlive a late tick; pruning is best-effort and must not fail delivery.",
+    "// Snoozes are separate from leads: the reader asked for one more notification, not a new lead.",
+  ]],
+  ["src/worker/calendar/resources.ts", [
+    "/** Rows behind bookable resources; the label lives beside the calendar it reserves. */",
+  ]],
+  ["src/worker/calendar/scheduling.ts", [
+    "/** Booking-link rows; the public page reads them by slug without an account. */",
   ]],
   ["src/worker/calendar/schema.ts", [
     "/**\n * The calendar app's tables.\n *\n * Tables are created from this list before the migration ledger is consulted; indexes follow. New\n * columns on an existing deployment need a migration and a REQUIRED_COLUMNS entry, but the tables\n * themselves do not spend a version number.\n */",
@@ -35113,6 +35240,14 @@ const allowed = new Map([
     "// deletes the row, so an address a reader wrote down is gone rather than parked next to a new one.",
     "// One row per file hung on an event. The bytes and their row live in the shared attachment tables;",
     "// this only names which event shows the file, and it goes away with that event.",
+    "// Calendar sharing is account-to-account. The row is the invitation and the permission at once:",
+    "// pending rows are invites, accepted rows are shared calendars, declined rows stay as history.",
+    "// A reusable address book for guests and birthdays. Email is the identity inside one account.",
+    "// A resource is a calendar with a name and capacity; its events are reservations.",
+    "// A public booking page: the slug is the capability, the owner's calendar is where the booked",
+    "// event lands, and the weekly window is stored as JSON so a link survives a time-zone change.",
+    "// A one-off \"remind me again\" parked on an event. The sweep reads it by notify_at and deletes the",
+    "// row after delivering, so a snooze never changes the event's own lead list.",
   ]],
   ["src/worker/calendar/shares.ts", [
     "/**\n * Public calendar links.\n *\n * A shared calendar is read by someone who will never log in, so the unguessable slug *is* the\n * capability — the same model the task feeds and note shares already use. This module owns the rows:\n * minting, revoking, looking one up, and rendering the document a visitor gets. Nothing here decides\n * what the visitor may do, because there is nothing they may do but read.\n *\n * Revoking deletes the row, so an address someone wrote down before the revoke stays dead and publishing\n * again necessarily hands out a new one. Deleting a calendar deletes its row in the same batch, and a\n * row is gone with the account: nothing about a link outlives the thing it pointed at.\n */",
@@ -35124,6 +35259,7 @@ const allowed = new Map([
     "/** Which calendar a live address belongs to. The visitor has no session, so this is the whole check. */",
     "// A view counter is bookkeeping: losing one must not cost the visitor their calendar.",
     "/** The published document: the whole calendar, in the owner's zone, without the account's other data. */",
+    "/**\n * The feed's fingerprint, computed without reading or serializing any event text.\n *\n * Every event write bumps `rev` and `updated_at`; the calendar name and the display zone both change\n * the document header, so both are part of the tag too.\n */",
   ]],
   ["src/worker/calendar/store.ts", [
     "/**\n * Every read and write the calendar HTTP routes make against D1.\n *\n * The shape follows the other stores: built per request from the account it serves, methods take\n * already-validated input and answer with the record the route needs, and nothing here knows about\n * HTTP. Three rules hold throughout:\n *  - every statement carries `user_id`, so one account's calendars can never surface in another's read;\n *  - a mutation's statements stay in one D1 batch, and every guarded write names the revision it read;\n *  - event membership lives in `calendar_event_calendars`, never as a column on the event, so a\n *    multi-calendar event has exactly one row per calendar and `calendarId` is derived (the lowest\n *    position) rather than stored twice.\n *\n * Batches are chunked because D1 bounds both the statement count of a batch and the variables one\n * statement may bind. A multi-chunk write is not one transaction, so a failed batch write cleans its\n * own rows through `batch_key` before rethrowing.\n */",
@@ -35174,9 +35310,22 @@ const allowed = new Map([
     "// ------------------------------------------------------------- subscriptions and connections",
     "/** Connections as the meta read exposes them: identifiers and state, never credentials. */",
     "// ------------------------------------------------------------- statements",
+    "/** Turn a rule into one that stops before the occurrence, whichever end condition it carried. */",
+    "/** Calendars another account accepted this account into, with a synthetic read-only id. */",
+    "// A malformed window keeps the weekday default rather than hiding the link.",
+    "/**\n   * Read one event through a shared calendar membership.\n   *\n   * The synthetic id names the owner and the event; the event's own memberships decide whether the\n   * guest may see it, so a guessed id for an unshared calendar answers null instead of leaking rows.\n   */",
+    "/**\n   * Apply an edit aimed at one occurrence of a series.\n   *\n   * \"This\" writes an override row and hides the master occurrence with EXDATE; \"following\" truncates\n   * the master and starts a new series at the occurrence; \"all\" edits or deletes the master itself.\n   */",
+    "/** Park a one-off \"remind me again\" for an event. Replaces an earlier snooze on the same row. */",
+    "/** Guest lists for a page of events, one query per chunk rather than one per event. */",
+    "/* The exception is the row the caller's failure already names. */",
+    "/* The original failure is what the caller sees. */",
+    "/** Which of an owner's calendars this account may write through a shared membership. */",
   ]],
   ["src/worker/calendar/subscriptions.ts", [
     "/**\n * Refresh a few due ICS feeds on each cron fire.\n *\n * `last_sync_at` spaces successful runs; `last_error_at` holds a broken feed for an hour instead of\n * retrying it every minute. The limit keeps one slow feed from spending the whole scheduled budget.\n */",
+  ]],
+  ["src/worker/calendar/templates.ts", [
+    "/** Reusable event drafts; the palette stores fields, not dates. */",
   ]],
   ["src/worker/calendar/validation.ts", [
     "/**\n * The calendar routes' input boundary.\n *\n * Every parser here takes `unknown` from a JSON body or a query string, returns a normalized value\n * the store can bind, and refuses anything else with `ApiError.badRequest`. The rules live here rather\n * than in the store because they are properties of the request (\"a title is 1–300 characters\"), while\n * the store owns the rules that must hold whatever the caller sent (membership, revisions, scoping).\n *\n * Temporal values are parsed once, here, and both the canonical string and the epoch milliseconds the\n * range query needs are returned together, so the store never re-derives time from text. Nothing in\n * this file logs or echoes the raw upstream text of a parse failure.\n */",
@@ -35190,6 +35339,7 @@ const allowed = new Map([
     "/** The `calendarIds` query parameter: a comma-separated list of entity ids, or nothing. */",
     "/** A revision query parameter, or null when the caller did not send one. */",
     "/** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */",
+    "/** One edit aimed at a single occurrence of a stored series. */",
   ]],
   ["src/worker/calendar/vendor/dayflow-caldav.d.ts", [
     "/**\n * Worker-side type shim for the provider library.\n *\n * The package's published types pull Preact/DOM globals that replace the Worker's BodyInit/Headers.\n * The cron only needs these five runtime exports; Vite still resolves the real implementation.\n */",
@@ -36224,6 +36374,9 @@ const allowed = new Map([
     "// group_id and is_favorite, so neither could serve it.",
     "// Sealed TOTP secret per account. '' means the account has no second factor stored.",
     "// A short curated icon id per group; '' keeps the default folder picture.",
+    "// Account sharing, contacts, templates, resources, booking links and reminder snoozes. These",
+    "// tables were introduced together with the feature batch; existing databases get them here.",
+    "// Event-level color; one column per version so one refusal cannot hide the rest.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -37991,13 +38144,40 @@ const allowed = new Map([
     "// when the caller brought a 25 MB upload with them.",
     "// The upload already landed; a link that cannot be written must not leave a file nothing names.",
   ]],
+  ["src/worker/routes/calendar-contacts.ts", [
+    "/**\n * The calendar address book and the birthday projection built from it.\n *\n * A contact is private account data, so every route is session-scoped and every id this account does\n * not own is a 404. The birthday calendar is a normal local calendar with yearly all-day events;\n * syncing it again updates rows in place rather than minting a second copy.\n */",
+    "/** Build the yearly birthday events for every contact that recorded a birthday. */",
+    "/** A holiday calendar is data supplied by the client's locale table; the server only files it. */",
+  ]],
+  ["src/worker/routes/calendar-csv.ts", [
+    "/** A deliberately small CSV importer: one row per event, ISO-like start/end values. */",
+    "/* The import error is the one that explains the request. */",
+  ]],
   ["src/worker/routes/calendar-ics.ts", [
     "// The events are idempotent by (source, external id), so a retry of the same file is safe.",
+  ]],
+  ["src/worker/routes/calendar-members.ts", [
+    "/**\n * Account-to-account calendar sharing.\n *\n * A share row is both the invitation and the permission: pending rows appear in the member's sidebar,\n * accepted rows appear as synthetic read-only calendars, and declining keeps the history without\n * granting access. The owner is the only account allowed to change the guest list.\n */",
+    "/** The invited account can drop its own membership at any time. */",
+    "/** The invited account answers; only the member row it owns can move. */",
   ]],
   ["src/worker/routes/calendar-public.ts", [
     "/**\n * The public calendar link: `GET /feeds/calendar/<slug>.ics`.\n *\n * There is no session here and there never will be one — a third-party calendar polls this address and\n * cannot log in — so the unguessable slug is the whole capability, exactly as the task feed works. The\n * security `requireAuth` would otherwise supply is done by hand and deliberately:\n *   - the slug shape is checked before any database is touched, so a guessed slug is refused the same\n *     fast 404 as one that never existed and the endpoint cannot be used to probe;\n *   - revoked and unknown links both answer 404, never a 403 that explains which;\n *   - polling is throttled per slug and visitor, and the document itself is capped, so one shared\n *     calendar cannot be turned into unbounded work or an unbounded download.\n *\n * The document is built from the owner's calendar only: no other calendar, no account metadata, and\n * nothing that identifies the owner.\n */",
     "/** A published calendar is a subscription, not a report: four megabytes of text is generous. */",
     "/** `ABC123….ics` and `abc123…` reach the same calendar; the stored slug is always lowercase. */",
+    "// ------------------------------------------------------------- public HTML page",
+  ]],
+  ["src/worker/routes/calendar-resources.ts", [
+    "/**\n * Bookable resources: a named calendar plus an optional capacity.\n *\n * A resource is deliberately not a second kind of calendar. Reservations are ordinary events in the\n * resource's calendar, so every existing range read, conflict prompt and permission check still\n * applies; this route only keeps the label and capacity row in step with it.\n */",
+    "/* The insert error is the one to report. */",
+  ]],
+  ["src/worker/routes/calendar-scheduling.ts", [
+    "/**\n * Calendly-style booking links.\n *\n * The owner's session manages a link; a visitor reads only the slot window and the aggregate busy\n * stretches of the next two weeks, then books one slot. Nothing identifies an event: the public\n * answer carries milliseconds, never titles, calendars or attendees.\n */",
+    "// Keep the weekday default for a malformed row.",
+    "/** The owner's links. Reading meta already returns them; this route is for a focused refresh. */",
+    "// ------------------------------------------------------------- public",
+    "// Defaults stay.",
+    "// ------------------------------------------------------------- public booking page",
   ]],
   ["src/worker/routes/calendar-shares.ts", [
     "/**\n * The owner's side of a public calendar link.\n *\n * Three calls: read the current state, publish, unpublish. The address itself is served by\n * `calendar-public.ts` under `/feeds/calendar/…`, which never comes through here and never needs a\n * session.\n */",
@@ -38015,6 +38195,9 @@ const allowed = new Map([
     "// Best-effort: the function logs a failed revoke and returns, so a provider outage cannot keep the",
     "// reader's own connection row alive after they asked for it to be gone.",
   ]],
+  ["src/worker/routes/calendar-templates.ts", [
+    "/** Reusable event drafts: a name for the palette, the fields an event starts with. */",
+  ]],
   ["src/worker/routes/calendar.ts", [
     "/**\n * The calendar app's HTTP surface.\n *\n * Static paths are registered before `/:id` because Hono matches in registration order. Everything\n * below `use` requires a session, every mutating method spends the caller's write budget, and every\n * query goes through `CalendarStore`, which scopes by the account the session named. A malformed id\n * is a 400 and an id this account does not own is a 404, never a 403 that confirms an id exists.\n *\n * Validation lives in `calendar/validation.ts` and SQL in `calendar/store.ts`; this file only reads\n * the request, names the operation and shapes the response.\n */",
     "/** Enough for a fast client dragging events and checking boxes. */",
@@ -38030,6 +38213,14 @@ const allowed = new Map([
     "/**\n * The fingerprint of a range, without the rows.\n *\n * Registered before `/events/:id`: Hono matches in order, and `revision` would otherwise arrive as an\n * event id.\n */",
     "// ------------------------------------------------------------- calendars",
     "// ------------------------------------------------------------- groups",
+    "// The month view already expands recurring series in the library; asking the server to expand a",
+    "// second copy is pure CPU and payload. Other views (and external clients) keep the default.",
+    "/** Raw ids in the owner's own namespace. */",
+    "/**\n * A write a guest points at a synthetic shared calendar id.\n *\n * Every named calendar must belong to the same owner and every membership must say writer; a reader\n * gets the same 403 an owner's read-only calendar gets. Mixing a guest's own calendar with a shared\n * one is refused because the response DTO cannot name two different owners in one id.\n */",
+    "/** Rewrite synthetic calendar ids in a create/patch body before validation sees them. */",
+    "/**\n * Busy blocks across the calendars this account can read.\n *\n * Titles and descriptions never leave the store here: a shared calendar reveals that its owner is\n * busy, not what they are doing. The client turns these blocks into free windows itself.\n */",
+    "// A month view that only needs exception masters asks for exactly those; expanding every series",
+    "// there would send the whole month back a second time.",
   ]],
   ["src/worker/routes/cloudflare/accounts.ts", [
     "/**\n * `/api/cloudflare/accounts` — the account list, its credential bundle, and the batch operations the\n * screen's buttons call.\n *\n * Hono answers in registration order, so every fixed path (`/test-batch`, `/import-csv`, `/batch/*`)\n * is registered before the `/:id` arms. Every query carries the reader's id; another reader's account\n * is answered as missing rather than forbidden, so an id cannot be used to prove it exists.\n *\n * Every write is paired with an audit row. The route owns those for edits and deletes because the\n * store functions are also called by other screens and should not guess a reader's intent; CSV rows\n * are audited one by one because each creates an account of its own.\n */",
@@ -41995,6 +42186,7 @@ const allowed = new Map([
   ["tests/calendar-sync.test.ts", [
     "// The real application installs `loadSession` before this router; the callback depends on that, so",
     "// the test installs the same half of it instead of letting the callback read an empty context.",
+    "// The browser-facing DTO is sanitized: base address and username stay server-side.",
   ]],
   ["tests/chat-commands.test.ts", [
     "/** Where the palette hands the reader off to, so a case can name it without repeating the address. */",

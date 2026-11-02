@@ -16,13 +16,34 @@ import {
   MAX_ICS_BYTES,
   MAX_ICS_EVENTS,
   MAX_ICS_EXPORT_BYTES,
+  isCalendarAttendeeStatus,
   isCalendarEntityId,
 } from '@shared/calendar/model'
+import type { CalendarAttendeeDto } from '@shared/calendar/model'
 
 const IMPORT_BODY_LIMIT = MAX_ICS_BYTES * 2 + 64 * 1024
 const IMPORT_CHUNK = 200
 const importBudget = createMinuteBudget(10, 'Too many calendar imports. Try again in a minute.')
 const exportBudget = createMinuteBudget(30, 'Too many calendar exports. Try again in a minute.')
+
+function importedAttendees(meta: Record<string, unknown>): CalendarAttendeeDto[] {
+  const raw = meta.attendees
+  if (!Array.isArray(raw)) return []
+  const guests: CalendarAttendeeDto[] = []
+  for (const entry of raw.slice(0, 50)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const record = entry as Record<string, unknown>
+    const email = typeof record.email === 'string' ? record.email.trim().toLowerCase() : ''
+    if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue
+    if (guests.some(guest => guest.email === email)) continue
+    guests.push({
+      email,
+      name: typeof record.name === 'string' ? record.name.trim().slice(0, 120) : '',
+      status: isCalendarAttendeeStatus(record.status) ? record.status : 'needs-action',
+    })
+  }
+  return guests
+}
 
 export const calendarIcsRoutes = new Hono<AppBindings>()
 
@@ -104,7 +125,14 @@ calendarIcsRoutes.post('/import', async (c) => {
   try {
     for (let index = 0; index < inputs.length; index += IMPORT_CHUNK) {
       const chunk = inputs.slice(index, index + IMPORT_CHUNK)
-      imported += (await store.createEvents(chunk, 'upsert')).length
+      const written = await store.createEvents(chunk, 'upsert')
+      imported += written.length
+      for (const event of written) {
+        const guests = importedAttendees(event.meta)
+        if (guests.length > 0) {
+          await store.setEventAttendees(event.id, guests, event.rev)
+        }
+      }
     }
   } catch {
     if (created) {
@@ -143,10 +171,12 @@ calendarIcsRoutes.get('/export', async (c) => {
   if (range.truncated) {
     throw ApiError.tooLarge('That calendar has too many events to export as one file')
   }
+  const guests = await store.eventAttendeesFor(range.events.map(event => event.id))
   const chunks = encodeIcsChunks({
     name: calendar.name,
-    events: range.events,
+    events: range.events.map(event => ({ ...event, attendees: guests.get(event.id) })),
     timeZone: preferences.timeZone,
+    organizerEmail: preferences.organizerEmail,
   }, MAX_ICS_EXPORT_BYTES)
   if (!chunks) throw ApiError.tooLarge('That calendar is too large to export as one file')
   const filename = `${safeFilename(calendar.name)}.ics`

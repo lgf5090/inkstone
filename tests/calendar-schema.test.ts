@@ -68,7 +68,7 @@ describe('the calendar tables', () => {
   it('create every declared table', () => {
     const present = tables()
     for (const table of CALENDAR_REQUIRED_TABLES) expect(present.has(table)).toBe(true)
-    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(15)
+    expect(CALENDAR_REQUIRED_TABLES).toHaveLength(21)
   })
 
   it('create every declared index', () => {
@@ -83,10 +83,11 @@ describe('the calendar tables', () => {
     }
   })
 
-  it('scope every row to an account, with user_id leading each key', () => {
+  it('scope every row to an account, with the owner column leading each key', () => {
     for (const table of CALENDAR_REQUIRED_TABLES) {
-      expect(columns(table).has('user_id')).toBe(true)
-      expect(primaryKey(table)[0], `${table} must lead its key with user_id`).toBe('user_id')
+      const owner = table === 'calendar_members' ? 'owner_user_id' : 'user_id'
+      expect(columns(table).has(owner)).toBe(true)
+      expect(primaryKey(table)[0], `${table} must lead its key with ${owner}`).toBe(owner)
     }
   })
 

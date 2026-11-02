@@ -6,24 +6,35 @@ import { ApiError, request } from '../../lib/api'
 import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
+  CalendarBusyBlock,
   CalendarConnectionDto,
   CalendarConnectionKind,
+  CalendarContactDto,
   CalendarDto,
   CalendarEventDto,
   CalendarEventInput,
   CalendarGroupDto,
+  CalendarMemberDto,
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
+  CalendarResourceDto,
+  CalendarSchedulingLinkDto,
   CalendarSearchResultDto,
   CalendarShareDto,
   CalendarSource,
+  CalendarTemplateDto,
+  TemporalValue,
 } from '@shared/calendar/model'
 
 export interface EventRangeQuery {
   from: number
   to: number
   calendarIds?: string[]
+  /** Month view expands recurring series in the library; it can skip the server's copy. */
+  includeOccurrences?: boolean
+  /** Expand only these masters (the month view's exception series). */
+  occurrenceMasters?: string[]
 }
 
 export interface EventSearchResponse {
@@ -36,6 +47,7 @@ export interface CalendarCreateInput {
   name: string
   color: string
   darkColor?: string
+  icon?: string | null
   groupId?: string | null
   isDefault?: boolean
   isVisible?: boolean
@@ -57,7 +69,7 @@ export interface CalendarPatchInput {
 export interface IcsImportResponse {
   calendarId: string
   imported: number
-  warnings?: Array<{ code: string; message: string }>
+  warnings?: Array<{ code: string; message: string; line?: number; uid?: string }>
 }
 
 export interface SubscriptionInput {
@@ -74,11 +86,14 @@ function rangeQuery(query: EventRangeQuery): string {
     to: new Date(query.to).toISOString(),
   })
   if (query.calendarIds?.length) params.set('calendarIds', query.calendarIds.join(','))
+  if (query.occurrenceMasters?.length) params.set('occurrenceMasters', query.occurrenceMasters.join(','))
+  if (query.includeOccurrences === false) params.set('occurrences', '0')
   return params.toString()
 }
 
-export function getMeta(signal?: AbortSignal): Promise<CalendarMetaDto> {
-  return request<CalendarMetaDto>('/api/calendar/meta', { signal })
+export function getMeta(defaultCalendarName?: string, signal?: AbortSignal): Promise<CalendarMetaDto> {
+  const query = defaultCalendarName ? `?defaultName=${encodeURIComponent(defaultCalendarName)}` : ''
+  return request<CalendarMetaDto>(`/api/calendar/meta${query}`, { signal })
 }
 
 export interface EventRangeResponse {
@@ -124,6 +139,10 @@ export interface EventSearchFilters {
   from?: number
   to?: number
   kind?: 'event' | 'task'
+  attendee?: string
+  location?: string
+  recurring?: boolean
+  taskStatus?: 'open' | 'done'
 }
 
 export async function searchEvents(
@@ -136,6 +155,10 @@ export async function searchEvents(
   if (filters.from !== undefined) params.set('from', new Date(filters.from).toISOString())
   if (filters.to !== undefined) params.set('to', new Date(filters.to).toISOString())
   if (filters.kind) params.set('kind', filters.kind)
+  if (filters.attendee?.trim()) params.set('attendee', filters.attendee.trim())
+  if (filters.location?.trim()) params.set('location', filters.location.trim())
+  if (filters.recurring !== undefined) params.set('recurring', filters.recurring ? '1' : '0')
+  if (filters.taskStatus) params.set('taskStatus', filters.taskStatus)
   return request<EventSearchResponse>(`/api/calendar/events/search?${params.toString()}`, { signal })
 }
 
@@ -144,6 +167,23 @@ export async function getEvent(id: string): Promise<CalendarEventDto | null> {
   try {
     const data = await request<{ event: CalendarEventDto }>(`/api/calendar/events/${entity(id)}`)
     return data.event
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+
+export interface EventExtrasResponse {
+  event: CalendarEventDto
+  reminders: number[]
+  attendees: CalendarAttendeeDto[]
+  attachments: CalendarAttachmentDto[]
+}
+
+/** One read for the sidebar card: reminders, guests and files all belong to one event. */
+export async function getEventExtras(id: string): Promise<EventExtrasResponse | null> {
+  try {
+    return await request<EventExtrasResponse>(`/api/calendar/events/${entity(id)}/extras`)
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
@@ -229,6 +269,44 @@ export async function updateEvent(id: string, patch: CalendarEventInput, rev: nu
   return data.event
 }
 
+/** A partial PATCH for fields the extras card owns without re-sending the whole event. */
+export async function updateEventPatch(
+  id: string,
+  patch: Partial<CalendarEventInput>,
+  rev: number,
+): Promise<CalendarEventDto> {
+  const data = await request<{ event: CalendarEventDto }>(`/api/calendar/events/${entity(id)}`, {
+    method: 'PATCH',
+    body: { ...patch, rev },
+  })
+  return data.event
+}
+
+export interface RecurrenceChangeBody {
+  occurrenceStart: TemporalValue
+  occurrenceEnd: TemporalValue
+  scope: 'this' | 'following' | 'all'
+  action: 'update' | 'cancel'
+  patch?: Partial<CalendarEventInput>
+}
+
+export function applyRecurrenceChange(
+  masterId: string,
+  change: RecurrenceChangeBody,
+): Promise<{ masterId: string | null }> {
+  return request(`/api/calendar/events/${entity(masterId)}/recurrence`, {
+    method: 'POST',
+    body: change,
+  })
+}
+
+export function snoozeEvent(id: string, minutes: number): Promise<{ notifyAt: number }> {
+  return request(`/api/calendar/events/${entity(id)}/snooze`, {
+    method: 'POST',
+    body: { minutes },
+  })
+}
+
 export async function updateEventCalendars(
   id: string,
   calendarIds: string[],
@@ -310,6 +388,17 @@ export function importIcs(input: {
   })
 }
 
+export function importCsv(input: {
+  content: string
+  targetCalendarId?: string
+  newCalendar?: { name: string; color: string }
+}): Promise<IcsImportResponse> {
+  return request<IcsImportResponse>('/api/calendar/csv/import', {
+    method: 'POST',
+    body: input,
+  })
+}
+
 /** The export is a calendar document, not JSON; `request` hands back the body as text. */
 export function exportIcs(calendarId: string): Promise<string> {
   return request<string>(`/api/calendar/ics/export?calendarId=${entity(calendarId)}`)
@@ -335,7 +424,7 @@ export function unshareCalendar(calendarId: string): Promise<void> {
 export interface SubscriptionCreateResponse {
   calendarId: string
   imported: number
-  warnings: Array<{ code: string; message: string }>
+  warnings: Array<{ code: string; message: string; line?: number; uid?: string }>
 }
 
 export function createSubscription(input: SubscriptionInput): Promise<SubscriptionCreateResponse> {
@@ -433,4 +522,163 @@ export function reportConnectionCalendars(
 
 export function deleteConnection(connectionId: string): Promise<void> {
   return request<void>(`/api/calendar/connections/${entity(connectionId)}`, { method: 'DELETE' })
+}
+
+// ------------------------------------------------------------- contacts, birthdays, holidays
+
+export async function getContacts(query = ''): Promise<CalendarContactDto[]> {
+  const data = await request<{ contacts: CalendarContactDto[] }>(
+    `/api/calendar/contacts${query ? `?q=${encodeURIComponent(query)}` : ''}`,
+  )
+  return data.contacts
+}
+
+export async function createContact(input: {
+  name: string
+  email: string
+  birthday: string | null
+}): Promise<CalendarContactDto> {
+  return (await request<{ contact: CalendarContactDto }>('/api/calendar/contacts', {
+    method: 'POST',
+    body: input,
+  })).contact
+}
+
+export async function updateContact(
+  id: string,
+  input: { name: string; email: string; birthday: string | null; rev: number },
+): Promise<CalendarContactDto> {
+  return (await request<{ contact: CalendarContactDto }>(`/api/calendar/contacts/${entity(id)}`, {
+    method: 'PATCH',
+    body: input,
+  })).contact
+}
+
+export function deleteContact(id: string): Promise<void> {
+  return request<void>(`/api/calendar/contacts/${entity(id)}`, { method: 'DELETE' })
+}
+
+export function syncBirthdays(input: { calendarName: string; titleTemplate: string }): Promise<{
+  calendarId: string
+  imported: number
+  removed: number
+}> {
+  return request('/api/calendar/birthdays/sync', { method: 'POST', body: input })
+}
+
+export function addHolidays(input: {
+  calendarName: string
+  holidays: Array<{ date: string; title: string }>
+}): Promise<{ calendarId: string; imported: number }> {
+  return request('/api/calendar/holidays', { method: 'POST', body: input })
+}
+
+// ------------------------------------------------------------- event templates
+
+export async function getTemplates(): Promise<CalendarTemplateDto[]> {
+  return (await request<{ templates: CalendarTemplateDto[] }>('/api/calendar/templates')).templates
+}
+
+export async function createTemplate(input: Omit<CalendarTemplateDto, 'id' | 'rev'>): Promise<CalendarTemplateDto> {
+  return (await request<{ template: CalendarTemplateDto }>('/api/calendar/templates', {
+    method: 'POST',
+    body: input,
+  })).template
+}
+
+export async function updateTemplate(template: CalendarTemplateDto): Promise<CalendarTemplateDto> {
+  return (await request<{ template: CalendarTemplateDto }>(`/api/calendar/templates/${entity(template.id)}`, {
+    method: 'PATCH',
+    body: template,
+  })).template
+}
+
+export function deleteTemplate(id: string): Promise<void> {
+  return request<void>(`/api/calendar/templates/${entity(id)}`, { method: 'DELETE' })
+}
+
+
+export async function getCalendarMembers(calendarId: string): Promise<CalendarMemberDto[]> {
+  return (await request<{ members: CalendarMemberDto[] }>(`/api/calendar/calendars/${entity(calendarId)}/members`)).members
+}
+
+export function addCalendarMember(
+  calendarId: string,
+  input: { username: string, role: 'reader' | 'writer' },
+): Promise<{ member: CalendarMemberDto }> {
+  return request(`/api/calendar/calendars/${entity(calendarId)}/members`, { method: 'POST', body: input })
+}
+
+export function removeCalendarMember(calendarId: string, memberId: string): Promise<void> {
+  return request<void>(`/api/calendar/calendars/${entity(calendarId)}/members/${entity(memberId)}`, { method: 'DELETE' })
+}
+
+export async function getResources(): Promise<CalendarResourceDto[]> {
+  return (await request<{ resources: CalendarResourceDto[] }>('/api/calendar/resources')).resources
+}
+
+export async function createResource(input: { name: string, capacity?: number | null, color?: string }): Promise<CalendarResourceDto> {
+  return (await request<{ resource: CalendarResourceDto }>('/api/calendar/resources', { method: 'POST', body: input })).resource
+}
+
+export async function updateResource(id: string, patch: { name?: string, capacity?: number | null }): Promise<CalendarResourceDto> {
+  return (await request<{ resource: CalendarResourceDto }>(`/api/calendar/resources/${entity(id)}`, { method: 'PATCH', body: patch })).resource
+}
+
+export function deleteResource(id: string): Promise<void> {
+  return request<void>(`/api/calendar/resources/${entity(id)}`, { method: 'DELETE' })
+}
+
+export async function getSchedulingLinks(): Promise<CalendarSchedulingLinkDto[]> {
+  return (await request<{ links: CalendarSchedulingLinkDto[] }>('/api/calendar/scheduling-links')).links
+}
+
+export interface SchedulingLinkInput {
+  calendarId: string
+  title: string
+  durationMinutes: number
+  days: number[]
+  startHour: number
+  endHour: number
+}
+
+export function createSchedulingLink(input: SchedulingLinkInput): Promise<CalendarSchedulingLinkDto> {
+  return request<{ link: CalendarSchedulingLinkDto }>('/api/calendar/scheduling-links', { method: 'POST', body: input })
+    .then(answer => answer.link)
+}
+
+export function updateSchedulingLink(
+  id: string,
+  patch: Partial<Omit<SchedulingLinkInput, 'calendarId'>> & { enabled?: boolean },
+): Promise<CalendarSchedulingLinkDto> {
+  return request<{ link: CalendarSchedulingLinkDto }>(`/api/calendar/scheduling-links/${entity(id)}`, { method: 'PATCH', body: patch })
+    .then(answer => answer.link)
+}
+
+export function deleteSchedulingLink(id: string): Promise<void> {
+  return request<void>(`/api/calendar/scheduling-links/${entity(id)}`, { method: 'DELETE' })
+}
+
+export function leaveSharedCalendar(ownerId: string, calendarId: string): Promise<void> {
+  return request<void>(`/api/calendar/invites/${entity(ownerId)}/${entity(calendarId)}`, { method: 'DELETE' })
+}
+
+export function respondInvite(ownerId: string, calendarId: string, status: 'accepted' | 'declined'): Promise<void> {
+  return request<void>(`/api/calendar/invites/${entity(ownerId)}/${entity(calendarId)}/response`, {
+    method: 'POST',
+    body: { status },
+  })
+}
+
+export function getFreeBusy(input: {
+  from: number
+  to: number
+  calendarIds?: string[]
+}): Promise<{ busy: CalendarBusyBlock[], truncated: boolean }> {
+  const params = new URLSearchParams({
+    from: new Date(input.from).toISOString(),
+    to: new Date(input.to).toISOString(),
+  })
+  if (input.calendarIds?.length) params.set('calendarIds', input.calendarIds.join(','))
+  return request(`/api/calendar/free-busy?${params.toString()}`)
 }

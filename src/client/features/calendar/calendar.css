@@ -19,8 +19,7 @@
   --df-color-secondary: var(--bg-raised);
   --df-color-secondary-foreground: var(--text-secondary);
   --df-color-destructive: var(--danger);
-  /* The shell has no on-danger token; danger buttons already paint white text. */
-  --df-color-destructive-foreground: #fff;
+  --df-color-destructive-foreground: var(--danger-contrast);
   --df-color-ring: var(--accent);
 
   --df-heat-1: color-mix(in oklab, var(--accent) 12%, var(--bg-surface));
@@ -75,6 +74,14 @@
 .inkstone-calendar .df-event[data-event-id*="::repeat-"],
 .inkstone-calendar .df-event[id*="::repeat-"] {
   pointer-events: none;
+}
+
+/* The library's event blocks are divs; calendar-chrome gives them a keyboard stop, so the shell's
+ * focus ring has to be visible on the grid as well. */
+.inkstone-calendar .df-event:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 
 /* The printed sheet. It exists only for paper: on screen it is not there at all, and in print it is

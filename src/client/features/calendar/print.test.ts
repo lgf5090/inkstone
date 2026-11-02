@@ -23,7 +23,11 @@ function event(input: {
     calendarIds: ['calendar-1'],
     meta: input.meta ?? {},
     icon: null,
+    color: null,
     recurrenceRule: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
+    recurrenceCancelled: false,
     rev: 1,
     source: 'local',
     externalId: null,
@@ -132,7 +136,14 @@ describe('printPeriod', () => {
       fromMs: Date.parse('2026-11-04T00:00:00Z'),
       toMs: Date.parse('2026-11-05T00:00:00Z') - 1,
     })
-    expect(printPeriod('year', date, 'UTC', 1)).toEqual(printPeriod('month', date, 'UTC', 1))
+    expect(printPeriod('year', date, 'UTC', 1)).toEqual({
+      fromMs: Date.parse('2026-01-01T00:00:00Z'),
+      toMs: Date.parse('2027-01-01T00:00:00Z') - 1,
+    })
+    expect(printPeriod('agenda', date, 'UTC', 1, 14)).toEqual({
+      fromMs: Date.parse('2026-11-04T00:00:00Z'),
+      toMs: Date.parse('2026-11-18T00:00:00Z') - 1,
+    })
   })
 
   it('respects a Sunday week start and a zone that shifts the date', () => {

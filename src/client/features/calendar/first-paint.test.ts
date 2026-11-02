@@ -33,14 +33,23 @@ describe('the first-paint metadata cache', () => {
   })
 
   it('discards a corrupted value instead of guessing the reader calendars', () => {
-    localStorage.setItem(`inkstone.calendar.first-paint.v1:${ALICE}`, '{"version":1,"meta":{"calendars":')
+    localStorage.setItem(`inkstone.calendar.first-paint.v2:${ALICE}`, '{"version":1,"meta":{"calendars":')
     expect(readFirstPaintMeta(ALICE)).toBeNull()
-    expect(localStorage.getItem(`inkstone.calendar.first-paint.v1:${ALICE}`)).toBeNull()
+    expect(localStorage.getItem(`inkstone.calendar.first-paint.v2:${ALICE}`)).toBeNull()
   })
 
   it('ignores a file written by a different version', () => {
-    localStorage.setItem(`inkstone.calendar.first-paint.v1:${ALICE}`, JSON.stringify({ version: 2, meta: meta() }))
+    localStorage.setItem(`inkstone.calendar.first-paint.v2:${ALICE}`, JSON.stringify({ version: 2, meta: meta() }))
     expect(readFirstPaintMeta(ALICE)).toBeNull()
+  })
+
+  it('drops the old v1 snapshot that carried subscription URLs and usernames', () => {
+    localStorage.setItem(`inkstone.calendar.first-paint.v1:${ALICE}`, JSON.stringify({
+      version: 1,
+      meta: { ...meta(), subscriptions: [{ url: 'https://feeds.example.com/private/token' }] },
+    }))
+    expect(readFirstPaintMeta(ALICE)).toBeNull()
+    expect(localStorage.getItem(`inkstone.calendar.first-paint.v1:${ALICE}`)).toBeNull()
   })
 
   it('refuses metadata larger than the allowance', () => {

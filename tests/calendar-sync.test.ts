@@ -715,10 +715,12 @@ describe('calendar sync routes', () => {
       kind: 'caldav',
       label: 'Desk calendar',
       calendarHomeUrl: 'https://dav.example.com/calendars/alice/',
-      username: 'alice',
       writable: true,
       status: 'connected',
     })
+    // The browser-facing DTO is sanitized: base address and username stay server-side.
+    expect(body.connection.username).toBeUndefined()
+    expect(body.connection.baseUrl).toBeUndefined()
     expect(JSON.stringify(body)).not.toContain('synthetic-password')
     expect(JSON.stringify(body)).not.toContain('ciphertext')
   })

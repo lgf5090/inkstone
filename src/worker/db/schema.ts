@@ -3180,6 +3180,127 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // Event-level color; one column per version so one refusal cannot hide the rest.
+    version: 221,
+    skipIfColumnExists: { table: 'calendar_events', column: 'color' },
+    statements: [`ALTER TABLE calendar_events ADD COLUMN color TEXT`],
+  },
+  {
+    version: 222,
+    skipIfColumnExists: { table: 'calendar_events', column: 'recurrence_parent_id' },
+    statements: [`ALTER TABLE calendar_events ADD COLUMN recurrence_parent_id TEXT`],
+  },
+  {
+    version: 223,
+    skipIfColumnExists: { table: 'calendar_events', column: 'recurrence_id' },
+    statements: [`ALTER TABLE calendar_events ADD COLUMN recurrence_id TEXT`],
+  },
+  {
+    version: 224,
+    skipIfColumnExists: { table: 'calendar_events', column: 'recurrence_cancelled' },
+    statements: [`ALTER TABLE calendar_events ADD COLUMN recurrence_cancelled INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 225,
+    skipIfColumnExists: { table: 'calendar_events', column: 'resource_id' },
+    statements: [
+      `ALTER TABLE calendar_events ADD COLUMN resource_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_events_recurrence_parent
+         ON calendar_events(user_id, recurrence_parent_id) WHERE recurrence_parent_id IS NOT NULL`,
+    ],
+  },
+  {
+    // Account sharing, contacts, templates, resources, booking links and reminder snoozes. These
+    // tables were introduced together with the feature batch; existing databases get them here.
+    version: 226,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS calendar_members (
+        owner_user_id TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        member_user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'reader',
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (owner_user_id, calendar_id, member_user_id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_members_member
+         ON calendar_members(member_user_id, status)`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_members_calendar
+         ON calendar_members(owner_user_id, calendar_id, status)`,
+      `CREATE TABLE IF NOT EXISTS calendar_contacts (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL,
+        birthday TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        rev INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_contacts_email
+         ON calendar_contacts(user_id, lower(email))`,
+      `CREATE TABLE IF NOT EXISTS calendar_event_templates (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL DEFAULT 'event',
+        all_day INTEGER NOT NULL DEFAULT 0,
+        duration_minutes INTEGER NOT NULL DEFAULT 60,
+        color TEXT,
+        meta_json TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        rev INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_templates_user
+         ON calendar_event_templates(user_id, name)`,
+      `CREATE TABLE IF NOT EXISTS calendar_resources (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        capacity INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_resources_calendar
+         ON calendar_resources(user_id, calendar_id)`,
+      `CREATE TABLE IF NOT EXISTS calendar_scheduling_links (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        calendar_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        title TEXT NOT NULL,
+        duration_minutes INTEGER NOT NULL DEFAULT 30,
+        days_json TEXT NOT NULL DEFAULT '[1,2,3,4,5]',
+        start_hour INTEGER NOT NULL DEFAULT 9,
+        end_hour INTEGER NOT NULL DEFAULT 17,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_scheduling_slug
+         ON calendar_scheduling_links(slug)`,
+      `CREATE TABLE IF NOT EXISTS calendar_reminder_snoozes (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        notify_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_calendar_reminder_snoozes_due
+         ON calendar_reminder_snoozes(user_id, notify_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
