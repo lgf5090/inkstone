@@ -214,11 +214,18 @@ async function uniqueName(
 
 /** The quota is the deduplicated object bytes of the user's primary-mount rows, trash included. */
 async function usedPrimaryBytes(db: D1Database, userId: string): Promise<number> {
+  // Version objects are real bytes in the bucket: leaving them out let a file with ten stored versions
+  // quietly occupy ten times the quota it was charged for.
   const row = await db.prepare(
     `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
-       SELECT storage_key, MAX(size) AS size FROM CloudDrive_files
-        WHERE user_id = ?1 AND storage_key IS NOT NULL
-        GROUP BY storage_key
+       SELECT storage_key, MAX(size) AS size FROM (
+         SELECT storage_key, size FROM CloudDrive_files
+          WHERE user_id = ?1 AND storage_key IS NOT NULL
+         UNION ALL
+         SELECT storage_key, size FROM CloudDrive_file_versions
+          WHERE user_id = ?1 AND storage_key IS NOT NULL
+       )
+       GROUP BY storage_key
      )`,
   ).bind(userId).first<{ bytes: number }>()
   const parts = await db.prepare(

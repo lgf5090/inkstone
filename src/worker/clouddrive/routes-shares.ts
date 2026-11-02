@@ -4,7 +4,9 @@ import { sharePasscodeProblem } from '@shared/share-passcode'
 import { normalizeCloudDrivePath } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { sha256Hex } from '../lib/encoding'
 import { hashPassword, verifyPassword } from '../lib/password'
+import { requestClientIp } from '../lib/request'
 import { newId, newSlug } from '../lib/id'
 import { contentDisposition, isBrowserRenderable, parseByteRange } from '../lib/http-range'
 import { distributedStream, fileParts } from './distributed'
@@ -382,8 +384,33 @@ async function loadPublicShare(c: Context<AppBindings>, slug: string): Promise<S
   return row
 }
 
+/** The same visitor is counted once an hour per link; the row exists to make that judgement cheap. */
+const VISIT_DEDUPE_MS = 60 * 60 * 1000
+
+/**
+ * A visitor, not an address. The salt is per link, so two shares of the same file cannot be joined by
+ * their hashes and the raw IP never reaches the row.
+ */
+async function visitHash(c: Context<AppBindings>, slug: string): Promise<string> {
+  const digest = await sha256Hex(`${requestClientIp(c.req.raw)}|${slug}|clouddrive-share-visit`)
+  return digest.slice(0, 32)
+}
+
 async function recordView(c: Context<AppBindings>, share: ShareRow): Promise<void> {
   const now = Date.now()
+  const ipHash = await visitHash(c, share.slug)
+  const seen = await c.env.DB.prepare(
+    `SELECT 1 AS hit FROM CloudDrive_share_visits
+      WHERE user_id = ?1 AND slug = ?2 AND kind = 'view' AND ip_hash = ?3 AND at > ?4`,
+  ).bind(share.user_id, share.slug, ipHash, now - VISIT_DEDUPE_MS).first<{ hit: number }>()
+  if (seen) {
+    // The budget was already spent by this visitor's counted view; a link that has since run out must
+    // still refuse them, and the row this caller handed over already says whether it has.
+    if (share.max_views !== null && share.views >= share.max_views) {
+      throw new ApiError(403, 'clouddrive_share_expired', 'This link has reached its limit')
+    }
+    return
+  }
   const result = await c.env.DB.prepare(
     `UPDATE CloudDrive_shares SET views = views + 1, last_accessed_at = ?1
       WHERE slug = ?2 AND (max_views IS NULL OR views < max_views)`,
@@ -391,8 +418,8 @@ async function recordView(c: Context<AppBindings>, share: ShareRow): Promise<voi
   if (!result.meta.changes) throw new ApiError(403, 'clouddrive_share_expired', 'This link has reached its limit')
   await c.env.DB.prepare(
     `INSERT INTO CloudDrive_share_visits (id, user_id, slug, kind, path, bytes, ip_hash, at)
-     VALUES (?1,?2,?3,'view',NULL,NULL,NULL,?4)`,
-  ).bind(newId(), share.user_id, share.slug, now).run()
+     VALUES (?1,?2,?3,'view',NULL,NULL,?4,?5)`,
+  ).bind(newId(), share.user_id, share.slug, ipHash, now).run()
 }
 
 async function shareUnlocked(c: Context<AppBindings>, share: ShareRow): Promise<boolean> {
@@ -415,7 +442,7 @@ async function countDownload(c: Context<AppBindings>, share: ShareRow, path: str
   await c.env.DB.prepare(
     `INSERT INTO CloudDrive_share_visits (id, user_id, slug, kind, path, bytes, ip_hash, at)
      VALUES (?1,?2,?3,'download',?4,?5,?6,?7)`,
-  ).bind(newId(), share.user_id, share.slug, path, bytes, null, now).run()
+  ).bind(newId(), share.user_id, share.slug, path, bytes, await visitHash(c, share.slug), now).run()
 }
 
 async function shareBySlug(c: Context<AppBindings>, slug: string): Promise<ShareRow | null> {

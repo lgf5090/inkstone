@@ -26,6 +26,7 @@ import {
   encodeCursor,
   foldName,
   initialsOf,
+  parseFolderMeta,
   type CloudDriveFileRow,
 } from './lib'
 
@@ -271,6 +272,35 @@ export async function listFolder(
     ? encodeCursor(options.sort, cursorValue(options.sort, last), last.id)
     : null
   return { folders, files, cursor, total, foldersTruncated }
+}
+
+/**
+ * The hiding rules each of these folders carries in its own `metadata` JSON. The metadata table keeps
+ * the rules a mount-path view sets, the folder row keeps the ones the inspector sets, and a caller
+ * that shows a list has to honour both — otherwise the same rule hides a file in one view and not
+ * another.
+ */
+export async function folderHiddenPatterns(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<Map<string, string[]>> {
+  const found = new Map<string, string[]>()
+  const unique = [...new Set(paths)]
+  for (let offset = 0; offset < unique.length; offset += CHUNK) {
+    const chunk = unique.slice(offset, offset + CHUNK)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const { results } = await db.prepare(
+      `SELECT path, metadata FROM CloudDrive_files
+        WHERE user_id = ? AND mount_id = ? AND kind = 'folder' AND path IN (${placeholders})`,
+    ).bind(userId, mountId, ...chunk).all<{ path: string; metadata: string }>()
+    for (const row of results ?? []) {
+      const patterns = parseFolderMeta(row.metadata).hiddenPatterns
+      if (patterns.length > 0) found.set(row.path, patterns)
+    }
+  }
+  return found
 }
 
 export async function folderSize(db: D1Database, userId: string, mountId: string, folderId: string): Promise<number> {
@@ -601,20 +631,40 @@ async function liveIdsByPrefix(
   return (results ?? []).map((row) => row.id)
 }
 
-async function rowsByIds(
+export async function rowsByIds(
   db: D1Database,
   userId: string,
   mountId: string,
   ids: readonly string[],
 ): Promise<CloudDriveFileRow[]> {
+  return await rowsByColumn(db, userId, mountId, ids, 'id')
+}
+
+/** The same lookup by virtual path, so a batch call hands over one query per chunk. */
+export async function rowsByPaths(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<CloudDriveFileRow[]> {
+  return await rowsByColumn(db, userId, mountId, paths, 'path')
+}
+
+async function rowsByColumn(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  values: readonly string[],
+  column: 'id' | 'path',
+): Promise<CloudDriveFileRow[]> {
   const rows: CloudDriveFileRow[] = []
-  for (let offset = 0; offset < ids.length; offset += CHUNK) {
-    const chunk = ids.slice(offset, offset + CHUNK)
+  for (let offset = 0; offset < values.length; offset += CHUNK) {
+    const chunk = values.slice(offset, offset + CHUNK)
     if (chunk.length === 0) continue
     const placeholders = chunk.map(() => '?').join(', ')
     const { results } = await db.prepare(
       `SELECT * FROM CloudDrive_files
-        WHERE user_id = ? AND mount_id = ? AND id IN (${placeholders})`,
+        WHERE user_id = ? AND mount_id = ? AND ${column} IN (${placeholders})`,
     ).bind(userId, mountId, ...chunk).all<CloudDriveFileRow>()
     rows.push(...(results ?? []))
   }
@@ -903,12 +953,12 @@ export async function purgeAllTrash(
   userId: string,
   env: Env,
 ): Promise<{ deleted: number; failed: number }> {
+  // Every trashed row is already a target, so one read of them beats expanding each root's subtree
+  // and de-duplicating the same folders back out again.
   const { results } = await db.prepare(
-    `SELECT * FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NOT NULL`,
-  ).bind(userId).all<CloudDriveFileRow>()
-  const roots = results ?? []
-  const targets = await purgeTargets(db, userId, null, roots)
-  return await purgeRows(db, userId, targets, env)
+    `SELECT id, storage_key FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NOT NULL`,
+  ).bind(userId).all<PurgeTarget>()
+  return await purgeRows(db, userId, results ?? [], env)
 }
 
 export interface TransferConflict {

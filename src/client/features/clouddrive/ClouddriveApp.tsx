@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import {
   Clock,
@@ -40,27 +40,33 @@ import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './add
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
-import { MountsPage } from './mounts/MountsPage'
-import { StoragePage } from './mounts/StoragePage'
-import { MetaPage } from './admin/MetaPage'
-import { SharesPage } from './shares/SharesPage'
-import { DashboardPage } from './admin/DashboardPage'
-import { AdminFilesPage } from './admin/AdminFilesPage'
-import { IndexPage } from './admin/IndexPage'
-import { PreviewSettingsPage } from './admin/PreviewSettingsPage'
-import { JobsPage } from './admin/JobsPage'
-import { MaintenancePage } from './admin/MaintenancePage'
-import { QuickFilesPage } from './quick/QuickFilesPage'
-import { AlbumPage } from './album/AlbumPage'
-import { TransfersPage } from './transfers/TransfersPage'
-import { SyncPage } from './sync/SyncPage'
-import { OfflinePage } from './offline/OfflinePage'
-import { RequestsPage } from './requests/RequestsPage'
-import { TrashPage } from './trash/TrashPage'
-import { SharedPage } from './shared/SharedPage'
-import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
-import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
+
+/**
+ * The drive opens on the file browser, so that page is loaded with the shell and every other one is
+ * fetched when its tab is chosen: the admin console, the album, the sync planner and the share tables
+ * are megabytes of code a member may never ask for.
+ */
+const MountsPage = lazy(() => import('./mounts/MountsPage').then((module) => ({ default: module.MountsPage })))
+const StoragePage = lazy(() => import('./mounts/StoragePage').then((module) => ({ default: module.StoragePage })))
+const MetaPage = lazy(() => import('./admin/MetaPage').then((module) => ({ default: module.MetaPage })))
+const SharesPage = lazy(() => import('./shares/SharesPage').then((module) => ({ default: module.SharesPage })))
+const DashboardPage = lazy(() => import('./admin/DashboardPage').then((module) => ({ default: module.DashboardPage })))
+const AdminFilesPage = lazy(() => import('./admin/AdminFilesPage').then((module) => ({ default: module.AdminFilesPage })))
+const IndexPage = lazy(() => import('./admin/IndexPage').then((module) => ({ default: module.IndexPage })))
+const PreviewSettingsPage = lazy(() => import('./admin/PreviewSettingsPage').then((module) => ({ default: module.PreviewSettingsPage })))
+const JobsPage = lazy(() => import('./admin/JobsPage').then((module) => ({ default: module.JobsPage })))
+const MaintenancePage = lazy(() => import('./admin/MaintenancePage').then((module) => ({ default: module.MaintenancePage })))
+const QuickFilesPage = lazy(() => import('./quick/QuickFilesPage').then((module) => ({ default: module.QuickFilesPage })))
+const AlbumPage = lazy(() => import('./album/AlbumPage').then((module) => ({ default: module.AlbumPage })))
+const TransfersPage = lazy(() => import('./transfers/TransfersPage').then((module) => ({ default: module.TransfersPage })))
+const SyncPage = lazy(() => import('./sync/SyncPage').then((module) => ({ default: module.SyncPage })))
+const OfflinePage = lazy(() => import('./offline/OfflinePage').then((module) => ({ default: module.OfflinePage })))
+const RequestsPage = lazy(() => import('./requests/RequestsPage').then((module) => ({ default: module.RequestsPage })))
+const TrashPage = lazy(() => import('./trash/TrashPage').then((module) => ({ default: module.TrashPage })))
+const SharedPage = lazy(() => import('./shared/SharedPage').then((module) => ({ default: module.SharedPage })))
+const CloudDriveSettingsPage = lazy(() => import('./settings/CloudDriveSettingsPage').then((module) => ({ default: module.CloudDriveSettingsPage })))
+const ApiKeysPage = lazy(() => import('./keys/ApiKeysPage').then((module) => ({ default: module.ApiKeysPage })))
 
 const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive }[] = [
   { page: 'files', labelKey: 'clouddrive.nav.files', icon: HardDrive },
@@ -219,6 +225,7 @@ export function ClouddriveApp() {
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto">
+          <Suspense fallback={<PageLoading />}>
           {address.page === 'files'
             ? (
                 <FilesPage
@@ -275,6 +282,7 @@ export function ClouddriveApp() {
                           : address.page === 'meta'
                             ? <MetaPage />
                           : <PagePlaceholder page={address.page} />}
+          </Suspense>
         </main>
       </div>
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>
@@ -339,6 +347,16 @@ function SidebarLink({ page, label, icon: Icon, active, mountId, onNavigate }: {
     >
       <Icon size={14} aria-hidden /> <span className="truncate">{label}</span>
     </a>
+  )
+}
+
+/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */
+function PageLoading() {
+  return (
+    <div role="status" aria-live="polite" className="flex h-full items-center justify-center">
+      <span className="sr-only">{t('clouddrive.loading')}</span>
+      <Spinner />
+    </div>
   )
 }
 

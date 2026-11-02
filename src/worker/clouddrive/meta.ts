@@ -179,16 +179,37 @@ export async function deleteMetaRow(db: D1Database, userId: string, mountId: str
   return Number((result.meta as { changes?: number } | undefined)?.changes ?? 0) > 0
 }
 
-export async function effectiveMeta(
+/** Above this many paths, one ancestor predicate per path costs more SQL than reading the table. */
+const META_BATCH_LIMIT = 40
+
+async function metaRows(
   db: D1Database,
   userId: string,
   mountId: string,
-  path: string,
-): Promise<EffectiveCloudDriveMeta> {
+  paths: readonly string[],
+): Promise<CloudDriveMetaRow[]> {
+  if (paths.length > META_BATCH_LIMIT) {
+    const { results } = await db.prepare(
+      `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2`,
+    ).bind(userId, mountId).all<CloudDriveMetaRow>()
+    return results ?? []
+  }
+  const clauses: string[] = []
+  const params: unknown[] = [userId, mountId]
+  paths.forEach((path, index) => {
+    const marker = index + 3
+    clauses.push(`(path = ?${marker} OR substr(?${marker}, 1, length(path) + 1) = path || '/')`)
+    params.push(path)
+  })
+  const scope = clauses.length > 0 ? ` AND (${clauses.join(' OR ')})` : ''
   const { results } = await db.prepare(
-    `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2`,
-  ).bind(userId, mountId).all<CloudDriveMetaRow>()
-  const byPath = new Map((results ?? []).map((row) => [row.path, row]))
+    `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2${scope}`,
+  ).bind(...params).all<CloudDriveMetaRow>()
+  return results ?? []
+}
+
+function resolveMeta(rows: readonly CloudDriveMetaRow[], path: string): EffectiveCloudDriveMeta {
+  const byPath = new Map(rows.map((row) => [row.path, row]))
   const chain: string[] = []
   let current = path
   for (;;) {
@@ -241,6 +262,32 @@ export async function effectiveMeta(
     passwordHash,
     passwordPath,
   }
+}
+
+export async function effectiveMeta(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  path: string,
+): Promise<EffectiveCloudDriveMeta> {
+  return resolveMeta(await metaRows(db, userId, mountId, [path]), path)
+}
+
+/**
+ * The rules for many paths in one read. A drive-wide search lands in dozens of folders, and the
+ * single-path version used to fetch the mount's whole metadata table once per folder — including
+ * every header and footer body.
+ */
+export async function effectiveMetas(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<Map<string, EffectiveCloudDriveMeta>> {
+  const unique = [...new Set(paths)]
+  if (unique.length === 0) return new Map()
+  const rows = await metaRows(db, userId, mountId, unique)
+  return new Map(unique.map((path) => [path, resolveMeta(rows, path)]))
 }
 
 export function metaCookieName(mountId: string, path: string): Promise<string> {

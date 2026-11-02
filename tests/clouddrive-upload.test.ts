@@ -187,6 +187,26 @@ describe('clouddrive direct upload', () => {
     expect(skippedBody.session).toBeUndefined()
   })
 
+  it('charges the quota for the bytes a stored version still occupies', async () => {
+    const first = await uploadSmall(h, 'v.txt', 'aaaa')
+    const init = await initUpload(h, {
+      parentPath: '/', name: 'v.txt', size: 4, mime: 'text/plain', conflict: 'overwrite',
+    })
+    const session = await init.json() as UploadSessionResponse
+    await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'bbbb' })
+    const complete = await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(complete.status).toBe(200)
+
+    // Four live bytes and four more behind them in version 1: the bucket holds eight, and the capacity
+    // card and the upload ceiling must agree about that.
+    const capacity = await request(h, 'GET', '/api/clouddrive/capacity')
+    expect(capacity.status).toBe(200)
+    expect((await capacity.json() as { used: number }).used).toBe(8)
+  })
+
   it('keeps the row and versions the old bytes when overwriting', async () => {
     const first = await uploadSmall(h, 'over.txt', 'one')
     const starred = await request(h, 'PATCH', `/api/clouddrive/files/${first.entry.id}`, {

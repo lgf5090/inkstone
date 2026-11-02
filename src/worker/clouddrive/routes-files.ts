@@ -33,7 +33,7 @@ import {
   type CloudDriveMountInfo,
 } from './lib'
 import { fileParts } from './distributed'
-import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName, normalizeMetaPatterns } from './meta'
+import { effectiveMeta, effectiveMetas, hiddenByPatterns, isMetaUnlocked, metaCookieName, normalizeMetaPatterns, type EffectiveCloudDriveMeta } from './meta'
 import { getCookie } from 'hono/cookie'
 import { assertMetaAccess } from './routes-meta'
 import {
@@ -41,6 +41,7 @@ import {
   copyEntries,
   countVisibleTags,
   createFolder,
+  folderHiddenPatterns,
   folderSize,
   getFileById,
   listFolder,
@@ -53,6 +54,8 @@ import {
   removeTag,
   renameEntry,
   restoreEntries,
+  rowsByIds,
+  rowsByPaths,
   searchEntries,
   setEntryFlags,
   tagsOf,
@@ -70,6 +73,10 @@ cloudDriveFilesRoutes.use('*', async (c, next) => {
 
 const BODY_LIMIT = 64 * 1024
 const MAX_BATCH = 200
+/** The reading of a folder nobody has annotated: no rules, no header, no password. */
+const NO_META: EffectiveCloudDriveMeta = {
+  header: '', footer: '', hidePatterns: [], passwordHash: '', passwordPath: null,
+}
 const EXTERNAL_UPLOAD_MAX_BYTES = 90 * 1024 * 1024
 const EXTERNAL_WRITE_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
 
@@ -134,11 +141,15 @@ async function resolveIdList(
   if (body.paths === undefined) throw ApiError.badRequest('ids or paths is required')
   if (!Array.isArray(body.paths)) throw ApiError.badRequest('paths must be an array of paths')
   if (body.paths.length > MAX_BATCH) throw ApiError.badRequest(`paths holds at most ${MAX_BATCH} paths`)
+  const paths = body.paths.map((item) => parsePath(item))
+  const live = new Map((await rowsByPaths(db, userId, mountId, paths))
+    .filter((row) => row.deleted_at === null)
+    .map((row) => [row.path, row.id]))
   const ids: string[] = []
-  for (const item of body.paths) {
-    const path = parsePath(item)
-    const row = await resolveEntry(db, userId, mountId, path)
-    ids.push(row.id)
+  for (const path of paths) {
+    // One query resolved every path that names a live row; `resolveEntry` still answers the root and
+    // the unknown paths, which is where the same 404 this loop used to raise comes from.
+    ids.push(live.get(path) ?? (await resolveEntry(db, userId, mountId, path)).id)
   }
   if (ids.length === 0) throw ApiError.badRequest('paths must name at least one entry')
   return [...new Set(ids)]
@@ -164,27 +175,49 @@ function transferResponse(c: { json: (body: unknown, status?: number) => Respons
   return c.json({ results }, partial ? 207 : 200)
 }
 
+/**
+ * Whether this reader may see inside a directory that carries a password. `cache` holds the answer per
+ * locked path for the request, because a hundred rows can sit under the same lock and each check is a
+ * D1 read plus a hash comparison.
+ */
+async function isMetaOpen(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  meta: EffectiveCloudDriveMeta,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  if (!meta.passwordHash || !meta.passwordPath) return true
+  const known = cache.get(meta.passwordPath)
+  if (known !== undefined) return known
+  const cookie = getCookie(c, await metaCookieName(mountId, meta.passwordPath))
+  const open = await isMetaUnlocked(c.env.DB, userId, mountId, meta.passwordPath, cookie)
+  cache.set(meta.passwordPath, open)
+  return open
+}
+
 async function filterMetaVisible<T extends { name: string; path: string }>(
   c: Context<AppBindings>,
   userId: string,
   mountId: string,
   rows: readonly T[],
 ): Promise<T[]> {
-  const cache = new Map<string, Awaited<ReturnType<typeof effectiveMeta>>>()
+  if (rows.length === 0) return []
+  const parents = rows.map((row) => parentPathOf(row.path))
+  const [metas, folderRules] = await Promise.all([
+    effectiveMetas(c.env.DB, userId, mountId, parents),
+    folderHiddenPatterns(c.env.DB, userId, mountId, parents),
+  ])
+  // A folder's rules live in two places — the metadata table the mount-path view writes and the row's
+  // own JSON the inspector writes — and the directory listing honours both, so anything that shows a
+  // list has to as well or the same file hides in one view and not another.
+  const unlocked = new Map<string, boolean>()
   const visible: T[] = []
   for (const row of rows) {
     const parent = parentPathOf(row.path)
-    let meta = cache.get(parent)
-    if (!meta) {
-      meta = await effectiveMeta(c.env.DB, userId, mountId, parent)
-      cache.set(parent, meta)
-    }
-    if (hiddenByPatterns(row.name, meta.hidePatterns)) continue
-    if (meta.passwordHash && meta.passwordPath) {
-      const cookie = getCookie(c, await metaCookieName(mountId, meta.passwordPath))
-      if (!await isMetaUnlocked(c.env.DB, userId, mountId, meta.passwordPath, cookie)) continue
-    }
-    visible.push(row)
+    const meta = metas.get(parent) ?? NO_META
+    if (hiddenByPatterns(row.name, [...meta.hidePatterns, ...(folderRules.get(parent) ?? [])])) continue
+    if (await isMetaOpen(c, userId, mountId, meta, unlocked)) visible.push(row)
   }
   return visible
 }
@@ -278,15 +311,14 @@ cloudDriveFilesRoutes.post('/external/:mountId/upload', async (c) => {
   const bytes = new Uint8Array(await c.req.arrayBuffer())
   if (bytes.byteLength > EXTERNAL_UPLOAD_MAX_BYTES) throw ApiError.tooLarge('The file is larger than the external upload limit')
   const capacity = await externalCapacityBytes(c.env.DB, mount)
-  if (capacity !== null) {
-    const usage = await externalFolderSize(c.env, c.env.DB, mount, '/')
-    if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
-    if (usage.bytes + bytes.byteLength > capacity) {
-      throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit', {
-        usedBytes: usage.bytes,
-        quotaBytes: capacity,
-      })
-    }
+  // Adding the mount up folder by folder is a background job's work: in front of every write it costs
+  // a hundred driver round trips and times a large store out. What one upload can overshoot is the
+  // per-file ceiling, so that is what is checked here; the total stays on the folder-size view.
+  if (capacity !== null && bytes.byteLength > capacity) {
+    throw new ApiError(403, 'clouddrive_quota_exceeded', 'This file is larger than the storage capacity limit', {
+      fileSizeBytes: bytes.byteLength,
+      quotaBytes: capacity,
+    })
   }
   const mime = (c.req.header('content-type') ?? 'application/octet-stream').split(';')[0]!.trim().slice(0, 120) || 'application/octet-stream'
   await writeExternalFile(c.env, c.env.DB, mount, path, bytes, mime)
@@ -407,9 +439,15 @@ async function assertIdsMetaAccess(
   mountId: string,
   ids: readonly string[],
 ): Promise<void> {
-  for (const id of ids) {
-    const row = await getFileById(c.env.DB, userId, id)
-    if (row) await assertMetaAccess(c, userId, mountId, parentPathOf(row.path))
+  // A batch move of two hundred items used to cost two hundred row reads and two hundred scans of the
+  // metadata table; one read of each answers the same question for the whole set.
+  const rows = await rowsByIds(c.env.DB, userId, mountId, ids)
+  const metas = await effectiveMetas(c.env.DB, userId, mountId, rows.map((row) => parentPathOf(row.path)))
+  const unlocked = new Map<string, boolean>()
+  for (const row of rows) {
+    const meta = metas.get(parentPathOf(row.path)) ?? NO_META
+    if (await isMetaOpen(c, userId, mountId, meta, unlocked)) continue
+    throw new ApiError(403, 'clouddrive_meta_locked', 'This folder is password protected')
   }
 }
 

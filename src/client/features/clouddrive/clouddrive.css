@@ -45,3 +45,11 @@
     transition: none;
   }
 }
+
+/* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they
+   are skipped until the row comes near the viewport. `auto` in front of the size keeps the last
+   measured box, so the scrollbar does not jump as you scroll. */
+.cd-trash-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}

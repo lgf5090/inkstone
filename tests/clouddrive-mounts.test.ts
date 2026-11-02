@@ -403,7 +403,7 @@ describe('cloud drive mounts', () => {
     expect(proxied.headers.get('location')).toBe(`https://proxy.example.com/fetch?url=${encodeURIComponent('https://cdn.example.com/readme.txt')}`)
   })
 
-  it('rejects an external upload that would exceed the storage capacity', async () => {
+  it('refuses an external upload larger than the storage capacity without walking the mount', async () => {
     const storage = await call('POST', '/api/clouddrive/storages', {
       name: 'small', type: 'webdav',
       config: { baseUrl: 'https://dav.example.com/dav', capacityBytes: 5 },
@@ -417,8 +417,26 @@ describe('cloud drive mounts', () => {
     const result = await raw('POST', `/api/clouddrive/external/${mount.body.mount.id}/upload?path=${encodeURIComponent('/big.txt')}`, '0123456789', { 'content-type': 'text/plain' })
     expect(result.status).toBe(403)
     expect(await result.json()).toMatchObject({ error: { code: 'clouddrive_quota_exceeded' } })
+    // The capacity limit used to be answered by a PROPFIND of every folder in the store before the
+    // write; a big mount timed the upload out. Nothing is asked of the driver now.
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('writes an external file with one request and leaves the capacity total to the folder view', async () => {
+    const storage = await call('POST', '/api/clouddrive/storages', {
+      name: 'capped', type: 'webdav',
+      config: { baseUrl: 'https://dav.example.com/dav', capacityBytes: 1024 },
+      credentials: {},
+    })
+    const mount = await call('POST', '/api/clouddrive/mounts', {
+      name: 'capped', storageId: storage.body.storage.id, mountPath: '/capped', readOnly: false,
+    })
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 201 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const uploaded = await raw('POST', `/api/clouddrive/external/${mount.body.mount.id}/upload?path=${encodeURIComponent('/ok.txt')}`, 'hello', { 'content-type': 'text/plain' })
+    expect(uploaded.status).toBe(201)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock.mock.calls[0]![1] as RequestInit).toMatchObject({ method: 'PROPFIND' })
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBe('PUT')
   })
 
   it('writes, creates, moves and deletes files on a writable WebDAV mount', async () => {

@@ -329,3 +329,12 @@
     transition: none;
   }
 }
+
+/* Tiles are the other long list in this app: hundreds of them in one folder means hundreds of layout
+   boxes off screen. `auto` in front of the size remembers each box, so the scrollbar does not jump.
+   The list view is deliberately absent — a `<tr>` takes no containment from the browser. */
+[data-clouddrive-files] .cd-grid-item,
+[data-clouddrive-files] .cd-gallery-thumb {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}

@@ -42,7 +42,6 @@ import {
   deleteExternalPath,
   externalCapacityBytes,
   externalDirectUrl,
-  externalFolderSize,
   externalProxyLocation,
   listExternal,
   mkdirExternal,
@@ -672,12 +671,10 @@ clouddriveDavRoutes.put('*', async (c) => {
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.byteLength > buffered) throw ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`)
     const capacity = await externalCapacityBytes(c.env.DB, target.mount)
-    if (capacity !== null) {
-      const usage = await externalFolderSize(c.env, c.env.DB, target.mount, '/')
-      if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
-      if (usage.bytes + bytes.byteLength > capacity) {
-        throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit')
-      }
+    // Same rule as the web upload: the whole-mount walk happens in the folder-size view and the
+    // background job, not in front of every write.
+    if (capacity !== null && bytes.byteLength > capacity) {
+      throw new ApiError(403, 'clouddrive_quota_exceeded', 'This file is larger than the storage capacity limit')
     }
     const parent = parentPathOf(target.path)
     if (parent !== '/') await mkdirExternal(c.env, c.env.DB, target.mount, parent)

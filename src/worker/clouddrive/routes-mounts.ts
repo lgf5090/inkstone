@@ -610,7 +610,8 @@ function redirectUrl(value: string, label: string): void {
   throw ApiError.badRequest(`${label}: ${target.error}`)
 }
 
-function storageConfig(type: StorageType, value: unknown): Record<string, unknown> {  const config = objectValue(value)
+function storageConfig(type: StorageType, value: unknown): Record<string, unknown> {
+  const config = objectValue(value)
   if (JSON.stringify(config).length > 16 * 1024) throw ApiError.badRequest('The storage configuration is too large')
   const text = (key: string) => typeof config[key] === 'string' ? config[key].trim() : ''
   if (config.capacityBytes !== undefined && config.capacityBytes !== null) {

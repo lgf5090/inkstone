@@ -126,7 +126,7 @@ export function TrashPage({ mountId }: { mountId: string }) {
       ) : (
         <div className="flex min-h-0 flex-col gap-1.5">
           {entries.map((entry) => (
-            <div key={entry.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
+            <div key={entry.id} className="cd-trash-row flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2">
               <input
                 type="checkbox"
                 className="cd-checkbox"

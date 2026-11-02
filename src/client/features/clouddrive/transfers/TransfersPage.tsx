@@ -7,6 +7,10 @@ import { clouddriveApi } from '../api'
 import { ct } from '../media-i18n'
 import { useTransferStore, type TransferItem } from './useTransferStore'
 
+/** A queue that is moving answers in five seconds; an idle one is checked twice a minute. */
+const TASK_POLL_ACTIVE_MS = 5_000
+const TASK_POLL_IDLE_MS = 30_000
+
 interface ServerTask {
   id: string
   type: string
@@ -48,11 +52,36 @@ export function TransfersPage() {
       setTasksFailed(true)
     }
   }, [])
+  const pollMs = tasks.some((task) => task.status === 'queued' || task.status === 'running')
+    ? TASK_POLL_ACTIVE_MS
+    : TASK_POLL_IDLE_MS
+
   useEffect(() => {
     void loadTasks()
-    const timer = window.setInterval(() => { void loadTasks() }, 5000)
-    return () => { window.clearInterval(timer) }
-  }, [loadTasks])
+    // A tab nobody is looking at has nothing to watch: the poll runs only while the page is visible,
+    // and becomes visible again it reads the queue straight away instead of waiting out the interval.
+    let timer = 0
+    const start = () => {
+      if (window.document.visibilityState !== 'visible' || timer !== 0) return
+      timer = window.setInterval(() => { void loadTasks() }, pollMs)
+    }
+    const stop = () => {
+      if (timer === 0) return
+      window.clearInterval(timer)
+      timer = 0
+    }
+    const onVisibility = () => {
+      stop()
+      if (window.document.visibilityState === 'visible') void loadTasks()
+      start()
+    }
+    start()
+    window.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
+  }, [loadTasks, pollMs])
 
   const taskStatusKey = (status: string): Parameters<typeof ct>[0] => {
     if (status === 'queued') return 'clouddrive.transfers.status_queued'

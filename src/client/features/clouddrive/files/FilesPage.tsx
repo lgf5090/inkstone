@@ -1,5 +1,7 @@
 import {
   Fragment,
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -59,8 +61,14 @@ import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
-import { MarkdownBody } from '../../preview/MarkdownBody'
 import './files.css'
+
+/**
+ * The folder note is rendered with the Markdown stack, which drags the whole note renderer in.
+ * Most folders have no note at all, so the module is fetched when a note exists rather than when the
+ * drive opens.
+ */
+const MarkdownBody = lazy(() => import('../../preview/MarkdownBody').then((module) => ({ default: module.MarkdownBody })))
 
 /** A page is what the user scrolls past before asking for the next one; the server caps at 500. */
 const PAGE_SIZE = 200
@@ -719,7 +727,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         >
           {listing?.note && (
             <div className="cd-meta-note mx-2 mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
-              <MarkdownBody source={listing.note} />
+              <Suspense fallback={null}><MarkdownBody source={listing.note} /></Suspense>
             </div>
           )}
           {status === 'loading' && !listing && <LoadingSkeleton />}
@@ -807,7 +815,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           )}
           {listing?.footer && (
             <div className="cd-meta-note mx-2 my-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
-              <MarkdownBody source={listing.footer} />
+              <Suspense fallback={null}><MarkdownBody source={listing.footer} /></Suspense>
             </div>
           )}
         </div>

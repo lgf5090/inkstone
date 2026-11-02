@@ -81,6 +81,34 @@ async function call(method: string, path: string, body?: unknown, cookie = ''): 
 }
 
 describe('cloud drive shares', () => {
+  it('counts one view and one visit row per visitor per hour', async () => {
+    const id = await file()
+    const created = await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, path: '/notes.txt', maxViews: 3,
+    })
+    expect(created.status).toBe(200)
+    const slug = created.body.share.slug as string
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      expect((await call('GET', `/api/public/clouddrive/shares/${slug}`)).status).toBe(200)
+    }
+    const share = await db.prepare(`SELECT views FROM CloudDrive_shares WHERE slug = ?1`).bind(slug)
+      .first<{ views: number }>()
+    expect(share?.views).toBe(1)
+    const visits = await db.prepare(`SELECT COUNT(*) AS count FROM CloudDrive_share_visits WHERE slug = ?1`).bind(slug)
+      .first<{ count: number }>()
+    expect(visits?.count).toBe(1)
+    // The visitor is stored as a salted digest, never as the address itself.
+    const visit = await db.prepare(`SELECT ip_hash FROM CloudDrive_share_visits WHERE slug = ?1`).bind(slug)
+      .first<{ ip_hash: string }>()
+    expect(visit?.ip_hash).toMatch(/^[0-9a-f]{32}$/)
+
+    // A link that has run out still refuses the same visitor after the dedupe window.
+    await db.prepare(`UPDATE CloudDrive_shares SET views = 3 WHERE slug = ?1`).bind(slug).run()
+    const refused = await call('GET', `/api/public/clouddrive/shares/${slug}`)
+    expect(refused.status).toBe(403)
+  })
+
   it('creates a password share, verifies it, serves the file and revokes it', async () => {
     const id = await file()
     const created = await call('POST', '/api/clouddrive/shares', {

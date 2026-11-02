@@ -5553,6 +5553,8 @@ const allowed = new Map([
   ["src/client/features/clouddrive/ClouddriveApp.tsx", [
     "/** One page name per URL, so the top bar and the drawer agree with the sidebar. */",
     "/**\n   * One button, every page: `refreshKey` is the list pages' signal and the bootstrap call covers the\n   * capacity and mount cards that have no list of their own.\n   */",
+    "/**\n * The drive opens on the file browser, so that page is loaded with the shell and every other one is\n * fetched when its tab is chosen: the admin console, the album, the sync planner and the share tables\n * are megabytes of code a member may never ask for.\n */",
+    "/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */",
   ]],
   ["src/client/features/clouddrive/admin/api-admin.ts", [
     "/**\n * Owner-only CloudDrive endpoints.\n *\n * Kept apart from `../api` so the file browser never pulls the admin surface into its chunk. The\n * request wrapper repeats the few lines of the shared one because `../api` does not export its\n * transport; the error type is the shared class, so callers can translate failures the same way.\n */",
@@ -5576,6 +5578,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/clouddrive.css", [
     "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the four variables\n   below are the only values the reader changes at runtime (density, gap, icon size, row height). */",
+    "/* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they\n   are skipped until the row comes near the viewport. `auto` in front of the size keeps the last\n   measured box, so the scrollbar does not jump as you scroll. */",
   ]],
   ["src/client/features/clouddrive/files/ColorTagMenus.tsx", [
     "/** The colour dots a row or grid tile carries. Names stay in the inspector and list. */",
@@ -5612,6 +5615,7 @@ const allowed = new Map([
     "/** A page is what the user scrolls past before asking for the next one; the server caps at 500. */",
     "/**\n   * One page of results, either the current folder or — while the search box holds text and the\n   * scope says *whole drive* — every folder under the mount. `cursor` continues where the last\n   * page stopped; the server hands it back only when there is more.\n   */",
     "/** Clicking the active column flips it; clicking another starts it ascending. */",
+    "/**\n * The folder note is rendered with the Markdown stack, which drags the whole note renderer in.\n * Most folders have no note at all, so the module is fetched when a note exists rather than when the\n * drive opens.\n */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "/** Share existence is not part of the entry model; the shell may supply it later. */",
@@ -5621,6 +5625,7 @@ const allowed = new Map([
     "/* The native checkbox is the selection control: it keeps the browser's keyboard and\n   accessibility behaviour, and only its accent is themed. */",
     "/* The extension rides with the last segment: `overflow-wrap` may break the base name, never\n   \".json\". */",
     "/* Drive-wide search rows keep the folder: on a narrow screen the place matters more than\n     the kind, which the icon already says. */",
+    "/* Tiles are the other long list in this app: hundreds of them in one folder means hundreds of layout\n   boxes off screen. `auto` in front of the size remembers each box, so the scrollbar does not jump.\n   The list view is deliberately absent — a `<tr>` takes no containment from the browser. */",
   ]],
   ["src/client/features/clouddrive/files/format.ts", [
     "/** One formatter per locale; the list can draw hundreds of dates in one render. */",
@@ -5649,6 +5654,11 @@ const allowed = new Map([
   ["src/client/features/clouddrive/settings/CloudDriveSettingsPage.tsx", [
     "// Every field below the title is a deployment policy: the server answers a member's PATCH with 403,",
     "// so the form shows the owner's values without pretending they can be edited here.",
+  ]],
+  ["src/client/features/clouddrive/transfers/TransfersPage.tsx", [
+    "/** A queue that is moving answers in five seconds; an idle one is checked twice a minute. */",
+    "// A tab nobody is looking at has nothing to watch: the poll runs only while the page is visible,",
+    "// and becomes visible again it reads the queue straight away instead of waiting out the interval.",
   ]],
   ["src/client/features/clouddrive/transfers/useTransferStore.ts", [
     "/**\n * Client-side transfer queue for CloudDrive.\n *\n * Uploads and downloads are browser transfers rather than server tasks, so they live here and not in\n * `CloudDrive_tasks`. Active items hold a live `File`/stream and are deliberately not persisted; only\n * terminal history is written, capped at the last 100 entries per account on this device.\n */",
@@ -35236,6 +35246,16 @@ const allowed = new Map([
     "/** A driver-native item id used to read the entry without resolving its display path again. */",
     "// The browser is told to fetch this address, so it goes through the same guard as a request the",
     "// worker would make itself: a stored 127.0.0.1 would otherwise turn a share link into a probe.",
+    "/** One directory's worth of driver entries, plus whether the driver had more than the ceiling allows. */",
+    "/** True when the driver had more names than one listing may return. */",
+    "/** How many `list-type=2` pages one S3 folder may cost before the listing gives up. */",
+    "// The remaining drivers hand back a whole listing in one answer, so they cannot be truncated.",
+    "// `list-type=2` answers one page at a time. Reading only the first page made a bucket with more",
+    "// than a thousand names look like it had lost files, so the token is followed until the listing is",
+    "// complete or the driver's own ceiling is reached — which is then reported instead of hidden.",
+    "// A token still standing means either the entry ceiling or the page ceiling stopped the walk.",
+    "// The ceiling is reported, not swallowed: a server with more names than this is telling the",
+    "// reader the folder is only partly shown rather than letting it look like files went missing.",
   ]],
   ["src/worker/clouddrive/lib.ts", [
     "/**\n * Helpers shared by the CloudDrive file and settings routes.\n *\n * Everything that turns a path, a mount or a D1 row into the vocabulary the API speaks lives here, so\n * the routes only parse, call a store function and shape the response. D1 statements stay in the\n * store modules; this file owns the two lookups every request makes first (mount, then entry).\n */",
@@ -35266,6 +35286,8 @@ const allowed = new Map([
     "// `^` and `$` mean nothing here, but a reader who types them means a regular expression and would",
     "// otherwise get a rule that silently hides one file fewer than they expected.",
     "/** A rule the reader can be told about: the message is the reason, and it reaches the form. */",
+    "/** Above this many paths, one ancestor predicate per path costs more SQL than reading the table. */",
+    "/**\n * The rules for many paths in one read. A drive-wide search lands in dozens of folders, and the\n * single-path version used to fetch the mount's whole metadata table once per folder — including\n * every header and footer body.\n */",
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
@@ -35309,11 +35331,25 @@ const allowed = new Map([
     "// the body in hand, so it is the isolate's memory that bounds this path, not the owner's upload",
     "// ceiling. Anything larger belongs to the chunked upload session, which streams part by part.",
     "/**\n * One scan of the mount's metadata rows for the whole request. `effectiveMeta` reads every rule of\n * that mount to resolve a single path, so a PROPFIND that governs the addressed directory and its\n * children would otherwise pay for the same table twice or three times.\n */",
+    "// Same rule as the web upload: the whole-mount walk happens in the folder-size view and the",
+    "// background job, not in front of every write.",
   ]],
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
     "// Search and sort run here rather than in SQL: an external mount has no rows. The driver's own",
     "// order is only the default, not an excuse for the toolbar to do nothing.",
+    "/** The reading of a folder nobody has annotated: no rules, no header, no password. */",
+    "// One query resolved every path that names a live row; `resolveEntry` still answers the root and",
+    "// the unknown paths, which is where the same 404 this loop used to raise comes from.",
+    "/**\n * Whether this reader may see inside a directory that carries a password. `cache` holds the answer per\n * locked path for the request, because a hundred rows can sit under the same lock and each check is a\n * D1 read plus a hash comparison.\n */",
+    "// A folder's rules live in two places — the metadata table the mount-path view writes and the row's",
+    "// own JSON the inspector writes — and the directory listing honours both, so anything that shows a",
+    "// list has to as well or the same file hides in one view and not another.",
+    "// Adding the mount up folder by folder is a background job's work: in front of every write it costs",
+    "// a hundred driver round trips and times a large store out. What one upload can overshoot is the",
+    "// per-file ceiling, so that is what is checked here; the total stays on the folder-size view.",
+    "// A batch move of two hundred items used to cost two hundred row reads and two hundred scans of the",
+    "// metadata table; one read of each answers the same question for the whole set.",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35328,6 +35364,8 @@ const allowed = new Map([
     "// The first pass is due at once: a reader who never opened the jobs page still has expired",
     "// upload sessions holding R2 bytes, and the sweep is what releases them.",
     "/**\n * Seed the built-in sweeps for every CloudDrive owner that has never opened the jobs page.\n *\n * The sweeps are the only path that releases the bytes of abandoned uploads, so they cannot depend\n * on somebody visiting `/jobs` once. The scan is cross-user by necessity — the cron has no session —\n * and every insert still writes one `user_id`.\n */",
+    "// The visit log is the share report's history: ninety days answers \"who opened this link\", and",
+    "// keeping it forever only slows that query down.",
   ]],
   ["src/worker/clouddrive/routes-keys.ts", [
     "// The token is deliberately present in this one response only; the listing has just its prefix.",
@@ -35361,6 +35399,10 @@ const allowed = new Map([
     "/**\n * The share's own address space: a recipient names a file relative to the link, never by the path it\n * happens to occupy inside the owner's drive.\n */",
     "// \"No download\" has to mean something: a link that forbids downloading still renders the types a",
     "// browser can draw in place, and refuses to hand over the bytes of anything else.",
+    "/** The same visitor is counted once an hour per link; the row exists to make that judgement cheap. */",
+    "/**\n * A visitor, not an address. The salt is per link, so two shares of the same file cannot be joined by\n * their hashes and the raw IP never reaches the row.\n */",
+    "// The budget was already spent by this visitor's counted view; a link that has since run out must",
+    "// still refuse them, and the row this caller handed over already says whether it has.",
   ]],
   ["src/worker/clouddrive/routes-upload.ts", [
     "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n *\n * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.\n */",
@@ -35383,6 +35425,8 @@ const allowed = new Map([
     "// One statement copies every assignment instead of one INSERT per part: a 200-part upload would",
     "// otherwise build a batch D1 refuses (see `chunkedBatch`), and the part rows are already in D1.",
     "// An overwrite keeps the row, so the file's own history and star survive the replacement.",
+    "// Version objects are real bytes in the bucket: leaving them out let a file with ten stored versions",
+    "// quietly occupy ten times the quota it was charged for.",
   ]],
   ["src/worker/clouddrive/routes-versions.ts", [
     "// A version is the file's content under another name: without this the folder lock guarded the",
@@ -35422,6 +35466,10 @@ const allowed = new Map([
     "/**\n * Every tag assignment with the folder it hangs on, so the caller can drop the rows a locked or\n * hidden directory took off the listing before it counts them. The aggregate has to happen after that\n * filter, or a tag panel would leak how many files sit behind a passcode.\n */",
     "// One round trip for the two halves of the listing and the total: none of them reads the others'",
     "// rows, and a folder open paid three sequential D1 trips for it.",
+    "/**\n * The hiding rules each of these folders carries in its own `metadata` JSON. The metadata table keeps\n * the rules a mount-path view sets, the folder row keeps the ones the inspector sets, and a caller\n * that shows a list has to honour both — otherwise the same rule hides a file in one view and not\n * another.\n */",
+    "/** The same lookup by virtual path, so a batch call hands over one query per chunk. */",
+    "// Every trashed row is already a target, so one read of them beats expanding each root's subtree",
+    "// and de-duplicating the same folders back out again.",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -35435,6 +35483,8 @@ const allowed = new Map([
   ]],
   ["src/worker/clouddrive/store.ts", [
     "/**\n * Whose row the policy settings come from. The owner reads their own, a member reads the owner's, and\n * a deployment without a `users` row for either falls back to the caller so a single-user install\n * behaves exactly as it did when every setting was personal.\n */",
+    "// A stored version is bytes in the bucket just like the file it came from, so each side of the card",
+    "// counts its file's versions too — otherwise a quota looks half empty while ten revisions sit in it.",
   ]],
   ["src/worker/clouddrive/zip.ts", [
     "/**\n * Streaming ZIP downloads for CloudDrive.\n *\n * The archive is assembled as a `ReadableStream` and never buffered: a folder can hold gigabytes, and\n * the isolate's memory is the same 128 MB whether the reader asked for one file or for a whole tree.\n * `client-zip` already ships for the backup archive, so this is a second caller of one library rather\n * than a second zip engine.\n *\n * Two ceilings keep the response honest: `zipMaxItems` bounds how many rows are walked and\n * `zipMaxBytes` bounds the uncompressed total, because a ZIP of a petabyte folder is not something a\n * browser should be asked to wait for. Both refuse up front with 413 instead of truncating silently.\n */",
@@ -42304,6 +42354,9 @@ const allowed = new Map([
     "// The ceiling a member uploads against is the owner's, not the one in their own row.",
     "// The owner is never gated by a switch that speaks about other people.",
   ]],
+  ["tests/clouddrive-external-drivers.test.ts", [
+    "// Only the first page used to be read, so the rest of the folder looked deleted.",
+  ]],
   ["tests/clouddrive-files.test.ts", [
     "// Deleting the folder trashes its child, not just the folder row.",
     "// Restoring the child alone must first bring its trashed folder ancestor back.",
@@ -42313,6 +42366,8 @@ const allowed = new Map([
     "// Trash lists the deleted root, not every row under it: the child rides with its folder and the",
     "// flag says so, so one restore click brings the whole subtree back.",
     "// The locked folder is still listed in its parent, so its own tag stays in the panel.",
+    "// Batched metadata has to stay per path: one answer reused across the two folders would either",
+    "// hide both files or show both.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",
@@ -42325,6 +42380,8 @@ const allowed = new Map([
   ["tests/clouddrive-mounts.test.ts", [
     "// The storage endpoint itself may stay on the LAN — that is what a NAS is — only the address the",
     "// visitor's browser is sent to is guarded.",
+    "// The capacity limit used to be answered by a PROPFIND of every folder in the store before the",
+    "// write; a big mount timed the upload out. Nothing is asked of the driver now.",
   ]],
   ["tests/clouddrive-requests.test.ts", [
     "// What the bucket receives is the contract: a stream keeps the isolate flat no matter how big the",
@@ -42339,12 +42396,16 @@ const allowed = new Map([
     "// \"No download\" cannot stop a viewer saving a picture, but it has to stop the plain file route",
     "// handing over a document the browser would only have offered to save.",
     "// The right password arrives at a locked budget: the lock is what stops the guessing, not the answer.",
+    "// The visitor is stored as a salted digest, never as the address itself.",
+    "// A link that has run out still refuses the same visitor after the dedupe window.",
   ]],
   ["tests/clouddrive-upload.test.ts", [
     "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",
     "// The first request builds every table on the real schema, the way the worker boots.",
     "// The same row, still live: its id is what the star, the tags and any share link point at.",
     "// The bytes it replaced survive as version 1, under the key they were written to.",
+    "// Four live bytes and four more behind them in version 1: the bucket holds eight, and the capacity",
+    "// card and the upload ceiling must agree about that.",
   ]],
   ["tests/cloudflare-accounts-store.test.ts", [
     "// Still restorable at this point, which is why the sealed file is still there.",

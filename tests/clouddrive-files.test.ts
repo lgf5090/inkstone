@@ -316,6 +316,25 @@ describe('clouddrive file API', () => {
     expect(restored.body.results[0]!.entry?.path).toBe('/x (restored).txt')
   })
 
+  it('applies each folder’s own hiding rules to a search that spans them', async () => {
+    const a = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'A' })
+    const b = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'B' })
+    await insertEntry({ path: '/A/keep.txt', name: 'keep.txt', parentId: a.body.entry.id })
+    await insertEntry({ path: '/A/skip.tmp', name: 'skip.tmp', parentId: a.body.entry.id })
+    await insertEntry({ path: '/B/keep.txt', name: 'keep.txt', parentId: b.body.entry.id })
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${a.body.entry.id}`, { hidePatterns: ['*.tmp'] })).status).toBe(200)
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${b.body.entry.id}`, { hidePatterns: ['keep.txt'] })).status).toBe(200)
+
+    // Batched metadata has to stay per path: one answer reused across the two folders would either
+    // hide both files or show both.
+    const found = await call<{ files: { path: string }[] }>(USER, 'GET', '/api/clouddrive/search?q=keep')
+    expect(found.body.files.map((file) => file.path)).toEqual(['/A/keep.txt'])
+    const inA = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2FA')
+    expect(inA.body.files.map((file) => file.name)).toEqual(['keep.txt'])
+    const inB = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2FB')
+    expect(inB.body.files).toEqual([])
+  })
+
   it('upserts, filters and removes tags case-insensitively', async () => {
     const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
       parentPath: '/', name: 'Tagged',

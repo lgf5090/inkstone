@@ -34,6 +34,7 @@ const RUN_PAGE_LIMIT = 50
 const MAX_RUN_PAGE_LIMIT = 100
 const MAX_CONFIG_BYTES = 4096
 const PURGE_BATCH = 5000
+const SHARE_VISIT_RETENTION_MS = 90 * 86_400_000
 
 interface JobRow {
   id: string
@@ -533,7 +534,12 @@ async function purgeShareSessions(env: Env, userId: string, now: number): Promis
   const result = await env.DB.prepare(
     `DELETE FROM CloudDrive_share_sessions WHERE user_id = ? AND expires_at <= ?`,
   ).bind(userId, now).run()
-  return { deleted: result.meta.changes ?? 0 }
+  // The visit log is the share report's history: ninety days answers "who opened this link", and
+  // keeping it forever only slows that query down.
+  const visits = await env.DB.prepare(
+    `DELETE FROM CloudDrive_share_visits WHERE user_id = ? AND at <= ?`,
+  ).bind(userId, now - SHARE_VISIT_RETENTION_MS).run()
+  return { deleted: result.meta.changes ?? 0, visits: visits.meta.changes ?? 0 }
 }
 
 async function purgeTrash(env: Env, userId: string, now: number): Promise<Record<string, unknown>> {
