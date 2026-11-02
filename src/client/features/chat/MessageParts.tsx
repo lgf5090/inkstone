@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CheckCheck,
   Copy,
   ExternalLink,
   FileText,
@@ -423,16 +424,16 @@ const OUTCOME_KEYS = {
 
 export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const decide = useAssistant((state) => state.decideAction)
-  const [busy, setBusy] = useState<'approve' | 'cancel' | null>(null)
+  const [busy, setBusy] = useState<'approve' | 'always' | 'cancel' | null>(null)
   // A press that never landed. The store's own `decideAction` reports a refusal it can see — it toasts and
   // leaves the card pending — so this is not a second notice of the same fact: it is the half a toast
   // cannot leave behind, the words saying this card is still waiting because the request failed.
   const [failed, setFailed] = useState<string | null>(null)
   if (!action) return null
-  const settle = (approve: boolean) => {
-    setBusy(approve ? 'approve' : 'cancel')
+  const settle = (approve: boolean, always = false) => {
+    setBusy(always ? 'always' : approve ? 'approve' : 'cancel')
     setFailed(null)
-    void decide(action.id, approve)
+    void decide(action.id, approve, always)
       .catch((error: unknown) => setFailed(error instanceof Error ? error.message : String(error)))
       .finally(() => setBusy(null))
   }
@@ -488,6 +489,18 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
         >
           {t('assistant.approval.decline')}
         </Button>
+        {spec?.permission !== 'destructive' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<CheckCheck size={12} />}
+            loading={busy === 'always'}
+            disabled={busy !== null}
+            onClick={() => settle(true, true)}
+          >
+            {t('assistant.approval.always')}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="danger"
@@ -495,7 +508,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           disabled={busy !== null}
           onClick={() => settle(true)}
         >
-          {t('assistant.approval.approve')}
+          {t('assistant.approval.approve_once')}
         </Button>
       </div>
     </div>

@@ -660,7 +660,7 @@ interface AssistantState {
     options?: { baseVersion?: number, source?: 'user' | 'assistant', messageId?: string | null },
   ) => Promise<AssistantArtifact>
   removeArtifact: (id: string) => Promise<void>
-  decideAction: (actionId: string, approve: boolean) => Promise<void>
+  decideAction: (actionId: string, approve: boolean, always?: boolean) => Promise<void>
 
   loadMemories: () => Promise<void>
   setMemoryFilter: (patch: { query?: string, status?: string, category?: string }) => Promise<void>
@@ -2970,10 +2970,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  decideAction: async (actionId, approve) => {
+  decideAction: async (actionId, approve, always = false) => {
     try {
       const action = approve
-        ? await api.assistant.approveAction(actionId)
+        ? await api.assistant.approveAction(actionId, always)
         : await api.assistant.declineAction(actionId)
       // An approved call may have answered with something: that answer is what the reader opens the row
       // to see, so it travels back with the card's own outcome. A cancelled call never ran and has none.

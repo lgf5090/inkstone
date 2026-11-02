@@ -1851,6 +1851,7 @@ function optionalRunToken(value: unknown): number | undefined {
 assistantRoutes.post('/actions/:id/approve', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
+  const body = await readJson<{ always?: unknown }>(c, JSON_BODY_LIMITS.small)
   const stored = await s.getPendingAction(id)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   const conversation = await s.getConversation(stored.conversationId)
@@ -1868,6 +1869,19 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
       await s.attachActionToMessage(located.messageId, located.toolId, outcome.action, outcome.result)
       if (generated.length) await s.appendMessageAttachments(located.messageId, generated)
     }
+  }
+  // "Always allow this tool" is remembered as a grant for this one name. It cannot widen the account's
+  // class policy or an Agent's switch — those are checked before it — and it is stored in settings so a
+  // later tab asks once rather than on every call.
+  if (body.always === true) {
+    const spec = ASSISTANT_TOOL_BY_NAME.get(stored.tool)
+    if (spec?.permission === 'destructive') {
+      throw ApiError.badRequest('A destructive tool cannot be allowed for every future call.')
+    }
+    await s.saveSettings({
+      ...settings,
+      toolGrants: { ...settings.toolGrants, [stored.tool]: 'auto' },
+    })
   }
   return c.json(outcome)
 })

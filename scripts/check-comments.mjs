@@ -29949,6 +29949,7 @@ const allowed = new Map([
     "/**\n * A named slice of the notebook's AI index.\n *\n * It owns no vectors: the same account-wide embeddings answer every knowledge base, and the scope below\n * decides which hits may be returned. That is what lets a reader split \"work\" from \"reading\" without\n * paying for a second index, and why changing a scope never requires a rebuild.\n */",
     "/** Folders whose notes belong to this knowledge base. Empty means the whole notebook. */",
     "/** Folders excluded even when a parent is included. */",
+    "/**\n   * A reader's decision to always allow one named tool, made at its approval card.\n   *\n   * It sits above the class policy but below an Agent's own switch: approval never widens what the\n   * account or the Agent allows, it only stops asking again for this one tool.\n   */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -34688,7 +34689,7 @@ const allowed = new Map([
     "/**\n   * The Agent's tool narrowing, resolved by the runner.\n   *\n   * `projectToolsLimited` is what tells an explicit empty list apart from \"no Agent restriction\"; without\n   * it an Agent that meant \"no tools\" would look exactly like one that said nothing.\n   */",
     "// An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the",
     "// runner passes `projectToolsLimited` beside the list.",
-    "/** The reader's per-tool override for this Agent, then the account's class policy. */",
+    "/** The reader's per-tool override for this Agent, then the always-allow grant, then the class policy. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -38045,6 +38046,9 @@ const allowed = new Map([
     "/** Folder ids an Agent may read or exclude. Shape only; the scope resolver owns ownership. */",
     "/**\n * The built-in tools an Agent may use.\n *\n * Unknown names are refused rather than dropped: a name that is not in this build's catalog is either a\n * typo or a tool that was removed, and either way a silently shortened list would read as an Agent that\n * can do less than its editor shows.\n */",
     "// ----------------------------------------------------------- knowledge bases",
+    "// \"Always allow this tool\" is remembered as a grant for this one name. It cannot widen the account's",
+    "// class policy or an Agent's switch — those are checked before it — and it is stored in settings so a",
+    "// later tab asks once rather than on every call.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

@@ -769,6 +769,13 @@ export interface AssistantSettings {
    * one class at a time, so there is one answer to "may it delete this?" rather than two that can drift.
    */
   toolModes: AssistantToolModes
+  /**
+   * A reader's decision to always allow one named tool, made at its approval card.
+   *
+   * It sits above the class policy but below an Agent's own switch: approval never widens what the
+   * account or the Agent allows, it only stops asking again for this one tool.
+   */
+  toolGrants: Record<string, AssistantToolMode>
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -854,6 +861,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   conflictReview: true,
   aiConflictCheck: false,
   toolModes: { ...DEFAULT_TOOL_MODES },
+  toolGrants: {},
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -932,6 +940,17 @@ function toolModesValue(raw: Record<string, unknown>): AssistantToolModes {
   }
 }
 
+function toolGrantsValue(value: unknown): Record<string, AssistantToolMode> {
+  const stored = record(value)
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(stored)) {
+    if (name.length <= 120 && typeof mode === 'string' && (ASSISTANT_TOOL_MODES as readonly string[]).includes(mode)) {
+      out[name] = mode as AssistantToolMode
+    }
+  }
+  return out
+}
+
 /**
  * Every settings field a client may patch, as one list rather than as a route that names them.
  *
@@ -979,6 +998,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),
     toolModes: toolModesValue(raw),
+    toolGrants: toolGrantsValue(raw.toolGrants),
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),

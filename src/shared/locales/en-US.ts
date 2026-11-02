@@ -7324,6 +7324,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.approval.title": "Approval needed",
     "assistant.approval.hint": "Nothing changes unless you approve.",
     "assistant.approval.approve": "Approve",
+    "assistant.approval.approve_once": "Allow once",
+    "assistant.approval.always": "Always allow this tool",
     "assistant.approval.decline": "Decline",
     "assistant.approval.done": "Approved and done",
     "assistant.approval.declined": "Declined — nothing was changed",

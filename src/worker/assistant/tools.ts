@@ -4989,9 +4989,11 @@ export class ToolExecutor {
     return mode === 'auto' || definition.name === 'notify_reader'
   }
 
-  /** The reader's per-tool override for this Agent, then the account's class policy. */
+  /** The reader's per-tool override for this Agent, then the always-allow grant, then the class policy. */
   private modeFor(definition: ToolDefinition): AssistantToolMode {
-    return this.ctx.projectToolOverrides?.[definition.name] ?? toolModeFor(this.ctx.settings, definition.permission)
+    return this.ctx.projectToolOverrides?.[definition.name]
+      ?? this.ctx.settings.toolGrants[definition.name]
+      ?? toolModeFor(this.ctx.settings, definition.permission)
   }
 
   find(name: string): ToolDefinition | undefined {

@@ -2114,8 +2114,8 @@ export const api = {
       request<{ deleted: number }>('/api/assistant/conversations', { method: 'DELETE', body: { confirm: 'DELETE' } }),
     cancel: (conversationId: string, runToken?: number) =>
       request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId, ...(runToken === undefined ? {} : { runToken }) } }),
-    approveAction: (id: string) =>
-      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
+    approveAction: (id: string, always = false) =>
+      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: { always } }),
     declineAction: (id: string) =>
       request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
     memories: (params: { q?: string, status?: string, category?: string, noteId?: string } = {}) =>

@@ -7316,6 +7316,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.approval.title": "需要确认",
     "assistant.approval.hint": "未经批准不会有任何改动。",
     "assistant.approval.approve": "批准",
+    "assistant.approval.approve_once": "允许一次",
+    "assistant.approval.always": "始终允许此工具",
     "assistant.approval.decline": "拒绝",
     "assistant.approval.done": "已批准并完成",
     "assistant.approval.declined": "已拒绝——未作任何改动",
