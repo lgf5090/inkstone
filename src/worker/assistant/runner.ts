@@ -1033,7 +1033,16 @@ export class AssistantRunner {
             : 'I could not produce an answer this time. Try rephrasing, or check the model in Assistant settings.'
         }
       }
-      yield { type: 'usage', usage }
+      const contextBreakdown = {
+        system: estimateTokens(system),
+        tools: schemas.reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0),
+        rules: estimateTokens([this.settings.customInstructions, projectInstructions].filter(Boolean).join('\n')),
+        skills: projectSkills.reduce((total, skill) => total + estimateTokens(`${skill.title}\n${skill.content}`), 0),
+        memory: estimateTokens(JSON.stringify(memories)),
+        conversation: turns.reduce((total, turn) => total + estimateTokens(turn.content ?? '') + (turn.calls?.length ? estimateTokens(JSON.stringify(turn.calls)) : 0), 0),
+        reasoning: estimateTokens(reasoning),
+      }
+      yield { type: 'usage', usage, contextBreakdown }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
       const finalMessage = await finish(stopped() ? 'cancelled' : outcome, failure, usage)

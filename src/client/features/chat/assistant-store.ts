@@ -23,6 +23,7 @@ import type {
   AssistantMemory,
   AssistantMessage,
   AssistantAnswerVersion,
+  AssistantContextBreakdown,
   KnowledgeBase,
   AssistantMcpCatalogEntry,
   AssistantMcpProblem,
@@ -156,6 +157,8 @@ interface LiveTurn {
   startedAt?: number
   /** What the model reported spending, once the `usage` frame landed. Null while it has not said. */
   usage?: { inputTokens: number, outputTokens: number } | null
+  /** Where this turn's prompt tokens went, once the worker estimated them. */
+  contextBreakdown?: AssistantContextBreakdown | null
   /**
    * The pages a web search consulted, copied from the row the worker filed at the end of the turn.
    *
@@ -2518,6 +2521,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         done: false,
         startedAt: Date.now(),
         usage: null,
+        contextBreakdown: null,
         finishedAt: null,
       },
       remoteStreaming: false,
@@ -2591,7 +2595,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           case 'usage':
             // Kept so the answer's column can say what this turn spent. A second `usage` frame from a
             // multi-step turn replaces the first, which is the number the worker last reported.
-            return { turn: { ...turn, usage: event.usage ?? turn.usage } }
+            return { turn: { ...turn, usage: event.usage ?? turn.usage, contextBreakdown: event.contextBreakdown ?? turn.contextBreakdown } }
           case 'tool': {
             const incoming = event.tool
             if (!incoming) return current

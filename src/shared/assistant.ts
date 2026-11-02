@@ -3000,6 +3000,16 @@ export function normalizeModelId(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, '').slice(0, 120) : ''
 }
 
+export interface AssistantContextBreakdown {
+  system: number
+  tools: number
+  rules: number
+  skills: number
+  memory: number
+  conversation: number
+  reasoning: number
+}
+
 export interface ChatStreamEvent {
   type: 'start' | 'text' | 'reasoning' | 'tool' | 'artifact' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem' | 'notice'
   conversationId?: string
@@ -3026,6 +3036,8 @@ export interface ChatStreamEvent {
   change?: 'created' | 'updated' | 'restored'
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
   usage?: { inputTokens: number, outputTokens: number }
+  /** For `usage`: where the prompt's estimated tokens went. */
+  contextBreakdown?: AssistantContextBreakdown
   /** For `mcp_problem`: which external server failed to list, and why. */
   server?: string
   /**

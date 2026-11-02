@@ -301,11 +301,11 @@ describe('a press that did not land', () => {
   it('leaves the reason on the approval card instead of a card waiting forever', async () => {
     useAssistant.setState({ decideAction: vi.fn(async () => { throw new Error('the action was refused') }) })
     mount(bubble({ tools: [approvalTool()] }))
-    await press(byName(t('assistant.approval.approve')))
+    await press(byName(t('assistant.approval.approve_once')))
     const alert = document.body.querySelector('[role="alert"]')
     expect(alert?.textContent, 'the failed approval said nothing').toContain('the action was refused')
     // The card is still there and its buttons are pressable again: the reader can try, or leave.
-    expect(byName(t('assistant.approval.approve'))?.disabled).toBe(false)
+    expect(byName(t('assistant.approval.approve_once'))?.disabled).toBe(false)
   })
 
   it('refuses to replay into a conversation that is not open', async () => {

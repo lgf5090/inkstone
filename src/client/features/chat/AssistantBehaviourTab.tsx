@@ -192,13 +192,12 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
           <div className="flex items-center gap-2">
             <Slider
               label={t('assistant.settings.chat_scale')}
-              value={settings.chatScale}
-              min={0.7}
-              max={1.5}
-              step={0.05}
-              onChange={(chatScale) => void saveSettings({ chatScale })}
+              value={Math.round(settings.chatScale * 100)}
+              min={70}
+              max={150}
+              step={5}
+              onChange={(percent) => void saveSettings({ chatScale: percent / 100 })}
             />
-            <span className="w-10 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{Math.round(settings.chatScale * 100)}%</span>
           </div>
         </SettingRow>
         <SettingRow title={t('assistant.settings.tab_completion')} description={t('assistant.settings.tab_completion_hint')}>
@@ -256,7 +255,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
                 step={5}
                 onChange={(imageCompressQuality) => void saveSettings({ imageCompressQuality })}
               />
-              <span className="w-8 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{settings.imageCompressQuality}</span>
             </div>
           </SettingRow>
         )}

@@ -1854,7 +1854,7 @@ function optionalRunToken(value: unknown): number | undefined {
 assistantRoutes.post('/actions/:id/approve', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ always?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ always?: unknown }>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as { always?: unknown })
   const stored = await s.getPendingAction(id)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   const conversation = await s.getConversation(stored.conversationId)
