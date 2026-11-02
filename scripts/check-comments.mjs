@@ -2868,6 +2868,9 @@ const allowed = new Map([
     "/* Two empty lists that are two different facts: the switch above is the way out of one, and is not\n              on the screen for the other, where the row carries the re-check instead. */",
     "/* Every row is revocable, because every row carries the one handle its delete needs —\n                          its own id. This device's row goes through the switch's own path so the browser is\n                          unsubscribed with it; the others are removed here and take effect on that machine the\n                          next time its reader comes back to this screen. */",
   ]],
+  ["src/client/features/chat/QuickAskPanel.tsx", [
+    "/**\n * Quick Ask: a small question beside the note, without leaving it.\n *\n * The panel sends an ephemeral turn through the same stream the chat uses. It does not open the chat\n * tab, change the active conversation, or write to the history list. The answer can be copied, inserted\n * at the caret, or discarded.\n */",
+  ]],
   ["src/client/features/chat/SavedShelf.tsx", [
     "/**\n * The shelf: the answers the reader kept, in the sidebar's own tab strip.\n *\n * It sits beside the starred/pinned/archived shortlists because it does the same job — a list of pointers\n * into threads — with one difference: its rows name a turn rather than a conversation, so pressing one\n * opens the thread *at* that turn. The rows come from `GET /api/assistant/saved-messages` through\n * `saved-shelf.ts`, which is the only place this screen's paging state lives.\n *\n * Every state a read can answer with is drawn: the spinner while the shelf is unread, the route's own line\n * and a retry when it was refused, an empty shelf that says how a keep gets here, and the list. An empty\n * list and a refused one are two different facts, so they never share a block.\n */",
     "/**\n * One kept answer.\n *\n * The row is a `button`, so the keyboard reaches it and the name it announces is its own text: the\n * answer's opening lines, the thread it lives in, and how long ago it was kept. The thread's title is the\n * server's current one rather than a copy taken at keep time, so renaming a conversation moves every\n * pointer to it.\n */",
@@ -4880,6 +4883,9 @@ const allowed = new Map([
     "/**\n * The sentences that send the reader to the switch above the list, read against the switch they name.\n *\n * Pinned the way `composer-a11y-final.test.ts` pins a disabled control's reason: the claim is taken off the\n * rendered tree and the thing it claims is looked for in the same tree, so a sentence pointing at a control\n * nobody drew cannot pass — which is the mistake this screen has now made three times.\n */",
     "// The sentence the screen says is the localized one, and the deployment's own words are reached from it",
     "// rather than read out as the body of a page the reader came to in their own language.",
+  ]],
+  ["src/client/features/chat/quick-ask-store.ts", [
+    "/**\n * The little Ask panel that floats beside the note.\n *\n * It is deliberately not the main conversation: opening Quick Ask must not change which thread the\n * chat tab is showing. The turn is sent as an ephemeral conversation, so its words are kept for the\n * retention window but never appear in the history list the reader browses.\n */",
   ]],
   ["src/client/features/chat/read-aloud.test.ts", [
     "/**\n * Reading an answer aloud, and putting the voice back down.\n *\n * The failure this pins is a ghost: audio of an answer that is no longer on the screen. It arrives three\n * ways — the row is unmounted, the conversation is switched, or a second answer takes the one voice the\n * browser has — and each leaves the first row still claiming, in its own state, that it is reading. So\n * every case here is about a name, a pressed state, and how many times the fake engine was told to cancel.\n *\n * The engine is faked at module scope and shared across every request in the file, because the channel is\n * one per browser: a per-test instance would let two rows each believe they own it, which is the exact bug.\n *\n * jsdom has no `speechSynthesis` and no audio: nothing here is a claim that a voice was heard. The claims\n * are that the words handed to the engine are the answer with its markup taken out, that they arrive in\n * pieces the engine will not drop, and that every way of leaving the row takes the queue with it.\n */",
@@ -18780,6 +18786,11 @@ const allowed = new Map([
     "// same rule the two thread sections above follow.",
     "/**\n     * One fact the assistant kept from this page.\n     *\n     * The row is the memory's own text, because that is the thing the reader is checking, and the door is the\n     * assistant's memory page — where a fact can be corrected, superseded or forgotten. Drawing an editor\n     * here would put a second copy of that page inside the notebook, and the two would drift.\n     */",
     "/* What the assistant remembered from this page: the third thing a note can be asked about, and the one\n          whose row has been stored since the day it was written. A refusal is drawn as a refusal, never as an\n          empty list, because an empty list is a statement about the reader's own memory that no answer gave. */",
+  ]],
+  ["src/client/features/workspace/EditorSelectionBar.tsx", [
+    "/**\n * The small bar that appears over text the reader selected in the note editor.\n *\n * It is the same set of acts the AI toolbar menu offers, moved to where the reader is already looking:\n * the selection itself. The bar never owns the selection — the editor does — so every button re-reads\n * the live document before acting and refuses when the passage has moved.\n */",
+    "// The offsets are re-read from the live document: the bar is a few pixels away from the selection,",
+    "// and the reader may have typed while it was visible.",
   ]],
   ["src/client/features/workspace/EditorToolbar.test.ts", [
     "/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */",

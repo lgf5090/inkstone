@@ -3,7 +3,7 @@ import type { EditorView } from '@codemirror/view';
 import { Blocks, Braces, CaseUpper, ChevronDown, FileText, Heading, Image as ImageIcon, Link2, MoveVertical, Sigma, Smile, Sparkles, Table, Wand2, WandSparkles } from 'lucide-react';
 import { Menu } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { formatCodeBlock, insertCodeBlock, insertLink, insertTable } from '../../editor/commands';
+import { formatCodeBlock, getActiveEditorView, insertCodeBlock, insertLink, insertTable } from '../../editor/commands';
 import { blockCarryItems, blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
 import { Divider, FormatToolbar, MenuButton, ToolButton } from '../../editor/FormatToolbar';
 import { isTouchPointer } from '../../editor/dragger';
@@ -15,6 +15,7 @@ import { editorCombo } from '../../editor/shortcuts';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
+import { useQuickAsk } from '../chat/quick-ask-store';
 import { suggestNoteMeta } from '../chat/note-suggestions';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'ai';
@@ -95,6 +96,29 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         });
     };
     const aiItems = [
+        {
+            id: 'quick-ask',
+            label: t('assistant.quick_ask.open'),
+            onSelect: () => {
+                setToolbarMenu(null);
+                const noteId = useUi.getState().activeNoteId;
+                const target = view ?? getActiveEditorView();
+                const doc = target?.state.doc.toString() ?? '';
+                const range = target?.state.selection.main;
+                const selection = range && !range.empty ? doc.slice(range.from, range.to) : '';
+                const from = range?.from ?? doc.length;
+                const to = range?.to ?? doc.length;
+                const rect = aiRef.current?.getBoundingClientRect();
+                useQuickAsk.getState().openPanel({
+                    noteId,
+                    noteTitle: noteId ? useNotes.getState().notes[noteId]?.title ?? '' : '',
+                    selection,
+                    whole: doc,
+                    from,
+                    to,
+                }, rect ? { top: rect.bottom + 6, left: Math.max(12, rect.right - 380) } : null);
+            },
+        },
         ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo'] as const).map((action) => ({
             id: action,
             label: t(EDITOR_AI_LABELS[action]),

@@ -19,7 +19,8 @@ import { EditorContextMenu } from './context-menu/EditorContextMenu';
 import type { ContextMenuHost, EditorContext } from './context-menu/types';
 import { Segmented } from '../../components/form';
 import { EditorSkeleton, Empty } from '../../components/feedback';
-import { DeferredCodeEditor } from '../../editor/CodeEditor';
+import { DeferredCodeEditor, type EditorSelectionInfo } from '../../editor/CodeEditor';
+import { EditorSelectionBar } from './EditorSelectionBar';
 import { useLinterDrives } from '../../lib/linter/idle-drive';
 import { insertFiles } from '../../editor/paste';
 import { optimizeImageFile } from '../../lib/image';
@@ -32,6 +33,7 @@ import { SplitResizer } from '../shell/Resizer';
 import { EditorToolbar } from './EditorToolbar';
 import { BacklinksPanel } from './BacklinksPanel';
 import { CanvasPanel } from '../chat/CanvasPanel';
+import { QuickAskPanel } from '../chat/QuickAskPanel';
 import { useAssistant } from '../chat/assistant-store';
 import { SaveIndicator } from '../shell/SaveIndicator';
 import type { Heading } from '../../lib/markdown/renderer';
@@ -164,6 +166,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     const [outlineHovered, setOutlineHovered] = useState(false);
     const [cursorLine, setCursorLine] = useState<number | null>(null);
     const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; editor: EditorContext } | null>(null);
+    const [editorSelection, setEditorSelection] = useState<EditorSelectionInfo | null>(null);
     const pendingFileKind = useRef<'image' | 'file'>('image');
     const isMobile = breakpoint === 'mobile';
     const paneActive = !grouped || pane === 'active' || activeWorkspacePane === pane;
@@ -735,7 +738,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} templaterHighlight={isMobile ? templaterSettings.syntaxHighlightingMobile : templaterSettings.syntaxHighlighting} templaterIntellisenseRender={templaterSettings.intellisenseRender} templaterUserScripts={templaterUserScripts} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} onSelectionChange={setEditorSelection} templaterHighlight={isMobile ? templaterSettings.syntaxHighlightingMobile : templaterSettings.syntaxHighlighting} templaterIntellisenseRender={templaterSettings.intellisenseRender} templaterUserScripts={templaterUserScripts} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}
@@ -755,6 +758,10 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
         </Suspense>)}
 
       <Menu anchor={moreButtonRef} open={moreMenuOpen} onClose={() => setMoreMenuOpen(false)} items={grouped ? groupedItems : mobileItems} align="end" width={220}/>
+      {paneActive && editorSelection && !editorMenu && (
+        <EditorSelectionBar selection={editorSelection} onDone={() => setEditorSelection(null)}/>
+      )}
+      <QuickAskPanel/>
       {isMobile && (<Drawer open={mobileOutlineOpen} onClose={() => setMobileOutlineOpen(false)} side="right" width={320} title={t("common.outline")}>
           <Outline headings={headings} scrollerRef={previewScrollerRef} noteId={note.id} defaultLevel={outlineDefaultLevel} showProgress={outlineShowProgress} keepSearch={outlineKeepSearch} className="max-h-none w-full self-stretch py-3" onSelect={(heading) => {
                 jumpToHeading(heading);
