@@ -5,11 +5,10 @@
  * the selection itself. The bar never owns the selection — the editor does — so every button re-reads
  * the live document before acting and refuses when the passage has moved.
  */
-import { Fragment, useRef, useState } from 'react'
+import { Fragment, useEffect } from 'react'
 import { Maximize2, Minimize2, Languages, PanelRight, Sparkles, WandSparkles, Wand2 } from 'lucide-react'
 import type { EditorSelectionInfo } from '../../editor/CodeEditor'
 import { Button } from '../../components/primitives'
-import { Menu } from '../../components/overlay'
 import type { MessageKey } from '../../lib/i18n'
 import { t } from '../../lib/i18n'
 import { runEditorAi, quotePassage, type EditorAiAction } from '../chat/editor-ai'
@@ -33,8 +32,11 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
   const noteId = useUi((state) => state.activeNoteId)
   const noteTitle = useNotes((state) => (noteId ? state.notes[noteId]?.title ?? '' : ''))
   const commands = useAssistant((state) => state.cursorCommands).filter((command) => command.enabled)
-  const menuAnchor = useRef<HTMLSpanElement>(null)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const loadCursorCommands = useAssistant((state) => state.loadCursorCommands)
+  // The bar is reachable from the notebook without opening the assistant, so it cannot rely on the
+  // assistant's bootstrap having run: without this the reader's own commands were missing until they
+  // visited the chat tab first.
+  useEffect(() => { void loadCursorCommands() }, [loadCursorCommands])
   const run = (action: EditorAiAction) => {
     const view = getActiveEditorView()
     if (!noteId || !view) return
@@ -83,10 +85,13 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
     <div
       role="toolbar"
       aria-label={t('assistant.selection.toolbar')}
+      // A press on the bar must not take focus from the editor: every action re-reads the live
+      // selection, and losing it on mousedown is how the bar's own buttons ran on an empty range.
+      onMouseDown={(event) => event.preventDefault()}
       className="fixed z-[var(--z-popover)] flex items-center gap-0.5 rounded-[var(--r-full)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-pop)]"
       style={{
         top: Math.max(8, selection.rect.top - 44),
-        left: Math.max(8, Math.min(selection.rect.left, window.innerWidth - 300)),
+        left: Math.max(8, Math.min(selection.rect.left, window.innerWidth - 720)),
       }}
     >
       {ACTIONS.map(({ action, label, icon: Icon }, index) => (
@@ -104,34 +109,24 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
       <Button size="sm" variant="ghost" icon={<PanelRight size={13} />} onClick={toSidebar}>
         {t('assistant.edit.to_sidebar')}
       </Button>
-      {commands.length > 0 && (
-        <>
-          <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
-          <span ref={menuAnchor}>
-            <Button size="sm" variant="ghost" icon={<Wand2 size={13} />} onClick={() => setMenuOpen((open) => !open)}>
-              {t('assistant.cursor_commands.run')}
-            </Button>
-          </span>
-          <Menu
-            anchor={menuAnchor}
-            open={menuOpen}
-            onClose={() => setMenuOpen(false)}
-            label={t('assistant.cursor_commands.run')}
-            items={commands.map((command) => ({
-              id: command.id,
-              label: command.label,
-              onSelect: () => {
-                const view = getActiveEditorView()
-                if (!view || !noteId) return
-                const range = view.state.selection.main
-                if (range.empty) return
-                runCursorCommand(command, view.state.doc.sliceString(range.from, range.to), { id: noteId, title: noteTitle })
-                onDone()
-              },
-            }))}
-          />
-        </>
-      )}
+      {commands.slice(0, 3).map((command) => (
+        <Button
+          key={command.id}
+          size="sm"
+          variant="ghost"
+          icon={<Wand2 size={13} />}
+          onClick={() => {
+            const view = getActiveEditorView()
+            if (!view || !noteId) return
+            const range = view.state.selection.main
+            if (range.empty) return
+            runCursorCommand(command, view.state.doc.sliceString(range.from, range.to), { id: noteId, title: noteTitle })
+            onDone()
+          }}
+        >
+          {command.label}
+        </Button>
+      ))}
     </div>
   )
 }

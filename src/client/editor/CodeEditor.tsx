@@ -185,6 +185,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const outlinerRef = useRef(settings);
     outlinerRef.current = settings;
     const configuredDisplay = useRef({ live, lineNumbers: settings.lineNumbers });
+    const triggerPrefix = useRef('');
 
     useEffect(() => {
         const host = hostRef.current;
@@ -354,6 +355,47 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             parent: host,
         });
         view.contentDOM.spellcheck = settings.spellcheck;
+        /**
+         * The trigger never becomes text.
+         *
+         * Removing it after the fact raced the host's `value` prop: the editor removed the sigil, React
+         * re-applied the content it still held, and the reader saw the trigger sitting under the panel they
+         * had just opened. A capturing listener runs before CodeMirror's own input handling, so the
+         * character is refused before the document — or the host's copy of it — ever contains it.
+         */
+        const onTriggerInput = (event: Event): void => {
+            const input = event as InputEvent
+            if (input.inputType !== 'insertText' || input.isComposing) return
+            const trigger = cbRef.current.quickAskTrigger
+            const ask = cbRef.current.onQuickAskTrigger
+            if (!trigger || !ask) return
+            const selection = view.state.selection.main
+            if (!selection.empty) return
+            const before = view.state.sliceDoc(view.state.doc.lineAt(selection.head).from, selection.head)
+            if (before !== '') return
+            const typed = `${triggerPrefix.current}${input.data ?? ''}`
+            if (!trigger.startsWith(typed)) {
+                triggerPrefix.current = ''
+                return
+            }
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            if (typed !== trigger) {
+                triggerPrefix.current = typed
+                return
+            }
+            triggerPrefix.current = ''
+            const coords = view.coordsAtPos(selection.head)
+            ask({
+                from: selection.head,
+                to: selection.head,
+                whole: view.state.doc.toString(),
+                rect: { top: coords?.top ?? 0, left: coords?.left ?? 0 },
+            })
+        }
+        view.contentDOM.addEventListener('beforeinput', onTriggerInput, true)
+        const clearTriggerPrefix = (): void => { triggerPrefix.current = '' }
+        view.contentDOM.addEventListener('blur', clearTriggerPrefix)
         viewRef.current = view;
         setActiveEditorView(view);
         if (noteId)
@@ -367,6 +409,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         }
         onReady?.(view);
         return () => {
+            view.contentDOM.removeEventListener('beforeinput', onTriggerInput, true)
+            view.contentDOM.removeEventListener('blur', clearTriggerPrefix)
             onReady?.(null);
             // Only the view that registered may unregister itself: a second editor mounted over this
             // one (a pinned window, a mode switch) owns the cursor now, and clearing it here would

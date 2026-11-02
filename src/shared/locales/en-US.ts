@@ -8157,7 +8157,6 @@ const CORE_MESSAGES_TAIL = {
     "assistant.chat.tool_pruned": "Removed from the model's context; the original result is kept here for you.",
     "assistant.tool.context_prune_tool_results": "Prune tool results",
     "assistant.cursor_commands.title": "Custom cursor commands",
-    "assistant.cursor_commands.run": "Run command",
     "assistant.cursor_commands.name": "Command name",
     "assistant.cursor_commands.instruction": "What it should do with the selection",
     "assistant.cursor_commands.execution": "Where it runs",

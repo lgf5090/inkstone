@@ -2274,7 +2274,7 @@ export class AssistantStore {
     await this.write(
       `INSERT INTO chat_cursor_commands (user_id, id, label, instruction, execution, enabled, position, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
-      this.userId, id, input.label, input.instruction, input.execution, input.enabled === false ? 0 : 1, position, at,
+      id, input.label, input.instruction, input.execution, input.enabled === false ? 0 : 1, position, at,
     )
     return { id, label: input.label, instruction: input.instruction, execution: input.execution, enabled: input.enabled !== false, position, createdAt: at, updatedAt: at }
   }
@@ -2321,7 +2321,7 @@ export class AssistantStore {
     await this.write(
       `INSERT INTO chat_subagent_tasks (user_id, id, parent_conversation_id, parent_message_id, call_id, description, prompt, model_id, status, created_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)`,
-      this.userId, id, input.parentConversationId, input.parentMessageId, input.callId, input.description, input.prompt, input.modelId, Date.now(),
+      id, input.parentConversationId, input.parentMessageId, input.callId, input.description, input.prompt, input.modelId, Date.now(),
     )
     return id
   }
@@ -2766,7 +2766,7 @@ export class AssistantStore {
     await this.write(
       `INSERT INTO chat_questions (user_id, id, conversation_id, call_id, questions, status, answers, created_at, expires_at, answered_at)
        VALUES (?1, ?2, ?3, ?4, ?5, 'pending', NULL, ?6, ?7, NULL)`,
-      this.userId, id, input.conversationId, input.callId, JSON.stringify(input.questions), at, input.expiresAt,
+      id, input.conversationId, input.callId, JSON.stringify(input.questions), at, input.expiresAt,
     )
     return { id, conversationId: input.conversationId, callId: input.callId, questions: input.questions, status: 'pending', answers: null, createdAt: at, expiresAt: input.expiresAt }
   }
@@ -2776,7 +2776,7 @@ export class AssistantStore {
     const row = await this.one<QuestionRow>(`SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND id = ?2`, this.userId, id)
     if (!row) return null
     if (row.status === 'pending' && row.expires_at <= Date.now()) {
-      await this.write(`UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`, this.userId, id)
+      await this.write(`UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`, id)
       return toQuestion({ ...row, status: 'expired' })
     }
     return toQuestion(row)
@@ -2785,7 +2785,7 @@ export class AssistantStore {
   async pendingQuestions(conversationId: string): Promise<AssistantQuestionRow[]> {
     await this.write(
       `UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' AND expires_at <= ?3`,
-      this.userId, conversationId, Date.now(),
+      conversationId, Date.now(),
     )
     const rows = await this.rows<QuestionRow>(
       `SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' ORDER BY created_at ASC`,
@@ -2800,7 +2800,7 @@ export class AssistantStore {
     await this.write(
       `UPDATE chat_questions SET status = 'answered', answers = ?3, answered_at = ?4
         WHERE user_id = ?1 AND id = ?2 AND status = 'pending' AND expires_at > ?4`,
-      this.userId, id, JSON.stringify(answers), at,
+      id, JSON.stringify(answers), at,
     )
     const row = await this.getQuestion(id)
     return row?.status === 'answered' ? row : null
@@ -2810,7 +2810,7 @@ export class AssistantStore {
     await this.write(
       `UPDATE chat_questions SET status = 'cancelled', answered_at = ?3
         WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`,
-      this.userId, id, Date.now(),
+      id, Date.now(),
     )
     const row = await this.getQuestion(id)
     return row && row.status !== 'pending' ? row : null

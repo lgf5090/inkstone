@@ -8150,7 +8150,6 @@ console.log(\`Hello, \${name}!\`)
     "assistant.chat.tool_pruned": "已从模型上下文中移除，原始结果仍保留在这里供你查看。",
     "assistant.tool.context_prune_tool_results": "裁剪工具结果",
     "assistant.cursor_commands.title": "自定义选区指令",
-    "assistant.cursor_commands.run": "运行指令",
     "assistant.cursor_commands.name": "指令名称",
     "assistant.cursor_commands.instruction": "要它怎么处理选中的文字",
     "assistant.cursor_commands.execution": "运行方式",

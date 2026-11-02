@@ -749,6 +749,7 @@ const allowed = new Map([
     "// press a key are marks the switch looks like it ignored.",
     "/** Inline Tab completion, when the reader has switched it on. */",
     "/** The reader typed the Quick Ask trigger at the start of an empty line. */",
+    "/**\n         * The trigger never becomes text.\n         *\n         * Removing it after the fact raced the host's `value` prop: the editor removed the sigil, React\n         * re-applied the content it still held, and the reader saw the trigger sitting under the panel they\n         * had just opened. A capturing listener runs before CodeMirror's own input handling, so the\n         * character is refused before the document — or the host's copy of it — ever contains it.\n         */",
   ]],
   ["src/client/editor/EditorColorMenu.tsx", [
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
@@ -18879,6 +18880,11 @@ const allowed = new Map([
     "/**\n * The small bar that appears over text the reader selected in the note editor.\n *\n * It is the same set of acts the AI toolbar menu offers, moved to where the reader is already looking:\n * the selection itself. The bar never owns the selection — the editor does — so every button re-reads\n * the live document before acting and refuses when the passage has moved.\n */",
     "// The offsets are re-read from the live document: the bar is a few pixels away from the selection,",
     "// and the reader may have typed while it was visible.",
+    "// The bar is reachable from the notebook without opening the assistant, so it cannot rely on the",
+    "// assistant's bootstrap having run: without this the reader's own commands were missing until they",
+    "// visited the chat tab first.",
+    "// A press on the bar must not take focus from the editor: every action re-reads the live",
+    "// selection, and losing it on mousedown is how the bar's own buttons ran on an empty range.",
   ]],
   ["src/client/features/workspace/EditorToolbar.test.ts", [
     "/** A row of whichever menu or submenu is currently open — a submenu is portalled, so it is not under the toolbar. */",
