@@ -13,6 +13,7 @@ import { errorResponse } from '../src/worker/lib/errors'
 import { newId } from '../src/worker/lib/id'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
@@ -24,6 +25,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -87,10 +89,17 @@ describe('cloud drive shares', () => {
     expect(slug).toHaveLength(20)
     expect(created.body.share.url).toBe(`/d/${slug}`)
 
+    // A locked link answers with the fact that it is locked and nothing else: the name, the owner's own
+    // path, the size and the type are all the recipient's business only after the password.
     const meta = await call('GET', `/api/public/clouddrive/shares/${slug}`)
     expect(meta.status).toBe(200)
-    expect(meta.body.name).toBe('notes.txt')
     expect(meta.body.locked).toBe(true)
+    expect(meta.body.name).toBe('')
+    expect(meta.body.path).toBe('')
+    expect(meta.body.size).toBeNull()
+    const lockedViews = await db.prepare(`SELECT views FROM CloudDrive_shares WHERE slug = ?1`).bind(slug)
+      .first<{ views: number }>()
+    expect(lockedViews?.views).toBe(0)
 
     const wrong = await call('POST', `/api/public/clouddrive/shares/${slug}/verify`, { password: 'nope' })
     expect(wrong.status).toBe(401)
@@ -98,6 +107,10 @@ describe('cloud drive shares', () => {
     expect(verified.status).toBe(200)
     const cookie = (verified.headers.get('set-cookie') ?? '').split(';')[0]!
     expect(cookie).toContain('clouddrive_share=')
+
+    const unlocked = await call('GET', `/api/public/clouddrive/shares/${slug}`, undefined, cookie)
+    expect(unlocked.body.name).toBe('notes.txt')
+    expect(unlocked.body.locked).toBe(false)
 
     const content = await call('GET', `/api/public/clouddrive/shares/${slug}/content`, undefined, cookie)
     expect(content.status).toBe(200)
@@ -113,7 +126,7 @@ describe('cloud drive shares', () => {
     expect(gone.status).toBe(404)
   })
 
-  it('refuses a content path outside the shared folder', async () => {
+  it('addresses a folder link relative to the share and refuses to leave it', async () => {
     const folder = newId()
     const child = await file()
     const now = Date.now()
@@ -121,12 +134,24 @@ describe('cloud drive shares', () => {
       `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
        VALUES (?1,?2,'primary','','folder','docs',?3,'','/docs','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
     ).bind(folder, USER, foldedName('docs'), now).run()
-    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1 WHERE id = ?2`).bind(folder, child).run()
+    await db.prepare(`UPDATE CloudDrive_files SET parent_id = ?1, path = '/docs/notes.txt' WHERE id = ?2`)
+      .bind(folder, child).run()
     const created = await call('POST', '/api/clouddrive/shares', { targetKind: 'folder', fileId: folder, path: '/docs' })
     expect(created.status).toBe(200)
     const slug = created.body.share.slug as string
-    const outside = await call('GET', `/api/public/clouddrive/shares/${slug}/content?path=/notes.txt`)
-    expect(outside.status).toBe(400)
+
+    const listed = await call('GET', `/api/public/clouddrive/shares/${slug}/list`)
+    expect(listed.status).toBe(200)
+    // The recipient is handed the share's own address space, never `/docs/notes.txt` from the owner's tree.
+    expect(listed.body.path).toBe('/')
+    expect(listed.body.entries[0]?.path).toBe('/notes.txt')
+
+    const inside = await call('GET', `/api/public/clouddrive/shares/${slug}/content?path=%2Fnotes.txt`)
+    expect(inside.status).toBe(200)
+    expect(inside.body.text).toBe('hello cloud drive')
+
+    const escaping = await call('GET', `/api/public/clouddrive/shares/${slug}/content?path=${encodeURIComponent('/../secrets.txt')}`)
+    expect(escaping.status).toBe(400)
   })
 
   it('enforces the download count', async () => {
@@ -139,5 +164,51 @@ describe('cloud drive shares', () => {
     expect(first.status).toBe(200)
     const second = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
     expect(second.status).toBe(403)
+  })
+
+  /** A row and its object, with the media type the share has to reason about. */
+  async function mediaFile(name: string, mime: string, content: string): Promise<string> {
+    const id = newId()
+    const key = `CloudDrive/other/${id}`
+    await r2.put(key, new TextEncoder().encode(content), { httpMetadata: { contentType: mime } })
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','file',?3,?4,'',?5,'other',?6,?7,NULL,NULL,'r2',?8,'{}','',NULL,NULL,NULL,NULL,?9,?9,?9,?9)`,
+    ).bind(id, USER, name, foldedName(name), `/${name}`, mime, content.length, key, now).run()
+    return id
+  }
+
+  it('keeps a preview-only link previewable and refuses the bytes of anything else', async () => {
+    const text = await mediaFile('report.txt', 'text/plain', 'private bytes')
+    const textSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: text, path: '/report.txt', allowDownload: false,
+    })).body.share.slug as string
+    // "No download" cannot stop a viewer saving a picture, but it has to stop the plain file route
+    // handing over a document the browser would only have offered to save.
+    expect((await call('GET', `/api/public/clouddrive/shares/${textSlug}/content`)).status).toBe(403)
+    expect((await call('GET', `/d/${textSlug}/raw`)).status).toBe(403)
+
+    const image = await mediaFile('photo.png', 'image/png', 'png-bytes')
+    const imageSlug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: image, path: '/photo.png', allowDownload: false,
+    })).body.share.slug as string
+    const preview = await call('GET', `/api/public/clouddrive/shares/${imageSlug}/content`)
+    expect(preview.status).toBe(200)
+    expect(preview.headers.get('content-type')).toContain('image/png')
+  })
+
+  it('throttles repeated wrong share passwords', async () => {
+    const id = await file()
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, path: '/notes.txt', password: 'password1',
+    })).body.share.slug as string
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await call('POST', `/api/public/clouddrive/shares/${slug}/verify`, { password: 'nope' })).status).toBe(401)
+    }
+    // The right password arrives at a locked budget: the lock is what stops the guessing, not the answer.
+    const locked = await call('POST', `/api/public/clouddrive/shares/${slug}/verify`, { password: 'password1' })
+    expect(locked.status).toBe(429)
+    expect(locked.body.error.code).toBe('too_many_attempts')
   })
 })

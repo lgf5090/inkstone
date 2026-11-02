@@ -208,8 +208,28 @@ async function ensureScheduledJobs(db: D1Database, userId: string, now = Date.no
      VALUES (?, ?, ?, ?, 'interval', ?, NULL, 1, 1, '{}', NULL, ?, NULL, ?, ?)`,
   ).bind(
     userId, seed.id, seed.name, seed.handler, seed.intervalSec,
-    now + seed.intervalSec * 1000, now, now,
+    // The first pass is due at once: a reader who never opened the jobs page still has expired
+    // upload sessions holding R2 bytes, and the sweep is what releases them.
+    now, now, now,
   )))
+}
+
+/**
+ * Seed the built-in sweeps for every CloudDrive owner that has never opened the jobs page.
+ *
+ * The sweeps are the only path that releases the bytes of abandoned uploads, so they cannot depend
+ * on somebody visiting `/jobs` once. The scan is cross-user by necessity — the cron has no session —
+ * and every insert still writes one `user_id`.
+ */
+export async function seedMissingCloudDriveJobs(db: D1Database, now = Date.now(), limit = 50): Promise<number> {
+  const { results } = await db.prepare(
+    `SELECT DISTINCT m.user_id FROM CloudDrive_mounts m
+      WHERE NOT EXISTS (SELECT 1 FROM CloudDrive_scheduled_jobs j WHERE j.user_id = m.user_id)
+      LIMIT ?`,
+  ).bind(Math.max(1, Math.min(200, limit))).all<{ user_id: string }>()
+  const userIds = (results ?? []).map((row) => row.user_id)
+  for (const userId of userIds) await ensureScheduledJobs(db, userId, now)
+  return userIds.length
 }
 
 async function jobById(db: D1Database, userId: string, id: string): Promise<JobRow | null> {
@@ -647,7 +667,8 @@ export async function runDueCloudDriveJobs(
   env: Env,
   now = Date.now(),
   limit = 20,
-): Promise<{ ran: number; failed: number; skipped: number }> {
+): Promise<{ ran: number; failed: number; skipped: number; seeded: number }> {
+  const seeded = await seedMissingCloudDriveJobs(env.DB, now)
   const { results } = await env.DB.prepare(
     `SELECT user_id, id FROM CloudDrive_scheduled_jobs
       WHERE enabled = 1 AND next_run_after IS NOT NULL AND next_run_after <= ?
@@ -671,5 +692,5 @@ export async function runDueCloudDriveJobs(
       failed++
     }
   }
-  return { ran, failed, skipped }
+  return { ran, failed, skipped, seeded }
 }

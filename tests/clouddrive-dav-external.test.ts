@@ -8,6 +8,7 @@ import { clouddriveDavRoutes } from '../src/worker/clouddrive/routes-dav'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testDurableObjectNamespace, testR2Bucket } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
@@ -38,6 +39,7 @@ function makeVault(): DurableObjectNamespace {
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
 })

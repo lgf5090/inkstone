@@ -52,6 +52,17 @@ function isInlineDispositionSafe(contentType: string): boolean {
   return isInlineSafe(contentType) || contentType.startsWith('audio/') || contentType.startsWith('video/')
 }
 
+/**
+ * Whether a browser is allowed to render this type in place at all.
+ *
+ * The same list that decides `inline` vs `attachment` answers "can this be previewed", so a route that
+ * offers preview-without-download and a route that sets the disposition cannot drift into disagreeing
+ * about which types leak their bytes to a viewer.
+ */
+export function isBrowserRenderable(contentType: string): boolean {
+  return isInlineDispositionSafe(contentType)
+}
+
 function encodeContentDispositionFilename(value: string): string {
   return encodeURIComponent(value).replace(/['()*]/g, (character) =>
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`,

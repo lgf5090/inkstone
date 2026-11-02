@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { publicCloudDriveSettings } from '@shared/clouddrive/settings'
 import type { CloudDriveBootstrap } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
@@ -82,21 +83,24 @@ clouddriveRoutes.all('*', () => {
 export const clouddrivePublicRoutes = clouddrivePublicShareRoutes
 export { clouddrivePublicRequestRoutes }
 
-export const clouddriveSharePageRoutes = new Hono<AppBindings>()
-clouddriveSharePageRoutes.get('/:slug', async (c) => {
+/**
+ * A share link is meant for the one person the owner sent it to, so its document must never become a
+ * search result. `robots.txt` already disallows the whole app; this is the header that survives a
+ * crawler that ignores it, and it is set on the two page routes rather than on the API, whose JSON a
+ * browser never renders.
+ */
+const SHARE_PAGE_HEADERS = { 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store' }
+
+async function sharePageDocument(c: Context<AppBindings>): Promise<Response> {
   const url = new URL(c.req.url)
-  return c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
-})
+  const asset = await c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
+  const headers = new Headers(asset.headers)
+  for (const [name, value] of Object.entries(SHARE_PAGE_HEADERS)) headers.set(name, value)
+  return new Response(asset.body, { status: asset.status, headers })
+}
+
+export const clouddriveSharePageRoutes = new Hono<AppBindings>()
+clouddriveSharePageRoutes.get('/:slug', (c) => sharePageDocument(c))
 
 export const clouddriveRequestPageRoutes = new Hono<AppBindings>()
-clouddriveRequestPageRoutes.get('/:slug', async (c) => {
-  const url = new URL(c.req.url)
-  return c.env.ASSETS.fetch(new Request(new URL('/index.html', url.origin)))
-})
-
-export const clouddriveDavRoutes = new Hono<AppBindings>()
-clouddriveDavRoutes.on(['OPTIONS'], '*', () => new Response(null, {
-  status: 200,
-  headers: { Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, MOVE, COPY', DAV: '1', 'MS-Author-Via': 'DAV' },
-}))
-clouddriveDavRoutes.all('*', () => new Response('WebDAV is not configured', { status: 503 }))
+clouddriveRequestPageRoutes.get('/:slug', (c) => sharePageDocument(c))

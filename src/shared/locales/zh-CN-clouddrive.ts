@@ -506,6 +506,7 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.error.share_locked': '此链接需要密码。',
   'clouddrive.error.share_expired': '此链接已达到访问上限。',
   'clouddrive.error.share_disabled': '链接不可用。',
+  'clouddrive.error.too_many_attempts': '尝试次数过多，请稍后再试。',
   'clouddrive.error.payload_too_large': '文件或请求过大。',
   'clouddrive.error.internal': '服务器无法完成请求。',
 } as const

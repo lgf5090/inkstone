@@ -26,6 +26,10 @@ import {
   parsePath,
   resolveEntry,
   resolveMount,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
   type CloudDriveFileRow,
   type CloudDriveMountInfo,
 } from './lib'
@@ -123,11 +127,42 @@ async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
   const credentials = parseBasic(header)
   if (!credentials) return { response: unauthorized('Malformed authorization') }
 
+  // Every branch below can spend a scrypt derivation, so one client gets one attempt budget for this
+  // endpoint; a successful check clears it, and the lock answers 429 the way the rest of the app does.
+  const throttleKey = passcodeThrottleKey('dav', credentials.username, c.req.raw)
+  try {
+    await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 429) {
+      const retryAfter = (error.details as { retryAfter?: number } | undefined)?.retryAfter ?? 60
+      return { response: new Response('Too many attempts', {
+        status: 429,
+        headers: { 'Retry-After': String(retryAfter), 'Content-Type': 'text/plain; charset=utf-8' },
+      }) }
+    }
+    throw error
+  }
+  let verified = false
+  try {
+    const answer = await davCredentials(c, credentials, throttleKey)
+    verified = !('response' in answer)
+    return answer
+  } finally {
+    if (!verified) await notePasscodeFailure(c.env.DB, throttleKey)
+  }
+}
+
+async function davCredentials(
+  c: Context<AppBindings>,
+  credentials: { username: string; password: string },
+  throttleKey: string,
+): Promise<DavAuth> {
   if (credentials.username === 'apikey') {
     const actor = await authenticateApiKey(c.env.DB, credentials.password, 'webdav')
     if (!actor) return { response: unauthorized('Invalid credentials') }
     const settings = await readCloudDriveSettings(c.env.DB, actor.userId)
     if (!settings.webdavEnabled) return { response: unavailable() }
+    await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId: actor.userId, pathPrefix: actor.pathPrefix, keyId: actor.keyId },
       settings,
@@ -139,6 +174,7 @@ async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
     if (!settings.webdavEnabled || !settings.webdavPasswordHash) continue
     if (settings.webdavUsername !== credentials.username) continue
     if (!(await verifyPassword(credentials.password, settings.webdavPasswordHash))) continue
+    await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId, pathPrefix: '/', keyId: null },
       settings,

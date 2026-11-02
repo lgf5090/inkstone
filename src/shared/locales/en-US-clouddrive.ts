@@ -505,6 +505,7 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.error.share_locked': 'This link needs a password.',
   'clouddrive.error.share_expired': 'This link has reached its limit.',
   'clouddrive.error.share_disabled': 'This link is unavailable.',
+  'clouddrive.error.too_many_attempts': 'Too many attempts. Please wait a moment and try again.',
   'clouddrive.error.payload_too_large': 'The file or request is too large.',
   'clouddrive.error.internal': 'The server could not complete the request.',
 } as const

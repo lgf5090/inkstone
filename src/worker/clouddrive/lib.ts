@@ -21,8 +21,9 @@ import {
   type CloudDriveSortKey,
   type CloudDriveTagView,
 } from '@shared/clouddrive/model'
-import { clampInt } from '../lib/request'
+import { clampInt, requestClientIp } from '../lib/request'
 import { ApiError } from '../lib/errors'
+import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
 
 /** One `CloudDrive_files` row, by column name. */
 export interface CloudDriveFileRow {
@@ -415,4 +416,40 @@ export async function tagsForFiles(
 /** `foldedName` in one place, so a caller does not repeat NFC + lowercase. */
 export function foldName(name: string): string {
   return foldedName(name)
+}
+
+/**
+ * The passcode budget shared by every CloudDrive secret a stranger can knock on: a share password, a
+ * file-request password, a folder lock and the WebDAV Basic credentials.
+ *
+ * Each of those answers a wrong secret with a scrypt derivation, so without a lock one anonymous
+ * visitor with a link can spend the worker's CPU indefinitely while guessing. The keys are scoped to
+ * the client IP plus the thing being unlocked, so guessing one link cannot lock out another.
+ */
+const PASSCODE_FREE_FAILS = 5
+
+export function passcodeThrottleKey(kind: string, target: string, request: Request): string {
+  return `clouddrive-${kind}:${requestClientIp(request)}:${target.slice(0, 96)}`
+}
+
+export async function assertPasscodeAttemptsLeft(db: D1Database, key: string): Promise<void> {
+  try {
+    await assertNotLocked(db, [{ key, freeFails: PASSCODE_FREE_FAILS }])
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(429, 'too_many_attempts', 'Too many attempts', { retryAfter: error.retryAfterSec })
+    }
+    throw error
+  }
+}
+
+export async function notePasscodeFailure(db: D1Database, key: string): Promise<void> {
+  // A throttle write must not replace the 401 the caller is about to answer with.
+  await recordLoginFailure(db, [{ key, freeFails: PASSCODE_FREE_FAILS }])
+    .catch((error: unknown) => console.warn('[clouddrive] could not record a failed passcode attempt:', error))
+}
+
+export async function notePasscodeSuccess(db: D1Database, key: string): Promise<void> {
+  await clearLoginFailures(db, [{ key }])
+    .catch((error: unknown) => console.warn('[clouddrive] could not clear the passcode throttle:', error))
 }

@@ -70,6 +70,10 @@ export function DriveRequestPage({ slug }: { slug: string }) {
         setError(t('clouddrive.request.locked'))
         return
       }
+      if (response.status === 429) {
+        setError(t('clouddrive.error.too_many_attempts'))
+        return
+      }
       if (!response.ok) {
         setPhase('unavailable')
         return
@@ -114,6 +118,10 @@ export function DriveRequestPage({ slug }: { slug: string }) {
         if (response.status === 401) {
           setPhase('locked')
           setError(t('clouddrive.request.locked'))
+          break
+        }
+        if (response.status === 429) {
+          setError(t('clouddrive.error.too_many_attempts'))
           break
         }
         const payload = await response.json().catch(() => null) as { name?: string; error?: { message?: string } } | null

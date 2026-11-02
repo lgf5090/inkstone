@@ -10,13 +10,18 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId, newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
-import { readJson } from '../lib/request'
+import { readJson, requestClientIp } from '../lib/request'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import {
   initialsOf,
   parseName,
   parsePath,
   resolveEntry,
   resolveMount,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
 } from './lib'
 import { cloudDriveUsage } from './store'
 
@@ -209,23 +214,44 @@ async function availableRequestName(
 }
 
 clouddrivePublicRequestRoutes.post('/requests/:slug/verify', async (c) => {
-  const row = await publicRequest(c, c.req.param('slug'))
+  const slug = c.req.param('slug')
+  const row = await publicRequest(c, slug)
   if (!row.password_hash) return c.json({ ok: true })
+  const throttleKey = passcodeThrottleKey('request', slug, c.req.raw)
+  await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
   const body = await readJson<{ password?: unknown }>(c, BODY_LIMIT)
   const password = typeof body.password === 'string' ? body.password : ''
   if (!(await verifyPassword(password, row.password_hash))) {
+    await notePasscodeFailure(c.env.DB, throttleKey)
     throw new ApiError(401, 'clouddrive_share_locked', 'This upload link needs a password')
   }
+  await notePasscodeSuccess(c.env.DB, throttleKey)
   return c.json({ ok: true })
 })
 
+/** How many files one visitor may hand to one request link inside the window. */
+const REQUEST_UPLOAD_BUDGET = { maxAttempts: 30, windowMs: 5 * 60 * 1000 }
+
 clouddrivePublicRequestRoutes.post('/requests/:slug/upload', async (c) => {
   const request = await publicRequest(c, c.req.param('slug'))
+  // The link's own `max_files`/`max_bytes` bound what a visitor can store, not how hard they can push:
+  // without a per-visitor budget one page reload loop spends the whole allowance in seconds.
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{
+      key: `clouddrive-request:${requestClientIp(c.req.raw)}:${request.slug}`.slice(0, 256),
+      ...REQUEST_UPLOAD_BUDGET,
+    }]),
+    'Too many uploads to this link',
+  )
   if (request.password_hash) {
     const password = c.req.header('x-clouddrive-request-password') ?? ''
+    const throttleKey = passcodeThrottleKey('request-upload', request.slug, c.req.raw)
+    await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
     if (!(await verifyPassword(password, request.password_hash))) {
+      await notePasscodeFailure(c.env.DB, throttleKey)
       throw new ApiError(401, 'clouddrive_share_locked', 'This upload link needs a password')
     }
+    await notePasscodeSuccess(c.env.DB, throttleKey)
   }
   const name = parseName(c.req.query('name') ?? '')
   const mimeRaw = (c.req.header('content-type') ?? '').split(';')[0]!.trim().toLowerCase() || 'application/octet-stream'

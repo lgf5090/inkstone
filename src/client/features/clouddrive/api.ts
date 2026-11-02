@@ -201,7 +201,7 @@ export const clouddriveApi = {
   externalMove: (mountId: string, from: string, to: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/move`, json({ from, to })),
   externalDelete: (mountId: string, paths: string[]) => request<{ deleted: number; failed: number }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/files`, { method: 'DELETE', body: JSON.stringify({ paths }) }),
   thumbnailUrl: (id: string, width = 320) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?w=${width}`,
-  zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams(params).toString()}`,
+  zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams({ mount: params.mountId, path: params.path }).toString()}`,
 
   tasks: () => request<{ tasks: { id: string; type: string; status: string; payload: Record<string, unknown>; progress: Record<string, unknown>; error: string | null; createdAt: number; startedAt: number | null; finishedAt: number | null }[] }>('/api/clouddrive/tasks'),
   cancelTask: (id: string) => request<{ ok: true }>(`/api/clouddrive/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),

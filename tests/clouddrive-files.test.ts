@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, beforeEach } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
+import { unzipSync } from 'fflate'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
@@ -356,5 +357,69 @@ describe('clouddrive file API', () => {
 
     expect((await call(USER, 'PATCH', `/api/clouddrive/files/${secretId}`, { note: 'x' })).status).toBe(400)
     expect((await call(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, { hidePatterns: ['x'.repeat(101)] })).status).toBe(400)
+  })
+
+  it('packs a folder into a zip the reader can unzip', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Docs',
+    })
+    const deep = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Docs', name: 'deep',
+    })
+    await r2.put('CloudDrive/txt/zip-a', new TextEncoder().encode('first file'))
+    await r2.put('CloudDrive/txt/zip-b', new TextEncoder().encode('nested file'))
+    await insertEntry({
+      path: '/Docs/a.txt', name: 'a.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-a', size: 10,
+    })
+    await insertEntry({
+      path: '/Docs/deep/b.txt', name: 'b.txt', parentId: deep.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-b', size: 11,
+    })
+
+    const response = await buildApp(USER).fetch(
+      new Request('http://localhost/api/clouddrive/download/zip?mount=primary&path=/Docs'),
+      env,
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('Docs.zip')
+    expect(response.headers.get('x-clouddrive-zip-items')).toBe('2')
+
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    // The archive carries the folder itself and each nested folder; `unzipSync` reports a directory
+    // member by its name without the trailing slash.
+    expect(Object.keys(unzipped).sort()).toEqual(['Docs', 'Docs/a.txt', 'Docs/deep', 'Docs/deep/b.txt'])
+    expect(new TextDecoder().decode(unzipped['Docs/a.txt'])).toBe('first file')
+    expect(new TextDecoder().decode(unzipped['Docs/deep/b.txt'])).toBe('nested file')
+  })
+
+  it('refuses to archive a single file, and hides what the folder hides', async () => {
+    await insertEntry({ path: '/solo.txt', name: 'solo.txt', size: 1 })
+    const solo = await call(USER, 'GET', '/api/clouddrive/download/zip?mount=primary&path=/solo.txt')
+    expect(solo.status).toBe(400)
+
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Mixed',
+    })
+    await r2.put('CloudDrive/txt/zip-keep', new TextEncoder().encode('kept'))
+    await r2.put('CloudDrive/txt/zip-hide', new TextEncoder().encode('hidden'))
+    await insertEntry({
+      path: '/Mixed/keep.txt', name: 'keep.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-keep', size: 4,
+    })
+    await insertEntry({
+      path: '/Mixed/secret.txt', name: 'secret.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-hide', size: 6,
+    })
+    await call(USER, 'PATCH', `/api/clouddrive/files/${folder.body.entry.id}`, { hidePatterns: ['secret*'] })
+
+    const response = await buildApp(USER).fetch(
+      new Request('http://localhost/api/clouddrive/download/zip?mount=primary&path=/Mixed'),
+      env,
+    )
+    expect(response.status).toBe(200)
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(unzipped)).toEqual(['Mixed', 'Mixed/keep.txt'])
   })
 })

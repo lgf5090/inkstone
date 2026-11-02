@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { unzipSync } from 'fflate'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../src/worker/app'
 import { hashToken } from '../src/worker/lib/session-store'
@@ -388,10 +389,18 @@ describe('clouddrive content', () => {
     expect(response.status).toBe(400)
   })
 
-  it('answers the zip endpoint with an explicit 501', async () => {
-    const response = await request(h, 'GET', '/api/clouddrive/download/zip?mountId=primary&path=/')
-    expect(response.status).toBe(501)
-    expect((await response.json() as { error: { code: string } }).error.code).toBe('not_implemented')
+  it('streams a zip of the drive instead of answering 501', async () => {
+    await uploadSmall(h, 'note.txt', 'zip me')
+    const response = await request(h, 'GET', '/api/clouddrive/download/zip?mount=primary&path=/')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('attachment')
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(unzipped)).toEqual(['note.txt'])
+    expect(new TextDecoder().decode(unzipped['note.txt'])).toBe('zip me')
+
+    const external = await request(h, 'GET', '/api/clouddrive/download/zip?mount=missing&path=/')
+    expect(external.status).toBe(404)
   })
 })
 

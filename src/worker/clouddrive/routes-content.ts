@@ -5,18 +5,21 @@
  * handling and the thumbnail all use that answer instead of their own SQL. The body of a live file
  * is immutable (an id is never reused), so the authenticated cache policy can be a long one.
  *
- * `GET /download/zip` is deliberately a 501 for now: a streaming archive needs its own size/item
- * limits and testing, and answering with a fake empty zip would hide that it is not implemented.
+ * `GET /download/zip` packs a folder by streaming one ZIP: the bytes of the tree never collect in this
+ * isolate, and the shared `zipMaxItems`/`zipMaxBytes` ceilings refuse with 413 rather than truncating.
  */
 import { Hono, type Context } from 'hono'
+import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
-import { resolveMount } from './lib'
+import { PRIMARY_MOUNT, parseFolderMeta, parsePath, resolveEntry, resolveMount } from './lib'
+import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
 import { assertMetaAccess } from './routes-meta'
+import { buildFolderZip, zipDisposition } from './zip'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
 
@@ -265,10 +268,62 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
   }
 })
 
-clouddriveContentRoutes.on(['GET', 'POST'], '/download/zip', () => new Response(
-  JSON.stringify({ error: { code: 'not_implemented', message: 'Streaming zip downloads are not available yet' } }),
-  {
-    status: 501,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-  },
-))
+/**
+ * `GET /download/zip` packs a folder as a stream, so a reader can take a whole directory in one
+ * request. The ceilings are the shared `zipMaxItems`/`zipMaxBytes`, and they refuse with 413 rather
+ * than answering with a truncated archive nobody asked for. External mounts are not walked here: their
+ * drivers have no recursive listing primitive that is cheap enough to promise.
+ */
+clouddriveContentRoutes.get('/download/zip', async (c) => {
+  const userId = requireUserId(c)
+  const mount = await resolveMount(c.env.DB, userId, c.req.query('mount') ?? PRIMARY_MOUNT)
+  if (mount.storageId !== PRIMARY_MOUNT) {
+    throw new ApiError(400, 'clouddrive_mount_unavailable', 'Only the primary mount can be archived')
+  }
+  const path = parsePath(c.req.query('path') ?? '/')
+  if (path !== '/') {
+    const entry = await resolveEntry(c.env.DB, userId, mount.id, path)
+    if (entry.kind !== 'folder') throw ApiError.badRequest('Only folders can be archived')
+  }
+  await assertMetaAccess(c, userId, mount.id, path)
+
+  // A folder can hide its children two ways — its own `metadata.hidePatterns` and the mount-level meta
+  // row with its inherit flags — and an archive that ignored either would hand out what the listing
+  // refuses to show. Both are resolved once per directory, not once per entry.
+  const directoryCache = new Map<string, Promise<{ patterns: string[]; locked: boolean }>>()
+  const directoryState = (parent: string): Promise<{ patterns: string[]; locked: boolean }> => {
+    const cached = directoryCache.get(parent)
+    if (cached) return cached
+    const next = (async () => {
+      const meta = await effectiveMeta(c.env.DB, userId, mount.id, parent)
+      const patterns = [...meta.hidePatterns]
+      if (parent !== '/') {
+        const row = await resolveEntry(c.env.DB, userId, mount.id, parent)
+        patterns.push(...parseFolderMeta(row.metadata).hiddenPatterns)
+      }
+      let locked = false
+      if (meta.passwordHash && meta.passwordPath) {
+        const cookie = getCookie(c, await metaCookieName(mount.id, meta.passwordPath))
+        locked = !await isMetaUnlocked(c.env.DB, userId, mount.id, meta.passwordPath, cookie)
+      }
+      return { patterns, locked }
+    })()
+    directoryCache.set(parent, next)
+    return next
+  }
+  const skip = async (row: { path: string; name: string }): Promise<boolean> => {
+    const state = await directoryState(parentPathOf(row.path))
+    if (state.locked) return true
+    return hiddenByPatterns(row.name, state.patterns)
+  }
+
+  const archive = await buildFolderZip(c.env, c.env.DB, userId, mount, path, skip)
+  const headers = new Headers({
+    'Content-Type': 'application/zip',
+    'Content-Disposition': zipDisposition(archive.filename),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-CloudDrive-Zip-Items': String(archive.items),
+  })
+  return new Response(c.req.method === 'HEAD' ? null : archive.stream, { status: 200, headers })
+})

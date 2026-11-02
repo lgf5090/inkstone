@@ -8,6 +8,7 @@ import { clouddrivePublicRequestRoutes } from '../src/worker/clouddrive/routes-r
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
@@ -21,6 +22,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
