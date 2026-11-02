@@ -20,7 +20,7 @@ import {
   NavSearchSettingsSchema,
   NavWebdavSettingsPutSchema,
 } from '@shared/nav/validation'
-import { normalizeLinkUrl } from '@shared/nav/model'
+import { NAV_LIMITS, normalizeLinkUrl } from '@shared/nav/model'
 import { NavStore, hiddenCategories } from './store'
 import {
   assertUnlockAllowed,
@@ -91,10 +91,16 @@ async function passwordFields(
   return { passwordHash: null, useDefaultPassword: false }
 }
 
-async function fallbackCategory(nav: NavStore, name = 'Uncategorized'): Promise<string> {
+/**
+ * The folder a bookmark lands in when the file named none this account has.
+ *
+ * It is found by its reserved name rather than "whatever comes first", so the reader can always say where
+ * the stray entries went — which is also what the import answer reports them under.
+ */
+async function sentinelCategory(nav: NavStore, name = 'Uncategorized'): Promise<string> {
   const categories = await nav.categories()
-  const root = categories.find((category) => !category.parentId)
-  if (root) return root.id
+  const found = categories.find((category) => category.name === name && !category.parentId)
+  if (found) return found.id
   const created = await nav.createCategory({
     name,
     icon: 'folder',
@@ -272,14 +278,21 @@ navDataRoutes.post('/visits', async (c) => {
 navDataRoutes.post('/import', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavImportSchema))
+  // A payload can name folders that exist neither in the account nor in itself. Those entries are not
+  // dropped and not filed under whichever id a Set happens to hold first: they go to the reserved folder
+  // and the answer counts them, so the reader is told where the strays landed.
   const existing = new Set((await nav.categories()).map((category) => category.id))
   const imported = new Set(input.categories.map((category) => category.id))
-  const fallback = existing.size || imported.size ? null : await fallbackCategory(nav, input.fallbackCategoryName)
   const known = new Set([...existing, ...imported])
-  const links = input.links.map((link) => ({
-    ...link,
-    categoryId: known.has(link.categoryId) ? link.categoryId : fallback ?? [...known][0] ?? link.categoryId,
-  }))
+  const remapped = input.links.filter((link) => !known.has(link.categoryId)).length
+  const sentinel = remapped > 0 ? await sentinelCategory(nav, input.fallbackCategoryName) : null
+  const links = input.links.map((link) => (known.has(link.categoryId) ? link : { ...link, categoryId: sentinel ?? link.categoryId }))
+  // The account-wide cap the parsers honour is enforced here too: the server is the boundary, and a client
+  // that chunks 200 at a time can otherwise walk the collection past any number the UI promises.
+  const held = await nav.countLinks()
+  if (held + links.length > NAV_LIMITS.importMaxLinks) {
+    throw new ApiError(413, 'nav_import_limit', `This account holds ${held} bookmarks and the limit is ${NAV_LIMITS.importMaxLinks}; ${links.length} more would not fit`)
+  }
   // An import upserts by id, so a payload naming a locked category would rewrite its name and parent — or
   // file someone else's links into it — without ever asking for the key.
   const hidden = await hiddenFor(c, nav)
@@ -287,9 +300,9 @@ navDataRoutes.post('/import', async (c) => {
     throw ApiError.notFound('Category not found')
   }
   const result = await nav.importData(input.categories, links, input.skipExisting !== false)
-  // The store also reports how many categories landed, which the restore path needs; the import response
-  // keeps to the two fields its readers were built against.
-  return c.json({ imported: result.imported, skipped: result.skipped })
+  // The store also reports how many categories landed, which the restore path needs; the import answer
+  // carries the three counts its readers act on.
+  return c.json({ imported: result.imported, skipped: result.skipped, remapped })
 })
 
 navDataRoutes.post('/links/batch', async (c) => {

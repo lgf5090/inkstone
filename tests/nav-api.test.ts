@@ -9,7 +9,7 @@ import { runScheduledNavBackups } from '../src/worker/nav/backup-scheduler'
 import { navDataRoutes, navSettingsRoutes } from '../src/worker/nav/routes'
 import { errorResponse } from '../src/worker/lib/errors'
 import { sha256Hex } from '../src/worker/lib/encoding'
-import { DEFAULT_NAV_SETTINGS, NAV_LIMITS, newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
+import { DEFAULT_NAV_SETTINGS, NAV_LIMITS, NAV_UNCATEGORIZED, newNavId, type NavBackup, type NavBackupConfig, type NavBootstrap, type NavCategory, type NavLink, type NavSettings } from '../src/shared/nav/model'
 import type { AppBindings, Env } from '../src/worker/env'
 import { testBindings, testDurableObjectNamespace } from './doubles/bindings'
 import { makeD1 } from './doubles/d1-sqlite'
@@ -493,6 +493,28 @@ describe('category passwords and unlock tokens', () => {
     expect((await call('POST', '/api/nav/backup/restore', { body: backup })).status).toBe(200)
   })
 
+  it('drops the unlock rows of the categories a restore removes', async () => {
+    const doomed = await createCategory(USER_A, 'Doomed folder', { passwordMode: 'custom', password: 'restore-password' })
+    await seedUnlock(USER_A, doomed.id, 'restore-password')
+    const keep = await createCategory(USER_A, 'Keeper')
+    expect(count('nav_category_unlocks')).toBe(1)
+
+    const backup: NavBackup = {
+      format: 'inkstone-nav-backup',
+      version: 1,
+      createdAt: Date.now(),
+      categories: [{ id: keep.id, name: 'Keeper', icon: 'folder', parentId: null, sortOrder: 0, createdAt: 1, hasPassword: false, passwordMode: 'none' }],
+      links: [],
+      visits: {},
+      settings: DEFAULT_NAV_SETTINGS,
+    }
+    const restored = await call('POST', '/api/nav/backup/restore', { body: backup })
+    expect(restored.status, await restored.clone().text()).toBe(200)
+    expect(categoryRow(doomed.id)).toBeUndefined()
+    // A token left behind would open a folder re-created later under that same id.
+    expect(count('nav_category_unlocks')).toBe(0)
+  })
+
   it('reports only the rows a restore actually wrote', async () => {
     const mine = await createCategory(USER_A, 'Mine')
     const link = await createLink(USER_A, mine.id, 'Kept link')
@@ -924,6 +946,47 @@ describe('category passwords and unlock tokens', () => {
 })
 
 describe('link CRUD, pinning and ordering', () => {
+  it('answers a second request for the same id as a conflict, not a database fault', async () => {
+    const category = await createCategory(USER_A, 'Home')
+    const linkId = newNavId()
+    const both = await Promise.all([
+      call('POST', '/api/nav/links', { body: { id: linkId, title: 'First', url: 'https://dup.example.com/1', categoryId: category.id } }),
+      call('POST', '/api/nav/links', { body: { id: linkId, title: 'Second', url: 'https://dup.example.com/2', categoryId: category.id } }),
+    ])
+    const status = both.map((response) => response.status).sort()
+    expect(status, (await Promise.all(both.map((response) => response.text()))).join(' ;; ')).toEqual([200, 409])
+    expect(count('nav_links')).toBe(1)
+
+    const categoryId = newNavId()
+    const categories = await Promise.all([
+      call('POST', '/api/nav/categories', { body: { id: categoryId, name: 'One', icon: 'folder' } }),
+      call('POST', '/api/nav/categories', { body: { id: categoryId, name: 'Two', icon: 'folder' } }),
+    ])
+    expect(categories.map((response) => response.status).sort()).toEqual([200, 409])
+  })
+
+  it('gives two links moved into one folder at the same moment different positions', async () => {
+    const from = await createCategory(USER_A, 'From')
+    const to = await createCategory(USER_A, 'To')
+    const first = await createLink(USER_A, from.id, 'First across')
+    const second = await createLink(USER_A, from.id, 'Second across')
+
+    const moved = await Promise.all([
+      call('PATCH', `/api/nav/links/${first.id}`, { body: { categoryId: to.id } }),
+      call('PATCH', `/api/nav/links/${second.id}`, { body: { categoryId: to.id } }),
+    ])
+    expect(moved.every((response) => response.status === 200)).toBe(true)
+    // Both used to read the folder's MAX before writing, so both claimed slot 0 and the order became a tie.
+    expect(linkRow(first.id)!.sort_order).not.toBe(linkRow(second.id)!.sort_order)
+
+    const pinned = await Promise.all([
+      call('PATCH', `/api/nav/links/${first.id}`, { body: { pinned: true } }),
+      call('PATCH', `/api/nav/links/${second.id}`, { body: { pinned: true } }),
+    ])
+    expect(pinned.every((response) => response.status === 200)).toBe(true)
+    expect(linkRow(first.id)!.pinned_order).not.toBe(linkRow(second.id)!.pinned_order)
+  })
+
   it('creates links with normalized fields and assigns category and pinned order', async () => {
     const firstCategory = await createCategory(USER_A, 'First')
     const secondCategory = await createCategory(USER_A, 'Second')
@@ -1169,7 +1232,7 @@ describe('bookmark import', () => {
     }
     const first = await call('POST', '/api/nav/import', { body: payload })
     expect(first.status).toBe(200)
-    expect(await json(first)).toEqual({ imported: 1, skipped: 0 })
+    expect(await json(first)).toEqual({ imported: 1, skipped: 0, remapped: 0 })
     expect(count('nav_categories')).toBe(1)
     expect(count('nav_links')).toBe(1)
 
@@ -1180,7 +1243,7 @@ describe('bookmark import', () => {
       },
     })
     expect(second.status).toBe(200)
-    expect(await json(second)).toEqual({ imported: 0, skipped: 1 })
+    expect(await json(second)).toEqual({ imported: 0, skipped: 1, remapped: 0 })
     expect(count('nav_links')).toBe(1)
     expect(categoryRow(categoryId)!.name).toBe('Imported Folder Renamed')
 
@@ -1192,7 +1255,7 @@ describe('bookmark import', () => {
       },
     })
     expect(third.status).toBe(200)
-    expect(await json(third)).toEqual({ imported: 1, skipped: 0 })
+    expect(await json(third)).toEqual({ imported: 1, skipped: 0, remapped: 0 })
     expect(count('nav_links')).toBe(1)
     expect(linkRow(linkId)!.url).toBe('https://import.example.com/changed')
     expect(linkRow(linkId)!.title).toBe('Changed')
@@ -1211,7 +1274,7 @@ describe('bookmark import', () => {
       },
     })
     expect(response.status).toBe(200)
-    expect(await json(response)).toEqual({ imported: 1, skipped: 1 })
+    expect(await json(response)).toEqual({ imported: 1, skipped: 1, remapped: 0 })
     expect(count('nav_links')).toBe(1)
   })
 
@@ -1230,7 +1293,7 @@ describe('bookmark import', () => {
       },
     })
     expect(response.status).toBe(200)
-    expect(await json(response)).toEqual({ imported: 2, skipped: 0 })
+    expect(await json(response)).toEqual({ imported: 2, skipped: 0, remapped: 0 })
     expect(count('nav_links')).toBe(2)
   })
 
@@ -1243,7 +1306,7 @@ describe('bookmark import', () => {
       },
     })
     expect(response.status).toBe(200)
-    expect(await json(response)).toEqual({ imported: 1, skipped: 0 })
+    expect(await json(response)).toEqual({ imported: 1, skipped: 0, remapped: 1 })
     const body = await json<NavBootstrap>(await call('GET', '/api/nav', { user: USER_B }))
     expect(body.categories.map((entry) => entry.name)).toEqual(['Uncategorized'])
     expect(body.links[0]!.categoryId).toBe(body.categories[0]!.id)
@@ -1278,7 +1341,7 @@ describe('bookmark import', () => {
     }
     const imported = await call('POST', '/api/nav/import', { body: { categories, links, skipExisting: true } })
     expect(imported.status).toBe(200)
-    expect(await json(imported)).toEqual({ imported: 150, skipped: 0 })
+    expect(await json(imported)).toEqual({ imported: 150, skipped: 0, remapped: 0 })
 
     const removed = await call('DELETE', `/api/nav/categories/${rootId}`, { body: { fallbackCategoryId: fallback.id } })
     expect(removed.status).toBe(200)
@@ -1309,6 +1372,56 @@ describe('bookmark import', () => {
     expect(body.links).toHaveLength(90)
     expect(body.links.every((link) => link.categoryId === fallback.id)).toBe(true)
     expect(body.categories.map((category) => category.id)).toEqual([fallback.id])
+  })
+
+  it('files a bookmark whose folder is missing under the reserved folder and says so', async () => {
+    const home = await createCategory(USER_A, 'Home')
+    const strayId = newNavId()
+    const response = await call('POST', '/api/nav/import', {
+      // The client names the reserved folder it wants strays to land in; the server must honour that name
+      // rather than pick a folder that happens to sort first.
+      body: { categories: [], links: [importLink(strayId, 'https://stray.example.com/1', newNavId())], skipExisting: true, fallbackCategoryName: NAV_UNCATEGORIZED },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await json(response)).toEqual({ imported: 1, skipped: 0, remapped: 1 })
+
+    const body = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    const filed = body.links.find((link) => link.id === strayId)
+    const folder = body.categories.find((category) => category.id === filed?.categoryId)
+    expect(folder?.name).toBe(NAV_UNCATEGORIZED)
+    // Not filed under whichever folder the account happened to list first.
+    expect(filed?.categoryId).not.toBe(home.id)
+    expect(body.categories.filter((category) => category.name === NAV_UNCATEGORIZED)).toHaveLength(1)
+
+    const again = await call('POST', '/api/nav/import', {
+      body: { categories: [], links: [importLink(newNavId(), 'https://stray.example.com/2', newNavId())], skipExisting: true, fallbackCategoryName: NAV_UNCATEGORIZED },
+    })
+    expect(await json(again)).toMatchObject({ remapped: 1 })
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(after.categories.filter((category) => category.name === NAV_UNCATEGORIZED)).toHaveLength(1)
+  })
+
+  it('refuses an import that would take the account past the bookmark limit', async () => {
+    const category = await createCategory(USER_A, 'Home')
+    sqlite.exec('BEGIN')
+    const insert = sqlite.prepare('INSERT INTO nav_links (user_id, id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, 0, 0, ?, ?, ?)')
+    for (let index = 0; index < NAV_LIMITS.importMaxLinks; index += 1) {
+      insert.run(USER_A, `packed-${index}`, `Packed ${index}`, `https://packed.example.com/${index}`, category.id, index, index, index)
+    }
+    sqlite.exec('COMMIT')
+    expect(count('nav_links')).toBe(NAV_LIMITS.importMaxLinks)
+
+    const response = await call('POST', '/api/nav/import', {
+      body: {
+        categories: [],
+        links: Array.from({ length: 20 }, (_, index) => importLink(newNavId(), `https://over.example.com/${index}`, category.id)),
+        skipExisting: true,
+      },
+    })
+    expect(response.status).toBe(413)
+    expect(await errorCode(response)).toBe('nav_import_limit')
+    // Rejected whole, rather than writing what fit and leaving the reader to diff the file.
+    expect(count('nav_links')).toBe(NAV_LIMITS.importMaxLinks)
   })
 
   it('does not let one user overwrite another user\'s rows by reusing their ids', async () => {
@@ -1349,7 +1462,7 @@ describe('bookmark import', () => {
       body: { categories: [importCategory(newNavId(), 'Bob')], links: [importLink(newNavId(), url, newNavId())], skipExisting: true },
     })
     expect(second.status).toBe(200)
-    expect(await json(second)).toEqual({ imported: 1, skipped: 0 })
+    expect(await json(second)).toEqual({ imported: 1, skipped: 0, remapped: 1 })
     expect(count('nav_links')).toBe(2)
   })
 })

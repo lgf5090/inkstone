@@ -1,4 +1,4 @@
-import { ApiError } from '../lib/errors'
+      import { ApiError } from '../lib/errors'
 import { acquireLease } from '../lib/lease'
 import { newId } from '../lib/id'
 import {
@@ -164,6 +164,11 @@ export function countVisibleLinks(links: readonly NavLink[]): NavCounts {
   const byCategory: Record<string, number> = {}
   for (const link of links) byCategory[link.categoryId] = (byCategory[link.categoryId] ?? 0) + 1
   return { total: links.length, byCategory }
+}
+
+/** Two requests naming the same id is a conflict the reader can be told about, not a database fault. */
+function isConstraintFailure(error: unknown): boolean {
+  return error instanceof Error && /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(error.message)
 }
 
 export class NavStore {
@@ -341,11 +346,18 @@ export class NavStore {
     const existing = await this.category(id)
     if (existing) throw ApiError.conflict('Category already exists')
     const sortOrder = input.sortOrder ?? await this.nextCategorySort(input.parentId)
-    await this.db
-      .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
+    try {
+      await this.db
+        .prepare(`INSERT INTO nav_categories (id, user_id, name, icon, parent_id, password_hash, use_default_password, sort_order, created_at, updated_at, kind)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
-      .bind(id, this.userId, input.name, input.icon, input.parentId, input.passwordHash, input.useDefaultPassword ? 1 : 0, sortOrder, Date.now(), Date.now(), input.kind ?? 'normal')
-      .run()
+        .bind(id, this.userId, input.name, input.icon, input.parentId, input.passwordHash, input.useDefaultPassword ? 1 : 0, sortOrder, Date.now(), Date.now(), input.kind ?? 'normal')
+        .run()
+    } catch (error) {
+      // The read above cannot be the guard: two requests that both see "not there" both insert, and the
+      // loser has to be told 409 rather than have a constraint error surface as a 500.
+      if (isConstraintFailure(error)) throw ApiError.conflict('Category already exists')
+      throw error
+    }
     return rowToCategory((await this.category(id))!)
   }
 
@@ -438,14 +450,19 @@ export class NavStore {
     const now = Date.now()
     // The neighbour position is computed inside the INSERT instead of being read first: two tabs creating
     // a link at the same moment otherwise both observe the same MAX and both claim it.
-    await this.db
-      .prepare(`INSERT INTO nav_links (id, user_id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at)
+    try {
+      await this.db
+        .prepare(`INSERT INTO nav_links (id, user_id, title, url, icon, description, category_id, pinned, pinned_order, sort_order, created_at, updated_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
           CASE WHEN ?8 = 1 THEN (SELECT COALESCE(MAX(pinned_order), -1) + 1 FROM nav_links WHERE user_id = ?2 AND pinned = 1) ELSE 0 END,
           (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM nav_links WHERE user_id = ?2 AND category_id = ?7),
           ?9, ?9)`)
-      .bind(id, this.userId, input.title, input.url, input.icon, input.description, input.categoryId, input.pinned ? 1 : 0, now)
-      .run()
+        .bind(id, this.userId, input.title, input.url, input.icon, input.description, input.categoryId, input.pinned ? 1 : 0, now)
+        .run()
+    } catch (error) {
+      if (isConstraintFailure(error)) throw ApiError.conflict('Link already exists')
+      throw error
+    }
     return rowToLink((await this.linkRow(id))!)
   }
 
@@ -479,12 +496,17 @@ export class NavStore {
     if (patch.categoryId !== undefined && patch.categoryId !== existing.category_id) {
       if (!(await this.category(patch.categoryId))) throw ApiError.badRequest('Category not found')
       push('category_id', patch.categoryId)
-      push('sort_order', await this.nextLinkSort(patch.categoryId))
+      // Same rule as the INSERT above: the slot is chosen by the statement, because two tabs moving links
+      // into one folder at the same moment both read the same MAX and both write it.
+      fields.push(`sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM nav_links WHERE user_id = ?${args.length + 1} AND category_id = ?${args.length + 2})`)
+      args.push(this.userId, patch.categoryId)
     }
     if (patch.pinned !== undefined) {
       push('pinned', patch.pinned ? 1 : 0)
-      if (patch.pinned && existing.pinned === 0) push('pinned_order', await this.nextPinnedOrder())
-      else if (!patch.pinned) push('pinned_order', 0)
+      if (patch.pinned && existing.pinned === 0) {
+        fields.push(`pinned_order = (SELECT COALESCE(MAX(pinned_order), -1) + 1 FROM nav_links WHERE user_id = ?${args.length + 1} AND pinned = 1)`)
+        args.push(this.userId)
+      } else if (!patch.pinned) push('pinned_order', 0)
     }
     if (!fields.length) return rowToLink(existing)
     push('updated_at', Date.now())
@@ -547,6 +569,15 @@ export class NavStore {
       .bind(this.userId, ...chunk))
     const pages = await this.db.batch<NavLinkRow>(statements)
     return pages.flatMap((page) => page.results ?? [])
+  }
+
+  /** How many bookmarks the account holds. A count, so a limit check costs one row of output, not the list. */
+  async countLinks(): Promise<number> {
+    const row = await this.db
+      .prepare('SELECT COUNT(*) AS n FROM nav_links WHERE user_id = ?1')
+      .bind(this.userId)
+      .first<{ n: number | bigint }>()
+    return Number(row?.n ?? 0)
   }
 
   /** Only the stored URLs, for the dedup set an import needs — one column instead of twelve per row. */
@@ -768,8 +799,14 @@ export class NavStore {
         this.db.prepare('DELETE FROM nav_links WHERE user_id = ?1 AND id = ?2').bind(this.userId, id),
       ]))
     }
-    for (const chunk of inChunks(removeCategories, MAX_BATCH_STATEMENTS)) {
-      await this.db.batch(chunk.map((id) => this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id)))
+    for (const chunk of inChunks(removeCategories, Math.floor(MAX_BATCH_STATEMENTS / 2))) {
+      // The unlock rows go with the categories they opened: `deleteCategory` already clears them, and a
+      // snapshot that leaves one behind would let a stale token pass a folder re-created under that id.
+      await this.db.batch([
+        this.db.prepare(`DELETE FROM nav_category_unlocks WHERE user_id = ?1 AND category_id IN (${chunk.map((_, i) => `?${i + 2}`).join(', ')})`)
+          .bind(this.userId, ...chunk),
+        ...chunk.map((id) => this.db.prepare('DELETE FROM nav_categories WHERE user_id = ?1 AND id = ?2').bind(this.userId, id)),
+      ])
     }
     const visits = Object.entries(backup.visits ?? {}).filter(([id]) => linkIds.has(id))
     if (visits.length) {

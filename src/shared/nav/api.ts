@@ -54,6 +54,8 @@ export interface NavAiSuggestResponse {
 export interface NavImportResponse {
   imported: number
   skipped: number
+  /** Entries whose folder existed in neither the account nor the file; they landed in the reserved one. */
+  remapped: number
 }
 
 export interface NavRestoreResponse {

@@ -66,11 +66,12 @@ async function runChunkedImport(
   categories: Parameters<typeof navApi.importBookmarks>[0]['categories'],
   skipExisting: boolean,
   initialSkipped: number,
-  onProgress: (counts: { imported: number; skipped: number }) => void,
-): Promise<{ imported: number; skipped: number }> {
+  onProgress: (counts: { imported: number; skipped: number; remapped: number }) => void,
+): Promise<{ imported: number; skipped: number; remapped: number }> {
   let imported = 0
   let skipped = initialSkipped
-  onProgress({ imported, skipped })
+  let remapped = 0
+  onProgress({ imported, skipped, remapped })
   for (let index = 0; index < links.length; index += IMPORT_CHUNK) {
     const result = await navApi.importBookmarks({
       // Categories ride with the first piece only: the endpoint upserts, and repeating them per chunk
@@ -81,9 +82,11 @@ async function runChunkedImport(
     })
     imported += result.imported
     skipped += result.skipped
-    onProgress({ imported, skipped })
+    // The server names the folder it had to file strays in; the reader hears it only if any moved.
+    remapped += result.remapped
+    onProgress({ imported, skipped, remapped })
   }
-  return { imported, skipped }
+  return { imported, skipped, remapped }
 }
 
 export function ImportExportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -96,24 +99,24 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
   const [skipExistingJson, setSkipExistingJson] = useState(false)
   const [status, setStatus] = useState<ImportStatus>('idle')
   const [fileName, setFileName] = useState('')
-  const [counts, setCounts] = useState({ imported: 0, skipped: 0 })
+  const [counts, setCounts] = useState({ imported: 0, skipped: 0, remapped: 0 })
   const [jsonStatus, setJsonStatus] = useState<JsonStatus>('idle')
   const [jsonPreview, setJsonPreview] = useState<JsonPreview | null>(null)
   const [jsonFileName, setJsonFileName] = useState('')
   const [jsonError, setJsonError] = useState<string | null>(null)
-  const [jsonCounts, setJsonCounts] = useState({ imported: 0, skipped: 0 })
+  const [jsonCounts, setJsonCounts] = useState({ imported: 0, skipped: 0, remapped: 0 })
   const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setStatus('idle')
     setFileName('')
-    setCounts({ imported: 0, skipped: 0 })
+    setCounts({ imported: 0, skipped: 0, remapped: 0 })
     setJsonStatus('idle')
     setJsonPreview(null)
     setJsonFileName('')
     setJsonError(null)
-    setJsonCounts({ imported: 0, skipped: 0 })
+    setJsonCounts({ imported: 0, skipped: 0, remapped: 0 })
     setDragging(false)
     if (fileRef.current) fileRef.current.value = ''
     if (jsonRef.current) jsonRef.current.value = ''
@@ -135,7 +138,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
       return
     }
     setFileName(file.name)
-    setCounts({ imported: 0, skipped: 0 })
+    setCounts({ imported: 0, skipped: 0, remapped: 0 })
     setStatus('reading')
     let text: string
     try {
@@ -155,7 +158,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     }
     if (!parsed.links.length) {
       setStatus('done')
-      setCounts({ imported: 0, skipped: parsed.skipped })
+      setCounts({ imported: 0, skipped: parsed.skipped, remapped: 0 })
       toast({
         title: t('nav.import.progress', { imported: 0, skipped: parsed.skipped }),
         tone: 'warning',
@@ -165,11 +168,13 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     setStatus('importing')
     try {
       // Entries the parser had to drop (unsupported schemes, malformed hrefs) count as skipped too.
-      const { imported, skipped } = await runChunkedImport(parsed.links, parsed.categories, skipExisting, parsed.skipped, setCounts)
+      const { imported, skipped, remapped } = await runChunkedImport(parsed.links, parsed.categories, skipExisting, parsed.skipped, setCounts)
       setStatus('done')
       toast({
         title: t('nav.import.done'),
-        description: t('nav.import.progress', { imported, skipped }),
+        description: remapped > 0
+          ? `${t('nav.import.progress', { imported, skipped })} · ${t('nav.import.remapped', { remapped })}`
+          : t('nav.import.progress', { imported, skipped }),
         tone: 'success',
       })
       useNavStore.getState().selectCategory(null)
@@ -185,7 +190,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     setJsonPreview(null)
     setJsonFileName('')
     setJsonError(null)
-    setJsonCounts({ imported: 0, skipped: 0 })
+    setJsonCounts({ imported: 0, skipped: 0, remapped: 0 })
     if (jsonRef.current) jsonRef.current.value = ''
   }
 
@@ -199,7 +204,7 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     setJsonPreview(null)
     setJsonFileName(file.name)
     setJsonError(null)
-    setJsonCounts({ imported: 0, skipped: 0 })
+    setJsonCounts({ imported: 0, skipped: 0, remapped: 0 })
     let raw: unknown
     try {
       raw = JSON.parse(await file.text())
@@ -286,12 +291,14 @@ export function ImportExportModal({ open, onClose }: { open: boolean; onClose: (
     setJsonStatus('importing')
     setJsonError(null)
     try {
-      const { imported, skipped } = await runChunkedImport(parsed.links, parsed.categories, skipExistingJson, parsed.stats.skippedLinks, setJsonCounts)
+      const { imported, skipped, remapped } = await runChunkedImport(parsed.links, parsed.categories, skipExistingJson, parsed.stats.skippedLinks, setJsonCounts)
       setJsonStatus('done')
       setJsonPreview(null)
       toast({
         title: t('nav.import.done'),
-        description: t('nav.import.progress', { imported, skipped }),
+        description: remapped > 0
+          ? `${t('nav.import.progress', { imported, skipped })} · ${t('nav.import.remapped', { remapped })}`
+          : t('nav.import.progress', { imported, skipped }),
         tone: 'success',
       })
       useNavStore.getState().selectCategory(null)

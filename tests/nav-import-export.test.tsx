@@ -178,6 +178,7 @@ describe('ImportExportModal', () => {
     const importSpy = vi.spyOn(navApi, 'importBookmarks').mockImplementation(async (body) => ({
       imported: body.links.length,
       skipped: 0,
+      remapped: 0,
     }))
 
     rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
@@ -307,6 +308,7 @@ describe('JSON backup import', () => {
     const importSpy = vi.spyOn(navApi, 'importBookmarks').mockImplementation(async (body) => ({
       imported: body.links.length,
       skipped: 0,
+      remapped: 0,
     }))
     rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
     await feed(jsonInput(), 'cloudnav_backup.json', {

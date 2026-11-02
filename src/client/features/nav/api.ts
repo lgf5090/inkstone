@@ -33,6 +33,7 @@ const ERROR_KEYS: Record<string, string> = {
   conflict: 'nav.error.conflict',
   bad_request: 'nav.error.bad_request',
   payload_too_large: 'nav.error.too_large',
+  nav_import_limit: 'nav.error.import_limit',
   storage_unavailable: 'nav.error.storage',
   wrong_password: 'nav.error.wrong_password',
   too_many_attempts: 'nav.error.too_many',
