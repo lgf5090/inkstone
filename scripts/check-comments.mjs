@@ -686,6 +686,7 @@ const allowed = new Map([
   ["src/client/components/primitives.tsx", [
     "// dicebear ships full micah style data; keep it out of the boot chunk.",
     "/* The label is its own inline row. Tailwind's preflight turns every `svg` into a block box, so an\n          icon passed as a child (rather than through `icon`) used to push the words onto a second line.\n          `truncate` is kept for the text-only label, where it is what keeps a long one from widening a row. */",
+    "// The avatar is decorative; a failed chunk load leaves the initial letter in place.",
   ]],
   ["src/client/components/select-menu.tsx", [
     "/**\n * A select drawn with the app's own menu, not the browser's.\n *\n * A native `<select>` cannot carry a list's icon, a priority's colour dot or the accent state the rest\n * of the app uses, and its system chrome ignores every design token (radius, height, dark theme). This\n * keeps the semantics a select needs — a labelled trigger that opens a menu, arrow keys and Enter, and\n * `menuitemcheckbox` rows that read their checked state — while drawing the panel the rest of the app\n * draws.\n *\n * The trigger is 44px tall on a touch screen and 34px on a wide one, exactly like `Input`/`Select`, so\n * a form row mixing the two does not jump by a pixel between breakpoints.\n */",
@@ -17449,6 +17450,15 @@ const allowed = new Map([
     "/* Second submodule: Password Vault (tools/password) */",
     "/* Fourth submodule: ID Photo Studio (tools/id_photo) */",
     "/* Fifth submodule: Color Assistant (tools/color) */",
+    "/* Sixth submodule: Calculator (tools/calculator) */",
+  ]],
+  ["src/client/features/tools/calculator/api.ts", [
+    "// The status is still a usable message when the body is not JSON.",
+  ]],
+  ["src/client/features/tools/calculator/store.ts", [
+    "// Best effort: the cloud copy and the in-memory engine remain authoritative.",
+    "// Unloading a page is not a place to show a toast; the next session re-reads the server copy.",
+    "// A corrupt local snapshot is discarded; the cloud copy is read below.",
   ]],
   ["src/client/features/tools/color-commands.test.ts", [
     "/**\n * The colour tool, reachable without a mouse.\n *\n * Nine views plus the picker, the copy and the token scale were sidebar-only, which left a keyboard reader\n * and any automation that runs commands outside the module. These tests are the reach: every view has a\n * registered command, and running it lands where the sidebar button would have.\n */",
@@ -30122,6 +30132,9 @@ const allowed = new Map([
   ["src/shared/locales/en-US-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in English.\n *\n * Model instructions are not interface copy, so they cannot ride in `en-US.ts`: the worker has to\n * assemble a prompt from the *reader's* language setting, and it must be able to do that without\n * loading the 5,000-key UI catalog into the Worker bundle. These files are the whole instruction set,\n * and `tests/assistant-prompt-parity.test.ts` proves the two languages carry the same keys and the\n * same placeholders — a prompt that only exists in one language would silently answer Chinese readers\n * in English.\n */",
   ]],
+  ["src/shared/locales/en-US-calculator.ts", [
+    "// Generated from the reference calculator en-US resources.",
+  ]],
   ["src/shared/locales/en-US-calendar-notify.ts", [
     "/** The words a calendar reminder carries, in English; the reminder sweep runs without a request. */",
   ]],
@@ -30204,6 +30217,9 @@ const allowed = new Map([
   ]],
   ["src/shared/locales/zh-CN-assistant-prompt.ts", [
     "/**\n * The assistant's system prompt, in Chinese. See `en-US-assistant-prompt.ts` for why the instructions\n * are a catalog of their own; the parity test keeps the two files telling the same story.\n */",
+  ]],
+  ["src/shared/locales/zh-CN-calculator.ts", [
+    "// Generated from the reference calculator zh-CN resources.",
   ]],
   ["src/shared/locales/zh-CN-calendar-notify.ts", [
     "/** The twin of `en-US-calendar-notify.ts`; the two are proven against each other in the reminder test. */",
@@ -31567,6 +31583,30 @@ const allowed = new Map([
     "/** The SQL half of `isTaskOpen`, for a statement that names the bare `status` column. */",
     "/** The SQL half of `isTaskDone`, for a statement that names the bare `status` column. */",
     "/** The same rule for a statement that gives the table an alias. */",
+  ]],
+  ["src/shared/tools/calculator/contract.ts", [
+    "/**\n * Numeric command ids are the reference calculator's own `Command.h` values. Keeping them means a\n * golden fixture recorded from the C++ engine can be replayed by the TypeScript engine unchanged.\n */",
+  ]],
+  ["src/shared/tools/calculator/converters/currency.ts", [
+    "/**\n * The ECB publishes daily reference rates against the euro. The list below is the subset of that\n * publication we expose; ids are stable so a saved preference survives a rate refresh.\n */",
+  ]],
+  ["src/shared/tools/calculator/converters/date-calculator.ts", [
+    "// The reference subtracts smaller units first; the order changes month-end results.",
+  ]],
+  ["src/shared/tools/calculator/engine/bigmath.ts", [
+    "/**\n * Fixed-point arithmetic at 40 decimal places. The calculator displays at most 32 significant digits,\n * so carrying 40 keeps the last displayed digit stable through a chain of transcendental operations.\n */",
+  ]],
+  ["src/shared/tools/calculator/engine/paste.ts", [
+    "// Programmer pastes are parsed as an integer in the current radix.",
+  ]],
+  ["src/shared/tools/calculator/engine/rational.ts", [
+    "// Scale to about 17 significant digits before converting so huge denominators do not lose the value.",
+  ]],
+  ["src/shared/tools/calculator/graphing/analyze.ts", [
+    "// Parameters are allowed to be sliders, but a graph analysis is only defined for f(x).",
+  ]],
+  ["src/shared/tools/calculator/kinship/kinship.ts", [
+    "/** Longest chain we allow: the library stays under a frame or two at this depth. */",
   ]],
   ["src/shared/tools/color/a11y.ts", [
     "/**\n * Accessibility & Color Vision Deficiencies (WCAG 2.1 Contrast & Color Blindness Simulation)\n */",

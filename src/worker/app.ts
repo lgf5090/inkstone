@@ -73,6 +73,7 @@ import { toolsColorRoutes } from './routes/tools-color'
 import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
+import { toolsCalculatorRoutes } from './routes/tools-calculator'
 import { developmentDatabaseRoutes } from './routes/development-database'
 import { developmentXgetRoutes } from './routes/development-xget'
 import { isXgetProxyPath } from './development/xget/paths'
@@ -276,6 +277,7 @@ export function createApp() {
   app.route('/api/tools/color', toolsColorRoutes)
   app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
   app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
+  app.route('/api/tools/calculator', toolsCalculatorRoutes)
   app.route('/api/development/database', developmentDatabaseRoutes)
   app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/development/api-tester', developmentApiTesterRoutes)

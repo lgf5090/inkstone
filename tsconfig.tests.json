@@ -30,7 +30,7 @@
       "@codemirror/state": ["./node_modules/@codemirror/state/dist/index.d.ts"]
     }
   },
-  "include": ["tests/**/*.ts", "tests/**/*.tsx"],
+  "include": ["tests/**/*.ts", "tests/**/*.tsx", "tests/**/*.json"],
   "exclude": ["**/*.tmp.*", "tests/no-scratch-test-files.test.ts"],
   "references": [
     { "path": "./tsconfig.client.json" },

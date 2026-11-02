@@ -211,9 +211,14 @@ export function Avatar({
     if (storedSrc || emoji || iconName) return
     let cancelled = false
     // dicebear ships full micah style data; keep it out of the boot chunk.
-    void import('../lib/avatar').then(({ createAvatarDataUri }) => {
-      if (!cancelled) setGeneratedSrc(createAvatarDataUri(generatedAvatarSeed(src) ?? seed))
-    })
+    void import('../lib/avatar')
+      .then(({ createAvatarDataUri }) => {
+        if (!cancelled) setGeneratedSrc(createAvatarDataUri(generatedAvatarSeed(src) ?? seed))
+      })
+      .catch((error: unknown) => {
+        // The avatar is decorative; a failed chunk load leaves the initial letter in place.
+        console.warn('[inkstone] Avatar generation failed:', error instanceof Error ? error.message : error)
+      })
     return () => {
       cancelled = true
     }
@@ -241,9 +246,11 @@ export function Avatar({
           height={size}
           onError={() => {
             if (fallbackSrc) return
-            void import('../lib/avatar').then(({ createAvatarDataUri }) =>
-              setFallbackSrc(createAvatarDataUri(seed)),
-            )
+            void import('../lib/avatar')
+              .then(({ createAvatarDataUri }) => setFallbackSrc(createAvatarDataUri(seed)))
+              .catch((error: unknown) => {
+                console.warn('[inkstone] Avatar fallback failed:', error instanceof Error ? error.message : error)
+              })
           }}
           className="size-full object-cover"
         />

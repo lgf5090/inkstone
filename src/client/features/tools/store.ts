@@ -6,7 +6,7 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator'
 
 export type ShortlinksNavView = 'dashboard' | 'links' | 'bundles' | 'settings'
 
@@ -50,6 +50,17 @@ export type ColorNavView =
   | 'favorites'
   | 'settings'
 
+export type CalculatorNavView =
+  | 'standard'
+  | 'scientific'
+  | 'programmer'
+  | 'date'
+  | 'unit'
+  | 'currency'
+  | 'graph'
+  | 'kinship'
+  | 'settings'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
@@ -60,6 +71,9 @@ interface PersistedLayout {
   idPhotoModuleExpanded?: boolean
   colorModuleExpanded?: boolean
   shortlinksModuleExpanded?: boolean
+  calculatorModuleExpanded?: boolean
+  activeCalculatorView?: CalculatorNavView
+  calculatorViewChosen?: boolean
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -76,7 +90,7 @@ function loadPersistedLayout(): PersistedLayout {
 function persistLayout(state: PersistedLayout): void {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loadPersistedLayout(), ...state }))
     }
   } catch {
     // Best effort background persist
@@ -99,6 +113,9 @@ export interface ToolsState {
   activeColorView: ColorNavView
   shortlinksModuleExpanded: boolean
   activeShortlinksView: ShortlinksNavView
+  calculatorModuleExpanded: boolean
+  activeCalculatorView: CalculatorNavView
+  calculatorViewChosen: boolean
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -121,6 +138,9 @@ export interface ToolsState {
   setShortlinksModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleShortlinksModuleExpanded: () => void
   setActiveShortlinksView: (view: ShortlinksNavView) => void
+  setCalculatorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleCalculatorModuleExpanded: () => void
+  setActiveCalculatorView: (view: CalculatorNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -148,6 +168,9 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   activeColorView: 'studio',
   shortlinksModuleExpanded: initialPersisted.shortlinksModuleExpanded ?? true,
   activeShortlinksView: 'dashboard',
+  calculatorModuleExpanded: initialPersisted.calculatorModuleExpanded ?? true,
+  activeCalculatorView: initialPersisted.activeCalculatorView ?? 'standard',
+  calculatorViewChosen: initialPersisted.calculatorViewChosen ?? false,
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -365,4 +388,40 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   setActiveShortlinksView: (view: ShortlinksNavView) => {
     set({ activeShortlinksView: view })
   },
+  setCalculatorModuleExpanded: (expanded) => {
+    const next = typeof expanded === 'function' ? expanded(get().calculatorModuleExpanded) : expanded
+    set({ calculatorModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      calculatorModuleExpanded: next,
+      activeCalculatorView: get().activeCalculatorView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleCalculatorModuleExpanded: () => {
+    const next = !get().calculatorModuleExpanded
+    set({ calculatorModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      calculatorModuleExpanded: next,
+      activeCalculatorView: get().activeCalculatorView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveCalculatorView: (view) => {
+    set({ activeCalculatorView: view, calculatorViewChosen: true })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      calculatorModuleExpanded: get().calculatorModuleExpanded,
+      activeCalculatorView: view,
+      calculatorViewChosen: true,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
 }))

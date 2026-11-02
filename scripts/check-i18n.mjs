@@ -329,9 +329,13 @@ const imgbedCatalogFiles = {
 const toolsCatalogFiles = {
     en: [
         [path.join(localeRoot, 'en-US-tools.ts'), 'EN_US_TOOLS'],
+        [path.join(localeRoot, 'en-US-calculator.ts'), 'EN_US_CALCULATOR'],
+        [path.join(localeRoot, 'en-US-calculator-ui.ts'), 'EN_US_CALCULATOR_UI'],
     ],
     zh: [
         [path.join(localeRoot, 'zh-CN-tools.ts'), 'ZH_CN_TOOLS'],
+        [path.join(localeRoot, 'zh-CN-calculator.ts'), 'ZH_CN_CALCULATOR'],
+        [path.join(localeRoot, 'zh-CN-calculator-ui.ts'), 'ZH_CN_CALCULATOR_UI'],
     ],
 };
 const youtubeCatalogFiles = {
