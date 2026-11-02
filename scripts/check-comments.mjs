@@ -2735,6 +2735,7 @@ const allowed = new Map([
     "/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own\n                    tooltip is one unwrapped line — the browser's is the only one that wraps. Every other hint\n                    on this row was moved to `Tooltip`; this one stays because the text it carries cannot fit\n                    there, and a hint that paints past the viewport is worse than two systems of hint. */",
     "/**\n * What an agent's note write would change, shown before the approval rather than after it.\n *\n * The write itself still happens through the ordinary approved-tool path; this preview is the reader's\n * chance to see the words leaving and arriving first. A failed read leaves the card as it was.\n */",
     "/** The worker's code for that error, so the card can name a cause instead of echoing the provider. */",
+    "/**\n   * Takes an approved note write back out.\n   *\n   * The write went through the notebook's own store, so it filed a version first; restoring the newest\n   * one is the same undo the note's history panel offers, not a second copy kept by the chat.\n   */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -4347,6 +4348,8 @@ const allowed = new Map([
     "/** How many words one row carries, counting both sides of a change. */",
     "/** \"3 words out, 7 words in\" — the size of the change, said without opening anything. */",
     "/**\n * The change itself.\n *\n * Removed words are struck through in a `<del>` and added words underlined in an `<ins>`, each led by a\n * `-` or `+` glyph: the meaning is in the mark and the word, not only in the colour, and the elements are\n * the ones that say \"this text was taken out\" to anything reading the page. The box is focusable because\n * it scrolls, and a keyboard reader needs it to be reachable to get to the end of it.\n */",
+    "/** The change split into the pieces a reader can accept one at a time. */",
+    "/**\n * The proposed text with only the accepted hunks applied.\n *\n * The same grouping as {@link diffHunks}: a deletion and the insertion beside it are one decision, so a\n * reader can keep a replacement or refuse it, never half of each.\n */",
   ]],
   ["src/client/features/chat/editor-ai.test.ts", [
     "/**\n * Selection to assistant, and back.\n *\n * The three parts that can go wrong are pinned here: how much of a note a request carries, where an\n * answer lands, and what happens when the note moved while the answer was being written. The last one is\n * the reason this file exists — a replace that trusts stale offsets writes over the reader's paragraph,\n * and nothing about the screen says so.\n */",
@@ -34849,6 +34852,9 @@ const allowed = new Map([
     "// missing id says; distinguishing the two would confirm an id the caller never had.",
     "/** Present only on a parent chat turn: runs one isolated child turn and returns what it produced. */",
     "/** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */",
+    "// A reader who accepted only some hunks sends the text they chose. It is a new proposal, so it goes",
+    "// through the same field validation as the one the model made; a destructive call cannot be reshaped",
+    "// this way, because its target was already decided.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",

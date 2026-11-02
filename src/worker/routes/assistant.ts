@@ -1925,9 +1925,12 @@ function optionalRunToken(value: unknown): number | undefined {
 assistantRoutes.post('/actions/:id/approve', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ always?: unknown }>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as { always?: unknown })
+  const body = await readJson<{ always?: unknown, args?: unknown }>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as { always?: unknown, args?: unknown })
   const stored = await s.getPendingAction(id)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
+  const override = body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+    ? body.args as Record<string, unknown>
+    : undefined
   const conversation = await s.getConversation(stored.conversationId)
   if (!conversation) throw ApiError.notFound('This conversation no longer exists.')
   const settings = await s.getSettings()
@@ -1936,7 +1939,7 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   const generated: string[] = []
   // The thread's project, re-read rather than remembered: an approved memory write must land in the
   // same scope the proposal was made in, and a thread moved between projects since then has moved.
-  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id)
+  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id, override)
   if (outcome.action) {
     const located = await s.messageForAction(id)
     if (located) {

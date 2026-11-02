@@ -5351,7 +5351,7 @@ function stableStringify(value: unknown): string {
  * The pending row is claimed first, so a double press, a second device and a retry after a failed
  * commit all run the target at most once — and only ever on the target that was shown.
  */
-export async function runApprovedAction(store: AssistantStore, ctx: ToolContext, actionId: string) {
+export async function runApprovedAction(store: AssistantStore, ctx: ToolContext, actionId: string, argsOverride?: Record<string, unknown>) {
   const stored = await store.getPendingAction(actionId)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   const definition = ctx.externalByName?.get(stored.tool) ?? TOOL_BY_NAME.get(stored.tool)
@@ -5360,6 +5360,12 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     await store.resolvePendingAction(actionId, { status: 'expired' })
     throw ApiError.conflict('This request expired. Ask again to get a new one.')
   }
+  // A reader who accepted only some hunks sends the text they chose. It is a new proposal, so it goes
+  // through the same field validation as the one the model made; a destructive call cannot be reshaped
+  // this way, because its target was already decided.
+  const args = argsOverride && definition.permission !== 'destructive' && !definition.external
+    ? validateArgs(definition.fields, argsOverride)
+    : stored.args ?? {}
   if (!(await store.claimPendingAction(actionId, 'approved'))) {
     throw ApiError.conflict('This action was already handled.')
   }
@@ -5369,8 +5375,8 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     // arguments that were shown on the card are replayed whole — the call the reader approved, and no
     // other.
     output = definition.permission === 'destructive'
-      ? await definition.commit(stored.targetId, ctx, stored.args ?? {})
-      : await definition.run(stored.args ?? {}, { ...ctx, callId: stored.id })
+      ? await definition.commit(stored.targetId, ctx, args)
+      : await definition.run(args, { ...ctx, callId: stored.id })
   } catch (error) {
     await store.resolvePendingAction(actionId, {
       status: 'failed',

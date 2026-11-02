@@ -57,6 +57,7 @@ import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { canSpeak, stopSpeaking } from './speech'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 import { MessageAttachments } from './ChatAttachments'
 import { SourcePanel } from './SourcePanel'
 import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
@@ -437,7 +438,7 @@ const OUTCOME_KEYS = {
   failed: 'assistant.approval.failed',
 } as const
 
-import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
+import { applyAcceptedHunks, buildWriteDiff, diffHunks, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { api } from '../../lib/api'
 
 /**
@@ -446,9 +447,10 @@ import { api } from '../../lib/api'
  * The write itself still happens through the ordinary approved-tool path; this preview is the reader's
  * chance to see the words leaving and arriving first. A failed read leaves the card as it was.
  */
-function ApprovalWritePreview({ action }: { action: NonNullable<ToolActivity['approval']> }) {
+function ApprovalWritePreview({ action, onOverride }: { action: NonNullable<ToolActivity['approval']>, onOverride?: (args: Record<string, unknown> | null) => void }) {
   const [state, setState] = useState<{ before: string, after: string } | null>(null)
   const [failed, setFailed] = useState(false)
+  const [accepted, setAccepted] = useState<ReadonlySet<number>>(new Set())
   useEffect(() => {
     if (action.tool !== 'update_note') return
     const args = action.args ?? {}
@@ -459,14 +461,21 @@ function ApprovalWritePreview({ action }: { action: NonNullable<ToolActivity['ap
     void api.notes.get(action.targetId)
       .then((note) => {
         if (!wanted) return
-        setState({
+        const next = {
           before: note.content,
           after: replacement !== null ? replacement : `${note.content}\n\n${append ?? ''}`,
-        })
+        }
+        setState(next)
+        setAccepted(new Set(diffHunks(next.before, next.after).map((_, index) => index)))
       })
       .catch(() => { if (wanted) setFailed(true) })
     return () => { wanted = false }
   }, [action])
+  const replacement = typeof action.args?.content === 'string' ? action.args.content : null
+  useEffect(() => {
+    if (!state || !onOverride || replacement === null) return
+    onOverride({ ...(action.args ?? {}), content: applyAcceptedHunks(state.before, state.after, accepted) })
+  }, [state, accepted, onOverride, action.args, replacement])
   if (action.tool !== 'update_note') return null
   if (failed) {
     return <p className="mt-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.approval.diff_unreadable')}</p>
@@ -478,7 +487,24 @@ function ApprovalWritePreview({ action }: { action: NonNullable<ToolActivity['ap
       <p className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('assistant.approval.diff')}</p>
       <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"><WriteDiffSummary diff={diff} /></p>
       <div className="mt-1 max-h-52 overflow-y-auto">
-        {diff.changed ? <WriteDiffView diff={diff} /> : <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.edit.diff_none')}</p>}
+        {diff.changed
+          ? (
+            <WriteDiffView
+              diff={diff}
+              {...(replacement !== null && onOverride
+                ? {
+                    accepted,
+                    onToggle: (hunk: number) => setAccepted((current) => {
+                      const next = new Set(current)
+                      if (next.has(hunk)) next.delete(hunk)
+                      else next.add(hunk)
+                      return next
+                    }),
+                  }
+                : {})}
+            />
+          )
+          : <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.edit.diff_none')}</p>}
       </div>
     </div>
   )
@@ -487,6 +513,8 @@ function ApprovalWritePreview({ action }: { action: NonNullable<ToolActivity['ap
 export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const decide = useAssistant((state) => state.decideAction)
   const [busy, setBusy] = useState<'approve' | 'always' | 'cancel' | null>(null)
+  const [override, setOverride] = useState<Record<string, unknown> | null>(null)
+  const [undoing, setUndoing] = useState(false)
   // A press that never landed. The store's own `decideAction` reports a refusal it can see — it toasts and
   // leaves the card pending — so this is not a second notice of the same fact: it is the half a toast
   // cannot leave behind, the words saying this card is still waiting because the request failed.
@@ -495,9 +523,29 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const settle = (approve: boolean, always = false) => {
     setBusy(always ? 'always' : approve ? 'approve' : 'cancel')
     setFailed(null)
-    void decide(action.id, approve, always)
+    void decide(action.id, approve, always, approve ? override ?? undefined : undefined)
       .catch((error: unknown) => setFailed(error instanceof Error ? error.message : String(error)))
       .finally(() => setBusy(null))
+  }
+  /**
+   * Takes an approved note write back out.
+   *
+   * The write went through the notebook's own store, so it filed a version first; restoring the newest
+   * one is the same undo the note's history panel offers, not a second copy kept by the chat.
+   */
+  const undoWrite = () => {
+    setUndoing(true)
+    void api.notes.versions(action.targetId)
+      .then(async ({ versions }) => {
+        const latest = versions[0]
+        if (!latest) throw new Error(t('assistant.approval.undo_missing'))
+        const full = await api.notes.version(action.targetId, latest.id)
+        const restored = await useNotes.getState().restoreVersion(action.targetId, latest.id, full.content, full.title)
+        if (!restored) throw new Error(t('assistant.approval.undo_failed'))
+        useUi.getState().toast({ title: t('assistant.approval.undone'), tone: 'success' })
+      })
+      .catch((error: unknown) => useUi.getState().toast({ title: error instanceof Error ? error.message : t('assistant.approval.undo_failed'), tone: 'danger' }))
+      .finally(() => setUndoing(false))
   }
   const spec = action.tool ? ASSISTANT_TOOL_BY_NAME.get(action.tool) : undefined
   // A deletion has a sentence of its own, because what it would remove is the thing worth reading.
@@ -521,6 +569,11 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           {t(OUTCOME_KEYS[action.status] ?? OUTCOME_KEYS.expired)}
           {action.status === 'failed' && action.error ? `: ${action.error}` : ''}
         </span>
+        {action.status === 'approved' && action.tool === 'update_note' && (
+          <Button size="sm" variant="ghost" loading={undoing} onClick={undoWrite}>
+            {t('assistant.approval.undo_write')}
+          </Button>
+        )}
       </div>
     )
   }
@@ -542,7 +595,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
       {failed && (
         <p role="alert" className="mt-1.5 break-words text-[length:var(--text-11)] text-[var(--danger)]">{failed}</p>
       )}
-      <ApprovalWritePreview action={action} />
+      <ApprovalWritePreview action={action} onOverride={setOverride} />
       <div className="mt-2 flex justify-end gap-1.5">
         <Button
           size="sm"
