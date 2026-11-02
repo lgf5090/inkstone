@@ -166,6 +166,13 @@ interface LiveTurn {
   finishedAt?: number | null
 }
 
+/** A message the reader sent while a turn was still running, waiting for that turn to settle. */
+export interface QueuedTurn {
+  id: string
+  text: string
+  modelId?: string
+}
+
 /** The reader's own models that can answer a chat turn: enabled, and for conversation. */
 export function chatModels(models: readonly AssistantModel[]): AssistantModel[] {
   return models.filter((model) => model.enabled && model.purpose === 'chat')
@@ -361,6 +368,8 @@ interface AssistantState {
   /** Whether `remotePartial` filled the ceiling the lease can carry, so more was written than is shown. */
   remotePartialTruncated: boolean
   turn: LiveTurn | null
+  /** Messages sent while `turn` was still running; the first is sent when it settles. */
+  queued: QueuedTurn[]
 
   /**
    * The drafts the open conversation keeps, and which of them the side panel is showing.
@@ -559,6 +568,8 @@ interface AssistantState {
     modelId?: string | null
     noTools?: boolean
   }) => Promise<boolean>
+  /** Drop one message that was queued while a turn was running. */
+  removeQueued: (id: string) => void
   /**
    * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
    *
@@ -1495,6 +1506,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   remotePartial: null,
   remotePartialTruncated: false,
   turn: null,
+  queued: [],
   artifacts: [],
   artifactsReady: false,
   artifactVersions: {},
@@ -2449,7 +2461,23 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   send: async (text, opts = {}) => {
     const state = get()
-    if (state.turn && !state.turn.done) return false
+    if (state.turn && !state.turn.done) {
+      if (opts.retry || opts.continue) return false
+      const queuedText = text.trim()
+      if (!queuedText) return false
+      if (state.queued.length >= 5) {
+        useUi.getState().toast({ title: t('assistant.chat.queue_full'), tone: 'warning' })
+        return false
+      }
+      set({
+        queued: [...state.queued, {
+          id: crypto.randomUUID(),
+          text: queuedText,
+          ...(opts.modelId ? { modelId: opts.modelId } : {}),
+        }],
+      })
+      return true
+    }
     const conversationId = state.activeId
     const retry = opts.retry === true
     // A continued answer has nothing to send: the question is already in the thread and the reader is
@@ -2731,9 +2759,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
       void get().loadConversations()
       void get().refreshAfterTurn()
+      // A message the reader sent while this turn was running goes next. It is taken off the queue
+      // before the send, so a refused request does not leave the same message queued forever.
+      const next = get().queued[0]
+      if (next) {
+        set({ queued: get().queued.slice(1) })
+        void get().send(next.text, next.modelId ? { modelId: next.modelId } : undefined)
+      }
     }
     return accepted
   },
+
+  removeQueued: (id) => set((state) => ({ queued: state.queued.filter((entry) => entry.id !== id) })),
 
   refreshAfterTurn: async () => {
     const state = get()
@@ -2749,6 +2786,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // not what this press is about, and aborting it from here would end an answer they are still owed.
     if (token !== undefined) inflight.get(token)?.abort()
     set((current) => (current.turn && current.turn.token === token ? { turn: { ...current.turn, done: true } } : current))
+    // A stopped turn hands the last queued message back to the box; the rest are dropped, which is the
+    // reference project's behaviour and the only one that cannot silently lose the message the reader
+    // was about to send if they expected the queue to continue.
+    const queued = get().queued
+    if (queued.length) {
+      const last = queued[queued.length - 1]!
+      set({ queued: [], composerSeed: last.text })
+      if (queued.length > 1) {
+        useUi.getState().toast({ title: t('assistant.chat.queue_restored', { count: queued.length - 1 }), tone: 'warning' })
+      }
+    }
     // A remote marker has no local handle; the cancel below is what ends the turn another device owns.
     const conversationId = turn?.conversationId ?? get().activeId
     // Best-effort notice to the worker. Stop is carried out here first — the request is aborted and the

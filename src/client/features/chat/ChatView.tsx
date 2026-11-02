@@ -2008,6 +2008,8 @@ ${current}` : seed))
   const activeProjectId = activeId
     ? conversations.find((conversation) => conversation.id === activeId)?.projectId ?? null
     : null
+  const queued = useAssistant((state) => state.queued)
+  const removeQueued = useAssistant((state) => state.removeQueued)
   const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
   const saveSettings = useAssistant((state) => state.saveSettings)
@@ -2356,6 +2358,24 @@ ${current}` : seed))
             onHover={setTriggerIndex}
             onPick={pickTriggerRow}
           />
+        )}
+        {queued.length > 0 && (
+          <div role="status" className="mb-1 flex flex-wrap items-center gap-1 px-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span>{t('assistant.chat.queue_waiting', { count: queued.length })}</span>
+            {queued.map((entry) => (
+              <span key={entry.id} className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-full)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] py-0.5 pl-2 pr-0.5">
+                <span className="truncate">{entry.text}</span>
+                <button
+                  type="button"
+                  aria-label={t('assistant.chat.queue_remove')}
+                  onClick={() => removeQueued(entry.id)}
+                  className="ink-tap-pad flex size-4 shrink-0 items-center justify-center rounded-full hover:text-[var(--danger)]"
+                >
+                  <X size={9} />
+                </button>
+              </span>
+            ))}
+          </div>
         )}
         <div
           ref={boxRef}
