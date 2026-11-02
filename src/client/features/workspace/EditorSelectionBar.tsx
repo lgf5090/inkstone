@@ -6,13 +6,14 @@
  * the live document before acting and refuses when the passage has moved.
  */
 import { Fragment } from 'react'
-import { Languages, Sparkles, WandSparkles, Wand2 } from 'lucide-react'
+import { Maximize2, Minimize2, Languages, PanelRight, Sparkles, WandSparkles, Wand2 } from 'lucide-react'
 import type { EditorSelectionInfo } from '../../editor/CodeEditor'
 import { Button } from '../../components/primitives'
 import type { MessageKey } from '../../lib/i18n'
 import { t } from '../../lib/i18n'
-import { runEditorAi, type EditorAiAction } from '../chat/editor-ai'
+import { runEditorAi, quotePassage, type EditorAiAction } from '../chat/editor-ai'
 import { useQuickAsk } from '../chat/quick-ask-store'
+import { useAssistant } from '../chat/assistant-store'
 import { getActiveEditorView } from '../../editor/commands'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -22,6 +23,8 @@ const ACTIONS: Array<{ action: EditorAiAction, label: MessageKey, icon: typeof W
   { action: 'rewrite', label: 'assistant.edit.rewrite', icon: Wand2 },
   { action: 'summarize', label: 'assistant.edit.summarize', icon: WandSparkles },
   { action: 'translate', label: 'assistant.edit.translate', icon: Languages },
+  { action: 'condense', label: 'assistant.edit.condense', icon: Minimize2 },
+  { action: 'expand', label: 'assistant.edit.expand', icon: Maximize2 },
 ]
 
 export function EditorSelectionBar({ selection, onDone }: { selection: EditorSelectionInfo, onDone: () => void }) {
@@ -62,6 +65,15 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
     }, { top: selection.rect.top + selection.rect.height + 8, left: selection.rect.left })
     onDone()
   }
+  const toSidebar = () => {
+    const view = getActiveEditorView()
+    if (!view || !noteId) return
+    const range = view.state.selection.main
+    if (range.empty) return
+    useAssistant.getState().seedComposer(quotePassage(view.state.doc.sliceString(range.from, range.to)))
+    useUi.getState().setAssistantDock(true)
+    onDone()
+  }
   return (
     <div
       role="toolbar"
@@ -83,6 +95,9 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
       <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
       <Button size="sm" variant="ghost" icon={<WandSparkles size={13} />} onClick={quickAsk}>
         {t('assistant.quick_ask.open')}
+      </Button>
+      <Button size="sm" variant="ghost" icon={<PanelRight size={13} />} onClick={toSidebar}>
+        {t('assistant.edit.to_sidebar')}
       </Button>
     </div>
   )

@@ -121,7 +121,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
                 }, rect ? { top: rect.bottom + 6, left: Math.max(12, rect.right - 380) } : null);
             },
         },
-        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo'] as const).map((action) => ({
+        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo', 'condense', 'expand'] as const).map((action) => ({
             id: action,
             label: t(EDITOR_AI_LABELS[action]),
             onSelect: () => runAi(action),

@@ -49,6 +49,8 @@ const PROMPT_KEYS: Record<Exclude<EditorAiAction, 'ask'>, MessageKey> = {
   translate: 'assistant.canvas.prompt_translate',
   outline: 'assistant.canvas.prompt_outline',
   todo: 'assistant.canvas.prompt_todo',
+  condense: 'assistant.canvas.prompt_condense',
+  expand: 'assistant.canvas.prompt_expand',
 }
 
 export function canvasAiPrompt(action: Exclude<EditorAiAction, 'ask'>, text: string, title: string): string {
