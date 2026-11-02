@@ -83,6 +83,8 @@ async function insertEntry(options: {
   category?: string
   storageKey?: string | null
   uploadedAt?: number
+  metadata?: string
+  mime?: string
 }): Promise<string> {
   const id = newId()
   const now = options.uploadedAt ?? Date.now()
@@ -92,7 +94,7 @@ async function insertEntry(options: {
        (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
         category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
         starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'application/octet-stream', ?, NULL, NULL, 'r2', ?, '{}', '',
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'r2', ?, ?, '',
              NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
   ).bind(
     id,
@@ -105,8 +107,10 @@ async function insertEntry(options: {
     initialsOf(name),
     options.path,
     options.category ?? 'other',
+    options.mime ?? 'application/octet-stream',
     options.size ?? 0,
     options.storageKey ?? null,
+    options.metadata ?? '{}',
     now,
     now,
     now,
@@ -225,6 +229,37 @@ describe('clouddrive file API', () => {
     expect(created.status).toBe(201)
     expect(created.body.entry.mime).not.toBe('text/html')
     expect(created.body.entry.mime).toBe('text/plain')
+  })
+
+  it('groups the album by the capture time an image carries, not by the import date', async () => {
+    const taken = Date.UTC(2020, 4, 1, 9, 0, 0)
+    const imported = Date.UTC(2026, 10, 2, 9, 0, 0)
+    await insertEntry({ path: '/shot.jpg', name: 'shot.jpg', category: 'images', uploadedAt: imported, metadata: JSON.stringify({ takenAt: taken }) })
+    await insertEntry({ path: '/plain.jpg', name: 'plain.jpg', category: 'images', uploadedAt: imported })
+
+    const album = await call<{ groups: { month: string; files: { name: string; takenAt: number | null }[] }[]; cursor: string | null }>(
+      USER, 'GET', '/api/clouddrive/album',
+    )
+    expect(album.status).toBe(200)
+    expect(album.body.groups.map((group) => group.month)).toEqual(['2026-11', '2020-05'])
+    const stamped = album.body.groups[1]!.files[0]!
+    expect(stamped.name).toBe('shot.jpg')
+    expect(stamped.takenAt).toBe(taken)
+    expect(album.body.groups[0]!.files[0]!.takenAt).toBeNull()
+  })
+
+  it('filters the album to videos and to both kinds without breaking on a corrupt stamp', async () => {
+    await insertEntry({ path: '/clip.mp4', name: 'clip.mp4', category: 'videos', mime: 'video/mp4' })
+    await insertEntry({ path: '/pic.png', name: 'pic.png', category: 'images' })
+    await insertEntry({ path: '/broken.jpg', name: 'broken.jpg', category: 'images', metadata: 'not json' })
+
+    const videos = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album?kind=videos')
+    expect(videos.body.groups.flatMap((group) => group.files).map((file) => file.name)).toEqual(['clip.mp4'])
+    const all = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album?kind=all')
+    expect(all.body.groups.flatMap((group) => group.files).map((file) => file.name).sort()).toEqual(['broken.jpg', 'clip.mp4', 'pic.png'])
+    // A row whose metadata is not JSON still lists, grouped by its upload time.
+    const images = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album')
+    expect(images.body.groups.flatMap((group) => group.files).map((file) => file.name).sort()).toEqual(['broken.jpg', 'pic.png'])
   })
 
   it('renames a folder and its whole subtree', async () => {

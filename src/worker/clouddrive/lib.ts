@@ -323,6 +323,23 @@ function storageKindOf(value: string): CloudDriveEntry['storageKind'] {
   return value === 'distributed' || value === 'external' ? value : 'r2'
 }
 
+/**
+ * The capture time an image row carries in its `metadata`. Only media reads it: a folder's metadata
+ * holds notes and hiding rules, and a stray number there must not become a photo date.
+ */
+function takenAtOf(row: CloudDriveFileRow): number | null {
+  if (row.kind !== 'file' || (row.category !== 'images' && row.category !== 'videos')) return null
+  let value: unknown
+  try {
+    value = JSON.parse(row.metadata)
+  } catch {
+    return null
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const takenAt = (value as Record<string, unknown>).takenAt
+  return typeof takenAt === 'number' && Number.isSafeInteger(takenAt) && takenAt > 0 ? takenAt : null
+}
+
 /** The core row → entry conversion; mount-specific fields are empty until {@link buildEntry}. */
 export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = []): CloudDriveEntry {
   const folderMeta = row.kind === 'folder' ? parseFolderMeta(row.metadata) : null
@@ -339,6 +356,7 @@ export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = [
     uploadedAt: row.uploaded_at,
     modifiedAt: row.modified_at,
     starredAt: row.starred_at,
+    takenAt: takenAtOf(row),
     readOnly: false,
     hasThumbnail: row.kind === 'file' && row.category === 'images' && row.storage_kind === 'r2',
     storage: row.storage_kind === 'r2' ? 'primary' : row.storage_kind,

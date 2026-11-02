@@ -57,6 +57,7 @@ import {
   removeTag,
   renameEntry,
   restoreEntries,
+  type AlbumKind,
   rowsByIds,
   rowsByPaths,
   searchEntries,
@@ -743,6 +744,11 @@ cloudDriveFilesRoutes.get('/recent', async (c) => {
   return c.json({ files: await entriesOf(c.env.DB, userId, mount, files), cursor: result.cursor })
 })
 
+/** An unknown value falls back to stills, which is what the album showed before the filter existed. */
+function albumKindOf(value: string | undefined): AlbumKind {
+  return value === 'videos' || value === 'all' ? value : 'images'
+}
+
 cloudDriveFilesRoutes.get('/album', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
@@ -751,6 +757,7 @@ cloudDriveFilesRoutes.get('/album', async (c) => {
     to: parseTimestamp(c.req.query('to')),
     cursor: c.req.query('cursor') || undefined,
     limit: parseLimit(c.req.query('limit'), 60),
+    kind: albumKindOf(c.req.query('kind')),
   })
   const tags = await tagsForFiles(c.env.DB, userId, result.groups.flatMap((group) => group.files.map((file) => file.id)))
   const groups = await Promise.all(result.groups.map(async (group) => ({

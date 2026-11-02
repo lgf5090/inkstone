@@ -173,7 +173,10 @@ export const clouddriveApi = {
     return request<{ files: CloudDriveEntry[]; cursor: string | null; total: number | null }>(`/api/clouddrive/search?${search.toString()}`)
   },
   recent: (kind: 'viewed' | 'uploaded') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
-  album: (cursor?: string | null) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams(cursor ? { cursor } : {}).toString()}`),
+  album: (params: { cursor?: string | null; kind?: 'images' | 'videos' | 'all' } = {}) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams({
+    ...(params.cursor ? { cursor: params.cursor } : {}),
+    ...(params.kind && params.kind !== 'images' ? { kind: params.kind } : {}),
+  }).toString()}`),
 
   initUpload: (body: { mountId: string; parentPath: string; name: string; size: number; mime: string; conflict?: string }) => request<{
     session: { id: string; strategy: string; partSize: number; totalParts: number; uploadedParts?: number }

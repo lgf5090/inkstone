@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, Download, LayoutGrid, Play, RefreshCw, X } from 'lucide-react'
-import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import type { AlbumKind, CloudDriveEntry } from '@shared/clouddrive/model'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
+import { Segmented } from '../../../components/form'
 import { navigateToPath } from '../../../lib/app-history'
 import { localeTag, useLocale } from '../../../lib/i18n'
 import { formatBytes } from '../../../lib/time'
@@ -23,6 +24,13 @@ interface MonthGroup {
   label: string
   entries: CloudDriveEntry[]
 }
+
+/** The three views the album offers; an animated file counts as a still, so it stays under photos. */
+const ALBUM_KIND_OPTIONS: { value: AlbumKind; label: string }[] = [
+  { value: 'images', label: ct('clouddrive.album.kind_images') },
+  { value: 'videos', label: ct('clouddrive.album.kind_videos') },
+  { value: 'all', label: ct('clouddrive.album.kind_all') },
+]
 
 function mergeEntries(current: CloudDriveEntry[], next: CloudDriveEntry[]): CloudDriveEntry[] {
   const seen = new Set(current.map((entry) => entry.id))
@@ -62,6 +70,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+  const [kind, setKind] = useState<AlbumKind>('images')
   const sentinelRef = useRef<HTMLDivElement>(null)
   const requestRef = useRef(0)
 
@@ -76,7 +85,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
     setError(null)
     setMore('idle')
     try {
-      const result = await clouddriveApi.album()
+      const result = await clouddriveApi.album({ kind })
       if (sequence !== requestRef.current) return
       setEntries(result.groups.flatMap((group) => group.files))
       setCursor(result.cursor)
@@ -86,7 +95,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
       setError(describeError(caught))
       setStatus('error')
     }
-  }, [])
+  }, [kind])
 
   useEffect(() => {
     void load()
@@ -96,7 +105,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
     if (!cursor || more === 'loading') return
     setMore('loading')
     try {
-      const result = await clouddriveApi.album(cursor)
+      const result = await clouddriveApi.album({ cursor, kind })
       setEntries((current) => mergeEntries(current, result.groups.flatMap((group) => group.files)))
       setCursor(result.cursor)
       setMore('idle')
@@ -104,7 +113,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
       setMore('error')
       toast({ title: ct('clouddrive.album.load_more_failed'), description: describeError(caught), tone: 'danger' })
     }
-  }, [cursor, more, toast])
+  }, [cursor, kind, more, toast])
 
   useEffect(() => {
     const node = sentinelRef.current
@@ -127,7 +136,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
   const months = useMemo<MonthGroup[]>(() => {
     const groups: MonthGroup[] = []
     for (const entry of entries) {
-      const key = monthKey(entry.uploadedAt)
+      const key = monthKey(entry.takenAt ?? entry.uploadedAt)
       const last = groups[groups.length - 1]
       if (last?.key === key) last.entries.push(entry)
       else groups.push({ key, label: monthLabel(key, monthFormatter), entries: [entry] })
@@ -173,6 +182,13 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
           <LayoutGrid size={15} aria-hidden />
         </span>
         <h1 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{ct('clouddrive.nav.album')}</h1>
+        <Segmented<AlbumKind>
+          size="sm"
+          value={kind}
+          label={ct('clouddrive.album.kind_label')}
+          options={ALBUM_KIND_OPTIONS}
+          onChange={setKind}
+        />
         {entries.length > 0 && (
           <span className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{ct('clouddrive.status.items', { count: entries.length })}</span>
         )}

@@ -230,6 +230,10 @@ export interface CloudDriveTagView {
   color: string
 }
 
+/** What the album can show: stills, moving pictures, or both. Animated files fall under stills. */
+export const CLOUDDRIVE_ALBUM_KINDS = ['images', 'videos', 'all'] as const
+export type AlbumKind = (typeof CLOUDDRIVE_ALBUM_KINDS)[number]
+
 export interface CloudDriveEntry {
   id: string
   kind: 'folder' | 'file'
@@ -243,6 +247,8 @@ export interface CloudDriveEntry {
   uploadedAt: number
   modifiedAt: number
   starredAt: number | null
+  /** The capture time an image's EXIF carried, stamped at upload; the album groups by it when present. */
+  takenAt?: number | null
   readOnly: boolean
   hasThumbnail: boolean
   /** Trash listings only: when the row went to the trash and whether its subtree came with it. */

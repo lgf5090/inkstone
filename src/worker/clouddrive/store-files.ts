@@ -11,6 +11,7 @@ import {
   autoSuffixName,
   foldedName,
   restoredName,
+  type AlbumKind,
   type CloudDriveCategory,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
@@ -1331,52 +1332,78 @@ export interface AlbumGroup {
   files: CloudDriveFileRow[]
 }
 
+/** What the album can show: stills, moving pictures, or both together. */
+export type { AlbumKind } from '@shared/clouddrive/model'
+
+const ALBUM_CATEGORIES: Record<AlbumKind, string> = {
+  images: "'images'",
+  videos: "'videos'",
+  all: "'images', 'videos'",
+}
+
+/**
+ * The moment a media row is filed under: the capture time the upload stamped into `metadata`, or the
+ * upload time when the file carried no EXIF. `json_valid` guards a hand-edited row, which would
+ * otherwise make the whole album query fail instead of one row fall back.
+ */
+const MEDIA_AT = `CASE
+  WHEN json_valid(f.metadata) AND json_extract(f.metadata, '$.takenAt') IS NOT NULL
+    THEN CAST(json_extract(f.metadata, '$.takenAt') AS INTEGER)
+  ELSE f.uploaded_at END`
+
 export async function albumEntries(
   db: D1Database,
   userId: string,
   mountId: string,
-  options: { from?: number | null; to?: number | null; cursor?: string; limit: number },
+  options: {
+    from?: number | null
+    to?: number | null
+    cursor?: string
+    limit: number
+    kind?: AlbumKind
+  },
 ): Promise<{ groups: AlbumGroup[]; cursor: string | null }> {
+  const kind = options.kind ?? 'images'
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
     "f.kind = 'file'",
-    "f.category = 'images'",
+    `f.category IN (${ALBUM_CATEGORIES[kind] ?? ALBUM_CATEGORIES.images})`,
     'f.deleted_at IS NULL',
     "f.name_folded <> '.keep'",
   ]
   const params: unknown[] = [userId, mountId]
   if (options.from !== null && options.from !== undefined) {
-    clauses.push('f.uploaded_at >= ?')
+    clauses.push(`${MEDIA_AT} >= ?`)
     params.push(options.from)
   }
   if (options.to !== null && options.to !== undefined) {
-    clauses.push('f.uploaded_at <= ?')
+    clauses.push(`${MEDIA_AT} <= ?`)
     params.push(options.to)
   }
   if (options.cursor) {
     const decoded = decodeCursor(options.cursor, 'uploaded')
     const value = requireNumber(decoded.v)
-    clauses.push('(f.uploaded_at < ? OR (f.uploaded_at = ? AND f.id < ?))')
+    clauses.push(`(${MEDIA_AT} < ? OR (${MEDIA_AT} = ? AND f.id < ?))`)
     params.push(value, value, decoded.id)
   }
   const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
+    `SELECT f.*, ${MEDIA_AT} AS media_at FROM CloudDrive_files f
       WHERE ${clauses.join(' AND ')}
-      ORDER BY f.uploaded_at DESC, f.id DESC
+      ORDER BY media_at DESC, f.id DESC
       LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
+  ).bind(...params, options.limit).all<CloudDriveFileRow & { media_at: number }>()
   const files = results ?? []
   const groups: AlbumGroup[] = []
   for (const file of files) {
-    const month = new Date(file.uploaded_at).toISOString().slice(0, 7)
+    const month = new Date(file.media_at).toISOString().slice(0, 7)
     const last = groups[groups.length - 1]
     if (last && last.month === month) last.files.push(file)
     else groups.push({ month, files: [file] })
   }
   const lastFile = files[files.length - 1]
   const cursor = lastFile && files.length === options.limit
-    ? encodeCursor('uploaded', lastFile.uploaded_at, lastFile.id)
+    ? encodeCursor('uploaded', lastFile.media_at, lastFile.id)
     : null
   return { groups, cursor }
 }

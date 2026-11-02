@@ -29,6 +29,7 @@ import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { assertMetaAccess } from './routes-meta'
+import { exifTakenAt } from './exif'
 import { initialsOf } from './lib'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { storageKeyReferenced } from './store-files'
@@ -51,6 +52,31 @@ const SESSION_CONFLICT_PREFIX = '{"conflict":"'
 
 const UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
 type UploadConflict = (typeof UPLOAD_CONFLICTS)[number]
+
+/**
+ * The capture time a freshly stored JPEG carries, read from the head of the object the upload just
+ * wrote. EXIF sits in the first few kilobytes, so the whole file is never pulled back; a distributed
+ * upload has no single object to read and stays unstamped.
+ */
+async function exifTakenAtOf(
+  c: Context<AppBindings>,
+  key: string | null,
+  storageKind: string,
+  mime: string,
+): Promise<number | null> {
+  if (storageKind !== 'r2' || !key || mime !== 'image/jpeg' || !c.env.FILES) return null
+  try {
+    const head = await c.env.FILES.get(key, { range: { offset: 0, length: EXIF_HEAD_BYTES - 1 } })
+    if (!head) return null
+    return exifTakenAt(new Uint8Array(await head.arrayBuffer()))
+  } catch (error) {
+    // The file is stored and valid; only the album's grouping loses the date, so this stays a log.
+    console.warn('[clouddrive] EXIF capture time could not be read:', key, error)
+    return null
+  }
+}
+
+const EXIF_HEAD_BYTES = 64 * 1024
 
 interface UploadInitBody {
   mountId?: unknown
@@ -762,6 +788,8 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
   if (!fileId) throw new ApiError(500, 'internal', 'The upload storage key has no object id')
 
   const now = Date.now()
+  const takenAt = await exifTakenAtOf(c, key, storageKind, session.mime)
+  const metadata = takenAt === null ? '{}' : JSON.stringify({ takenAt })
   const statements: D1PreparedStatement[] = []
   if (overwrites && existing) {
     if (existing.storage_key) {
@@ -790,11 +818,11 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
         `UPDATE CloudDrive_files
             SET name = ?3, name_folded = ?4, name_initials = ?5, path = ?6, category = ?7, mime = ?8,
                 size = ?9, etag = ?10, checksum = NULL, storage_kind = ?11, storage_key = ?12,
-                updated_at = ?13, modified_at = ?13
+                metadata = ?14, updated_at = ?13, modified_at = ?13
           WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
       ).bind(
         userId, existing.id, finalName, foldedName(finalName), initialsOf(finalName), finalPath,
-        session.category, session.mime, session.size, etag, storageKind, key, now,
+        session.category, session.mime, session.size, etag, storageKind, key, now, metadata,
       ),
     )
     // The link still resolves to this row, so its cached name, size and type follow the new bytes.
@@ -811,12 +839,12 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
            (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path, category,
             mime, size, etag, checksum, storage_kind, storage_key, metadata, color, starred_at,
             last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-         VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?15, ?13, '{}', '',
+         VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?15, ?13, ?16, '',
                  NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
       ).bind(
         fileId, userId, session.mount_id, session.parent_id, finalName, foldedName(finalName),
         initialsOf(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
-        storageKind,
+        storageKind, metadata,
       ),
     )
   }

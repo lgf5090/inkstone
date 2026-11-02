@@ -13,6 +13,10 @@ export const ZH_CN_CLOUDDRIVE_MEDIA = {
   'clouddrive.album.video': '视频',
   'clouddrive.album.load_more': '正在加载更多…',
   'clouddrive.album.load_more_failed': '无法加载更多项目',
+  'clouddrive.album.kind_label': '相册内容',
+  'clouddrive.album.kind_images': '照片',
+  'clouddrive.album.kind_videos': '视频',
+  'clouddrive.album.kind_all': '全部',
 
   'clouddrive.viewer.previous': '上一个',
   'clouddrive.viewer.next': '下一个',

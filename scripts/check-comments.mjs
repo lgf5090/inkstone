@@ -5576,6 +5576,7 @@ const allowed = new Map([
   ["src/client/features/clouddrive/album/AlbumPage.tsx", [
     "/** The shell decides where the empty-state action goes; the standalone default is the files page. */",
     "/**\n * \"All media\" smart view over the primary mount: cursor paging from `/album`, grouped by the local\n * month, with a selection mode for batch downloads and a full-screen viewer on the same entries.\n */",
+    "/** The three views the album offers; an animated file counts as a still, so it stays under photos. */",
   ]],
   ["src/client/features/clouddrive/album/MediaViewer.tsx", [
     "/** The shell may route the download through the transfer centre; otherwise a direct link is used. */",
@@ -30051,6 +30052,8 @@ const allowed = new Map([
     "/**\n * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;\n * a bearer/REST surface brings its own scopes when it exists.\n */",
     "/** Trash listings only: when the row went to the trash and whether its subtree came with it. */",
     "/** What an upload does when the destination already holds that name. */",
+    "/** What the album can show: stills, moving pictures, or both. Animated files fall under stills. */",
+    "/** The capture time an image's EXIF carried, stamped at upload; the album groups by it when present. */",
   ]],
   ["src/shared/clouddrive/settings.ts", [
     "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
@@ -35301,6 +35304,21 @@ const allowed = new Map([
   ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
+  ["src/worker/clouddrive/exif.test.ts", [
+    "/**\n * Assembles a JPEG whose APP1 holds a real (if minimal) TIFF: one IFD0 and, when asked, one ExifSubIFD\n * reachable through tag 0x8769. ASCII values longer than four bytes go after the IFDs, which is what a\n * camera does, so the reader has to follow the pointer rather than read the field inline.\n */",
+    "// II*\\0 or MM\\0*, then the offset of IFD0 (8) and nothing else before it.",
+    "// IFD0 sits at 8, so the sub-IFD begins right after its entries and its next-IFD pointer.",
+  ]],
+  ["src/worker/clouddrive/exif.ts", [
+    "/**\n * The smallest EXIF reader that answers one question: when was this picture taken?\n *\n * Only the JPEG APP1 `Exif` block is parsed, and only to the `ExifSubIFD` pointer and its date tags.\n * That is where a camera writes `DateTimeOriginal`, and it is always within the first few kilobytes,\n * so a caller can hand over a ranged slice instead of the whole file. Anything unrecognised returns\n * `null` — a photo without EXIF, a PNG, a stripped thumbnail, or a block whose offsets do not line\n * up. No dependency is justified by one date field.\n */",
+    "/** The ASCII date a camera stores: `2020:03:04 15:06:07`, in the camera's own zone. */",
+    "/** One IFD entry's value as ASCII, given the block, its endianness and the entry's offset/size. */",
+    "// Values longer than four bytes live at a pointer stored in the value field.",
+    "/** The pointer to `ExifSubIFD`, which is where the capture date actually lives. */",
+    "/** The capture time of a JPEG in milliseconds, or `null` when the bytes do not say. */",
+    "// 0xE1 is APP1, where the `Exif\\0\\0` block lives; 0xD8/0x01 and the RST range carry no length.",
+    "// The magic 42 is stored in the block's own byte order, so it has to be read in that order.",
+  ]],
   ["src/worker/clouddrive/external.ts", [
     "/** Read-only browsing and byte reads for the external storage drivers. */",
     "/** A driver-native item id used to read the entry without resolving its display path again. */",
@@ -35342,6 +35360,7 @@ const allowed = new Map([
     "/**\n * The owner's member switches, enforced at the doors a member can knock on. Reading them from the\n * owner's row is what makes the setting on the page a policy instead of a personal preference.\n */",
     "/**\n * Best-effort cleanup for the object a failed write has already orphaned. The caller is reporting a\n * bigger failure, and a bucket that will not delete is not worth replacing that message with.\n */",
     "/** The object bucket every primary-mount write goes through, or the 503 that says it is not bound. */",
+    "/**\n * The capture time an image row carries in its `metadata`. Only media reads it: a folder's metadata\n * holds notes and hiding rules, and a stray number there must not become a photo date.\n */",
   ]],
   ["src/worker/clouddrive/meta.ts", [
     "/**\n * A hidden rule is a glob — `*.tmp`, `Thumbs.db`, `._?` — which is exactly what the inspector hints\n * at. Treating it as a regular expression let a typo hide nothing at all and let `(a+)+$` turn a\n * folder listing into a backtracking exercise, so no pattern is ever compiled here.\n */",
@@ -35413,6 +35432,7 @@ const allowed = new Map([
     "// metadata table; one read of each answers the same question for the whole set.",
     "/**\n * The mime a file the drive created itself carries. An empty `.html` deliberately lands as plain\n * text: the extension is the reader's choice, not a promise that the bytes are safe to inline.\n */",
     "// The name was taken between the pre-check and the row, so the placeholder goes back the way it came.",
+    "/** An unknown value falls back to stills, which is what the album showed before the filter existed. */",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35491,6 +35511,8 @@ const allowed = new Map([
     "// An overwrite keeps the row, so the file's own history and star survive the replacement.",
     "// Version objects are real bytes in the bucket: leaving them out let a file with ten stored versions",
     "// quietly occupy ten times the quota it was charged for.",
+    "/**\n * The capture time a freshly stored JPEG carries, read from the head of the object the upload just\n * wrote. EXIF sits in the first few kilobytes, so the whole file is never pulled back; a distributed\n * upload has no single object to read and stays unstamped.\n */",
+    "// The file is stored and valid; only the album's grouping loses the date, so this stays a log.",
   ]],
   ["src/worker/clouddrive/routes-versions.ts", [
     "// A version is the file's content under another name: without this the folder lock guarded the",
@@ -35537,6 +35559,8 @@ const allowed = new Map([
     "// Every trashed row is already a target, so one read of them beats expanding each root's subtree",
     "// and de-duplicating the same folders back out again.",
     "/**\n * The row for a file the drive created itself, once its (empty) object is already in the bucket. The\n * caller mints the id and writes the object under it, because the storage key names that id; a\n * rejected name reports a conflict instead of writing a second row, and `UNIQUE` does the same later.\n */",
+    "/** What the album can show: stills, moving pictures, or both together. */",
+    "/**\n * The moment a media row is filed under: the capture time the upload stamped into `metadata`, or the\n * upload time when the file carried no EXIF. `json_valid` guards a hand-edited row, which would\n * otherwise make the whole album query fail instead of one row fall back.\n */",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -42436,6 +42460,7 @@ const allowed = new Map([
     "// Batched metadata has to stay per path: one answer reused across the two folders would either",
     "// hide both files or show both.",
     "// The placeholder written before the row was refused must not stay behind as an orphan.",
+    "// A row whose metadata is not JSON still lists, grouped by its upload time.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",

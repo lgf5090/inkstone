@@ -13,6 +13,10 @@ export const EN_US_CLOUDDRIVE_MEDIA = {
   'clouddrive.album.video': 'Video',
   'clouddrive.album.load_more': 'Loading more…',
   'clouddrive.album.load_more_failed': 'Could not load more items',
+  'clouddrive.album.kind_label': 'Album contents',
+  'clouddrive.album.kind_images': 'Photos',
+  'clouddrive.album.kind_videos': 'Videos',
+  'clouddrive.album.kind_all': 'All',
 
   'clouddrive.viewer.previous': 'Previous',
   'clouddrive.viewer.next': 'Next',
