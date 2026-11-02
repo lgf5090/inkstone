@@ -34,6 +34,7 @@ import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Empty } from '../../components/feedback'
 import { Drawer } from '../../components/overlay'
 import { FilePreviewModal } from '../file-preview'
 import { formatBytes } from '@shared/byte-format'
@@ -164,7 +165,22 @@ export function ClouddriveApp() {
   }, [preview])
 
   if (IS_DEMO_MODE) {
-    return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.demo_unavailable')}</div>
+    // The demo instance has no database or bucket to put a drive on. The rail already hides the tab;
+    // a direct URL still has to say why and hand the reader back to something that works.
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <Empty
+          art='archive'
+          title={t('clouddrive.demo_unavailable')}
+          description={t('clouddrive.demo_unavailable_hint')}
+          action={(
+            <Button variant='secondary' onClick={() => navigateToPath('/notes')}>
+              {t('clouddrive.demo_back_to_notes')}
+            </Button>
+          )}
+        />
+      </div>
+    )
   }
 
   if (status === 'loading' || status === 'idle') {

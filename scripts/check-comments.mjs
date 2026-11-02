@@ -5555,12 +5555,15 @@ const allowed = new Map([
     "/**\n   * One button, every page: `refreshKey` is the list pages' signal and the bootstrap call covers the\n   * capacity and mount cards that have no list of their own.\n   */",
     "/**\n * The drive opens on the file browser, so that page is loaded with the shell and every other one is\n * fetched when its tab is chosen: the admin console, the album, the sync planner and the share tables\n * are megabytes of code a member may never ask for.\n */",
     "/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */",
+    "// The demo instance has no database or bucket to put a drive on. The rail already hides the tab;",
+    "// a direct URL still has to say why and hand the reader back to something that works.",
   ]],
   ["src/client/features/clouddrive/admin/PreviewSettingsPage.tsx", [
     "/** Extensions more than one rule claims; the viewer stops at the first one. */",
   ]],
   ["src/client/features/clouddrive/admin/api-admin.ts", [
     "/**\n * Owner-only CloudDrive endpoints.\n *\n * Kept apart from `../api` so the file browser never pulls the admin surface into its chunk. The\n * request wrapper repeats the few lines of the shared one because `../api` does not export its\n * transport; the error type is the shared class, so callers can translate failures the same way.\n */",
+    "/** `null` when the mount is external: its used bytes need a driver walk the dashboard will not pay for. */",
   ]],
   ["src/client/features/clouddrive/admin/shared.tsx", [
     "/**\n * Small pieces every owner console page shares: the page frame, the three load states, a metric\n * tile and the date/size formatting that has to agree across the five pages.\n *\n * The translation helper is typed against the admin catalogue even though the shell registers that\n * catalogue later. A type-only import gives the compiler the key list without pulling any strings\n * into the bundle or into `t`'s runtime registry.\n */",
@@ -5665,6 +5668,16 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
+  ]],
+  ["src/client/features/clouddrive/offline/store.test.ts", [
+    "// The pre-flight check runs on the known size, so a lying `content-length` is not the only guard.",
+  ]],
+  ["src/client/features/clouddrive/offline/store.ts", [
+    "/**\n * Which ceiling a save of `incoming` bytes would break, given the rows already kept. A re-save of the\n * same entry replaces its own copy, so that copy is not counted against it.\n */",
+    "/** The two ceilings the offline cache honours, checked against the size a save is about to take. */",
+    "/**\n * Reads the response while it arrives so an over-ceiling file is refused mid-stream instead of being\n * buffered whole. `assertRoom` is passed in because the ceiling check needs the rows in IndexedDB,\n * and the streaming limit itself must not wait for them.\n */",
+    "// `entry.size` is known before the request: a 2 GB save used to be streamed into memory in full and",
+    "// only then refused, which on a phone kills the tab instead of showing a message.",
   ]],
   ["src/client/features/clouddrive/prefs.ts", [
     "// A full or disabled localStorage only costs the preference, never the drive itself.",
@@ -35340,11 +35353,11 @@ const allowed = new Map([
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
-    "// The list cache is an isolate-local Map and no cache has been populated in this release yet.",
-    "// Reporting zeroes with the snapshot time is the honest answer; a global total cannot be known.",
     "// The toggle is off: the table is the owner's own drive even if a creator filter was sent.",
     "// The object keys are deliberately left in R2; the orphan scan is the documented cleanup path.",
     "// Only the pinyin index is dropped; `name_folded` still backs search, sorting and uniqueness.",
+    "// An external mount's used bytes are a full driver walk, which P-03 moved off the request",
+    "// path on purpose; reporting `null` keeps the card honest instead of painting a zero.",
   ]],
   ["src/worker/clouddrive/routes-content.ts", [
     "// Image Resizing refuses formats/corrupt files it cannot decode; the honest thumbnail is then",
@@ -35453,6 +35466,8 @@ const allowed = new Map([
     "/**\n * A visitor, not an address. The salt is per link, so two shares of the same file cannot be joined by\n * their hashes and the raw IP never reaches the row.\n */",
     "// The budget was already spent by this visitor's counted view; a link that has since run out must",
     "// still refuse them, and the row this caller handed over already says whether it has.",
+    "// A salted per-visitor digest, never an address: the count answers \"how many people\", the row",
+    "// cannot be reversed and the details themselves age out with the purge job.",
   ]],
   ["src/worker/clouddrive/routes-upload.ts", [
     "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n *\n * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.\n */",
@@ -42425,6 +42440,9 @@ const allowed = new Map([
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",
     "// create a file whose bytes cannot be accounted for.",
+    "// The isolate cache never existed as a real counter, so the field is gone rather than zeroed.",
+    "// `insertEntry` writes a 4-byte row, so the storage row must show that and not a made-up zero.",
+    "// The member-file switch is read from the owner's settings instead of being hardcoded off.",
   ]],
   ["tests/clouddrive-meta.test.ts", [
     "// A rule written as a regular expression cannot match anything here, so it is refused instead of",
@@ -42451,6 +42469,7 @@ const allowed = new Map([
     "// The right password arrives at a locked budget: the lock is what stops the guessing, not the answer.",
     "// The visitor is stored as a salted digest, never as the address itself.",
     "// A link that has run out still refuses the same visitor after the dedupe window.",
+    "// The download row carries the bytes it served; the view row legitimately carries none.",
   ]],
   ["tests/clouddrive-upload.test.ts", [
     "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",

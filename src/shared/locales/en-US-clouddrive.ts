@@ -1,7 +1,9 @@
 export const EN_US_CLOUDDRIVE = {
   'app.tabs.clouddrive': 'Cloud Drive',
   'clouddrive.title': 'Cloud Drive',
-  'clouddrive.demo_unavailable': 'Cloud Drive needs a database and R2 bucket, so it is unavailable in demo mode.',
+  'clouddrive.demo_unavailable': 'Cloud Drive is not available in demo mode',
+  'clouddrive.demo_unavailable_hint': 'A drive needs a database and an object bucket of its own, and the demo instance has neither. Everything else in the demo works.',
+  'clouddrive.demo_back_to_notes': 'Back to notes',
 
   'clouddrive.keys.title': 'API keys',
   'clouddrive.keys.add': 'New key',

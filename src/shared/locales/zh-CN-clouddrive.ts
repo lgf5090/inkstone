@@ -1,7 +1,9 @@
 export const ZH_CN_CLOUDDRIVE = {
   'app.tabs.clouddrive': '云盘',
   'clouddrive.title': '云盘',
-  'clouddrive.demo_unavailable': '云盘需要数据库与 R2 存储桶，演示模式下不可用。',
+  'clouddrive.demo_unavailable': '演示模式下不提供云盘',
+  'clouddrive.demo_unavailable_hint': '云盘需要自己的数据库与对象存储桶，演示实例两者都没有；演示模式下的其他功能都正常。',
+  'clouddrive.demo_back_to_notes': '返回笔记',
 
   'clouddrive.keys.title': 'API 密钥',
   'clouddrive.keys.add': '新建密钥',
