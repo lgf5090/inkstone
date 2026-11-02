@@ -454,6 +454,7 @@ function toShareView(row: ShareRow) {
     slug: row.slug,
     url: `/d/${row.slug}`,
     targetKind: row.target_kind,
+    fileId: row.file_id,
     name: row.name,
     size: row.size,
     mime: row.mime,

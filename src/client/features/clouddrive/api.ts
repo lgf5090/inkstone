@@ -187,6 +187,7 @@ export const clouddriveApi = {
   uploadSessions: () => request<{ sessions: unknown[] }>('/api/clouddrive/uploads?status=active'),
 
   contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,
+  versionContentUrl: (id: string, version: number, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}/content${download ? '?download=1' : ''}`,
   folderSize: (id: string) => request<{ bytes: number; truncated: boolean }>(`/api/clouddrive/files/${encodeURIComponent(id)}/folder-size`),
   externalUpload: async (mountId: string, path: string, file: File): Promise<void> => {
     const headers = new Headers({ [CLIENT_HEADER]: '1', 'Content-Type': file.type || 'application/octet-stream' })

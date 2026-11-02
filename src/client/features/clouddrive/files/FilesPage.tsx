@@ -25,6 +25,7 @@ import {
   LayoutGrid,
   List,
   PanelRight,
+  Replace,
   Search,
   Upload,
   X,
@@ -32,11 +33,13 @@ import {
 import { formatBytes } from '@shared/byte-format'
 import {
   CLOUDDRIVE_SORT_KEYS,
+  CLOUDDRIVE_UPLOAD_CONFLICTS,
   parentPathOf,
   type CloudDriveEntry,
   type CloudDriveListing,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
+  type CloudDriveUploadConflict,
 } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
@@ -133,12 +136,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [menuTarget, setMenuTarget] = useState<ContextMenuTarget | null>(null)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [sortOpen, setSortOpen] = useState(false)
+  const [conflictOpen, setConflictOpen] = useState(false)
 
   const listingRef = useRef<CloudDriveListing | null>(null)
   const requestRef = useRef(0)
   const cursorRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sortButtonRef = useRef<HTMLButtonElement>(null)
+  const conflictButtonRef = useRef<HTMLButtonElement>(null)
 
   const writable = !readOnly
   const viewMode: ViewMode = prefs.viewMode === 'column' ? 'icon' : prefs.viewMode
@@ -524,6 +529,17 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       : { sortKey: key, sortDir: 'asc' })
   }, [prefs.sortKey, prefs.sortDir, setPrefs])
 
+  /**
+   * What an upload does when the folder already holds that name. The server has honoured all three
+   * since the first day; the queue used to ask for `rename` and nothing else.
+   */
+  const conflictItems: MenuItem[] = CLOUDDRIVE_UPLOAD_CONFLICTS.map((key: CloudDriveUploadConflict): MenuItem => ({
+    id: `conflict-${key}`,
+    label: t(`clouddrive.upload.conflict_${key}` as MessageKey),
+    checked: prefs.uploadConflict === key,
+    onSelect: () => setPrefs({ uploadConflict: key }),
+  }))
+
   const sortItems: MenuItem[] = [
     ...CLOUDDRIVE_SORT_KEYS.map((key: CloudDriveSortKey): MenuItem => ({
       id: `sort-${key}`,
@@ -640,6 +656,18 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             <span className="hidden sm:inline">{t('clouddrive.toolbar.upload')}</span>
           </Button>
           <Button
+            ref={conflictButtonRef}
+            size="sm"
+            variant="secondary"
+            icon={<Replace size={13} />}
+            aria-label={t('clouddrive.upload.conflict_policy')}
+            aria-haspopup="menu"
+            aria-expanded={conflictOpen}
+            onClick={() => setConflictOpen((open) => !open)}
+          >
+            <span className="hidden lg:inline">{t('clouddrive.upload.conflict_policy')}</span>
+          </Button>
+          <Button
             size="sm"
             variant="secondary"
             icon={<FolderPlus size={13} />}
@@ -696,6 +724,15 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           {t('clouddrive.readonly.banner')}
         </div>
       )}
+
+      <Menu
+        anchor={conflictButtonRef}
+        open={conflictOpen}
+        onClose={() => setConflictOpen(false)}
+        items={conflictItems}
+        align="end"
+        width={248}
+      />
 
       <Menu
         anchor={sortButtonRef}

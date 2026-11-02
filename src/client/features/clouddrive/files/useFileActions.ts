@@ -5,6 +5,7 @@ import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useTransferStore } from '../transfers/useTransferStore'
+import { useCloudDriveStore } from '../store'
 import { fetchAndSaveOffline } from '../offline/store'
 
 export type FileListChange =
@@ -72,6 +73,7 @@ function parentPath(path: string): string {
 
 export function useFileActions({ mountId, refresh, external = false, onLocalChange }: FileActionsOptions): FileActions {
   const [pending, setPending] = useState(0)
+  const uploadConflict = useCloudDriveStore((state) => state.prefs.uploadConflict)
 
   const execute = useCallback(async (work: () => Promise<void>): Promise<boolean> => {
     setPending((count) => count + 1)
@@ -200,10 +202,12 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
         setPending((count) => Math.max(0, count - 1))
       }
     }
-    useTransferStore.getState().enqueueUpload(files, { mountId, parentPath: parentPathValue })
+    useTransferStore.getState().enqueueUpload(files, {
+      mountId, parentPath: parentPathValue, conflict: uploadConflict,
+    })
     showSuccess(t('clouddrive.upload.queued', { count: files.length }))
     return true
-  }, [external, mountId, refresh])
+  }, [external, mountId, refresh, uploadConflict])
 
   const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
     setPending((count) => count + 1)

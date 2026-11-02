@@ -173,6 +173,10 @@ export type CloudDriveSortDirection = 'asc' | 'desc'
 export const CLOUDDRIVE_VIEW_MODES = ['icon', 'list', 'gallery', 'column'] as const
 export type CloudDriveViewMode = (typeof CLOUDDRIVE_VIEW_MODES)[number]
 
+/** What an upload does when the destination already holds that name. */
+export const CLOUDDRIVE_UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
+export type CloudDriveUploadConflict = (typeof CLOUDDRIVE_UPLOAD_CONFLICTS)[number]
+
 export const CLOUDDRIVE_FILENAME_DISPLAY = ['truncate', 'middle', 'wrap'] as const
 export type CloudDriveFilenameDisplay = (typeof CLOUDDRIVE_FILENAME_DISPLAY)[number]
 
@@ -196,6 +200,7 @@ export interface CloudDrivePrefs {
   statusBarVisible: boolean
   lastMountId: string
   uploadConcurrency: number
+  uploadConflict: CloudDriveUploadConflict
 }
 
 export function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -236,6 +241,9 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
     statusBarVisible: record.statusBarVisible !== false,
     lastMountId: typeof record.lastMountId === 'string' ? record.lastMountId : 'primary',
     uploadConcurrency: clampNumber(record.uploadConcurrency, 1, 8, 3),
+    uploadConflict: CLOUDDRIVE_UPLOAD_CONFLICTS.includes(record.uploadConflict as CloudDriveUploadConflict)
+      ? record.uploadConflict as CloudDriveUploadConflict
+      : 'rename',
   }
 }
 

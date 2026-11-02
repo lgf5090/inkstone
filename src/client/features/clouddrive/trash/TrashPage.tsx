@@ -13,6 +13,11 @@ import { formatEntryDate, formatEntrySize } from '../files/format'
 export function TrashPage({ mountId }: { mountId: string }) {
   const toast = useToast()
   const refreshKey = useCloudDriveStore((state) => state.refreshKey)
+  // The schedule the cron job keeps items on, so a row can say how long it still has.
+  const retentionDays = useCloudDriveStore((state) => {
+    const value = state.bootstrap?.settings.trashRetentionDays
+    return typeof value === 'number' && value > 0 ? value : null
+  })
   const [entries, setEntries] = useState<CloudDriveEntry[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -143,6 +148,9 @@ export function TrashPage({ mountId }: { mountId: string }) {
               <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]" title={t('clouddrive.trash.deleted')}>
                 {t('clouddrive.trash.deleted')} {formatEntryDate(entry.deletedAt ?? entry.modifiedAt)}
               </span>
+              {entry.deletedAt != null && retentionDays !== null && (
+                <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{t('clouddrive.trash.auto_purge', { date: new Date(entry.deletedAt + retentionDays * 86_400_000).toLocaleDateString() })}</span>
+              )}
               {entry.descendantsTrashed && (
                 <span className="shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
                   {t('clouddrive.entry.trashed_descendants')}

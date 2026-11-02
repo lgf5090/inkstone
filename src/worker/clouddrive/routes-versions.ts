@@ -1,7 +1,8 @@
 import { Hono, type Context } from 'hono'
-import { parentPathOf } from '@shared/clouddrive/model'
+import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { isValidId } from '../lib/id'
 import { buildEntry, resolveMount, tagsForFiles, type CloudDriveFileRow } from './lib'
 import { assertMetaAccess } from './routes-meta'
@@ -98,6 +99,46 @@ clouddriveVersionRoutes.get('/files/:id/versions', async (c) => {
       createdAt: row.created_at,
     })),
   })
+})
+
+clouddriveVersionRoutes.on(['GET', 'HEAD'], '/files/:id/versions/:version/content', async (c) => {
+  const file = await liveFile(c, c.req.param('id'))
+  const versionNumber = Number(c.req.param('version'))
+  if (!Number.isSafeInteger(versionNumber) || versionNumber < 1) throw ApiError.badRequest('version is invalid')
+  const version = await versionOf(c, file.id, versionNumber)
+  if (!version) throw ApiError.notFound('Version not found')
+  if (!c.env.FILES) {
+    throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
+  }
+  // A version is read the same way the live file is — ranges, disposition, no-store — because the
+  // alternative the ledger replaced was restoring an old revision just to look at what it held.
+  const mime = version.mime || 'application/octet-stream'
+  const headers = new Headers({
+    'Content-Type': mime,
+    'Content-Disposition': c.req.query('download') === '1'
+      ? contentDisposition(mime, filenameOf(file.path)).replace(/^inline/, 'attachment')
+      : contentDisposition(mime, filenameOf(file.path)),
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  })
+  const rangeHeader = c.req.header('range')
+  const range = rangeHeader ? parseByteRange(rangeHeader, version.size) : null
+  if (range === 'invalid') {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${version.size}` } })
+  }
+  if (range) {
+    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${version.size}`)
+    headers.set('Content-Length', String(range.end - range.start + 1))
+  } else {
+    headers.set('Content-Length', String(version.size))
+  }
+  if (c.req.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })
+  const object = await c.env.FILES.get(
+    version.storage_key,
+    range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined,
+  )
+  if (!object) throw ApiError.notFound('Version data is missing')
+  return new Response(object.body, { status: range ? 206 : 200, headers })
 })
 
 clouddriveVersionRoutes.post('/files/:id/versions/:version/restore', async (c) => {

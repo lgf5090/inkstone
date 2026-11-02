@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { RotateCcw, Trash2 } from 'lucide-react'
+import { Download, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { t } from '../../../lib/i18n'
@@ -100,12 +100,33 @@ export function VersionsDialog({ open, entry, onClose, onRestored }: VersionsDia
         )}
         {versions.length > 0 && (
           <ul className="flex flex-col gap-1">
-            {versions.map((version) => (
+            {versions.map((version) => {
+              if (!entry) return null
+              return (
               <li key={version.version} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2.5 py-1.5">
                 <span className="rounded-full bg-[var(--bg-inset)] px-2 py-0.5 text-[length:var(--text-10)] tabular text-[var(--text-tertiary)]">{`v${version.version}`}</span>
                 <span className="min-w-0 flex-1 truncate text-[length:var(--text-11)] text-[var(--text-secondary)]">
                   {new Date(version.createdAt).toLocaleString()} · {formatBytes(version.size)}
                 </span>
+                <a
+                  className="rounded-[var(--r-sm)] p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  href={clouddriveApi.versionContentUrl(entry.id, version.version)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={t('clouddrive.versions.open')}
+                  aria-label={t('clouddrive.versions.open')}
+                >
+                  <ExternalLink size={14} aria-hidden />
+                </a>
+                <a
+                  className="rounded-[var(--r-sm)] p-1 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  href={clouddriveApi.versionContentUrl(entry.id, version.version, true)}
+                  download
+                  title={t('clouddrive.versions.download')}
+                  aria-label={t('clouddrive.versions.download')}
+                >
+                  <Download size={14} aria-hidden />
+                </a>
                 <Button size="sm" variant="ghost" disabled={busyVersion !== null} onClick={() => void restore(version.version)}>
                   <RotateCcw size={13} /> {t('clouddrive.versions.restore')}
                 </Button>
@@ -113,7 +134,8 @@ export function VersionsDialog({ open, entry, onClose, onRestored }: VersionsDia
                   <Trash2 size={13} /> {t('clouddrive.versions.delete')}
                 </Button>
               </li>
-            ))}
+              )
+            })}
           </ul>
         )}
       </div>

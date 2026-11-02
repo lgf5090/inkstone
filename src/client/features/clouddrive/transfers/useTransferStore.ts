@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand'
 import { CLIENT_HEADER } from '@shared/constants'
-import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import type { CloudDriveEntry, CloudDriveUploadConflict } from '@shared/clouddrive/model'
 import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 
@@ -29,6 +29,8 @@ export interface TransferItem {
   parentPath: string | null
   entryId: string | null
   sessionId: string | null
+  /** How a name clash is settled. Only an upload has one; absent means `rename`. */
+  conflict?: CloudDriveUploadConflict
   /** Present until the page reloads; a retry after that needs the reader to pick the file again. */
   file?: File
 }
@@ -36,6 +38,7 @@ export interface TransferItem {
 export interface TransferTarget {
   mountId: string
   parentPath: string
+  conflict?: CloudDriveUploadConflict
 }
 
 interface TransferState {
@@ -189,7 +192,7 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void>
     name: item.name,
     size: item.size,
     mime: item.mime || 'application/octet-stream',
-    conflict: 'rename',
+    conflict: item.conflict ?? 'rename',
   })
   patchItem(item.id, { sessionId: init.session.id })
   if (signal.aborted) {
@@ -321,6 +324,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       parentPath: target.parentPath,
       entryId: null,
       sessionId: null,
+      conflict: target.conflict ?? 'rename',
       file,
     }))
     set((state) => ({ items: [...state.items, ...items] }))

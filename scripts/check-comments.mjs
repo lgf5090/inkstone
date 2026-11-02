@@ -5616,9 +5616,12 @@ const allowed = new Map([
     "/**\n   * One page of results, either the current folder or — while the search box holds text and the\n   * scope says *whole drive* — every folder under the mount. `cursor` continues where the last\n   * page stopped; the server hands it back only when there is more.\n   */",
     "/** Clicking the active column flips it; clicking another starts it ascending. */",
     "/**\n * The folder note is rendered with the Markdown stack, which drags the whole note renderer in.\n * Most folders have no note at all, so the module is fetched when a note exists rather than when the\n * drive opens.\n */",
+    "/**\n   * What an upload does when the folder already holds that name. The server has honoured all three\n   * since the first day; the queue used to ask for `rename` and nothing else.\n   */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
-    "/** Share existence is not part of the entry model; the shell may supply it later. */",
+    "// Whether an item is already shared is only answerable from the share list, so the panel reads",
+    "// it when it first opens instead of claiming \"not shared\" for files it never looked at.",
+    "// An unknown answer is not the same as \"not shared\": the row stays out of the panel.",
   ]],
   ["src/client/features/clouddrive/files/files.css", [
     "/* CloudDrive file browser surfaces. Every colour is a theme token; the only runtime colours\n   are the folder tint and tag dots, which arrive as data from the server. */",
@@ -5655,6 +5658,10 @@ const allowed = new Map([
     "// Every field below the title is a deployment policy: the server answers a member's PATCH with 403,",
     "// so the form shows the owner's values without pretending they can be edited here.",
   ]],
+  ["src/client/features/clouddrive/shares/SharesPage.tsx", [
+    "/** Revoking and disabling are the same state to the reader: the link is closed. */",
+    "// An empty field leaves the passcode alone: clearing it is its own decision, made by typing.",
+  ]],
   ["src/client/features/clouddrive/transfers/TransfersPage.tsx", [
     "/** A queue that is moving answers in five seconds; an idle one is checked twice a minute. */",
     "// A tab nobody is looking at has nothing to watch: the poll runs only while the page is visible,",
@@ -5666,6 +5673,10 @@ const allowed = new Map([
     "/** Load history for an account. Safe to call more than once for the same id. */",
     "// Losing history only costs the record; the transfer itself is unaffected.",
     "// A folder has no single content response; the caller should queue each file instead.",
+    "/** How a name clash is settled. Only an upload has one; absent means `rename`. */",
+  ]],
+  ["src/client/features/clouddrive/trash/TrashPage.tsx", [
+    "// The schedule the cron job keeps items on, so a row can say how long it still has.",
   ]],
   ["src/client/features/cloudflare/CloudflareApp.tsx", [
     "/**\n * The Cloudflare container's frame: a second navigation rail and the screen it names.\n *\n * The app is a guest on the notebook's rail, so it brings its own navigation rather than borrowing\n * the notebook sidebar: ten screens is more than a sidebar section should carry, and the reader who\n * is inside Cloudflare is looking at Cloudflare's own vocabulary (DNS, Workers, R2), not at notes.\n *\n * Copy is loaded before the first screen is drawn. A reader who opens the app with a slow network\n * sees a loading state, not a screen full of dotted keys.\n */",
@@ -29992,6 +30003,7 @@ const allowed = new Map([
     "/** `report (restored).pdf` */",
     "/**\n * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;\n * a bearer/REST surface brings its own scopes when it exists.\n */",
     "/** Trash listings only: when the row went to the trash and whether its subtree came with it. */",
+    "/** What an upload does when the destination already holds that name. */",
   ]],
   ["src/shared/clouddrive/settings.ts", [
     "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
@@ -35431,6 +35443,8 @@ const allowed = new Map([
   ["src/worker/clouddrive/routes-versions.ts", [
     "// A version is the file's content under another name: without this the folder lock guarded the",
     "// listing and the download but left the history panel wide open.",
+    "// A version is read the same way the live file is — ranges, disposition, no-store — because the",
+    "// alternative the ledger replaced was restoring an old revision just to look at what it held.",
   ]],
   ["src/worker/clouddrive/routes.ts", [
     "/**\n * A share link is meant for the one person the owner sent it to, so its document must never become a\n * search result. `robots.txt` already disallows the whole app; this is the header that survives a\n * crawler that ignores it, and it is set on the two page routes rather than on the API, whose JSON a\n * browser never renders.\n */",
@@ -42406,6 +42420,7 @@ const allowed = new Map([
     "// The bytes it replaced survive as version 1, under the key they were written to.",
     "// Four live bytes and four more behind them in version 1: the bucket holds eight, and the capacity",
     "// card and the upload ceiling must agree about that.",
+    "// Reading history must not be a restore: the file the reader sees is still the new bytes.",
   ]],
   ["tests/cloudflare-accounts-store.test.ts", [
     "// Still restorable at this point, which is why the sealed file is still there.",

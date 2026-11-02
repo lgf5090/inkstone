@@ -207,6 +207,38 @@ describe('clouddrive direct upload', () => {
     expect((await capacity.json() as { used: number }).used).toBe(8)
   })
 
+  it('serves a historical version without moving the live file back', async () => {
+    const first = await uploadSmall(h, 'v.txt', 'one')
+    const init = await initUpload(h, {
+      parentPath: '/', name: 'v.txt', size: 3, mime: 'text/plain', conflict: 'overwrite',
+    })
+    const session = await init.json() as UploadSessionResponse
+    await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'two' })
+    expect((await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })).status).toBe(200)
+
+    const versionUrl = `/api/clouddrive/files/${first.entry.id}/versions/1/content`
+    const old = await request(h, 'GET', versionUrl)
+    expect(old.status).toBe(200)
+    expect(await old.text()).toBe('one')
+    expect(old.headers.get('content-type')).toBe('text/plain')
+    expect(old.headers.get('content-disposition')).toContain("filename*=UTF-8''v.txt")
+    // Reading history must not be a restore: the file the reader sees is still the new bytes.
+    expect(await (await request(h, 'GET', `/api/clouddrive/files/${first.entry.id}/content`)).text()).toBe('two')
+
+    const ranged = await request(h, 'GET', versionUrl, { headers: { Range: 'bytes=0-1' } })
+    expect(ranged.status).toBe(206)
+    expect(ranged.headers.get('content-range')).toBe('bytes 0-1/3')
+    expect(await ranged.text()).toBe('on')
+
+    const download = await request(h, 'GET', `${versionUrl}?download=1`)
+    expect(download.headers.get('content-disposition')).toMatch(/^attachment/)
+
+    const missing = await request(h, 'GET', `/api/clouddrive/files/${first.entry.id}/versions/9/content`)
+    expect(missing.status).toBe(404)
+  })
+
   it('keeps the row and versions the old bytes when overwriting', async () => {
     const first = await uploadSmall(h, 'over.txt', 'one')
     const starred = await request(h, 'PATCH', `/api/clouddrive/files/${first.entry.id}`, {
