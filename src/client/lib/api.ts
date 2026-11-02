@@ -106,6 +106,7 @@ import type {
   AssistantArtifact,
   AssistantArtifactVersion,
   AssistantConversation,
+  AssistantConversationSettings,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -1871,7 +1872,7 @@ export const api = {
     /** A note the browser wrote from a reply: the worker cannot see that save, so the client reports it. */
     recordNoteWrite: (noteId: string, conversationId: string) =>
       request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
-    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
       request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`, { signal }),
     createConversation: (title?: string, folderId?: string | null, ephemeral = false) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
@@ -1890,6 +1891,9 @@ export const api = {
      */
     setConversationNote: (id: string, noteId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { noteId } }),
+    /** This thread's own overrides; the object replaces the stored one rather than merging into it. */
+    setConversationSettings: (id: string, settings: AssistantConversationSettings) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { settings } }),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
     /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */

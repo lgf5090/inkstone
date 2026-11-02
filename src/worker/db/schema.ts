@@ -3253,6 +3253,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_knowledge_bases(user_id, updated_at DESC)`,
     ],
   },
+  {
+    version: 232,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'settings' },
+    statements: [`ALTER TABLE chat_conversations ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 233,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'origin' },
+    statements: [`ALTER TABLE chat_conversations ADD COLUMN origin TEXT NOT NULL DEFAULT 'chat'`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -49,6 +49,10 @@ import {
   MAX_AUTOMATION_TARGET_ID_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  CONVERSATION_ORIGINS,
+  normalizeConversationSettings,
+  unknownConversationSettingKeys,
+  type AssistantConversationOrigin,
   MAX_BACKUP_BYTES,
   CONVERSATION_PAGE_SIZE,
   MESSAGE_PAGE_SIZE,
@@ -345,7 +349,7 @@ assistantRoutes.get('/conversations', async (c) => {
   const project = c.req.query('project')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
   const note = c.req.query('noteId')
-  const filter: { folderId?: string | null, projectId?: string | null, noteId?: string, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
+  const filter: { folderId?: string | null, projectId?: string | null, noteId?: string, tagId?: string, origin?: AssistantConversationOrigin, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
   // `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.
@@ -354,6 +358,13 @@ assistantRoutes.get('/conversations', async (c) => {
   // never the whole list, which would answer the reader's question with everything they asked to filter out.
   if (note !== undefined) filter.noteId = isValidId(note) ? note : ''
   if (tag) filter.tagId = tag
+  // A thread's source is one of four words; anything else is refused rather than silently returning the
+  // whole list, which would answer a filter with everything it asked to hide.
+  const origin = c.req.query('origin')
+  if (origin) {
+    if (!(CONVERSATION_ORIGINS as readonly string[]).includes(origin)) throw ApiError.badRequest('Unknown origin.')
+    filter.origin = origin as (typeof CONVERSATION_ORIGINS)[number]
+  }
   if (c.req.query('starred') === '1') filter.starred = true
   if (c.req.query('pinned') === '1') filter.pinned = true
   // Only `1` and `0` narrow this: an absent parameter is every conversation, archived ones included, which
@@ -1190,7 +1201,7 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown, noteId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown, noteId?: unknown, settings?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
   if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
@@ -1217,6 +1228,16 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   else if (typeof body.projectId === 'string') {
     if (!isValidId(body.projectId) || !(await s.getProject(body.projectId))) throw ApiError.badRequest('Unknown project.')
     await s.setConversationProject(id, body.projectId)
+  }
+  // This thread's own overrides. An unknown key is refused by name rather than dropped: a client that
+  // sends `temprature` and is told "done" believes a setting it never changed.
+  if (body.settings !== undefined) {
+    if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+      throw ApiError.badRequest('Conversation settings must be an object.')
+    }
+    const unknown = unknownConversationSettingKeys(body.settings)
+    if (unknown.length) throw ApiError.badRequest(`Unknown conversation setting: ${unknown[0]}`)
+    await s.setConversationSettings(id, normalizeConversationSettings(body.settings))
   }
   const conversation = await s.getConversation(id)
   if (conversation) conversation.tags = (await s.tagsForConversations([id])).get(id) ?? []

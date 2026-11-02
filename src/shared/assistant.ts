@@ -1489,6 +1489,66 @@ export interface AssistantConversation {
    * can judge without opening it, and what the click scrolls to once the thread is open.
    */
   match?: { messageId: string, snippet: string } | null
+  /**
+   * This thread's own overrides, read before the Agent's standing choice and the model's defaults.
+   *
+   * Absent fields mean "inherit": an empty conversation setting is not the same as a value equal to the
+   * account default, because changing that default later should move this thread with it.
+   */
+  settings?: AssistantConversationSettings
+  /** Where the thread came from, so a routine's or a sub-agent's thread can be picked out of the list. */
+  origin?: AssistantConversationOrigin
+}
+
+/** The places a conversation can come from; a thread started by the reader is `chat`. */
+export const CONVERSATION_ORIGINS = ['chat', 'automation', 'subagent', 'import'] as const
+export type AssistantConversationOrigin = (typeof CONVERSATION_ORIGINS)[number]
+
+/**
+ * What one conversation may override.
+ *
+ * Temperature and top-p are nullable on purpose: a reader can pin a value without clearing it, and
+ * clearing it restores the model's own default rather than writing today's default into the row.
+ */
+export interface AssistantConversationSettings {
+  modelId?: string | null
+  temperature?: number | null
+  topP?: number | null
+  webSearch?: boolean
+  /** A smaller prompt window for one thread, never larger than the model's own ceiling. */
+  maxContext?: number | null
+}
+
+const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext'] as const
+
+/**
+ * Reads a stored or submitted override, keeping only the fields this version knows.
+ *
+ * An unknown key is dropped here as well as refused by the route: rows restored from a newer backup
+ * must not make an older build send a field its request builder has never heard of. An invalid value
+ * becomes "inherit" rather than a zero, which would silently change what the model is asked.
+ */
+export function normalizeConversationSettings(raw: unknown): AssistantConversationSettings {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const record = raw as Record<string, unknown>
+  const out: AssistantConversationSettings = {}
+  if (typeof record.modelId === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(record.modelId)) out.modelId = record.modelId
+  else if (record.modelId === null) out.modelId = null
+  if (typeof record.temperature === 'number' && Number.isFinite(record.temperature) && record.temperature >= 0 && record.temperature <= 1.5) out.temperature = record.temperature
+  else if (record.temperature === null) out.temperature = null
+  if (typeof record.topP === 'number' && Number.isFinite(record.topP) && record.topP >= 0 && record.topP <= 1) out.topP = record.topP
+  else if (record.topP === null) out.topP = null
+  if (typeof record.webSearch === 'boolean') out.webSearch = record.webSearch
+  if (typeof record.maxContext === 'number' && Number.isInteger(record.maxContext) && record.maxContext >= 1_000 && record.maxContext <= 2_000_000) out.maxContext = record.maxContext
+  else if (record.maxContext === null) out.maxContext = null
+  return out
+}
+
+/** Whether the caller named a key this version does not understand. */
+export function unknownConversationSettingKeys(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const known = new Set<string>(CONVERSATION_SETTING_KEYS)
+  return Object.keys(raw).filter((key) => !known.has(key))
 }
 
 /**

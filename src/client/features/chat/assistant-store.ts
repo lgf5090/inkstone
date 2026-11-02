@@ -17,6 +17,8 @@ import type {
   AssistantArtifact,
   AssistantArtifactVersion,
   AssistantConversation,
+  AssistantConversationOrigin,
+  AssistantConversationSettings,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -53,7 +55,7 @@ import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { compressImageFile } from '../../lib/image-compress'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, CONVERSATION_ORIGINS, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
@@ -238,6 +240,8 @@ interface AssistantState {
   /** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */
   folderFilter: string
   tagFilter: string | null
+  /** 'all' or one source: the reader's own threads, a routine's, a sub-agent's, an import's. */
+  originFilter: 'all' | AssistantConversationOrigin
   folderNodes: ChatFolderNode[]
   /** Conversations with no folder; the tree counts the rest. */
   unfiledCount: number
@@ -532,12 +536,15 @@ interface AssistantState {
   setFolderFilter: (value: string) => Promise<void>
   setProjectFilter: (value: string) => Promise<void>
   setTagFilter: (tagId: string | null) => Promise<void>
+  setOriginFilter: (origin: 'all' | AssistantConversationOrigin) => Promise<void>
   setListTab: (tab: ConversationListTab) => Promise<void>
   loadFlagged: () => Promise<void>
   starConversation: (id: string, starred: boolean) => Promise<void>
   moveConversation: (id: string, folderId: string | null) => Promise<void>
   setConversationProject: (id: string, projectId: string | null) => Promise<void>
   setConversationNote: (id: string, noteId: string | null) => Promise<void>
+  /** Replace this thread's model/temperature/search overrides. */
+  setConversationSettings: (id: string, settings: AssistantConversationSettings) => Promise<boolean>
   toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
   /**
    * File a conversation under a tag `createTag` has only just asked the server for.
@@ -1182,7 +1189,7 @@ function watchRemoteStream(conversationId: string, turn: LiveTurn | null = null)
 /** Exported so a test can read and clear exactly the entry this store owns. */
 export const ASSISTANT_UI_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.assistantUi' : 'inkstone.assistant.ui'
 
-const PERSISTED_KEYS = ['listTab', 'folderFilter', 'projectFilter', 'tagFilter'] as const
+const PERSISTED_KEYS = ['listTab', 'folderFilter', 'projectFilter', 'tagFilter', 'originFilter'] as const
 
 /** An id is 26 characters today; the ceiling is what stops a hand-edited entry from growing the store. */
 const MAX_FILTER_ID_CHARS = 128
@@ -1194,6 +1201,7 @@ const PERSISTED_DEFAULTS: Pick<AssistantState, PersistedKey> = {
   folderFilter: 'all',
   projectFilter: 'all',
   tagFilter: null,
+  originFilter: 'all',
 }
 
 function persistedSlice(state: AssistantState): string {
@@ -1228,6 +1236,9 @@ function loadPersisted(): Partial<AssistantState> {
     if (project) out.projectFilter = project
     const tag = readFilterId(value.tagFilter)
     if (tag) out.tagFilter = tag
+    if (typeof value.originFilter === 'string' && CONVERSATION_ORIGINS.includes(value.originFilter as AssistantConversationOrigin)) {
+      out.originFilter = value.originFilter as AssistantConversationOrigin
+    }
     return out
   }
   catch {
@@ -1597,11 +1608,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const state = get()
       const query = state.conversationQuery.trim()
-      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string } = {}
+      const params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, archived?: string, limit?: string } = {}
       if (query) params.q = query
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
+      if (state.originFilter !== 'all') params.origin = state.originFilter
       // Always sent, so no view of this list ever shows a conversation the reader has put away.
       params.archived = '0'
       params.limit = String(CONVERSATION_PAGE_SIZE)
@@ -1670,7 +1682,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const token = conversationRequest
     set({ conversationsLoadingMore: true })
     try {
-      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string, cursor?: string } = {
+      const params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, archived?: string, limit?: string, cursor?: string } = {
         archived: '0',
         limit: String(CONVERSATION_PAGE_SIZE),
         cursor: state.conversationsCursor,
@@ -1680,6 +1692,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
+      if (state.originFilter !== 'all') params.origin = state.originFilter
       const result = await api.assistant.conversations(params)
       // A filter change or a fresh load happened while this page was in flight; its rows belong to the
       // list the reader has already left.
@@ -2037,6 +2050,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     await get().loadConversations()
   },
 
+  setOriginFilter: async (origin) => {
+    set({ originFilter: origin })
+    await get().loadConversations()
+  },
+
   setListTab: async (tab) => {
     set({ listTab: tab })
     if (tab === 'starred' || tab === 'pinned' || tab === 'archived') await get().loadFlagged()
@@ -2092,6 +2110,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       await get().loadConversations()
     } catch (error) {
       toast(error)
+    }
+  },
+
+  setConversationSettings: async (id, settings) => {
+    try {
+      const { conversation } = await api.assistant.setConversationSettings(id, settings)
+      set((state) => ({ conversations: state.conversations.map((entry) => (entry.id === id ? conversation : entry)) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
     }
   },
 

@@ -10,7 +10,7 @@
  */
 
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
-import { ASSISTANT_TOOL_BY_NAME, ASSISTANT_TOOL_MODES, clipReasoning, normalizeAssistantSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
+import { ASSISTANT_TOOL_BY_NAME, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, clipReasoning, normalizeAssistantSettings, normalizeConversationSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
 import {
   normalizeReminderTimes,
@@ -314,6 +314,12 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       // note is the reader's own and the backup does not carry notes, so a missing one is a chip with
       // nothing to open — not a reason to make every restored thread forget its origin.
       note_id: typeof conversation.note_id === 'string' && conversation.note_id !== '' ? conversation.note_id : null,
+      // A conversation's overrides are the reader's own choices, so they travel — read through the same
+      // normalizer the route uses, because a backup is an untrusted file like any other.
+      settings: JSON.stringify(normalizeConversationSettings(conversation.settings)),
+      origin: typeof conversation.origin === 'string' && (CONVERSATION_ORIGINS as readonly string[]).includes(conversation.origin)
+        ? conversation.origin
+        : 'chat',
       created_at: numberValue(conversation.created_at, Date.now()),
       updated_at: updatedAt,
     }

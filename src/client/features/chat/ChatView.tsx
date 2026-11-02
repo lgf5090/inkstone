@@ -70,6 +70,7 @@ import { MultiModelMenu, MultiModelView } from './MultiModelView'
 import { useMultiModel } from './multi-model-store'
 import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
+import { ConversationSettingsDialog } from './ConversationSettingsDialog'
 import { openNote } from './note-links'
 import { formatNoteMention } from './note-refs'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
@@ -388,6 +389,8 @@ export function ChatView() {
   // One right-hand slot: the canvas and the resource monitor are both full-height panels, and two of
   // them would leave a phone thread with nothing. Opening either puts the other away.
   const [resourcesOpen, setResourcesOpen] = useState(false)
+  const [conversationSettingsOpen, setConversationSettingsOpen] = useState(false)
+  const activeConversation = activeId ? conversations.find((entry) => entry.id === activeId) ?? null : null
   const navigatorRef = useRef<HTMLButtonElement>(null)
   const [navigatorOpen, setNavigatorOpen] = useState(false)
   useEffect(() => {
@@ -643,6 +646,18 @@ export function ChatView() {
                 }}
               >
                 <ListTree size={15} />
+              </IconButton>
+            </Tooltip>
+            {/* This thread's own model and sampling rules, kept out of the composer because they are
+                decisions about the conversation rather than about one question. */}
+            <Tooltip label={t('assistant.conversation.settings.open')} side="bottom">
+              <IconButton
+                label={t('assistant.conversation.settings.open')}
+                size="sm"
+                disabled={!activeConversation}
+                onClick={() => setConversationSettingsOpen(true)}
+              >
+                <Settings2 size={15} />
               </IconButton>
             </Tooltip>
             {/* A toggle owes the reader which way it is about to go: naming the panel says only what the
@@ -957,6 +972,14 @@ export function ChatView() {
       )}
 
       {voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />}
+
+      {activeConversation && (
+        <ConversationSettingsDialog
+          conversation={activeConversation}
+          open={conversationSettingsOpen}
+          onClose={() => setConversationSettingsOpen(false)}
+        />
+      )}
 
       {activeId && shareScope && (
         <ConversationSharePanel

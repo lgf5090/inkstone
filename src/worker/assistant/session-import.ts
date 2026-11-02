@@ -987,6 +987,8 @@ export async function importSessionFile(
       project_id: null,
       parent_id: null,
       note_id: thread.noteId && knownNotes.has(thread.noteId) ? thread.noteId : null,
+      settings: '{}',
+      origin: 'import',
       created_at: createdAt,
       updated_at: Math.max(lastTurnAt, at),
     })

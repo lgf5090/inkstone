@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -17,6 +17,8 @@ import type {
   AssistantArtifactVersion,
   AssistantArtifactVersionSource,
   AssistantConversation,
+  AssistantConversationOrigin,
+  AssistantConversationSettings,
   AssistantMemory,
   AssistantMemoryCategory,
   AssistantMemorySource,
@@ -2257,6 +2259,8 @@ export class AssistantStore {
       /** Narrows to the threads started from one note; an exact id match, bounded by the account. */
       noteId?: string
       tagId?: string
+      /** Narrows to one source: a routine's threads, a sub-agent's, an import's, or the reader's own. */
+      origin?: AssistantConversationOrigin
       starred?: boolean
       pinned?: boolean
       archived?: boolean
@@ -2286,6 +2290,7 @@ export class AssistantStore {
     // threads started from it. The id is matched exactly, and `user_id = ?1` is already in `q.where`, so a
     // foreign note id can only ever reach this account's own rows.
     if (filter.noteId !== undefined) q.eq('note_id', filter.noteId)
+    if (filter.origin !== undefined) q.eq('origin', filter.origin)
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
     // Absent means "either", which is what the backup and the assistant's own search want: an archived
@@ -2607,14 +2612,16 @@ export class AssistantStore {
     parentId: string | null = null,
     /** The note this thread was started from, when it was started from one. */
     noteId: string | null = null,
+    /** Where it came from: a routine, a sub-agent, an import, or the reader. */
+    origin: AssistantConversationOrigin = 'chat',
   ): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, note_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      id, title, folderId, ephemeral ? 1 : 0, parentId, noteId, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, note_id, origin, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      id, title, folderId, ephemeral ? 1 : 0, parentId, noteId, origin, at, at,
     )
-    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, noteId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, noteId, settings: {}, origin, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   /**
@@ -2627,6 +2634,19 @@ export class AssistantStore {
     await this.write(
       `UPDATE chat_conversations SET note_id = ?2 WHERE user_id = ?1 AND id = ?3 AND note_id IS NULL`,
       noteId, id,
+    )
+  }
+
+  /**
+   * Replaces this thread's overrides whole.
+   *
+   * A merge would leave a field the reader cleared in place: the client sends the settings it means,
+   * and a key it stopped sending is a key that must stop applying.
+   */
+  async setConversationSettings(id: string, settings: AssistantConversationSettings): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET settings = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+      JSON.stringify(normalizeConversationSettings(settings)), Date.now(), id,
     )
   }
 
@@ -8000,7 +8020,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // forgot what it was forked from.
   // `note_id` rides along for the same reason: a thread restored without it forgets which note it came
   // from, and the chip that says so has nothing left to say.
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'created_at', 'updated_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'settings', 'origin', 'created_at', 'updated_at'],
   chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
   // Every snapshot travels: a restore onto another device that kept only the head would turn a document
   // with history into one that has never been edited, which is the opposite of what the panel promises.
@@ -8652,7 +8672,7 @@ const ARTIFACT_VERSION_COLUMNS = `id, artifact_id, conversation_id, version, tit
  * added to one and not the other read back as a default in exactly one of the two surfaces — which is how
  * a flag comes to be set and still look unset.
  */
-const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.note_id, c.created_at, c.updated_at`
+const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.note_id, c.settings, c.origin, c.created_at, c.updated_at`
 
 interface ArtifactRow {
   id: string
@@ -8731,13 +8751,29 @@ interface ConversationRow {
   folder_id: string | null
   project_id: string | null
   note_id: string | null
+  settings: string | null
+  origin: string | null
   created_at: number
   updated_at: number
   message_count: number
 }
 
-function toConversation(r: ConversationRow): AssistantConversation {
-  return {
+function parseStoredConversationSettings(raw: string | null): AssistantConversationSettings {
+  if (!raw) return {}
+  try {
+    return normalizeConversationSettings(JSON.parse(raw))
+  } catch {
+    // A hand-edited or half-written row falls back to "inherit everything", which is the behaviour the
+    // conversation had before this column existed.
+    return {}
+  }
+}
+
+function conversationOrigin(raw: string | null): AssistantConversationOrigin {
+  return raw && (CONVERSATION_ORIGINS as readonly string[]).includes(raw) ? raw as AssistantConversationOrigin : 'chat'
+}
+
+function toConversation(r: ConversationRow): AssistantConversation {  return {
     id: r.id,
     title: r.title,
     pinned: bool(r.pinned),
@@ -8748,6 +8784,8 @@ function toConversation(r: ConversationRow): AssistantConversation {
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     noteId: r.note_id ?? null,
+    settings: parseStoredConversationSettings(r.settings),
+    origin: conversationOrigin(r.origin),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     messageCount: r.message_count ?? 0,

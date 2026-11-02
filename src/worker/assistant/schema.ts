@@ -171,6 +171,8 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     folder_id TEXT,
     project_id TEXT,
     note_id TEXT,
+    settings TEXT NOT NULL DEFAULT '{}',
+    origin TEXT NOT NULL DEFAULT 'chat',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -858,7 +860,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
     'input_price', 'output_price', 'price_currency', 'price_periods', 'enabled', 'position'],
-  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'created_at', 'updated_at'],
+  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'settings', 'origin', 'created_at', 'updated_at'],
   chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
   chat_artifact_versions: ['user_id', 'id', 'artifact_id', 'conversation_id', 'version', 'title', 'content', 'source', 'message_id', 'created_at'],
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],

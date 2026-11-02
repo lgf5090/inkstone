@@ -2384,6 +2384,7 @@ const allowed = new Map([
     "// A pasted address is a reference, not a paragraph: the reader who copies a URL into the box means",
     "// \"read this page\", and the worker already knows how to fetch it safely. A message that merely",
     "// contains a URL keeps its text.",
+    "/* This thread's own model and sampling rules, kept out of the composer because they are\n                decisions about the conversation rather than about one question. */",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -2504,6 +2505,9 @@ const allowed = new Map([
     "// Compared, not replaced: the resize and scroll listeners below would otherwise feed this effect an",
     "// endless render for a panel that never moved.",
     "// A panel with no reading from the layout engine is put aside rather than left to stack over the header.",
+  ]],
+  ["src/client/features/chat/ConversationSettingsDialog.tsx", [
+    "/**\n * One thread's own overrides.\n *\n * The form is built from the conversation it was opened on, and every field starts at \"inherit\": an\n * empty box is how the reader says \"follow the Agent and the model\", which is a different statement\n * from writing today's default into the row.\n */",
   ]],
   ["src/client/features/chat/DeepResearchProgress.tsx", [
     "/**\n * The deep research run, where the reader can see how far it got.\n *\n * A run is up to six paid turns driven by this tab, so it needs what any long job needs: how many steps\n * there are, which one is going on, and — when one stopped — a way to carry on that does not pay for the\n * finished ones again. The findings sit on the rows themselves, because a run that died on the fourth\n * question still has the first three, and after a reload the thread they were asked in is not where a\n * reader looks to find out what is still missing.\n */",
@@ -3526,6 +3530,8 @@ const allowed = new Map([
     "// was about to send if they expected the queue to continue.",
     "/** Where this turn's prompt tokens went, once the worker estimated them. */",
     "/** The worker's code for `error`, which the diagnosis card turns into a cause and an action. */",
+    "/** 'all' or one source: the reader's own threads, a routine's, a sub-agent's, an import's. */",
+    "/** Replace this thread's model/temperature/search overrides. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -19274,6 +19280,7 @@ const allowed = new Map([
     "/** The server's own clock starts and stops the run; a device never names the instant it began. */",
     "/**\n     * The sidebar's numbers, without a task row attached.\n     *\n     * `counts`, `dayEnd` and `timezone` are the three fields a `TaskPage` carries beside `tasks` and\n     * `total`. A screen that only has to redraw its badges used to ask for a page of one task to get\n     * them, which read a whole row and re-ran the listing's filter for three scalars; this is the same\n     * aggregate the listing runs, on its own.\n     */",
     "/**\n     * The whole list, as the file the reader keeps.\n     *\n     * JSON is the lossless answer and comes back typed; CSV is the interchange one and comes back as the\n     * exact bytes the server wrote, because re-stringifying a spreadsheet's text would be a second chance\n     * to change what a cell says. Both are handed to `saveFile` by the caller.\n     */",
+    "/** This thread's own overrides; the object replaces the stored one rather than merging into it. */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -29995,6 +30002,13 @@ const allowed = new Map([
     "/** For `usage`: where the prompt's estimated tokens went. */",
     "/** Whether typing the trigger at the start of an empty line opens Quick Ask. */",
     "/** The 1–3 character trigger for Quick Ask. */",
+    "/**\n   * This thread's own overrides, read before the Agent's standing choice and the model's defaults.\n   *\n   * Absent fields mean \"inherit\": an empty conversation setting is not the same as a value equal to the\n   * account default, because changing that default later should move this thread with it.\n   */",
+    "/** Where the thread came from, so a routine's or a sub-agent's thread can be picked out of the list. */",
+    "/** The places a conversation can come from; a thread started by the reader is `chat`. */",
+    "/**\n * What one conversation may override.\n *\n * Temperature and top-p are nullable on purpose: a reader can pin a value without clearing it, and\n * clearing it restores the model's own default rather than writing today's default into the row.\n */",
+    "/** A smaller prompt window for one thread, never larger than the model's own ceiling. */",
+    "/**\n * Reads a stored or submitted override, keeping only the fields this version knows.\n *\n * An unknown key is dropped here as well as refused by the route: rows restored from a newer backup\n * must not make an older build send a field its request builder has never heard of. An invalid value\n * becomes \"inherit\" rather than a zero, which would silently change what the model is asked.\n */",
+    "/** Whether the caller named a key this version does not understand. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -32451,6 +32465,8 @@ const allowed = new Map([
     "/**\n * One habit's target or one day's amount, in the unit the habit itself speaks.\n *\n * Whole, never negative, and never more than a day holds: the two ceilings are the writer's, restated\n * here because a backup file is input off a disk and a restore that wrote `1e9` taps would be a fact no\n * screen can draw. A goal of none is a different answer from a goal of zero, so only an unreadable value\n * falls back to `null` — a zero in the file stays the target the reader set.\n */",
     "/** Saved skills an Agent names, kept only when this account still has them. */",
     "/** A JSON string list off a backup row, with no id lookup; used for tool names and positions. */",
+    "// A conversation's overrides are the reader's own choices, so they travel — read through the same",
+    "// normalizer the route uses, because a backup is an untrusted file like any other.",
   ]],
   ["src/worker/assistant/balance.ts", [
     "/**\n * Asking a provider what it is owed, once per key.\n *\n * The reader with three keys has three wallets, and the settings screen showed none of them. This is the\n * whole of the asking: build the one GET the vendor's own row in `@shared/provider-balance` describes, hand\n * it the credential that provider already holds, and read a number out of the answer. Nothing is stored —\n * a balance is a fact about a moment, and a balance kept in a database becomes a number a reader mistakes\n * for a current one.\n *\n * Three things keep this from being a way to make the worker fetch arbitrary places with somebody's key:\n *  - the address is the provider's own origin plus a path from a table this build owns. No reader input\n *    reaches either half, and the row is chosen by matching the provider's host exactly, so a relay at an\n *    address of the reader's own never receives a billing request aimed at a vendor;\n *  - the same relay guard every other outbound address passes through, and the same refusal to follow a\n *    redirect, which is what stops a public address from being a public address only until it is followed;\n *  - one attempt, a short deadline, a byte ceiling, and no retry: this answers a question a screen asked,\n *    and it is never worth a second one.\n *\n * A reading is cached in this isolate for a few minutes so that opening the same panel twice does not ask\n * the vendor twice. The cache key is the account and the key row, never the credential.\n */",
@@ -33293,6 +33309,13 @@ const allowed = new Map([
     "/**\n   * A root `AGENTS.md` / `CLAUDE.md` note, when the Agent asked to read project instructions.\n   *\n   * This deployment has no filesystem; the project convention is carried by a root note instead. Only the\n   * exact root title is read, never a folder search, so enabling the switch cannot quietly pull an\n   * unrelated note with the same name into every prompt.\n   */",
     "// Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt",
     "// had already collected before it failed.",
+    "/** Where a conversation this turn creates came from; absent means the reader started it. */",
+    "/** This conversation's overrides; empty for a thread that has none, which is every old row. */",
+    "// The thread's own overrides are read before the model resolves, so a model named here beats the",
+    "// Agent's standing choice and the account default. An explicit switch on this turn still wins.",
+    "// The thread's own choice is the narrowest standing rule, so it is read before the Agent's. A model",
+    "// deleted since answers exactly like a deleted Agent model: the next rule answers, rather than the",
+    "// turn failing over a pointer the settings screen already shows as broken.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34483,6 +34506,11 @@ const allowed = new Map([
     "/**\n * One row of `todos_tasks` as the task reads bind against it.\n *\n * Exported because the sync stream now answers with the same shape through the same serializer, rather\n * than carrying a second, hand-maintained column list of its own — which is how N-05 happened.\n */",
     "/**\n * A task row plus the page's own side reads, into the one shape every task answer uses.\n *\n * The route listing and the sync stream both serialise through here. They used to be two functions, and\n * the sync one carried a hand-written column list that had quietly lost `position`, `start_at`,\n * `time_estimate_ms` and the ledger's two rollups — so an offline device was told a task had no start\n * date, no place in the reader's order, and no running stopwatch. One serializer means one set of fields.\n */",
     "// --------------------------------------------------------- knowledge bases",
+    "/** Narrows to one source: a routine's threads, a sub-agent's, an import's, or the reader's own. */",
+    "/** Where it came from: a routine, a sub-agent, an import, or the reader. */",
+    "/**\n   * Replaces this thread's overrides whole.\n   *\n   * A merge would leave a field the reader cleared in place: the client sends the settings it means,\n   * and a key it stopped sending is a key that must stop applying.\n   */",
+    "// A hand-edited or half-written row falls back to \"inherit everything\", which is the behaviour the",
+    "// conversation had before this column existed.",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
@@ -38098,6 +38126,10 @@ const allowed = new Map([
     "/**\n * Notes whose meaning is close to one the reader has open.\n *\n * The index is the account's own and always has been; this route only asks it for neighbours and drops\n * the note itself. A deployment without Workers AI, or one whose reader switched the index off, answers\n * `unavailable` rather than an empty list, because those are different facts.\n */",
     "/**\n * One short, tool-less call: Tab completion today, and the same contract for any other low-latency\n * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.\n */",
     "/**\n * Compact a thread by hand: fold the turns it has into the running summary and keep going from there.\n *\n * The automatic path does the same thing when the window overflows; this one is the reader asking for it\n * before that happens. It needs a model and one request from the day's budget, and it refuses rather than\n * inventing a summary when either is absent.\n */",
+    "// A thread's source is one of four words; anything else is refused rather than silently returning the",
+    "// whole list, which would answer a filter with everything it asked to hide.",
+    "// This thread's own overrides. An unknown key is refused by name rather than dropped: a client that",
+    "// sends `temprature` and is told \"done\" believes a setting it never changed.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

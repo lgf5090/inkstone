@@ -14,7 +14,7 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -284,6 +284,8 @@ export interface TurnInput {
    * promise is about the whole thread.
    */
   ephemeral?: boolean
+  /** Where a conversation this turn creates came from; absent means the reader started it. */
+  origin?: AssistantConversationOrigin
   retry?: boolean
   /**
    * Pick up the last answer where it stopped.
@@ -376,6 +378,8 @@ export class AssistantRunner {
   }
   /** The model named on this turn's request, or null when the account's own rules choose. */
   private turnModelId: string | null = null
+  /** This conversation's overrides; empty for a thread that has none, which is every old row. */
+  private conversationSettings: AssistantConversationSettings = {}
   private webSearchRequested = false
   private webSearchNative = false
   /**
@@ -593,7 +597,7 @@ export class AssistantRunner {
       // A thread started beside a note remembers which one; a later turn does not re-label it.
       if (conversation && !conversation.noteId && this.originNoteId) await this.store.setConversationNote(conversation.id, this.originNoteId)
       if (!conversation) {
-        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId)
+        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId, input.origin ?? 'chat')
         wasNewConversation = true
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
@@ -618,6 +622,12 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
+    // The thread's own overrides are read before the model resolves, so a model named here beats the
+    // Agent's standing choice and the account default. An explicit switch on this turn still wins.
+    this.conversationSettings = conversation.settings ?? {}
+    if (input.webSearch === undefined && this.conversationSettings.webSearch !== undefined) {
+      this.webSearchRequested = this.conversationSettings.webSearch
+    }
     if (this.contextArtifactId) {
       const artifact = await this.store.getArtifact(this.contextArtifactId)
       // The draft has to be this thread's own. A caller that names another conversation's draft is not
@@ -732,7 +742,7 @@ export class AssistantRunner {
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
       // to — for the window and for the input ceiling over it alike.
-      const contextTokens = contextBudgetFor(model, limits)
+      const contextTokens = Math.min(contextBudgetFor(model, limits), this.conversationSettings.maxContext ?? Number.POSITIVE_INFINITY)
       // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
       // the account's number answers only for a model the reader has not set: taking the lower of the two
       // let the account default (1024) silently outrank a model the reader had set to 64000. Read before
@@ -901,8 +911,8 @@ export class AssistantRunner {
           tools: entry.model.supportsTools && !this.toolsRefused(entry) ? schemas : [],
           webSearch: this.webSearchNative,
           maxOutputTokens: capFor(entry),
-          temperature: entry.model.temperature,
-          topP: entry.model.topP,
+          temperature: this.conversationSettings.temperature ?? entry.model.temperature,
+          topP: this.conversationSettings.topP ?? entry.model.topP,
           extraBody: customParamBody(entry.model.customParams),
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
@@ -1637,6 +1647,13 @@ export class AssistantRunner {
    */
   private async resolveModel(input: TurnInput) {
     if (this.turnModelId) return loadModelAndProvider(this.store, this.settings, this.turnModelId)
+    // The thread's own choice is the narrowest standing rule, so it is read before the Agent's. A model
+    // deleted since answers exactly like a deleted Agent model: the next rule answers, rather than the
+    // turn failing over a pointer the settings screen already shows as broken.
+    if (this.conversationSettings.modelId) {
+      const chosen = await loadModelAndProvider(this.store, this.settings, this.conversationSettings.modelId)
+      if (chosen.model && chosen.provider) return chosen
+    }
     // The Agent's own model is the standing choice for every conversation filed under it. A model the
     // reader deleted since is not a reason to refuse the turn: the account default answers instead, and
     // the settings screen still shows the broken pointer that can be fixed.
