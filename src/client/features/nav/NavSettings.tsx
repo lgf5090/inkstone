@@ -68,7 +68,8 @@ export function NavSettingsModal({ open, onClose }: ModalProps) {
         for (const raw of search.sources) {
           const normalized = normalizeSearchSource(raw)
           if (!normalized) {
-            toast({ title: t('nav.settings.source_url'), tone: 'danger' })
+            // The field label is not a reason: say the rule the row broke, the one the inline error gives.
+            toast({ title: t('nav.settings.source_url_error'), tone: 'danger' })
             return
           }
           if (sourceIds.has(normalized.id)) normalized.id = `${normalized.id}-${sources.length}`

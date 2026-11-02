@@ -8145,6 +8145,9 @@ const allowed = new Map([
     "/* Named for what it actually switches: which search Enter submits to. Filtering the list is\n                always on, so the old pair read as a scope filter over the bookmarks themselves. */",
     "/** How much of a letter avatar's plate is the chart colour itself; the rest is the card surface. */",
     "/* Reserved even when empty, and clamped to one line: with a two-line clamp and an optional row the\n          same band rendered 86, 112 and 131 pixel cards side by side, which reads as a broken grid. */",
+    "// An off-screen card is skipped by `content-visibility: auto`, so only these numbers hold its place.",
+    "// Both are the content box of a card that has really been laid out, measured in the browser: reserve",
+    "// more and a band shows two heights while it scrolls in, reserve less and the rows jump as they render.",
   ]],
   ["src/client/features/nav/NavBackupPanel.tsx", [
     "/**\n * The storage layer answers in English whatever the interface language is, and the shared catalogue\n * already keys those sentences by their exact text. Re-deriving a navigation-only list of regular\n * expressions here meant two tables to keep in step — and the panel's own \"last failure\" line bypassed\n * both and printed the raw English.\n */",
@@ -8201,6 +8204,9 @@ const allowed = new Map([
     "// `iconBroken` is the memory that a fetch already produced something this browser could not render.",
     "// Without it, clearing the field on error re-armed this effect, and the two looped for as long as the",
     "// dialog stayed open.",
+  ]],
+  ["src/client/features/nav/NavSettings.tsx", [
+    "// The field label is not a reason: say the rule the row broke, the one the inline error gives.",
   ]],
   ["src/client/features/nav/api.ts", [
     "/**\n * A stored category name, in the language the reader is reading in.\n *\n * The automatic folder is stored as `NAV_UNCATEGORIZED` precisely so this one lookup can translate it;\n * anything the reader typed themselves comes back unchanged.\n */",
@@ -43498,6 +43504,7 @@ const allowed = new Map([
     "// Keeping the value is only half of it: the reader has to be told the address failed, otherwise the",
     "// field looks accepted and the preview quietly shows an initial.",
     "// A verdict about one address must not stay hanging on the next one.",
+    "// The row has no template, so nothing may be written — but the reader still has to be told why.",
   ]],
   ["tests/nav-host-guard.test.ts", [
     "// A resolver that never answered is not an answer about the name: it reads `failed`, so the checker",

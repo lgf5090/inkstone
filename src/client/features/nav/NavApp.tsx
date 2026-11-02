@@ -111,6 +111,12 @@ interface CardProps {
   onDragEnd?: () => void
 }
 
+// An off-screen card is skipped by `content-visibility: auto`, so only these numbers hold its place.
+// Both are the content box of a card that has really been laid out, measured in the browser: reserve
+// more and a band shows two heights while it scrolls in, reserve less and the rows jump as they render.
+const CARD_DETAILED_CLASS = 'gap-1 p-3 [contain-intrinsic-size:auto_86px]'
+const CARD_SIMPLE_CLASS = 'min-h-[56px] justify-center p-2.5 [contain-intrinsic-size:auto_35px]'
+
 function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelete, onMenu, onMove, onDropOn, onDragStart, onDragEnd }: CardProps) {
   const titleId = `nav-title-${link.id}`
   const anchorProps = isHttpUrl(link.url)
@@ -121,7 +127,7 @@ function LinkCard({ link, detailed, visitCount, sorting, onOpen, onEdit, onDelet
       draggable={sorting}
       className={cn(
         'group relative flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)] hover:-translate-y-0.5 hover:border-[var(--border-default)] hover:bg-[var(--bg-raised)] hover:shadow-[var(--shadow-soft)] [content-visibility:auto]',
-        detailed ? 'gap-1 p-3 [contain-intrinsic-size:auto_88px]' : 'min-h-[56px] justify-center p-2.5 [contain-intrinsic-size:auto_56px]',
+        detailed ? CARD_DETAILED_CLASS : CARD_SIMPLE_CLASS,
         sorting && 'cursor-grab',
       )}
       onContextMenu={(event) => { event.preventDefault(); onMenu(link, { x: event.clientX, y: event.clientY }) }}

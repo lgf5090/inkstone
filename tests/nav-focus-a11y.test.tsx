@@ -239,6 +239,51 @@ describe('navigation focus and accessible names', () => {
     expect(error?.textContent).toBe(t('nav.settings.source_url_error'))
   })
 
+  it('says why a half-filled search source stops the save', async () => {
+    const saveSettings = vi.spyOn(navApi, 'saveSettings').mockResolvedValue({ value: null } as never)
+    rendered = renderElement(
+      <>
+        <NavSettingsModal open onClose={() => {}} />
+        <ConfirmHost />
+      </>,
+    )
+    await flush()
+    await flush()
+
+    const searchTab = [...dialog().querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (tab) => tab.textContent?.trim() === t('nav.settings.search'),
+    )
+    click(searchTab!)
+    await flush()
+    const add = [...dialog().querySelectorAll<HTMLElement>('button')].find(
+      (button) => button.textContent?.trim() === t('nav.settings.add_source'),
+    )
+    expect(add, 'the search tab should offer to add a source').toBeTruthy()
+    click(add!)
+    await flush()
+
+    const nameFields = [...dialog().querySelectorAll<HTMLInputElement>('input[aria-label]')].filter(
+      (input) => input.getAttribute('aria-label') === t('nav.settings.source_name'),
+    )
+    const fresh = nameFields[nameFields.length - 1]!
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(fresh, 'Half row')
+      fresh.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await flush()
+
+    const save = [...dialog().querySelectorAll<HTMLElement>('button')].find((button) => button.textContent?.trim() === t('nav.save'))
+    click(save!)
+    await flush()
+
+    // The row has no template, so nothing may be written — but the reader still has to be told why.
+    expect(saveSettings, 'an unusable source must stop the whole save').not.toHaveBeenCalled()
+    const titles = useUi.getState().toasts.map((toast) => toast.title)
+    expect(titles).toContain(t('nav.settings.source_url_error'))
+    expect(titles).not.toContain(t('nav.settings.source_url'))
+  })
+
   it('keeps the icon grid to one tab stop and walks it with arrows', async () => {
     let picked = ''
     rendered = renderElement(<IconPicker value="" onChange={(next) => { picked = next }} />)
