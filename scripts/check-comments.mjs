@@ -8190,7 +8190,9 @@ const allowed = new Map([
     "// initial, and this row was painting the browser's torn-image glyph instead. Same rule, same fallback.",
     "// How much of the last scan survives a reload. Twenty thousand rows was a copy of the whole bookmark list",
     "// sitting in localStorage for a day; two thousand still covers every filter page a reader works through,",
-    "// and what falls outside it is simply rescanned.",
+    "// and what falls outside it is simply rescanned. `tests/nav-checker-cache.test.ts` holds this to that",
+    "// promise, because a constant nobody quotes can drift back to a whole-collection copy.",
+    "/** Newest first, at most `CACHE_LIMIT` of them: what falls outside is rescanned rather than kept. */",
   ]],
   ["src/client/features/nav/NavImport.tsx", [
     "// Nothing to resolve against: the panel still shows exactly what it was handed.",
@@ -43551,6 +43553,11 @@ const allowed = new Map([
     "// Not filed under whichever folder the account happened to list first.",
     "// Rejected whole, rather than writing what fit and leaving the reader to diff the file.",
   ]],
+  ["tests/nav-checker-cache.test.ts", [
+    "// The rows that survive are the most recent ones, so a cut is not a random sample of the last scan.",
+    "// The audit's complaint was that the cache held a copy of the whole bookmark list on a shared",
+    "// machine. Raising this number past the agreed ceiling re-opens exactly that, so it is pinned.",
+  ]],
   ["tests/nav-checker-ui.test.tsx", [
     "// CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the",
     "// shared cursor and only advancing it after the await let all three workers claim chunk 0: those",
@@ -43605,6 +43612,11 @@ const allowed = new Map([
     "// checker being turned away as the page being dead.",
     "// \"Nothing was there\" and \"what was there is not an image\" are different answers, and the client",
     "// maps them to different sentences; sharing one code made a plain miss read as a bad upload.",
+  ]],
+  ["tests/nav-import-export.test.tsx", [
+    "// Nothing was re-filed, so the answer stops at the counts.",
+    "// The parsers each resolve their own folders, so a payload that leaves links without one is something",
+    "// only the server can see. It reports the count; this is the promise that the reader hears it.",
   ]],
   ["tests/nav-shared.test.ts", [
     "// The URL is the same value the prompt interpolates, so it carries the same rule a stored link does.",

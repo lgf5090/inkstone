@@ -336,6 +336,34 @@ describe('JSON backup import', () => {
     expect(importSpy.mock.calls[0]?.[0].links).toHaveLength(1)
     expect(importSpy.mock.calls[0]?.[0].skipExisting).toBe(false)
     expect(useUi.getState().toasts.at(-1)?.title).toBe(t('nav.import.done'))
+    // Nothing was re-filed, so the answer stops at the counts.
+    expect(useUi.getState().toasts.at(-1)?.description).toBe(t('nav.import.progress', { imported: 1, skipped: 1 }))
+  })
+
+  it('says where strays went when the server had to re-file them', async () => {
+    // The parsers each resolve their own folders, so a payload that leaves links without one is something
+    // only the server can see. It reports the count; this is the promise that the reader hears it.
+    vi.spyOn(navApi, 'importBookmarks').mockImplementation(async (body) => ({
+      imported: body.links.length,
+      skipped: 0,
+      remapped: body.links.length,
+    }))
+    rendered = renderElement(<ImportExportModal open onClose={vi.fn()} />)
+    await feed(jsonInput(), 'cloudnav_backup.json', {
+      categories: [{ id: '1', name: 'Root', icon: 'Star', password: null, parentId: null, sortOrder: 0, createdAt: 1_700_000_000 }],
+      links: [
+        { id: '10', title: 'One', url: 'https://one.example.com/', icon: null, description: null, categoryId: '1', pinned: false, pinnedOrder: 0, sortOrder: 0, createdAt: 1_700_000_000 },
+      ],
+    })
+    const merge = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === t('nav.json.merge'))
+    if (!merge) throw new Error('No merge button')
+    act(() => merge.click())
+    await flush()
+    await flush()
+
+    const toast = useUi.getState().toasts.at(-1)
+    expect(toast?.title).toBe(t('nav.import.done'))
+    expect(toast?.description).toContain(t('nav.import.remapped', { remapped: 1 }))
   })
 
   it('reports an unsupported JSON document without calling the API', async () => {

@@ -42,10 +42,19 @@ const CACHE_INTERVAL_MS = 2000
 const SCAN_DEADLINE_MS = 10 * 60_000
 // How much of the last scan survives a reload. Twenty thousand rows was a copy of the whole bookmark list
 // sitting in localStorage for a day; two thousand still covers every filter page a reader works through,
-// and what falls outside it is simply rescanned.
-const CACHE_LIMIT = 2_000
+// and what falls outside it is simply rescanned. `tests/nav-checker-cache.test.ts` holds this to that
+// promise, because a constant nobody quotes can drift back to a whole-collection copy.
+export const CACHE_LIMIT = 2_000
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const MODAL_WIDTH = 960
+
+/** Newest first, at most `CACHE_LIMIT` of them: what falls outside is rescanned rather than kept. */
+export function trimCache(rows: Record<string, CheckRow>, now = Date.now()): [string, CheckRow][] {
+  return Object.entries(rows)
+    .filter(([, row]) => now - row.checkedAt < CACHE_TTL_MS)
+    .sort((left, right) => right[1].checkedAt - left[1].checkedAt)
+    .slice(0, CACHE_LIMIT)
+}
 /** A 429 is a window, not a verdict: wait it out rather than cancel a long scan. */
 const RATE_LIMIT_RETRY_MS = 20_000
 const RATE_LIMIT_RETRIES = 3
@@ -129,9 +138,7 @@ function readCache(now = Date.now()): { rows: Record<string, CheckRow>; lastChec
       if (!row || now - row.checkedAt >= CACHE_TTL_MS) continue
       rows[linkId] = row
     }
-    const kept = Object.entries(rows)
-      .sort((left, right) => right[1].checkedAt - left[1].checkedAt)
-      .slice(0, CACHE_LIMIT)
+    const kept = trimCache(rows, now)
     const lastCheckedAt = kept.reduce((latest, [, row]) => Math.max(latest, row.checkedAt), 0)
     return { rows: Object.fromEntries(kept), lastCheckedAt: lastCheckedAt || null }
   } catch {
@@ -144,10 +151,7 @@ function writeCache(rows: Record<string, CheckRow>, now = Date.now()): void {
   if (typeof window === 'undefined') return
   const key = cacheKey()
   if (!key) return
-  const kept = Object.entries(rows)
-    .filter(([, row]) => now - row.checkedAt < CACHE_TTL_MS)
-    .sort((left, right) => right[1].checkedAt - left[1].checkedAt)
-    .slice(0, CACHE_LIMIT)
+  const kept = trimCache(rows, now)
   try {
     window.localStorage.setItem(key, JSON.stringify(Object.fromEntries(kept)))
   } catch {
