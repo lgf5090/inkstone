@@ -432,6 +432,8 @@ export function ChatView() {
     : turnHere.streamInterrupted === true
       ? streamInterruptedLine(turnAnswerCanBePickedUp)
       : turnHere.error
+  const turnErrorCode = turnHere === null ? null
+    : turnHere.streamInterrupted === true ? 'stream' : turnHere.errorCode ?? null
   // One identity for the whole view: the regenerate control hangs off a memoised row, and a fresh
   // closure per token would be a different prop each time the answer streamed in.
   const retryLast = useCallback(() => {
@@ -827,6 +829,7 @@ export function ChatView() {
                     reasoning={turnHere.reasoning}
                     tools={turnHere.tools}
                     error={turnError}
+                    errorCode={turnErrorCode}
                     streaming={!turnHere.done}
                     stage={turnHere.stage}
                     sources={turnHere.sources}

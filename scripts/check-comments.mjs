@@ -1719,6 +1719,9 @@ const allowed = new Map([
     "// chip after the reader took it off.",
     "/** The inknote writer's two ways of keeping an answer: into the page, or read aloud. */",
   ]],
+  ["src/client/features/chat/AssistantErrorCard.tsx", [
+    "/**\n * A failure the reader can act on: what happened, what to do, and the provider's own line behind a\n * disclosure rather than in place of the explanation.\n */",
+  ]],
   ["src/client/features/chat/AssistantHeader.tsx", [
     "/**\n * The title block every assistant page opens with.\n *\n * The surfaces behind the rail are one page with different contents, and each of them had written this\n * pair out for itself: a serif title at one size, and a line under it saying what the page is for. Three\n * copies drifted — one of them put its action beside the title and the others did not — so the shape\n * lives here. The action rides the title line, which is where a page's primary button belongs on a page\n * that also has a list under it.\n */",
     "/** Drawn on the title line, right-aligned; the page's primary action when it has one. */",
@@ -2721,6 +2724,7 @@ const allowed = new Map([
     "/* The questions the answer earned, in the row it belongs to and nowhere else: an older answer in\n            the thread keeps its own chips, but only the newest one has a next turn to be asked into. */",
     "/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own\n                    tooltip is one unwrapped line — the browser's is the only one that wraps. Every other hint\n                    on this row was moved to `Tooltip`; this one stays because the text it carries cannot fit\n                    there, and a hint that paints past the viewport is worse than two systems of hint. */",
     "/**\n * What an agent's note write would change, shown before the approval rather than after it.\n *\n * The write itself still happens through the ordinary approved-tool path; this preview is the reader's\n * chance to see the words leaving and arriving first. A failed read leaves the card as it was.\n */",
+    "/** The worker's code for that error, so the card can name a cause instead of echoing the provider. */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -3521,6 +3525,7 @@ const allowed = new Map([
     "// reference project's behaviour and the only one that cannot silently lose the message the reader",
     "// was about to send if they expected the queue to continue.",
     "/** Where this turn's prompt tokens went, once the worker estimated them. */",
+    "/** The worker's code for `error`, which the diagnosis card turns into a cause and an action. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4360,6 +4365,10 @@ const allowed = new Map([
     "/**\n * The change the reader is being asked to confirm.\n *\n * Read from the note store rather than from the editor's view because the note on screen may not be the\n * note the request was made in, and because the answer has to be shown against the document it would\n * actually land in. Nothing here writes: it is the same {@link resolveWriteTarget} the commit uses, run\n * one keystroke earlier.\n */",
     "/**\n * Write an answer back into the note the request came from.\n *\n * The write goes through the note store rather than through the editor's view: the reader may have moved\n * to another note while the answer was being written, and the paragraph still belongs where they selected\n * it. The store is what the editor re-renders from, so the change lands in the document — and as one\n * transaction, which is what makes it one press of undo.\n *\n * The range is resolved again here rather than trusted from the preview: the note can move between the\n * two, and a change made while the dialog was open is exactly the change this refuses.\n *\n * Returns whether the note took the text, so the caller can keep the request open when it did not.\n */",
     "/** The range-and-anchor half of a request, shared by the note editor and the canvas. */",
+  ]],
+  ["src/client/features/chat/error-diagnosis.ts", [
+    "/** Which settings surface answers this failure, or null when nothing on that side can. */",
+    "/**\n * The sentence a reader can act on, from the code the worker sent.\n *\n * A stored turn has no code — the row keeps the provider's line, not this app's — so the text is read as\n * a fallback. That fallback is deliberately narrow: guessing \"quota\" from an arbitrary sentence would\n * point a reader at the wrong settings page, and the raw line is still in the card's detail.\n */",
   ]],
   ["src/client/features/chat/feedback-reason.test.ts", [
     "/**\n * The grounds behind a thumbs-down.\n *\n * The card's shape is what a keyboard and a screen reader depend on, and jsdom draws none of it, so this\n * reads roles, names and the payload that left the client — the two halves worth pinning: that a verdict\n * can be taken back and explained, and that a reason never rides on an upvote.\n */",

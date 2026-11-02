@@ -12,6 +12,7 @@
  * approval card is driven by the action's current status.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { AssistantErrorCard } from './AssistantErrorCard'
 import {
   AlertTriangle,
   Check,
@@ -901,6 +902,7 @@ export function AssistantBubble({
   reasoning,
   tools,
   error,
+  errorCode = null,
   streaming,
   cancelled,
   stage,
@@ -930,6 +932,8 @@ export function AssistantBubble({
   reasoning: string
   tools: ToolActivity[]
   error: string | null
+  /** The worker's code for that error, so the card can name a cause instead of echoing the provider. */
+  errorCode?: string | null
   streaming: boolean
   cancelled?: boolean
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
@@ -1127,15 +1131,7 @@ export function AssistantBubble({
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {cancelled && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.stopped')}</p>}
         {error && (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">
-            <AlertTriangle size={13} className="shrink-0" />
-            <span className="min-w-0 flex-1">{error}</span>
-            {onRetry && (
-              <button type="button" onClick={onRetry} className="shrink-0 font-medium underline underline-offset-2">
-                {t(retryLabel)}
-              </button>
-            )}
-          </div>
+          <AssistantErrorCard error={error} code={errorCode} onRetry={onRetry} retryLabel={retryLabel} />
         )}
         {/* The history the pager could not read, said outside the hover row: a failure the reader has to
             hover into view is a failure they will only find by accident, and retry is the point. */}

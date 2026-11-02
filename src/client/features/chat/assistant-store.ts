@@ -143,6 +143,8 @@ interface LiveTurn {
   tools: ToolActivity[]
   stage: ChatStreamEvent['stage']
   error: string | null
+  /** The worker's code for `error`, which the diagnosis card turns into a cause and an action. */
+  errorCode?: string | null
   /**
    * Whether the failure in `error` is the reading loop's own news that the bytes stopped arriving.
    *
@@ -2622,7 +2624,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             useUi.getState().toast({ title: t('assistant.mcp.problem', { server: event.server ?? '', error: event.error ?? '' }), tone: 'warning' })
             return current
           case 'error':
-            return { turn: { ...turn, error: event.message ?? null } }
+            return { turn: { ...turn, error: event.message ?? null, errorCode: event.code ?? null } }
           case 'done':
             return {
               turn: {
@@ -2736,6 +2738,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             turn: {
               ...current.turn,
               error: turnFailureLine(error),
+              errorCode: interrupted ? 'stream' : 'internal',
               streamInterrupted: interrupted,
               done: true,
             },
