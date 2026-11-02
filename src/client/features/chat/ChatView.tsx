@@ -71,6 +71,7 @@ import { useMultiModel } from './multi-model-store'
 import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
 import { ConversationSettingsDialog } from './ConversationSettingsDialog'
+import { AskUserQuestionPanel } from './AskUserQuestionPanel'
 import { openNote } from './note-links'
 import { formatNoteMention } from './note-refs'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
@@ -925,6 +926,7 @@ export function ChatView() {
             onExit={() => setSelected(null)}
           />
         )}
+        <AskUserQuestionPanel conversationId={activeId} streaming={streaming} />
         <ChatComposer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}

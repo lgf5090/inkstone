@@ -51,6 +51,7 @@ import {
   MAX_MESSAGE_CHARS,
   CONVERSATION_ORIGINS,
   normalizeConversationSettings,
+  normalizeQuestionAnswers,
   unknownConversationSettingKeys,
   type AssistantConversationOrigin,
   MAX_BACKUP_BYTES,
@@ -1244,8 +1245,51 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   return c.json({ conversation })
 })
 
-assistantRoutes.post('/conversations/:id/tags', async (c) => {
+/**
+ * The questions a turn is waiting on.
+ *
+ * A pending question is a request the model made of the reader, so it is read from the row rather than
+ * held in memory: a refresh, another tab, or a reconnect while the turn is still parked all find the same
+ * question, and the answer route is the only thing that can move it.
+ */
+assistantRoutes.get('/conversations/:id/questions', async (c) => {
   const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  return c.json({ questions: await s.pendingQuestions(id) })
+})
+
+assistantRoutes.post('/conversations/:id/questions/:questionId/answer', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const questionId = requiredId(c.req.param('questionId'))
+  const question = await s.getQuestion(questionId)
+  // A question from another conversation is reported as missing, the same way a foreign id is everywhere
+  // else: saying "that belongs to another thread" would confirm the thread exists.
+  if (!question || question.conversationId !== id) throw ApiError.notFound('Question not found')
+  if (question.status !== 'pending') throw ApiError.conflict('That question is no longer waiting for an answer.')
+  const body = await readJson<{ answers?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const answers = normalizeQuestionAnswers(question.questions, body.answers)
+  const missing = question.questions.find((entry) => entry.required
+    && (answers[entry.id] === undefined || (Array.isArray(answers[entry.id]) && (answers[entry.id] as string[]).length === 0)))
+  if (missing) throw ApiError.badRequest(`An answer is required for "${missing.title.slice(0, 80)}".`)
+  const answered = await s.answerQuestion(questionId, answers)
+  if (!answered) throw ApiError.conflict('That question is no longer waiting for an answer.')
+  return c.json({ question: answered })
+})
+
+assistantRoutes.post('/conversations/:id/questions/:questionId/cancel', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const questionId = requiredId(c.req.param('questionId'))
+  const question = await s.getQuestion(questionId)
+  if (!question || question.conversationId !== id) throw ApiError.notFound('Question not found')
+  const cancelled = await s.cancelQuestion(questionId)
+  if (!cancelled) throw ApiError.conflict('That question is no longer waiting for an answer.')
+  return c.json({ question: cancelled })
+})
+
+assistantRoutes.post('/conversations/:id/tags', async (c) => {  const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
   const body = await readJson<{ tagId?: unknown }>(c, JSON_BODY_LIMITS.small)

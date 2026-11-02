@@ -2137,6 +2137,14 @@ export class AssistantRunner {
       dayEnd: bounds.end,
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
+      // A tool that waits on the reader has to stop when the turn does, and its wait has to keep the
+      // run claim alive or a long question would look like a dead request and be reaped mid-question.
+      ...(conversationId
+        ? {
+            ...(this.turnSignal ? { signal: this.turnSignal } : {}),
+            keepAlive: () => this.holdLease(conversationId),
+          }
+        : {}),
       ...(project
         ? {
             projectTools: project.tools,

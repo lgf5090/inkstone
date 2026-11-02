@@ -3263,6 +3263,26 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_conversations', column: 'origin' },
     statements: [`ALTER TABLE chat_conversations ADD COLUMN origin TEXT NOT NULL DEFAULT 'chat'`],
   },
+  {
+    version: 234,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_questions (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        questions TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        answers TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        answered_at INTEGER,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_questions_conversation
+         ON chat_questions(user_id, conversation_id, status, created_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

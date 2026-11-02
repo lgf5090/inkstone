@@ -766,6 +766,21 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_active_runs_user
      ON chat_active_runs(user_id, lease_until)`,
+  `CREATE TABLE IF NOT EXISTS chat_questions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    call_id TEXT NOT NULL,
+    questions TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    answers TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    answered_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_questions_conversation
+     ON chat_questions(user_id, conversation_id, status, created_at DESC)`,
 ]
 
 export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
@@ -797,6 +812,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_share_links',
   'chat_activity',
   'chat_active_runs',
+  'chat_questions',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -840,6 +856,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_share_links_scope',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
+  'idx_chat_questions_conversation',
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
@@ -880,5 +897,6 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
+  chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'created_at', 'updated_at'],
 }

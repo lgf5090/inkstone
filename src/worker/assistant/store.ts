@@ -19,6 +19,10 @@ import type {
   AssistantConversation,
   AssistantConversationOrigin,
   AssistantConversationSettings,
+  AssistantQuestion,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
+  AssistantQuestionStatus,
   AssistantMemory,
   AssistantMemoryCategory,
   AssistantMemorySource,
@@ -2648,6 +2652,67 @@ export class AssistantStore {
       `UPDATE chat_conversations SET settings = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
       JSON.stringify(normalizeConversationSettings(settings)), Date.now(), id,
     )
+  }
+
+  async createQuestion(input: {
+    conversationId: string
+    callId: string
+    questions: AssistantQuestion[]
+    expiresAt: number
+  }): Promise<AssistantQuestionRow> {
+    const id = newId()
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO chat_questions (user_id, id, conversation_id, call_id, questions, status, answers, created_at, expires_at, answered_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'pending', NULL, ?6, ?7, NULL)`,
+      this.userId, id, input.conversationId, input.callId, JSON.stringify(input.questions), at, input.expiresAt,
+    )
+    return { id, conversationId: input.conversationId, callId: input.callId, questions: input.questions, status: 'pending', answers: null, createdAt: at, expiresAt: input.expiresAt }
+  }
+
+  /** The row as it stands now, with a lapsed pending question marked expired before it is answered from. */
+  async getQuestion(id: string): Promise<AssistantQuestionRow | null> {
+    const row = await this.one<QuestionRow>(`SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    if (!row) return null
+    if (row.status === 'pending' && row.expires_at <= Date.now()) {
+      await this.write(`UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`, this.userId, id)
+      return toQuestion({ ...row, status: 'expired' })
+    }
+    return toQuestion(row)
+  }
+
+  async pendingQuestions(conversationId: string): Promise<AssistantQuestionRow[]> {
+    await this.write(
+      `UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' AND expires_at <= ?3`,
+      this.userId, conversationId, Date.now(),
+    )
+    const rows = await this.rows<QuestionRow>(
+      `SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' ORDER BY created_at ASC`,
+      this.userId, conversationId,
+    )
+    return rows.map(toQuestion)
+  }
+
+  /** Only a pending question can be answered; a second submission returns null rather than overwriting. */
+  async answerQuestion(id: string, answers: AssistantQuestionAnswers): Promise<AssistantQuestionRow | null> {
+    const at = Date.now()
+    await this.write(
+      `UPDATE chat_questions SET status = 'answered', answers = ?3, answered_at = ?4
+        WHERE user_id = ?1 AND id = ?2 AND status = 'pending' AND expires_at > ?4`,
+      this.userId, id, JSON.stringify(answers), at,
+    )
+    const row = await this.getQuestion(id)
+    return row?.status === 'answered' ? row : null
+  }
+
+  async cancelQuestion(id: string): Promise<AssistantQuestionRow | null> {
+    await this.write(
+      `UPDATE chat_questions SET status = 'cancelled', answered_at = ?3
+        WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`,
+      this.userId, id, Date.now(),
+    )
+    const row = await this.getQuestion(id)
+    return row && row.status !== 'pending' ? row : null
   }
 
   /**
@@ -8771,6 +8836,53 @@ function parseStoredConversationSettings(raw: string | null): AssistantConversat
 
 function conversationOrigin(raw: string | null): AssistantConversationOrigin {
   return raw && (CONVERSATION_ORIGINS as readonly string[]).includes(raw) ? raw as AssistantConversationOrigin : 'chat'
+}
+
+const QUESTION_COLUMNS = `id, conversation_id, call_id, questions, status, answers, created_at, expires_at`
+
+interface QuestionRow {
+  id: string
+  conversation_id: string
+  call_id: string
+  questions: string
+  status: string
+  answers: string | null
+  created_at: number
+  expires_at: number
+}
+
+function questionStatus(raw: string): AssistantQuestionStatus {
+  return raw === 'answered' || raw === 'cancelled' || raw === 'expired' ? raw : 'pending'
+}
+
+/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */
+function toQuestion(row: QuestionRow): AssistantQuestionRow {
+  let questions: AssistantQuestion[] = []
+  try {
+    const parsed: unknown = JSON.parse(row.questions)
+    questions = Array.isArray(parsed) ? parsed as AssistantQuestion[] : []
+  } catch {
+    questions = []
+  }
+  let answers: AssistantQuestionAnswers | null = null
+  if (row.answers) {
+    try {
+      const parsed: unknown = JSON.parse(row.answers)
+      answers = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as AssistantQuestionAnswers : null
+    } catch {
+      answers = null
+    }
+  }
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    callId: row.call_id,
+    questions,
+    status: questions.length ? questionStatus(row.status) : 'expired',
+    answers,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  }
 }
 
 function toConversation(r: ConversationRow): AssistantConversation {  return {

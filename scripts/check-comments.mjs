@@ -1611,6 +1611,9 @@ const allowed = new Map([
     "// A click on another row while the first body is in flight must not land the first answer under the",
     "// second row's heading.",
   ]],
+  ["src/client/features/chat/AskUserQuestionPanel.tsx", [
+    "/**\n * The questions a running turn stopped on.\n *\n * The row is read from the server rather than held in a frame: the turn is parked in the worker, and a\n * refresh or a second tab has to find the same question. The poll only runs while a turn is streaming,\n * because that is the only time a question can appear.\n */",
+  ]],
   ["src/client/features/chat/AssistantBehaviourTab.tsx", [
     "/**\n * The behaviour tab: what the assistant calls itself, and how it answers.\n */",
     "// The three controls whose only words are the row's title: each id is what turns that title into the",
@@ -3532,6 +3535,12 @@ const allowed = new Map([
     "/** The worker's code for `error`, which the diagnosis card turns into a cause and an action. */",
     "/** 'all' or one source: the reader's own threads, a routine's, a sub-agent's, an import's. */",
     "/** Replace this thread's model/temperature/search overrides. */",
+    "/** The questions this thread's running turn is waiting on, oldest first. */",
+    "// The reader may have left the thread while this was in flight; another thread's question must not",
+    "// appear above the one they are reading now.",
+    "// The panel is an addition to a turn that is already running. A refused listing leaves the card out",
+    "// rather than replacing the transcript with an error; the turn itself keeps running and can be",
+    "// stopped from the composer.",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -30009,6 +30018,11 @@ const allowed = new Map([
     "/** A smaller prompt window for one thread, never larger than the model's own ceiling. */",
     "/**\n * Reads a stored or submitted override, keeping only the fields this version knows.\n *\n * An unknown key is dropped here as well as refused by the route: rows restored from a newer backup\n * must not make an older build send a field its request builder has never heard of. An invalid value\n * becomes \"inherit\" rather than a zero, which would silently change what the model is asked.\n */",
     "/** Whether the caller named a key this version does not understand. */",
+    "/** One question a turn pauses on. `options` is present for single and multi, never for text. */",
+    "/** What the reader submits: one value per question, a list for `multi`. */",
+    "/**\n * Reads the model's proposed questions, or null when the shape is not one this app can ask.\n *\n * The wire may hand back anything, so every field is checked here rather than trusted: a question with\n * no id cannot be answered, and a single-choice question with no options cannot be chosen from.\n */",
+    "/** Reads a submission, keeping only the question ids this row actually asked. */",
+    "// A typed \"other\" is allowed for a choice question only when it is not one of the offered options.",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33316,6 +33330,8 @@ const allowed = new Map([
     "// The thread's own choice is the narrowest standing rule, so it is read before the Agent's. A model",
     "// deleted since answers exactly like a deleted Agent model: the next rule answers, rather than the",
     "// turn failing over a pointer the settings screen already shows as broken.",
+    "// A tool that waits on the reader has to stop when the turn does, and its wait has to keep the",
+    "// run claim alive or a long question would look like a dead request and be reaped mid-question.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34511,6 +34527,9 @@ const allowed = new Map([
     "/**\n   * Replaces this thread's overrides whole.\n   *\n   * A merge would leave a field the reader cleared in place: the client sends the settings it means,\n   * and a key it stopped sending is a key that must stop applying.\n   */",
     "// A hand-edited or half-written row falls back to \"inherit everything\", which is the behaviour the",
     "// conversation had before this column existed.",
+    "/** The row as it stands now, with a lapsed pending question marked expired before it is answered from. */",
+    "/** Only a pending question can be answered; a second submission returns null rather than overwriting. */",
+    "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
@@ -34764,6 +34783,12 @@ const allowed = new Map([
     "// runner passes `projectToolsLimited` beside the list.",
     "/** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */",
     "/** One failed call, counted so a tool that keeps breaking stops being offered the same turn. */",
+    "/** Renews the turn's lease while a tool waits on the reader; false means the turn was stopped. */",
+    "// The reader's own question is the one tool with a person on the other end of it: it is offered in a",
+    "// conversation whatever the class policy says, because silencing it only makes the model guess. An",
+    "// unwatched run has nobody to ask, so there it is never offered.",
+    "// A question is not an action on the reader's data, so the approval policy does not apply: the model",
+    "// waits for an answer rather than for a press. Any other read in manual mode would open a card.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -38130,6 +38155,9 @@ const allowed = new Map([
     "// whole list, which would answer a filter with everything it asked to hide.",
     "// This thread's own overrides. An unknown key is refused by name rather than dropped: a client that",
     "// sends `temprature` and is told \"done\" believes a setting it never changed.",
+    "/**\n * The questions a turn is waiting on.\n *\n * A pending question is a request the model made of the reader, so it is read from the row rather than\n * held in memory: a refresh, another tab, or a reconnect while the turn is still parked all find the same\n * question, and the answer route is the only thing that can move it.\n */",
+    "// A question from another conversation is reported as missing, the same way a foreign id is everywhere",
+    "// else: saying \"that belongs to another thread\" would confirm the thread exists.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

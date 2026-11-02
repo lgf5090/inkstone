@@ -107,6 +107,8 @@ import type {
   AssistantArtifactVersion,
   AssistantConversation,
   AssistantConversationSettings,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -1894,6 +1896,18 @@ export const api = {
     /** This thread's own overrides; the object replaces the stored one rather than merging into it. */
     setConversationSettings: (id: string, settings: AssistantConversationSettings) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { settings } }),
+    pendingQuestions: (conversationId: string, signal?: AbortSignal) =>
+      request<{ questions: AssistantQuestionRow[] }>(`/api/assistant/conversations/${conversationId}/questions`, { signal }),
+    answerQuestion: (conversationId: string, questionId: string, answers: AssistantQuestionAnswers) =>
+      request<{ question: AssistantQuestionRow }>(
+        `/api/assistant/conversations/${conversationId}/questions/${questionId}/answer`,
+        { method: 'POST', body: { answers } },
+      ),
+    cancelQuestion: (conversationId: string, questionId: string) =>
+      request<{ question: AssistantQuestionRow }>(
+        `/api/assistant/conversations/${conversationId}/questions/${questionId}/cancel`,
+        { method: 'POST' },
+      ),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
     /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */

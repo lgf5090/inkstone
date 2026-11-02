@@ -19,6 +19,8 @@ import type {
   AssistantConversation,
   AssistantConversationOrigin,
   AssistantConversationSettings,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -597,6 +599,11 @@ interface AssistantState {
   /** Tools the reader pinned to this turn with `/`, and note scopes pinned with `#`. */
   turnTools: string[]
   turnScopes: AssistantTurnScope[]
+  /** The questions this thread's running turn is waiting on, oldest first. */
+  questions: AssistantQuestionRow[]
+  loadQuestions: (conversationId?: string) => Promise<void>
+  answerQuestion: (questionId: string, answers: AssistantQuestionAnswers) => Promise<boolean>
+  cancelQuestion: (questionId: string) => Promise<boolean>
   addTurnTool: (name: string) => void
   dropTurnTool: (name: string) => void
   addTurnScope: (scope: AssistantTurnScope) => void
@@ -1507,6 +1514,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   skills: [],
   turnTools: [],
   turnScopes: [],
+  questions: [],
   fileIndex: {},
   flagged: { starred: [], pinned: [], archived: [] },
   activeId: null,
@@ -2124,6 +2132,51 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
+  loadQuestions: async (conversationId) => {
+    const id = conversationId ?? get().activeId
+    if (!id) {
+      set({ questions: [] })
+      return
+    }
+    try {
+      const { questions } = await api.assistant.pendingQuestions(id)
+      // The reader may have left the thread while this was in flight; another thread's question must not
+      // appear above the one they are reading now.
+      if (get().activeId !== id) return
+      set({ questions })
+    } catch {
+      // The panel is an addition to a turn that is already running. A refused listing leaves the card out
+      // rather than replacing the transcript with an error; the turn itself keeps running and can be
+      // stopped from the composer.
+    }
+  },
+
+  answerQuestion: async (questionId, answers) => {
+    const id = get().activeId
+    if (!id) return false
+    try {
+      await api.assistant.answerQuestion(id, questionId, answers)
+      set((state) => ({ questions: state.questions.filter((question) => question.id !== questionId) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  cancelQuestion: async (questionId) => {
+    const id = get().activeId
+    if (!id) return false
+    try {
+      await api.assistant.cancelQuestion(id, questionId)
+      set((state) => ({ questions: state.questions.filter((question) => question.id !== questionId) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
   toggleConversationTag: async (id, tagId, on) => {
     try {
       if (on) await api.assistant.addConversationTag(id, tagId)
@@ -2162,7 +2215,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, questions: [], remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return

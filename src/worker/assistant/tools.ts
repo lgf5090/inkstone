@@ -16,7 +16,7 @@
  */
 
 import type { AssistantArtifact, AssistantSettings, AssistantToolMode, Task, TaskPriority } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, ASK_QUESTION_TIMEOUT_MS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, normalizeAskedQuestions, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
   MAX_BATCH_TASKS,
@@ -207,6 +207,9 @@ export interface ToolContext {
   dayEnd: number
   mode: 'chat' | 'scheduled'
   conversationId?: string
+  signal?: AbortSignal
+  /** Renews the turn's lease while a tool waits on the reader; false means the turn was stopped. */
+  keepAlive?: () => Promise<boolean>
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
   /** The saved database connection the reader is looking at, so the tools can default to it. */
@@ -2277,6 +2280,55 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
         body: String(args.body),
       })
       return { notified: notification.id }
+    },
+  }),
+]
+
+export const QUESTION_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'ask_user_question',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'Pause and ask the reader one to three short questions when their answer is required to continue. The turn resumes with their answers.',
+    fields: {
+      questions: {
+        type: 'array',
+        items: 'object',
+        maxItems: 3,
+        description: 'Each item: { id, title, type: "single" | "multi" | "text", options?: string[2-6], required?: boolean }.',
+      },
+    },
+    async run(args, ctx) {
+      const questions = normalizeAskedQuestions(args.questions)
+      if (!questions) throw new ToolError('Ask one to three questions, each with a unique id and title; a choice needs two to six options.')
+      if (!ctx.conversationId) throw new ToolError('A question can only be asked in a conversation.')
+      const question = await ctx.store.createQuestion({
+        conversationId: ctx.conversationId,
+        callId: ctx.callId ?? '',
+        questions,
+        expiresAt: Date.now() + ASK_QUESTION_TIMEOUT_MS,
+      })
+      const settle = async (why: string): Promise<never> => {
+        await ctx.store.cancelQuestion(question.id)
+        throw new ToolError(why)
+      }
+      let delay = 1_000
+      let waited = 0
+      while (waited < ASK_QUESTION_TIMEOUT_MS) {
+        if (ctx.signal?.aborted) await settle('The reader stopped this turn before answering.')
+        const current = await ctx.store.getQuestion(question.id)
+        if (current?.status === 'answered') {
+          return { questionId: current.id, answers: current.answers ?? {} }
+        }
+        if (current?.status === 'cancelled') throw new ToolError('The reader cancelled the question. Ask a different way or continue with what you know.')
+        if (current?.status === 'expired') throw new ToolError('The question expired before it was answered. Continue without it, or ask again if it is essential.')
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        waited += delay
+        delay = Math.min(3_000, delay + 500)
+        if (ctx.keepAlive && !(await ctx.keepAlive())) await settle('The turn lost its claim while waiting for an answer.')
+      }
+      await ctx.store.cancelQuestion(question.id)
+      throw new ToolError('No answer arrived in ten minutes. Continue without it, or ask again if it is essential.')
     },
   }),
 ]
@@ -4790,6 +4842,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
+  ...QUESTION_TOOLS,
   ...IMAGE_TOOLS,
   ...CODE_TOOLS,
   ...WEB_TOOLS,
@@ -4988,6 +5041,10 @@ export class ToolExecutor {
    * would leave a schedule that runs every morning and says nothing.
    */
   private offers(definition: ToolDefinition): boolean {
+    // The reader's own question is the one tool with a person on the other end of it: it is offered in a
+    // conversation whatever the class policy says, because silencing it only makes the model guess. An
+    // unwatched run has nobody to ask, so there it is never offered.
+    if (definition.name === 'ask_user_question') return this.ctx.mode === 'chat'
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
@@ -5039,6 +5096,11 @@ export class ToolExecutor {
     this.perTool.set(name, used + 1)
     this.signatures.set(signature, (this.signatures.get(signature) ?? 0) + 1)
 
+    // A question is not an action on the reader's data, so the approval policy does not apply: the model
+    // waits for an answer rather than for a press. Any other read in manual mode would open a card.
+    if (definition.name === 'ask_user_question' && definition.permission !== 'destructive') {
+      return await definition.run(args, this.contextFor(callId))
+    }
     if (this.modeFor(definition) === 'auto') {
       // A read or a write *is* the call. A deletion goes through the same prepare/commit pair the
       // approval card runs, minus the wait: skipping `prepare` would also skip the lookup that decides

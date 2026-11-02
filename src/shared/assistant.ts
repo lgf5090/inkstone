@@ -1551,6 +1551,97 @@ export function unknownConversationSettingKeys(raw: unknown): string[] {
   return Object.keys(raw).filter((key) => !known.has(key))
 }
 
+export const ASK_QUESTION_TYPES = ['single', 'multi', 'text'] as const
+export type AssistantQuestionType = (typeof ASK_QUESTION_TYPES)[number]
+
+/** One question a turn pauses on. `options` is present for single and multi, never for text. */
+export interface AssistantQuestion {
+  id: string
+  title: string
+  type: AssistantQuestionType
+  options?: string[]
+  required: boolean
+}
+
+export type AssistantQuestionStatus = 'pending' | 'answered' | 'cancelled' | 'expired'
+
+/** What the reader submits: one value per question, a list for `multi`. */
+export type AssistantQuestionAnswers = Record<string, string | string[]>
+
+export interface AssistantQuestionRow {
+  id: string
+  conversationId: string
+  callId: string
+  questions: AssistantQuestion[]
+  status: AssistantQuestionStatus
+  answers: AssistantQuestionAnswers | null
+  createdAt: number
+  expiresAt: number
+}
+
+export const MAX_ASK_QUESTIONS = 3
+export const MAX_ASK_OPTIONS = 6
+export const ASK_QUESTION_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * Reads the model's proposed questions, or null when the shape is not one this app can ask.
+ *
+ * The wire may hand back anything, so every field is checked here rather than trusted: a question with
+ * no id cannot be answered, and a single-choice question with no options cannot be chosen from.
+ */
+export function normalizeAskedQuestions(raw: unknown): AssistantQuestion[] | null {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_ASK_QUESTIONS) return null
+  const seen = new Set<string>()
+  const out: AssistantQuestion[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
+    const item = entry as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id.trim().slice(0, 40) : ''
+    const title = typeof item.title === 'string' ? item.title.trim().slice(0, 500) : ''
+    if (!id || !title || seen.has(id)) return null
+    seen.add(id)
+    if (!(ASK_QUESTION_TYPES as readonly string[]).includes(String(item.type))) return null
+    const type = item.type as AssistantQuestionType
+    let options: string[] | undefined
+    if (type !== 'text') {
+      if (!Array.isArray(item.options)) return null
+      const list = item.options
+        .filter((option): option is string => typeof option === 'string')
+        .map((option) => option.trim().slice(0, 200))
+        .filter(Boolean)
+        .slice(0, MAX_ASK_OPTIONS)
+      if (list.length < 2) return null
+      options = list
+    }
+    out.push({ id, title, type, required: item.required === true, ...(options ? { options } : {}) })
+  }
+  return out
+}
+
+/** Reads a submission, keeping only the question ids this row actually asked. */
+export function normalizeQuestionAnswers(questions: readonly AssistantQuestion[], raw: unknown): AssistantQuestionAnswers {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}
+  const out: AssistantQuestionAnswers = {}
+  for (const question of questions) {
+    const value = source[question.id]
+    if (question.type === 'multi') {
+      if (!Array.isArray(value)) continue
+      const picked = value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim().slice(0, 200))
+        .filter((entry) => question.options?.includes(entry))
+      if (picked.length) out[question.id] = [...new Set(picked)]
+    } else {
+      if (typeof value !== 'string') continue
+      const text = value.trim().slice(0, 2_000)
+      if (!text) continue
+      // A typed "other" is allowed for a choice question only when it is not one of the offered options.
+      out[question.id] = text
+    }
+  }
+  return out
+}
+
 /**
  * The protocols with a vendor-side web search that can simply be asked for.
  *
@@ -2248,6 +2339,7 @@ export interface AssistantMcpProblem {
  * `tests/assistant-tool-specs.test.ts` proves the two directions.
  */
 export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
+  { name: 'ask_user_question', labelKey: 'assistant.tool.ask_user_question', permission: 'read' },
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
   { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },
