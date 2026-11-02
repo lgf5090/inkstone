@@ -748,6 +748,7 @@ const allowed = new Map([
     "// settings panel is looking at a note they are not typing in, and marks that appear only once they",
     "// press a key are marks the switch looks like it ignored.",
     "/** Inline Tab completion, when the reader has switched it on. */",
+    "/** The reader typed the Quick Ask trigger at the start of an empty line. */",
   ]],
   ["src/client/editor/EditorColorMenu.tsx", [
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
@@ -29983,6 +29984,8 @@ const allowed = new Map([
     "/** One value for both dimensions and JPEG quality, 1–100. */",
     "/** Per-tool on/off and approval, the settings page's finer gate than the three classes. */",
     "/** For `usage`: where the prompt's estimated tokens went. */",
+    "/** Whether typing the trigger at the start of an empty line opens Quick Ask. */",
+    "/** The 1–3 character trigger for Quick Ask. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",

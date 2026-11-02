@@ -66,6 +66,9 @@ export interface CodeEditorProps {
     onSelectionChange?: (selection: EditorSelectionInfo | null) => void;
     /** Ask the host to open the note's context menu at a pointer position. */
     onRequestContextMenu?: (request: { x: number; y: number; editor: EditorContext }) => void;
+    /** The reader typed the Quick Ask trigger at the start of an empty line. */
+    quickAskTrigger?: string;
+    onQuickAskTrigger?: (payload: { from: number; to: number; whole: string; rect: { top: number, left: number } }) => void;
     /**
      * Mark Templater tags — `<% … %>` — as template code rather than prose.
      *
@@ -95,7 +98,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, tabCompletion, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, tabCompletion, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -103,8 +106,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender, templaterUserScripts });
-    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender, templaterUserScripts };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight, templaterIntellisenseRender, templaterUserScripts });
+    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight, templaterIntellisenseRender, templaterUserScripts };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
         // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
@@ -255,6 +258,24 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     // The old range no longer describes the same words. Hiding the bar is more honest than
                     // moving it over text the reader did not select.
                     cbRef.current.onSelectionChange?.(null);
+                    const trigger = cbRef.current.quickAskTrigger;
+                    const ask = cbRef.current.onQuickAskTrigger;
+                    if (trigger && ask && update.transactions.some((transaction) => transaction.isUserEvent('input.type'))) {
+                        const head = update.state.selection.main.head;
+                        const line = update.state.doc.lineAt(head);
+                        const before = update.state.sliceDoc(line.from, head);
+                        if (before === trigger) {
+                            const coords = update.view.coordsAtPos(head);
+                            const whole = update.state.doc.toString();
+                            update.view.dispatch({ changes: { from: line.from, to: head, insert: '' } });
+                            ask({
+                                from: line.from,
+                                to: line.from,
+                                whole: whole.replace(trigger, ''),
+                                rect: { top: coords?.top ?? 0, left: coords?.left ?? 0 },
+                            });
+                        }
+                    }
                 }
                 if (update.selectionSet) {
                     if (cbRef.current.onCursorLine) {

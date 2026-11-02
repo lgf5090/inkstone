@@ -27,6 +27,8 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setEndpoint(settings.webSearchEndpoint), [settings.webSearchEndpoint])
   const [completionConstraint, setCompletionConstraint] = useState(settings.tabCompletionConstraint)
   useEffect(() => setCompletionConstraint(settings.tabCompletionConstraint), [settings.tabCompletionConstraint])
+  const [quickAskTrigger, setQuickAskTrigger] = useState(settings.quickAskTrigger)
+  useEffect(() => setQuickAskTrigger(settings.quickAskTrigger), [settings.quickAskTrigger])
   const models = useAssistant((state) => state.models)
   const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   // The engine is a settings field; what it needs is not. A hosted engine's key lives in its own encrypted
@@ -238,6 +240,36 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             </Button>
           </form>
         </SettingRow>
+        <SettingRow title={t('assistant.settings.quick_ask')} description={t('assistant.settings.quick_ask_hint')}>
+          <Switch
+            checked={settings.quickAskEnabled}
+            label={t('assistant.settings.quick_ask')}
+            onChange={(quickAskEnabled) => void saveSettings({ quickAskEnabled })}
+          />
+        </SettingRow>
+        {settings.quickAskEnabled && (
+          <SettingRow title={t('assistant.settings.quick_ask_trigger')} description={t('assistant.settings.quick_ask_trigger_hint')}>
+            <form
+              className="flex items-center gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const trigger = quickAskTrigger.trim()
+                if (trigger && trigger.length <= 3) void saveSettings({ quickAskTrigger: trigger })
+              }}
+            >
+              <Input
+                aria-label={t('assistant.settings.quick_ask_trigger')}
+                value={quickAskTrigger}
+                maxLength={3}
+                onChange={(event) => setQuickAskTrigger(event.target.value)}
+                className="h-8 w-16 text-center font-mono text-[length:var(--text-12)]"
+              />
+              <Button type="submit" size="sm" variant="secondary" disabled={!quickAskTrigger.trim() || quickAskTrigger.trim().length > 3 || quickAskTrigger === settings.quickAskTrigger}>
+                {t('common.save')}
+              </Button>
+            </form>
+          </SettingRow>
+        )}
         <SettingRow title={t('assistant.settings.image_compress')} description={t('assistant.settings.image_compress_hint')}>
           <Switch
             checked={settings.imageCompressEnabled}

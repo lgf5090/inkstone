@@ -802,6 +802,10 @@ export interface AssistantSettings {
   tabCompletionModelId: string | null
   /** Extra instruction sent with a completion request. */
   tabCompletionConstraint: string
+  /** Whether typing the trigger at the start of an empty line opens Quick Ask. */
+  quickAskEnabled: boolean
+  /** The 1–3 character trigger for Quick Ask. */
+  quickAskTrigger: string
   /** Shrink pictures before uploading them to the model. */
   imageCompressEnabled: boolean
   /** One value for both dimensions and JPEG quality, 1–100. */
@@ -884,6 +888,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   tabCompletionEnabled: false,
   tabCompletionModelId: null,
   tabCompletionConstraint: '',
+  quickAskEnabled: true,
+  quickAskTrigger: '@',
   imageCompressEnabled: true,
   imageCompressQuality: 85,
   exportReasoning: false,
@@ -1042,6 +1048,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     tabCompletionEnabled: booleanValue(raw.tabCompletionEnabled, DEFAULT_ASSISTANT_SETTINGS.tabCompletionEnabled),
     tabCompletionModelId: typeof raw.tabCompletionModelId === 'string' && raw.tabCompletionModelId ? raw.tabCompletionModelId.slice(0, 26) : null,
     tabCompletionConstraint: stringAllowEmpty(raw.tabCompletionConstraint, '', 1_000),
+    quickAskEnabled: booleanValue(raw.quickAskEnabled, DEFAULT_ASSISTANT_SETTINGS.quickAskEnabled),
+    quickAskTrigger: (typeof raw.quickAskTrigger === 'string' && raw.quickAskTrigger.trim() && raw.quickAskTrigger.trim().length <= 3
+      ? raw.quickAskTrigger.trim()
+      : DEFAULT_ASSISTANT_SETTINGS.quickAskTrigger),
     imageCompressEnabled: booleanValue(raw.imageCompressEnabled, DEFAULT_ASSISTANT_SETTINGS.imageCompressEnabled),
     imageCompressQuality: integerInRange(raw.imageCompressQuality, 1, 100, DEFAULT_ASSISTANT_SETTINGS.imageCompressQuality),
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
