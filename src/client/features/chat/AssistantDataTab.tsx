@@ -311,6 +311,9 @@ export function DataTab() {
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const configRef = useRef<HTMLInputElement>(null)
+  const [configFile, setConfigFile] = useState<File | null>(null)
+  const [configBusy, setConfigBusy] = useState(false)
 
   /**
    * The backup, downloaded by the page rather than followed as a link.
@@ -387,6 +390,83 @@ export function DataTab() {
       {/* The numbers come first: a reader who opens this tab is usually asking what the assistant has
           been costing, and the export and delete rows below are what they do about it. */}
       <UsagePanel />
+
+      <Group title={t('assistant.settings.config')}>
+        <SettingRow title={t('assistant.settings.config_export')} description={t('assistant.settings.config_export_hint')}>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={configBusy}
+            icon={<Download size={14} />}
+            onClick={() => {
+              setConfigBusy(true)
+              void api.assistant.exportAssistantConfig()
+                .then((payload) => downloadTextFile('inkstone-assistant-config.json', JSON.stringify(payload, null, 2), 'application/json'))
+                .catch((error: unknown) => {
+                  const detail = error instanceof ApiError ? error.serverMessage : undefined
+                  useUi.getState().toast({ title: t('assistant.toast.failed'), description: detail, tone: 'danger' })
+                })
+                .finally(() => setConfigBusy(false))
+            }}
+          >
+            {t('assistant.settings.config_export')}
+          </Button>
+        </SettingRow>
+        <SettingRow
+          title={t('assistant.settings.config_import')}
+          description={configFile ? configFile.name : t('assistant.settings.config_import_hint')}
+        >
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="secondary" onClick={() => configRef.current?.click()}>
+              {t('settings.select_file')}
+            </Button>
+            <Button
+              size="sm"
+              loading={configBusy}
+              icon={<Upload size={14} />}
+              disabled={!configFile}
+              onClick={() => {
+                if (!configFile) return
+                setConfigBusy(true)
+                void configFile.text()
+                  .then((text) => api.assistant.importAssistantConfig(JSON.parse(text) as unknown))
+                  .then(async ({ imported }) => {
+                    useUi.getState().toast({
+                      title: t('assistant.settings.config_imported', {
+                        providers: imported.providers,
+                        models: imported.models,
+                        skills: imported.skills,
+                        agents: imported.projects,
+                      }),
+                      description: t('assistant.settings.config_imported_hint', { skipped: imported.skipped }),
+                      tone: 'success',
+                      duration: 10_000,
+                    })
+                    await useAssistant.getState().bootstrap(true)
+                  })
+                  .catch((error: unknown) => {
+                    const detail = error instanceof ApiError ? error.serverMessage : error instanceof SyntaxError ? t('assistant.settings.import_bad_json') : undefined
+                    useUi.getState().toast({ title: t('assistant.toast.failed'), description: detail, tone: 'danger' })
+                  })
+                  .finally(() => { setConfigBusy(false); setConfigFile(null) })
+              }}
+            >
+              {t('assistant.settings.config_import')}
+            </Button>
+            <input
+              ref={configRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => {
+                const picked = event.target.files?.[0] ?? null
+                event.target.value = ''
+                setConfigFile(picked)
+              }}
+            />
+          </div>
+        </SettingRow>
+      </Group>
 
       <Group title={t('assistant.settings.data')}>
         <SettingRow title={t('assistant.settings.export')} description={t('assistant.settings.export_hint')}>

@@ -130,6 +130,7 @@ import { readMusicContext } from '../music/assistant-context'
 import { resolveInknoteContext } from '../inknote/context'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
+import { exportAssistantConfig, importAssistantConfig } from '../assistant/config-transfer'
 import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
 import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } from '../assistant/session-import'
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
@@ -4026,8 +4027,38 @@ assistantRoutes.get('/export', async (c) => {
   return new Response(text, { headers })
 })
 
-assistantRoutes.post('/import', async (c) => {
+/**
+ * Configuration without data: settings, providers, models, Skills and Agents.
+ *
+ * Provider keys are absent by construction, so this is the file a reader can move between accounts or
+ * paste into a bug report without leaking the right to spend their balance. The restore says how many
+ * rows it merged and how many it left alone because the account already had them.
+ */
+assistantRoutes.get('/config/export', async (c) => {
+  const payload = await exportAssistantConfig(store(c))
+  const text = JSON.stringify(payload, null, 2)
+  return new Response(text, {
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': 'attachment; filename="inkstone-assistant-config.json"',
+    },
+  })
+})
+
+assistantRoutes.post('/config/import', async (c) => {
   const s = store(c)
+  const raw = await readJson<Record<string, unknown>>(c, MAX_BACKUP_BYTES)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('The config is not a JSON object.')
+  try {
+    const imported = await importAssistantConfig(s, raw)
+    await s.recordActivity('data.imported', `config imported (${imported.providers} provider(s), ${imported.projects} agent(s))`)
+    return c.json({ imported })
+  } catch (error) {
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'That config could not be imported.')
+  }
+})
+
+assistantRoutes.post('/import', async (c) => {  const s = store(c)
   // A backup is a file the reader picked, so it is read under the same byte ceiling as the other
   // whole-store imports rather than handed to `req.json()` uncapped.
   let raw: Record<string, unknown>

@@ -2334,6 +2334,11 @@ export const api = {
      * import reads a bounded file, and a backup past that bound is one that cannot come back.
      */
     exportBackup: () => request<Record<string, unknown>>('/api/assistant/export'),
+    exportAssistantConfig: () => request<Record<string, unknown>>('/api/assistant/config/export'),
+    importAssistantConfig: (payload: unknown) =>
+      request<{ imported: { settings: boolean, providers: number, models: number, skills: number, projects: number, skipped: number } }>(
+        '/api/assistant/config/import', { method: 'POST', body: payload },
+      ),
     importBackup: (payload: unknown) =>
       request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
     /**
