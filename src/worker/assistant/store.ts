@@ -6854,6 +6854,31 @@ export class AssistantStore {
   }
 
   /**
+   * Marks the tool results older than the newest `keepRecent` answers as pruned.
+   *
+   * The row keeps the payload — the reader may still want to read what a tool found — and only a flag
+   * changes, which is what the context builder reads. Nothing is deleted, so this is reversible by
+   * editing one JSON blob rather than by restoring a backup.
+   */
+  async pruneToolResults(conversationId: string, keepRecent: number): Promise<number> {
+    const rows = await this.rows<{ id: string, tools: string | null }>(
+      `SELECT id, tools FROM chat_messages
+        WHERE user_id = ?1 AND conversation_id = ?2 AND role = 'assistant' AND tools IS NOT NULL
+        ORDER BY created_at DESC, id DESC LIMIT 200`,
+      this.userId, conversationId,
+    )
+    let changed = 0
+    for (const row of rows.slice(Math.max(0, keepRecent))) {
+      const tools = decodeTools(row.tools)
+      if (!tools.length || tools.every((tool) => tool.pruned)) continue
+      const next = tools.map((tool) => (tool.status === 'running' ? tool : { ...tool, pruned: true }))
+      await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(next), row.id)
+      changed += 1
+    }
+    return changed
+  }
+
+  /**
    * Add files to an answer that has already been filed.
    *
    * The approval path is the only caller: a tool that drew a picture ran a minute after the turn it

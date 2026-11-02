@@ -29,6 +29,8 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setCompletionConstraint(settings.tabCompletionConstraint), [settings.tabCompletionConstraint])
   const [quickAskTrigger, setQuickAskTrigger] = useState(settings.quickAskTrigger)
   useEffect(() => setQuickAskTrigger(settings.quickAskTrigger), [settings.quickAskTrigger])
+  const [autoTokens, setAutoTokens] = useState(String(settings.autoCompactTokens))
+  useEffect(() => setAutoTokens(String(settings.autoCompactTokens)), [settings.autoCompactTokens])
   const models = useAssistant((state) => state.models)
   const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   // The engine is a settings field; what it needs is not. A hosted engine's key lives in its own encrypted
@@ -305,8 +307,58 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
       </Group>
 
-      <Group title={t('assistant.settings.notifications')}>
+      <Group title={t('assistant.settings.compaction')}>
         <SettingRow
+          title={t('assistant.settings.compaction_mode')}
+          description={t('assistant.settings.compaction_mode_hint')}
+          controlId="assistant-compact-mode"
+        >
+          <Select
+            id="assistant-compact-mode"
+            value={settings.autoCompactMode}
+            onChange={(event) => void saveSettings({ autoCompactMode: event.target.value as AssistantSettings['autoCompactMode'] })}
+            className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+          >
+            <option value="off">{t('assistant.settings.compaction_off')}</option>
+            <option value="absolute">{t('assistant.settings.compaction_absolute')}</option>
+            <option value="ratio">{t('assistant.settings.compaction_ratio')}</option>
+          </Select>
+        </SettingRow>
+        {settings.autoCompactMode === 'absolute' && (
+          <SettingRow title={t('assistant.settings.compaction_tokens')} controlId="assistant-compact-tokens">
+            <Input
+              id="assistant-compact-tokens"
+              type="number"
+              min={10_000}
+              max={2_000_000}
+              step={1_000}
+              value={autoTokens}
+              onChange={(event) => setAutoTokens(event.target.value)}
+              onBlur={() => {
+                const parsed = Number(autoTokens)
+                if (Number.isInteger(parsed) && parsed >= 10_000 && parsed <= 2_000_000) void saveSettings({ autoCompactTokens: parsed })
+                else setAutoTokens(String(settings.autoCompactTokens))
+              }}
+              className="w-40"
+            />
+          </SettingRow>
+        )}
+        {settings.autoCompactMode === 'ratio' && (
+          <SettingRow title={t('assistant.settings.compaction_ratio')}>
+            <Slider
+              value={Math.round(settings.autoCompactRatio * 100)}
+              min={30}
+              max={95}
+              step={5}
+              suffix="%"
+              label={t('assistant.settings.compaction_ratio')}
+              onChange={(percent) => void saveSettings({ autoCompactRatio: percent / 100 })}
+            />
+          </SettingRow>
+        )}
+      </Group>
+
+      <Group title={t('assistant.settings.notifications')}>        <SettingRow
           title={t('assistant.settings.notify_channel')}
           description={t('assistant.settings.notify_channel_hint')}
           controlId="assistant-notify-channel"

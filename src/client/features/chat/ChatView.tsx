@@ -793,6 +793,14 @@ export function ChatView() {
                   </Button>
                 </div>
               )}
+              {activeConversation?.summary && (
+                <details className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                  <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">{t('assistant.chat.compaction_title')}</summary>
+                  <p className="mt-1 leading-relaxed">{t('assistant.chat.compaction_hint')}</p>
+                  <p className="mt-1.5 font-medium text-[var(--text-secondary)]">{t('assistant.chat.compaction_summary')}</p>
+                  <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{activeConversation.summary}</p>
+                </details>
+              )}
               {messages.map((message, index) => {
                 // A long thread crosses days, and a run of bubbles with no date is a transcript the
                 // reader has to guess the shape of. The separator belongs to the turn that starts the day.

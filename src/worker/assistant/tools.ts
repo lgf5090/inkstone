@@ -2344,6 +2344,26 @@ export const QUESTION_TOOLS: ToolDefinition[] = [
       throw new ToolError('No answer arrived in ten minutes. Continue without it, or ask again if it is essential.')
     },
   }),
+  tool({
+    name: 'context_prune_tool_results',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'Remove older tool results from what the model is shown on later turns, keeping the answers themselves. Use when old tool output is crowding the conversation.',
+    fields: {
+      keep_recent: {
+        type: 'integer',
+        optional: true,
+        description: 'How many of the newest answers keep their tool payloads. Defaults to 6.',
+      },
+    },
+    async run(args, ctx) {
+      if (!ctx.conversationId) throw new ToolError('Tool results can only be pruned inside a conversation.')
+      const requested = typeof args.keep_recent === 'number' ? Math.trunc(args.keep_recent) : 6
+      const keep = Math.min(50, Math.max(1, requested))
+      const pruned = await ctx.store.pruneToolResults(ctx.conversationId, keep)
+      return { pruned, kept: keep }
+    },
+  }),
 ]
 
 export const IMAGE_TOOLS: ToolDefinition[] = [

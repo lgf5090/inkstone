@@ -315,6 +315,9 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
       )}
       {open && (
         <div className="flex max-w-full min-w-0 flex-col gap-1.5 border-t border-[var(--border-subtle)] px-2 py-1.5">
+          {tool.pruned && (
+            <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_pruned')}</p>
+          )}
           {body.length === 0 && (
             <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_no_data')}</p>
           )}

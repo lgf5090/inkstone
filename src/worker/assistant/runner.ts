@@ -804,6 +804,29 @@ export class AssistantRunner {
           id: this.continueFrom.id,
         })
       }
+      // A threshold the reader chose is checked before the window is built, not after it overflows: the
+      // point of compacting early is to keep a long thread's request small, and waiting for the ceiling
+      // would spend the very tokens the setting exists to save.
+      let promptSummary: string | null = conversation.summary ?? null
+      let promptSummaryUpto = conversation.summaryUpto ?? null
+      const autoLimit = this.settings.autoCompactMode === 'absolute'
+        ? this.settings.autoCompactTokens
+        : this.settings.autoCompactMode === 'ratio'
+          ? Math.floor(contextTokens * this.settings.autoCompactRatio)
+          : null
+      if (autoLimit !== null) {
+        const historyTokens = history.reduce(
+          (total, entry) => total + estimateTokens(entry.content) + (entry.calls ?? []).reduce((sum, call) => sum + estimateTokens(call.result), 0),
+          0,
+        )
+        if (historyTokens > autoLimit && history.length > 6) {
+          const rolled = await this.summarize(conversationId, promptSummary, history.slice(0, -6))
+          if (rolled) {
+            promptSummary = rolled.summary
+            promptSummaryUpto = rolled.upto
+          }
+        }
+      }
       const context = await this.contextLabels()
       const project = await this.project()
       const projectSkills = await this.projectSkills()
@@ -817,7 +840,7 @@ export class AssistantRunner {
         timeAware: project?.timeAware !== false,
         autoMemory: this.settings.autoMemory,
         memories,
-        conversationSummary: conversation.summary,
+        conversationSummary: promptSummary,
         noteScope: this.settings.noteScope,
         noteScopeLabels: await this.scopeLabels(),
         noteTagLabels: this.scopeTagLabels(),
@@ -834,12 +857,12 @@ export class AssistantRunner {
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
       // answer the turn is going to write, and the results the steps after this one read back into it.
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
-      let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
+      let window = buildContextWindow(history, historyBudget, promptSummaryUpto)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
 
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
-        const rolled = await this.summarize(conversationId, conversation.summary ?? null, window.overflow)
+        const rolled = await this.summarize(conversationId, promptSummary, window.overflow)
         if (rolled) {
           // The mark is the row the roll-up ends on, named rather than timed: the newest rows of this turn
           // can share its millisecond, and a cutoff that compares times alone would drop them — including
@@ -1519,7 +1542,7 @@ export class AssistantRunner {
     conversationId: string,
     previous: string | null,
     overflow: HistoryEntry[],
-  ): Promise<{ upto: number, uptoId?: string } | null> {
+  ): Promise<{ upto: number, uptoId?: string, summary: string } | null> {
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) return null
     const call = modelEndpoint(resolved.model, resolved.provider)
@@ -1564,7 +1587,7 @@ export class AssistantRunner {
     await this.store.setSummary(conversationId, summary, last.createdAt)
     // The row the roll-up ends on travels back with its time: two turns can share a millisecond, and the
     // one that came after must not be folded away with the history above it.
-    return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}) }
+    return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}), summary }
   }
 
   /**
@@ -2380,6 +2403,7 @@ function detailFor(args: unknown): string | undefined {
  * naming itself, because that is the part the model has to know.
  */
 function historyToolResult(tool: ToolActivity): string {
+  if (tool.pruned) return '[pruned from the model context by the reader]'
   if (tool.error) return JSON.stringify({ error: tool.error })
   if (!tool.result) return '[the result of this call was not kept]'
   if (tool.result.length <= MAX_HISTORY_TOOL_RESULT_CHARS) return tool.result
