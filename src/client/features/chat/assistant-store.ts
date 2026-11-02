@@ -51,6 +51,7 @@ import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
+import { compressImageFile } from '../../lib/image-compress'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
@@ -2242,28 +2243,32 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       useUi.getState().toast({ title: t('assistant.attach.dropped', { count: files.length - room, max: MAX_CHAT_ATTACHMENTS }), tone: 'warning' })
     }
     for (const file of files.slice(0, room)) {
+      const settings = get().settings
+      const prepared = file.type.startsWith('image/') && settings?.imageCompressEnabled
+        ? await compressImageFile(file, settings.imageCompressQuality)
+        : file
       const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-      const kind = file.type.startsWith('image/') ? 'image' : 'file'
-      const filename = file.name || 'file'
+      const kind = prepared.type.startsWith('image/') ? 'image' : 'file'
+      const filename = prepared.name || 'file'
       // Refused before the request, not explained after it: no door into this function respects the
       // pickers' `accept` filter — a drag and a paste both hand over whatever the reader had, and a file
       // dialog lets them widen the type themselves — so the question has to be asked here, where all three
       // arrive. Nothing is uploaded, and the row carries the reason instead of the bytes.
-      const refused = attachmentUploadRefusal(file.type, filename, file.size, attachmentTarget())
+      const refused = attachmentUploadRefusal(prepared.type, filename, prepared.size, attachmentTarget())
       if (refused) {
         set((current) => ({
           pending: [...current.pending, {
-            localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'error' as const, error: refused, sourceFile: file,
+            localId, id: '', filename, mime: prepared.type, size: prepared.size, kind, progress: 0, status: 'error' as const, error: refused, sourceFile: prepared,
           }],
         }))
         continue
       }
       set((current) => ({
         pending: [...current.pending, {
-          localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'uploading', sourceFile: file,
+          localId, id: '', filename, mime: prepared.type, size: prepared.size, kind, progress: 0, status: 'uploading', sourceFile: prepared,
         }],
       }))
-      await uploadAttachment(localId, file, set)
+      await uploadAttachment(localId, prepared, set)
     }
   },
 

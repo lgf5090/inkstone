@@ -800,6 +800,10 @@ export interface AssistantSettings {
   tabCompletionModelId: string | null
   /** Extra instruction sent with a completion request. */
   tabCompletionConstraint: string
+  /** Shrink pictures before uploading them to the model. */
+  imageCompressEnabled: boolean
+  /** One value for both dimensions and JPEG quality, 1–100. */
+  imageCompressQuality: number
   /** Include reasoning blocks in a Markdown export. */
   exportReasoning: boolean
   /** Include tool calls and their results in a Markdown export. */
@@ -877,6 +881,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   tabCompletionEnabled: false,
   tabCompletionModelId: null,
   tabCompletionConstraint: '',
+  imageCompressEnabled: true,
+  imageCompressQuality: 85,
   exportReasoning: false,
   exportToolCalls: false,
   customInstructions: '',
@@ -1017,6 +1023,8 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     tabCompletionEnabled: booleanValue(raw.tabCompletionEnabled, DEFAULT_ASSISTANT_SETTINGS.tabCompletionEnabled),
     tabCompletionModelId: typeof raw.tabCompletionModelId === 'string' && raw.tabCompletionModelId ? raw.tabCompletionModelId.slice(0, 26) : null,
     tabCompletionConstraint: stringAllowEmpty(raw.tabCompletionConstraint, '', 1_000),
+    imageCompressEnabled: booleanValue(raw.imageCompressEnabled, DEFAULT_ASSISTANT_SETTINGS.imageCompressEnabled),
+    imageCompressQuality: integerInRange(raw.imageCompressQuality, 1, 100, DEFAULT_ASSISTANT_SETTINGS.imageCompressQuality),
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
     exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),

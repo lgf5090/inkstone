@@ -2527,6 +2527,9 @@ const allowed = new Map([
     "// The door is gone, so the row offers the only thing that is true about it: taking the",
     "// pointer off, which is the same write the reader made when the note was there.",
   ]],
+  ["src/client/features/chat/MermaidViewer.tsx", [
+    "/**\n * A full-size look at a diagram an answer already drew.\n *\n * The click is delegated from the document because the diagram lives inside Markdown the assistant wrote,\n * not inside a React tree this app owns. The viewer clones the rendered SVG; it never re-renders the source,\n * so what the reader sees is the same diagram that was on the page.\n */",
+  ]],
   ["src/client/features/chat/MessageMenu.tsx", [
     "/**\n * A message's own menu: what the reader can do with one turn, wherever the pointer happens to be.\n *\n * The hover row under a message carries the two or three actions a reader reaches for most, and that is\n * the right size for a row of icons. The rest — copy as plain text, read it aloud, keep it as a note,\n * download it, quote it back — have had nowhere to live, so an action existed only if some surface\n * happened to draw a button for it. A context menu is where a reader looks for the rest of them, and it\n * costs nothing on screen until it is asked for.\n *\n * The rows are built by a plain function so the shape of the menu is testable without a pointer: which\n * rows each role offers, and which of them are only there when they can actually do something.\n */",
     "/** A point on screen, in the shape `Menu` anchors to. */",
@@ -20214,6 +20217,10 @@ const allowed = new Map([
     "/**\n * Locale boot for a surface that renders one language and no switcher.\n *\n * The app's own `initI18n` also preloads the other shipped locale for an instant switch; a public\n * reading surface has no switch, so that background chunk is traffic nobody asked for.\n */",
     "/**\n * A count-bearing message in its `_one` / `_other` form.\n *\n * The catalogue has no plural engine, so every site that needed this grew a `count === 1 ? … : …`\n * expression by hand — and the navigation app shipped ten messages that read \"1 visits\".\n */",
   ]],
+  ["src/client/lib/image-compress.ts", [
+    "/**\n * Shrink a picture before it is attached.\n *\n * The provider bills an image by its pixels, and a screenshot or camera photo is usually far larger than\n * the model needs. The quality value controls both dimensions and JPEG quality, as the reference project's\n * one slider did: 60 means 60% of the original size and 60% quality, not two separate knobs. A transparent\n * image stays PNG; an animated image is left alone because one frame would lose the rest.\n */",
+    "// A browser that cannot decode the picture is not a reason to lose it: the original uploads as it is.",
+  ]],
   ["src/client/lib/ime.ts", [
     "/**\n * The keyCode an IME keystroke carries: 229 means \"Process\", i.e. the input method owns this key.\n *\n * `isComposing` is false on the keystroke that *accepts* a candidate in some browsers, which is exactly\n * the one that used to run the action underneath - the classic \"Enter picks the word and submits the\n * form\" bug. Checking the keyCode catches that frame even when the flag has already been cleared.\n */",
     "/**\n * True while an input method owns the keystroke, so a key handler should leave the key to it.\n *\n * During a Chinese or Japanese composition Enter selects a candidate, Escape cancels it and the arrows\n * page the candidate list. A handler that reads the same key commits half a word and then fires the\n * action the user was still typing, so every bare-key handler on an editable element has to answer this\n * first. `tests/client-ime-guard.test.ts` is what keeps new ones from forgetting.\n */",
@@ -29964,6 +29971,8 @@ const allowed = new Map([
     "/** Whether inline Tab completion is offered in the note editor. Off by default. */",
     "/** The model completion uses; null follows the answering model. */",
     "/** Extra instruction sent with a completion request. */",
+    "/** Shrink pictures before uploading them to the model. */",
+    "/** One value for both dimensions and JPEG quality, 1–100. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",

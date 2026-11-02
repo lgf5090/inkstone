@@ -26,6 +26,7 @@ import { AssistantSettingsView } from './AssistantSettingsView'
 import { ProjectsView } from './ProjectsView'
 import { NotificationsBell } from './NotificationCenter'
 import { DeepResearchProgress } from './DeepResearchProgress'
+import { MermaidViewer } from './MermaidViewer'
 
 const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   chat: MessageSquare,
@@ -209,6 +210,7 @@ export function ChatApp() {
             )
           })}
         </nav>
+        <MermaidViewer />
       </div>
     </section>
   )

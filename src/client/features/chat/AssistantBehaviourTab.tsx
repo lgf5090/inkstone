@@ -237,6 +237,28 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             </Button>
           </form>
         </SettingRow>
+        <SettingRow title={t('assistant.settings.image_compress')} description={t('assistant.settings.image_compress_hint')}>
+          <Switch
+            checked={settings.imageCompressEnabled}
+            label={t('assistant.settings.image_compress')}
+            onChange={(imageCompressEnabled) => void saveSettings({ imageCompressEnabled })}
+          />
+        </SettingRow>
+        {settings.imageCompressEnabled && (
+          <SettingRow title={t('assistant.settings.image_quality')} description={t('assistant.settings.image_quality_hint')}>
+            <div className="flex items-center gap-2">
+              <Slider
+                label={t('assistant.settings.image_quality')}
+                value={settings.imageCompressQuality}
+                min={30}
+                max={100}
+                step={5}
+                onChange={(imageCompressQuality) => void saveSettings({ imageCompressQuality })}
+              />
+              <span className="w-8 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{settings.imageCompressQuality}</span>
+            </div>
+          </SettingRow>
+        )}
         <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
           <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
         </SettingRow>
