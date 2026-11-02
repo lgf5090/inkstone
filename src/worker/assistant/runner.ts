@@ -1101,7 +1101,7 @@ export class AssistantRunner {
         conversation: turns.reduce((total, turn) => total + estimateTokens(turn.content ?? '') + (turn.calls?.length ? estimateTokens(JSON.stringify(turn.calls)) : 0), 0),
         reasoning: estimateTokens(reasoning),
       }
-      yield { type: 'usage', usage, contextBreakdown }
+      yield { type: 'usage', usage: usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }, contextBreakdown }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
       const finalMessage = await finish(stopped() ? 'cancelled' : outcome, failure, usage)

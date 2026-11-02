@@ -814,7 +814,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     error: r.error,
     source: r.source === 'import' ? 'import' : 'chat',
     createdAt: r.created_at,
-    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0, ...(r.cached_input_tokens === null ? {} : { cachedInputTokens: r.cached_input_tokens }) },
+    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0, ...(r.cached_input_tokens ? { cachedInputTokens: r.cached_input_tokens } : {}) },
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
     ...(verdict ? { feedback: verdict.verdict } : {}),
@@ -3512,7 +3512,7 @@ export class AssistantStore {
       JSON.stringify(input.sources ?? []),
       JSON.stringify((input.scopes ?? []).slice(0, MAX_TURN_SCOPES)),
       JSON.stringify(suggestionList),
-      usage?.cachedInputTokens ?? null,
+      usage?.cachedInputTokens || null,
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -3530,7 +3530,7 @@ export class AssistantStore {
       error,
       source,
       createdAt: at,
-      usage,
+      usage: usage ? (usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }) : usage,
       durationMs,
       modelLabel: input.modelLabel ?? '',
       // The pages this answer leaned on are filed above, so they belong on the row handed back: the live
@@ -3812,7 +3812,7 @@ export class AssistantStore {
       reasoning: input.reasoning ?? '',
       tools,
       modelLabel,
-      usage,
+      usage: usage ? (usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }) : usage,
       durationMs,
       createdAt: at,
     }

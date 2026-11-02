@@ -8222,7 +8222,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.settings.image_compress": "Compress pictures before upload",
     "assistant.settings.image_compress_hint": "One value controls both dimensions and JPEG quality, so a large screenshot costs fewer tokens and less bandwidth. Animated and transparent pictures keep their format.",
     "assistant.settings.fetch_external_images": "Fetch images linked from files",
-    "assistant.settings.fetch_external_images_hint": "Reads up to four http(s) images referenced by a Markdown/text attachment into this turn. Redirects, private addresses and files over 5 MB are refused.",
+    "assistant.settings.fetch_external_images_hint": "Reads up to four http and https images referenced by a Markdown/text attachment into this turn. Redirects, private addresses and files over 5 MB are refused.",
     "assistant.settings.image_quality": "Picture quality",
     "assistant.settings.image_quality_hint": "100 keeps the original size and quality; lower values shrink both.",
     "assistant.settings.auto_route": "Choose the model automatically",

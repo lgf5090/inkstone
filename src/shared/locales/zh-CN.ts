@@ -8215,7 +8215,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.settings.image_compress": "上传前压缩图片",
     "assistant.settings.image_compress_hint": "一个数值同时控制尺寸和 JPEG 质量，大截图消耗的 token 和带宽都会变少；动图和透明图保持原格式。",
     "assistant.settings.fetch_external_images": "抓取文件里链接的图片",
-    "assistant.settings.fetch_external_images_hint": "把 Markdown/文本附件引用的最多 4 张 http(s) 图片读进本轮；拒绝跳转、内网地址和超过 5 MB 的文件。",
+    "assistant.settings.fetch_external_images_hint": "把 Markdown/文本附件引用的最多 4 张 http 或 https 图片读进本轮；拒绝跳转、内网地址和超过 5 MB 的文件。",
     "assistant.settings.image_quality": "图片质量",
     "assistant.settings.image_quality_hint": "100 保留原尺寸和原质量；数值越低缩得越多。",
     "assistant.settings.auto_route": "自动选择模型",

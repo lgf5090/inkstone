@@ -535,7 +535,7 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       style={{ '--reader-mark-default': theme.accent } as React.CSSProperties}
     >
       <canvas ref={canvas} />
-      <div className="absolute right-2 top-2 z-[2] flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
+      <div className="absolute right-2 top-2 z-[var(--z-sticky)] flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
         <Button size="sm" variant="secondary" disabled={capturing} onClick={() => { void capture(null) }}>
           {t('reading.capture_page')}
         </Button>
@@ -545,7 +545,7 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       </div>
       {selecting && (
         <div
-          className="absolute inset-0 z-[1] cursor-crosshair touch-none select-none bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]"
+          className="absolute inset-0 z-[var(--z-menu)] cursor-crosshair touch-none select-none bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]"
           onPointerDown={(event) => {
             const box = holder.current?.getBoundingClientRect()
             if (!box) return

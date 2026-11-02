@@ -79,7 +79,7 @@ export function ToolManagerSection() {
       <div className="max-h-72 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
         {groups.map((group) => (
           <div key={group.category}>
-            <p className="sticky top-0 z-[1] border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+            <p className="sticky top-0 z-[var(--z-sticky)] border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
               {t(`assistant.tools.category.${group.category}` as 'assistant.tools.category.notes')}
             </p>
             {group.rows.map((spec) => (
