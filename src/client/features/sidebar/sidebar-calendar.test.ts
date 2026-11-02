@@ -33,6 +33,7 @@ describe('the sidebar calendar block', () => {
     stubBreakpoint(true)
     localStorage.clear()
     await setLocaleAsync('zh-CN')
+    vi.useFakeTimers({ now: new Date(2026, 9, 15, 12).getTime(), toFake: ['Date'] })
     useNotes.setState({
       ...originalNotes,
       notes: NOTES,
@@ -48,6 +49,7 @@ describe('the sidebar calendar block', () => {
 
   afterEach(() => {
     rendered.unmount()
+    vi.useRealTimers()
     useNotes.setState(originalNotes, true)
     useUi.setState(originalUi, true)
     localStorage.clear()
@@ -217,6 +219,7 @@ describe('the diary lookup is not the display language', () => {
       openNote: vi.fn(async () => undefined),
     })
     await setLocaleAsync('en-US')
+    vi.useFakeTimers({ now: new Date(2026, 9, 15, 12).getTime(), toFake: ['Date'] })
     useUi.setState({ ...originalUi, view: 'all', folderId: null, dateFilter: null, calendarJump: null, toasts: [] })
     rendered = renderElement(createElement(SidebarCalendar))
     container = rendered.container
@@ -224,6 +227,7 @@ describe('the diary lookup is not the display language', () => {
 
   afterEach(() => {
     rendered.unmount()
+    vi.useRealTimers()
     useNotes.setState(originalNotes, true)
     useUi.setState(originalUi, true)
     localStorage.clear()

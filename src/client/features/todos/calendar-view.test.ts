@@ -203,8 +203,13 @@ describe('the month grid', () => {
 
   it('draws one bar across the days a task covers, not a title per day', async () => {
     stubBreakpoint(true)
-    const start = Date.UTC(YEAR, MONTH, 5, 9)
-    const end = Date.UTC(YEAR, MONTH, 8, 17)
+    // Pick three days from the same displayed week row: a fixed day-of-month can straddle a week
+    // boundary, and then the bar is legitimately drawn once per week.
+    const cells = buildMonthGridCells(YEAR, MONTH, weekStartFor(localeTag()))
+    const startKey = cells[7]!.key
+    const endKey = cells[9]!.key
+    const start = Date.parse(`${startKey}T09:00:00Z`)
+    const end = Date.parse(`${endKey}T17:00:00Z`)
     service.rows = [row('span', 'Conference', end, { startAt: start })]
 
     const container = await mount()
