@@ -6,6 +6,7 @@ import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
 import { Input, Textarea } from '../../components/form'
 import { useAssistant } from './assistant-store'
+import { isImeComposing } from '../../lib/ime'
 
 const POLL_MS = 2_000
 
@@ -73,6 +74,7 @@ function AskQuestionCard({ row }: { row: AssistantQuestionRow }) {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (isImeComposing(event)) return
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       submit()

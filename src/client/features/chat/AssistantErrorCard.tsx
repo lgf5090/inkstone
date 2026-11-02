@@ -34,7 +34,9 @@ export function AssistantErrorCard({
         <AlertTriangle size={13} className="mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="font-medium">{t(diagnosis.title)}</p>
-          <p className="mt-0.5 break-words text-[var(--text-secondary)]">{t(diagnosis.hint)}</p>
+          <p className="mt-0.5 break-words text-[var(--text-secondary)]">
+            {diagnosis.rawPrimary ? error : t(diagnosis.hint)}
+          </p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 pl-[19px]">
@@ -53,7 +55,8 @@ export function AssistantErrorCard({
             {t('assistant.error.open_settings')}
           </Button>
         )}
-        <button
+        {!diagnosis.rawPrimary && (
+          <button
           type="button"
           aria-expanded={open}
           aria-controls={detailId}
@@ -63,8 +66,9 @@ export function AssistantErrorCard({
           {t('assistant.error.detail')}
           <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} aria-hidden />
         </button>
+        )}
       </div>
-      {open && (
+      {open && !diagnosis.rawPrimary && (
         <p id={detailId} className="break-words pl-[19px] text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {error}
         </p>

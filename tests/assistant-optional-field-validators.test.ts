@@ -55,6 +55,14 @@ const REQUIRED_IN_PATCH = new Map<string, string>([
     'A knowledge base is chosen by name in the Agent’s search tool, and the create path keys its dedupe on it, so an empty name would make two collections indistinguishable; the description beside it is optional.',
   ],
   [
+    'PATCH /cursor-commands/:id # label',
+    'A saved command is found by its name in the selection menu and the command palette; an empty label would leave a row nobody can pick. The instruction beside it has its own reason.',
+  ],
+  [
+    'PATCH /cursor-commands/:id # instruction',
+    'The instruction is the whole command: a row with no instruction runs nothing when picked, so clearing it is refused rather than saved as a command that silently does nothing.',
+  ],
+  [
     'PATCH /providers/:id # label',
     'The label is what the usage screen and the model picker print for a provider, so an empty one leaves a row nobody can name; `baseUrl`, `endpoints` and `reasoningDialect` beside it have their own validators.',
   ],

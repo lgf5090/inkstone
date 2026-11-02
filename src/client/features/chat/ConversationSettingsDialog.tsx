@@ -43,7 +43,7 @@ export function ConversationSettingsDialog({
     setError(null)
   }, [open, conversation.id, conversation.settings])
 
-  const submit = () => {
+  const submit = async () => {
     const next: AssistantConversationSettings = {}
     if (modelId) next.modelId = modelId
     if (webSearch !== 'inherit') next.webSearch = webSearch === 'on'
@@ -67,10 +67,9 @@ export function ConversationSettingsDialog({
     if (context !== null) next.maxContext = context
     setError(null)
     setBusy(true)
-    void save(conversation.id, next).then((ok) => {
-      setBusy(false)
-      if (ok) onClose()
-    })
+    const ok = await save(conversation.id, next)
+    setBusy(false)
+    if (ok) onClose()
   }
 
   const chat = chatModels(models)
@@ -83,7 +82,7 @@ export function ConversationSettingsDialog({
       footer={(
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={busy} onClick={submit}>{t('common.save')}</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void submit()}>{t('common.save')}</Button>
         </>
       )}
     >

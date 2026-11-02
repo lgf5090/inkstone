@@ -67,7 +67,7 @@ describe('the conversation list filters', () => {
     await store.getState().setListTab('tags')
     vi.advanceTimersByTime(DEBOUNCE.persist)
     expect(JSON.parse(localStorage.getItem(key) ?? '{}')).toEqual({
-      listTab: 'tags', folderFilter: 'f1', projectFilter: 'all', tagFilter: 't1',
+      listTab: 'tags', folderFilter: 'f1', projectFilter: 'all', tagFilter: 't1', originFilter: 'all',
     })
   })
 

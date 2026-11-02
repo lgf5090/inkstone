@@ -5,6 +5,8 @@ export interface AssistantErrorDiagnosis {
   hint: MessageKey
   /** Which settings surface answers this failure, or null when nothing on that side can. */
   settings: boolean
+  /** The message is this app's own sentence, so it is shown as the explanation rather than buried. */
+  rawPrimary?: boolean
 }
 
 const BY_CODE: Record<string, AssistantErrorDiagnosis> = {
@@ -37,6 +39,7 @@ const BY_CODE: Record<string, AssistantErrorDiagnosis> = {
     title: 'assistant.error.stream.title',
     hint: 'assistant.error.stream.hint',
     settings: false,
+    rawPrimary: true,
   },
   internal: {
     title: 'assistant.error.internal.title',
@@ -60,7 +63,10 @@ const BY_CODE: Record<string, AssistantErrorDiagnosis> = {
 export function diagnoseAssistantError(code: string | null | undefined, message?: string | null): AssistantErrorDiagnosis {
   if (code && BY_CODE[code]) return BY_CODE[code]
   const text = (message ?? '').toLowerCase()
-  if (/rate limit|quota|429|too many requests/.test(text)) return BY_CODE.rate_limited
+  // The app's own interrupted-stream sentences are already the explanation; wrapping them in a second
+  // generic one hid the fact the reader needs — whether to press Continue.
+  if (/never finished|connection dropped|connection stopped|stream stopped/.test(text)) return { ...BY_CODE.stream!, rawPrimary: true }
+  if (/rate limit|quota|429|too many requests/.test(text)) return BY_CODE.rate_limited!
   if (/unauthori[sz]ed|forbidden|401|403|api key|credential/.test(text)) return BY_CODE.forbidden
   if (/context|window|too many tokens|token limit/.test(text)) return BY_CODE.summary_unavailable
   return BY_CODE.internal

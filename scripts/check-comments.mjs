@@ -2391,6 +2391,8 @@ const allowed = new Map([
     "// One sigil, four kinds: a note becomes a citation, a folder narrows what the turn may read, an",
     "// Agent sets where the thread is filed, a model is switched for the next answer. They share the",
     "// picker because the reader is naming one thing the turn should be about.",
+    "// The note search has already matched the words; only the three local lists need the same filter,",
+    "// or a row the server found would be dropped because its title does not repeat the query.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -4406,6 +4408,9 @@ const allowed = new Map([
   ["src/client/features/chat/error-diagnosis.ts", [
     "/** Which settings surface answers this failure, or null when nothing on that side can. */",
     "/**\n * The sentence a reader can act on, from the code the worker sent.\n *\n * A stored turn has no code — the row keeps the provider's line, not this app's — so the text is read as\n * a fallback. That fallback is deliberately narrow: guessing \"quota\" from an arbitrary sentence would\n * point a reader at the wrong settings page, and the raw line is still in the card's detail.\n */",
+    "/** The message is this app's own sentence, so it is shown as the explanation rather than buried. */",
+    "// The app's own interrupted-stream sentences are already the explanation; wrapping them in a second",
+    "// generic one hid the fact the reader needs — whether to press Continue.",
   ]],
   ["src/client/features/chat/feedback-reason.test.ts", [
     "/**\n * The grounds behind a thumbs-down.\n *\n * The card's shape is what a keyboard and a screen reader depend on, and jsdom draws none of it, so this\n * reads roles, names and the payload that left the client — the two halves worth pinning: that a verdict\n * can be taken back and explained, and that a reason never rides on an upvote.\n */",

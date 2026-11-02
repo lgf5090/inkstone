@@ -286,7 +286,7 @@ describe('the header says what its icons mean', () => {
     await mountView()
     const told = iconControls().map((node) => hover(node, node.getAttribute('aria-label') ?? 'an icon'))
     // The origin chip's cross and the mobile history door are drawn, so the header owes each one a sentence.
-    expect(told, 'a header icon answers no pointer').toHaveLength(9)
+    expect(told, 'a header icon answers no pointer').toHaveLength(10)
     expect(told.every((line) => line !== null)).toBe(true)
   })
 

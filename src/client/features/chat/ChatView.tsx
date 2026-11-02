@@ -2297,7 +2297,9 @@ ${current}` : seed))
           .slice(0, 4)
           .map((model) => ({ id: model.id, label: model.label || model.model, hint: t('assistant.trigger.model'), kind: 'model' as const }))
         const notes = found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') }))
-        if (current()) setTriggerRows(filterRows([...notes, ...folders, ...agents, ...modelRows], next.query))
+        // The note search has already matched the words; only the three local lists need the same filter,
+        // or a row the server found would be dropped because its title does not repeat the query.
+        if (current()) setTriggerRows([...notes, ...filterRows([...folders, ...agents, ...modelRows], next.query)].slice(0, 8))
       }
     } catch {
       // A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a
