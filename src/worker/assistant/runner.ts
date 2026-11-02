@@ -1831,7 +1831,7 @@ export class AssistantRunner {
       const key = `${withImages ? 'recent' : 'older'}:${ids.join(',')}`
       let payload = memo.get(key)
       if (!payload) {
-        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages, protocol)
+        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages, protocol, this.settings.fetchExternalImages)
         memo.set(key, payload)
       }
       hydrated.push({

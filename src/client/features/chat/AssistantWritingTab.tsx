@@ -118,6 +118,13 @@ export function WritingTab({ settings }: { settings: AssistantSettings }) {
             />
           </SettingRow>
         )}
+        <SettingRow title={t('assistant.settings.fetch_external_images')} description={t('assistant.settings.fetch_external_images_hint')}>
+          <Switch
+            checked={settings.fetchExternalImages}
+            label={t('assistant.settings.fetch_external_images')}
+            onChange={(fetchExternalImages) => void saveSettings({ fetchExternalImages })}
+          />
+        </SettingRow>
       </Group>
 
       <Group title={t('assistant.cursor_commands.title')}>

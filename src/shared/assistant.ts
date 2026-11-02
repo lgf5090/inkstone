@@ -833,6 +833,8 @@ export interface AssistantSettings {
   quickAskTrigger: string
   /** Shrink pictures before uploading them to the model. */
   imageCompressEnabled: boolean
+  /** Fetch images linked from a text/Markdown attachment into the turn. Off by default. */
+  fetchExternalImages: boolean
   /** One value for both dimensions and JPEG quality, 1–100. */
   imageCompressQuality: number
   /** Include reasoning blocks in a Markdown export. */
@@ -929,6 +931,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   quickAskEnabled: true,
   quickAskTrigger: '@',
   imageCompressEnabled: true,
+  fetchExternalImages: false,
   imageCompressQuality: 85,
   exportReasoning: false,
   exportToolCalls: false,
@@ -1104,6 +1107,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
       ? raw.quickAskTrigger.trim()
       : DEFAULT_ASSISTANT_SETTINGS.quickAskTrigger),
     imageCompressEnabled: booleanValue(raw.imageCompressEnabled, DEFAULT_ASSISTANT_SETTINGS.imageCompressEnabled),
+    fetchExternalImages: booleanValue(raw.fetchExternalImages, DEFAULT_ASSISTANT_SETTINGS.fetchExternalImages),
     imageCompressQuality: integerInRange(raw.imageCompressQuality, 1, 100, DEFAULT_ASSISTANT_SETTINGS.imageCompressQuality),
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
     exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),

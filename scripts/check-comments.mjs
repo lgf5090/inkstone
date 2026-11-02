@@ -30095,6 +30095,7 @@ const allowed = new Map([
     "/** Whether a child may run after the parent turn has returned, reporting by notification. */",
     "/** Optional override; the manager derives it from the name when absent. */",
     "/** The group a tool is shown under. Unknown names — including remote tools — land under Apps. */",
+    "/** Fetch images linked from a text/Markdown attachment into the turn. Off by default. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -32362,6 +32363,9 @@ const allowed = new Map([
     "// left off, a wire with no field for the bytes, a container no provider decodes, a file above the",
     "// ceiling. One \"not sent\" for all four is how a reader re-attaches the same clip to the same model.",
     "// Each line says what happened to the bytes, so the transcript never reads as a file the model saw.",
+    "/**\n * Images a Markdown file links to, fetched under the same rules as any other outbound request.\n *\n * Only http(s), no redirects, a five-second clock, an image content type and a small size ceiling. Four at\n * most, because this is context the reader did not attach by hand and the turn still has a budget.\n */",
+    "// A broken link is simply not added; the file's words are still there and the model can cite those.",
+    "/** Whether images linked from a text/Markdown file may be fetched into this turn. */",
   ]],
   ["src/worker/assistant/automations.ts", [
     "/**\n * Reminders and routines.\n *\n * The reference project armed a Durable Object alarm per schedule. This app runs on D1 with a cron\n * tick, so \"armed\" only means *next_run is in the future and the row is enabled*: the tick sweeps due\n * rows once a minute. That trades a precise alarm for a one-minute window, which is what a reminder\n * can absorb and a scheduler cannot.\n *\n * The two properties that matter and are easy to lose are kept here: a run that takes longer than the\n * sweep interval is claimed so the next tick does not start it twice, and a schedule whose next\n * occurrence is computed from the slot that fired rather than from \"now\" cannot drift later every time\n * it runs.\n */",
