@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -37,10 +37,12 @@ import type {
   AssistantSearchKey,
   AssistantReasoning,
   AssistantSettings,
+  AssistantToolMode,
   Automation,
   AutomationKind,
   AutomationRun,
   AutomationStatus,
+  KnowledgeBase,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -1474,7 +1476,7 @@ export class AssistantStore {
    * literals from this module, and the caller-supplied part is only ever a value.
    */
   private async partialUpdate(
-    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
+    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'chat_knowledge_bases' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
   ): Promise<number> {
@@ -6126,7 +6128,7 @@ export class AssistantStore {
 
   async listProjects(): Promise<Project[]> {
     const list = await this.rows<ProjectRow>(
-      `SELECT * FROM chat_projects WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
+      `SELECT * FROM chat_projects WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE`,
       this.userId,
     )
     return list.map(toProject)
@@ -6146,28 +6148,76 @@ export class AssistantStore {
   }
 
   async createProject(input: {
-    name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null,
+    name: string
+    description?: string
+    icon?: string
+    instructions?: string
+    noteScope?: string[]
+    excludeScope?: string[]
+    noteIds?: string[]
+    modelId?: string | null
+    tools?: string[]
+    toolsLimited?: boolean
+    toolOverrides?: Record<string, AssistantToolMode>
+    skillIds?: string[]
+    focusSync?: boolean
+    timeAware?: boolean
+    readProjectInstructions?: boolean
+    position?: number
   }): Promise<Project> {
     const id = newId()
     const at = Date.now()
     const name = input.name.trim()
     const description = input.description ?? ''
+    const icon = input.icon ?? ''
     const instructions = input.instructions ?? ''
     const noteScope = input.noteScope ?? []
+    const excludeScope = input.excludeScope ?? []
     const noteIds = input.noteIds ?? []
     const modelId = input.modelId ?? null
+    const tools = input.tools ?? []
+    const toolsLimited = input.toolsLimited === true
+    const toolOverrides = input.toolOverrides ?? {}
+    const skillIds = input.skillIds ?? []
+    const focusSync = input.focusSync !== false
+    const timeAware = input.timeAware !== false
+    const readProjectInstructions = input.readProjectInstructions === true
+    const position = input.position ?? 0
     await this.write(
       `INSERT INTO chat_projects
-         (id, user_id, name, description, instructions, note_scope, note_ids, model_id, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-      id, name, description, instructions, JSON.stringify(noteScope), JSON.stringify(noteIds), modelId, at, at,
+         (id, user_id, name, description, icon, instructions, note_scope, exclude_scope, note_ids, model_id,
+          tools, tools_limited, tool_overrides, skill_ids, focus_sync, time_aware, read_project_instructions,
+          position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
+      id, name, description, icon, instructions, JSON.stringify(noteScope), JSON.stringify(excludeScope),
+      JSON.stringify(noteIds), modelId, JSON.stringify(tools), toolsLimited ? 1 : 0, JSON.stringify(toolOverrides),
+      JSON.stringify(skillIds), focusSync ? 1 : 0, timeAware ? 1 : 0, readProjectInstructions ? 1 : 0,
+      position, at, at,
     )
-    return { id, name, description, instructions, noteScope, noteIds, modelId, createdAt: at, updatedAt: at }
+    return {
+      id, name, description, icon, instructions, noteScope, excludeScope, noteIds, modelId,
+      tools, toolsLimited, toolOverrides, skillIds, focusSync, timeAware, readProjectInstructions,
+      position, createdAt: at, updatedAt: at,
+    }
   }
 
   async updateProject(id: string, patch: {
-    name?: string, description?: string, instructions?: string,
-    noteScope?: string[], noteIds?: string[], modelId?: string | null,
+    name?: string
+    description?: string
+    icon?: string
+    instructions?: string
+    noteScope?: string[]
+    excludeScope?: string[]
+    noteIds?: string[]
+    modelId?: string | null
+    tools?: string[]
+    toolsLimited?: boolean
+    toolOverrides?: Record<string, AssistantToolMode>
+    skillIds?: string[]
+    focusSync?: boolean
+    timeAware?: boolean
+    readProjectInstructions?: boolean
+    position?: number
   }): Promise<Project | null> {
     const fields: (readonly [string, unknown])[] = []
     const set = (column: string, value: unknown): void => { fields.push([column, value]) }
@@ -6176,10 +6226,20 @@ export class AssistantStore {
     // stops filing its facts anywhere.
     if (patch.name !== undefined) set('name', patch.name.trim())
     if (patch.description !== undefined) set('description', patch.description)
+    if (patch.icon !== undefined) set('icon', patch.icon)
     if (patch.instructions !== undefined) set('instructions', patch.instructions)
     if (patch.noteScope !== undefined) set('note_scope', JSON.stringify(patch.noteScope))
+    if (patch.excludeScope !== undefined) set('exclude_scope', JSON.stringify(patch.excludeScope))
     if (patch.noteIds !== undefined) set('note_ids', JSON.stringify(patch.noteIds))
     if (patch.modelId !== undefined) set('model_id', patch.modelId)
+    if (patch.tools !== undefined) set('tools', JSON.stringify(patch.tools))
+    if (patch.toolsLimited !== undefined) set('tools_limited', patch.toolsLimited ? 1 : 0)
+    if (patch.toolOverrides !== undefined) set('tool_overrides', JSON.stringify(patch.toolOverrides))
+    if (patch.skillIds !== undefined) set('skill_ids', JSON.stringify(patch.skillIds))
+    if (patch.focusSync !== undefined) set('focus_sync', patch.focusSync ? 1 : 0)
+    if (patch.timeAware !== undefined) set('time_aware', patch.timeAware ? 1 : 0)
+    if (patch.readProjectInstructions !== undefined) set('read_project_instructions', patch.readProjectInstructions ? 1 : 0)
+    if (patch.position !== undefined) set('position', patch.position)
     set('updated_at', Date.now())
     const changes = await this.partialUpdate('chat_projects', id, fields)
     return changes ? await this.getProject(id) : null
@@ -6213,6 +6273,72 @@ export class AssistantStore {
 
   async resolveProject(ref: string): Promise<Project | null> {
     return (await this.getProject(ref)) ?? (await this.findProjectByName(ref))
+  }
+
+  // --------------------------------------------------------- knowledge bases
+
+  async listKnowledgeBases(): Promise<KnowledgeBase[]> {
+    const list = await this.rows<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
+      this.userId,
+    )
+    return list.map(toKnowledgeBase)
+  }
+
+  async getKnowledgeBase(id: string): Promise<KnowledgeBase | null> {
+    const row = await this.one<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 AND id = ?2`, this.userId, id,
+    )
+    return row ? toKnowledgeBase(row) : null
+  }
+
+  async findKnowledgeBaseByName(name: string): Promise<KnowledgeBase | null> {
+    const row = await this.one<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? toKnowledgeBase(row) : null
+  }
+
+  async createKnowledgeBase(input: {
+    name: string
+    description?: string
+    includeScope?: string[]
+    excludeScope?: string[]
+  }): Promise<KnowledgeBase> {
+    const id = newId()
+    const at = Date.now()
+    const name = input.name.trim()
+    const description = input.description ?? ''
+    const includeScope = input.includeScope ?? []
+    const excludeScope = input.excludeScope ?? []
+    await this.write(
+      `INSERT INTO chat_knowledge_bases
+         (id, user_id, name, description, include_scope, exclude_scope, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, name, description, JSON.stringify(includeScope), JSON.stringify(excludeScope), at, at,
+    )
+    return { id, name, description, includeScope, excludeScope, createdAt: at, updatedAt: at }
+  }
+
+  async updateKnowledgeBase(id: string, patch: {
+    name?: string
+    description?: string
+    includeScope?: string[]
+    excludeScope?: string[]
+  }): Promise<KnowledgeBase | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim()])
+    if (patch.description !== undefined) fields.push(['description', patch.description])
+    if (patch.includeScope !== undefined) fields.push(['include_scope', JSON.stringify(patch.includeScope)])
+    if (patch.excludeScope !== undefined) fields.push(['exclude_scope', JSON.stringify(patch.excludeScope)])
+    fields.push(['updated_at', Date.now()])
+    const changes = await this.partialUpdate('chat_knowledge_bases', id, fields)
+    return changes ? await this.getKnowledgeBase(id) : null
+  }
+
+  async deleteKnowledgeBase(id: string): Promise<void> {
+    await this.write(`DELETE FROM chat_knowledge_bases WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   // ------------------------------------------------------------- automations
@@ -7945,7 +8071,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // project that named three pages and came back naming none would answer from the whole vault, which is
   // the opposite of what the reader picked. `model_id` is left out on purpose: models are not in the
   // backup, so a carried id could only point at nothing.
-  chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'created_at', 'updated_at'],
+  chat_projects: ['id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
   // The two targets travel with the schedule: a routine that was told to file its answer into one folder,
   // or to refill one standing page, restored without that pointer would have to be re-pointed by hand —
   // and a reader who restores a backup expecting their morning log page to keep being written would find
@@ -8917,12 +9043,34 @@ interface ProjectRow {
   id: string
   name: string
   description: string | null
+  icon: string | null
   instructions: string | null
   note_scope: string | null
+  exclude_scope: string | null
   note_ids: string | null
   model_id: string | null
+  tools: string | null
+  tools_limited: number | null
+  tool_overrides: string | null
+  skill_ids: string | null
+  focus_sync: number | null
+  time_aware: number | null
+  read_project_instructions: number | null
+  position: number | null
   created_at: number
   updated_at: number
+}
+
+function decodeToolOverrides(value: string | null): Record<string, AssistantToolMode> {
+  const parsed = parseJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof name === 'string' && ASSISTANT_TOOL_MODES.includes(mode as AssistantToolMode)) {
+      out[name] = mode as AssistantToolMode
+    }
+  }
+  return out
 }
 
 function toProject(r: ProjectRow): Project {
@@ -8930,10 +9078,42 @@ function toProject(r: ProjectRow): Project {
     id: r.id,
     name: r.name,
     description: r.description ?? '',
+    icon: r.icon ?? '',
     instructions: r.instructions ?? '',
     noteScope: decodeStringList(r.note_scope),
+    excludeScope: decodeStringList(r.exclude_scope),
     noteIds: decodeStringList(r.note_ids),
     modelId: r.model_id,
+    tools: decodeStringList(r.tools),
+    toolsLimited: Number(r.tools_limited ?? 0) === 1,
+    toolOverrides: decodeToolOverrides(r.tool_overrides),
+    skillIds: decodeStringList(r.skill_ids),
+    focusSync: Number(r.focus_sync ?? 1) === 1,
+    timeAware: Number(r.time_aware ?? 1) === 1,
+    readProjectInstructions: Number(r.read_project_instructions ?? 0) === 1,
+    position: r.position ?? 0,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+interface KnowledgeBaseRow {
+  id: string
+  name: string
+  description: string | null
+  include_scope: string | null
+  exclude_scope: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toKnowledgeBase(r: KnowledgeBaseRow): KnowledgeBase {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? '',
+    includeScope: decodeStringList(r.include_scope),
+    excludeScope: decodeStringList(r.exclude_scope),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

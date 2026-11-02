@@ -9,7 +9,7 @@ import { isValidTimeZone } from '@shared/assistant-schedule'
 import { t } from '../../lib/i18n'
 import { ApiError, api } from '../../lib/api'
 import { Button } from '../../components/primitives'
-import { Input, Segmented, Select, SettingRow, Switch, Textarea } from '../../components/form'
+import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
@@ -170,6 +170,31 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
       <Group title={t('assistant.settings.behaviour')}>
         <SettingRow title={t('assistant.settings.send_enter')} description={t('assistant.settings.send_enter_hint')}>
           <Switch checked={settings.sendOnEnter} onChange={(value) => void saveSettings({ sendOnEnter: value })} label={t('assistant.settings.send_enter')} />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.mention_mode')} description={t('assistant.settings.mention_mode_hint')}>
+          <Segmented
+            size="sm"
+            label={t('assistant.settings.mention_mode')}
+            value={settings.mentionMode}
+            onChange={(mentionMode) => void saveSettings({ mentionMode })}
+            options={[
+              { value: 'full', label: t('assistant.settings.mention_mode.full') },
+              { value: 'light', label: t('assistant.settings.mention_mode.light') },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.chat_scale')} description={t('assistant.settings.chat_scale_hint')}>
+          <div className="flex items-center gap-2">
+            <Slider
+              label={t('assistant.settings.chat_scale')}
+              value={settings.chatScale}
+              min={0.7}
+              max={1.5}
+              step={0.05}
+              onChange={(chatScale) => void saveSettings({ chatScale })}
+            />
+            <span className="w-10 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{Math.round(settings.chatScale * 100)}%</span>
+          </div>
         </SettingRow>
         <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
           <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />

@@ -126,6 +126,7 @@ import type {
   AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
+  KnowledgeBase,
   MemoryReview,
   PendingAction,
   Project as AssistantProject,
@@ -2155,11 +2156,48 @@ export const api = {
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
     getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
-    createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
+    createProject: (body: {
+      name: string
+      description?: string
+      icon?: string
+      instructions?: string
+      noteScope?: string[]
+      excludeScope?: string[]
+      noteIds?: string[]
+      modelId?: string | null
+      tools?: string[]
+      toolsLimited?: boolean
+      skillIds?: string[]
+      focusSync?: boolean
+      timeAware?: boolean
+      readProjectInstructions?: boolean
+    }) =>
       request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body }),
-    updateProject: (id: string, body: { name?: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
+    updateProject: (id: string, body: {
+      name?: string
+      description?: string
+      icon?: string
+      instructions?: string
+      noteScope?: string[]
+      excludeScope?: string[]
+      noteIds?: string[]
+      modelId?: string | null
+      tools?: string[]
+      toolsLimited?: boolean
+      skillIds?: string[]
+      focusSync?: boolean
+      timeAware?: boolean
+      readProjectInstructions?: boolean
+    }) =>
       request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`, { method: 'PATCH', body }),
     deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
+    knowledgeBases: () => request<{ knowledgeBases: KnowledgeBase[] }>('/api/assistant/knowledge-bases'),
+    createKnowledgeBase: (body: { name: string, description?: string, includeScope?: string[], excludeScope?: string[] }) =>
+      request<{ knowledgeBase: KnowledgeBase }>('/api/assistant/knowledge-bases', { method: 'POST', body }),
+    updateKnowledgeBase: (id: string, body: { name?: string, description?: string, includeScope?: string[], excludeScope?: string[] }) =>
+      request<{ knowledgeBase: KnowledgeBase }>(`/api/assistant/knowledge-bases/${id}`, { method: 'PATCH', body }),
+    deleteKnowledgeBase: (id: string) =>
+      request<{ deleted: true }>(`/api/assistant/knowledge-bases/${id}`, { method: 'DELETE' }),
     automations: () =>
       request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),
     createAutomation: (body: Record<string, unknown>) =>

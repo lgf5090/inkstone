@@ -10,14 +10,16 @@
  * so it gets the room and the list does not.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, FolderOpen, ListChecks, MessageSquare, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react'
-import { MAX_PROJECT_NOTES, type Project } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, MAX_PROJECT_NOTES, type Project } from '@shared/assistant'
 import { NotePicker } from './ComposerControls'
 import { NoteScopePicker } from './NoteScopePicker'
+import { AssistantIconField } from './AssistantIconPicker'
+import { AssistantIcon } from './AssistantIcon'
 import { api } from '../../lib/api'
 import { Button, IconButton } from '../../components/primitives'
-import { Field, Input, Select, Textarea } from '../../components/form'
+import { Checkbox, Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { useNotes } from '../../store/notes'
@@ -31,23 +33,55 @@ interface Draft {
   id: string | null
   name: string
   description: string
+  icon: string
   instructions: string
   noteScope: string[]
+  excludeScope: string[]
   noteIds: string[]
   modelId: string | null
+  tools: string[]
+  toolsLimited: boolean
+  skillIds: string[]
+  focusSync: boolean
+  timeAware: boolean
+  readProjectInstructions: boolean
 }
 
-const EMPTY: Draft = { id: null, name: '', description: '', instructions: '', noteScope: [], noteIds: [], modelId: null }
+const EMPTY: Draft = {
+  id: null,
+  name: '',
+  description: '',
+  icon: '',
+  instructions: '',
+  noteScope: [],
+  excludeScope: [],
+  noteIds: [],
+  modelId: null,
+  tools: [],
+  toolsLimited: false,
+  skillIds: [],
+  focusSync: true,
+  timeAware: true,
+  readProjectInstructions: false,
+}
 
 function draftFrom(project: Project): Draft {
   return {
     id: project.id,
     name: project.name,
     description: project.description,
+    icon: project.icon,
     instructions: project.instructions,
     noteScope: project.noteScope,
+    excludeScope: project.excludeScope,
     noteIds: project.noteIds,
     modelId: project.modelId,
+    tools: project.tools,
+    toolsLimited: project.toolsLimited,
+    skillIds: project.skillIds,
+    focusSync: project.focusSync,
+    timeAware: project.timeAware,
+    readProjectInstructions: project.readProjectInstructions,
   }
 }
 
@@ -65,6 +99,7 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
   const refresh = () => Promise.all([useAssistant.getState().loadProjects(), useAssistant.getState().bootstrap(true)])
   useEffect(() => {
     void useAssistant.getState().loadProjects().finally(() => setLoading(false))
+    void useAssistant.getState().loadSkills()
   }, [])
 
   const save = async () => {
@@ -74,10 +109,18 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
       const body = {
         name: draft.name,
         description: draft.description,
+        icon: draft.icon,
         instructions: draft.instructions,
         noteScope: draft.noteScope,
+        excludeScope: draft.excludeScope,
         noteIds: draft.noteIds,
         modelId: draft.modelId,
+        tools: draft.tools,
+        toolsLimited: draft.toolsLimited,
+        skillIds: draft.skillIds,
+        focusSync: draft.focusSync,
+        timeAware: draft.timeAware,
+        readProjectInstructions: draft.readProjectInstructions,
       }
       if (draft.id) await api.assistant.updateProject(draft.id, body)
       else await api.assistant.createProject(body)
@@ -156,7 +199,7 @@ export function ProjectsView({ onOpen }: { onOpen?: () => void }) {
               return (
                 <li key={project.id} className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
                   <div className="flex items-center gap-2">
-                    <ListChecks size={14} className="shrink-0 text-[var(--accent)]" />
+                    <AssistantIcon value={project.icon} fallback="lucide:bot" size={16} />
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{project.name}</span>
                     <Button size="sm" variant="ghost" icon={<MessageSquare size={13} />} onClick={() => void openConversations(project.id)}>
                       {t('assistant.projects.open_conversations')}
@@ -350,6 +393,88 @@ function MoveIntoProjectMenu({ projects, disabled, onMove }: {
   )
 }
 
+/**
+ * The tools an Agent may use.
+ *
+ * The account's policy is the ceiling; this list is the Agent's own narrowing. The switch is separate
+ * from the list because "no tools" and "no restriction" are both an empty array.
+ */
+function ProjectToolsPicker({ value, limited, onChange, onLimitedChange }: {
+  value: string[]
+  limited: boolean
+  onChange: (names: string[]) => void
+  onLimitedChange: (limited: boolean) => void
+}) {
+  const [query, setQuery] = useState('')
+  const rows = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase()
+    return ASSISTANT_TOOL_SPECS.filter((spec) =>
+      !needle || spec.name.toLocaleLowerCase().includes(needle) || t(spec.labelKey).toLocaleLowerCase().includes(needle))
+  }, [query])
+  const toggle = (name: string) => {
+    onChange(value.includes(name) ? value.filter((entry) => entry !== name) : [...value, name])
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('assistant.projects.tools_limit')}</span>
+        <Switch checked={limited} label={t('assistant.projects.tools_limit')} onChange={onLimitedChange} />
+      </div>
+      {limited ? (
+        <div className="rounded-[var(--r-md)] border border-[var(--border-subtle)]">
+          <div className="border-b border-[var(--border-subtle)] p-1.5">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('assistant.projects.tools_search')}
+              aria-label={t('assistant.projects.tools_search')}
+              className="h-8 text-[length:var(--text-12)]"
+            />
+          </div>
+          <div className="max-h-44 overflow-y-auto p-1.5">
+            {rows.map((spec) => (
+              <Checkbox
+                key={spec.name}
+                checked={value.includes(spec.name)}
+                onChange={() => toggle(spec.name)}
+                label={t(spec.labelKey)}
+                className="w-full min-h-8 text-[length:var(--text-12)]"
+              />
+            ))}
+            {!rows.length && <p className="px-2 py-2 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{t('assistant.projects.tools_none')}</p>}
+          </div>
+          <p className="border-t border-[var(--border-subtle)] px-2 py-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+            {t('assistant.projects.tools_count', { count: value.length })}
+          </p>
+        </div>
+      ) : (
+        <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('assistant.projects.tools_all')}</p>
+      )}
+    </div>
+  )
+}
+
+function ProjectSkillsPicker({ value, onChange }: { value: string[], onChange: (ids: string[]) => void }) {
+  const skills = useAssistant((state) => state.skills)
+  const toggle = (id: string) => {
+    onChange(value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])
+  }
+  if (!skills.length) return <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('assistant.projects.skills_none')}</p>
+  return (
+    <div className="max-h-40 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] p-1.5">
+      {skills.map((skill) => (
+        <Checkbox
+          key={skill.id}
+          checked={value.includes(skill.id)}
+          onChange={() => toggle(skill.id)}
+          label={skill.title || t('assistant.skills.untitled')}
+          className="w-full min-h-8 text-[length:var(--text-12)]"
+        />
+      ))}
+    </div>
+  )
+}
+
 function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
   draft: Draft
   busy: boolean
@@ -373,6 +498,7 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
       )}
     >
       <div className="space-y-3">
+        <AssistantIconField value={draft.icon} fallback="lucide:bot" onChange={(icon) => patch({ icon })} />
         <Field label={t('assistant.projects.name')}>
           <Input value={draft.name} maxLength={200} onChange={(event) => patch({ name: event.target.value })} />
         </Field>
@@ -390,6 +516,9 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
         <Field label={t('assistant.projects.knowledge')} hint={t('assistant.projects.knowledge_hint')}>
           <NoteScopePicker value={draft.noteScope} onChange={(ids) => patch({ noteScope: ids })} disabled={busy} />
         </Field>
+        <Field label={t('assistant.projects.exclude_scope')} hint={t('assistant.projects.exclude_scope_hint')}>
+          <NoteScopePicker value={draft.excludeScope} onChange={(ids) => patch({ excludeScope: ids })} disabled={busy} />
+        </Field>
         <Field label={t('assistant.projects.notes')} hint={t('assistant.projects.notes_hint')}>
           <ProjectNotesPicker value={draft.noteIds} onChange={(ids) => patch({ noteIds: ids })} disabled={busy} />
         </Field>
@@ -405,6 +534,38 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
             {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
           </Select>
         </Field>
+        <Field label={t('assistant.projects.tools')} hint={t('assistant.projects.tools_hint')}>
+          <ProjectToolsPicker
+            value={draft.tools}
+            limited={draft.toolsLimited}
+            onChange={(tools) => patch({ tools })}
+            onLimitedChange={(toolsLimited) => patch({ toolsLimited })}
+          />
+        </Field>
+        <Field label={t('assistant.projects.skills')} hint={t('assistant.projects.skills_hint')}>
+          <ProjectSkillsPicker value={draft.skillIds} onChange={(skillIds) => patch({ skillIds })} />
+        </Field>
+        <div className="space-y-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] p-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('assistant.projects.focus_sync')}</span>
+            <Switch checked={draft.focusSync} label={t('assistant.projects.focus_sync')} onChange={(focusSync) => patch({ focusSync })} />
+          </div>
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.projects.focus_sync_hint')}</p>
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('assistant.projects.time_aware')}</span>
+            <Switch checked={draft.timeAware} label={t('assistant.projects.time_aware')} onChange={(timeAware) => patch({ timeAware })} />
+          </div>
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.projects.time_aware_hint')}</p>
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="text-[length:var(--text-12)] text-[var(--text-secondary)]">{t('assistant.projects.read_project_instructions')}</span>
+            <Switch
+              checked={draft.readProjectInstructions}
+              label={t('assistant.projects.read_project_instructions')}
+              onChange={(readProjectInstructions) => patch({ readProjectInstructions })}
+            />
+          </div>
+          <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.projects.read_project_instructions_hint')}</p>
+        </div>
       </div>
     </Modal>
   )

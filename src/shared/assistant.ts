@@ -119,6 +119,11 @@ export const MAX_AUTOMATION_TARGET_ID_CHARS = 64
 export const MAX_CONVERSATION_TITLE_CHARS = 200
 /** How much standing instruction the prompt will carry: enough for a page, short enough to stay a rule. */
 export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
+/** A title prompt is a short instruction, not a second standing brief. */
+export const MAX_TITLE_PROMPT_CHARS = 4_000
+/** Timeout bounds for a primary request, in milliseconds. */
+export const MIN_REQUEST_TIMEOUT_MS = 5_000
+export const MAX_REQUEST_TIMEOUT_MS = 300_000
 /** How many follow-up questions the model may volunteer under a finished answer. A shorter list is honest; padding one is not. */
 export const MAX_TITLE_SUGGESTIONS = 3
 /** The widest a single follow-up chip may run before the server trims it, so one long sentence cannot crowd the footline. */
@@ -721,6 +726,20 @@ export interface AssistantSettings {
   timezone: string
   activeModelId: string | null
   /**
+   * The cheap model that names a conversation and offers follow-ups.
+   *
+   * Null follows the model that answered the turn, which is what every account did before this field
+   * existed. A naming pass is a short structured call; pointing it at a small model is the whole reason
+   * it is separate from the chat model.
+   */
+  namingModelId: string | null
+  /** The system prompt for the naming pass; empty uses the built-in one. */
+  titlePrompt: string
+  /** Retry a failed streaming request once without streaming, before walking the failover chain. */
+  autoRecover: boolean
+  /** How long a primary request may take before it is treated as timed out. */
+  requestTimeoutMs: number
+  /**
    * The model a realtime voice session is opened with.
    *
    * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
@@ -757,6 +776,21 @@ export interface AssistantSettings {
   /** Folders the assistant may read notes from; empty means the whole vault. */
   noteScope: string[]
   sendOnEnter: boolean
+  /**
+   * How much of a mentioned note the turn carries.
+   *
+   * `full` is the old behavior: the whole note up to the mention cap. `light` carries its identity,
+   * headings and a short excerpt, and leaves the model to call `read_note` for the body — the setting
+   * exists because a long note named with `@` used to spend a large part of the window before the
+   * question was read.
+   */
+  mentionMode: 'full' | 'light'
+  /** The whole chat interface's scale, 0.7–1.5. */
+  chatScale: number
+  /** Include reasoning blocks in a Markdown export. */
+  exportReasoning: boolean
+  /** Include tool calls and their results in a Markdown export. */
+  exportToolCalls: boolean
   /**
    * Standing instructions the reader wants every answer to follow.
    *
@@ -807,6 +841,10 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   language: 'en-US',
   timezone: 'UTC',
   activeModelId: null,
+  namingModelId: null,
+  titlePrompt: '',
+  autoRecover: true,
+  requestTimeoutMs: 60_000,
   realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
@@ -820,6 +858,10 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   startView: 'chat',
   noteScope: [],
   sendOnEnter: true,
+  mentionMode: 'full',
+  chatScale: 1,
+  exportReasoning: false,
+  exportToolCalls: false,
   customInstructions: '',
   autoRoute: false,
   webSearchEndpoint: '',
@@ -834,6 +876,11 @@ function stringValue(value: unknown, fallback: string, max: number): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
   return trimmed ? trimmed.slice(0, max) : fallback
+}
+
+/** A text field where blank is a real answer — a title prompt that means “use the built-in one”. */
+function stringAllowEmpty(value: unknown, fallback: string, max: number): string {
+  return typeof value === 'string' ? value.slice(0, max) : fallback
 }
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
@@ -919,6 +966,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
       ? (raw.timezone as string)
       : DEFAULT_ASSISTANT_SETTINGS.timezone,
     activeModelId: typeof raw.activeModelId === 'string' && raw.activeModelId ? raw.activeModelId.slice(0, 26) : null,
+    namingModelId: typeof raw.namingModelId === 'string' && raw.namingModelId ? raw.namingModelId.slice(0, 26) : null,
+    titlePrompt: stringAllowEmpty(raw.titlePrompt, DEFAULT_ASSISTANT_SETTINGS.titlePrompt, MAX_TITLE_PROMPT_CHARS),
+    autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
+    requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
@@ -932,6 +983,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
     sendOnEnter: booleanValue(raw.sendOnEnter, DEFAULT_ASSISTANT_SETTINGS.sendOnEnter),
+    mentionMode: enumValue(raw.mentionMode, ['full', 'light'] as const, DEFAULT_ASSISTANT_SETTINGS.mentionMode),
+    chatScale: numberInRange(raw.chatScale, 0.7, 1.5, DEFAULT_ASSISTANT_SETTINGS.chatScale),
+    exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
+    exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
     webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
@@ -2094,6 +2149,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'update_memory', labelKey: 'assistant.tool.update_memory', permission: 'write' },
   { name: 'forget_memory', labelKey: 'assistant.tool.forget_memory', approvalKey: 'assistant.approval.forget_memory', permission: 'destructive' },
   { name: 'search_notes', labelKey: 'assistant.tool.search_notes', permission: 'read' },
+  { name: 'search_knowledge', labelKey: 'assistant.tool.search_knowledge', permission: 'read' },
   { name: 'list_notes', labelKey: 'assistant.tool.list_notes', permission: 'read' },
   { name: 'count_notes', labelKey: 'assistant.tool.count_notes', permission: 'read' },
   { name: 'list_folders', labelKey: 'assistant.tool.list_folders', permission: 'read' },
@@ -2634,6 +2690,8 @@ export interface Project {
   id: string
   name: string
   description: string
+  /** The Agent's mark, in the same stored forms a provider or model icon uses. Empty means inferred. */
+  icon: string
   /**
    * What every conversation inside this project is answered under.
    *
@@ -2649,6 +2707,12 @@ export interface Project {
    */
   noteScope: string[]
   /**
+   * Folders this project must not read, even when a parent folder is in `noteScope`.
+   *
+   * Exclusion wins over inclusion, and the account's own scope is the ceiling both are applied to.
+   */
+  excludeScope: string[]
+  /**
    * The pages this project reads by name, as note ids.
    *
    * Beside `noteScope` rather than inside it, because the two select at a different grain and one merged
@@ -2660,12 +2724,51 @@ export interface Project {
   noteIds: string[]
   /** The model this project prefers, when the reader has said so. */
   modelId: string | null
+  /**
+   * Names of the built-in tools this Agent may use.
+   *
+   * Empty with `toolsLimited` off means "inherit the account's tool policy". An explicit empty list with
+   * `toolsLimited` on means "no tools"; the second boolean exists because those two states cannot be told
+   * apart in a JSON array otherwise.
+   */
+  tools: string[]
+  toolsLimited: boolean
+  /** Per-tool approval overrides for this Agent; tools not named follow the account's class policy. */
+  toolOverrides: Record<string, AssistantToolMode>
+  /** The reader's saved skills this Agent injects or may load. */
+  skillIds: string[]
+  /** Whether the note on screen rides in the prompt. */
+  focusSync: boolean
+  /** Whether the current time rides in the prompt. */
+  timeAware: boolean
+  /** Whether a root `AGENTS.md` / `CLAUDE.md` note is read as project instructions. */
+  readProjectInstructions: boolean
+  /** Order in the Agent picker; lower first, ties fall back to name. */
+  position: number
   createdAt: number
   updatedAt: number
 }
 
-export interface Automation {
+/**
+ * A named slice of the notebook's AI index.
+ *
+ * It owns no vectors: the same account-wide embeddings answer every knowledge base, and the scope below
+ * decides which hits may be returned. That is what lets a reader split "work" from "reading" without
+ * paying for a second index, and why changing a scope never requires a rebuild.
+ */
+export interface KnowledgeBase {
   id: string
+  name: string
+  description: string
+  /** Folders whose notes belong to this knowledge base. Empty means the whole notebook. */
+  includeScope: string[]
+  /** Folders excluded even when a parent is included. */
+  excludeScope: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Automation {  id: string
   name: string
   kind: AutomationKind
   message: string

@@ -69,12 +69,15 @@ function scopeClause(scope: NoteScope, inList: (values: readonly string[]) => st
   if (!scope.restricted) return ''
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]
+  const excluded = [...(scope.excludeFolderIds ?? [])]
   // Restricted to nothing is a real state — every folder the reader named has since been deleted — and
-  // reading it as "no scope was set" would hand back the whole vault.
-  if (!folders.length && !tags.length) return ' AND 0'
+  // reading it as "no scope was set" would hand back the whole vault. An exclusion is different: it is a
+  // whole-vault scope minus some folders, so it is a predicate rather than "nothing".
+  if (!folders.length && !tags.length && !excluded.length) return ' AND 0'
   const parts: string[] = []
   if (folders.length) parts.push(`n.folder_id IN (${inList(folders)})`)
   if (tags.length) parts.push(`EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND nt.tag_id IN (${inList(tags)}))`)
+  if (excluded.length) parts.push(`(n.folder_id IS NULL OR n.folder_id NOT IN (${inList(excluded)}))`)
   return ` AND ${parts.join(' AND ')}`
 }
 
@@ -336,18 +339,22 @@ export async function listVaultFolders(
   const folderFilter = scope.restricted && scope.folderIds.size
     ? ` AND n.folder_id IN (${counts.inList([...scope.folderIds])})`
     : ''
+  const excluded = [...(scope.excludeFolderIds ?? [])]
+  const excludeFilter = scope.restricted && excluded.length
+    ? ` AND (n.folder_id IS NULL OR n.folder_id NOT IN (${counts.inList(excluded)}))`
+    : ''
   const scoped = scope.restricted && !scope.folderIds.size && scope.tagIds.size
     ? ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND nt.tag_id IN (${counts.inList([...scope.tagIds])}))`
     : ''
   const { results } = await db.prepare(
     `SELECT n.folder_id AS folder_id, COUNT(*) AS count FROM notes n
-      WHERE n.user_id = ?1 AND n.deleted_at IS NULL${folderFilter}${scoped}
+      WHERE n.user_id = ?1 AND n.deleted_at IS NULL${folderFilter}${excludeFilter}${scoped}
       GROUP BY n.folder_id`,
   ).bind(...counts.binds).all<{ folder_id: string | null, count: number }>()
   const byFolder = new Map((results ?? []).filter((row) => row.folder_id).map((row) => [row.folder_id!, row.count]))
-  const visible = scope.restricted && scope.folderIds.size
+  const visible = (scope.restricted && scope.folderIds.size
     ? rows.filter((row) => scope.folderIds.has(row.id))
-    : rows
+    : rows).filter((row) => !scope.excludeFolderIds?.has(row.id))
   // By path, which puts a parent above its children because a parent's path is a prefix of its child's,
   // and is the same order for the same vault whatever order the rows were written in.
   return visible
@@ -364,8 +371,12 @@ export async function listVaultTags(
 ): Promise<{ name: string, count: number }[]> {
   const counts = binder(userId)
   const { binds, inList } = counts
+  const excluded = [...(scope.excludeFolderIds ?? [])]
   const folderFilter = scope.restricted && scope.folderIds.size
     ? ` AND n.folder_id IN (${inList([...scope.folderIds])})`
+    : ''
+  const excludeFilter = scope.restricted && excluded.length
+    ? ` AND (n.folder_id IS NULL OR n.folder_id NOT IN (${inList(excluded)}))`
     : ''
   const tagFilter = scope.restricted && scope.tagIds.size
     ? ` AND t.id IN (${inList([...scope.tagIds])})`
@@ -374,7 +385,7 @@ export async function listVaultTags(
     `SELECT t.name AS name, COUNT(n.id) AS count
        FROM tags t
        LEFT JOIN note_tags nt ON nt.tag_id = t.id
-       LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id AND n.deleted_at IS NULL${folderFilter}
+       LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id AND n.deleted_at IS NULL${folderFilter}${excludeFilter}
       WHERE t.user_id = ?1${tagFilter}
       GROUP BY t.id, t.name
       ORDER BY count DESC, t.name COLLATE NOCASE ASC LIMIT ?${binds.length + 1}`,

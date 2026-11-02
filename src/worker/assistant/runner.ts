@@ -14,7 +14,7 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, ToolActivity } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -178,6 +178,10 @@ const MAX_FALLBACK_MODELS = 3
 const TOOL_CONCURRENCY = 4
 
 const MAX_RELEVANT_MEMORIES = 8
+/** How much of an Agent's saved skill text rides in the standing prompt. */
+const PROJECT_SKILLS_CHAR_CAP = 12_000
+/** How much of a root `AGENTS.md` / `CLAUDE.md` note rides in the standing prompt. */
+const PROJECT_INSTRUCTIONS_CHAR_CAP = 6_000
 const ALWAYS_INCLUDE_PREFERENCES = 4
 const VERDICT_RELATIONSHIPS = ['supersedes', 'refines', 'contradicts', 'complements', 'unrelated']
 
@@ -417,6 +421,8 @@ export class AssistantRunner {
   private signedKeyIds = new Map<string, string>()
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
+  /** The caller's cancellation, kept so each attempt can combine it with its own timeout. */
+  private turnSignal: AbortSignal | null = null
   /** The note the reader had open when the thread began, recorded on the conversation it makes. */
   private originNoteId: string | null = null
   /** The lease this turn is running under: the caller's, or one this turn took for a new conversation. */
@@ -450,6 +456,7 @@ export class AssistantRunner {
 
   async *chat(input: TurnInput): AsyncGenerator<ChatStreamEvent> {
     const message = input.message.trim()
+    this.turnSignal = input.signal
     this.turnNoTools = input.noTools === true
     this.turnModelId = input.modelId ?? null
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
@@ -789,11 +796,15 @@ export class AssistantRunner {
       }
       const context = await this.contextLabels()
       const project = await this.project()
+      const projectSkills = await this.projectSkills()
+      const projectInstructionsFile = await this.projectInstructionsFile()
+      const projectInstructions = [project?.instructions, projectInstructionsFile].filter(Boolean).join('\n\n')
       system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
         timezone: this.settings.timezone,
         localTime: describeLocalTime(new Date(), this.settings.timezone),
+        timeAware: project?.timeAware !== false,
         autoMemory: this.settings.autoMemory,
         memories,
         conversationSummary: conversation.summary,
@@ -802,10 +813,11 @@ export class AssistantRunner {
         noteTagLabels: this.scopeTagLabels(),
         pinnedNotes: await this.pinnedNotes(),
         turnTools: this.turnTools,
-        openNote: context.openNote,
+        openNote: project?.focusSync === false ? null : context.openNote,
         browsingFolder: context.browsingFolder,
         artifact: this.artifactPromptContext(),
-        project: project?.instructions ? { name: project.name, instructions: project.instructions } : null,
+        project: projectInstructions ? { name: project?.name ?? '', instructions: projectInstructions } : null,
+        skills: projectSkills,
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
       })
@@ -877,7 +889,7 @@ export class AssistantRunner {
         // The first step is where a model may be swapped for one further down the chain; every step after
         // it is answered by whichever model got through, so a reply never changes voice halfway.
         const candidates = steps === 1 ? chain : [served.current]
-        for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey) => ({
+        for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey, signal) => ({
           baseUrl: entry.call.baseUrl,
           apiKey,
           model: entry.model.model,
@@ -895,7 +907,7 @@ export class AssistantRunner {
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
           retry: this.retryFor(entry.provider),
-          signal: input.signal,
+          signal,
         }), calls, usage)) {
           if (event.type === 'text') {
             text += event.delta ?? ''
@@ -1169,7 +1181,7 @@ export class AssistantRunner {
   private async *stepWithFailover(
     candidates: readonly ResolvedCall[],
     served: { current: ResolvedCall },
-    requestFor: (entry: ResolvedCall, apiKey: string) => UpstreamRequest,
+    requestFor: (entry: ResolvedCall, apiKey: string, signal: AbortSignal) => UpstreamRequest,
     calls: ToolCallRecord[],
     usage: { inputTokens: number, outputTokens: number },
   ): AsyncGenerator<ChatStreamEvent> {
@@ -1181,27 +1193,74 @@ export class AssistantRunner {
       const truncatedBefore = this.turnTruncated
       const blockedBefore = this.turnBlocked
       let spoke = false
-      try {
-        const apiKey = await this.signKey(entry.provider)
-        for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey), attemptCalls, attemptUsage)) {
-          spoke = true
-          yield event
+      // One recovery attempt per entry, and only before a word has been streamed: a failed request that
+      // already showed text cannot be taken back, so the reader is not shown two versions of the same
+      // answer. The retry is still a stream; the vendor's non-stream shape has no door in this runner.
+      for (let attempt = 1; attempt <= (this.settings.autoRecover ? 2 : 1); attempt++) {
+        const timed = this.attemptSignal()
+        try {
+          const apiKey = await this.signKey(entry.provider)
+          for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey, timed.signal), attemptCalls, attemptUsage)) {
+            spoke = true
+            yield event
+          }
+          // Only a call that got through is charged, and only its calls and counters are kept.
+          usage.inputTokens += attemptUsage.inputTokens
+          usage.outputTokens += attemptUsage.outputTokens
+          calls.push(...attemptCalls)
+          served.current = entry
+          return
+        } catch (error) {
+          failure = error
+          // A reader's stop is not a failure to retry; neither is a failure after words were shown.
+          if (this.turnSignal?.aborted || spoke) throw error
+          if (attempt === 1 && timed.timedOut() && this.settings.autoRecover) {
+            // The recovery attempt is the next loop iteration; the rollback happens before it so a
+            // trace or source list from the timed-out attempt cannot be attributed to the retry.
+            this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+            continue
+          }
+          if (!worthAnotherModel(error)) throw error
+          this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+          break
+        } finally {
+          timed.clear()
         }
-        // Only a call that got through is charged, and only its calls and counters are kept.
-        usage.inputTokens += attemptUsage.inputTokens
-        usage.outputTokens += attemptUsage.outputTokens
-        calls.push(...attemptCalls)
-        served.current = entry
-        return
-      } catch (error) {
-        failure = error
-        if (spoke || !worthAnotherModel(error)) throw error
-        for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
-        this.turnTruncated = truncatedBefore
-        this.turnBlocked = blockedBefore
       }
     }
     throw failure ?? new Error('No model in the fallback chain could answer.')
+  }
+
+  /**
+   * One attempt's cancellation: the reader's own stop, plus the configured request timeout.
+   *
+   * The two are combined by hand rather than with `AbortSignal.any` because the timeout has to be
+   * distinguishable from a stop: a stop is final, a timeout may be retried once.
+   */
+  private attemptSignal(): { signal: AbortSignal, clear: () => void, timedOut: () => boolean } {
+    const controller = new AbortController()
+    let timedOut = false
+    const onAbort = () => controller.abort(this.turnSignal?.reason)
+    if (this.turnSignal?.aborted) onAbort()
+    else this.turnSignal?.addEventListener('abort', onAbort, { once: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort(new Error('The request timed out.'))
+    }, this.settings.requestTimeoutMs)
+    return {
+      signal: controller.signal,
+      clear: () => {
+        clearTimeout(timer)
+        this.turnSignal?.removeEventListener('abort', onAbort)
+      },
+      timedOut: () => timedOut,
+    }
+  }
+
+  private rollbackAttempt(sourcesBefore: Set<string>, truncatedBefore: boolean, blockedBefore: UpstreamStopReason | null): void {
+    for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
+    this.turnTruncated = truncatedBefore
+    this.turnBlocked = blockedBefore
   }
 
   /**
@@ -1512,14 +1571,15 @@ export class AssistantRunner {
     signal: AbortSignal
   }): Promise<{ title: string | null, suggestions: string[] } | null> {
     const { system, user } = namingPrompt(this.settings.language, args.question, args.answer)
+    const titleSystem = this.settings.titlePrompt.trim() || system
     let text: string
     try {
       // Budget, key, deadline and metering are the one-shot path's job. A call with no request left on
       // the day's ceiling, or one the provider refuses, yields nothing and leaves the derived title
       // standing — the answer is already filed, so this is the honest failure for a nicety.
       const answer = await runOneShot(this.store, this.settings, {
-        modelId: args.modelId,
-        system,
+        modelId: this.settings.namingModelId ?? args.modelId,
+        system: titleSystem,
         user,
         maxOutputTokens: NAMING_MAX_OUTPUT_TOKENS,
         temperature: 0,
@@ -1565,6 +1625,14 @@ export class AssistantRunner {
    */
   private async resolveModel(input: TurnInput) {
     if (this.turnModelId) return loadModelAndProvider(this.store, this.settings, this.turnModelId)
+    // The Agent's own model is the standing choice for every conversation filed under it. A model the
+    // reader deleted since is not a reason to refuse the turn: the account default answers instead, and
+    // the settings screen still shows the broken pointer that can be fixed.
+    const project = await this.project()
+    if (project?.modelId) {
+      const chosen = await loadModelAndProvider(this.store, this.settings, project.modelId)
+      if (chosen.model && chosen.provider) return chosen
+    }
     if (!this.settings.autoRoute) return loadModelAndProvider(this.store, this.settings)
     if ((input.attachments?.length ?? 0) > 0) return loadModelAndProvider(this.store, this.settings)
     const models = await this.store.listModels()
@@ -1627,7 +1695,7 @@ export class AssistantRunner {
       if (entries[index]!.role === 'user') { lastUser = entries[index]; break }
     }
     if (lastUser) {
-      const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
+      const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope(), this.settings.mentionMode)
       const subscriptionBlock = await resolveSubscriptionMentions(this.deps.env.DB, this.store.userId, lastUser.content)
       // The plan on screen is carried even when the sentence names nothing: "what will this cost me
       // this year" is a question about the row the reader is looking at, not a mention of one.
@@ -1774,6 +1842,7 @@ export class AssistantRunner {
         ? base.filter((id) => project.scopeIds.includes(id))
         : base
       this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, effective, {
+        excludeFolderIds: project?.excludeIds ?? [],
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
         // The note the reader had open, the notes they pinned as chips, and the pages the project names.
@@ -1802,8 +1871,21 @@ export class AssistantRunner {
    * A project that says nothing at all — no brief, no folder, no page — contributes nothing and reads as
    * absent rather than as an empty selection.
    */
-  private projectPromise: Promise<{ name: string, instructions: string, scopeIds: string[], pinIds: string[] } | null> | null = null
-
+  private projectPromise: Promise<{
+    name: string
+    instructions: string
+    scopeIds: string[]
+    excludeIds: string[]
+    pinIds: string[]
+    modelId: string | null
+    tools: string[]
+    toolsLimited: boolean
+    toolOverrides: Record<string, AssistantToolMode>
+    skillIds: string[]
+    focusSync: boolean
+    timeAware: boolean
+    readProjectInstructions: boolean
+  } | null> | null = null
   private project() {
     if (!this.projectPromise) {
       this.projectPromise = (async () => {
@@ -1812,11 +1894,91 @@ export class AssistantRunner {
         const project = await this.store.getProject(projectId)
         if (!project) return null
         const brief = project.instructions.trim()
-        if (!project.noteScope.length && !project.noteIds.length && !brief) return null
-        return { name: project.name, instructions: brief, scopeIds: project.noteScope, pinIds: project.noteIds }
+        // A project that only carries a name or a description changes nothing about a turn; returning it
+        // would make the prompt and the tool filter walk a row whose every field is empty.
+        if (
+          !brief && !project.noteScope.length && !project.excludeScope.length && !project.noteIds.length
+          && !project.modelId && !project.tools.length && !project.skillIds.length
+          && project.focusSync && project.timeAware && !project.readProjectInstructions
+        ) return null
+        return {
+          name: project.name,
+          instructions: brief,
+          scopeIds: project.noteScope,
+          excludeIds: project.excludeScope,
+          pinIds: project.noteIds,
+          modelId: project.modelId,
+          tools: project.tools,
+          toolsLimited: project.toolsLimited,
+          toolOverrides: project.toolOverrides,
+          skillIds: project.skillIds,
+          focusSync: project.focusSync,
+          timeAware: project.timeAware,
+          readProjectInstructions: project.readProjectInstructions,
+        }
       })()
     }
     return this.projectPromise
+  }
+
+  /**
+   * The saved skills this Agent carries, as prompt text.
+   *
+   * A skill is the reader's own words plus an arrangement; the arrangement (tools, folders, model) is
+   * applied by the composer, and the words are what belong in the standing prompt. The total is capped
+   * so an Agent with a dozen long skills does not spend the whole window before the question is read.
+   */
+  private projectSkillsPromise: Promise<Array<{ title: string, content: string }>> | null = null
+
+  private projectSkills() {
+    if (!this.projectSkillsPromise) {
+      this.projectSkillsPromise = (async () => {
+        const project = await this.project()
+        if (!project?.skillIds.length) return []
+        const out: Array<{ title: string, content: string }> = []
+        let used = 0
+        for (const id of project.skillIds) {
+          const skill = await this.store.getSkill(id)
+          if (!skill) continue
+          const body = skill.content.trim()
+          if (!body) continue
+          const room = PROJECT_SKILLS_CHAR_CAP - used
+          if (room <= 0) break
+          const clipped = body.slice(0, room)
+          out.push({ title: skill.title || 'Skill', content: clipped })
+          used += clipped.length
+        }
+        return out
+      })()
+    }
+    return this.projectSkillsPromise
+  }
+
+  /**
+   * A root `AGENTS.md` / `CLAUDE.md` note, when the Agent asked to read project instructions.
+   *
+   * This deployment has no filesystem; the project convention is carried by a root note instead. Only the
+   * exact root title is read, never a folder search, so enabling the switch cannot quietly pull an
+   * unrelated note with the same name into every prompt.
+   */
+  private projectInstructionsPromise: Promise<string | null> | null = null
+
+  private projectInstructionsFile() {
+    if (!this.projectInstructionsPromise) {
+      this.projectInstructionsPromise = (async () => {
+        const project = await this.project()
+        if (!project?.readProjectInstructions) return null
+        const row = await this.deps.env.DB.prepare(
+          `SELECT content FROM notes
+            WHERE user_id = ?1 AND folder_id IS NULL AND deleted_at IS NULL
+              AND lower(title) IN ('agents.md', 'claude.md')
+            ORDER BY updated_at DESC LIMIT 1`,
+        ).bind(this.store.userId).first<{ content: string }>()
+        const body = row?.content?.trim()
+        return body ? body.slice(0, PROJECT_INSTRUCTIONS_CHAR_CAP) : null
+      })()
+    }
+    return this.projectInstructionsPromise
   }
 
   /**
@@ -1935,6 +2097,7 @@ export class AssistantRunner {
   private async toolContext(conversationId?: string, generatedAttachments?: string[]): Promise<ToolContext> {
     const bounds = localDayBounds(this.settings.timezone)
     const store = this.store
+    const project = await this.project()
     return {
       store,
       env: this.deps.env,
@@ -1945,6 +2108,13 @@ export class AssistantRunner {
       dayEnd: bounds.end,
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
+      ...(project
+        ? {
+            projectTools: project.tools,
+            projectToolsLimited: project.toolsLimited,
+            projectToolOverrides: project.toolOverrides,
+          }
+        : {}),
       memoryHistory: this.memoryHistory,
       memoryScope: this.memoryScope,
       automations: this.automations,
@@ -2025,6 +2195,7 @@ export class AssistantRunner {
    * reaches for a write tool.
    */
   async runScheduledPrompt(prompt: string, signal: AbortSignal): Promise<string> {
+    this.turnSignal = signal
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) throw ApiError.badRequest('No model is configured for the assistant.')
     const limits = this.settings.limits
@@ -2065,7 +2236,7 @@ export class AssistantRunner {
     for (;;) {
       steps++
       const calls: ToolCallRecord[] = []
-      for await (const event of this.stepWithFailover(steps === 1 ? chain : [served.current], served, (entry, apiKey) => ({
+      for await (const event of this.stepWithFailover(steps === 1 ? chain : [served.current], served, (entry, apiKey, attemptSignal) => ({
         baseUrl: entry.call.baseUrl,
         apiKey,
         model: entry.model.model,
@@ -2077,7 +2248,7 @@ export class AssistantRunner {
         reasoning: entry.model.reasoning,
         reasoningDialect: entry.call.reasoningDialect,
         retry: this.retryFor(entry.provider),
-        signal,
+        signal: attemptSignal,
       }), calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
       }

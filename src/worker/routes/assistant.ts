@@ -37,6 +37,8 @@ import {
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
+  ASSISTANT_TOOL_BY_NAME,
+  ASSISTANT_TOOL_MODES,
   parseCustomParams,
   MAX_PRICE_PERIODS,
   MAX_PROJECT_NOTES,
@@ -73,6 +75,7 @@ import {
   type AssistantProtocol,
   type AssistantSettings,
   type AssistantPricePeriod,
+  type AssistantToolMode,
   type AssistantTurnScope,
   type MemoryReviewAction,
   type AssistantKeyUsage,
@@ -2086,29 +2089,92 @@ async function projectNoteIds(s: AssistantStore, value: unknown): Promise<string
   return ids
 }
 
+/** Folder ids an Agent may read or exclude. Shape only; the scope resolver owns ownership. */
+function projectFolderIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
+}
+
+/**
+ * The built-in tools an Agent may use.
+ *
+ * Unknown names are refused rather than dropped: a name that is not in this build's catalog is either a
+ * typo or a tool that was removed, and either way a silently shortened list would read as an Agent that
+ * can do less than its editor shows.
+ */
+function projectTools(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const names: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !ASSISTANT_TOOL_BY_NAME.has(entry)) {
+      throw ApiError.badRequest('An Agent can only name built-in tools this build knows.')
+    }
+    if (!names.includes(entry)) names.push(entry)
+  }
+  return names
+}
+
+function projectToolOverrides(value: unknown): Record<string, AssistantToolMode> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(value as Record<string, unknown>)) {
+    if (!ASSISTANT_TOOL_BY_NAME.has(name)) throw ApiError.badRequest(`Unknown tool override: ${name}`)
+    if (typeof mode !== 'string' || !ASSISTANT_TOOL_MODES.includes(mode as AssistantToolMode)) {
+      throw ApiError.badRequest(`Unknown approval mode for ${name}.`)
+    }
+    out[name] = mode as AssistantToolMode
+  }
+  return out
+}
+
+async function projectSkillIds(s: AssistantStore, value: unknown): Promise<string[]> {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const entry of value) {
+    if (!isValidId(entry) || !(await s.getSkill(entry))) {
+      throw ApiError.badRequest('That Agent names a skill you do not have.')
+    }
+    if (!ids.includes(entry)) ids.push(entry)
+  }
+  return ids
+}
+
+function projectIcon(value: unknown): string {
+  const text = optionalText(value, 4096)
+  if (!text) return ''
+  return parseAssistantIcon(text) ?? ''
+}
+
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)
-  const body = await readJson<{
-    name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown,
-  }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const name = text(body.name, 200)
   const noteIds = await projectNoteIds(s, body.noteIds)
+  const skillIds = await projectSkillIds(s, body.skillIds)
   const existing = await s.findProjectByName(name)
   if (existing) return c.json({ project: existing })
   const project = await s.createProject({
     name,
     description: optionalText(body.description, 2000) ?? '',
+    icon: projectIcon(body.icon),
     // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
     instructions: optionalText(body.instructions, MAX_MESSAGE_CHARS) ?? '',
-    noteScope: Array.isArray(body.noteScope)
-      ? body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
-      : [],
+    noteScope: projectFolderIds(body.noteScope),
+    excludeScope: projectFolderIds(body.excludeScope),
     noteIds,
     modelId: body.modelId === null
       ? null
       : typeof body.modelId === 'string' && isValidId(body.modelId)
         ? body.modelId
         : null,
+    tools: projectTools(body.tools),
+    toolsLimited: body.toolsLimited === true,
+    toolOverrides: projectToolOverrides(body.toolOverrides),
+    skillIds,
+    focusSync: body.focusSync !== false,
+    timeAware: body.timeAware !== false,
+    readProjectInstructions: body.readProjectInstructions === true,
+    position: typeof body.position === 'number' && Number.isFinite(body.position) ? body.position : 0,
   })
   return c.json({ project }, 201)
 })
@@ -2116,21 +2182,32 @@ assistantRoutes.post('/projects', async (c) => {
 assistantRoutes.patch('/projects/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   // Checked before anything is written, so a list naming one page the account does not have leaves the row
   // exactly as it was rather than half-saved.
   const noteIds = body.noteIds !== undefined ? await projectNoteIds(s, body.noteIds) : undefined
+  const skillIds = body.skillIds !== undefined ? await projectSkillIds(s, body.skillIds) : undefined
   const project = await s.updateProject(id, {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
+    ...(body.icon !== undefined ? { icon: projectIcon(body.icon) } : {}),
     // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
     ...(body.instructions !== undefined ? { instructions: optionalTextAllowEmpty(body.instructions, MAX_MESSAGE_CHARS) } : {}),
-    ...(Array.isArray(body.noteScope)
-      ? { noteScope: body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12) }
-      : {}),
+    ...(body.noteScope !== undefined ? { noteScope: projectFolderIds(body.noteScope) } : {}),
+    ...(body.excludeScope !== undefined ? { excludeScope: projectFolderIds(body.excludeScope) } : {}),
     ...(noteIds !== undefined ? { noteIds } : {}),
     ...(body.modelId !== undefined
       ? { modelId: body.modelId === null ? null : isValidId(body.modelId) ? body.modelId : undefined }
+      : {}),
+    ...(body.tools !== undefined ? { tools: projectTools(body.tools) } : {}),
+    ...(body.toolsLimited !== undefined ? { toolsLimited: body.toolsLimited === true } : {}),
+    ...(body.toolOverrides !== undefined ? { toolOverrides: projectToolOverrides(body.toolOverrides) } : {}),
+    ...(skillIds !== undefined ? { skillIds } : {}),
+    ...(body.focusSync !== undefined ? { focusSync: body.focusSync !== false } : {}),
+    ...(body.timeAware !== undefined ? { timeAware: body.timeAware !== false } : {}),
+    ...(body.readProjectInstructions !== undefined ? { readProjectInstructions: body.readProjectInstructions === true } : {}),
+    ...(body.position !== undefined && typeof body.position === 'number' && Number.isFinite(body.position)
+      ? { position: body.position }
       : {}),
   })
   if (!project) throw ApiError.notFound('Project not found')
@@ -2142,6 +2219,54 @@ assistantRoutes.delete('/projects/:id', async (c) => {
   const id = requiredId(c.req.param('id'))
   if (!(await s.getProject(id))) throw ApiError.notFound('Project not found')
   await s.deleteProject(id)
+  return c.json({ deleted: true })
+})
+
+// ----------------------------------------------------------- knowledge bases
+
+const MAX_KNOWLEDGE_BASES = 40
+const MAX_KNOWLEDGE_NAME_CHARS = 120
+const MAX_KNOWLEDGE_DESCRIPTION_CHARS = 2_000
+
+assistantRoutes.get('/knowledge-bases', async (c) => c.json({ knowledgeBases: await store(c).listKnowledgeBases() }))
+
+assistantRoutes.post('/knowledge-bases', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const name = text(body.name, MAX_KNOWLEDGE_NAME_CHARS)
+  const existing = await s.findKnowledgeBaseByName(name)
+  if (existing) return c.json({ knowledgeBase: existing })
+  if ((await s.listKnowledgeBases()).length >= MAX_KNOWLEDGE_BASES) {
+    throw ApiError.badRequest(`An account can keep at most ${MAX_KNOWLEDGE_BASES} knowledge bases.`)
+  }
+  const knowledgeBase = await s.createKnowledgeBase({
+    name,
+    description: optionalText(body.description, MAX_KNOWLEDGE_DESCRIPTION_CHARS) ?? '',
+    includeScope: projectFolderIds(body.includeScope),
+    excludeScope: projectFolderIds(body.excludeScope),
+  })
+  return c.json({ knowledgeBase }, 201)
+})
+
+assistantRoutes.patch('/knowledge-bases/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const knowledgeBase = await s.updateKnowledgeBase(id, {
+    ...(body.name !== undefined ? { name: text(body.name, MAX_KNOWLEDGE_NAME_CHARS) } : {}),
+    ...(body.description !== undefined ? { description: optionalTextAllowEmpty(body.description, MAX_KNOWLEDGE_DESCRIPTION_CHARS) } : {}),
+    ...(body.includeScope !== undefined ? { includeScope: projectFolderIds(body.includeScope) } : {}),
+    ...(body.excludeScope !== undefined ? { excludeScope: projectFolderIds(body.excludeScope) } : {}),
+  })
+  if (!knowledgeBase) throw ApiError.notFound('Knowledge base not found')
+  return c.json({ knowledgeBase })
+})
+
+assistantRoutes.delete('/knowledge-bases/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getKnowledgeBase(id))) throw ApiError.notFound('Knowledge base not found')
+  await s.deleteKnowledgeBase(id)
   return c.json({ deleted: true })
 })
 

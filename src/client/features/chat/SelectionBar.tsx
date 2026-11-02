@@ -12,6 +12,7 @@ import { t } from '../../lib/i18n'
 import { copyText } from '../../lib/clipboard'
 import { Button, IconButton } from '../../components/primitives'
 import { useUi } from '../../store/ui'
+import { useAssistant } from './assistant-store'
 import { downloadTranscript } from './transcript'
 
 export interface MessageSelection {
@@ -70,7 +71,11 @@ export function SelectionBar({ picked, title, onShare, onDelete, onExit }: {
         variant="ghost"
         disabled={!count}
         onClick={() => {
-          downloadTranscript(picked, title)
+          const settings = useAssistant.getState().settings
+          downloadTranscript(picked, title, {
+            reasoning: settings?.exportReasoning === true,
+            toolCalls: settings?.exportToolCalls === true,
+          })
           toast({ title: t('assistant.chat.select_exported', { count }), tone: 'success' })
         }}
       >

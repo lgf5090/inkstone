@@ -37,6 +37,8 @@ export interface SystemPromptContext {
   timezone: string
   /** Already rendered in the reader's timezone; the prompt never asks the model to convert. */
   localTime: string
+  /** An Agent may turn the clock off; default is on. */
+  timeAware?: boolean
   autoMemory: boolean
   memories: PromptMemory[]
   conversationSummary?: string | null
@@ -60,6 +62,8 @@ export interface SystemPromptContext {
   artifact?: { title: string, version: number, content: string, truncated: boolean } | null
   /** The project this conversation belongs to, whose brief and knowledge it inherits. */
   project?: { name: string, instructions: string } | null
+  /** The saved skill texts an Agent carries; the arrangement around them is applied elsewhere. */
+  skills?: Array<{ title: string, content: string }>
   /** The folder the notebook was filtered to, named as a path. */
   browsingFolder?: string | null
   scheduled?: boolean
@@ -80,7 +84,7 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     context.customInstructions?.trim()
       ? fill(catalog.custom_instructions, { instructions: context.customInstructions.trim() })
       : '',
-    fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
+    context.timeAware === false ? '' : fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
     context.noteScope.length
       ? fill(catalog.note_scope_folders, { folders: (context.noteScopeLabels?.length ? context.noteScopeLabels : context.noteScope).join(', ') })
       : catalog.note_scope_all,
@@ -105,6 +109,11 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     // turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.
     context.project
       ? fill(catalog.project_brief, { name: context.project.name, instructions: context.project.instructions })
+      : '',
+    context.skills?.length
+      ? fill(catalog.project_skills, {
+        skills: context.skills.map((skill) => `## ${skill.title}\n${skill.content}`).join('\n\n'),
+      })
       : '',
     context.artifact
       ? [

@@ -10,7 +10,7 @@
  */
 
 import type { AssistantImportSummary, AssistantSettings } from '@shared/assistant'
-import { clipReasoning, normalizeAssistantSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
+import { ASSISTANT_TOOL_BY_NAME, ASSISTANT_TOOL_MODES, clipReasoning, normalizeAssistantSettings, TASK_PRIORITIES, TASK_STATUSES } from '@shared/assistant'
 import { parseScheduleSpec } from '@shared/assistant-schedule'
 import {
   normalizeReminderTimes,
@@ -201,6 +201,16 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
     const instructions = textValue(project.instructions, MAX_MESSAGE_CHARS)
     const noteScope = await importProjectScope(store, project.note_scope)
     const noteIds = await importProjectNotes(store, project.note_ids)
+    const excludeScope = await importProjectScope(store, project.exclude_scope)
+    const skillIds = await importProjectSkills(store, project.skill_ids)
+    const tools = projectToolNames(project.tools)
+    const toolOverrides = projectToolOverrides(project.tool_overrides)
+    const icon = textValue(project.icon, 4096)
+    const toolsLimited = numberValue(project.tools_limited) === 1
+    const focusSync = project.focus_sync === undefined ? true : numberValue(project.focus_sync) === 1
+    const timeAware = project.time_aware === undefined ? true : numberValue(project.time_aware) === 1
+    const readProjectInstructions = numberValue(project.read_project_instructions) === 1
+    const position = numberValue(project.position)
     const existing = await store.getProject(id)
     if (existing) {
       // The rule every row here follows: a newer local edit is never replaced by an older copy.
@@ -216,9 +226,19 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
       await store.importUpdate('chat_projects', id, {
         name: nextName,
         description: textValue(project.description, 2000),
+        icon,
         instructions,
         note_scope: JSON.stringify(noteScope),
+        exclude_scope: JSON.stringify(excludeScope),
         note_ids: JSON.stringify(noteIds),
+        tools: JSON.stringify(tools),
+        tools_limited: toolsLimited ? 1 : 0,
+        tool_overrides: JSON.stringify(toolOverrides),
+        skill_ids: JSON.stringify(skillIds),
+        focus_sync: focusSync ? 1 : 0,
+        time_aware: timeAware ? 1 : 0,
+        read_project_instructions: readProjectInstructions ? 1 : 0,
+        position,
         updated_at: updatedAt,
       })
     } else {
@@ -231,9 +251,19 @@ async function mergeBackup(store: AssistantStore, data: Record<string, unknown>,
         id,
         name: importName,
         description: textValue(project.description, 2000),
+        icon,
         instructions,
         note_scope: JSON.stringify(noteScope),
+        exclude_scope: JSON.stringify(excludeScope),
         note_ids: JSON.stringify(noteIds),
+        tools: JSON.stringify(tools),
+        tools_limited: toolsLimited ? 1 : 0,
+        tool_overrides: JSON.stringify(toolOverrides),
+        skill_ids: JSON.stringify(skillIds),
+        focus_sync: focusSync ? 1 : 0,
+        time_aware: timeAware ? 1 : 0,
+        read_project_instructions: readProjectInstructions ? 1 : 0,
+        position,
         created_at: numberValue(project.created_at, Date.now()),
         updated_at: updatedAt,
       })
@@ -959,6 +989,45 @@ async function importProjectScope(store: AssistantStore, value: unknown): Promis
  */
 async function importProjectNotes(store: AssistantStore, value: unknown): Promise<string[]> {
   return jsonIds(value, MAX_PROJECT_NOTES, (id) => store.knownNote(id))
+}
+
+/** Saved skills an Agent names, kept only when this account still has them. */
+async function importProjectSkills(store: AssistantStore, value: unknown): Promise<string[]> {
+  return jsonIds(value, 100, async (id) => Boolean(await store.getSkill(id)))
+}
+
+function projectToolNames(value: unknown): string[] {
+  return jsonStrings(value, 200).filter((name) => ASSISTANT_TOOL_BY_NAME.has(name))
+}
+
+function projectToolOverrides(value: unknown): Record<string, string> {
+  let record: unknown = value
+  if (typeof value === 'string' && value) {
+    try { record = JSON.parse(value) } catch { return {} }
+  }
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return {}
+  const out: Record<string, string> = {}
+  for (const [name, mode] of Object.entries(record as Record<string, unknown>)) {
+    if (ASSISTANT_TOOL_BY_NAME.has(name) && typeof mode === 'string' && (ASSISTANT_TOOL_MODES as readonly string[]).includes(mode)) {
+      out[name] = mode
+    }
+  }
+  return out
+}
+
+/** A JSON string list off a backup row, with no id lookup; used for tool names and positions. */
+function jsonStrings(value: unknown, limit: number): string[] {
+  let entries: unknown[] = []
+  if (Array.isArray(value)) entries = value
+  else if (typeof value === 'string' && value) {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      entries = Array.isArray(parsed) ? parsed : []
+    } catch {
+      entries = []
+    }
+  }
+  return entries.filter((entry): entry is string => typeof entry === 'string').slice(0, limit)
 }
 
 /**

@@ -13,6 +13,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   Brain,
+  Bot,
   Check,
   Eye,
   FilePlus2,
@@ -34,7 +35,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope, Project } from '@shared/assistant'
 import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
 import { iconForModel } from '@shared/assistant-icons'
 import { cn } from '../../lib/cn'
@@ -206,8 +207,58 @@ export function ModelMenu({
   )
 }
 
-export const REASONING_LABELS: Record<AssistantReasoning, MessageKey> = {
-  auto: 'assistant.reasoning.auto',
+/**
+ * Which Agent answers this conversation.
+ *
+ * The project menu is the same row the conversation menu writes, moved to where the choice is made:
+ * an Agent is the standing brief plus its model, tools and knowledge, so switching one is a change to
+ * this thread and not to the account. "Default" is the absence of a project, never a row that could be
+ * deleted by accident.
+ */
+export function ProjectMenu({
+  projects,
+  value,
+  onPick,
+  disabled,
+}: {
+  projects: Project[]
+  value: string | null
+  onPick: (id: string | null) => void
+  disabled?: boolean
+}) {
+  const anchor = useMenuAnchor()
+  const active = value ? projects.find((project) => project.id === value) ?? null : null
+  const items: MenuItem[] = [
+    {
+      id: 'default',
+      label: t('assistant.composer.agent_default'),
+      icon: value === null ? <Check size={13} /> : <Bot size={13} />,
+      onSelect: () => onPick(null),
+    },
+    ...projects.map((project) => ({
+      id: project.id,
+      label: project.name,
+      icon: value === project.id ? <Check size={13} /> : <Bot size={13} />,
+      onSelect: () => onPick(project.id),
+    })),
+  ]
+  return (
+    <>
+      <ControlChip
+        refObject={anchor.ref}
+        label={t('assistant.composer.agent')}
+        value={active?.name ?? t('assistant.composer.agent_default')}
+        icon={<Bot size={12} />}
+        active={anchor.open}
+        disabled={disabled}
+        onClick={anchor.toggle}
+      />
+      <Menu anchor={anchor.ref} open={anchor.open} onClose={anchor.close} items={items} width={220} align="end" label={t('assistant.composer.agent')} searchable={projects.length > 8} />
+    </>
+  )
+}
+
+export const REASONING_LABELS: Record<AssistantReasoning, MessageKey> = {  auto: 'assistant.reasoning.auto',
   off: 'assistant.reasoning.off',
   minimal: 'assistant.reasoning.minimal',
   low: 'assistant.reasoning.low',

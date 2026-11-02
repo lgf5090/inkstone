@@ -23,6 +23,7 @@ import type {
   AssistantMemory,
   AssistantMessage,
   AssistantAnswerVersion,
+  KnowledgeBase,
   AssistantMcpCatalogEntry,
   AssistantMcpProblem,
   AssistantMcpServerDetail,
@@ -395,6 +396,7 @@ interface AssistantState {
   reviews: MemoryReview[]
 
   projects: Project[]
+  knowledgeBases: KnowledgeBase[]
 
   automations: AssistantAutomation[]
   runs: AssistantAutomationRun[]
@@ -663,6 +665,11 @@ interface AssistantState {
   loadProjects: () => Promise<void>
   addProject: (name: string) => Promise<void>
   removeProject: (id: string) => Promise<void>
+
+  loadKnowledgeBases: () => Promise<void>
+  createKnowledgeBase: (body: { name: string, description?: string, includeScope?: string[], excludeScope?: string[] }) => Promise<KnowledgeBase | null>
+  updateKnowledgeBase: (id: string, body: { name?: string, description?: string, includeScope?: string[], excludeScope?: string[] }) => Promise<KnowledgeBase | null>
+  deleteKnowledgeBase: (id: string) => Promise<void>
 
   loadAutomations: () => Promise<void>
   addAutomation: (body: AutomationCreateInput) => Promise<boolean>
@@ -1505,6 +1512,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   tasks: [],
   projects: [],
+  knowledgeBases: [],
 
   automations: [],
   runs: [],
@@ -3092,6 +3100,46 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.deleteProject(id)
       await get().loadProjects()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadKnowledgeBases: async () => {
+    try {
+      const result = await api.assistant.knowledgeBases()
+      set({ knowledgeBases: result.knowledgeBases })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createKnowledgeBase: async (body) => {
+    try {
+      const result = await api.assistant.createKnowledgeBase(body)
+      await get().loadKnowledgeBases()
+      return result.knowledgeBase
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  updateKnowledgeBase: async (id, body) => {
+    try {
+      const result = await api.assistant.updateKnowledgeBase(id, body)
+      await get().loadKnowledgeBases()
+      return result.knowledgeBase
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  deleteKnowledgeBase: async (id) => {
+    try {
+      await api.assistant.deleteKnowledgeBase(id)
+      await get().loadKnowledgeBases()
     } catch (error) {
       toast(error)
     }

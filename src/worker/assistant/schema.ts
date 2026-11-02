@@ -448,16 +448,42 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
     instructions TEXT NOT NULL DEFAULT '',
     note_scope TEXT NOT NULL DEFAULT '[]',
+    exclude_scope TEXT NOT NULL DEFAULT '[]',
     note_ids TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
+    tools TEXT NOT NULL DEFAULT '[]',
+    tools_limited INTEGER NOT NULL DEFAULT 0,
+    tool_overrides TEXT NOT NULL DEFAULT '{}',
+    skill_ids TEXT NOT NULL DEFAULT '[]',
+    focus_sync INTEGER NOT NULL DEFAULT 1,
+    time_aware INTEGER NOT NULL DEFAULT 1,
+    read_project_instructions INTEGER NOT NULL DEFAULT 0,
+    position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_projects_unique
      ON chat_projects(user_id, lower(name))`,
+
+  `CREATE TABLE IF NOT EXISTS chat_knowledge_bases (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    include_scope TEXT NOT NULL DEFAULT '[]',
+    exclude_scope TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_knowledge_bases_unique
+     ON chat_knowledge_bases(user_id, lower(name))`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_knowledge_bases_user
+     ON chat_knowledge_bases(user_id, updated_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS chat_automations (
     user_id TEXT NOT NULL,
@@ -754,6 +780,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_memory_embeddings',
   'chat_memory_reviews',
   'chat_projects',
+  'chat_knowledge_bases',
   'chat_automations',
   'chat_runs',
   'chat_notifications',
@@ -793,6 +820,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',
   'idx_chat_projects_unique',
+  'idx_chat_knowledge_bases_unique',
+  'idx_chat_knowledge_bases_user',
   'idx_chat_automations_due',
   'idx_chat_automations_user',
   'idx_chat_runs_started',
@@ -816,7 +845,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
-  chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'model_id', 'created_at', 'updated_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'model_id', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
+  chat_knowledge_bases: ['user_id', 'id', 'name', 'description', 'include_scope', 'exclude_scope', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_period: ['user_id', 'day', 'model_label', 'model_id', 'period_id', 'provider_id', 'key_id', 'input_tokens', 'output_tokens'],

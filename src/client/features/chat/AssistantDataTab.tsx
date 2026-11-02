@@ -10,7 +10,7 @@ import { t } from '../../lib/i18n'
 import { api, ApiError, type SessionImportSummary } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { SettingRow } from '../../components/form'
+import { SettingRow, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
@@ -305,6 +305,8 @@ export function SessionImportRow() {
 }
 
 export function DataTab() {
+  const settings = useAssistant((state) => state.settings)
+  const saveSettings = useAssistant((state) => state.saveSettings)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -423,6 +425,25 @@ export function DataTab() {
             block rather than a toast alone. */}
         <SessionImportRow />
       </Group>
+
+      {settings && (
+        <Group title={t('assistant.settings.export_options')}>
+          <SettingRow title={t('assistant.settings.export_reasoning')} description={t('assistant.settings.export_reasoning_hint')}>
+            <Switch
+              checked={settings.exportReasoning}
+              label={t('assistant.settings.export_reasoning')}
+              onChange={(exportReasoning) => void saveSettings({ exportReasoning })}
+            />
+          </SettingRow>
+          <SettingRow title={t('assistant.settings.export_tool_calls')} description={t('assistant.settings.export_tool_calls_hint')}>
+            <Switch
+              checked={settings.exportToolCalls}
+              label={t('assistant.settings.export_tool_calls')}
+              onChange={(exportToolCalls) => void saveSettings({ exportToolCalls })}
+            />
+          </SettingRow>
+        </Group>
+      )}
 
       <ChatFileSpace />
 

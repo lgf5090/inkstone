@@ -18,6 +18,8 @@ import { readableNoteIds, type NoteScope } from './note-scope'
 
 /** How much of a mentioned note joins the turn, and how many mentions are read at all. */
 export const MENTION_CHAR_CAP = 12_000
+/** In light mode one note contributes a heading list and an excerpt, not its body. */
+export const MENTION_LIGHT_NOTE_CAP = 1_500
 export const MAX_MENTIONS = 8
 
 /** The shape of a note id, which is the only thing this resolves ahead of a title. */
@@ -78,6 +80,7 @@ export async function resolveNoteMentions(
   userId: string,
   text: string,
   scope: NoteScope,
+  mode: 'full' | 'light' = 'full',
 ): Promise<string> {
   const mentions = noteMentions(text)
   if (!mentions.length) return ''
@@ -114,7 +117,28 @@ export async function resolveNoteMentions(
     }
     const room = Math.max(0, MENTION_CHAR_CAP - used)
     if (!room) break
-    const body = (note.content ?? '').slice(0, room)
+    const content = note.content ?? ''
+    if (mode === 'light') {
+      const headings = [...content.matchAll(/^#{1,6}\s+(.+)$/gm)]
+        .map((match) => match[1]!.trim())
+        .filter(Boolean)
+        .slice(0, 12)
+      const excerpt = content
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/\s+/g, ' ')
+        .slice(0, 360)
+      const light = [
+        `[[${note.title}]] (id ${note.id})`,
+        headings.length ? `Headings: ${headings.join(' · ')}` : '',
+        excerpt ? `Excerpt: ${excerpt}` : '',
+        'Read it with read_note when you need the body.',
+      ].filter(Boolean).join('\n')
+      const body = light.slice(0, Math.min(MENTION_LIGHT_NOTE_CAP, room))
+      used += body.length
+      sections.push(body)
+      continue
+    }
+    const body = content.slice(0, room)
     used += body.length
     sections.push(`[[${note.title}]]\n\`\`\`markdown\n${body}\n\`\`\``)
   }

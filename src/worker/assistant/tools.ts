@@ -15,7 +15,7 @@
  * the vault while nobody is watching.
  */
 
-import type { AssistantArtifact, AssistantSettings, Task, TaskPriority } from '@shared/assistant'
+import type { AssistantArtifact, AssistantSettings, AssistantToolMode, Task, TaskPriority } from '@shared/assistant'
 import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
@@ -96,7 +96,7 @@ import {
   type NoteVectorGate,
   type NoteVectorRecall,
 } from './semantic'
-import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
+import { assertNoteReadable, noteTitleForLog, readableNoteIds, resolveNoteScope, type NoteScope } from './note-scope'
 import { oneHopNeighbours } from './note-graph'
 import {
   SCOPE_NOTE,
@@ -222,6 +222,15 @@ export interface ToolContext {
    */
   memoryScope: MemoryScope
   automations: AutomationService
+  /**
+   * The Agent's tool narrowing, resolved by the runner.
+   *
+   * `projectToolsLimited` is what tells an explicit empty list apart from "no Agent restriction"; without
+   * it an Agent that meant "no tools" would look exactly like one that said nothing.
+   */
+  projectTools?: readonly string[]
+  projectToolsLimited?: boolean
+  projectToolOverrides?: Readonly<Record<string, AssistantToolMode>>
   /** Resolved once per turn by the runner: the note tools all ask it, and a second answer would be a race. */
   noteScope: () => Promise<NoteScope>
   /**
@@ -1713,6 +1722,47 @@ export const NOTE_TOOLS: ToolDefinition[] = [
             }
           : {}),
         ...(scope.restricted ? { scope: SCOPE_NOTE } : {}),
+      }
+    },
+  }),
+  tool({
+    name: 'search_knowledge',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'Search one named knowledge base. Use it when the reader named a collection (for example "my research notes") or when you need to keep an answer inside one; the description of each knowledge base says what it holds. The search is keyword plus meaning, limited to the folders that knowledge base allows. Without a knowledge base, use search_notes for the whole notebook.',
+    fields: {
+      query: { type: 'string', minLength: 1, maxLength: 200, description: 'What to look for, in the reader\'s own words.' },
+      knowledge_base: { type: 'string', minLength: 1, maxLength: 120, description: 'The knowledge base name (or its id). Ask for the list if you do not know which one fits.' },
+    },
+    async run(args, ctx) {
+      const query = String(args.query)
+      const ref = String(args.knowledge_base).trim()
+      const knowledgeBase = (await ctx.store.getKnowledgeBase(ref)) ?? (await ctx.store.findKnowledgeBaseByName(ref))
+      if (!knowledgeBase) {
+        return {
+          error: `There is no knowledge base named "${ref}".`,
+          knowledge_bases: (await ctx.store.listKnowledgeBases()).map((entry) => ({ name: entry.name, description: entry.description })),
+        }
+      }
+      const turnScope = await ctx.noteScope()
+      const kbScope = await resolveNoteScope(ctx.env.DB, ctx.store.userId, knowledgeBase.includeScope, {
+        excludeFolderIds: knowledgeBase.excludeScope,
+      })
+      const found = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
+        query,
+        limit: 20,
+        mode: 'hybrid',
+      })
+      const ids = found.results.map((hit) => hit.id)
+      const turnAllowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, ids, turnScope)
+      const kbAllowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, ids, kbScope)
+      const hits = found.results
+        .filter((hit) => turnAllowed.has(hit.id) && kbAllowed.has(hit.id))
+        .slice(0, 10)
+      return {
+        knowledge_base: { name: knowledgeBase.name, description: knowledgeBase.description },
+        results: hits.map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.snippet.slice(0, 240), via: hit.source })),
+        ...(hits.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
       }
     },
   }),
@@ -4931,9 +4981,17 @@ export class ToolExecutor {
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
-    const mode = toolModeFor(this.ctx.settings, definition.permission)
+    // An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the
+    // runner passes `projectToolsLimited` beside the list.
+    if (this.ctx.projectToolsLimited && !this.ctx.projectTools?.includes(definition.name)) return false
+    const mode = this.modeFor(definition)
     if (this.ctx.mode === 'chat') return mode !== 'off'
     return mode === 'auto' || definition.name === 'notify_reader'
+  }
+
+  /** The reader's per-tool override for this Agent, then the account's class policy. */
+  private modeFor(definition: ToolDefinition): AssistantToolMode {
+    return this.ctx.projectToolOverrides?.[definition.name] ?? toolModeFor(this.ctx.settings, definition.permission)
   }
 
   find(name: string): ToolDefinition | undefined {
@@ -4964,7 +5022,7 @@ export class ToolExecutor {
     this.perTool.set(name, used + 1)
     this.signatures.set(signature, (this.signatures.get(signature) ?? 0) + 1)
 
-    if (toolModeFor(this.ctx.settings, definition.permission) === 'auto') {
+    if (this.modeFor(definition) === 'auto') {
       // A read or a write *is* the call. A deletion goes through the same prepare/commit pair the
       // approval card runs, minus the wait: skipping `prepare` would also skip the lookup that decides
       // what this tool is allowed to touch.

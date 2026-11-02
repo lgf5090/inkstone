@@ -50,6 +50,7 @@ import {
   ModelMenu,
   NotePicker,
   PlusMenu,
+  ProjectMenu,
   ReasoningMenu,
   WebSearchMenu,
   VoiceButton,
@@ -99,7 +100,11 @@ async function exportConversation(conversationId: string, title: string): Promis
     // The whole thread, walked page by page: the export is a document, and a document that stops at
     // the first page of a long conversation is a file the reader cannot tell is incomplete.
     const detail = await fetchWholeConversation(conversationId)
-    downloadTranscript(detail.messages, title)
+    const settings = useAssistant.getState().settings
+    downloadTranscript(detail.messages, title, {
+      reasoning: settings?.exportReasoning === true,
+      toolCalls: settings?.exportToolCalls === true,
+    })
     toast({ title: t('assistant.chat.exported', { title }), tone: 'success' })
   } catch (error) {
     toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
@@ -1995,7 +2000,14 @@ ${current}` : seed))
   const retryAttachment = useAssistant((state) => state.retryAttachment)
   const models = useAssistant((state) => state.models)
   const providers = useAssistant((state) => state.providers)
+  const projects = useAssistant((state) => state.projects)
+  const conversations = useAssistant((state) => state.conversations)
+  const activeId = useAssistant((state) => state.activeId)
+  const setConversationProject = useAssistant((state) => state.setConversationProject)
   const settings = useAssistant((state) => state.settings)
+  const activeProjectId = activeId
+    ? conversations.find((conversation) => conversation.id === activeId)?.projectId ?? null
+    : null
   const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
   const saveSettings = useAssistant((state) => state.saveSettings)
@@ -2419,6 +2431,14 @@ ${current}` : seed))
               <FolderOpen size={14} />
             </IconButton>
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
+              {activeId && (
+                <ProjectMenu
+                  projects={projects}
+                  value={activeProjectId}
+                  disabled={streaming}
+                  onPick={(projectId) => void setConversationProject(activeId, projectId)}
+                />
+              )}
               {settings && (
                 <ApprovalMenu
                   mode={settings.toolModes.destructive}

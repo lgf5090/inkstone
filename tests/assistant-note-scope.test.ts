@@ -93,4 +93,16 @@ describe('a note the reader allowed the assistant to read', () => {
   it('refuses a note id that is not even the right shape', async () => {
     await expect(assertNoteReadable(db, USER, 'not-an-id', openScope)).rejects.toThrow()
   })
+
+  it('excludes a folder from an otherwise open vault', async () => {
+    const scope = await resolveNoteScope(db, USER, [], { excludeFolderIds: [OTHER_FOLDER] })
+    const allowed = await readableNoteIds(db, USER, [IN_WORK, IN_OTHER, TAGGED], scope)
+    expect([...allowed]).toEqual([IN_WORK])
+  })
+
+  it('lets a named note past an exclusion for that one turn', async () => {
+    const scope = await resolveNoteScope(db, USER, [], { excludeFolderIds: [OTHER_FOLDER], noteIds: [IN_OTHER] })
+    const allowed = await readableNoteIds(db, USER, [IN_OTHER, TAGGED], scope)
+    expect([...allowed]).toEqual([IN_OTHER])
+  })
 })

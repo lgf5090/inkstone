@@ -3180,6 +3180,46 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    // A project is the app's Agent: the brief and knowledge range were already here; these columns are
+    // the persona, the tool/skill narrowing, the workspace exclusion and the context switches. One
+    // migration rather than nine because the columns only mean anything together, and a fresh database
+    // already gets them from the CREATE TABLE above.
+    version: 221,
+    skipIfColumnExists: { table: 'chat_projects', column: 'icon' },
+    statements: [
+      `ALTER TABLE chat_projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE chat_projects ADD COLUMN exclude_scope TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE chat_projects ADD COLUMN tools TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE chat_projects ADD COLUMN tools_limited INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE chat_projects ADD COLUMN tool_overrides TEXT NOT NULL DEFAULT '{}'`,
+      `ALTER TABLE chat_projects ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE chat_projects ADD COLUMN focus_sync INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE chat_projects ADD COLUMN time_aware INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE chat_projects ADD COLUMN read_project_instructions INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE chat_projects ADD COLUMN position REAL NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 222,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_knowledge_bases (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        include_scope TEXT NOT NULL DEFAULT '[]',
+        exclude_scope TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_knowledge_bases_unique
+         ON chat_knowledge_bases(user_id, lower(name))`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_knowledge_bases_user
+         ON chat_knowledge_bases(user_id, updated_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
