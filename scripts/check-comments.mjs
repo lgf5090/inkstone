@@ -4796,6 +4796,11 @@ const allowed = new Map([
     "// Drain a read the case below started and did not wait for: it would otherwise land after the tree is",
     "// gone, and the warning would be charged to whichever case runs next.",
   ]],
+  ["src/client/features/chat/office-text.ts", [
+    "/** The same ceiling a PDF's words are held to. */",
+    "/** One archive entry larger than this is skipped: a document is not a place to unpack a video. */",
+    "/**\n * The words in a Word, PowerPoint or Excel file, read in the browser.\n *\n * The worker has no unzip and no XML parser, and the reader's own browser is already holding the bytes. The\n * three formats are the same container with different XML inside, so one reader handles all of them; RTF is\n * plain text with control words and is reduced to its readable runs. Anything this build cannot open\n * returns an empty string, which the attachment pipeline already reports as \"contents not read\".\n */",
+  ]],
   ["src/client/features/chat/pdf-text.ts", [
     "/**\n * A PDF's words, read in the browser.\n *\n * The worker cannot pull text out of a PDF — it has no parser and no DOM — so the browser reads it at\n * upload time, where PDF.js already runs for the reading app, and sends the words along with the bytes.\n * The library is imported lazily so an attachment that is not a PDF never pays for it, and the\n * extraction is bounded so a nine-hundred-page manual does not arrive as one enormous prompt.\n */",
     "/** How much text a document may contribute; the worker clamps again on its side. */",

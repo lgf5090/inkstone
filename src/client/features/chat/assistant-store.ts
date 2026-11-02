@@ -66,6 +66,7 @@ import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { leadingProse } from './save-to-note'
 import { extractPdfText } from './pdf-text'
+import { extractOfficeText, isOfficeDocument } from './office-text'
 import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
@@ -1436,7 +1437,11 @@ async function uploadAttachment(localId: string, file: File, set: AttachmentSett
   try {
     // A PDF's words are read here, in the browser, because the worker has no parser: the text rides
     // along with the bytes so the model is shown the contents on every later turn too.
-    const extractedText = isPdfFile(file) ? await extractPdfText(file) : ''
+    const extractedText = isPdfFile(file)
+      ? await extractPdfText(file)
+      : isOfficeDocument(file.type, file.name)
+        ? await extractOfficeText(file)
+        : ''
     const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
       const progress = total > 0 ? sent / total : 0
       set((current) => ({

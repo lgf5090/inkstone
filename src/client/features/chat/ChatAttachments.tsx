@@ -87,9 +87,14 @@ const CHAT_ATTACHMENT_BASE = [
   'application/x-sh',
   'application/markdown',
   'application/toml',
+  'application/rtf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.md', '.markdown', '.txt', '.json', '.jsonl', '.csv', '.tsv', '.yaml', '.yml', '.toml',
   '.ts', '.tsx', '.js', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp',
   '.sh', '.sql', '.css', '.html', '.htm', '.xml', '.ini', '.conf', '.log', '.srt', '.vtt', '.pdf',
+  '.docx', '.pptx', '.xlsx', '.rtf',
 ]
 
 /** The kinds every model on every wire takes: what a picker may offer whatever the composer is standing on. */
