@@ -165,12 +165,13 @@ export const clouddriveApi = {
   trash: (mountId: string, cursor?: string | null) => request<CloudDriveListing>(`/api/clouddrive/trash?${new URLSearchParams({ mount: mountId, ...(cursor ? { cursor } : {}) }).toString()}`),
   restore: (ids: string[], mountId: string) => request<{ results: unknown[] }>('/api/clouddrive/files/restore', json({ ids, mountId })),
   purge: (body: { ids?: string[]; all?: boolean; mountId?: string }) => request<{ deleted: number; failed: number; taskId?: string }>('/api/clouddrive/files/purge', { method: 'DELETE', body: JSON.stringify(body) }),
-  search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null }) => {
+  search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null; limit?: number }) => {
     const search = new URLSearchParams({ q: params.q })
     if (params.mountId) search.set('mount', params.mountId)
     if (params.type) search.set('type', params.type)
     if (params.starred) search.set('starred', '1')
     if (params.cursor) search.set('cursor', params.cursor)
+    if (params.limit) search.set('limit', String(params.limit))
     return request<{ files: CloudDriveEntry[]; cursor: string | null; total: number | null }>(`/api/clouddrive/search?${search.toString()}`)
   },
   recent: (kind: 'viewed' | 'uploaded') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),

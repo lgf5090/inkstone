@@ -5550,6 +5550,10 @@ const allowed = new Map([
     "/** What `api.todos.create` was pointed at, in order. */",
     "// The way back is the id, not a sentence about the note in the reader's own notes field.",
   ]],
+  ["src/client/features/clouddrive/ClouddriveApp.tsx", [
+    "/** One page name per URL, so the top bar and the drawer agree with the sidebar. */",
+    "/**\n   * One button, every page: `refreshKey` is the list pages' signal and the bootstrap call covers the\n   * capacity and mount cards that have no list of their own.\n   */",
+  ]],
   ["src/client/features/clouddrive/admin/api-admin.ts", [
     "/**\n * Owner-only CloudDrive endpoints.\n *\n * Kept apart from `../api` so the file browser never pulls the admin surface into its chunk. The\n * request wrapper repeats the few lines of the shared one because `../api` does not export its\n * transport; the error type is the shared class, so callers can translate failures the same way.\n */",
   ]],
@@ -5594,10 +5598,18 @@ const allowed = new Map([
     "/** Pixel size for list rows, headers and inspector thumbnails. */",
     "/** Icon-view sizing: the size comes from `--cd-icon-size` instead of a number. */",
   ]],
+  ["src/client/features/clouddrive/files/FileList.tsx", [
+    "/** The column the server sorted by; `null` when the order is not a column's (a ranked search). */",
+    "/** Absent when the list cannot be re-sorted: the headers then stay plain text. */",
+    "/** Drive-wide search results live in different folders, so the folder has to be visible. */",
+  ]],
   ["src/client/features/clouddrive/files/FilesPage.tsx", [
     "/** Opens the preview/Quick Look surface. The shell owns the renderer. */",
     "// The previous directory is still usable; the failed refresh explains itself in a toast.",
     "/** The selection bar disappears with the selection, so focus has to land somewhere visible. */",
+    "/** A page is what the user scrolls past before asking for the next one; the server caps at 500. */",
+    "/**\n   * One page of results, either the current folder or — while the search box holds text and the\n   * scope says *whole drive* — every folder under the mount. `cursor` continues where the last\n   * page stopped; the server hands it back only when there is more.\n   */",
+    "/** Clicking the active column flips it; clicking another starts it ascending. */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "/** Share existence is not part of the entry model; the shell may supply it later. */",
@@ -5605,9 +5617,12 @@ const allowed = new Map([
   ["src/client/features/clouddrive/files/files.css", [
     "/* CloudDrive file browser surfaces. Every colour is a theme token; the only runtime colours\n   are the folder tint and tag dots, which arrive as data from the server. */",
     "/* The native checkbox is the selection control: it keeps the browser's keyboard and\n   accessibility behaviour, and only its accent is themed. */",
+    "/* The extension rides with the last segment: `overflow-wrap` may break the base name, never\n   \".json\". */",
+    "/* Drive-wide search rows keep the folder: on a narrow screen the place matters more than\n     the kind, which the icon already says. */",
   ]],
   ["src/client/features/clouddrive/files/format.ts", [
     "/** One formatter per locale; the list can draw hundreds of dates in one render. */",
+    "/**\n * Where a wrapping file name may break: everything before a short, plain extension. Clamping two\n * lines with `overflow-wrap: anywhere` used to split `backup.json` into `backup.js` / `on`.\n */",
   ]],
   ["src/client/features/clouddrive/files/types.ts", [
     "/** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */",
@@ -29959,6 +29974,8 @@ const allowed = new Map([
     "/** Shared vocabulary for the CloudDrive app: paths, names, categories, listing and preferences. */",
     "/** `report (1).pdf`, `report (2).pdf`; the extension stays at the end. */",
     "/** `report (restored).pdf` */",
+    "/**\n * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;\n * a bearer/REST surface brings its own scopes when it exists.\n */",
+    "/** Trash listings only: when the row went to the trash and whether its subtree came with it. */",
   ]],
   ["src/shared/clouddrive/settings.ts", [
     "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
@@ -35229,6 +35246,9 @@ const allowed = new Map([
     "/** `foldedName` in one place, so a caller does not repeat NFC + lowercase. */",
     "/**\n * The passcode budget shared by every CloudDrive secret a stranger can knock on: a share password, a\n * file-request password, a folder lock and the WebDAV Basic credentials.\n *\n * Each of those answers a wrong secret with a scrypt derivation, so without a lock one anonymous\n * visitor with a link can spend the worker's CPU indefinitely while guessing. The keys are scoped to\n * the client IP plus the thing being unlocked, so guessing one link cannot lock out another.\n */",
     "// A throttle write must not replace the 401 the caller is about to answer with.",
+    "/**\n * Search and sort an external driver's listing.\n *\n * An external mount has no rows to filter in SQL, so the toolbar's search box and sort menu would\n * quietly do nothing there unless the same vocabulary is applied to what the driver returned. Only the\n * name is matched: a driver can hold tens of thousands of entries, and computing pinyin initials for\n * every one of them on each request is work the primary mount pays once at write time instead.\n */",
+    "/** How many statements one `db.batch` may carry before D1 stops answering. */",
+    "/**\n * Run a long statement list in D1-sized chunks.\n *\n * The WebDAV copy path learned the hard way that a batch of a few hundred statements is refused, so a\n * folder copy or a 200-part upload cannot build one giant batch. Each chunk is its own transaction: a\n * failure mid-list leaves earlier chunks applied, which is why the callers report per-entry results\n * rather than assuming all-or-nothing.\n */",
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
@@ -35269,6 +35289,8 @@ const allowed = new Map([
   ]],
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
+    "// Search and sort run here rather than in SQL: an external mount has no rows. The driver's own",
+    "// order is only the default, not an excuse for the toolbar to do nothing.",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35321,8 +35343,17 @@ const allowed = new Map([
     "// or removed with the bucket binding); the D1 row is the authority for the client either way.",
     "/** A direct upload has already put its object, so aborting or expiring it must remove those bytes. */",
     "// The object is unreferenced either way; a failed delete leaves work for the orphan scan.",
-    "// The old row is now in the trash; its public links must stop resolving to it.",
     "// A retried abort still clears any part rows a partial earlier attempt left behind.",
+    "// An overwrite replaces those bytes and the predecessor is kept only as a version, which the quota",
+    "// does not count; charging both would refuse a same-size update on a nearly full drive.",
+    "// An overwrite keeps the row. Its id is what tags, stars, folder colour, ACL grants and share links",
+    "// point at, so replacing the row silently unshared and untagged the file the reader meant to update.",
+    "// A distributed predecessor has no single object to hand to the version table: its parts are",
+    "// released instead of orphaned, and versioning that shape stays a documented gap.",
+    "// The link still resolves to this row, so its cached name, size and type follow the new bytes.",
+    "// One statement copies every assignment instead of one INSERT per part: a 200-part upload would",
+    "// otherwise build a batch D1 refuses (see `chunkedBatch`), and the part rows are already in D1.",
+    "// An overwrite keeps the row, so the file's own history and star survive the replacement.",
   ]],
   ["src/worker/clouddrive/routes.ts", [
     "/**\n * A share link is meant for the one person the owner sent it to, so its document must never become a\n * search result. `robots.txt` already disallows the whole app; this is the header that survives a\n * crawler that ignores it, and it is set on the two page routes rather than on the API, whose JSON a\n * browser never renders.\n */",
@@ -35334,7 +35365,6 @@ const allowed = new Map([
     "/**\n * D1 access for the CloudDrive file surface.\n *\n * The route layer resolves mounts and paths; this module owns every statement over\n * `CloudDrive_files` and `CloudDrive_file_tags`. Sorting and cursor values are whitelisted here as\n * well, because they are interpolated into SQL. Every read binds `user_id`.\n */",
     "/**\n * The conditions shared by the folder half, the file half and the count half of a listing.\n * `EXISTS` for a tag keeps the row shape unchanged and still binds the owner.\n */",
     "/** `(sortValue, id)` comparison for the next page; every branch uses only whitelisted columns. */",
-    "/** Trash is one flat page; the route splits it into the folder and file groups it presents. */",
     "/** `name`, then `name (1)`, … and a random tail after a hundred attempts. */",
     "/** Look a row up by id alone; the route then resolves its mount for the entry view. */",
     "// `substr` rather than `LIKE`: a folder named `100%` must not match `100x`.",
@@ -35348,15 +35378,22 @@ const allowed = new Map([
     "// The conflicting row is live, so the first `name (1)` candidate is the first free one.",
     "// A copy shares the object with its source; only the last row reference may delete it.",
     "/** Name match plus pinyin initials; prefix hits sort before interior ones. */",
+    "/**\n * Trash is one page of *deleted roots*: a folder that went to the trash with its contents is listed\n * once, with `descendant_trashed` saying there is more under it, because restoring the folder restores\n * them too. A child whose own parent is still live — the reader deleted one file out of a live folder —\n * is its own root and stays visible.\n */",
+    "/** True when the folder holds more trashed items than the row itself; restoring it restores them. */",
+    "// The trash lists one root for a whole subtree, so restoring that root brings its contents back",
+    "// with it. Paths have already been rewritten above, so the prefix is the restored one.",
+    "// A chunk that failed leaves the earlier chunks applied, so report it against this root instead",
+    "// of failing the request and hiding which copy is half-done.",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
     "/** `last_used_at` is a diagnostic, not a write amplifier: at most one update per five minutes. */",
     "/** Scopes arrive as a JSON array from the API and as a space-separated string from D1. */",
-    "// `write` necessarily reads, so a write key is stored with both and a caller never has to",
-    "// remember the implication.",
     "/** A prefix of `/` is the whole drive; otherwise the path must be the prefix or live under it. */",
     "/**\n * Resolve a bearer/DAV token to its owner. Expired, revoked and under-scoped keys answer `null` so\n * every caller responds the same way and no key state leaks through a different status.\n *\n * The hash lookup is the one query that cannot bind `user_id`: the owner is what it is finding. All\n * later work uses the returned id.\n */",
+    "/**\n * The scopes live in the shared model because the key-creation form is a client screen and the lookup\n * is a worker one; a list defined twice is a list that drifts.\n */",
+    "// A row written while other scopes existed parses to whatever is still meaningful, which for a",
+    "// retired scope is nothing: the key then fails every lookup instead of half-authenticating.",
   ]],
   ["src/worker/clouddrive/zip.ts", [
     "/**\n * Streaming ZIP downloads for CloudDrive.\n *\n * The archive is assembled as a `ReadableStream` and never buffered: a folder can hold gigabytes, and\n * the isolate's memory is the same 128 MB whether the reader asked for one file or for a whole tree.\n * `client-zip` already ships for the backup archive, so this is a second caller of one library rather\n * than a second zip engine.\n *\n * Two ceilings keep the response honest: `zipMaxItems` bounds how many rows are walked and\n * `zipMaxBytes` bounds the uncompressed total, because a ZIP of a petabyte folder is not something a\n * browser should be asked to wait for. Both refuse up front with 413 instead of truncating silently.\n */",
@@ -42228,6 +42265,8 @@ const allowed = new Map([
     "// Trash the original, purge it: the copy still holds the same storage key.",
     "// The archive carries the folder itself and each nested folder; `unzipSync` reports a directory",
     "// member by its name without the trailing slash.",
+    "// Trash lists the deleted root, not every row under it: the child rides with its folder and the",
+    "// flag says so, so one restore click brings the whole subtree back.",
   ]],
   ["tests/clouddrive-shares.test.ts", [
     "// A locked link answers with the fact that it is locked and nothing else: the name, the owner's own",
@@ -42241,6 +42280,8 @@ const allowed = new Map([
   ["tests/clouddrive-upload.test.ts", [
     "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",
     "// The first request builds every table on the real schema, the way the worker boots.",
+    "// The same row, still live: its id is what the star, the tags and any share link point at.",
+    "// The bytes it replaced survive as version 1, under the key they were written to.",
   ]],
   ["tests/cloudflare-accounts-store.test.ts", [
     "// Still restorable at this point, which is why the sealed file is still there.",

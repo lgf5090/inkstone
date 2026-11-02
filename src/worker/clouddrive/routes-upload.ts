@@ -32,7 +32,7 @@ import { readJson } from '../lib/request'
 import { assertMetaAccess } from './routes-meta'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { storageKeyReferenced } from './store-files'
-import { assignParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
+import { assignParts, deleteFileParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
 
 export const clouddriveUploadRoutes = new Hono<AppBindings>()
 
@@ -102,6 +102,7 @@ interface FileRow {
   etag: string | null
   checksum: string | null
   storage_key: string | null
+  storage_kind: string
   color: string
   starred_at: number | null
   uploaded_at: number
@@ -112,14 +113,6 @@ interface PartRow {
   part_number: number
   etag: string | null
   size: number
-}
-
-interface PartAssignmentRow {
-  part_number: number
-  mount_id: string
-  storage_key: string
-  size: number
-  etag: string | null
 }
 
 function requireUserId(c: Context<AppBindings>): string {
@@ -197,7 +190,7 @@ async function findLiveSibling(
   folded: string,
 ): Promise<FileRow | null> {
   return await db.prepare(
-    `SELECT id, name, path, kind, category, mime, size, etag, checksum, storage_key, color, starred_at,
+    `SELECT id, name, path, kind, category, mime, size, etag, checksum, storage_key, storage_kind, color, starred_at,
             uploaded_at, modified_at
        FROM CloudDrive_files
       WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND name_folded = ?4
@@ -413,7 +406,10 @@ clouddriveUploadRoutes.post('/uploads', async (c) => {
   }
   if (settings.quotaDefaultBytes !== null) {
     const used = await usedPrimaryBytes(c.env.DB, userId)
-    if (used + size > settings.quotaDefaultBytes) {
+    // An overwrite replaces those bytes and the predecessor is kept only as a version, which the quota
+    // does not count; charging both would refuse a same-size update on a nearly full drive.
+    const replaced = existing && conflict === 'overwrite' && existing.kind === 'file' ? existing.size : 0
+    if (used + size - replaced > settings.quotaDefaultBytes) {
       throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage quota', {
         usedBytes: used,
         quotaBytes: settings.quotaDefaultBytes,
@@ -767,14 +763,20 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
     finalName = await uniqueName(c.env.DB, userId, session.mount_id, session.parent_id, session.name)
   }
   const finalPath = childPath(parentPath, finalName)
-  const fileId = session.strategy === 'distributed'
-    ? newId()
-    : key?.slice(key.lastIndexOf('/') + 1) ?? ''
+  const storageKind = session.strategy === 'distributed' ? 'distributed' : 'r2'
+  // An overwrite keeps the row. Its id is what tags, stars, folder colour, ACL grants and share links
+  // point at, so replacing the row silently unshared and untagged the file the reader meant to update.
+  const overwrites = existing !== null && conflict === 'overwrite'
+  const fileId = overwrites && existing
+    ? existing.id
+    : session.strategy === 'distributed'
+      ? newId()
+      : key?.slice(key.lastIndexOf('/') + 1) ?? ''
   if (!fileId) throw new ApiError(500, 'internal', 'The upload storage key has no object id')
 
   const now = Date.now()
   const statements: D1PreparedStatement[] = []
-  if (existing && conflict === 'overwrite') {
+  if (overwrites && existing) {
     if (existing.storage_key) {
       const latest = await c.env.DB.prepare(
         `SELECT COALESCE(MAX(version), 0) AS version FROM CloudDrive_file_versions
@@ -782,62 +784,68 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
       ).bind(userId, existing.id).first<{ version: number }>()
       statements.push(
         c.env.DB.prepare(
-          `UPDATE CloudDrive_file_versions SET file_id = ?3 WHERE user_id = ?1 AND file_id = ?2`,
-        ).bind(userId, existing.id, fileId),
-      )
-      statements.push(
-        c.env.DB.prepare(
           `INSERT INTO CloudDrive_file_versions
              (user_id, file_id, version, storage_key, size, mime, etag, checksum, created_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
         ).bind(
-          userId, fileId, (latest?.version ?? 0) + 1, existing.storage_key,
+          userId, existing.id, (latest?.version ?? 0) + 1, existing.storage_key,
           existing.size, existing.mime, existing.etag, existing.checksum, now,
         ),
       )
     }
+    if (existing.storage_kind === 'distributed') {
+      // A distributed predecessor has no single object to hand to the version table: its parts are
+      // released instead of orphaned, and versioning that shape stays a documented gap.
+      await deleteFileParts(c.env.DB, c.env, userId, [existing.id])
+    }
     statements.push(
       c.env.DB.prepare(
-        `UPDATE CloudDrive_files SET deleted_at = ?3, trash_batch = ?4, updated_at = ?3
+        `UPDATE CloudDrive_files
+            SET name = ?3, name_folded = ?4, name_initials = ?5, path = ?6, category = ?7, mime = ?8,
+                size = ?9, etag = ?10, checksum = NULL, storage_kind = ?11, storage_key = ?12,
+                updated_at = ?13, modified_at = ?13
           WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
-      ).bind(userId, existing.id, now, newId()),
+      ).bind(
+        userId, existing.id, finalName, foldedName(finalName), initialsFor(finalName), finalPath,
+        session.category, session.mime, session.size, etag, storageKind, key, now,
+      ),
     )
-    // The old row is now in the trash; its public links must stop resolving to it.
+    // The link still resolves to this row, so its cached name, size and type follow the new bytes.
     statements.push(
       c.env.DB.prepare(
-        `UPDATE CloudDrive_shares SET revoked_at = ?3
+        `UPDATE CloudDrive_shares SET name = ?3, size = ?4, mime = ?5
           WHERE user_id = ?1 AND file_id = ?2 AND revoked_at IS NULL`,
-      ).bind(userId, existing.id, now),
+      ).bind(userId, existing.id, finalName, session.size, session.mime),
+    )
+  } else {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO CloudDrive_files
+           (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path, category,
+            mime, size, etag, checksum, storage_kind, storage_key, metadata, color, starred_at,
+            last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+         VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?15, ?13, '{}', '',
+                 NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
+      ).bind(
+        fileId, userId, session.mount_id, session.parent_id, finalName, foldedName(finalName),
+        initialsFor(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
+        storageKind,
+      ),
     )
   }
-  statements.push(
-    c.env.DB.prepare(
-      `INSERT INTO CloudDrive_files
-         (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path, category,
-          mime, size, etag, checksum, storage_kind, storage_key, metadata, color, starred_at,
-          last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-       VALUES (?1, ?2, ?3, ?4, 'file', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?15, ?13, '{}', '',
-               NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
-    ).bind(
-      fileId, userId, session.mount_id, session.parent_id, finalName, foldedName(finalName),
-      initialsFor(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
-      session.strategy === 'distributed' ? 'distributed' : 'r2',
-    ),
-  )
   if (session.strategy === 'distributed') {
-    const { results } = await c.env.DB.prepare(
-      `SELECT part_number, mount_id, storage_key, size, etag FROM CloudDrive_upload_part_objects
-        WHERE session_id = ? ORDER BY part_number`,
-    ).bind(session.id).all<PartAssignmentRow>()
-    for (const part of results ?? []) {
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT INTO CloudDrive_file_parts
-             (user_id, file_id, part_number, mount_id, storage_key, size, etag, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-        ).bind(userId, fileId, part.part_number, part.mount_id, part.storage_key, part.size, part.etag, now),
-      )
-    }
+    // One statement copies every assignment instead of one INSERT per part: a 200-part upload would
+    // otherwise build a batch D1 refuses (see `chunkedBatch`), and the part rows are already in D1.
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO CloudDrive_file_parts
+           (user_id, file_id, part_number, mount_id, storage_key, size, etag, created_at)
+         SELECT ?1, ?2, part_number, mount_id, storage_key, size, etag, ?3
+           FROM CloudDrive_upload_part_objects
+          WHERE session_id = ?4
+          ORDER BY part_number`,
+      ).bind(userId, fileId, now, session.id),
+    )
   }
   statements.push(
     c.env.DB.prepare('DELETE FROM CloudDrive_upload_parts WHERE session_id = ?1').bind(session.id),
@@ -867,9 +875,10 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
       category: session.category as CloudDriveCategory,
       mime: session.mime,
       size: session.size,
-      uploadedAt: now,
+      // An overwrite keeps the row, so the file's own history and star survive the replacement.
+      uploadedAt: overwrites && existing ? existing.uploaded_at : now,
       modifiedAt: now,
-      starredAt: null,
+      starredAt: overwrites && existing ? existing.starred_at : null,
       readOnly: false,
       hasThumbnail: session.strategy === 'distributed' ? false : hasThumbnail,
       storage: session.strategy === 'distributed' ? 'distributed' : 'primary',

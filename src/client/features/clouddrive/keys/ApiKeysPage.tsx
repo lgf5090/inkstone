@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Copy, KeyRound, Plus, Trash2 } from 'lucide-react'
+import { CLOUDDRIVE_KEY_SCOPES, type CloudDriveKeyScope } from '@shared/clouddrive/model'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
 import { useUi } from '../../../store/ui'
@@ -8,7 +9,16 @@ import { Field, Input } from '../../../components/form'
 import { confirm, Modal } from '../../../components/overlay'
 import { clouddriveApi } from '../api'
 
-interface ApiKey { id: string; name: string; prefix: string; scopes: string[]; pathPrefix: string; expiresAt: number | null; lastUsedAt: number | null; createdAt: number }
+interface ApiKey {
+  id: string
+  name: string
+  prefix: string
+  scopes: string[]
+  pathPrefix: string
+  expiresAt: number | null
+  lastUsedAt: number | null
+  createdAt: number
+}
 
 export function ApiKeysPage() {
   const toast = useUi((state) => state.toast)
@@ -16,7 +26,8 @@ export function ApiKeysPage() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
-  const [scopes, setScopes] = useState<string[]>(['read'])
+  const [scopes, setScopes] = useState<string[]>([...CLOUDDRIVE_KEY_SCOPES])
+  const [pathPrefix, setPathPrefix] = useState('/')
   const [days, setDays] = useState('365')
   const [token, setToken] = useState<string | null>(null)
 
@@ -28,10 +39,16 @@ export function ApiKeysPage() {
 
   const create = async () => {
     try {
-      const result = await clouddriveApi.createKey({ name: name.trim(), scopes, expiresAt: days === '0' ? null : Date.now() + Number(days) * 86_400_000 })
+      const result = await clouddriveApi.createKey({
+        name: name.trim(),
+        scopes,
+        pathPrefix: pathPrefix.trim() || '/',
+        expiresAt: days === '0' ? null : Date.now() + Number(days) * 86_400_000,
+      })
       setToken(result.token)
       setOpen(false)
       setName('')
+      setPathPrefix('/')
       await load()
     } catch (error) { toast({ title: t('clouddrive.toast.failed'), description: String(error), tone: 'danger' }) }
   }
@@ -42,6 +59,7 @@ export function ApiKeysPage() {
         <h1 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{t('clouddrive.keys.title')}</h1>
         <Button className="ml-auto" size="sm" variant="primary" onClick={() => setOpen(true)}><Plus size={13} /> {t('clouddrive.keys.add')}</Button>
       </div>
+      <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.keys.webdav_hint')}</p>
       {loading ? <div className="flex h-32 items-center justify-center"><Spinner /></div> : keys.length === 0 ? <p className="py-10 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.keys.none')}</p> : (
         <ul className="flex flex-col gap-1.5">
           {keys.map((key) => (
@@ -50,6 +68,7 @@ export function ApiKeysPage() {
               <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{key.name}</span>
               <code className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.prefix}…</code>
               <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.scopes.join(', ')}</span>
+              <code className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.pathPrefix}</code>
               <span className="text-[length:var(--text-10)] text-[var(--text-tertiary)]">{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleDateString() : '—'}</span>
               <IconButton label={t('clouddrive.keys.revoke')} onClick={async () => { if (!(await confirm({ title: t('clouddrive.keys.revoke'), description: key.name, tone: 'danger' }))) return; try { await clouddriveApi.revokeKey(key.id); await load() } catch (error) { toast({ title: t('clouddrive.toast.failed'), description: String(error), tone: 'danger' }) } }}><Trash2 size={13} /></IconButton>
             </li>
@@ -61,8 +80,20 @@ export function ApiKeysPage() {
           <Field label={t('clouddrive.keys.name')}><Input value={name} onChange={(event) => setName(event.target.value)} /></Field>
           <Field label={t('clouddrive.keys.scopes')}>
             <div className="flex flex-wrap gap-3 text-[length:var(--text-12)]">
-              {['read', 'write', 'webdav'].map((scope) => <label key={scope} className="flex items-center gap-1.5"><input type="checkbox" checked={scopes.includes(scope)} onChange={() => setScopes(scopes.includes(scope) ? scopes.filter((item) => item !== scope) : [...scopes, scope])} />{t(`clouddrive.keys.${scope}` as Parameters<typeof t>[0])}</label>)}
+              {CLOUDDRIVE_KEY_SCOPES.map((scope: CloudDriveKeyScope) => (
+                <label key={scope} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={scopes.includes(scope)}
+                    onChange={() => setScopes(scopes.includes(scope) ? scopes.filter((item) => item !== scope) : [...scopes, scope])}
+                  />
+                  {t(`clouddrive.keys.${scope}` as Parameters<typeof t>[0])}
+                </label>
+              ))}
             </div>
+          </Field>
+          <Field label={t('clouddrive.keys.path_prefix')} hint={t('clouddrive.keys.path_prefix_hint')}>
+            <Input value={pathPrefix} onChange={(event) => setPathPrefix(event.target.value)} />
           </Field>
           <Field label={t('clouddrive.keys.expiry_days')}><Input type="number" value={days} onChange={(event) => setDays(event.target.value)} /></Field>
         </div>

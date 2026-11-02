@@ -7,7 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { parentPathOf, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
+import { CLOUDDRIVE_LIMITS, parentPathOf, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -25,6 +25,7 @@ import {
   parsePath,
   parseSort,
   parseTimestamp,
+  queryExternalEntries,
   resolveEntry,
   resolveMount,
   tagsForFiles,
@@ -195,9 +196,31 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
   if (meta.passwordHash) await assertMetaAccess(c, userId, mount.id, path)
   if (mount.storageId !== 'primary') {
     const listing = await listExternal(c.env, c.env.DB, mount, path)
-    const folders = listing.folders.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
-    const files = listing.files.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
-    return c.json({ ...listing, folders, files, note: meta.header || null, footer: meta.footer || null })
+    // Search and sort run here rather than in SQL: an external mount has no rows. The driver's own
+    // order is only the default, not an excuse for the toolbar to do nothing.
+    const visible = (entries: CloudDriveEntry[]): CloudDriveEntry[] => entries
+      .filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+    const query = {
+      q: c.req.query('q') || undefined,
+      type: c.req.query('type') || undefined,
+      sort: parseSort(c.req.query('sort')),
+      dir: parseDir(c.req.query('dir')),
+    }
+    const externalFolders = queryExternalEntries(visible(listing.folders), query)
+    const externalFiles = queryExternalEntries(visible(listing.files), query)
+    const limit = parseLimit(c.req.query('limit'))
+    const body: CloudDriveListing = {
+      mountId: mount.id,
+      path,
+      folders: externalFolders.slice(0, CLOUDDRIVE_LIMITS.folderListMax),
+      files: externalFiles.slice(0, limit),
+      cursor: null,
+      total: externalFiles.length,
+      foldersTruncated: externalFolders.length > CLOUDDRIVE_LIMITS.folderListMax,
+      note: meta.header || null,
+      footer: meta.footer || null,
+    }
+    return c.json(body)
   }
   const parent = await resolveEntry(c.env.DB, userId, mount.id, path)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The path is not a folder')
@@ -517,11 +540,19 @@ cloudDriveFilesRoutes.get('/trash', async (c) => {
     entriesOf(c.env.DB, userId, mount, result.folders),
     entriesOf(c.env.DB, userId, mount, result.files),
   ])
+  const roots = [...result.folders, ...result.files]
+  const trashedWith = new Map(roots.map((row) => [row.id, row.descendantsTrashed]))
+  const deletedWhen = new Map(roots.map((row) => [row.id, row.deleted_at]))
+  const inTrash = (entry: CloudDriveEntry): CloudDriveEntry => ({
+    ...entry,
+    deletedAt: deletedWhen.get(entry.id) ?? null,
+    descendantsTrashed: trashedWith.get(entry.id) ?? false,
+  })
   const body: CloudDriveListing = {
     mountId: mount.id,
     path: '/',
-    folders,
-    files,
+    folders: folders.map(inTrash),
+    files: files.map(inTrash),
     cursor: result.cursor,
     total: result.total,
     foldersTruncated: false,

@@ -1,10 +1,23 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import { ArrowDown, ArrowUp } from 'lucide-react'
+import type { CloudDriveEntry, CloudDriveSortDirection, CloudDriveSortKey } from '@shared/clouddrive/model'
+import { parentPathOf } from '@shared/clouddrive/model'
+import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { FileIcon } from './FileIcon'
 import { TagList } from './ColorTagMenus'
 import { entryKindLabel, formatEntryDate, formatEntrySize } from './format'
 import { selectModeFor, type FileViewProps } from './types'
+
+export interface FileListProps extends FileViewProps {
+  /** The column the server sorted by; `null` when the order is not a column's (a ranked search). */
+  sortKey: CloudDriveSortKey | null
+  sortDir: CloudDriveSortDirection
+  /** Absent when the list cannot be re-sorted: the headers then stay plain text. */
+  onSort?: (key: CloudDriveSortKey) => void
+  /** Drive-wide search results live in different folders, so the folder has to be visible. */
+  showPath?: boolean
+}
 
 export function FileList({
   entries,
@@ -19,7 +32,11 @@ export function FileList({
   onClearSelection,
   onContextMenu,
   onKeyCommand,
-}: FileViewProps) {
+  sortKey,
+  sortDir,
+  onSort,
+  showPath = false,
+}: FileListProps) {
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
   const selectAllRef = useRef<HTMLInputElement>(null)
   const selectedCount = entries.reduce((count, entry) => count + (selected.has(entry.id) ? 1 : 0), 0)
@@ -59,6 +76,22 @@ export function FileList({
     onSelect(entry, selectModeFor(event))
   }
 
+  const header = (key: CloudDriveSortKey, className?: string) => {
+    const label = t(`clouddrive.sort.${key}` as MessageKey)
+    return (
+      <th scope="col" aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className={className}>
+        {onSort ? (
+          <button type="button" className="cd-list-sort" onClick={() => onSort(key)}>
+            <span>{label}</span>
+            {sortKey === key && (sortDir === 'asc' ? <ArrowUp size={11} aria-hidden /> : <ArrowDown size={11} aria-hidden />)}
+          </button>
+        ) : (
+          label
+        )}
+      </th>
+    )
+  }
+
   return (
     <table className="cd-list" aria-label={t('clouddrive.nav.files')}>
       <thead>
@@ -75,10 +108,11 @@ export function FileList({
               />
             )}
           </th>
-          <th scope="col">{t('clouddrive.sort.name')}</th>
-          <th scope="col" className="w-[88px]">{t('clouddrive.sort.size')}</th>
-          <th scope="col" className="cd-col-modified w-[148px]">{t('clouddrive.sort.modified')}</th>
-          <th scope="col" className="cd-col-kind w-[110px]">{t('clouddrive.sort.type')}</th>
+          {header('name')}
+          {header('size', 'w-[88px]')}
+          {header('modified', 'cd-col-modified w-[148px]')}
+          {showPath && <th scope="col" className="cd-col-location w-[200px]">{t('clouddrive.search.location')}</th>}
+          {header('type', 'cd-col-kind w-[110px]')}
           <th scope="col" className="cd-col-tags w-[160px]">{t('clouddrive.action.tags')}</th>
         </tr>
       </thead>
@@ -128,6 +162,9 @@ export function FileList({
               </td>
               <td className="tabular-nums">{formatEntrySize(entry)}</td>
               <td className="cd-col-modified tabular-nums">{formatEntryDate(entry.modifiedAt)}</td>
+              {showPath && (
+                <td className="cd-col-location" title={parentPathOf(entry.path)}>{parentPathOf(entry.path)}</td>
+              )}
               <td className="cd-col-kind">{entryKindLabel(entry)}</td>
               <td className="cd-col-tags">
                 <TagList tags={entry.tags} max={2} />

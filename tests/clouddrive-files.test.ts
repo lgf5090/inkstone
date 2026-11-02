@@ -221,8 +221,12 @@ describe('clouddrive file API', () => {
     expect(deleted.status).toBe(200)
     expect(deleted.body.deleted).toBe(2)
     const trashed = await call<{ folders: CloudDriveEntry[]; files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
-    expect(trashed.body.folders.map((entry) => entry.name)).toContain('Keep')
-    expect(trashed.body.files.map((entry) => entry.name)).toContain('a.txt')
+    // Trash lists the deleted root, not every row under it: the child rides with its folder and the
+    // flag says so, so one restore click brings the whole subtree back.
+    expect(trashed.body.folders.map((entry) => entry.name)).toEqual(['Keep'])
+    expect(trashed.body.folders[0]!.descendantsTrashed).toBe(true)
+    expect(trashed.body.folders[0]!.deletedAt).toBeTypeOf('number')
+    expect(trashed.body.files).toEqual([])
 
     // Restoring the child alone must first bring its trashed folder ancestor back.
     const restored = await call<{ results: { ok: boolean; entry?: CloudDriveEntry }[] }>(
@@ -246,6 +250,30 @@ describe('clouddrive file API', () => {
     )
     expect(purgedCopy.body.deleted).toBe(1)
     expect(r2.objects.has(key)).toBe(false)
+  })
+
+  it('restores a trashed folder together with the subtree inside it', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Deep',
+    })
+    const inner = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Deep', name: 'inner',
+    })
+    await insertEntry({ path: '/Deep/inner/note.txt', name: 'note.txt', parentId: inner.body.entry.id })
+
+    const deleted = await call<{ deleted: number }>(USER, 'DELETE', '/api/clouddrive/files', { ids: [folder.body.entry.id] })
+    expect(deleted.body.deleted).toBe(3)
+    const trashed = await call<{ folders: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
+    expect(trashed.body.folders.map((entry) => entry.path)).toEqual(['/Deep'])
+
+    const restored = await call<{ results: { ok: boolean }[] }>(
+      USER, 'POST', '/api/clouddrive/files/restore', { ids: [folder.body.entry.id] },
+    )
+    expect(restored.body.results[0]!.ok).toBe(true)
+    const back = await call<{ folders: CloudDriveEntry[]; files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Deep/inner')
+    expect(back.body.files.map((entry) => entry.name)).toEqual(['note.txt'])
+    const stillGone = await call<{ folders: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
+    expect(stillGone.body.folders).toEqual([])
   })
 
   it('restores under a free name when the original path was taken', async () => {

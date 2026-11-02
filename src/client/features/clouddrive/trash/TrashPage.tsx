@@ -6,11 +6,13 @@ import { useUi } from '../../../store/ui'
 import { Button, Spinner } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { clouddriveApi } from '../api'
+import { useCloudDriveStore } from '../store'
 import { FileIcon } from '../files/FileIcon'
 import { formatEntryDate, formatEntrySize } from '../files/format'
 
 export function TrashPage({ mountId }: { mountId: string }) {
   const toast = useToast()
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
   const [entries, setEntries] = useState<CloudDriveEntry[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,7 +33,7 @@ export function TrashPage({ mountId }: { mountId: string }) {
       setLoading(false)
     }
   }
-  useEffect(() => { void load(null) }, [mountId])
+  useEffect(() => { void load(null) }, [mountId, refreshKey])
 
   const restore = async (ids: string[]) => {
     if (ids.length === 0) return
@@ -138,7 +140,14 @@ export function TrashPage({ mountId }: { mountId: string }) {
                 {t('clouddrive.trash.original_path')}: {entry.path}
               </span>
               <span className="shrink-0 text-[length:var(--text-10)] tabular text-[var(--text-tertiary)]">{formatEntrySize(entry)}</span>
-              <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatEntryDate(entry.modifiedAt)}</span>
+              <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]" title={t('clouddrive.trash.deleted')}>
+                {t('clouddrive.trash.deleted')} {formatEntryDate(entry.deletedAt ?? entry.modifiedAt)}
+              </span>
+              {entry.descendantsTrashed && (
+                <span className="shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
+                  {t('clouddrive.entry.trashed_descendants')}
+                </span>
+              )}
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void restore([entry.id])}><RotateCcw size={13} /> {t('clouddrive.trash.restore')}</Button>
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void purge([entry.id])}><Trash2 size={13} /> {t('clouddrive.trash.purge')}</Button>
             </div>

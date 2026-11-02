@@ -9,6 +9,7 @@ import { cn } from '../../../lib/cn'
 import { useUi } from '../../../store/ui'
 import { clouddriveApi, cloudDriveErrorKey } from '../api'
 import { ct, type CloudDriveMessageKey } from '../media-i18n'
+import { useCloudDriveStore } from '../store'
 import { useTransferStore } from '../transfers/useTransferStore'
 import { MediaViewer } from './MediaViewer'
 
@@ -51,6 +52,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
   const locale = useLocale()
   const toast = useUi((state) => state.toast)
   const enqueueDownload = useTransferStore((state) => state.enqueueDownload)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const [entries, setEntries] = useState<CloudDriveEntry[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
@@ -88,7 +90,7 @@ export function AlbumPage({ onOpenFiles }: AlbumPageProps) {
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, refreshKey])
 
   const loadMore = useCallback(async () => {
     if (!cursor || more === 'loading') return

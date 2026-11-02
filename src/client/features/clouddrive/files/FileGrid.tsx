@@ -2,6 +2,7 @@ import { useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as Re
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { FileIcon } from './FileIcon'
 import { TagDots } from './ColorTagMenus'
+import { splitExtension } from './format'
 import { selectModeFor, type FileViewProps } from './types'
 
 export function FileGrid({
@@ -49,6 +50,7 @@ export function FileGrid({
       {entries.map((entry, index) => {
         const isSelected = selected.has(entry.id)
         const tabIndex = focusedId ? (focusedId === entry.id ? 0 : -1) : index === 0 ? 0 : -1
+        const [nameBase, nameExtension] = splitExtension(entry.name)
         return (
           <li key={entry.id} className="relative min-w-0">
             {showCheckboxes && (
@@ -78,7 +80,7 @@ export function FileGrid({
               onFocus={() => onFocusEntry(entry.id)}
             >
               <FileIcon entry={entry} fluid />
-              <span className="cd-grid-name">{entry.name}</span>
+              <span className="cd-grid-name">{nameBase}{nameExtension && <span className="cd-name-ext">{nameExtension}</span>}</span>
               {entry.tags.length > 0 && <TagDots tags={entry.tags} max={4} />}
             </button>
           </li>

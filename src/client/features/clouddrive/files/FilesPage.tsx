@@ -17,11 +17,12 @@ import {
   ChevronRight,
   FolderOpen,
   FolderPlus,
+  FolderSearch,
   GalleryHorizontal,
+  Globe,
   LayoutGrid,
   List,
   PanelRight,
-  RefreshCw,
   Search,
   Upload,
   X,
@@ -61,6 +62,18 @@ import { totalEntryBytes } from './format'
 import { MarkdownBody } from '../../preview/MarkdownBody'
 import './files.css'
 
+/** A page is what the user scrolls past before asking for the next one; the server caps at 500. */
+const PAGE_SIZE = 200
+
+function appendListing(current: CloudDriveListing, next: CloudDriveListing): CloudDriveListing {
+  const seen = new Set([...current.folders, ...current.files].map((entry) => entry.id))
+  return {
+    ...next,
+    folders: [...current.folders, ...next.folders.filter((entry) => !seen.has(entry.id))],
+    files: [...current.files, ...next.files.filter((entry) => !seen.has(entry.id))],
+  }
+}
+
 export interface PreviewContext {
   entries: CloudDriveEntry[]
   index: number
@@ -97,6 +110,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [listing, setListing] = useState<CloudDriveListing | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [more, setMore] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [searchScope, setSearchScope] = useState<'drive' | 'folder'>('drive')
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
@@ -112,6 +128,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
 
   const listingRef = useRef<CloudDriveListing | null>(null)
   const requestRef = useRef(0)
+  const cursorRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sortButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -127,25 +144,65 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     return () => window.clearTimeout(timer)
   }, [search])
 
-  const load = useCallback(async () => {
-    const sequence = ++requestRef.current
-    setStatus('loading')
-    setError(null)
-    try {
-      const result = await clouddriveApi.list({
+  const driveSearch = searchScope === 'drive' && query.length > 0 && !external
+
+  /**
+   * One page of results, either the current folder or — while the search box holds text and the
+   * scope says *whole drive* — every folder under the mount. `cursor` continues where the last
+   * page stopped; the server hands it back only when there is more.
+   */
+  const fetchPage = useCallback(async (cursor: string | null): Promise<CloudDriveListing> => {
+    if (driveSearch) {
+      const result = await clouddriveApi.search({ q: query, mountId, cursor, limit: PAGE_SIZE })
+      return {
         mountId,
         path,
-        sort: prefs.sortKey,
-        dir: prefs.sortDir,
-        foldersFirst: prefs.foldersFirst,
-        limit: 500,
-        q: query || undefined,
-      })
+        folders: [],
+        files: result.files,
+        cursor: result.cursor,
+        total: result.total,
+        foldersTruncated: false,
+        note: null,
+        footer: null,
+      }
+    }
+    return await clouddriveApi.list({
+      mountId,
+      path,
+      sort: prefs.sortKey,
+      dir: prefs.sortDir,
+      foldersFirst: prefs.foldersFirst,
+      limit: PAGE_SIZE,
+      cursor,
+      q: query || undefined,
+    })
+  }, [driveSearch, mountId, path, prefs.sortKey, prefs.sortDir, prefs.foldersFirst, query])
+
+  const load = useCallback(async (mode: 'reset' | 'more' = 'reset') => {
+    const sequence = ++requestRef.current
+    if (mode === 'reset') {
+      setStatus('loading')
+      setError(null)
+    } else {
+      setMore('loading')
+    }
+    try {
+      const result = await fetchPage(mode === 'more' ? cursorRef.current : null)
       if (sequence !== requestRef.current) return
-      setListing(result)
+      setListing((current) => (mode === 'more' && current ? appendListing(current, result) : result))
+      cursorRef.current = result.cursor
+      setNextCursor(result.cursor)
+      setMore('idle')
       setStatus('ready')
     } catch (caught) {
       if (sequence !== requestRef.current) return
+      if (mode === 'more') {
+        setMore('error')
+        useUi.getState().toast({ title: t('clouddrive.search.load_more_failed'), description: caught instanceof Error ? caught.message : String(caught), tone: 'danger' })
+        return
+      }
+      cursorRef.current = null
+      setNextCursor(null)
       if (caught instanceof CloudDriveApiError && caught.code === 'clouddrive_meta_locked') {
         setStatus('ready')
         setError(null)
@@ -162,11 +219,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         setStatus('error')
       }
     }
-  }, [mountId, path, query, prefs.sortKey, prefs.sortDir, prefs.foldersFirst])
+  }, [fetchPage, path])
 
   useEffect(() => {
     setListing(null)
     listingRef.current = null
+    cursorRef.current = null
+    setNextCursor(null)
+    setMore('idle')
     setSelected(new Set())
     setAnchorId(null)
     setFocusedId(null)
@@ -449,6 +509,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     setPrefs({ inspectorVisible: !prefs.inspectorVisible })
   }, [prefs.inspectorVisible, setPrefs])
 
+  /** Clicking the active column flips it; clicking another starts it ascending. */
+  const sortBy = useCallback((key: CloudDriveSortKey) => {
+    setPrefs(prefs.sortKey === key
+      ? { sortKey: key, sortDir: prefs.sortDir === 'asc' ? 'desc' : 'asc' }
+      : { sortKey: key, sortDir: 'asc' })
+  }, [prefs.sortKey, prefs.sortDir, setPrefs])
+
   const sortItems: MenuItem[] = [
     ...CLOUDDRIVE_SORT_KEYS.map((key: CloudDriveSortKey): MenuItem => ({
       id: `sort-${key}`,
@@ -501,9 +568,6 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         >
           <ArrowLeft size={15} />
         </IconButton>
-        <IconButton label={t('clouddrive.toolbar.refresh')} onClick={() => void load()}>
-          <RefreshCw size={15} className={status === 'loading' ? 'animate-spin' : undefined} />
-        </IconButton>
         <div className="min-w-[140px] flex-1 sm:max-w-[320px]">
           <Input
             value={search}
@@ -521,6 +585,18 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             className="h-8"
           />
         </div>
+        {query.length > 0 && !external && (
+          <Segmented<'drive' | 'folder'>
+            value={searchScope}
+            size="sm"
+            label={t('clouddrive.search.scope')}
+            options={[
+              { value: 'folder', label: <FolderSearch size={14} />, title: t('clouddrive.search.scope_folder') },
+              { value: 'drive', label: <Globe size={14} />, title: t('clouddrive.search.scope_drive') },
+            ]}
+            onChange={(scope) => setSearchScope(scope)}
+          />
+        )}
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <Segmented<ViewMode>
             value={viewMode}
@@ -667,6 +743,10 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   focusedId={focusedId}
                   showCheckboxes={prefs.showCheckboxes}
                   readOnly={readOnly}
+                  sortKey={driveSearch ? null : prefs.sortKey}
+                  sortDir={prefs.sortDir}
+                  onSort={driveSearch ? undefined : sortBy}
+                  showPath={driveSearch}
                   onFocusEntry={setFocusedId}
                   onSelect={selectEntry}
                   onOpen={openEntry}
@@ -710,6 +790,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   onContextMenu={handleContextMenu}
                   onKeyCommand={handleKeyCommand}
                 />
+              )}
+              {nextCursor && (
+                <div className="flex justify-center py-2">
+                  <Button size="sm" variant="secondary" loading={more === 'loading'} onClick={() => void load('more')}>
+                    {t(more === 'error' ? 'clouddrive.search.load_more_failed' : 'clouddrive.search.load_more')}
+                  </Button>
+                </div>
               )}
               {status === 'loading' && (
                 <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center py-1">
@@ -761,6 +848,10 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
 
       <div className="flex h-6 shrink-0 items-center gap-3 border-t border-[var(--border-subtle)] px-3 text-[length:var(--text-10)] text-[var(--text-tertiary)]">
         <span>{t('clouddrive.status.items', { count: entries.length })}</span>
+        {listing?.total !== null && listing?.total !== undefined && listing.total > entries.length && (
+          <span>{t('clouddrive.status.total', { count: listing.total })}</span>
+        )}
+        {listing?.foldersTruncated && <span>{t('clouddrive.status.folders_truncated')}</span>}
         {selected.size > 0 && (
           <span className="tabular">{t('clouddrive.selection.count', { count: selected.size })} · {formatBytes(totalEntryBytes(selectedEntries))}</span>
         )}

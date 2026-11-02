@@ -419,6 +419,50 @@ export function foldName(name: string): string {
 }
 
 /**
+ * Search and sort an external driver's listing.
+ *
+ * An external mount has no rows to filter in SQL, so the toolbar's search box and sort menu would
+ * quietly do nothing there unless the same vocabulary is applied to what the driver returned. Only the
+ * name is matched: a driver can hold tens of thousands of entries, and computing pinyin initials for
+ * every one of them on each request is work the primary mount pays once at write time instead.
+ */
+export function queryExternalEntries(
+  entries: readonly CloudDriveEntry[],
+  options: { q?: string; type?: string; sort: CloudDriveSortKey; dir: CloudDriveSortDirection },
+): CloudDriveEntry[] {
+  const needle = options.q ? foldedName(options.q.trim()) : ''
+  const type = options.type && (CLOUDDRIVE_CATEGORIES as readonly string[]).includes(options.type)
+    ? options.type
+    : ''
+  const direction = options.dir === 'desc' ? -1 : 1
+  return entries
+    .filter((entry) => (!needle || foldedName(entry.name).includes(needle))
+      && (!type || entry.category === type))
+    .sort((left, right) => direction * compareExternalEntries(left, right, options.sort))
+}
+
+function compareExternalEntries(
+  left: CloudDriveEntry,
+  right: CloudDriveEntry,
+  sort: CloudDriveSortKey,
+): number {
+  const byName = foldedName(left.name).localeCompare(foldedName(right.name))
+  switch (sort) {
+    case 'size':
+      return left.size - right.size || byName
+    case 'uploaded':
+      return left.uploadedAt - right.uploadedAt || byName
+    case 'modified':
+      return left.modifiedAt - right.modifiedAt || byName
+    case 'type':
+      return left.category.localeCompare(right.category) || byName
+    case 'name':
+    default:
+      return byName
+  }
+}
+
+/**
  * The passcode budget shared by every CloudDrive secret a stranger can knock on: a share password, a
  * file-request password, a folder lock and the WebDAV Basic credentials.
  *
@@ -452,4 +496,25 @@ export async function notePasscodeFailure(db: D1Database, key: string): Promise<
 export async function notePasscodeSuccess(db: D1Database, key: string): Promise<void> {
   await clearLoginFailures(db, [{ key }])
     .catch((error: unknown) => console.warn('[clouddrive] could not clear the passcode throttle:', error))
+}
+
+/** How many statements one `db.batch` may carry before D1 stops answering. */
+export const D1_BATCH_CHUNK = 90
+
+/**
+ * Run a long statement list in D1-sized chunks.
+ *
+ * The WebDAV copy path learned the hard way that a batch of a few hundred statements is refused, so a
+ * folder copy or a 200-part upload cannot build one giant batch. Each chunk is its own transaction: a
+ * failure mid-list leaves earlier chunks applied, which is why the callers report per-entry results
+ * rather than assuming all-or-nothing.
+ */
+export async function chunkedBatch(
+  db: D1Database,
+  statements: readonly D1PreparedStatement[],
+  chunk: number = D1_BATCH_CHUNK,
+): Promise<void> {
+  for (let offset = 0; offset < statements.length; offset += chunk) {
+    await db.batch(statements.slice(offset, offset + chunk))
+  }
 }

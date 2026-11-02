@@ -5,6 +5,7 @@ import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { getOffline, listOffline, removeOffline, type OfflineMeta } from './store'
+import { useCloudDriveStore } from '../store'
 
 function saveBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
@@ -23,6 +24,7 @@ export function OfflinePage() {
   const [items, setItems] = useState<OfflineMeta[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -33,7 +35,7 @@ export function OfflinePage() {
       setStatus('error')
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, refreshKey])
 
   const open = async (item: OfflineMeta) => {
     const record = await getOffline(item.id)

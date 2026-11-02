@@ -7,6 +7,7 @@ import { useUi } from '../../../store/ui'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { confirm, Modal } from '../../../components/overlay'
 import { clouddriveApi } from '../api'
+import { useCloudDriveStore } from '../store'
 
 interface Share {
   slug: string
@@ -26,6 +27,7 @@ export function SharesPage() {
   const toast = useUi((state) => state.toast)
   const [shares, setShares] = useState<Share[]>([])
   const [loading, setLoading] = useState(true)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
   const [qr, setQr] = useState<Share | null>(null)
 
   const load = async () => {
@@ -39,7 +41,7 @@ export function SharesPage() {
       setLoading(false)
     }
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load() }, [refreshKey])
 
   return (
     <div className="flex h-full min-h-0 flex-col p-4">

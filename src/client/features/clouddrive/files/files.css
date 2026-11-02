@@ -6,7 +6,7 @@
   --cd-icon-size: 72px;
   --cd-row-height: 50px;
 
-  --cd-folder-color: var(--accent);
+  --cd-folder-color: var(--warning);
   --cd-category-txt: var(--text-secondary);
   --cd-category-images: var(--accent);
   --cd-category-videos: var(--danger);
@@ -77,6 +77,30 @@
   font-weight: 500;
   text-align: start;
   white-space: nowrap;
+}
+
+[data-clouddrive-files] .cd-list-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  inline-size: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+
+[data-clouddrive-files] .cd-list-sort:hover {
+  color: var(--text-primary);
+}
+
+[data-clouddrive-files] .cd-list-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
 }
 
 [data-clouddrive-files] .cd-list td {
@@ -155,6 +179,12 @@
   font-size: var(--text-12);
   line-height: 1.35;
   color: var(--text-primary);
+}
+
+/* The extension rides with the last segment: `overflow-wrap` may break the base name, never
+   ".json". */
+[data-clouddrive-files] .cd-name-ext {
+  white-space: nowrap;
 }
 
 [data-clouddrive-files] .cd-grid-check {
@@ -278,6 +308,13 @@
   [data-clouddrive-files] .cd-col-kind,
   [data-clouddrive-files] .cd-col-tags {
     display: none;
+  }
+
+  /* Drive-wide search rows keep the folder: on a narrow screen the place matters more than
+     the kind, which the icon already says. */
+  [data-clouddrive-files] .cd-col-location {
+    inline-size: 34%;
+    font-size: var(--text-10);
   }
 
   [data-clouddrive-files] .cd-gallery-strip {

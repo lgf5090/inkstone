@@ -8,6 +8,7 @@ import { Field, Input } from '../../../components/form'
 import { confirm, Modal } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { clouddriveApi, type CloudDriveFileRequest } from '../api'
+import { useCloudDriveStore } from '../store'
 
 interface RequestForm {
   name: string
@@ -36,6 +37,7 @@ export function RequestsPage() {
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<RequestForm>(EMPTY_FORM)
   const [busy, setBusy] = useState(false)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = async () => {
     setStatus('loading')
@@ -46,7 +48,7 @@ export function RequestsPage() {
       setStatus('error')
     }
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load() }, [refreshKey])
 
   const create = async () => {
     setBusy(true)

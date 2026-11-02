@@ -187,8 +187,13 @@ describe('clouddrive direct upload', () => {
     expect(skippedBody.session).toBeUndefined()
   })
 
-  it('moves the previous row to trash when overwriting', async () => {
+  it('keeps the row and versions the old bytes when overwriting', async () => {
     const first = await uploadSmall(h, 'over.txt', 'one')
+    const starred = await request(h, 'PATCH', `/api/clouddrive/files/${first.entry.id}`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ starred: true }),
+    })
+    expect(starred.status).toBe(200)
 
     const init = await initUpload(h, {
       parentPath: '/', name: 'over.txt', size: 3, mime: 'text/plain', conflict: 'overwrite',
@@ -208,19 +213,26 @@ describe('clouddrive direct upload', () => {
     expect(complete.status).toBe(200)
     const body = await complete.json() as CompleteResponse
 
-    const oldRow = h.sqlite.prepare(
-      'SELECT deleted_at, trash_batch FROM CloudDrive_files WHERE user_id = ? AND id = ?',
-    ).get(USER_A, first.entry.id) as { deleted_at: number | null; trash_batch: string | null }
-    expect(oldRow.deleted_at).not.toBeNull()
-    expect(oldRow.trash_batch).not.toBeNull()
-
+    // The same row, still live: its id is what the star, the tags and any share link point at.
+    expect(body.entry.id).toBe(first.entry.id)
     const live = h.sqlite.prepare(
-      `SELECT id, size FROM CloudDrive_files
-        WHERE user_id = ? AND path = ? AND deleted_at IS NULL`,
-    ).all(USER_A, '/over.txt') as { id: string; size: number }[]
-    expect(live).toHaveLength(1)
-    expect(live[0]!.id).toBe(body.entry.id)
-    expect(live[0]!.size).toBe(3)
+      `SELECT id, size, storage_key, deleted_at, starred_at FROM CloudDrive_files
+        WHERE user_id = ? AND path = ?`,
+    ).get(USER_A, '/over.txt') as { id: string; size: number; storage_key: string; deleted_at: number | null; starred_at: number | null }
+    expect(live.deleted_at).toBeNull()
+    expect(live.starred_at).not.toBeNull()
+    expect(live.size).toBe(3)
+    expect(live.storage_key).not.toBe(first.key)
+
+    // The bytes it replaced survive as version 1, under the key they were written to.
+    const versions = h.sqlite.prepare(
+      `SELECT version, storage_key, size FROM CloudDrive_file_versions
+        WHERE user_id = ? AND file_id = ? ORDER BY version`,
+    ).all(USER_A, first.entry.id) as { version: number; storage_key: string; size: number }[]
+    expect(versions).toHaveLength(1)
+    expect(versions[0]).toMatchObject({ version: 1, storage_key: first.key, size: 3 })
+    const superseded = h.bucket.objects.get(first.key)
+    expect(new TextDecoder().decode(superseded)).toBe('one')
   })
 })
 

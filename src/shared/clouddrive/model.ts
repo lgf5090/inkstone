@@ -159,6 +159,13 @@ export function restoredName(name: string): string {
   return `${name.slice(0, dot)} (restored)${name.slice(dot)}`
 }
 
+/**
+ * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;
+ * a bearer/REST surface brings its own scopes when it exists.
+ */
+export const CLOUDDRIVE_KEY_SCOPES = ['webdav'] as const
+export type CloudDriveKeyScope = (typeof CLOUDDRIVE_KEY_SCOPES)[number]
+
 export const CLOUDDRIVE_SORT_KEYS = ['name', 'size', 'uploaded', 'modified', 'type'] as const
 export type CloudDriveSortKey = (typeof CLOUDDRIVE_SORT_KEYS)[number]
 export type CloudDriveSortDirection = 'asc' | 'desc'
@@ -252,6 +259,9 @@ export interface CloudDriveEntry {
   starredAt: number | null
   readOnly: boolean
   hasThumbnail: boolean
+  /** Trash listings only: when the row went to the trash and whether its subtree came with it. */
+  deletedAt?: number | null
+  descendantsTrashed?: boolean
   storage: string
   storageKind: 'r2' | 'distributed' | 'external'
   color: string | null

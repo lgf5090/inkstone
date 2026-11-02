@@ -21,6 +21,7 @@ import { deleteFileParts } from './distributed'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import {
+  chunkedBatch,
   decodeCursor,
   encodeCursor,
   foldName,
@@ -283,17 +284,32 @@ export async function folderSize(db: D1Database, userId: string, mountId: string
   return Number(row?.bytes ?? 0)
 }
 
-/** Trash is one flat page; the route splits it into the folder and file groups it presents. */
-export async function listTrash(  db: D1Database,
+/**
+ * Trash is one page of *deleted roots*: a folder that went to the trash with its contents is listed
+ * once, with `descendant_trashed` saying there is more under it, because restoring the folder restores
+ * them too. A child whose own parent is still live — the reader deleted one file out of a live folder —
+ * is its own root and stays visible.
+ */
+export interface CloudDriveTrashRow extends CloudDriveFileRow {
+  /** True when the folder holds more trashed items than the row itself; restoring it restores them. */
+  descendantsTrashed: boolean
+}
+
+export async function listTrash(
+  db: D1Database,
   userId: string,
   mountId: string,
   options: { cursor?: string; limit: number },
-): Promise<{ folders: CloudDriveFileRow[]; files: CloudDriveFileRow[]; cursor: string | null; total: number | null }> {
+): Promise<{ folders: CloudDriveTrashRow[]; files: CloudDriveTrashRow[]; cursor: string | null; total: number | null }> {
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
     'f.deleted_at IS NOT NULL',
     "f.name_folded <> '.keep'",
+    `NOT EXISTS (
+       SELECT 1 FROM CloudDrive_files p
+        WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
+     )`,
   ]
   const params: unknown[] = [userId, mountId]
   if (options.cursor) {
@@ -304,19 +320,32 @@ export async function listTrash(  db: D1Database,
   }
   const where = clauses.join(' AND ')
   const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
+    `SELECT f.*, EXISTS (
+        SELECT 1 FROM CloudDrive_files d
+         WHERE d.user_id = f.user_id AND d.mount_id = f.mount_id AND d.deleted_at IS NOT NULL
+           AND f.kind = 'folder'
+           AND substr(d.path, 1, length(f.path) + 1) = f.path || '/'
+      ) AS descendant_trashed
+       FROM CloudDrive_files f
       WHERE ${where}
       ORDER BY f.deleted_at DESC, f.id DESC
       LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
-  const rows = results ?? []
+  ).bind(...params, options.limit).all<CloudDriveFileRow & { descendant_trashed: number | bigint }>()
+  const rows: CloudDriveTrashRow[] = (results ?? []).map((row) => ({
+    ...row,
+    descendantsTrashed: Number(row.descendant_trashed) === 1,
+  }))
   const last = rows[rows.length - 1]
   const cursor = last && rows.length === options.limit
     ? encodeCursor('uploaded', last.deleted_at ?? 0, last.id)
     : null
   const count = await db.prepare(
     `SELECT COUNT(*) AS count FROM CloudDrive_files f
-      WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL`,
+      WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM CloudDrive_files p
+           WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
+        )`,
   ).bind(userId, mountId).first<{ count: number }>()
   const total = (count?.count ?? 0) > LIST_TOTAL_CAP ? null : count?.count ?? 0
   return {
@@ -681,6 +710,16 @@ async function restoreRow(
     chosen.name, foldName(chosen.name), initialsOf(chosen.name), chosen.path, now,
     userId, mountId, row.id,
   ))
+  if (row.kind === 'folder') {
+    // The trash lists one root for a whole subtree, so restoring that root brings its contents back
+    // with it. Paths have already been rewritten above, so the prefix is the restored one.
+    statements.push(db.prepare(
+      `UPDATE CloudDrive_files
+          SET deleted_at = NULL, trash_batch = NULL, updated_at = ?
+        WHERE user_id = ? AND mount_id = ? AND deleted_at IS NOT NULL AND id <> ?
+          AND substr(path, 1, length(?) + 1) = ? || '/'`,
+    ).bind(now, userId, mountId, row.id, chosen.path, chosen.path))
+  }
   await db.batch(statements)
   return await getRowById(db, userId, mountId, row.id) ?? row
 }
@@ -1036,7 +1075,15 @@ export async function copyEntries(
       copy.source.storage_key, copy.source.metadata, copy.source.color,
       now, now, now, copy.source.modified_at,
     ))
-    await db.batch(statements)
+    try {
+      await chunkedBatch(db, statements)
+    } catch (error) {
+      // A chunk that failed leaves the earlier chunks applied, so report it against this root instead
+      // of failing the request and hiding which copy is half-done.
+      console.warn('[clouddrive] copying an entry failed:', id, error)
+      results.push({ id, ok: false, error: 'copy_failed' })
+      continue
+    }
     results.push({ id, ok: true, toPath: rootPath })
   }
   return results

@@ -4,6 +4,7 @@ import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { clouddriveApi, type CloudDriveSharedEntry, type CloudDriveSharedItem } from '../api'
+import { useCloudDriveStore } from '../store'
 
 interface BrowseState {
   item: CloudDriveSharedItem
@@ -16,6 +17,7 @@ export function SharedPage() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [browse, setBrowse] = useState<BrowseState | null>(null)
   const [busy, setBusy] = useState(false)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -26,7 +28,7 @@ export function SharedPage() {
       setStatus('error')
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, refreshKey])
 
   const openFolder = async (item: CloudDriveSharedItem, path: string) => {
     setBusy(true)
