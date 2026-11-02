@@ -2388,6 +2388,9 @@ const allowed = new Map([
     "// \"read this page\", and the worker already knows how to fetch it safely. A message that merely",
     "// contains a URL keeps its text.",
     "/* This thread's own model and sampling rules, kept out of the composer because they are\n                decisions about the conversation rather than about one question. */",
+    "// One sigil, four kinds: a note becomes a citation, a folder narrows what the turn may read, an",
+    "// Agent sets where the thread is filed, a model is switched for the next answer. They share the",
+    "// picker because the reader is naming one thing the turn should be about.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -2481,10 +2484,10 @@ const allowed = new Map([
     "// `a@b` is an email fragment and `//` is a path: only a sigil that opens a token triggers.",
     "// A doubled sigil is the reader typing punctuation, not looking for a note or a tool.",
     "/** A destructive tool says so before the reader finds out from an approval card. */",
-    "/** Which kind a `#` row is, so picking one does not have to guess from its words. */",
     "/** Enough rows to scan at a glance; a longer list is a search, not a picker. */",
     "/**\n * What `/` and `#` added to this turn, where the reader can still see and undo it.\n *\n * A pin that left no trace would read as a hidden instruction to the model: the chips name the tools and\n * the scopes, and the X is the only way to take them back off. A scope chip is more than its own name —\n * it says what kind of limit it is, and pressing it reaches the `#` picker that changes it, because the\n * reader who asks \"how do I widen this?\" is standing on the chip that says the turn is narrow.\n */",
     "/** Focus the composer and raise the `#` trigger — the control these chips were made from. */",
+    "/** Which kind a `#` or `@` row is, so picking one does not have to guess from its words. */",
   ]],
   ["src/client/features/chat/ContextUsageMeter.tsx", [
     "/**\n * What the app adds around one stored turn when it rebuilds the prompt.\n *\n * The same figure the worker budgets a turn at: the role and the framing are a cost of their own, and a\n * thread of many short turns is not the same size as the same words in one block.\n */",

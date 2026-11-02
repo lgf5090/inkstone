@@ -2280,7 +2280,24 @@ ${current}` : seed))
         if (current()) setTriggerRows(filterRows(rows, next.query.replace(/^#/, '')))
       } else {
         const found = await api.search(next.query || t('assistant.attach.note_prompt'), 8)
-        if (current()) setTriggerRows(found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') })))
+        // One sigil, four kinds: a note becomes a citation, a folder narrows what the turn may read, an
+        // Agent sets where the thread is filed, a model is switched for the next answer. They share the
+        // picker because the reader is naming one thing the turn should be about.
+        const needle = next.query.toLocaleLowerCase()
+        const folders = useNotes.getState().folders
+          .filter((folder) => !needle || folder.name.toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((folder) => ({ id: folder.id, label: folder.name, hint: t('assistant.trigger.folder'), kind: 'folder' as const }))
+        const agents = useAssistant.getState().projects
+          .filter((agent) => !needle || agent.name.toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((agent) => ({ id: agent.id, label: agent.name, hint: t('assistant.trigger.agent'), kind: 'agent' as const }))
+        const modelRows = chatModels(useAssistant.getState().models)
+          .filter((model) => !needle || (model.label || model.model).toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((model) => ({ id: model.id, label: model.label || model.model, hint: t('assistant.trigger.model'), kind: 'model' as const }))
+        const notes = found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') }))
+        if (current()) setTriggerRows(filterRows([...notes, ...folders, ...agents, ...modelRows], next.query))
       }
     } catch {
       // A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a
@@ -2307,6 +2324,19 @@ ${current}` : seed))
     const tail = value.slice(caret)
     const gap = tail === '' || tail.startsWith(' ') ? '' : ' '
     if (trigger.sigil === '@') {
+      if (row.kind === 'folder' || row.kind === 'agent' || row.kind === 'model') {
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+        setTrigger(null)
+        setTriggerRows([])
+        if (row.kind === 'folder') addTurnScope({ kind: 'folder', id: row.id, name: row.label })
+        else if (row.kind === 'agent') {
+          if (activeId) void setConversationProject(activeId, row.id)
+        } else {
+          void activateModel(row.id)
+        }
+        ref.current?.focus()
+        return
+      }
       // The id rides inside the link, not the title alone: two notes of one title, or a note renamed
       // after this turn was written, would otherwise point the model at a document the reader never
       // picked. See `formatNoteMention`.
