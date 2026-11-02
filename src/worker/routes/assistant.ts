@@ -107,7 +107,7 @@ import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
-import { embedTexts, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
+import { searchSemanticNotes } from '../mcp/ai-search'
 import { OneShotError, runOneShot } from '../assistant/one-shot'
 import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
@@ -183,6 +183,8 @@ function contextBudgetValue(value: unknown): number | null {
 import { resolveNoteScope } from '../assistant/note-scope'
 
 export const assistantRoutes = new Hono<AppBindings>()
+
+
 
 assistantRoutes.use('*', requireAuth)
 
@@ -1668,6 +1670,17 @@ async function unstartableTurn(
  * The reader's own disconnect is the abort signal: when the write fails the generator stops, so a
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
+/**
+ * One page of a reader-owned PDF, indexed for the knowledge base.
+ *
+ * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the
+ * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,
+ * so a dense page does not turn into an unbounded number of embedding calls.
+ */
+
+async function pingHandler(c: Context<AppBindings>) { return c.json({ ok: true }) }
+assistantRoutes.post('/zzping', pingHandler)
+
 assistantRoutes.post('/chat', async (c) => {
   const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
@@ -2362,27 +2375,6 @@ const MAX_KNOWLEDGE_DESCRIPTION_CHARS = 2_000
  * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,
  * so a dense page does not turn into an unbounded number of embedding calls.
  */
-assistantRoutes.post('/reader-index', async (c) => {
-  const body = await readJson<{ bookId?: unknown, page?: unknown, text?: unknown }>(c, JSON_BODY_LIMITS.settings)
-  const bookId = requiredId(body.bookId)
-  const page = typeof body.page === 'number' ? Math.trunc(body.page) : 0
-  const text = typeof body.text === 'string' ? body.text.trim().slice(0, 8_000) : ''
-  if (page < 1 || page > 10_000) throw ApiError.badRequest('That page number is not valid.')
-  if (!text) throw ApiError.badRequest('There is no text on that page to index.')
-  const s = store(c)
-  const title = await s.readerBookTitle(bookId)
-  if (title === null) throw ApiError.notFound('Book not found')
-  if (!c.env.AI) throw new ApiError(503, 'internal', 'The embedding model is not configured.')
-  const chunks = Array.from({ length: Math.min(4, Math.ceil(text.length / 1_500)) }, (_, index) => text.slice(index * 1_500, (index + 1) * 1_500)).filter(Boolean)
-  const vectors = await embedTexts(c.env.AI, chunks)
-  await s.replaceReaderPage(bookId, page, title, chunks.map((chunk, index) => ({
-    text: chunk,
-    vector: encodeVector(vectors[index]!),
-    norm: vectorNorm(vectors[index]!),
-  })))
-  return c.json({ indexed: chunks.length })
-})
-
 assistantRoutes.get('/knowledge-bases', async (c) => c.json({ knowledgeBases: await store(c).listKnowledgeBases() }))
 
 assistantRoutes.post('/knowledge-bases', async (c) => {

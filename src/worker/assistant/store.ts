@@ -65,7 +65,6 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
-import { cosineSimilarityPrecomputed, decodeVector } from '../mcp/ai-search'
 import {
   COMPLETED_PAGE_SIZE,
   MAX_DAY_TRACKED_MS,
@@ -2348,50 +2347,6 @@ export class AssistantStore {
     return rows.map(toChatAttachment)
   }
 
-
-  /** The title of a reader-owned book, or null when this account does not own that id. */
-  async readerBookTitle(bookId: string): Promise<string | null> {
-    const row = await this.one<{ title: string }>(
-      `SELECT title FROM reader_books WHERE user_id = ?1 AND id = ?2`,
-      this.userId, bookId,
-    )
-    return row?.title ?? null
-  }
-
-  async replaceReaderPage(bookId: string, page: number, title: string, chunks: Array<{ text: string, vector: ArrayBuffer, norm: number }>): Promise<void> {
-    await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2 AND page = ?3`, bookId, page)
-    const at = Date.now()
-    for (const [chunk, entry] of chunks.entries()) {
-      await this.write(
-        `INSERT INTO ai_reader_embeddings (user_id, book_id, page, chunk, title, text, vector, norm, indexed_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-        bookId, page, chunk, title, entry.text, entry.vector, entry.norm, at,
-      )
-    }
-  }
-
-  async searchReaderChunks(vector: Float32Array, norm: number, limit = 5): Promise<Array<{ bookId: string, title: string, page: number, text: string, score: number }>> {
-    if (!this.userId) return []
-    const rows = await this.rows<{ book_id: string, title: string, page: number, text: string, vector: ArrayBuffer, norm: number }>(
-      `SELECT book_id, title, page, text, vector, norm FROM ai_reader_embeddings
-        WHERE user_id = ?1 ORDER BY indexed_at DESC LIMIT 2000`,
-      this.userId,
-    )
-    const scored = rows.map((row) => {
-      return {
-        bookId: row.book_id,
-        title: row.title,
-        page: row.page,
-        text: row.text,
-        score: cosineSimilarityPrecomputed(vector, norm, decodeVector(row.vector), row.norm),
-      }
-    })
-    return scored.sort((a, b) => b.score - a.score).slice(0, limit)
-  }
-
-  async deleteReaderChunks(bookId: string): Promise<void> {
-    await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2`, bookId)
-  }
 
   // ----------------------------------------------------------- conversations
 

@@ -60,7 +60,6 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
-import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
 import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
 import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
@@ -1782,19 +1781,10 @@ export const NOTE_TOOLS: ToolDefinition[] = [
       const hits = found.results
         .filter((hit) => turnAllowed.has(hit.id) && kbAllowed.has(hit.id))
         .slice(0, 10)
-      // A knowledge base that names no folders is the whole vault, and the reader's own PDF books are
-      // part of what they know. A scoped collection stays on its notes: book pages carry no folder.
-      const readers = knowledgeBase.includeScope.length === 0 && ctx.env.AI
-        ? await (async () => {
-            const queryVector = await embedQueryText(ctx.env.AI!, query)
-            return ctx.store.searchReaderChunks(queryVector, vectorNorm(queryVector), 5)
-          })().catch(() => [])
-        : []
       return {
         knowledge_base: { name: knowledgeBase.name, description: knowledgeBase.description },
         results: hits.map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.snippet.slice(0, 240), via: hit.source })),
-        ...(readers.length ? { book_pages: readers.map((hit) => ({ book_id: hit.bookId, title: hit.title, page: hit.page, excerpt: hit.text.slice(0, 240) })) } : {}),
-        ...(hits.length || readers.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
+        ...(hits.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
       }
     },
   }),

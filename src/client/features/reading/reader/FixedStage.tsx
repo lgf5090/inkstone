@@ -24,7 +24,6 @@ import type { PdfPageText } from '../engine/pdf'
 import { Button } from '../../../components/primitives'
 import { useAssistant } from '../../chat/assistant-store'
 import { useUi } from '../../../store/ui'
-import { api } from '../../../lib/api'
 
 export interface FixedStageHandle {
   next(): void
@@ -400,24 +399,6 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
   const [drag, setDrag] = useState<{ x: number, y: number, x2: number, y2: number } | null>(null)
   const [capturing, setCapturing] = useState(false)
 
-  /** Send this page's words to the account's knowledge base; the worker cannot read a PDF itself. */
-  const indexPage = async (): Promise<void> => {
-    setCapturing(true)
-    try {
-      const page = await getPage(index) as { getTextContent(): Promise<unknown> } | null
-      if (!page) throw new Error(t('reading.capture_failed'))
-      const { readPdfTextContent } = await import('../engine/pdf')
-      const text = readPdfTextContent(await page.getTextContent() as never).text.trim()
-      if (!text) throw new Error(t('reading.page_has_no_text'))
-      await api.assistant.indexReaderPage(bookId, index + 1, text)
-      useUi.getState().toast({ title: t('reading.indexed_page', { page: index + 1 }), tone: 'success' })
-    } catch (error) {
-      useUi.getState().toast({ title: error instanceof Error ? error.message : t('reading.index_failed'), tone: 'danger' })
-    } finally {
-      setCapturing(false)
-    }
-  }
-
   /** Crop the painted page and hand the picture to the composer, never the whole page by accident. */
   const capture = async (region: { x: number, y: number, width: number, height: number } | null): Promise<void> => {
     const surface = canvas.current
@@ -560,9 +541,6 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
         </Button>
         <Button size="sm" variant="secondary" disabled={capturing} aria-pressed={selecting} onClick={() => setSelecting((on) => !on)}>
           {t('reading.capture_region')}
-        </Button>
-        <Button size="sm" variant="secondary" disabled={capturing || state !== 'text'} onClick={() => { void indexPage() }}>
-          {t('reading.index_page')}
         </Button>
       </div>
       {selecting && (

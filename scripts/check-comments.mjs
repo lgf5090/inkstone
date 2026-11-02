@@ -12288,7 +12288,6 @@ const allowed = new Map([
     "// scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of",
     "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
     "/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on\n          the page itself. */",
-    "/** Send this page's words to the account's knowledge base; the worker cannot read a PDF itself. */",
     "/** Crop the painted page and hand the picture to the composer, never the whole page by accident. */",
   ]],
   ["src/client/features/reading/reader/FootnotePopover.tsx", [
@@ -34629,7 +34628,6 @@ const allowed = new Map([
     "/** Only a pending question can be answered; a second submission returns null rather than overwriting. */",
     "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
     "/**\n   * Marks the tool results older than the newest `keepRecent` answers as pruned.\n   *\n   * The row keeps the payload — the reader may still want to read what a tool found — and only a flag\n   * changes, which is what the context builder reads. Nothing is deleted, so this is reversible by\n   * editing one JSON blob rather than by restoring a backup.\n   */",
-    "/** The title of a reader-owned book, or null when this account does not own that id. */",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
@@ -34907,8 +34905,6 @@ const allowed = new Map([
     "// through the same field validation as the one the model made; a destructive call cannot be reshaped",
     "// this way, because its target was already decided.",
     "/** Starts a child that outlives this turn and reports by notification. */",
-    "// A knowledge base that names no folders is the whole vault, and the reader's own PDF books are",
-    "// part of what they know. A scoped collection stays on its notes: book pages carry no folder.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -37842,8 +37838,6 @@ const allowed = new Map([
     "/** The cover object's key, which is the only thing a cover read needs. */",
     "/** The two objects a deletion has to release, or nothing when the account never had this book. */",
     "/**\n   * Take the book and everything read from it, in one batch.\n   *\n   * A group keeps its name when it loses a member: the reader made the group, and an empty one is a\n   * place they will put the next book.\n   */",
-    "// What the book contributed to the knowledge base goes with it: a page the reader cannot open is",
-    "// not a source an answer may cite.",
   ]],
   ["src/worker/realtime/sync-hub.ts", [
     "// Best-effort release of the server side of a socket the far end already hung up on:",

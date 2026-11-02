@@ -2226,8 +2226,6 @@ export const api = {
       request<{ knowledgeBase: KnowledgeBase }>(`/api/assistant/knowledge-bases/${id}`, { method: 'PATCH', body }),
     deleteKnowledgeBase: (id: string) =>
       request<{ deleted: true }>(`/api/assistant/knowledge-bases/${id}`, { method: 'DELETE' }),
-    indexReaderPage: (bookId: string, page: number, text: string) =>
-      request<{ indexed: number }>('/api/assistant/reader-index', { method: 'POST', body: { bookId, page, text } }),
     similarNotes: (noteId: string) =>
       request<{ status: 'ok' | 'unavailable', hits: Array<{ id: string, title: string, excerpt: string, score: number }> }>(
         `/api/assistant/similar-notes?noteId=${encodeURIComponent(noteId)}`,
