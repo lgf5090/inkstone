@@ -126,6 +126,16 @@ export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], mess
   const [rows, setRows] = useState<Record<string, boolean>>({})
   const running = tools.some((tool) => tool.status === 'running')
   const expanded = open ?? running
+  const counts = tools.reduce<Record<string, number>>((total, tool) => {
+    const permission = ASSISTANT_TOOL_BY_NAME.get(tool.name)?.permission ?? 'read'
+    total[permission] = (total[permission] ?? 0) + 1
+    return total
+  }, {})
+  const summary = [
+    counts.read ? t('assistant.chat.tool_summary_read', { count: counts.read }) : '',
+    counts.write ? t('assistant.chat.tool_summary_write', { count: counts.write }) : '',
+    counts.destructive ? t('assistant.chat.tool_summary_destructive', { count: counts.destructive }) : '',
+  ].filter(Boolean).join(' · ')
   return (
     <div className="min-w-0 max-w-full" role="group" aria-label={t('assistant.chat.tools_group')}>
       <button
@@ -137,6 +147,7 @@ export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], mess
         <Wrench size={11} className="shrink-0 text-[var(--text-quaternary)]" />
         <span className="min-w-0 truncate">{t('assistant.chat.tools_group')}</span>
         <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">{t('assistant.chat.tool_calls', { count: tools.length })}</span>
+        {summary && <span className="shrink-0 truncate text-[var(--text-quaternary)]">· {summary}</span>}
         <ChevronDown size={11} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', expanded && 'rotate-180')} />
       </button>
       {expanded && (

@@ -388,6 +388,8 @@ export function ChatView() {
   // One right-hand slot: the canvas and the resource monitor are both full-height panels, and two of
   // them would leave a phone thread with nothing. Opening either puts the other away.
   const [resourcesOpen, setResourcesOpen] = useState(false)
+  const navigatorRef = useRef<HTMLButtonElement>(null)
+  const [navigatorOpen, setNavigatorOpen] = useState(false)
   useEffect(() => {
     if (canvasOpen && resourcesOpen) setResourcesOpen(false)
   }, [canvasOpen, resourcesOpen])
@@ -478,6 +480,16 @@ export function ChatView() {
   const anchors = useMemo(
     () => messages.filter((message) => message.role === 'user').map((message) => ({ id: message.id, text: message.content })),
     [messages],
+  )
+  const navigatorItems: MenuItem[] = useMemo(
+    () => anchors.map((anchor, index) => ({
+      id: anchor.id,
+      label: `${index + 1}. ${anchor.text.replace(/\s+/g, ' ').trim().slice(0, 60) || t('assistant.chat.untitled')}`,
+      onSelect: () => {
+        document.querySelector(`[data-chat-anchor="${CSS.escape(anchor.id)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      },
+    })),
+    [anchors],
   )
 
   return (
@@ -649,6 +661,27 @@ export function ChatView() {
             </Tooltip>
             {/* The chord is part of the answer: this control is the one thing on the row the keyboard already
                 reaches, and the overview prints the same table. */}
+            <Tooltip label={t('assistant.chat.navigator')} side="bottom">
+              <IconButton
+                ref={navigatorRef}
+                active={navigatorOpen}
+                label={t('assistant.chat.navigator')}
+                size="sm"
+                disabled={!anchors.length}
+                onClick={() => setNavigatorOpen((open) => !open)}
+              >
+                <ListTree size={15} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchor={navigatorRef}
+              open={navigatorOpen}
+              onClose={() => setNavigatorOpen(false)}
+              items={navigatorItems}
+              width={320}
+              searchable={navigatorItems.length > 8}
+              label={t('assistant.chat.navigator')}
+            />
             <Tooltip label={finding ? t('assistant.chat.find.close.tip') : t('assistant.chat.find.tip')} combo={CHAT_SHORTCUTS.find} side="bottom">
               <IconButton active={finding} label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
                 <Search size={15} />
