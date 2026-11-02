@@ -2904,6 +2904,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/QuickAskPanel.tsx", [
     "/**\n * Quick Ask: a small question beside the note, without leaving it.\n *\n * The panel sends an ephemeral turn through the same stream the chat uses. It does not open the chat\n * tab, change the active conversation, or write to the history list. The answer can be copied, inserted\n * at the caret, or discarded.\n */",
+    "/** The place the reader last put the panel, kept for the rest of this page's life. */",
+    "// A question the reader sent parks in the corner rather than following the caret: the caret is where",
+    "// they typed, not where they want to read the answer.",
   ]],
   ["src/client/features/chat/SavedShelf.tsx", [
     "/**\n * The shelf: the answers the reader kept, in the sidebar's own tab strip.\n *\n * It sits beside the starred/pinned/archived shortlists because it does the same job — a list of pointers\n * into threads — with one difference: its rows name a turn rather than a conversation, so pressing one\n * opens the thread *at* that turn. The rows come from `GET /api/assistant/saved-messages` through\n * `saved-shelf.ts`, which is the only place this screen's paging state lives.\n *\n * Every state a read can answer with is drawn: the spinner while the shelf is unread, the route's own line\n * and a retry when it was refused, an empty shelf that says how a keep gets here, and the list. An empty\n * list and a refused one are two different facts, so they never share a block.\n */",

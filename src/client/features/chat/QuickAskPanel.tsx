@@ -37,6 +37,9 @@ const CONTINUE_PRESETS = [
   'assistant.quick_ask.preset.questions',
 ] as const
 
+/** The place the reader last put the panel, kept for the rest of this page's life. */
+let rememberedPosition: { top: number, left: number } | null = null
+
 function place(anchor: { top: number, left: number } | null, width: number): { top: number, left: number } {
   if (!anchor) return { top: 64, left: Math.max(PANEL_EDGE, window.innerWidth - width - PANEL_EDGE) }
   return {
@@ -60,7 +63,9 @@ export function QuickAskPanel() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const dragRef = useRef<{ x: number, y: number, top: number, left: number } | null>(null)
-  const [position, setPosition] = useState<{ top: number, left: number } | null>(null)
+  const [position, setPosition] = useState<{ top: number, left: number } | null>(rememberedPosition)
+  const positionRef = useRef(position)
+  positionRef.current = position
   const width = Math.min(PANEL_WIDTH, window.innerWidth - PANEL_EDGE * 2)
   const placed = useMemo(() => place(anchor, width), [anchor, width])
   const pos = position ?? placed
@@ -78,6 +83,7 @@ export function QuickAskPanel() {
       setAnswer('')
       setError(null)
       setBusy(false)
+      if (positionRef.current) rememberedPosition = positionRef.current
       return
     }
     setMode('ask')
@@ -106,6 +112,13 @@ export function QuickAskPanel() {
         ].filter(Boolean).join('\n\n')
     if (!prompt.trim()) return
     setBusy(true)
+    // A question the reader sent parks in the corner rather than following the caret: the caret is where
+    // they typed, not where they want to read the answer.
+    if (positionRef.current === null) {
+      const docked = { top: 64, left: Math.max(PANEL_EDGE, window.innerWidth - width - PANEL_EDGE) }
+      rememberedPosition = docked
+      setPosition(docked)
+    }
     setAnswer('')
     setError(null)
     const controller = new AbortController()
