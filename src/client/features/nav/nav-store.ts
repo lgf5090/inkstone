@@ -368,3 +368,10 @@ export function clearNavSessionState(): void {
     query: '',
   })
 }
+
+if (typeof window !== 'undefined') {
+  // While the feature is loaded it cleans its own memory; the shell's static handler is what reaches
+  // storage when navigation was never opened. Both are idempotent, and neither waits on a chunk the
+  // other is still fetching.
+  window.addEventListener('inkstone:session-cleared', () => clearNavSessionState())
+}

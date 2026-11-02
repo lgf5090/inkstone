@@ -8237,6 +8237,9 @@ const allowed = new Map([
     "// Trimmed on write as well as on read, so the store can never hold more than the server reads back.",
     "// One sweep, shared with the shell's session-cleared listener: whichever path signs the reader out, the",
     "// same prefixes leave the same way.",
+    "// While the feature is loaded it cleans its own memory; the shell's static handler is what reaches",
+    "// storage when navigation was never opened. Both are idempotent, and neither waits on a chunk the",
+    "// other is still fetching.",
   ]],
   ["src/client/features/nav/session-storage.ts", [
     "// Nav's own storage footprint, in a module small enough to import from the app shell.",
