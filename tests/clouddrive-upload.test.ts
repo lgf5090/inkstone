@@ -591,4 +591,28 @@ describe('clouddrive file versions', () => {
       `SELECT id FROM CloudDrive_files WHERE user_id = ? AND name = ? AND deleted_at IS NULL`,
     ).get(USER_A, name) as { id: string }
   }
+
+  it('reports an unfinished session so the reader can continue it', async () => {
+    const init = await (await initUpload(h, { parentPath: '/', name: 'resume.txt', size: 6, mime: 'text/plain' })).json() as { session: { id: string; strategy: string } }
+    const put = await request(h, 'PUT', `/api/clouddrive/uploads/${init.session.id}/content`, { body: 'first ' })
+    expect(put.status).toBe(200)
+
+    const read = await (await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`)).json() as {
+      session: { id: string; name: string; size: number; strategy: string; uploadedParts: number[]; totalParts: number }
+    }
+    expect(read.session.id).toBe(init.session.id)
+    expect(read.session.name).toBe('resume.txt')
+    expect(read.session.size).toBe(6)
+    // A direct session holds no parts, which is the answer the resumer needs to not skip anything.
+    expect(read.session.uploadedParts).toEqual([])
+    expect(read.session.strategy).toBe('direct')
+    expect(read.session.totalParts).toBe(0)
+
+    const other = await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`, {}, USER_B)
+    expect(other.status).toBe(404)
+
+    expect((await request(h, 'POST', `/api/clouddrive/uploads/${init.session.id}/abort`)).status).toBe(200)
+    const gone = await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`)
+    expect(gone.status).toBe(404)
+  })
 })

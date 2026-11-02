@@ -154,7 +154,7 @@ export const clouddriveApi = {
     entry: CloudDriveEntry
     parts?: { partNumber: number; mountId: string; size: number; etag: string | null }[]
   }>(`/api/clouddrive/files/${encodeURIComponent(id)}`),
-  mkdir: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
+  mkdir: (body: { mountId: string; parentPath: string; name: string; conflict?: 'reuse' }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
   createFile: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/files', json(body)),
   patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
@@ -178,6 +178,35 @@ export const clouddriveApi = {
     ...(params.kind && params.kind !== 'images' ? { kind: params.kind } : {}),
   }).toString()}`),
 
+  uploadSession: (id: string) => request<{ session: {
+    id: string
+    mountId: string
+    path: string
+    name: string
+    mime: string
+    size: number
+    strategy: string
+    partSize: number
+    totalParts: number
+    uploadedParts: number[]
+    expiresAt: number
+  } }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}`),
+
+  uploadSessions: () => request<{ sessions: {
+    id: string
+    mountId: string
+    entryPath: string
+    name: string
+    mime: string
+    size: number
+    strategy: string
+    partSize: number
+    totalParts: number
+    partsUploaded: number
+    bytesUploaded: number
+    expiresAt: number
+  }[] }>(`/api/clouddrive/uploads`),
+
   initUpload: (body: { mountId: string; parentPath: string; name: string; size: number; mime: string; conflict?: string }) => request<{
     session: { id: string; strategy: string; partSize: number; totalParts: number; uploadedParts?: number }
     entryPath: string
@@ -185,7 +214,6 @@ export const clouddriveApi = {
   }>('/api/clouddrive/uploads', json(body)),
   completeUpload: (id: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
   abortUpload: (id: string) => request<{ ok: true }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/abort`, json({})),
-  uploadSessions: () => request<{ sessions: unknown[] }>('/api/clouddrive/uploads?status=active'),
 
   contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,
   versionContentUrl: (id: string, version: number, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}/content${download ? '?download=1' : ''}`,

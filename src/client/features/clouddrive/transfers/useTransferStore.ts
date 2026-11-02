@@ -34,6 +34,8 @@ export interface TransferItem {
   conflict?: CloudDriveUploadConflict
   /** Present until the page reloads; a retry after that needs the reader to pick the file again. */
   file?: File
+  /** Set when this transfer continues a session the server still holds, so parts are not re-sent. */
+  resumeSessionId?: string
 }
 
 export interface TransferTarget {
@@ -45,6 +47,8 @@ export interface TransferTarget {
 interface TransferState {
   items: TransferItem[]
   enqueueUpload(files: File[], target: TransferTarget): string[]
+  /** Continues a session the server still holds with the file the reader picks for it. */
+  enqueueResume(sessionId: string, file: File, mountId: string): string
   enqueueDownload(entry: CloudDriveEntry): string
   cancel(id: string): void
   retry(id: string): void
@@ -191,40 +195,69 @@ async function runUpload(item: TransferItem, signal: AbortSignal): Promise<void>
   if (!file) throw new TransferError('clouddrive.transfers.file_unavailable')
   if (signal.aborted) throw abortError()
 
-  const init = await clouddriveApi.initUpload({
-    mountId: item.mountId,
-    parentPath: item.parentPath ?? '/',
-    name: item.name,
-    size: item.size,
-    mime: item.mime || 'application/octet-stream',
-    conflict: item.conflict ?? 'rename',
-  })
-  patchItem(item.id, { sessionId: init.session.id })
+  let sessionId: string
+  let strategy: string
+  let partSize: number
+  let totalParts: number
+  let uploaded: number[] = []
+  if (item.resumeSessionId) {
+    const resumed = (await clouddriveApi.uploadSession(item.resumeSessionId)).session
+    if (resumed.size !== file.size || resumed.name !== file.name) {
+      // The session belongs to the bytes the reader picked before the reload; continuing it with a
+      // different file would store a mix of both under one name.
+      throw new TransferError('clouddrive.transfers.resume_mismatch')
+    }
+    sessionId = resumed.id
+    strategy = resumed.strategy
+    partSize = resumed.partSize
+    totalParts = resumed.totalParts
+    uploaded = resumed.uploadedParts
+    patchItem(item.id, { parentPath: resumed.path.slice(0, resumed.path.lastIndexOf('/') || 1) })
+  } else {
+    const init = await clouddriveApi.initUpload({
+      mountId: item.mountId,
+      parentPath: item.parentPath ?? '/',
+      name: item.name,
+      size: item.size,
+      mime: item.mime || 'application/octet-stream',
+      conflict: item.conflict ?? 'rename',
+    })
+    sessionId = init.session.id
+    strategy = init.session.strategy
+    partSize = init.session.partSize
+    totalParts = init.session.totalParts
+  }
+  patchItem(item.id, { sessionId })
   if (signal.aborted) {
-    await clouddriveApi.abortUpload(init.session.id).catch((error) => {
+    await clouddriveApi.abortUpload(sessionId).catch((error) => {
       console.warn('[inkstone] CloudDrive upload session could not be aborted', error)
     })
     throw abortError()
   }
 
-  if (init.session.strategy === 'direct') {
-    await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(init.session.id)}/content`, file, signal)
+  if (strategy === 'direct') {
+    await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/content`, file, signal)
     patchItem(item.id, { transferred: file.size })
   } else {
-    const { partSize, totalParts } = init.session
+    const done = new Set(uploaded)
     let transferred = 0
     for (let part = 1; part <= totalParts; part += 1) {
       if (signal.aborted) throw abortError()
       const start = (part - 1) * partSize
       const chunk = file.slice(start, Math.min(file.size, start + partSize))
-      await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(init.session.id)}/parts/${part}`, chunk, signal)
+      if (done.has(part)) {
+        transferred += chunk.size
+        patchItem(item.id, { transferred: Math.min(file.size, transferred) })
+        continue
+      }
+      await putBytes(`/api/clouddrive/uploads/${encodeURIComponent(sessionId)}/parts/${part}`, chunk, signal)
       transferred += chunk.size
       patchItem(item.id, { transferred: Math.min(file.size, transferred) })
     }
   }
 
   if (signal.aborted) throw abortError()
-  await clouddriveApi.completeUpload(init.session.id)
+  await clouddriveApi.completeUpload(sessionId)
   patchItem(item.id, { transferred: file.size })
 }
 
@@ -335,6 +368,30 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     set((state) => ({ items: [...state.items, ...items] }))
     schedule()
     return items.map((item) => item.id)
+  },
+
+  enqueueResume(sessionId, file, mountId) {
+    const item: TransferItem = {
+      id: transferId(),
+      kind: 'upload',
+      name: file.name,
+      mime: file.type || 'application/octet-stream',
+      size: file.size,
+      transferred: 0,
+      status: 'queued',
+      errorKey: null,
+      createdAt: Date.now(),
+      finishedAt: null,
+      mountId,
+      parentPath: null,
+      entryId: null,
+      sessionId,
+      resumeSessionId: sessionId,
+      file,
+    }
+    set((state) => ({ items: [...state.items, item] }))
+    schedule()
+    return item.id
   },
 
   enqueueDownload(entry) {

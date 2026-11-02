@@ -7,7 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { CLOUDDRIVE_LIMITS, categoryFor, parentPathOf, type CloudDriveCategory, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
+import { CLOUDDRIVE_LIMITS, categoryFor, foldedName, parentPathOf, type CloudDriveCategory, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -419,9 +419,23 @@ cloudDriveFilesRoutes.get('/files/:id', async (c) => {
   return c.json({ entry })
 })
 
+/** The live child row with this name, used by a directory upload that re-enters a path it made. */
+async function resolveChild(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  parent: CloudDriveFileRow,
+  name: string,
+): Promise<CloudDriveFileRow | null> {
+  return await db.prepare(
+    `SELECT * FROM CloudDrive_files
+      WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND name_folded = ? AND deleted_at IS NULL`,
+  ).bind(userId, mountId, parent.id, foldedName(name)).first<CloudDriveFileRow>()
+}
+
 cloudDriveFilesRoutes.post('/folders', async (c) => {
   const userId = userIdOf(c)
-  const body = await readJson<{ mountId?: unknown; parentPath?: unknown; name?: unknown }>(c, BODY_LIMIT)
+  const body = await readJson<{ mountId?: unknown; parentPath?: unknown; name?: unknown; conflict?: unknown }>(c, BODY_LIMIT)
   const mount = await mountFor(c, userId, mountIdOf(body.mountId))
   assertWritable(mount)
   const parentPath = parsePath(body.parentPath ?? '/')
@@ -429,6 +443,15 @@ cloudDriveFilesRoutes.post('/folders', async (c) => {
   const parent = await resolveEntry(c.env.DB, userId, mount.id, parentPath)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The parent path is not a folder')
   const name = parseName(body.name)
+
+  // A directory upload walks the same path for every file inside it, so it asks for the folder it
+  // already made instead of taking a 409 and inventing `docs (1)`.
+  if (body.conflict === 'reuse') {
+    const existing = await resolveChild(c.env.DB, userId, mount.id, parent, name)
+    if (existing && existing.kind === 'folder') {
+      return c.json({ entry: await entryOf(c.env.DB, userId, mount, existing), reused: true })
+    }
+  }
 
   const created = await createFolder(c.env.DB, userId, mount.id, parent, name, Date.now())
   if (!created.entry) {

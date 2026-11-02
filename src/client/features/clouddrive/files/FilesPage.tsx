@@ -21,6 +21,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderSearch,
+  FolderUp,
   FilePlus,
   GalleryHorizontal,
   Globe,
@@ -53,6 +54,7 @@ import { Menu, Modal, type MenuItem } from '../../../components/overlay'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { cloudDriveCssVars } from '../prefs'
 import { useCloudDriveStore } from '../store'
+import { createFolderTree, planFolderUpload } from '../transfers/folder-upload'
 import { useTransferStore } from '../transfers/useTransferStore'
 import { FileList } from './FileList'
 import { FileGrid } from './FileGrid'
@@ -150,6 +152,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const requestRef = useRef(0)
   const cursorRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const sortButtonRef = useRef<HTMLButtonElement>(null)
   const conflictButtonRef = useRef<HTMLButtonElement>(null)
   const dragRef = useRef<{ ids: string[]; paths: string[] } | null>(null)
@@ -567,6 +570,34 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     if (files.length > 0) await actions.upload(files, path)
   }, [actions, path])
 
+  /**
+   * A picked directory arrives as a flat list whose relative paths hold the shape. The folders are
+   * created first — reusing the ones that already exist — and only then are the files queued into
+   * the folder each one came from.
+   */
+  const handleFolderPicked = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    if (files.length === 0) return
+    const plan = planFolderUpload(files)
+    const resolved = await createFolderTree(clouddriveApi, mountId, path, plan, (directory, error) => {
+      useUi.getState().toast({
+        title: t('clouddrive.transfers.folder_failed', { value0: directory }),
+        description: error instanceof Error ? error.message : String(error),
+        tone: 'danger',
+      })
+    })
+    const groups = new Map<string, File[]>()
+    for (const entry of plan.files) {
+      const parent = resolved.get(entry.directory)
+      if (!parent) continue
+      const group = groups.get(parent) ?? []
+      group.push(entry.file as File)
+      groups.set(parent, group)
+    }
+    for (const [parent, group] of groups) await actions.upload(group, parent)
+  }, [actions, mountId, path])
+
   const handleRootKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== 'i') return
     const target = event.target as HTMLElement
@@ -748,6 +779,28 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
             <PanelRight size={15} />
           </IconButton>
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void handleUploadPicked(event)} />
+          {!external && (
+            <>
+              <input
+                ref={folderInputRef}
+                type="file"
+                hidden
+                // The directory attribute is non-standard but universal; TS does not name it.
+                {...{ webkitdirectory: '', directory: '' }}
+                onChange={(event) => void handleFolderPicked(event)}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<FolderUp size={13} />}
+                aria-label={t('clouddrive.toolbar.upload_folder')}
+                disabled={!writable || actions.busy}
+                onClick={() => folderInputRef.current?.click()}
+              >
+                <span className="hidden sm:inline">{t('clouddrive.toolbar.upload_folder')}</span>
+              </Button>
+            </>
+          )}
         </div>
       </header>
 

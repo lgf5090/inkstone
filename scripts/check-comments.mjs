@@ -5631,6 +5631,8 @@ const allowed = new Map([
     "/** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */",
     "/**\n   * Pointer drag moves rows into a folder. `dataTransfer` hides its payload until the drop, so the\n   * page records what is in flight itself and every drop target consults that; the keyboard and\n   * context-menu route to the same `actions.move` stays the way to do it without a pointer.\n   */",
     "/** A folder accepts the drag unless it is where the rows already are, or is one of them, or is inside one. */",
+    "/**\n   * A picked directory arrives as a flat list whose relative paths hold the shape. The folders are\n   * created first — reusing the ones that already exist — and only then are the files queued into\n   * the folder each one came from.\n   */",
+    "// The directory attribute is non-standard but universal; TS does not name it.",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
@@ -5711,6 +5713,15 @@ const allowed = new Map([
     "// A tab nobody is looking at has nothing to watch: the poll runs only while the page is visible,",
     "// and becomes visible again it reads the queue straight away instead of waiting out the interval.",
   ]],
+  ["src/client/features/clouddrive/transfers/folder-upload.ts", [
+    "/**\n * The folder side of an upload: a directory picked in the browser arrives as a flat file list whose\n * `webkitRelativePath` holds the shape, and the drive has to build that shape before any file lands.\n */",
+    "/** Directory segments to create, parents before children, relative to the picked root. */",
+    "/** Each file with the folder it belongs in, relative to the picked root. */",
+    "/**\n * The plan for one picked directory. A file with no relative path (a plain multi-select, or a browser\n * that strips it) keeps going where it always went: the folder that is open.\n */",
+    "// Every ancestor of a path has to exist, and `a/b` needs `a` before it.",
+    "/**\n * Creates the planned directories and returns the absolute parent path for each file. A segment is\n * reused rather than duplicated, so re-picking the same folder does not scatter `x (1)` copies.\n */",
+    "// Without the folder there is nowhere to put its files; the caller reports what was skipped.",
+  ]],
   ["src/client/features/clouddrive/transfers/useTransferStore.ts", [
     "/**\n * Client-side transfer queue for CloudDrive.\n *\n * Uploads and downloads are browser transfers rather than server tasks, so they live here and not in\n * `CloudDrive_tasks`. Active items hold a live `File`/stream and are deliberately not persisted; only\n * terminal history is written, capped at the last 100 entries per account on this device.\n */",
     "/** Present until the page reloads; a retry after that needs the reader to pick the file again. */",
@@ -5719,6 +5730,10 @@ const allowed = new Map([
     "// A folder has no single content response; the caller should queue each file instead.",
     "/** How a name clash is settled. Only an upload has one; absent means `rename`. */",
     "/** The reader's own ceiling on parts in flight, clamped to what the settings allow. */",
+    "/** Set when this transfer continues a session the server still holds, so parts are not re-sent. */",
+    "/** Continues a session the server still holds with the file the reader picks for it. */",
+    "// The session belongs to the bytes the reader picked before the reload; continuing it with a",
+    "// different file would store a mix of both under one name.",
   ]],
   ["src/client/features/clouddrive/trash/TrashPage.tsx", [
     "// The schedule the cron job keeps items on, so a row can say how long it still has.",
@@ -35446,6 +35461,9 @@ const allowed = new Map([
     "/**\n * The mime a file the drive created itself carries. An empty `.html` deliberately lands as plain\n * text: the extension is the reader's choice, not a promise that the bytes are safe to inline.\n */",
     "// The name was taken between the pre-check and the row, so the placeholder goes back the way it came.",
     "/** An unknown value falls back to stills, which is what the album showed before the filter existed. */",
+    "/** The live child row with this name, used by a directory upload that re-enters a path it made. */",
+    "// A directory upload walks the same path for every file inside it, so it asks for the folder it",
+    "// already made instead of taking a 409 and inventing `docs (1)`.",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35532,6 +35550,8 @@ const allowed = new Map([
     "// quietly occupy ten times the quota it was charged for.",
     "/**\n * The capture time a freshly stored JPEG carries, read from the head of the object the upload just\n * wrote. EXIF sits in the first few kilobytes, so the whole file is never pulled back; a distributed\n * upload has no single object to read and stays unstamped.\n */",
     "// The file is stored and valid; only the album's grouping loses the date, so this stays a log.",
+    "// A reader coming back to an unfinished upload needs the part list, not a prefix count: parts may",
+    "// have been written out of order, and re-sending one the bucket already holds costs the whole part.",
   ]],
   ["src/worker/clouddrive/routes-versions.ts", [
     "// A version is the file's content under another name: without this the folder lock guarded the",
@@ -42484,6 +42504,8 @@ const allowed = new Map([
     "// hide both files or show both.",
     "// The placeholder written before the row was refused must not stay behind as an orphan.",
     "// A row whose metadata is not JSON still lists, grouped by its upload time.",
+    "// Without the flag the clash is still a conflict with a suggestion, as it has always been.",
+    "// A file of the same name is not a folder to reuse.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",
@@ -42529,6 +42551,7 @@ const allowed = new Map([
     "// Four live bytes and four more behind them in version 1: the bucket holds eight, and the capacity",
     "// card and the upload ceiling must agree about that.",
     "// Reading history must not be a restore: the file the reader sees is still the new bytes.",
+    "// A direct session holds no parts, which is the answer the resumer needs to not skip anything.",
   ]],
   ["tests/cloudflare-accounts-store.test.ts", [
     "// Still restorable at this point, which is why the sealed file is still there.",

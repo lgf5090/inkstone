@@ -262,6 +262,27 @@ describe('clouddrive file API', () => {
     expect(images.body.groups.flatMap((group) => group.files).map((file) => file.name).sort()).toEqual(['broken.jpg', 'pic.png'])
   })
 
+  it('reuses the folder a directory upload walks again instead of duplicating it', async () => {
+    const first = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'Shots', conflict: 'reuse' })
+    expect(first.status).toBe(201)
+    const again = await call<{ entry: { id: string; path: string }; reused?: boolean }>(
+      USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shots', conflict: 'reuse' },
+    )
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+    expect(again.body.entry.id).toBe((first.body as { entry: { id: string } }).entry.id)
+    expect(again.body.entry.path).toBe('/Shots')
+
+    // Without the flag the clash is still a conflict with a suggestion, as it has always been.
+    const clash = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shots' })
+    expect(clash.status).toBe(409)
+
+    // A file of the same name is not a folder to reuse.
+    await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'note.txt' })
+    const notFolder = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'note.txt', conflict: 'reuse' })
+    expect(notFolder.status).toBe(409)
+  })
+
   it('renames a folder and its whole subtree', async () => {
     const docs = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
       parentPath: '/', name: 'Docs',

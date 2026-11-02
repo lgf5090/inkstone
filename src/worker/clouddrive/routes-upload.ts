@@ -959,6 +959,31 @@ clouddriveUploadRoutes.post('/uploads/:id/abort', async (c) => {
   return c.json({ ok: true })
 })
 
+clouddriveUploadRoutes.get('/uploads/:id', async (c) => {
+  const userId = requireUserId(c)
+  // A reader coming back to an unfinished upload needs the part list, not a prefix count: parts may
+  // have been written out of order, and re-sending one the bucket already holds costs the whole part.
+  const session = await activeSession(c, userId, c.req.param('id'))
+  const { results } = await c.env.DB.prepare(
+    `SELECT part_number FROM CloudDrive_upload_parts WHERE session_id = ?1 ORDER BY part_number`,
+  ).bind(session.id).all<{ part_number: number }>()
+  return c.json({
+    session: {
+      id: session.id,
+      mountId: session.mount_id,
+      path: session.path,
+      name: session.name,
+      mime: session.mime,
+      size: session.size,
+      strategy: session.strategy,
+      partSize: session.part_size,
+      totalParts: session.total_parts,
+      uploadedParts: (results ?? []).map((row) => row.part_number),
+      expiresAt: session.expires_at,
+    },
+  })
+})
+
 clouddriveUploadRoutes.get('/uploads', async (c) => {
   const userId = requireUserId(c)
   const status = c.req.query('status') === 'all' ? 'all' : 'active'
