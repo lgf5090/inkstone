@@ -1,4 +1,4 @@
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 
 /** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */
@@ -34,6 +34,15 @@ export interface FileViewProps {
   onSelectAll: () => void
   onClearSelection: () => void
   onContextMenu: (entry: CloudDriveEntry, event: ReactMouseEvent<HTMLElement>) => void
+  /**
+   * Pointer drag. A row is always a source and a folder is always a target, but the page decides:
+   * it holds the payload in flight, refuses a folder that is the row itself or one of its descendants
+   * and runs the same move the context menu runs. Absent means the surface cannot move anything.
+   */
+  onDragStartEntry?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => void
+  /** True when this folder accepts what is in flight; the layout lights the row on that answer. */
+  onDragOverTarget?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => boolean
+  onDropTarget?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => void
   /**
    * Enter/Space/F2/Delete/Ctrl+A/Esc/Shift+F10, answered by the page because each one opens
    * a surface the layout does not own. Returns true when the key was consumed.

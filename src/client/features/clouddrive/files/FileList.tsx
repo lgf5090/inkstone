@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { CloudDriveEntry, CloudDriveSortDirection, CloudDriveSortKey } from '@shared/clouddrive/model'
 import { parentPathOf } from '@shared/clouddrive/model'
@@ -24,6 +24,7 @@ export function FileList({
   selected,
   focusedId,
   showCheckboxes,
+  readOnly,
   onFocusEntry,
   onSelect,
   onOpen,
@@ -32,12 +33,16 @@ export function FileList({
   onClearSelection,
   onContextMenu,
   onKeyCommand,
+  onDragStartEntry,
+  onDragOverTarget,
+  onDropTarget,
   sortKey,
   sortDir,
   onSort,
   showPath = false,
 }: FileListProps) {
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
+  const [dropId, setDropId] = useState<string | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
   const selectedCount = entries.reduce((count, entry) => count + (selected.has(entry.id) ? 1 : 0), 0)
   const allSelected = entries.length > 0 && selectedCount === entries.length
@@ -130,7 +135,8 @@ export function FileList({
               tabIndex={tabIndex}
               aria-selected={isSelected}
               data-cd-entry={entry.id}
-              className="cd-list-row"
+              draggable={!readOnly && Boolean(onDragStartEntry)}
+              className={`cd-list-row${dropId === entry.id ? ' cd-drop-target' : ''}`}
               onClick={(event) => handleClick(event, entry)}
               onDoubleClick={(event) => {
                 if ((event.target as HTMLElement).closest('input')) return
@@ -138,6 +144,20 @@ export function FileList({
               }}
               onContextMenu={(event) => onContextMenu(entry, event)}
               onKeyDown={(event) => handleKeyDown(event, entry, index)}
+              onDragStart={(event) => onDragStartEntry?.(entry, event)}
+              onDragEnd={() => setDropId(null)}
+              onDragOver={entry.kind === 'folder' && onDragOverTarget
+                ? (event) => setDropId(onDragOverTarget(entry, event) ? entry.id : null)
+                : undefined}
+              onDragLeave={entry.kind === 'folder' && onDragOverTarget
+                ? () => setDropId((current) => (current === entry.id ? null : current))
+                : undefined}
+              onDrop={entry.kind === 'folder' && onDropTarget
+                ? (event) => {
+                  setDropId(null)
+                  onDropTarget(entry, event)
+                }
+                : undefined}
               onFocus={(event) => {
                 if (event.target === event.currentTarget) onFocusEntry(entry.id)
               }}

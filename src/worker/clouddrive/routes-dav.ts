@@ -21,6 +21,7 @@ import { newId } from '../lib/id'
 import { verifyPassword } from '../lib/password'
 import {
   assertWritable,
+  deleteObjectQuietly,
   initialsOf,
   parseName,
   parsePath,
@@ -769,15 +770,6 @@ clouddriveDavRoutes.put('*', async (c) => {
 
   return new Response(null, { status: existing ? 204 : 201, headers: { ETag: `"${object.etag}"` } })
 })
-
-/** Best-effort cleanup where the primary failure is already being reported. */
-async function deleteObjectQuietly(bucket: R2Bucket, key: string): Promise<void> {
-  try {
-    await bucket.delete(key)
-  } catch (error) {
-    console.warn('[clouddrive] WebDAV cleanup could not delete an object:', key, error)
-  }
-}
 
 clouddriveDavRoutes.delete('*', async (c) => {
   const auth = await authenticateDav(c)

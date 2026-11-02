@@ -15,6 +15,14 @@
   min-height: 100dvh;
 }
 
+/* The folder a dragged row is currently hovering: a row, a grid tile or one breadcrumb step. An
+   outline rather than a background, so it stays readable on a selected row too. */
+.cd-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+
 /* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they
    are skipped until the row comes near the viewport. `auto` in front of the size keeps the last
    measured box, so the scrollbar does not jump as you scroll. */

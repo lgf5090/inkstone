@@ -31,7 +31,9 @@ export interface ShareOptions {
 export interface FileActions {
   busy: boolean
   mkdir: (parentPath: string, name: string) => Promise<boolean>
+  createFile: (parentPath: string, name: string) => Promise<boolean>
   rename: (entry: CloudDriveEntry, name: string) => Promise<boolean>
+  renameBatch: (items: { id: string; name: string }[]) => Promise<boolean>
   setColor: (entry: CloudDriveEntry, color: string | null) => Promise<boolean>
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
@@ -90,6 +92,12 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     showSuccess(t('clouddrive.toast.created'))
   }), [execute, external, mountId])
 
+  const createFile = useCallback((parentPathValue: string, name: string) => execute(async () => {
+    if (external) await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, name), new File([], name))
+    else await clouddriveApi.createFile({ mountId, parentPath: parentPathValue, name })
+    showSuccess(t('clouddrive.toast.created'))
+  }), [execute, external, mountId])
+
   const rename = useCallback((entry: CloudDriveEntry, name: string) => execute(async () => {
     if (external) {
       await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPathOf(entry.path), name))
@@ -99,6 +107,19 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     }
     showSuccess(t('clouddrive.toast.renamed'))
   }), [execute, external, mountId, onLocalChange])
+
+  /**
+   * One rename after another, in listing order: the dialog has already ruled out the collisions the
+   * folder can see, and a row the drive still refuses stops the run with its own error rather than
+   * sending two hundred writes that race each other for the same name.
+   */
+  const renameBatch = useCallback((items: { id: string; name: string }[]) => execute(async () => {
+    for (const item of items) {
+      const result = await clouddriveApi.patch(item.id, { name: item.name })
+      onLocalChange?.({ type: 'replace', entry: result.entry })
+    }
+    showSuccess(t('clouddrive.toast.batch_renamed', { count: items.length }))
+  }), [execute, onLocalChange])
 
   const setColor = useCallback((entry: CloudDriveEntry, color: string | null) => execute(async () => {
     const result = await clouddriveApi.patch(entry.id, { color })
@@ -272,7 +293,9 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   return {
     busy: pending > 0,
     mkdir,
+    createFile,
     rename,
+    renameBatch,
     setColor,
     setFolderMeta,
     addTag,

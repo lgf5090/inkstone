@@ -16,7 +16,7 @@ import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
-import { PRIMARY_MOUNT, parseFolderMeta, parsePath, resolveEntry, resolveMount } from './lib'
+import { PRIMARY_MOUNT, parseFolderMeta, parsePath, requireBucket, resolveEntry, resolveMount } from './lib'
 import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
 import { assertMetaAccess } from './routes-meta'
 import { buildFolderZip, zipDisposition } from './zip'
@@ -103,12 +103,6 @@ function notSatisfiable(file: FileRow): Response {
   headers.set('Content-Range', `bytes */${file.size}`)
   headers.delete('Content-Disposition')
   return new Response(null, { status: 416, headers })
-}
-
-async function requireBucket(c: Context<AppBindings>): Promise<R2Bucket> {
-  const bucket = c.env.FILES
-  if (!bucket) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
-  return bucket
 }
 
 clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {

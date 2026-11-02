@@ -11,6 +11,7 @@ import {
   autoSuffixName,
   foldedName,
   restoredName,
+  type CloudDriveCategory,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
   type CloudDriveTagView,
@@ -462,7 +463,7 @@ export async function getFileById(
   return await db.prepare(sql).bind(userId, id).first<CloudDriveFileRow>()
 }
 
-export interface CreateFolderResult {
+export interface CreateEntryResult {
   entry?: CloudDriveFileRow
   conflict?: string
 }
@@ -474,7 +475,7 @@ export async function createFolder(
   parent: CloudDriveFileRow,
   name: string,
   now: number,
-): Promise<CreateFolderResult> {
+): Promise<CreateEntryResult> {
   const nameFolded = foldName(name)
   if (await liveSibling(db, userId, mountId, parent.id, nameFolded)) {
     return { conflict: await availableName(db, userId, mountId, parent.id, name) }
@@ -497,6 +498,45 @@ export async function createFolder(
     throw error
   }
   return { entry: await getRowById(db, userId, mountId, id) ?? undefined }
+}
+
+/**
+ * The row for a file the drive created itself, once its (empty) object is already in the bucket. The
+ * caller mints the id and writes the object under it, because the storage key names that id; a
+ * rejected name reports a conflict instead of writing a second row, and `UNIQUE` does the same later.
+ */
+export async function createFile(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  parent: CloudDriveFileRow,
+  name: string,
+  data: { id: string; category: CloudDriveCategory; mime: string; storageKey: string; etag: string },
+  now: number,
+): Promise<CreateEntryResult> {
+  const nameFolded = foldName(name)
+  if (await liveSibling(db, userId, mountId, parent.id, nameFolded)) {
+    return { conflict: await availableName(db, userId, mountId, parent.id, name) }
+  }
+  const path = parent.path === '/' ? `/${name}` : `${parent.path}/${name}`
+  try {
+    await db.prepare(
+      `INSERT INTO CloudDrive_files
+         (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
+          category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
+          starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+       VALUES (?, ?, ?, ?, 'file', ?, ?, ?, ?, ?, ?, 0, ?, NULL, 'r2', ?, '{}', '', NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+    ).bind(
+      data.id, userId, mountId, parent.id, name, nameFolded, initialsOf(name), path,
+      data.category, data.mime, data.etag, data.storageKey, now, now, now, now,
+    ).run()
+  } catch (error) {
+    if (String(error).includes('UNIQUE')) {
+      return { conflict: await availableName(db, userId, mountId, parent.id, name) }
+    }
+    throw error
+  }
+  return { entry: await getRowById(db, userId, mountId, data.id) ?? undefined }
 }
 
 async function getRowById(

@@ -9,6 +9,7 @@ import {
   useState,
   type ChangeEvent,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
@@ -20,6 +21,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderSearch,
+  FilePlus,
   GalleryHorizontal,
   Globe,
   LayoutGrid,
@@ -56,7 +58,7 @@ import { FileList } from './FileList'
 import { FileGrid } from './FileGrid'
 import { FileGallery } from './FileGallery'
 import { ContextMenu, type ContextMenuTarget } from './ContextMenu'
-import { ConfirmDeleteDialog, MoveDialog, NewFolderDialog, RenameDialog } from './Dialogs'
+import { BatchRenameDialog, ConfirmDeleteDialog, MoveDialog, NameDialog, RenameDialog } from './Dialogs'
 import { Inspector } from './Inspector'
 import { SelectionBar } from './SelectionBar'
 import { ShareDialog } from './ShareDialog'
@@ -75,6 +77,9 @@ const MarkdownBody = lazy(() => import('../../preview/MarkdownBody').then((modul
 
 /** A page is what the user scrolls past before asking for the next one; the server caps at 500. */
 const PAGE_SIZE = 200
+
+/** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */
+const DRAG_MIME = 'application/x-inkstone-clouddrive'
 
 function appendListing(current: CloudDriveListing, next: CloudDriveListing): CloudDriveListing {
   const seen = new Set([...current.folders, ...current.files].map((entry) => entry.id))
@@ -106,7 +111,9 @@ type ViewMode = 'icon' | 'list' | 'gallery'
 
 type DialogState =
   | { kind: 'mkdir' }
+  | { kind: 'createFile' }
   | { kind: 'rename'; entry: CloudDriveEntry }
+  | { kind: 'renameBatch' }
   | { kind: 'move'; ids: string[]; initialPath: string; entries: CloudDriveEntry[] }
   | { kind: 'delete'; ids: string[]; entries: CloudDriveEntry[] }
   | { kind: 'share'; entries: CloudDriveEntry[] }
@@ -137,6 +144,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const [dialog, setDialog] = useState<DialogState>(null)
   const [sortOpen, setSortOpen] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
+  const [crumbDrop, setCrumbDrop] = useState<string | null>(null)
 
   const listingRef = useRef<CloudDriveListing | null>(null)
   const requestRef = useRef(0)
@@ -144,6 +152,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sortButtonRef = useRef<HTMLButtonElement>(null)
   const conflictButtonRef = useRef<HTMLButtonElement>(null)
+  const dragRef = useRef<{ ids: string[]; paths: string[] } | null>(null)
 
   const writable = !readOnly
   const viewMode: ViewMode = prefs.viewMode === 'column' ? 'icon' : prefs.viewMode
@@ -321,6 +330,47 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
   }, [])
 
   const actions = useFileActions({ mountId, refresh: load, external, onLocalChange: applyLocalChange })
+
+  /**
+   * Pointer drag moves rows into a folder. `dataTransfer` hides its payload until the drop, so the
+   * page records what is in flight itself and every drop target consults that; the keyboard and
+   * context-menu route to the same `actions.move` stays the way to do it without a pointer.
+   */
+  const startDrag = useCallback((entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => {
+    if (!writable || external) return
+    const ids = selected.has(entry.id)
+      ? entries.filter((one) => selected.has(one.id)).map((one) => one.id)
+      : [entry.id]
+    const paths = entries.filter((one) => ids.includes(one.id)).map((one) => one.path)
+    dragRef.current = { ids, paths }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(DRAG_MIME, ids.join(','))
+  }, [entries, external, selected, writable])
+
+  const canDropOn = useCallback((targetPath: string): boolean => {
+    const payload = dragRef.current
+    if (!payload || !writable || external) return false
+    if (targetPath === path) return false
+    return !payload.paths.some((one) => targetPath === one || targetPath.startsWith(`${one}/`))
+  }, [external, path, writable])
+
+  const dragOverTarget = useCallback((targetPath: string, event: ReactDragEvent<HTMLElement>): boolean => {
+    if (!event.dataTransfer.types.includes(DRAG_MIME) || !canDropOn(targetPath)) return false
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    return true
+  }, [canDropOn])
+
+  const dropOnTarget = useCallback((targetPath: string, event: ReactDragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes(DRAG_MIME)) return
+    event.preventDefault()
+    const payload = dragRef.current
+    dragRef.current = null
+    if (!payload || !canDropOn(targetPath)) return
+    const moved = entries.filter((one) => payload.ids.includes(one.id))
+    setSelected(new Set())
+    void actions.move(payload.ids, targetPath, moved)
+  }, [actions, canDropOn, entries])
 
   const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
     setSelected((current) => {
@@ -680,6 +730,16 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           >
             <span className="hidden sm:inline">{t('clouddrive.toolbar.new_folder')}</span>
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<FilePlus size={13} />}
+            aria-label={t('clouddrive.toolbar.new_file')}
+            disabled={!writable || actions.busy}
+            onClick={() => setDialog({ kind: 'createFile' })}
+          >
+            <span className="hidden sm:inline">{t('clouddrive.toolbar.new_file')}</span>
+          </Button>
           <IconButton
             label={t('clouddrive.toolbar.inspector')}
             active={prefs.inspectorVisible}
@@ -699,7 +759,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           type="button"
           aria-current={path === '/' ? 'page' : undefined}
           onClick={() => onNavigate('/')}
-          className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+          className={`shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]${crumbDrop === '/' ? ' cd-drop-target' : ''}`}
+          onDragOver={(event) => setCrumbDrop(dragOverTarget('/', event) ? '/' : null)}
+          onDragLeave={() => setCrumbDrop((current) => (current === '/' ? null : current))}
+          onDrop={(event) => {
+            setCrumbDrop(null)
+            dropOnTarget('/', event)
+          }}
         >
           {mountName ?? t('clouddrive.sidebar.primary')}
         </button>
@@ -713,7 +779,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                 type="button"
                 aria-current={last ? 'page' : undefined}
                 onClick={() => onNavigate(target)}
-                className="max-w-[220px] shrink-0 truncate rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] aria-[current=page]:font-medium aria-[current=page]:text-[var(--text-primary)]"
+                className={`max-w-[220px] shrink-0 truncate rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] aria-[current=page]:font-medium aria-[current=page]:text-[var(--text-primary)]${crumbDrop === target ? ' cd-drop-target' : ''}`}
+                onDragOver={(event) => setCrumbDrop(dragOverTarget(target, event) ? target : null)}
+                onDragLeave={() => setCrumbDrop((current) => (current === target ? null : current))}
+                onDrop={(event) => {
+                  setCrumbDrop(null)
+                  dropOnTarget(target, event)
+                }}
               >
                 {segment}
               </button>
@@ -754,12 +826,12 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           aria-busy={status === 'loading'}
           className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto"
           onDragOver={(event) => {
-            if (!writable) return
+            if (!writable || event.dataTransfer.types.includes(DRAG_MIME)) return
             event.preventDefault()
             event.dataTransfer.dropEffect = 'copy'
           }}
           onDrop={(event) => {
-            if (!writable) return
+            if (!writable || event.dataTransfer.types.includes(DRAG_MIME)) return
             event.preventDefault()
             const files = Array.from(event.dataTransfer.files)
             if (files.length > 0) void actions.upload(files, path)
@@ -803,6 +875,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   onClearSelection={clearSelection}
                   onContextMenu={handleContextMenu}
                   onKeyCommand={handleKeyCommand}
+                  onDragStartEntry={startDrag}
+                  onDragOverTarget={(entry, event) => dragOverTarget(entry.path, event)}
+                  onDropTarget={(entry, event) => dropOnTarget(entry.path, event)}
                 />
               )}
               {viewMode === 'icon' && (
@@ -820,6 +895,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   onClearSelection={clearSelection}
                   onContextMenu={handleContextMenu}
                   onKeyCommand={handleKeyCommand}
+                  onDragStartEntry={startDrag}
+                  onDragOverTarget={(entry, event) => dragOverTarget(entry.path, event)}
+                  onDropTarget={(entry, event) => dropOnTarget(entry.path, event)}
                 />
               )}
               {viewMode === 'gallery' && (
@@ -887,6 +965,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onCopy={() => rememberClipboard('copy', selectedEntries.map((entry) => entry.id))}
         onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
         onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
+        onRenameBatch={() => setDialog({ kind: 'renameBatch' })}
         onDelete={() => requestDelete(selectedEntries)}
         onClear={() => {
           clearSelection()
@@ -933,11 +1012,18 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onToggleCheckboxes={() => setPrefs({ showCheckboxes: !prefs.showCheckboxes })}
       />
 
-      <NewFolderDialog
+      <NameDialog
         open={dialog?.kind === 'mkdir'}
         busy={actions.busy}
         onClose={() => setDialog(null)}
         onSubmit={(name) => actions.mkdir(path, name)}
+      />
+      <NameDialog
+        title={t('clouddrive.dialog.new_file')}
+        open={dialog?.kind === 'createFile'}
+        busy={actions.busy}
+        onClose={() => setDialog(null)}
+        onSubmit={(name) => actions.createFile(path, name)}
       />
       <RenameDialog
         open={dialog?.kind === 'rename'}
@@ -945,6 +1031,14 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         busy={actions.busy}
         onClose={() => setDialog(null)}
         onSubmit={(name) => (dialog?.kind === 'rename' ? actions.rename(dialog.entry, name) : Promise.resolve(false))}
+      />
+      <BatchRenameDialog
+        open={dialog?.kind === 'renameBatch'}
+        entries={selectedEntries}
+        staying={entries.filter((one) => !selected.has(one.id))}
+        busy={actions.busy}
+        onClose={() => setDialog(null)}
+        onSubmit={(items) => actions.renameBatch(items)}
       />
       <MoveDialog
         open={dialog?.kind === 'move'}

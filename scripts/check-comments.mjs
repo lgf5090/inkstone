@@ -5582,6 +5582,7 @@ const allowed = new Map([
   ["src/client/features/clouddrive/clouddrive.css", [
     "/* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they\n   are skipped until the row comes near the viewport. `auto` in front of the size keeps the last\n   measured box, so the scrollbar does not jump as you scroll. */",
     "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the variables below\n   are the only values the reader changes at runtime (gap, icon size, row height, sidebar width). */",
+    "/* The folder a dragged row is currently hovering: a row, a grid tile or one breadcrumb step. An\n   outline rather than a background, so it stays readable on a selected row too. */",
   ]],
   ["src/client/features/clouddrive/files/ColorTagMenus.tsx", [
     "/** The colour dots a row or grid tile carries. Names stay in the inspector and list. */",
@@ -5600,6 +5601,8 @@ const allowed = new Map([
   ["src/client/features/clouddrive/files/Dialogs.tsx", [
     "// The reset runs when the dialog opens, not on every render of its parent.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
+    "/**\n * Renames the whole selection with one rule and shows every resulting name before anything is sent.\n * The plan is computed from the same two checks the server applies, so a row the drive would refuse\n * is marked here rather than failing as a toast afterwards.\n */",
+    "/** The rest of the folder, so a new name colliding with a row that stays put is visible. */",
   ]],
   ["src/client/features/clouddrive/files/FileIcon.tsx", [
     "/**\n * Category tints are CSS custom properties declared on the feature root, so the palette is\n * the theme's own tokens rather than a second set of hexes. The folder tint comes from the\n * entry (`ORGANIZER_COLORS` or a guarded custom hex) and falls back to the same token.\n */",
@@ -5622,11 +5625,20 @@ const allowed = new Map([
     "/**\n   * What an upload does when the folder already holds that name. The server has honoured all three\n   * since the first day; the queue used to ask for `rename` and nothing else.\n   */",
     "// The server answers with the two halves of a folder separately, each in its own order; which half",
     "// comes first in the browser is the reader's \"folders first\" choice.",
+    "/** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */",
+    "/**\n   * Pointer drag moves rows into a folder. `dataTransfer` hides its payload until the drop, so the\n   * page records what is in flight itself and every drop target consults that; the keyboard and\n   * context-menu route to the same `actions.move` stays the way to do it without a pointer.\n   */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
     "// it when it first opens instead of claiming \"not shared\" for files it never looked at.",
     "// An unknown answer is not the same as \"not shared\": the row stays out of the panel.",
+  ]],
+  ["src/client/features/clouddrive/files/batch-rename.ts", [
+    "/** The text for `prefix`, `suffix` and `number`; the replacement for `replace`. */",
+    "/** Only for `replace`. */",
+    "/** Only for `number`: the first index. */",
+    "/**\n * The name one rule produces. Only the part before a short extension is rewritten, so `photo.jpg`\n * with the suffix `-v2` lands as `photo-v2.jpg` and never as `photo.jpg-v2`; a folder has no\n * extension to protect.\n */",
+    "/**\n * Every proposed name, each judged against the same two rules the server applies to the rename: the\n * name itself has to be one CloudDrive stores, and it has to be free among the rows staying put.\n */",
   ]],
   ["src/client/features/clouddrive/files/files.css", [
     "/* CloudDrive file browser surfaces. Every colour is a theme token; the only runtime colours\n   are the folder tint and tag dots, which arrive as data from the server. */",
@@ -5643,9 +5655,12 @@ const allowed = new Map([
     "/** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */",
     "/**\n * The contract every file layout shares. The page owns selection, dialogs and the context\n * menu; a layout owns only the markup and the arrow-key movement inside its own list.\n */",
     "/**\n   * Enter/Space/F2/Delete/Ctrl+A/Esc/Shift+F10, answered by the page because each one opens\n   * a surface the layout does not own. Returns true when the key was consumed.\n   */",
+    "/**\n   * Pointer drag. A row is always a source and a folder is always a target, but the page decides:\n   * it holds the payload in flight, refuses a folder that is the row itself or one of its descendants\n   * and runs the same move the context menu runs. Absent means the surface cannot move anything.\n   */",
+    "/** True when this folder accepts what is in flight; the layout lights the row on that answer. */",
   ]],
   ["src/client/features/clouddrive/files/useFileActions.ts", [
     "/** Local list updates applied before the refresh confirms them. */",
+    "/**\n   * One rename after another, in listing order: the dialog has already ruled out the collisions the\n   * folder can see, and a row the drive still refuses stops the run with its own error rather than\n   * sending two hundred writes that race each other for the same name.\n   */",
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
@@ -35311,6 +35326,8 @@ const allowed = new Map([
     "/** How many statements one `db.batch` may carry before D1 stops answering. */",
     "/**\n * Run a long statement list in D1-sized chunks.\n *\n * The WebDAV copy path learned the hard way that a batch of a few hundred statements is refused, so a\n * folder copy or a 200-part upload cannot build one giant batch. Each chunk is its own transaction: a\n * failure mid-list leaves earlier chunks applied, which is why the callers report per-entry results\n * rather than assuming all-or-nothing.\n */",
     "/**\n * The owner's member switches, enforced at the doors a member can knock on. Reading them from the\n * owner's row is what makes the setting on the page a policy instead of a personal preference.\n */",
+    "/**\n * Best-effort cleanup for the object a failed write has already orphaned. The caller is reporting a\n * bigger failure, and a bucket that will not delete is not worth replacing that message with.\n */",
+    "/** The object bucket every primary-mount write goes through, or the 503 that says it is not bound. */",
   ]],
   ["src/worker/clouddrive/meta.ts", [
     "/**\n * A hidden rule is a glob — `*.tmp`, `Thumbs.db`, `._?` — which is exactly what the inspector hints\n * at. Treating it as a regular expression let a typo hide nothing at all and let `(a+)+$` turn a\n * folder listing into a backtracking exercise, so no pattern is ever compiled here.\n */",
@@ -35347,7 +35364,6 @@ const allowed = new Map([
     "// Another request may have created the same folder between the lookup and the insert.",
     "// The upload never became a row; R2 owns whatever bytes a failed put may have left.",
     "// The row is the authority; an object whose row never landed would be an orphan.",
-    "/** Best-effort cleanup where the primary failure is already being reported. */",
     "/** Resolve the `Destination` header on the same origin to a virtual path. */",
     "// `substr`, not `LIKE`: a folder named `100%` must not rewrite `100x`.",
     "// D1 refuses batches above about a hundred statements; a big copy may leave earlier chunks behind",
@@ -35381,6 +35397,8 @@ const allowed = new Map([
     "// per-file ceiling, so that is what is checked here; the total stays on the folder-size view.",
     "// A batch move of two hundred items used to cost two hundred row reads and two hundred scans of the",
     "// metadata table; one read of each answers the same question for the whole set.",
+    "/**\n * The mime a file the drive created itself carries. An empty `.html` deliberately lands as plain\n * text: the extension is the reader's choice, not a promise that the bytes are safe to inline.\n */",
+    "// The name was taken between the pre-check and the row, so the placeholder goes back the way it came.",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35502,6 +35520,7 @@ const allowed = new Map([
     "/** The same lookup by virtual path, so a batch call hands over one query per chunk. */",
     "// Every trashed row is already a target, so one read of them beats expanding each root's subtree",
     "// and de-duplicating the same folders back out again.",
+    "/**\n * The row for a file the drive created itself, once its (empty) object is already in the bucket. The\n * caller mints the id and writes the object under it, because the storage key names that id; a\n * rejected name reports a conflict instead of writing a second row, and `UNIQUE` does the same later.\n */",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -42400,6 +42419,7 @@ const allowed = new Map([
     "// The locked folder is still listed in its parent, so its own tag stays in the panel.",
     "// Batched metadata has to stay per path: one answer reused across the two folders would either",
     "// hide both files or show both.",
+    "// The placeholder written before the row was refused must not stay behind as an orphan.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",

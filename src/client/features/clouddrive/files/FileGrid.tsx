@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { FileIcon } from './FileIcon'
 import { TagDots } from './ColorTagMenus'
@@ -10,14 +10,19 @@ export function FileGrid({
   selected,
   focusedId,
   showCheckboxes,
+  readOnly,
   onFocusEntry,
   onSelect,
   onOpen,
   onPreview,
   onContextMenu,
   onKeyCommand,
+  onDragStartEntry,
+  onDragOverTarget,
+  onDropTarget,
 }: FileViewProps) {
   const itemRefs = useRef(new Map<string, HTMLButtonElement>())
+  const [dropId, setDropId] = useState<string | null>(null)
 
   const focusAt = (index: number, event: ReactKeyboardEvent<HTMLElement>) => {
     const next = entries[index]
@@ -72,12 +77,27 @@ export function FileGrid({
               tabIndex={tabIndex}
               aria-pressed={isSelected}
               data-cd-entry={entry.id}
-              className="cd-grid-item w-full"
+              draggable={!readOnly && Boolean(onDragStartEntry)}
+              className={`cd-grid-item w-full${dropId === entry.id ? ' cd-drop-target' : ''}`}
               onClick={(event) => handleClick(event, entry)}
               onDoubleClick={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(entry, event)}
               onKeyDown={(event) => handleKeyDown(event, entry, index)}
               onFocus={() => onFocusEntry(entry.id)}
+              onDragStart={(event) => onDragStartEntry?.(entry, event)}
+              onDragEnd={() => setDropId(null)}
+              onDragOver={entry.kind === 'folder' && onDragOverTarget
+                ? (event) => setDropId(onDragOverTarget(entry, event) ? entry.id : null)
+                : undefined}
+              onDragLeave={entry.kind === 'folder' && onDragOverTarget
+                ? () => setDropId((current) => (current === entry.id ? null : current))
+                : undefined}
+              onDrop={entry.kind === 'folder' && onDropTarget
+                ? (event) => {
+                  setDropId(null)
+                  onDropTarget(entry, event)
+                }
+                : undefined}
             >
               <FileIcon entry={entry} fluid />
               <span className="cd-grid-name">{nameBase}{nameExtension && <span className="cd-name-ext">{nameExtension}</span>}</span>

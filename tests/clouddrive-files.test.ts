@@ -181,6 +181,52 @@ describe('clouddrive file API', () => {
     expect(second.body.error.details?.suggestedName).toBe('docs (1)')
   })
 
+  it('creates an empty file the drive owns, with a category and a stored object', async () => {
+    const created = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/files', {
+      parentPath: '/', name: 'notes.md',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.entry.kind).toBe('file')
+    expect(created.body.entry.path).toBe('/notes.md')
+    expect(created.body.entry.size).toBe(0)
+    expect(created.body.entry.mime).toBe('text/plain')
+    expect(created.body.entry.category).toBe('txt')
+    const key = `CloudDrive/${created.body.entry.category}/${created.body.entry.id}`
+    expect([...r2.objects.keys()]).toContain(key)
+    expect(r2.objects.get(key)?.byteLength).toBe(0)
+
+    const listing = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/')
+    expect(listing.body.files.map((entry) => entry.name)).toContain('notes.md')
+  })
+
+  it('refuses to create a file whose name the drive would not store', async () => {
+    const badName = await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'bad/name' })
+    expect(badName.status).toBe(400)
+    expect((badName.body as { error?: { code?: string } }).error?.code).toBe('clouddrive_path_invalid')
+    expect([...r2.objects.keys()]).toEqual([])
+  })
+
+  it('reports a name clash on a new file with the name it would accept', async () => {
+    const first = await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'a.txt' })
+    expect(first.status).toBe(201)
+    const second = await call<{ error: { code: string; details?: { suggestedName?: string } } }>(
+      USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'A.TXT' },
+    )
+    expect(second.status).toBe(409)
+    expect(second.body.error.details?.suggestedName).toBe('A (1).TXT')
+    // The placeholder written before the row was refused must not stay behind as an orphan.
+    expect(r2.objects.size).toBe(1)
+  })
+
+  it('creates an html name as plain text, never as a type the browser would run', async () => {
+    const created = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/files', {
+      parentPath: '/', name: 'page.html',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.entry.mime).not.toBe('text/html')
+    expect(created.body.entry.mime).toBe('text/plain')
+  })
+
   it('renames a folder and its whole subtree', async () => {
     const docs = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
       parentPath: '/', name: 'Docs',

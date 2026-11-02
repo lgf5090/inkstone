@@ -1,4 +1,4 @@
-import { Copy, Download, FolderInput, Scissors, Share2, Trash2, X } from 'lucide-react'
+import { Copy, Download, FolderInput, ListOrdered, Scissors, Share2, Trash2, X } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
@@ -15,6 +15,7 @@ export interface SelectionBarProps {
   onCopy: () => void
   onCut: () => void
   onMove: () => void
+  onRenameBatch: () => void
   onDelete: () => void
   onClear: () => void
 }
@@ -31,6 +32,7 @@ export function SelectionBar({
   onCopy,
   onCut,
   onMove,
+  onRenameBatch,
   onDelete,
   onClear,
 }: SelectionBarProps) {
@@ -55,6 +57,9 @@ export function SelectionBar({
       </Button>
       <Button size="sm" variant="secondary" icon={<FolderInput size={13} />} onClick={onMove} disabled={!writable || busy}>
         {t('clouddrive.action.move')}
+      </Button>
+      <Button size="sm" variant="secondary" icon={<ListOrdered size={13} />} onClick={onRenameBatch} disabled={!writable || external || busy}>
+        {t('clouddrive.action.rename_batch')}
       </Button>
       <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={onDelete} disabled={!writable || busy} className="text-[var(--danger)]">
         {t('clouddrive.action.delete')}

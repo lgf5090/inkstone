@@ -7,16 +7,17 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { CLOUDDRIVE_LIMITS, parentPathOf, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
+import { CLOUDDRIVE_LIMITS, categoryFor, parentPathOf, type CloudDriveCategory, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { deleteExternalPath, externalCapacityBytes, externalFolderSize, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
-import { isValidId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
   assertWritable,
   buildEntry,
+  deleteObjectQuietly,
   parseDir,
   parseFlag,
   parseLimit,
@@ -26,6 +27,7 @@ import {
   parseSort,
   parseTimestamp,
   queryExternalEntries,
+  requireBucket,
   resolveEntry,
   resolveMount,
   tagsForFiles,
@@ -40,6 +42,7 @@ import {
   albumEntries,
   copyEntries,
   countVisibleTags,
+  createFile,
   createFolder,
   folderHiddenPatterns,
   folderSize,
@@ -428,6 +431,44 @@ cloudDriveFilesRoutes.post('/folders', async (c) => {
 
   const created = await createFolder(c.env.DB, userId, mount.id, parent, name, Date.now())
   if (!created.entry) {
+    throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
+  }
+  return c.json({ entry: await entryOf(c.env.DB, userId, mount, created.entry) }, 201)
+})
+
+/**
+ * The mime a file the drive created itself carries. An empty `.html` deliberately lands as plain
+ * text: the extension is the reader's choice, not a promise that the bytes are safe to inline.
+ */
+function createdFileMime(category: CloudDriveCategory): string {
+  return category === 'txt' || category === 'code' ? 'text/plain' : 'application/octet-stream'
+}
+
+cloudDriveFilesRoutes.post('/files', async (c) => {
+  const userId = userIdOf(c)
+  const body = await readJson<{ mountId?: unknown; parentPath?: unknown; name?: unknown }>(c, BODY_LIMIT)
+  const mount = await mountFor(c, userId, mountIdOf(body.mountId))
+  assertWritable(mount)
+  const parentPath = parsePath(body.parentPath ?? '/')
+  await assertMetaAccess(c, userId, mount.id, parentPath)
+  const parent = await resolveEntry(c.env.DB, userId, mount.id, parentPath)
+  if (parent.kind !== 'folder') throw ApiError.badRequest('The parent path is not a folder')
+  const name = parseName(body.name)
+  const category = categoryFor(name)
+  const mime = createdFileMime(category)
+
+  const bucket = await requireBucket(c)
+  const fileId = newId()
+  const storageKey = `CloudDrive/${category}/${fileId}`
+  const object = await bucket.put(storageKey, new Uint8Array(0), {
+    httpMetadata: { contentType: mime },
+    customMetadata: { fileId, category },
+  })
+  const now = Date.now()
+  const created = await createFile(c.env.DB, userId, mount.id, parent, name, { id: fileId, category, mime, storageKey, etag: object.etag }, now)
+  if (!created.entry) {
+    // The name was taken between the pre-check and the row, so the placeholder goes back the way it came.
+    await deleteObjectQuietly(bucket, storageKey)
     throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
   }
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, created.entry) }, 201)

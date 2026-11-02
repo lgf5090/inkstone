@@ -6,6 +6,8 @@
  * store modules; this file owns the two lookups every request makes first (mount, then entry).
  */
 import { pinyin } from 'pinyin-pro'
+import type { Context } from 'hono'
+import type { AppBindings } from '../env'
 import {
   CLOUDDRIVE_CATEGORIES,
   CLOUDDRIVE_LIMITS,
@@ -524,6 +526,25 @@ export async function chunkedBatch(
  * The owner's member switches, enforced at the doors a member can knock on. Reading them from the
  * owner's row is what makes the setting on the page a policy instead of a personal preference.
  */
+/**
+ * Best-effort cleanup for the object a failed write has already orphaned. The caller is reporting a
+ * bigger failure, and a bucket that will not delete is not worth replacing that message with.
+ */
+export async function deleteObjectQuietly(bucket: R2Bucket, key: string): Promise<void> {
+  try {
+    await bucket.delete(key)
+  } catch (error) {
+    console.warn('[clouddrive] cleanup could not delete an object:', key, error)
+  }
+}
+
+/** The object bucket every primary-mount write goes through, or the 503 that says it is not bound. */
+export async function requireBucket(c: Context<AppBindings>): Promise<R2Bucket> {
+  const bucket = c.env.FILES
+  if (!bucket) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
+  return bucket
+}
+
 export async function assertMemberAllowed(
   db: D1Database,
   userId: string,
