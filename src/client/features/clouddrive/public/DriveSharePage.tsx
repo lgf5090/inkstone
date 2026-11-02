@@ -24,11 +24,12 @@ type ShareEntry = { name: string; path: string; kind: 'file' | 'folder'; size: n
 
 const SHARE_API = '/api/public/clouddrive/shares'
 
-/** The types a browser draws in place; the share API refuses to serve anything else without download. */
+/** The types the share route is willing to draw in place; it adds PDF to the app-wide inline list. */
 function isRenderable(mime: string): boolean {
   return (mime.startsWith('image/') && mime !== 'image/svg+xml')
     || mime.startsWith('audio/')
     || mime.startsWith('video/')
+    || mime === 'application/pdf'
 }
 
 export function DriveSharePage({ slug }: { slug: string }) {
@@ -39,6 +40,11 @@ export function DriveSharePage({ slug }: { slug: string }) {
   const [submitting, setSubmitting] = useState(false)
   const [entries, setEntries] = useState<ShareEntry[]>([])
   const [sharePath, setSharePath] = useState('/')
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [total, setTotal] = useState<number | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set())
 
   const load = useCallback(async () => {
     const response = await fetch(`${SHARE_API}/${encodeURIComponent(slug)}`, { credentials: 'same-origin' })
@@ -94,22 +100,70 @@ export function DriveSharePage({ slug }: { slug: string }) {
     }
   }
 
-  useEffect(() => {
-    if (phase !== 'ready' || meta?.targetKind !== 'folder') return
-    let cancelled = false
-    fetch(`${SHARE_API}/${encodeURIComponent(slug)}/list?path=${encodeURIComponent(sharePath)}`, { credentials: 'same-origin' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status))
-        return await response.json() as { entries: ShareEntry[] }
-      })
-      .then((value) => { if (!cancelled) setEntries(value.entries) })
-      .catch(() => { if (!cancelled) setEntries([]) })
-    return () => { cancelled = true }
-  }, [phase, meta?.targetKind, sharePath, slug])
-
   const contentUrl = (path: string, download: boolean) => download
     ? `/d/${encodeURIComponent(slug)}/raw?path=${encodeURIComponent(path)}`
     : `${SHARE_API}/${encodeURIComponent(slug)}/content?path=${encodeURIComponent(path)}`
+
+  const fetchFolder = useCallback(async (at: string | null) => {
+    const search = new URLSearchParams({ path: sharePath })
+    if (at) search.set('cursor', at)
+    const response = await fetch(`${SHARE_API}/${encodeURIComponent(slug)}/list?${search.toString()}`, { credentials: 'same-origin' })
+    if (!response.ok) throw new Error(String(response.status))
+    return await response.json() as { entries: ShareEntry[]; cursor: string | null; total: number }
+  }, [sharePath, slug])
+
+  useEffect(() => {
+    if (phase !== 'ready' || meta?.targetKind !== 'folder') return
+    let cancelled = false
+    setPreviewPath(null)
+    setPicked(new Set())
+    void fetchFolder(null)
+      .then((value) => {
+        if (cancelled) return
+        setEntries(value.entries)
+        setCursor(value.cursor)
+        setTotal(value.total)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setEntries([])
+        setCursor(null)
+        setTotal(null)
+      })
+    return () => { cancelled = true }
+  }, [phase, meta?.targetKind, fetchFolder])
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const value = await fetchFolder(cursor)
+      setEntries((current) => [...current, ...value.entries])
+      setCursor(value.cursor)
+      setTotal(value.total)
+    } catch {
+      setCursor(null)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  /**
+   * Downloads the picked files one after another. A browser only ever runs one navigation per
+   * gesture, so the links are clicked in sequence with a short gap rather than all at once.
+   */
+  const downloadPicked = async () => {
+    const targets = entries.filter((entry) => picked.has(entry.path) && entry.kind === 'file')
+    for (const [index, entry] of targets.entries()) {
+      await new Promise((resolve) => window.setTimeout(resolve, index * 400))
+      const link = document.createElement('a')
+      link.href = contentUrl(entry.path, true)
+      link.download = entry.name
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    }
+  }
 
   const goUp = () => {
     const cut = sharePath.lastIndexOf('/')
@@ -181,9 +235,26 @@ export function DriveSharePage({ slug }: { slug: string }) {
             {meta.targetKind === 'folder' && (
               <div className="flex flex-col gap-1">
                 {sharePath !== '/' && <button type="button" className="self-start text-[length:var(--text-11)] text-[var(--accent)]" onClick={goUp}>{t('clouddrive.toolbar.back')}</button>}
+                {total !== null && (
+                  <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_total', { count: total })}</p>
+                )}
                 {entries.length === 0 && <p className="py-6 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.folder_empty')}</p>}
                 {entries.map((entry) => (
                   <div key={entry.path} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5">
+                    {entry.kind === 'file' && meta.allowDownload && (
+                      <input
+                        type="checkbox"
+                        className="cd-checkbox shrink-0"
+                        checked={picked.has(entry.path)}
+                        aria-label={t('clouddrive.share.pick', { value0: entry.name })}
+                        onChange={(event) => setPicked((current) => {
+                          const next = new Set(current)
+                          if (event.target.checked) next.add(entry.path)
+                          else next.delete(entry.path)
+                          return next
+                        })}
+                      />
+                    )}
                     {entry.kind === 'folder'
                       ? <button type="button" className="min-w-0 flex-1 truncate text-left text-[length:var(--text-12)] text-[var(--text-primary)]" onClick={() => setSharePath(entry.path)}>{entry.name}</button>
                       : meta.allowDownload || isRenderable(entry.mime)
@@ -199,9 +270,39 @@ export function DriveSharePage({ slug }: { slug: string }) {
                         : (
                           <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-tertiary)]">{entry.name}</span>
                         )}
-                    {entry.kind === 'file' && <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>}
+                    {entry.kind === 'file' && isRenderable(entry.mime) && (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--accent)] hover:bg-[var(--bg-hover)]"
+                        aria-pressed={previewPath === entry.path}
+                        onClick={() => setPreviewPath(previewPath === entry.path ? null : entry.path)}
+                      >
+                        {t('clouddrive.share.preview')}
+                      </button>
+                    )}
+                    {entry.kind === 'file' && <span className="shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>}
+                    <span className="hidden shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-quaternary)] sm:inline">{new Date(entry.modifiedAt).toLocaleString()}</span>
                   </div>
                 ))}
+                {cursor && (
+                  <Button size="sm" variant="secondary" loading={loadingMore} onClick={() => void loadMore()} className="self-start">
+                    {t('clouddrive.search.load_more')}
+                  </Button>
+                )}
+                {picked.size > 0 && meta.allowDownload && (
+                  <Button size="sm" variant="primary" onClick={() => void downloadPicked()} className="self-start">
+                    {t('clouddrive.share.download_picked', { count: picked.size })}
+                  </Button>
+                )}
+                {previewPath && (() => {
+                  const entry = entries.find((one) => one.path === previewPath)
+                  return entry ? (
+                    <div className="mt-2 flex flex-col gap-1">
+                      <p className="text-[length:var(--text-11)] text-[var(--text-secondary)]">{entry.name}</p>
+                      <SharePreview url={contentUrl(entry.path, false)} mime={entry.mime} name={entry.name} />
+                    </div>
+                  ) : null
+                })()}
                 {!meta.allowDownload && (
                   <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('clouddrive.share.no_download')}</p>
                 )}
@@ -215,6 +316,10 @@ export function DriveSharePage({ slug }: { slug: string }) {
 }
 
 function SharePreview({ url, mime, name }: { url: string; mime: string; name: string }) {
+  if (mime === 'application/pdf') {
+    // The browser's own viewer, framed from this origin: the CSP already allows `frame-src 'self'`.
+    return <iframe src={url} title={name} className="h-[60vh] w-full rounded-[var(--r-md)] border border-[var(--border-subtle)]" />
+  }
   if (mime.startsWith('video/')) {
     return <video src={url} controls className="max-h-[60vh] w-full rounded-[var(--r-md)] bg-black" aria-label={name} />
   }

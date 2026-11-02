@@ -5689,9 +5689,11 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/public/DriveSharePage.tsx", [
     "/** `path` is relative to the share root: the owner's own directory layout is never handed out. */",
-    "/** The types a browser draws in place; the share API refuses to serve anything else without download. */",
     "// The name, size and type only come back once the link is unlocked, so the metadata has to be",
     "// re-read rather than assumed.",
+    "/** The types the share route is willing to draw in place; it adds PDF to the app-wide inline list. */",
+    "/**\n   * Downloads the picked files one after another. A browser only ever runs one navigation per\n   * gesture, so the links are clicked in sequence with a short gap rather than all at once.\n   */",
+    "// The browser's own viewer, framed from this origin: the CSP already allows `frame-src 'self'`.",
   ]],
   ["src/client/features/clouddrive/settings/CloudDriveSettingsPage.tsx", [
     "// Every field below the title is a deployment policy: the server answers a member's PATCH with 403,",
@@ -35488,6 +35490,12 @@ const allowed = new Map([
     "// still refuse them, and the row this caller handed over already says whether it has.",
     "// A salted per-visitor digest, never an address: the count answers \"how many people\", the row",
     "// cannot be reversed and the details themselves age out with the purge job.",
+    "// A public folder is read by people with no reason to trust the whole tree, so it pages: the offset",
+    "// travels in an opaque cursor because a visitor must not be able to ask for an arbitrary slice.",
+    "/**\n * The share route's own answer to \"may a visitor's browser draw this\".\n *\n * The app-wide list keeps `application/pdf` on the download side because a stored attachment should\n * not render inside the product's origin; a link the owner opened precisely for previewing is where\n * the browser's built-in viewer is the point, so this route adds that one type and nothing else.\n */",
+    "// Only a type this route is willing to draw may switch to inline; `text/html` in particular keeps",
+    "// the attachment disposition the app-wide rule gave it.",
+    "/** The page a cursor asks for; anything that is not a sane offset starts the folder over. */",
   ]],
   ["src/worker/clouddrive/routes-upload.ts", [
     "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n *\n * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.\n */",
@@ -42495,6 +42503,8 @@ const allowed = new Map([
     "// The visitor is stored as a salted digest, never as the address itself.",
     "// A link that has run out still refuses the same visitor after the dedupe window.",
     "// The download row carries the bytes it served; the view row legitimately carries none.",
+    "// The two pages do not overlap and together they are the folder.",
+    "// The one type this route lets through does not widen the rule for anything else.",
   ]],
   ["tests/clouddrive-upload.test.ts", [
     "/**\n * The app itself, with a real D1 schema and the in-memory R2 double. CloudDrive is mounted above the\n * `/api/clouddrive` prefix, so the session cookie and the client header are the same ones a browser\n * sends.\n */",

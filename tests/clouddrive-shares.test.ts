@@ -204,6 +204,67 @@ describe('cloud drive shares', () => {
     expect(escaping.status).toBe(400)
   })
 
+  it('pages a public folder listing and reports the whole count', async () => {
+    const folder = newId()
+    const now = Date.now()
+    await db.prepare(
+      `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+       VALUES (?1,?2,'primary','','folder','big',?3,'','/big','other','application/octet-stream',0,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?4,?4,?4,?4)`,
+    ).bind(folder, USER, foldedName('big'), now).run()
+    for (let index = 0; index < 250; index++) {
+      const name = `f${String(index).padStart(3, '0')}.txt`
+      await db.prepare(
+        `INSERT INTO CloudDrive_files (id,user_id,mount_id,parent_id,kind,name,name_folded,name_initials,path,category,mime,size,etag,checksum,storage_kind,storage_key,metadata,color,starred_at,last_viewed_at,deleted_at,trash_batch,created_at,updated_at,uploaded_at,modified_at)
+         VALUES (?1,?2,'primary',?3,'file',?4,?4,'',?5,'txt','text/plain',1,NULL,NULL,'r2',NULL,'{}','',NULL,NULL,NULL,NULL,?6,?6,?6,?6)`,
+      ).bind(newId(), USER, folder, name, `/big/${name}`, now).run()
+    }
+    const slug = (await call('POST', '/api/clouddrive/shares', { targetKind: 'folder', fileId: folder, path: '/big' })).body.share.slug
+
+    const first = await call('GET', `/api/public/clouddrive/shares/${slug}/list`)
+    expect(first.body.entries).toHaveLength(200)
+    expect(first.body.total).toBe(250)
+    expect(typeof first.body.cursor).toBe('string')
+
+    const second = await call('GET', `/api/public/clouddrive/shares/${slug}/list?cursor=${encodeURIComponent(first.body.cursor)}`)
+    expect(second.body.entries).toHaveLength(50)
+    expect(second.body.cursor).toBeNull()
+    // The two pages do not overlap and together they are the folder.
+    const names = new Set([...first.body.entries, ...second.body.entries].map((entry: { name: string }) => entry.name))
+    expect(names.size).toBe(250)
+
+    const garbage = await call('GET', `/api/public/clouddrive/shares/${slug}/list?cursor=not-a-cursor`)
+    expect(garbage.status).toBe(200)
+    expect(garbage.body.entries).toHaveLength(200)
+  })
+
+  it('draws a shared pdf in place but still downloads a shared html', async () => {
+    const pdf = await mediaFile('report.pdf', 'application/pdf', '%PDF-1.4 body')
+    const html = await mediaFile('page.html', 'text/html', '<h1>hi</h1>')
+    const pdfSlug = (await call('POST', '/api/clouddrive/shares', { targetKind: 'file', fileId: pdf, path: '/report.pdf' })).body.share.slug
+    const htmlSlug = (await call('POST', '/api/clouddrive/shares', { targetKind: 'file', fileId: html, path: '/page.html' })).body.share.slug
+
+    const viewed = await call('GET', `/api/public/clouddrive/shares/${pdfSlug}/content`)
+    expect(viewed.status).toBe(200)
+    expect(String(viewed.headers.get('content-disposition'))).toMatch(/^inline/)
+    const forced = await call('GET', `/d/${pdfSlug}/raw`)
+    expect(String(forced.headers.get('content-disposition'))).toMatch(/^attachment/)
+
+    // The one type this route lets through does not widen the rule for anything else.
+    const unsafe = await call('GET', `/api/public/clouddrive/shares/${htmlSlug}/content`)
+    expect(String(unsafe.headers.get('content-disposition'))).toMatch(/^attachment/)
+  })
+
+  it('lets a preview-only link show a pdf it refuses to hand over', async () => {
+    const pdf = await mediaFile('view-only.pdf', 'application/pdf', '%PDF-1.4 secret')
+    const slug = (await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: pdf, path: '/view-only.pdf', allowDownload: false,
+    })).body.share.slug
+    const preview = await call('GET', `/api/public/clouddrive/shares/${slug}/content`)
+    expect(preview.status).toBe(200)
+    const download = await call('GET', `/d/${slug}/raw`)
+    expect(download.status).toBe(403)
+  })
+
   it('enforces the download count', async () => {
     const id = await file()
     const created = await call('POST', '/api/clouddrive/shares', {

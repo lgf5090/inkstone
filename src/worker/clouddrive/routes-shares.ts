@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { sharePasscodeProblem } from '@shared/share-passcode'
-import { normalizeCloudDrivePath } from '@shared/clouddrive/model'
+import { decodeCloudDriveCursor, encodeCloudDriveCursor, normalizeCloudDrivePath } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { sha256Hex } from '../lib/encoding'
@@ -260,14 +260,26 @@ clouddrivePublicShareRoutes.get('/shares/:slug/list', async (c) => {
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND kind = 'folder' AND deleted_at IS NULL`,
   ).bind(share.user_id, share.mount_id, requested).first<FileRow>()
   if (!folder) throw ApiError.notFound('Folder not found')
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
-       FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
-       ORDER BY kind DESC, name_folded LIMIT 500`,
-  ).bind(share.user_id, share.mount_id, folder.id).all<FileRow>()
+  // A public folder is read by people with no reason to trust the whole tree, so it pages: the offset
+  // travels in an opaque cursor because a visitor must not be able to ask for an arbitrary slice.
+  const limit = SHARE_LIST_PAGE
+  const offset = shareListOffset(c.req.query('cursor'))
+  const [{ results }, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
+         FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
+         ORDER BY kind DESC, name_folded, id LIMIT ?4 OFFSET ?5`,
+    ).bind(share.user_id, share.mount_id, folder.id, limit, offset).all<FileRow>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM CloudDrive_files
+        WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL`,
+    ).bind(share.user_id, share.mount_id, folder.id).first<{ count: number }>(),
+  ])
+  const rows = results ?? []
+  const next = offset + rows.length
   return c.json({
     path: shareRelativePath(share, requested),
-    entries: (results ?? []).map((row) => ({
+    entries: rows.map((row) => ({
       name: row.name,
       path: shareRelativePath(share, row.path),
       kind: row.kind,
@@ -275,6 +287,8 @@ clouddrivePublicShareRoutes.get('/shares/:slug/list', async (c) => {
       mime: row.mime,
       modifiedAt: row.modified_at,
     })),
+    total: total?.count ?? rows.length,
+    cursor: rows.length === limit ? encodeCloudDriveCursor({ v: next, id: '' }) : null,
   })
 })
 
@@ -332,6 +346,25 @@ function safePath(value: string): string {
   }
 }
 
+/**
+ * The share route's own answer to "may a visitor's browser draw this".
+ *
+ * The app-wide list keeps `application/pdf` on the download side because a stored attachment should
+ * not render inside the product's origin; a link the owner opened precisely for previewing is where
+ * the browser's built-in viewer is the point, so this route adds that one type and nothing else.
+ */
+function shareRenderable(mime: string): boolean {
+  return isBrowserRenderable(mime) || mime === 'application/pdf'
+}
+
+function shareDisposition(mime: string, name: string, forceDownload: boolean): string {
+  const base = contentDisposition(mime, name)
+  if (forceDownload) return base.replace(/^inline/, 'attachment')
+  // Only a type this route is willing to draw may switch to inline; `text/html` in particular keeps
+  // the attachment disposition the app-wide rule gave it.
+  return shareRenderable(mime) ? base.replace(/^attachment(?=;)/, 'inline') : base
+}
+
 async function serveShareContent(c: Context<AppBindings>, share: ShareRow, requestedRaw: string | undefined, forceDownload: boolean): Promise<Response> {
   const requested = resolveSharePath(share, requestedRaw)
   const file = await c.env.DB.prepare(
@@ -341,7 +374,7 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   if (!file) throw ApiError.notFound('File not found')
   // "No download" has to mean something: a link that forbids downloading still renders the types a
   // browser can draw in place, and refuses to hand over the bytes of anything else.
-  if (!forceDownload && share.allow_download !== 1 && !isBrowserRenderable(file.mime || 'application/octet-stream')) {
+  if (!forceDownload && share.allow_download !== 1 && !shareRenderable(file.mime || 'application/octet-stream')) {
     throw ApiError.forbidden('Downloads are disabled for this link')
   }
   if (file.storage_kind !== 'distributed' && !file.storage_key) throw ApiError.notFound('File not found')
@@ -368,8 +401,7 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, no-store',
     })
-    const disposition = contentDisposition(file.mime, file.name)
-    headers.set('Content-Disposition', forceDownload ? disposition.replace(/^inline/, 'attachment') : disposition)
+    headers.set('Content-Disposition', shareDisposition(file.mime, file.name, forceDownload))
     headers.set('Content-Length', String(length))
     if (parsed) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
     if (c.req.method === 'HEAD') return new Response(null, { status: parsed ? 206 : 200, headers })
@@ -388,8 +420,7 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   headers.set('ETag', object.httpEtag)
   headers.set('Accept-Ranges', 'bytes')
   headers.set('Cache-Control', 'private, no-store')
-  const disposition = contentDisposition(file.mime, file.name)
-  headers.set('Content-Disposition', forceDownload ? disposition.replace(/^inline/, 'attachment') : disposition)
+  headers.set('Content-Disposition', shareDisposition(file.mime, file.name, forceDownload))
   if (parsed && 'range' in object && object.range && 'offset' in object.range) {
     const offset = object.range.offset ?? parsed.start
     const length = object.range.length ?? parsed.end - parsed.start + 1
@@ -420,6 +451,18 @@ async function loadPublicShare(c: Context<AppBindings>, slug: string): Promise<S
 
 /** The same visitor is counted once an hour per link; the row exists to make that judgement cheap. */
 const VISIT_DEDUPE_MS = 60 * 60 * 1000
+const SHARE_LIST_PAGE = 200
+
+/** The page a cursor asks for; anything that is not a sane offset starts the folder over. */
+function shareListOffset(cursor: string | undefined): number {
+  if (!cursor) return 0
+  try {
+    const decoded = decodeCloudDriveCursor(cursor)
+    return typeof decoded.v === 'number' && Number.isSafeInteger(decoded.v) && decoded.v >= 0 ? decoded.v : 0
+  } catch {
+    return 0
+  }
+}
 
 /**
  * A visitor, not an address. The salt is per link, so two shares of the same file cannot be joined by
