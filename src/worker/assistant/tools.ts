@@ -4981,6 +4981,7 @@ export class ToolExecutor {
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
+    if (this.ctx.settings.toolSettings[definition.name]?.enabled === false) return false
     // An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the
     // runner passes `projectToolsLimited` beside the list.
     if (this.ctx.projectToolsLimited && !this.ctx.projectTools?.includes(definition.name)) return false
@@ -4989,9 +4990,10 @@ export class ToolExecutor {
     return mode === 'auto' || definition.name === 'notify_reader'
   }
 
-  /** The reader's per-tool override for this Agent, then the always-allow grant, then the class policy. */
+  /** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */
   private modeFor(definition: ToolDefinition): AssistantToolMode {
     return this.ctx.projectToolOverrides?.[definition.name]
+      ?? this.ctx.settings.toolSettings[definition.name]?.mode
       ?? this.ctx.settings.toolGrants[definition.name]
       ?? toolModeFor(this.ctx.settings, definition.permission)
   }

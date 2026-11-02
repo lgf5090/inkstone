@@ -11,6 +11,7 @@ import { ApiError, api } from '../../lib/api'
 import { Button } from '../../components/primitives'
 import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
+import { ToolManagerSection } from './ToolManagerSection'
 import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
@@ -321,6 +322,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             />
           </SettingRow>
         ))}
+        <ToolManagerSection />
         <SettingRow
           title={t('assistant.settings.web_search_engine')}
           description={t(engine.noteKey)}

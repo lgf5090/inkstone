@@ -2976,6 +2976,9 @@ const allowed = new Map([
     "// would pay it back mid-phrase, and a control that left with its thread is not chased, since throwing",
     "// focus at a detached node is what drops a reader at the top of the document.",
   ]],
+  ["src/client/features/chat/ToolManagerSection.tsx", [
+    "/**\n * The tool manager: every built-in tool the assistant knows, with a global on/off switch and an\n * approval mode. This is the account's ceiling; an Agent can only narrow it further.\n */",
+  ]],
   ["src/client/features/chat/UsageCharts.tsx", [
     "/**\n * The usage screen's charts.\n *\n * Chart.js, because the app already ships it for note charts and the job here is the same one: a reader\n * comparing days. Each chart supplies only its own config — the library is imported on the first draw, the\n * colours come from the account's accent through the same palette the note charts use, and every canvas is\n * destroyed with its effect, because a chart left behind holds a resize observer and repaints off screen.\n *\n * Cost is drawn one currency at a time. A window priced in two is two bills, and stacking them would be\n * adding different money together; the panel names the currency it is showing instead.\n */",
     "/** The same model's row for one day, which a quiet day simply does not have. */",
@@ -29973,6 +29976,7 @@ const allowed = new Map([
     "/** Extra instruction sent with a completion request. */",
     "/** Shrink pictures before uploading them to the model. */",
     "/** One value for both dimensions and JPEG quality, 1–100. */",
+    "/** Per-tool on/off and approval, the settings page's finer gate than the three classes. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -34712,7 +34716,7 @@ const allowed = new Map([
     "/**\n   * The Agent's tool narrowing, resolved by the runner.\n   *\n   * `projectToolsLimited` is what tells an explicit empty list apart from \"no Agent restriction\"; without\n   * it an Agent that meant \"no tools\" would look exactly like one that said nothing.\n   */",
     "// An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the",
     "// runner passes `projectToolsLimited` beside the list.",
-    "/** The reader's per-tool override for this Agent, then the always-allow grant, then the class policy. */",
+    "/** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
