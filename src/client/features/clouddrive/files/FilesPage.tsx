@@ -366,7 +366,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     event.preventDefault()
     const payload = dragRef.current
     dragRef.current = null
-    if (!accepts(payload, targetPath)) return
+    if (!payload || !accepts(payload, targetPath)) return
     const moved = entries.filter((one) => payload.ids.includes(one.id))
     setSelected(new Set())
     void actions.move(payload.ids, targetPath, moved)
