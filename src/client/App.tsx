@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { clearMusicSessionStorage, onSessionCleared } from './features/music/session-storage'
+import { clearNavSessionStorage } from './features/nav/session-storage'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
 import { ConfirmHost, PromptHost } from './components/overlay'
 import { QuickAddPromptGate } from './features/quickadd/prompt-gate'
@@ -121,7 +122,7 @@ export function App() {
   useLocale()
   useEffect(() => {
     const offMusic = onSessionCleared(clearMusicSessionStorage)
-    const offNav = onSessionCleared(() => { void import('./features/nav/nav-store').then((module) => module.clearNavSessionState()) })
+    const offNav = onSessionCleared(clearNavSessionStorage)
     return () => { offMusic(); offNav() }
   }, [])
   const status = useSession((s) => s.status)

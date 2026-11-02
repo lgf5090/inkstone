@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_NAV_SETTINGS, NAV_LIMITS } from '@shared/nav/model'
 import { useSession } from '../../store/session'
 import { navApi } from './api'
+import { clearNavSessionStorage } from './session-storage'
 
 export type NavSyncState = 'idle' | 'saving' | 'saved' | 'error'
 export type NavStatus = 'loading' | 'ready' | 'error'
@@ -345,23 +346,9 @@ export const useNavStore = create<NavState>((set, get) => {
 })
 
 export function clearNavSessionState(): void {
-  if (typeof window !== 'undefined') {
-    try {
-      for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
-        const key = window.sessionStorage.key(index)
-        if (key?.startsWith('inkstone.nav.unlocks.')) window.sessionStorage.removeItem(key)
-      }
-      // The check cache is, in effect, a list of the reader's bookmarks with the address each one finally
-      // landed on. It exists to save a rescan, not to keep a record, so it goes with the session — the
-      // departed account's copy included, which nobody is left to read it.
-      for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-        const key = window.localStorage.key(index)
-        if (key?.startsWith('inkstone.nav.')) window.localStorage.removeItem(key)
-      }
-    } catch {
-      // Storage may be unavailable in private windows; the in-memory state below still clears.
-    }
-  }
+  // One sweep, shared with the shell's session-cleared listener: whichever path signs the reader out, the
+  // same prefixes leave the same way.
+  clearNavSessionStorage()
   if (visitTimer) clearTimeout(visitTimer)
   visitTimer = null
   pendingVisits = new Map()
