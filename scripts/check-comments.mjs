@@ -5577,8 +5577,8 @@ const allowed = new Map([
     "// A focused media element owns its own arrow keys while the reader is scrubbing.",
   ]],
   ["src/client/features/clouddrive/clouddrive.css", [
-    "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the four variables\n   below are the only values the reader changes at runtime (density, gap, icon size, row height). */",
     "/* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they\n   are skipped until the row comes near the viewport. `auto` in front of the size keeps the last\n   measured box, so the scrollbar does not jump as you scroll. */",
+    "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the variables below\n   are the only values the reader changes at runtime (gap, icon size, row height, sidebar width). */",
   ]],
   ["src/client/features/clouddrive/files/ColorTagMenus.tsx", [
     "/** The colour dots a row or grid tile carries. Names stay in the inspector and list. */",
@@ -5617,6 +5617,8 @@ const allowed = new Map([
     "/** Clicking the active column flips it; clicking another starts it ascending. */",
     "/**\n * The folder note is rendered with the Markdown stack, which drags the whole note renderer in.\n * Most folders have no note at all, so the module is fetched when a note exists rather than when the\n * drive opens.\n */",
     "/**\n   * What an upload does when the folder already holds that name. The server has honoured all three\n   * since the first day; the queue used to ask for `rename` and nothing else.\n   */",
+    "// The server answers with the two halves of a folder separately, each in its own order; which half",
+    "// comes first in the browser is the reader's \"folders first\" choice.",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
@@ -5674,6 +5676,7 @@ const allowed = new Map([
     "// Losing history only costs the record; the transfer itself is unaffected.",
     "// A folder has no single content response; the caller should queue each file instead.",
     "/** How a name clash is settled. Only an upload has one; absent means `rename`. */",
+    "/** The reader's own ceiling on parts in flight, clamped to what the settings allow. */",
   ]],
   ["src/client/features/clouddrive/trash/TrashPage.tsx", [
     "// The schedule the cron job keeps items on, so a row can say how long it still has.",
@@ -35421,7 +35424,6 @@ const allowed = new Map([
     "/**\n * The session table has no `conflict` column, so the one decision that must survive from init to\n * complete is kept in its free-text `error` column behind a recognisable JSON prefix. A real error\n * is never valid JSON of this shape, so `decodeSessionConflict` cannot mistake one for the other.\n */",
     "// The field is ours, but a corrupted row must still leave the upload usable under the default.",
     "/** The quota is the deduplicated object bytes of the user's primary-mount rows, trash included. */",
-    "/**\n * The pinyin first letters written next to a name. `pinyin-pro` is a dictionary call that can fail\n * on input it cannot segment; the file is still valid then, so the index stays empty and the folded\n * name search keeps working.\n */",
     "// R2 refuses to abort an upload it no longer knows (already completed, expired by the platform,",
     "// or removed with the bucket binding); the D1 row is the authority for the client either way.",
     "/** A direct upload has already put its object, so aborting or expiring it must remove those bytes. */",

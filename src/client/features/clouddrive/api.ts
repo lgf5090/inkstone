@@ -3,7 +3,6 @@ import type {
   CloudDriveBootstrap,
   CloudDriveEntry,
   CloudDriveListing,
-  CloudDrivePrefs,
   CloudDriveSortDirection,
   CloudDriveSortKey,
 } from '@shared/clouddrive/model'
@@ -125,7 +124,6 @@ export interface CloudDriveListParams {
   path?: string
   sort?: CloudDriveSortKey
   dir?: CloudDriveSortDirection
-  foldersFirst?: boolean
   cursor?: string | null
   limit?: number
   q?: string
@@ -143,7 +141,6 @@ export const clouddriveApi = {
     if (params.path) search.set('path', params.path)
     if (params.sort) search.set('sort', params.sort)
     if (params.dir) search.set('dir', params.dir)
-    if (params.foldersFirst !== undefined) search.set('foldersFirst', params.foldersFirst ? '1' : '0')
     if (params.cursor) search.set('cursor', params.cursor)
     if (params.limit) search.set('limit', String(params.limit))
     if (params.q) search.set('q', params.q)
@@ -266,8 +263,6 @@ export const clouddriveApi = {
   createShare: (body: unknown) => request<{ share: { slug: string; url: string } }>('/api/clouddrive/shares', json(body)),
   patchShare: (slug: string, body: unknown) => request<{ share: unknown }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeShare: (slug: string) => request<{ ok: true }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
-
-  savePrefs: (_prefs: CloudDrivePrefs) => Promise.resolve(),
 }
 
 export function cloudDriveErrorKey(error: unknown): string {

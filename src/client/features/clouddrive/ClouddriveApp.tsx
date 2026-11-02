@@ -36,6 +36,7 @@ import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Drawer } from '../../components/overlay'
 import { FilePreviewModal } from '../file-preview'
+import { formatBytes } from '@shared/byte-format'
 import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './address'
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
@@ -368,13 +369,4 @@ function PagePlaceholder({ page }: { page: CloudDrivePage }) {
       <p className="text-[length:var(--text-11)]">{t('clouddrive.empty.folder')}</p>
     </div>
   )
-}
-
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1 }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }

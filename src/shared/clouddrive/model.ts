@@ -177,28 +177,17 @@ export type CloudDriveViewMode = (typeof CLOUDDRIVE_VIEW_MODES)[number]
 export const CLOUDDRIVE_UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
 export type CloudDriveUploadConflict = (typeof CLOUDDRIVE_UPLOAD_CONFLICTS)[number]
 
-export const CLOUDDRIVE_FILENAME_DISPLAY = ['truncate', 'middle', 'wrap'] as const
-export type CloudDriveFilenameDisplay = (typeof CLOUDDRIVE_FILENAME_DISPLAY)[number]
-
 export interface CloudDrivePrefs {
   viewMode: CloudDriveViewMode
   iconSize: number
   density: number
   gap: number
   showCheckboxes: boolean
-  showActions: boolean
-  animation: boolean
-  filenameDisplay: CloudDriveFilenameDisplay
   sortKey: CloudDriveSortKey
   sortDir: CloudDriveSortDirection
-  groupBy: 'none' | 'kind' | 'date' | 'size'
   foldersFirst: boolean
   sidebarVisible: boolean
-  sidebarWidth: number
   inspectorVisible: boolean
-  pathBarVisible: boolean
-  statusBarVisible: boolean
-  lastMountId: string
   uploadConcurrency: number
   uploadConflict: CloudDriveUploadConflict
 }
@@ -214,9 +203,6 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
   const viewMode = CLOUDDRIVE_VIEW_MODES.includes(record.viewMode as CloudDriveViewMode)
     ? record.viewMode as CloudDriveViewMode
     : 'list'
-  const filenameDisplay = CLOUDDRIVE_FILENAME_DISPLAY.includes(record.filenameDisplay as CloudDriveFilenameDisplay)
-    ? record.filenameDisplay as CloudDriveFilenameDisplay
-    : 'truncate'
   const sortKey = CLOUDDRIVE_SORT_KEYS.includes(record.sortKey as CloudDriveSortKey)
     ? record.sortKey as CloudDriveSortKey
     : 'name'
@@ -227,19 +213,11 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
     density: clampNumber(record.density, 0, 100, 50),
     gap: clampNumber(record.gap, 0, 24, 8),
     showCheckboxes: record.showCheckboxes !== false,
-    showActions: record.showActions !== false,
-    animation: record.animation !== false,
-    filenameDisplay,
     sortKey,
     sortDir,
-    groupBy: record.groupBy === 'kind' || record.groupBy === 'date' || record.groupBy === 'size' ? record.groupBy : 'none',
     foldersFirst: record.foldersFirst !== false,
     sidebarVisible: record.sidebarVisible !== false,
-    sidebarWidth: clampNumber(record.sidebarWidth, 168, 360, 220),
     inspectorVisible: record.inspectorVisible === true,
-    pathBarVisible: record.pathBarVisible !== false,
-    statusBarVisible: record.statusBarVisible !== false,
-    lastMountId: typeof record.lastMountId === 'string' ? record.lastMountId : 'primary',
     uploadConcurrency: clampNumber(record.uploadConcurrency, 1, 8, 3),
     uploadConflict: CLOUDDRIVE_UPLOAD_CONFLICTS.includes(record.uploadConflict as CloudDriveUploadConflict)
       ? record.uploadConflict as CloudDriveUploadConflict
@@ -316,7 +294,6 @@ export interface CloudDriveBootstrap {
   settings: Record<string, unknown>
   usage: CloudDriveUsage
   prefsVersion: 1
-  capabilities: { fsAccess: boolean; notifications: boolean }
 }
 
 export function encodeCloudDriveCursor(value: { v: string | number | null; id: string }): string {

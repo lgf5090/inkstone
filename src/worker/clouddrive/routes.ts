@@ -48,7 +48,6 @@ clouddriveRoutes.get('/bootstrap', async (c) => {
     settings: publicCloudDriveSettings(settings) as unknown as Record<string, unknown>,
     usage,
     prefsVersion: 1,
-    capabilities: { fsAccess: true, notifications: true },
   }
   return c.json(body)
 })

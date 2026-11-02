@@ -12,7 +12,6 @@
  * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.
  */
 import { Hono, type Context } from 'hono'
-import { pinyin } from 'pinyin-pro'
 import {
   CLOUDDRIVE_LIMITS,
   autoSuffixName,
@@ -30,6 +29,7 @@ import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { assertMetaAccess } from './routes-meta'
+import { initialsOf } from './lib'
 import { PRIMARY_MOUNT_ID, ensurePrimaryMount, readCloudDriveSettings } from './store'
 import { storageKeyReferenced } from './store-files'
 import { assignParts, deleteFileParts, deletePartObject, deleteUploadPartObjects, partMounts, writePartObject } from './distributed'
@@ -241,26 +241,6 @@ async function mountNameFor(db: D1Database, userId: string, mountId: string): Pr
     `SELECT name FROM CloudDrive_mounts WHERE user_id = ?1 AND id = ?2`,
   ).bind(userId, mountId).first<{ name: string }>()
   return row?.name ?? 'Cloud Drive'
-}
-
-/**
- * The pinyin first letters written next to a name. `pinyin-pro` is a dictionary call that can fail
- * on input it cannot segment; the file is still valid then, so the index stays empty and the folded
- * name search keeps working.
- */
-function initialsFor(name: string): string {
-  try {
-    const parts = pinyin(name.normalize('NFC'), {
-      pattern: 'first',
-      toneType: 'none',
-      type: 'array',
-      nonZh: 'removed',
-    })
-    return parts.join('').toLocaleLowerCase().replace(/[^a-z0-9]/g, '')
-  } catch (error) {
-    console.warn('[inkstone] CloudDrive pinyin initials failed:', error)
-    return ''
-  }
 }
 
 function entryOf(
@@ -813,7 +793,7 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
                 updated_at = ?13, modified_at = ?13
           WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`,
       ).bind(
-        userId, existing.id, finalName, foldedName(finalName), initialsFor(finalName), finalPath,
+        userId, existing.id, finalName, foldedName(finalName), initialsOf(finalName), finalPath,
         session.category, session.mime, session.size, etag, storageKind, key, now,
       ),
     )
@@ -835,7 +815,7 @@ clouddriveUploadRoutes.post('/uploads/:id/complete', async (c) => {
                  NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
       ).bind(
         fileId, userId, session.mount_id, session.parent_id, finalName, foldedName(finalName),
-        initialsFor(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
+        initialsOf(finalName), finalPath, session.category, session.mime, session.size, etag, key, now,
         storageKind,
       ),
     )

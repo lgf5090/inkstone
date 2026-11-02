@@ -10,6 +10,7 @@ import { CLIENT_HEADER } from '@shared/constants'
 import type { CloudDriveEntry, CloudDriveUploadConflict } from '@shared/clouddrive/model'
 import { useSession } from '../../../store/session'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
+import { useCloudDriveStore } from '../store'
 
 export type TransferKind = 'upload' | 'download'
 export type TransferStatus = 'queued' | 'running' | 'success' | 'error' | 'cancelled'
@@ -55,7 +56,11 @@ interface TransferState {
 
 const HISTORY_VERSION = 'v1'
 const HISTORY_LIMIT = 100
-const MAX_CONCURRENT = 2
+/** The reader's own ceiling on parts in flight, clamped to what the settings allow. */
+function concurrencyLimit(): number {
+  const wanted = useCloudDriveStore.getState().prefs.uploadConcurrency
+  return Math.min(8, Math.max(1, Math.round(wanted)))
+}
 
 const controllers = new Map<string, AbortController>()
 let historyUserId: string | null = null
@@ -146,7 +151,7 @@ function readHistory(userId: string): TransferItem[] {
 function schedule(): void {
   const state = useTransferStore.getState()
   const running = state.items.filter((item) => item.status === 'running').length
-  if (running >= MAX_CONCURRENT) return
+  if (running >= concurrencyLimit()) return
   const next = state.items.find((item) => item.status === 'queued')
   if (!next) return
   void runTransfer(next.id)

@@ -69,7 +69,7 @@ describe('cloud drive preferences', () => {
       sortKey: 'nope',
       sortDir: 'desc',
       uploadConcurrency: 0,
-      filenameDisplay: 'middle',
+      uploadConflict: 'nope',
     })
     expect(prefs.viewMode).toBe('gallery')
     expect(prefs.iconSize).toBe(72)
@@ -78,6 +78,7 @@ describe('cloud drive preferences', () => {
     expect(prefs.sortKey).toBe('name')
     expect(prefs.sortDir).toBe('desc')
     expect(prefs.uploadConcurrency).toBe(3)
-    expect(prefs.filenameDisplay).toBe('middle')
+    expect(prefs.uploadConflict).toBe('rename')
+    expect(parseCloudDrivePrefs({ uploadConflict: 'overwrite' }).uploadConflict).toBe('overwrite')
   })
 })

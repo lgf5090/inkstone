@@ -184,12 +184,11 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       path,
       sort: prefs.sortKey,
       dir: prefs.sortDir,
-      foldersFirst: prefs.foldersFirst,
       limit: PAGE_SIZE,
       cursor,
       q: query || undefined,
     })
-  }, [driveSearch, mountId, path, prefs.sortKey, prefs.sortDir, prefs.foldersFirst, query])
+  }, [driveSearch, mountId, path, prefs.sortKey, prefs.sortDir, query])
 
   const load = useCallback(async (mode: 'reset' | 'more' = 'reset') => {
     const sequence = ++requestRef.current
@@ -278,9 +277,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     if (arrived) void load()
   }), [load, mountId, path])
 
+  // The server answers with the two halves of a folder separately, each in its own order; which half
+  // comes first in the browser is the reader's "folders first" choice.
   const entries = useMemo(
-    () => (listing ? [...listing.folders, ...listing.files] : []),
-    [listing],
+    () => (listing
+      ? (prefs.foldersFirst ? [...listing.folders, ...listing.files] : [...listing.files, ...listing.folders])
+      : []),
+    [listing, prefs.foldersFirst],
   )
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import { childPath, parentPathOf, type CloudDriveEntry } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
@@ -62,15 +62,6 @@ function failedResults(results: unknown[]): number {
   }).length
 }
 
-function childPath(parent: string, name: string): string {
-  return parent === '/' ? `/${name}` : `${parent}/${name}`
-}
-
-function parentPath(path: string): string {
-  const index = path.lastIndexOf('/')
-  return index <= 0 ? '/' : path.slice(0, index)
-}
-
 export function useFileActions({ mountId, refresh, external = false, onLocalChange }: FileActionsOptions): FileActions {
   const [pending, setPending] = useState(0)
   const uploadConflict = useCloudDriveStore((state) => state.prefs.uploadConflict)
@@ -101,7 +92,7 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
 
   const rename = useCallback((entry: CloudDriveEntry, name: string) => execute(async () => {
     if (external) {
-      await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPath(entry.path), name))
+      await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPathOf(entry.path), name))
     } else {
       const result = await clouddriveApi.patch(entry.id, { name })
       onLocalChange?.({ type: 'replace', entry: result.entry })
