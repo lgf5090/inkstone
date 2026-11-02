@@ -305,6 +305,50 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
       </Group>
 
+      <Group title={t('assistant.settings.notifications')}>
+        <SettingRow
+          title={t('assistant.settings.notify_channel')}
+          description={t('assistant.settings.notify_channel_hint')}
+          controlId="assistant-notify-channel"
+        >
+          <Select
+            id="assistant-notify-channel"
+            value={settings.notifyChannel}
+            onChange={(event) => void saveSettings({ notifyChannel: event.target.value as typeof settings.notifyChannel })}
+            className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+          >
+            <option value="off">{t('assistant.settings.notify_off')}</option>
+            <option value="sound">{t('assistant.settings.notify_sound')}</option>
+            <option value="browser">{t('assistant.settings.notify_browser')}</option>
+            <option value="both">{t('assistant.settings.notify_both')}</option>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title={t('assistant.settings.notify_only_unfocused')}
+          description={t('assistant.settings.notify_only_unfocused_hint')}
+        >
+          <Switch
+            checked={settings.notifyOnlyUnfocused}
+            label={t('assistant.settings.notify_only_unfocused')}
+            onChange={(notifyOnlyUnfocused) => void saveSettings({ notifyOnlyUnfocused })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.notify_approval')}>
+          <Switch
+            checked={settings.notifyApproval}
+            label={t('assistant.settings.notify_approval')}
+            onChange={(notifyApproval) => void saveSettings({ notifyApproval })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.notify_finish')}>
+          <Switch
+            checked={settings.notifyFinish}
+            label={t('assistant.settings.notify_finish')}
+            onChange={(notifyFinish) => void saveSettings({ notifyFinish })}
+          />
+        </SettingRow>
+      </Group>
+
       <Group title={t('assistant.settings.custom_instructions')}>
         <div className="flex flex-col gap-2 py-3">
           <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">

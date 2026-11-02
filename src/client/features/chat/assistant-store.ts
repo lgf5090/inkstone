@@ -60,6 +60,7 @@ import { compressImageFile } from '../../lib/image-compress'
 import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, CONVERSATION_ORIGINS, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { announceChat } from './chat-notify'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { leadingProse } from './save-to-note'
@@ -2684,6 +2685,15 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             const incoming = event.tool
             if (!incoming) return current
             const known = turn.tools.some((tool) => tool.id === incoming.id)
+            if (!known && incoming.approval) {
+              const settings = get().settings
+              if (settings) announceChat(
+                settings,
+                'approval',
+                t('assistant.notify.approval_title'),
+                t('assistant.notify.approval_body', { name: incoming.approval.targetLabel || incoming.name }),
+              )
+            }
             return {
               turn: {
                 ...turn,
@@ -2707,7 +2717,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             return current
           case 'error':
             return { turn: { ...turn, error: event.message ?? null, errorCode: event.code ?? null } }
-          case 'done':
+          case 'done': {
+            if (!turn.done && event.finalMessage?.status === 'complete') {
+              const settings = get().settings
+              if (settings) announceChat(settings, 'finish', t('assistant.notify.finish_title'), t('assistant.notify.finish_body'))
+            }
             return {
               turn: {
                 ...turn,
@@ -2724,6 +2738,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
                 sources: event.finalMessage?.sources ?? turn.sources,
               },
             }
+          }
           default:
             return current
         }

@@ -783,6 +783,12 @@ export interface AssistantSettings {
    * loads. On demand trades a catalog line per tool for the full schema of tools the turn never uses.
    */
   toolDisclosure: 'all' | 'on_demand'
+  /** How a turn that needs the reader (an approval, a finished answer) announces itself. */
+  notifyChannel: 'off' | 'sound' | 'browser' | 'both'
+  /** Keep quiet while the reader is looking at this tab; the notification centre still records it. */
+  notifyOnlyUnfocused: boolean
+  notifyApproval: boolean
+  notifyFinish: boolean
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -885,6 +891,10 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   toolGrants: {},
   toolSettings: {},
   toolDisclosure: 'all',
+  notifyChannel: 'browser',
+  notifyOnlyUnfocused: true,
+  notifyApproval: true,
+  notifyFinish: true,
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -1046,6 +1056,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     toolGrants: toolGrantsValue(raw.toolGrants),
     toolSettings: toolSettingsValue(raw.toolSettings),
     toolDisclosure: enumValue(raw.toolDisclosure, ['all', 'on_demand'] as const, 'all'),
+    notifyChannel: enumValue(raw.notifyChannel, ['off', 'sound', 'browser', 'both'] as const, DEFAULT_ASSISTANT_SETTINGS.notifyChannel),
+    notifyOnlyUnfocused: booleanValue(raw.notifyOnlyUnfocused, DEFAULT_ASSISTANT_SETTINGS.notifyOnlyUnfocused),
+    notifyApproval: booleanValue(raw.notifyApproval, DEFAULT_ASSISTANT_SETTINGS.notifyApproval),
+    notifyFinish: booleanValue(raw.notifyFinish, DEFAULT_ASSISTANT_SETTINGS.notifyFinish),
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),

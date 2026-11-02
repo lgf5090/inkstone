@@ -3971,6 +3971,12 @@ const allowed = new Map([
     "// The label is its own element, which is what the breakpoint rule hides while the name stays on the",
     "// button as `aria-label`.",
   ]],
+  ["src/client/features/chat/chat-notify.ts", [
+    "/**\n * Whether this event should announce itself.\n *\n * The reader's answer is the whole rule: a channel they turned off stays off, a kind they turned off stays\n * quiet, and an unfocused-only preference means a person already looking at the thread is not interrupted.\n */",
+    "// A browser that refuses audio has already shown the notification; a silenced chime is not an error.",
+    "/**\n * Says one thing once. The browser notification is only drawn when permission already exists — this app\n * never asks for it from a turn, because a permission prompt that appears because a model finished is\n * exactly the kind of prompt readers learn to deny.\n */",
+    "// Some browsers throw for a notification created outside a service worker; the chime already ran.",
+  ]],
   ["src/client/features/chat/chat-origin-chip.test.ts", [
     "/**\n * The chip that names the note a conversation was started from.\n *\n * It is the one door from a thread back to the page it was asked about, so what is pinned is where\n * pressing it goes: the notebook's own reveal — the address change plus the store's open — and not the\n * pointer on its own. Setting the active id does not load a body, and the reading pane holds a note it\n * never asked for spinning for ever.\n */",
     "// The reveal is the whole subject, so it is the one thing this stands in for.",
@@ -30024,6 +30030,8 @@ const allowed = new Map([
     "/** Reads a submission, keeping only the question ids this row actually asked. */",
     "// A typed \"other\" is allowed for a choice question only when it is not one of the offered options.",
     "/**\n   * Whether every tool schema goes out on every request, or only a resident set plus the ones the model\n   * loads. On demand trades a catalog line per tool for the full schema of tools the turn never uses.\n   */",
+    "/** How a turn that needs the reader (an approval, a finished answer) announces itself. */",
+    "/** Keep quiet while the reader is looking at this tab; the notification centre still records it. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
