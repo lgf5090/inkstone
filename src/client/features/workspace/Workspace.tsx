@@ -90,6 +90,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     // A canvas draft opened in the chat stays available here, so the reader can work on the draft the
     // conversation produced against the note it is going into — the two are the same document.
     const canvasOpen = useAssistant((s) => s.canvasOpen);
+    const assistantSettings = useAssistant((s) => s.settings);
     const splitRatio = useUi((s) => s.splitRatio);
     const setLayout = useUi((s) => s.setLayout);
     const activeWorkspacePane = useUi((s) => s.activeWorkspacePane);
@@ -738,7 +739,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
 
       <div ref={containerRef} className={cn("relative flex min-h-0 flex-1", isMobile && "flex-col")} data-editor-layout={layout} onMouseEnter={() => outlineMode === 'floating-hover' && setOutlineHovered(true)} onMouseLeave={() => outlineMode === 'floating-hover' && setOutlineHovered(false)}>
         <div hidden={!showEditor} inert={!showEditor} className="min-h-0 min-w-0" style={{ width: showSplit && !isMobile ? editorWidth : outlineVisible ? `calc(100% - ${OUTLINE_WIDTH}px)` : '100%', flex: isMobile ? 1 : undefined }}>
-            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} onSelectionChange={setEditorSelection} templaterHighlight={isMobile ? templaterSettings.syntaxHighlightingMobile : templaterSettings.syntaxHighlighting} templaterIntellisenseRender={templaterSettings.intellisenseRender} templaterUserScripts={templaterUserScripts} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
+            <DeferredCodeEditor key={note.id} visible={showEditor} value={content} noteId={note.id} noteTitle={note.title} live={showEditor && layout === 'live' && livePreviewEnabled} onHeadings={setHeadings} onChange={onChange} settings={editorSettings} sources={sources} handlers={handlers} onReady={onEditorReady} onCursorLine={setCursorLine} onSelectionChange={setEditorSelection} templaterHighlight={isMobile ? templaterSettings.syntaxHighlightingMobile : templaterSettings.syntaxHighlighting} templaterIntellisenseRender={templaterSettings.intellisenseRender} templaterUserScripts={templaterUserScripts} tabCompletion={assistantSettings ? { enabled: assistantSettings.tabCompletionEnabled, modelId: assistantSettings.tabCompletionModelId, constraint: assistantSettings.tabCompletionConstraint } : undefined} onRequestContextMenu={previewSettings.contextMenu ? setEditorMenu : undefined}/>
           </div>
 
         {showSplit && !isMobile && (<SplitResizer label={t("workspace.resize_editor_and_preview_panes")} containerRef={containerRef} ratio={effectiveSplitRatio} onChange={(splitRatio) => setLayout({ splitRatio })} onReset={() => setLayout({ splitRatio: null })}/>)}

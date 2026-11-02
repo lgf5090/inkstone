@@ -24,6 +24,10 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setInstructions(settings.customInstructions), [settings.customInstructions])
   const [endpoint, setEndpoint] = useState(settings.webSearchEndpoint)
   useEffect(() => setEndpoint(settings.webSearchEndpoint), [settings.webSearchEndpoint])
+  const [completionConstraint, setCompletionConstraint] = useState(settings.tabCompletionConstraint)
+  useEffect(() => setCompletionConstraint(settings.tabCompletionConstraint), [settings.tabCompletionConstraint])
+  const models = useAssistant((state) => state.models)
+  const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   // The engine is a settings field; what it needs is not. A hosted engine's key lives in its own encrypted
   // row, so the state of that row has to be asked for — for the one engine the reader picked, and only when
   // the engine says it needs a key at all.
@@ -195,6 +199,43 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             />
             <span className="w-10 text-right text-[length:var(--text-11)] tabular-nums text-[var(--text-quaternary)]">{Math.round(settings.chatScale * 100)}%</span>
           </div>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.tab_completion')} description={t('assistant.settings.tab_completion_hint')}>
+          <Switch
+            checked={settings.tabCompletionEnabled}
+            label={t('assistant.settings.tab_completion')}
+            onChange={(tabCompletionEnabled) => void saveSettings({ tabCompletionEnabled })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.completion_model')} description={t('assistant.settings.completion_model_hint')}>
+          <Select
+            aria-label={t('assistant.settings.completion_model')}
+            value={settings.tabCompletionModelId ?? ''}
+            onChange={(event) => void saveSettings({ tabCompletionModelId: event.target.value || null })}
+          >
+            <option value="">{t('assistant.settings.naming_model_follow')}</option>
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.model}</option>)}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.completion_constraint')} description={t('assistant.settings.completion_constraint_hint')}>
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveSettings({ tabCompletionConstraint: completionConstraint })
+            }}
+          >
+            <Input
+              aria-label={t('assistant.settings.completion_constraint')}
+              value={completionConstraint}
+              maxLength={1000}
+              onChange={(event) => setCompletionConstraint(event.target.value)}
+              className="h-8 w-56 text-[length:var(--text-12)]"
+            />
+            <Button type="submit" size="sm" variant="secondary" disabled={completionConstraint === settings.tabCompletionConstraint}>
+              {t('common.save')}
+            </Button>
+          </form>
         </SettingRow>
         <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
           <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />

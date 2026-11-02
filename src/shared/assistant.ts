@@ -794,6 +794,12 @@ export interface AssistantSettings {
   mentionMode: 'full' | 'light'
   /** The whole chat interface's scale, 0.7–1.5. */
   chatScale: number
+  /** Whether inline Tab completion is offered in the note editor. Off by default. */
+  tabCompletionEnabled: boolean
+  /** The model completion uses; null follows the answering model. */
+  tabCompletionModelId: string | null
+  /** Extra instruction sent with a completion request. */
+  tabCompletionConstraint: string
   /** Include reasoning blocks in a Markdown export. */
   exportReasoning: boolean
   /** Include tool calls and their results in a Markdown export. */
@@ -868,6 +874,9 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   sendOnEnter: true,
   mentionMode: 'full',
   chatScale: 1,
+  tabCompletionEnabled: false,
+  tabCompletionModelId: null,
+  tabCompletionConstraint: '',
   exportReasoning: false,
   exportToolCalls: false,
   customInstructions: '',
@@ -1005,6 +1014,9 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     sendOnEnter: booleanValue(raw.sendOnEnter, DEFAULT_ASSISTANT_SETTINGS.sendOnEnter),
     mentionMode: enumValue(raw.mentionMode, ['full', 'light'] as const, DEFAULT_ASSISTANT_SETTINGS.mentionMode),
     chatScale: numberInRange(raw.chatScale, 0.7, 1.5, DEFAULT_ASSISTANT_SETTINGS.chatScale),
+    tabCompletionEnabled: booleanValue(raw.tabCompletionEnabled, DEFAULT_ASSISTANT_SETTINGS.tabCompletionEnabled),
+    tabCompletionModelId: typeof raw.tabCompletionModelId === 'string' && raw.tabCompletionModelId ? raw.tabCompletionModelId.slice(0, 26) : null,
+    tabCompletionConstraint: stringAllowEmpty(raw.tabCompletionConstraint, '', 1_000),
     exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
     exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),

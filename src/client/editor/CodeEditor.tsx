@@ -22,6 +22,7 @@ import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-previ
 // Aliased: the prop that carries the reader's switch is named for what it turns on.
 import { templaterHighlight as templaterHighlightExt } from './templater';
 import { templaterCompletion, type TemplaterScriptSource } from './templater-completion';
+import { tabCompletionExtension, type TabCompletionOptions } from './tab-completion';
 import { DEFAULT_SETTINGS } from '@shared/constants';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import { runRenderedLinkGesture, runSourceLinkGesture } from '../features/links/use-link-editor';
@@ -81,6 +82,8 @@ export interface CodeEditorProps {
     templaterIntellisenseRender?: string;
     /** The reader's own scripts, for the `tp.user` chain. Absent means that chain completes nothing. */
     templaterUserScripts?: TemplaterScriptSource;
+    /** Inline Tab completion, when the reader has switched it on. */
+    tabCompletion?: TabCompletionOptions;
     placeholder?: string;
     className?: string;
 }
@@ -92,7 +95,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, tabCompletion, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -170,6 +173,9 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const draggerHost = useRef(createDraggerHost((view, line, point) => blockMenuRef.current({ view, line, ...point })));
     const appliedDraggerPaint = useRef(draggerPaintKey(settings));
     const tabSizeCompartment = useRef(new Compartment());
+    const tabCompletionCompartment = useRef(new Compartment());
+    const tabCompletionRef = useRef(tabCompletion);
+    tabCompletionRef.current = tabCompletion;
     const placeholderCompartment = useRef(new Compartment());
     const outlinerFoldCompartment = useRef(new Compartment());
     const templaterCompartment = useRef(new Compartment());
@@ -219,6 +225,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             editorTheme(),
             markdownDecorations,
             templaterCompartment.current.of(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })),
+            tabCompletionCompartment.current.of(tabCompletionRef.current?.enabled ? tabCompletionExtension(tabCompletionRef.current) : []),
             liveCompartment.current.of(live ? livePreview((headings) => cbRef.current.onHeadings?.(headings), () => cbRef.current.noteTitle) : []),
             focusModePlugin,
             typewriterPlugin,
@@ -395,6 +402,19 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         templaterOn.current = templaterHighlight;
         view.dispatch({ effects: templaterCompartment.current.reconfigure(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })) });
     }, [templaterHighlight]);
+
+    const tabCompletionKey = tabCompletion ? `${tabCompletion.enabled}|${tabCompletion.modelId ?? ''}|${tabCompletion.constraint ?? ''}` : 'off';
+    const tabCompletionKeyRef = useRef(tabCompletionKey);
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view || tabCompletionKeyRef.current === tabCompletionKey) return;
+        tabCompletionKeyRef.current = tabCompletionKey;
+        view.dispatch({
+            effects: tabCompletionCompartment.current.reconfigure(
+                tabCompletion?.enabled ? tabCompletionExtension(tabCompletion) : [],
+            ),
+        });
+    }, [tabCompletion, tabCompletionKey]);
 
     const outlinerPaint = useRef(JSON.stringify(outlinerOptionsFrom(settings)));
     useEffect(() => {

@@ -97,6 +97,9 @@ import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, 
 import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
+import { loadMcpNote } from '../mcp/retrieval'
+import { searchSemanticNotes } from '../mcp/ai-search'
+import { OneShotError, runOneShot } from '../assistant/one-shot'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
@@ -2282,6 +2285,68 @@ assistantRoutes.delete('/knowledge-bases/:id', async (c) => {
   if (!(await s.getKnowledgeBase(id))) throw ApiError.notFound('Knowledge base not found')
   await s.deleteKnowledgeBase(id)
   return c.json({ deleted: true })
+})
+
+/**
+ * Notes whose meaning is close to one the reader has open.
+ *
+ * The index is the account's own and always has been; this route only asks it for neighbours and drops
+ * the note itself. A deployment without Workers AI, or one whose reader switched the index off, answers
+ * `unavailable` rather than an empty list, because those are different facts.
+ */
+assistantRoutes.get('/similar-notes', async (c) => {
+  const s = store(c)
+  const noteId = requiredId(c.req.query('noteId') ?? '')
+  const note = await loadMcpNote(c.env.DB, s.userId, noteId)
+  const hits = await searchSemanticNotes(c.env, c.env.DB, s.userId, `${note.title}\n${note.content}`.slice(0, 4_000), {})
+  if (!hits) return c.json({ status: 'unavailable' as const, hits: [] })
+  return c.json({
+    status: 'ok' as const,
+    hits: hits.filter((hit) => hit.id !== noteId).slice(0, 8).map((hit) => ({
+      id: hit.id,
+      title: hit.title,
+      excerpt: hit.excerpt.slice(0, 240),
+      score: hit.score,
+    })),
+  })
+})
+
+/**
+ * One short, tool-less call: Tab completion today, and the same contract for any other low-latency
+ * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.
+ */
+assistantRoutes.post('/one-shot', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const user = typeof body.user === 'string' ? body.user.slice(0, 20_000) : ''
+  if (!user.trim()) throw ApiError.badRequest('A one-shot call needs text.')
+  const system = typeof body.system === 'string' ? body.system.slice(0, 4_000) : ''
+  const modelId = typeof body.modelId === 'string' && isValidId(body.modelId) ? body.modelId : undefined
+  const maxOutputTokens = typeof body.maxOutputTokens === 'number'
+    ? Math.max(1, Math.min(400, Math.trunc(body.maxOutputTokens)))
+    : 160
+  const timeoutMs = typeof body.timeoutMs === 'number'
+    ? Math.max(1_000, Math.min(60_000, Math.trunc(body.timeoutMs)))
+    : 15_000
+  try {
+    const answer = await runOneShot(s, await s.getSettings(), {
+      system,
+      user,
+      ...(modelId ? { modelId } : {}),
+      maxOutputTokens,
+      temperature: 0.2,
+      timeoutMs,
+      signal: c.req.raw.signal,
+    })
+    return c.json({ text: answer.text })
+  } catch (error) {
+    if (error instanceof OneShotError) {
+      if (error.kind === 'no_model') throw ApiError.badRequest('No assistant model is configured.')
+      if (error.kind === 'quota') throw ApiError.conflict('The daily assistant request ceiling is spent.')
+      throw new ApiError(502, 'internal', 'The one-shot call did not finish in time.')
+    }
+    throw error
+  }
 })
 
 // --------------------------------------------------------------- automations

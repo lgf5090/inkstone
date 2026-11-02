@@ -16,6 +16,7 @@ import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
 import { useQuickAsk } from '../chat/quick-ask-store';
+import { SimilarNotesPanel } from '../chat/SimilarNotesPanel';
 import { suggestNoteMeta } from '../chat/note-suggestions';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'ai';
@@ -40,6 +41,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const formatRef = useRef<HTMLButtonElement>(null);
     const aiRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
+    const [similarNotesOpen, setSimilarNotesOpen] = useState(false);
     const draggerOn = useSession((state) => state.settings.editor.dragger);
     const draggerTextDrag = useSession((state) => state.settings.editor.draggerMobileTextDrag);
     const draggerModeButton = useSession((state) => state.settings.editor.draggerDragModeButton);
@@ -124,6 +126,15 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
             label: t(EDITOR_AI_LABELS[action]),
             onSelect: () => runAi(action),
         })),
+        {
+            id: 'similar-notes',
+            label: t('assistant.similar.open'),
+            separatorBefore: true,
+            onSelect: () => {
+                setToolbarMenu(null);
+                setSimilarNotesOpen(true);
+            },
+        },
         // The one AI entry that is about the note rather than the selection: it reads the whole body
         // and writes to the front matter, so it sits apart from the five that rewrite a passage.
         {
@@ -221,5 +232,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         </ToolButton>
       </>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
+      <SimilarNotesPanel open={similarNotesOpen} onClose={() => setSimilarNotesOpen(false)}/>
     </div>);
 }

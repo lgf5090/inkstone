@@ -747,6 +747,7 @@ const allowed = new Map([
     "// Reconfigure rather than wait for a keystroke: the reader who turns this switch over in the",
     "// settings panel is looking at a note they are not typing in, and marks that appear only once they",
     "// press a key are marks the switch looks like it ignored.",
+    "/** Inline Tab completion, when the reader has switched it on. */",
   ]],
   ["src/client/editor/EditorColorMenu.tsx", [
     "/** What the button already stands for, so reopening the panel points at it rather than at nothing. */",
@@ -1089,6 +1090,13 @@ const allowed = new Map([
     "// placeholder is replaced by the in-document failure marker naming the file, which is what the",
     "// reader sees in the note. Letting this rejection out would leave the placeholder sitting there",
     "// instead, and every sibling upload in the same paste would lose its replacement too.",
+  ]],
+  ["src/client/editor/tab-completion.ts", [
+    "/**\n * Inline Tab completion for the note editor.\n *\n * A completion is one short, tool-less model call made after the caret reaches a clause boundary or a\n * list marker. The answer is drawn as ghost text at the caret and only becomes document text when the\n * reader presses Tab. The request is best-effort: a slow or failed completion disappears rather than\n * interrupting the reader, because typing must never wait on the network.\n */",
+    "/** Whether the text before the caret is a place a completion may be asked for. */",
+    "// Best effort by design: a failed completion leaves the note exactly as the reader typed it.",
+    "// The WeakMap would collect it anyway; deleting keeps a view that is being torn down from",
+    "// answering a late key press through a stale runner.",
   ]],
   ["src/client/editor/task-completion.test.ts", [
     "// jsdom has no Range.getClientRects, which CodeMirror's measurement needs once a view is attached.",
@@ -2896,6 +2904,9 @@ const allowed = new Map([
     "// monitor would name the previous conversation's files for as long as the read takes.",
     "// The store follows the active thread, and a switch can land here a beat before its own load clears",
     "// the rows: only this conversation's messages may join the fetched thread.",
+  ]],
+  ["src/client/features/chat/SimilarNotesPanel.tsx", [
+    "/**\n * The notes closest to the one on screen, by meaning.\n *\n * It is a reading aid, not a second search box: the query is the note itself, and a press on a result\n * opens that note. The panel says when the index cannot answer, because \"no related note\" and \"there is\n * no index\" are not the same thing to a reader.\n */",
   ]],
   ["src/client/features/chat/SkillsView.tsx", [
     "/**\n * The reader's own skills.\n *\n * A skill is a piece of the reader's work, not a setting: it is written once and used in many\n * conversations, so it gets its own view, its own search, and a delete that asks first. The composer\n * reads the same list through the store, which is why nothing here keeps a copy.\n *\n * What separates a skill from a saved snippet is the arrangement around its words — the tools it wants,\n * the folders it reads, the model that answers — because a phrase the reader types twice a week is\n * rarely only a phrase: half of what they retype each time is \"and look in my work folder with the big\n * model\". Those three travel with the text and are applied together when the skill is picked. An emoji\n * is the fourth, smaller part: a dozen skills in a list are easier to tell apart by sight than by\n * reading every title.\n */",
@@ -29950,6 +29961,9 @@ const allowed = new Map([
     "/** Folders whose notes belong to this knowledge base. Empty means the whole notebook. */",
     "/** Folders excluded even when a parent is included. */",
     "/**\n   * A reader's decision to always allow one named tool, made at its approval card.\n   *\n   * It sits above the class policy but below an Agent's own switch: approval never widens what the\n   * account or the Agent allows, it only stops asking again for this one tool.\n   */",
+    "/** Whether inline Tab completion is offered in the note editor. Off by default. */",
+    "/** The model completion uses; null follows the answering model. */",
+    "/** Extra instruction sent with a completion request. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -38049,6 +38063,8 @@ const allowed = new Map([
     "// \"Always allow this tool\" is remembered as a grant for this one name. It cannot widen the account's",
     "// class policy or an Agent's switch — those are checked before it — and it is stored in settings so a",
     "// later tab asks once rather than on every call.",
+    "/**\n * Notes whose meaning is close to one the reader has open.\n *\n * The index is the account's own and always has been; this route only asks it for neighbours and drops\n * the note itself. A deployment without Workers AI, or one whose reader switched the index off, answers\n * `unavailable` rather than an empty list, because those are different facts.\n */",
+    "/**\n * One short, tool-less call: Tab completion today, and the same contract for any other low-latency\n * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
