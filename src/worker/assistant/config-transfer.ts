@@ -62,7 +62,7 @@ export interface AssistantConfigBundle {
   settings: Omit<AssistantSettings, (typeof LOCAL_ONLY_SETTINGS)[number]>
   providers: AssistantConfigProvider[]
   models: AssistantConfigModel[]
-  skills: Array<Pick<AssistantSkill, 'title' | 'content' | 'group' | 'icon' | 'tools' | 'scopes' | 'modelId'>>
+  skills: Array<Pick<AssistantSkill, 'title' | 'content' | 'group' | 'icon' | 'tools' | 'scopes' | 'modelId' | 'kind' | 'description' | 'loadMode' | 'enabled' | 'source'>>
   projects: Array<Pick<Project, 'name' | 'description' | 'icon' | 'instructions' | 'noteScope' | 'excludeScope' | 'noteIds' | 'modelId' | 'tools' | 'toolsLimited' | 'toolOverrides' | 'skillIds' | 'focusSync' | 'timeAware' | 'readProjectInstructions' | 'position'>>
 }
 
@@ -137,6 +137,11 @@ export async function exportAssistantConfig(store: AssistantStore): Promise<Assi
       tools: skill.tools,
       scopes: skill.scopes,
       modelId: skill.modelId,
+      kind: skill.kind,
+      description: skill.description,
+      loadMode: skill.loadMode,
+      enabled: skill.enabled,
+      source: skill.source,
     })),
     projects: projects.map((project) => ({
       name: project.name,
@@ -302,6 +307,11 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       tools: stringList(entry.tools, 50),
       scopes: [],
       modelId: oldModelIds.get(text(entry.modelId, 64)) ?? null,
+      kind: entry.kind === 'skill' ? 'skill' : 'prompt',
+      description: text(entry.description, 500),
+      loadMode: entry.loadMode === 'on_demand' ? 'on_demand' : 'full',
+      enabled: entry.enabled !== false,
+      source: entry.source === 'github' || entry.source === 'builtin' ? entry.source : 'user',
     })
     skillsByTitle.set(title.toLocaleLowerCase(), created.id)
     skillIds.set(text(entry.title, 200), created.id)

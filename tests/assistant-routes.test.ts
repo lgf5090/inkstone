@@ -3490,6 +3490,10 @@ describe('skill library', () => {
       tools: ['search_notes'],
       scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
       modelId: models.models[0]!.id,
+      kind: 'prompt',
+      description: '',
+      loadMode: 'full',
+      enabled: true,
     }])
     // Nothing the server assigns travels: the importing account would be naming a row it does not have.
     expect(exported.bundle.skills[0]).not.toHaveProperty('id')

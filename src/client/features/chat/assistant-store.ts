@@ -615,6 +615,7 @@ interface AssistantState {
   skills: AssistantSkill[]
   loadSkills: (query?: string) => Promise<void>
   createSkill: (input: AssistantSkillInput) => Promise<AssistantSkill | null>
+  importGithubSkill: (url: string) => Promise<AssistantSkill | null>
   saveSkill: (id: string, input: AssistantSkillInput) => Promise<void>
   removeSkill: (id: string) => Promise<void>
   /** The reader's reusable editor instructions, loaded once with the settings surface. */
@@ -2475,8 +2476,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  saveSkill: async (id, input) => {
+  importGithubSkill: async (url) => {
     try {
+      const { skill } = await api.assistant.importGithubSkill(url)
+      set((state) => ({ skills: [skill, ...state.skills] }))
+      return skill
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  saveSkill: async (id, input) => {    try {
       const { skill } = await api.assistant.updateSkill(id, input)
       set((state) => ({ skills: state.skills.map((entry) => (entry.id === id ? skill : entry)) }))
     } catch (error) {

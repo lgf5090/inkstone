@@ -1362,6 +1362,15 @@ export interface AssistantSkill {
   scopes: AssistantTurnScope[]
   /** Whichever model should answer; null leaves the reader's current pick alone. */
   modelId: string | null
+  /** A saved prompt or a Skill package. The body lives in `content` for both. */
+  kind?: 'prompt' | 'skill'
+  /** One line the catalog can show when the body is loaded on demand. */
+  description?: string
+  /** Whether the body is always injected or only named until the model asks for it. */
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
+  source?: 'user' | 'builtin' | 'github'
+  position?: number
   createdAt: number
   updatedAt: number
 }
@@ -1380,6 +1389,11 @@ export interface AssistantSkillInput {
   tools?: string[]
   scopes?: AssistantTurnScope[]
   modelId?: string | null
+  kind?: 'prompt' | 'skill'
+  description?: string
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
+  source?: 'user' | 'builtin' | 'github'
 }
 
 /**
@@ -1400,6 +1414,10 @@ export interface AssistantSkillExport {
   tools: string[]
   scopes: AssistantTurnScope[]
   modelId: string | null
+  kind?: 'prompt' | 'skill'
+  description?: string
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
 }
 
 /** The file a reader downloads, and the shape an import reads back. */
@@ -1425,6 +1443,10 @@ export function skillBundleOf(skills: readonly AssistantSkill[]): AssistantSkill
       tools: skill.tools,
       scopes: skill.scopes,
       modelId: skill.modelId,
+      kind: skill.kind,
+      description: skill.description,
+      loadMode: skill.loadMode,
+      enabled: skill.enabled,
     })),
   }
 }
@@ -2393,6 +2415,7 @@ export interface AssistantMcpProblem {
 export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'ask_user_question', labelKey: 'assistant.tool.ask_user_question', permission: 'read' },
   { name: 'context_prune_tool_results', labelKey: 'assistant.tool.context_prune_tool_results', permission: 'read' },
+  { name: 'read_skill', labelKey: 'assistant.tool.read_skill', permission: 'read' },
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
   { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },

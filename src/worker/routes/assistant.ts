@@ -2882,7 +2882,8 @@ assistantRoutes.delete('/files/:id', async (c) => {
 assistantRoutes.get('/skills', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const group = c.req.query('group')?.trim().slice(0, 60)
-  const skills = await store(c).listSkills({
+  const s = store(c)
+  const skills = await s.listSkills({
     ...(query ? { query } : {}),
     ...(group ? { group } : {}),
     limit: Math.min(500, Math.max(1, Number(c.req.query('limit')) || 200)),
@@ -2925,6 +2926,10 @@ assistantRoutes.post('/skills', async (c) => {
     tools: pinnedTools(body.tools),
     scopes: pinnedScopes(body.scopes),
     modelId: body.modelId === undefined ? null : await pinnedModel(s, body.modelId),
+    kind: body.kind === 'skill' ? 'skill' : 'prompt',
+    description: optionalSkillText(body.description, 500),
+    loadMode: body.loadMode === 'on_demand' ? 'on_demand' : 'full',
+    enabled: body.enabled !== false,
   })
   return c.json({ skill }, 201)
 })
@@ -2943,6 +2948,10 @@ assistantRoutes.patch('/skills/:id', async (c) => {
     ...(body.tools !== undefined ? { tools: pinnedTools(body.tools) } : {}),
     ...(body.scopes !== undefined ? { scopes: pinnedScopes(body.scopes) } : {}),
     ...(body.modelId !== undefined ? { modelId: await pinnedModel(s, body.modelId) } : {}),
+    ...(body.kind !== undefined ? { kind: body.kind === 'skill' ? 'skill' as const : 'prompt' as const } : {}),
+    ...(body.description !== undefined ? { description: optionalSkillText(body.description, 500) } : {}),
+    ...(body.loadMode !== undefined ? { loadMode: body.loadMode === 'on_demand' ? 'on_demand' as const : 'full' as const } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
   })
   if (!updated) throw ApiError.notFound('Skill not found')
   return c.json({ skill: updated })
@@ -3055,10 +3064,104 @@ assistantRoutes.post('/skills/import', async (c) => {
       tools: pinnedTools(record.tools),
       scopes: pinnedScopes(record.scopes),
       modelId: await importableModel(s, record.modelId),
+      kind: record.kind === 'skill' ? 'skill' : 'prompt',
+      description: optionalSkillText(record.description, 500),
+      loadMode: record.loadMode === 'on_demand' ? 'on_demand' : 'full',
+      enabled: record.enabled !== false,
+      source: record.source === 'github' ? 'github' : 'user',
     })
     imported++
   }
   return c.json({ imported, skipped })
+})
+
+/**
+ * A Skill written as `SKILL.md` in a public repository.
+ *
+ * Only two hosts are reachable, and a blob address is rewritten to its raw form before the request: the
+ * worker never fetches an address a file named, only one this route assembled from a repository, branch
+ * and path. Redirects are followed one hop and re-checked, so a redirect cannot carry the fetch off the
+ * allowlist. Nothing from the response is executed; it is text with an optional front matter block.
+ */
+async function fetchGithubSkill(rawUrl: string): Promise<{ title: string, description: string, content: string }> {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw ApiError.badRequest('That is not a URL.')
+  }
+  if (url.protocol !== 'https:') throw ApiError.badRequest('Only https addresses are accepted.')
+  if (url.hostname === 'github.com') {
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/)
+    if (!match) throw ApiError.badRequest('Use a link to a SKILL.md file, not a repository page.')
+    url = new URL(`https://raw.githubusercontent.com/${match[1]}/${match[2]}/${match[3]}/${match[4]}`)
+  }
+  if (url.hostname !== 'raw.githubusercontent.com') throw ApiError.badRequest('Only github.com and raw.githubusercontent.com are accepted.')
+  if (!/\.(md|markdown)$/i.test(url.pathname)) throw ApiError.badRequest('That file is not a Markdown skill.')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8_000)
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'manual', headers: { accept: 'text/plain' } })
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      let target: URL | null = null
+      try { target = location ? new URL(location) : null } catch { target = null }
+      if (!target || target.protocol !== 'https:' || target.hostname !== 'raw.githubusercontent.com') {
+        throw ApiError.badRequest('The download redirected somewhere this import does not follow.')
+      }
+      const followed = await fetch(target, { signal: controller.signal, redirect: 'error', headers: { accept: 'text/plain' } })
+      if (!followed.ok) throw ApiError.badRequest(`GitHub answered ${followed.status}.`)
+      return parseSkillMarkdown(await readTextWithin(followed, 256 * 1024))
+    }
+    if (!response.ok) throw ApiError.badRequest(`GitHub answered ${response.status}.`)
+    return parseSkillMarkdown(await readTextWithin(response, 256 * 1024))
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw ApiError.badRequest(error instanceof Error && error.name === 'AbortError' ? 'GitHub took too long to answer.' : 'The skill could not be downloaded.')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function readTextWithin(response: Response, maxBytes: number): Promise<string> {
+  const text = await response.text()
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw ApiError.badRequest('That skill is too large.')
+  return text
+}
+
+/** One `---` block at the top, then the body. Anything unreadable is simply not front matter. */
+export function parseSkillMarkdown(source: string): { title: string, description: string, content: string } {
+  const text = source.replace(/^\uFEFF/, '')
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!match) return { title: '', description: '', content: text.trim() }
+  const fields: Record<string, string> = {}
+  for (const line of (match[1] ?? '').split(/\r?\n/)) {
+    const field = line.match(/^([A-Za-z_-]+)\s*:\s*(.*)$/)
+    if (field) fields[field[1]!.toLocaleLowerCase()] = field[2]!.replace(/^["']|["']$/g, '').trim()
+  }
+  return {
+    title: (fields.name || fields.title || '').slice(0, MAX_SKILL_TITLE_CHARS),
+    description: (fields.description || '').slice(0, 500),
+    content: (match[2] ?? '').trim(),
+  }
+}
+
+assistantRoutes.post('/skills/github', async (c) => {
+  const body = await readJson<{ url?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const url = text(typeof body.url === 'string' ? body.url : '', 2_000)
+  if (!url) throw ApiError.badRequest('Paste the address of a SKILL.md file.')
+  const fetched = await fetchGithubSkill(url)
+  const title = fetched.title || fetched.content.split('\n')[0]?.replace(/^#+\s*/, '').slice(0, MAX_SKILL_TITLE_CHARS) || 'Imported skill'
+  if (!fetched.content) throw ApiError.badRequest('That file has no instructions in it.')
+  const skill = await store(c).insertSkill({
+    title,
+    content: fetched.content,
+    description: fetched.description,
+    kind: 'skill',
+    loadMode: 'on_demand',
+    source: 'github',
+  })
+  return c.json({ skill }, 201)
 })
 
 // ------------------------------------------------------------------- semantic

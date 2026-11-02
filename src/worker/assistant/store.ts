@@ -2153,8 +2153,7 @@ export class AssistantStore {
   // every statement below, so the mismatch is read once here rather than puzzled over at each query.
 
   /** The reader's saved skills, newest first; `group` narrows to one folder of them. */
-  async listSkills(options: { query?: string, group?: string, limit?: number } = {}): Promise<AssistantSkill[]> {
-    const q = new Query(this.userId)
+  async listSkills(options: { query?: string, group?: string, limit?: number } = {}): Promise<AssistantSkill[]> {    const q = new Query(this.userId)
     if (options.group) q.eq(`group_name`, options.group)
     if (options.query) {
       const pattern = q.add(containsPattern(options.query))
@@ -2182,6 +2181,8 @@ export class AssistantStore {
   async insertSkill(input: {
     title: string, content: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+    kind?: 'prompt' | 'skill', description?: string, loadMode?: 'full' | 'on_demand',
+    enabled?: boolean, source?: 'user' | 'builtin' | 'github',
   }): Promise<AssistantSkill> {
     const id = newId()
     const at = Date.now()
@@ -2190,13 +2191,20 @@ export class AssistantStore {
     const tools = input.tools ?? []
     const scopes = input.scopes ?? []
     const modelId = input.modelId ?? null
+    const kind = input.kind === 'skill' ? 'skill' : 'prompt'
+    const description = input.description?.trim() ?? ''
+    const loadMode = input.loadMode === 'on_demand' ? 'on_demand' : 'full'
+    const enabled = input.enabled !== false
+    const source = input.source === 'builtin' || input.source === 'github' ? input.source : 'user'
     await this.write(
-      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
-      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, icon, at,
+      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, icon, kind, description, load_mode, enabled, source, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)`,
+      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, icon,
+      kind, description, loadMode, enabled ? 1 : 0, source, at, at,
     )
     return {
       id, title: input.title, content: input.content, group, icon, tools, scopes, modelId,
+      kind, description, loadMode, enabled, source, position: at,
       createdAt: at, updatedAt: at,
     }
   }
@@ -2204,6 +2212,8 @@ export class AssistantStore {
   async updateSkill(id: string, patch: {
     title?: string, content?: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+    kind?: 'prompt' | 'skill', description?: string, loadMode?: 'full' | 'on_demand',
+    enabled?: boolean, source?: 'user' | 'builtin' | 'github',
   }): Promise<AssistantSkill | null> {
     const existing = await this.getSkill(id)
     if (!existing) return null
@@ -2216,14 +2226,21 @@ export class AssistantStore {
       ...(patch.tools !== undefined ? { tools: patch.tools } : {}),
       ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
       ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
+      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.loadMode !== undefined ? { loadMode: patch.loadMode } : {}),
+      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.source !== undefined ? { source: patch.source } : {}),
       updatedAt: Date.now(),
     }
     await this.write(
       `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, tools = ?5, scopes = ?6,
-         model_id = ?7, icon = ?8, updated_at = ?9
-         WHERE user_id = ?1 AND id = ?10`,
+         model_id = ?7, icon = ?8, kind = ?9, description = ?10, load_mode = ?11, enabled = ?12,
+         source = ?13, updated_at = ?14
+         WHERE user_id = ?1 AND id = ?15`,
       next.title, next.content, next.group, JSON.stringify(next.tools), JSON.stringify(next.scopes),
-      next.modelId, next.icon, next.updatedAt, id,
+      next.modelId, next.icon, next.kind, next.description, next.loadMode, next.enabled ? 1 : 0,
+      next.source, next.updatedAt, id,
     )
     return next
   }
@@ -8678,7 +8695,7 @@ export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temper
  * The columns a skill row is read with. One list, because two hand-copied ones are how a new column ends
  * up written but never read back: the editor saved an icon and the reader saw the old blank.
  */
-const SKILL_SELECT_COLUMNS = `id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at`
+const SKILL_SELECT_COLUMNS = `id, title, content, group_name, tools, scopes, model_id, icon, kind, description, load_mode, enabled, source, position, created_at, updated_at`
 
 interface SkillRow {
   id: string
@@ -8689,6 +8706,12 @@ interface SkillRow {
   scopes: string | null
   model_id: string | null
   icon: string | null
+  kind: string | null
+  description: string | null
+  load_mode: string | null
+  enabled: number
+  source: string | null
+  position: number
   created_at: number
   updated_at: number
 }
@@ -8703,6 +8726,12 @@ function toSkill(r: SkillRow): AssistantSkill {
     tools: decodeStringList(r.tools),
     scopes: decodeScopes(r.scopes),
     modelId: r.model_id ?? null,
+    kind: r.kind === 'skill' ? 'skill' : 'prompt',
+    description: r.description ?? '',
+    loadMode: r.load_mode === 'on_demand' ? 'on_demand' : 'full',
+    enabled: Number(r.enabled) !== 0,
+    source: r.source === 'builtin' || r.source === 'github' ? r.source : 'user',
+    position: Number(r.position ?? 0),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }

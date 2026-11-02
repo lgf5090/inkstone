@@ -2129,6 +2129,8 @@ export const api = {
     exportSkills: () => request<{ bundle: AssistantSkillBundle }>('/api/assistant/skills/export'),
     importSkills: (skills: unknown[]) =>
       request<SkillImportResult>('/api/assistant/skills/import', { method: 'POST', body: { skills } }),
+    importGithubSkill: (url: string) =>
+      request<{ skill: AssistantSkill }>('/api/assistant/skills/github', { method: 'POST', body: { url } }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
     deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>

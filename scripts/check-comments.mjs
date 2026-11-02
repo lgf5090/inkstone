@@ -30043,6 +30043,9 @@ const allowed = new Map([
     "/** When the thread is compacted without the reader asking, measured in tokens or in window share. */",
     "/** Removed from the model's context by the reader's prune call; the row still shows what it found. */",
     "/** A reusable instruction the reader can run from a selection or the command palette. */",
+    "/** A saved prompt or a Skill package. The body lives in `content` for both. */",
+    "/** One line the catalog can show when the body is loaded on demand. */",
+    "/** Whether the body is always injected or only named until the model asks for it. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33364,6 +33367,8 @@ const allowed = new Map([
     "// A threshold the reader chose is checked before the window is built, not after it overflows: the",
     "// point of compacting early is to keep a long thread's request small, and waiting for the ceiling",
     "// would spend the very tokens the setting exists to save.",
+    "// An on-demand Skill is named, not injected. Its description is what lets the model decide",
+    "// whether the body is worth a call; `read_skill` is the only way to get the rest.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34832,6 +34837,8 @@ const allowed = new Map([
     "/**\n   * Answers the protocol call that turns catalog names into schemas.\n   *\n   * Only a tool the reader's policy actually leaves on the table can be loaded: disclosure shortens the\n   * request, it must not become a second route around a closed class or a switched-off tool.\n   */",
     "// The wrapper is not a call of its own: unwrap it before counting, so budget, duplicate detection,",
     "// approval and the failure counter all belong to the real tool rather than to the door it came through.",
+    "// A Skill from another account is simply not this reader's, and the model is told the same thing a",
+    "// missing id says; distinguishing the two would confirm an id the caller never had.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -38202,6 +38209,8 @@ const allowed = new Map([
     "// A question from another conversation is reported as missing, the same way a foreign id is everywhere",
     "// else: saying \"that belongs to another thread\" would confirm the thread exists.",
     "/**\n * Configuration without data: settings, providers, models, Skills and Agents.\n *\n * Provider keys are absent by construction, so this is the file a reader can move between accounts or\n * paste into a bug report without leaking the right to spend their balance. The restore says how many\n * rows it merged and how many it left alone because the account already had them.\n */",
+    "/**\n * A Skill written as `SKILL.md` in a public repository.\n *\n * Only two hosts are reachable, and a blob address is rewritten to its raw form before the request: the\n * worker never fetches an address a file named, only one this route assembled from a repository, branch\n * and path. Redirects are followed one hop and re-checked, so a redirect cannot carry the fetch off the\n * allowlist. Nothing from the response is executed; it is text with an optional front matter block.\n */",
+    "/** One `---` block at the top, then the body. Anything unreadable is simply not front matter. */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

@@ -2366,6 +2366,23 @@ export const QUESTION_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+export const SKILL_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'read_skill',
+    permission: 'read',
+    maxCallsPerTurn: 10,
+    description: 'Read the full instructions of one of the reader\'s saved Skills by id. Use when the turn was given only its name and description.',
+    fields: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+    async run(args, ctx) {
+      const skill = await ctx.store.getSkill(String(args.id))
+      // A Skill from another account is simply not this reader's, and the model is told the same thing a
+      // missing id says; distinguishing the two would confirm an id the caller never had.
+      if (!skill || skill.enabled === false) throw new ToolError('That skill is not available.')
+      return { id: skill.id, title: skill.title, description: skill.description, content: skill.content }
+    },
+  }),
+]
+
 export const IMAGE_TOOLS: ToolDefinition[] = [
   tool({
     name: 'image_generate',
@@ -4876,6 +4893,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
   ...QUESTION_TOOLS,
+  ...SKILL_TOOLS,
   ...IMAGE_TOOLS,
   ...CODE_TOOLS,
   ...WEB_TOOLS,

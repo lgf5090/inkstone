@@ -115,6 +115,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     scopes TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
     icon TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'prompt',
+    description TEXT NOT NULL DEFAULT '',
+    load_mode TEXT NOT NULL DEFAULT 'full',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    source TEXT NOT NULL DEFAULT 'user',
+    position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -915,5 +921,5 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],
-  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'created_at', 'updated_at'],
+  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'kind', 'description', 'load_mode', 'enabled', 'source', 'position', 'created_at', 'updated_at'],
 }

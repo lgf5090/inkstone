@@ -1998,11 +1998,20 @@ export class AssistantRunner {
         let used = 0
         for (const id of project.skillIds) {
           const skill = await this.store.getSkill(id)
-          if (!skill) continue
+          if (!skill || skill.enabled === false) continue
           const body = skill.content.trim()
           if (!body) continue
           const room = PROJECT_SKILLS_CHAR_CAP - used
           if (room <= 0) break
+          // An on-demand Skill is named, not injected. Its description is what lets the model decide
+          // whether the body is worth a call; `read_skill` is the only way to get the rest.
+          if (skill.kind === 'skill' && skill.loadMode === 'on_demand') {
+            const description = ((skill.description ?? '').trim() || body.slice(0, 200)).slice(0, 400)
+            const content = `${description}\n\n[Call read_skill with id "${skill.id}" to load the full instructions.]`
+            out.push({ title: skill.title || 'Skill', content })
+            used += content.length
+            continue
+          }
           const clipped = body.slice(0, room)
           out.push({ title: skill.title || 'Skill', content: clipped })
           used += clipped.length

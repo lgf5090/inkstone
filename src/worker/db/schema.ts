@@ -3302,6 +3302,36 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_cursor_commands(user_id, position, created_at)`,
     ],
   },
+  {
+    version: 236,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'kind' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN kind TEXT NOT NULL DEFAULT 'prompt'`],
+  },
+  {
+    version: 237,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'description' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN description TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 238,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'load_mode' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN load_mode TEXT NOT NULL DEFAULT 'full'`],
+  },
+  {
+    version: 239,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'enabled' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 240,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'source' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`],
+  },
+  {
+    version: 241,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'position' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN position REAL NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
