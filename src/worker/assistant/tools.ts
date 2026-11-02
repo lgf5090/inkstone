@@ -60,6 +60,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
+import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
 import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
 import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
@@ -212,6 +213,8 @@ export interface ToolContext {
   keepAlive?: () => Promise<boolean>
   /** Present only on a parent chat turn: runs one isolated child turn and returns what it produced. */
   runSubagent?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ text: string, toolCalls: number, tokens: number }>
+  /** Starts a child that outlives this turn and reports by notification. */
+  runSubagentAsync?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ taskId: string, status: 'running' }>
   /** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */
   allowedTools?: readonly string[]
   /** The provider's own id for this call, reused as the note write's idempotency key. */
@@ -1779,10 +1782,19 @@ export const NOTE_TOOLS: ToolDefinition[] = [
       const hits = found.results
         .filter((hit) => turnAllowed.has(hit.id) && kbAllowed.has(hit.id))
         .slice(0, 10)
+      // A knowledge base that names no folders is the whole vault, and the reader's own PDF books are
+      // part of what they know. A scoped collection stays on its notes: book pages carry no folder.
+      const readers = knowledgeBase.includeScope.length === 0 && ctx.env.AI
+        ? await (async () => {
+            const queryVector = await embedQueryText(ctx.env.AI!, query)
+            return ctx.store.searchReaderChunks(queryVector, vectorNorm(queryVector), 5)
+          })().catch(() => [])
+        : []
       return {
         knowledge_base: { name: knowledgeBase.name, description: knowledgeBase.description },
         results: hits.map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.snippet.slice(0, 240), via: hit.source })),
-        ...(hits.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
+        ...(readers.length ? { book_pages: readers.map((hit) => ({ book_id: hit.bookId, title: hit.title, page: hit.page, excerpt: hit.text.slice(0, 240) })) } : {}),
+        ...(hits.length || readers.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
       }
     },
   }),
@@ -2394,15 +2406,21 @@ export const SKILL_TOOLS: ToolDefinition[] = [
       description: { type: 'string', minLength: 1, maxLength: 200 },
       prompt: { type: 'string', minLength: 1, maxLength: 8_000 },
       modelId: { type: 'string', optional: true, maxLength: 64 },
+      mode: { type: 'string', enum: ['sync', 'async'], optional: true },
     },
     requires: (_env, settings, ctx) => settings.subagentEnabled && Boolean(ctx.runSubagent),
     async run(args, ctx) {
       if (!ctx.runSubagent) throw new ToolError('Sub-agents are not available in this turn.')
-      return await ctx.runSubagent({
+      const input = {
         description: String(args.description),
         prompt: String(args.prompt),
         modelId: typeof args.modelId === 'string' ? args.modelId : null,
-      })
+      }
+      if (args.mode === 'async') {
+        if (!ctx.runSubagentAsync) throw new ToolError('Background sub-agents are switched off.')
+        return await ctx.runSubagentAsync(input)
+      }
+      return await ctx.runSubagent(input)
     },
   }),
 ]

@@ -107,7 +107,7 @@ import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
-import { searchSemanticNotes } from '../mcp/ai-search'
+import { embedTexts, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
 import { OneShotError, runOneShot } from '../assistant/one-shot'
 import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
@@ -1294,6 +1294,42 @@ assistantRoutes.post('/conversations/:id/questions/:questionId/cancel', async (c
   return c.json({ question: cancelled })
 })
 
+/**
+ * A short exchange that happened outside the thread — a Quick Ask answer — made into a real conversation.
+ *
+ * The rows are written here rather than replayed through the turn runner: the answer already exists, and
+ * asking the model again would produce a different one and spend the reader's budget twice. `source` stays
+ * chat, so a promoted exchange can be retried and continued like any other.
+ */
+assistantRoutes.post('/conversations/promote', async (c) => {
+  const body = await readJson<{ title?: unknown, noteId?: unknown, messages?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  const entries = Array.isArray(body.messages) ? body.messages.slice(0, 40) : []
+  const parsed: Array<{ role: 'user' | 'assistant', content: string }> = []
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const role = row.role === 'assistant' ? 'assistant' : row.role === 'user' ? 'user' : null
+    const content = typeof row.content === 'string' ? row.content.trim().slice(0, MAX_MESSAGE_CHARS) : ''
+    if (!role || !content) continue
+    parsed.push({ role, content })
+  }
+  if (!parsed.length) throw ApiError.badRequest('There is nothing to promote yet.')
+  const s = store(c)
+  let noteId: string | null = null
+  if (typeof body.noteId === 'string' && body.noteId) {
+    if (!isValidId(body.noteId) || !(await s.knownNote(body.noteId))) throw ApiError.badRequest('Unknown note.')
+    noteId = body.noteId
+  }
+  const firstUser = parsed.find((entry) => entry.role === 'user')?.content ?? parsed[0]!.content
+  const title = text(typeof body.title === 'string' && body.title.trim() ? body.title : titleFromMessage(firstUser), MAX_CONVERSATION_TITLE_CHARS)
+  const conversation = await s.createConversation(title, null, false, null, noteId, 'chat')
+  const messages = []
+  for (const entry of parsed) {
+    messages.push(await s.addMessage({ conversationId: conversation.id, role: entry.role, content: entry.content, source: 'chat' }))
+  }
+  return c.json({ conversation, messages }, 201)
+})
+
 assistantRoutes.post('/conversations/:id/tags', async (c) => {  const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
@@ -2318,6 +2354,34 @@ assistantRoutes.delete('/projects/:id', async (c) => {
 const MAX_KNOWLEDGE_BASES = 40
 const MAX_KNOWLEDGE_NAME_CHARS = 120
 const MAX_KNOWLEDGE_DESCRIPTION_CHARS = 2_000
+
+/**
+ * One page of a reader-owned PDF, indexed for the knowledge base.
+ *
+ * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the
+ * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,
+ * so a dense page does not turn into an unbounded number of embedding calls.
+ */
+assistantRoutes.post('/reader-index', async (c) => {
+  const body = await readJson<{ bookId?: unknown, page?: unknown, text?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  const bookId = requiredId(body.bookId)
+  const page = typeof body.page === 'number' ? Math.trunc(body.page) : 0
+  const text = typeof body.text === 'string' ? body.text.trim().slice(0, 8_000) : ''
+  if (page < 1 || page > 10_000) throw ApiError.badRequest('That page number is not valid.')
+  if (!text) throw ApiError.badRequest('There is no text on that page to index.')
+  const s = store(c)
+  const title = await s.readerBookTitle(bookId)
+  if (title === null) throw ApiError.notFound('Book not found')
+  if (!c.env.AI) throw new ApiError(503, 'internal', 'The embedding model is not configured.')
+  const chunks = Array.from({ length: Math.min(4, Math.ceil(text.length / 1_500)) }, (_, index) => text.slice(index * 1_500, (index + 1) * 1_500)).filter(Boolean)
+  const vectors = await embedTexts(c.env.AI, chunks)
+  await s.replaceReaderPage(bookId, page, title, chunks.map((chunk, index) => ({
+    text: chunk,
+    vector: encodeVector(vectors[index]!),
+    norm: vectorNorm(vectors[index]!),
+  })))
+  return c.json({ indexed: chunks.length })
+})
 
 assistantRoutes.get('/knowledge-bases', async (c) => c.json({ knowledgeBases: await store(c).listKnowledgeBases() }))
 

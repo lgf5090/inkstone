@@ -1882,6 +1882,8 @@ export const api = {
         method: 'POST',
         body: { title, ...(folderId === undefined ? {} : { folderId }), ...(ephemeral ? { ephemeral: true } : {}) },
       }),
+    promoteConversation: (body: { title?: string, noteId?: string | null, messages: Array<{ role: 'user' | 'assistant', content: string }> }) =>
+      request<{ conversation: AssistantConversation, messages: AssistantMessage[] }>('/api/assistant/conversations/promote', { method: 'POST', body }),
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
     setConversationProject: (id: string, projectId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { projectId } }),
@@ -1897,8 +1899,7 @@ export const api = {
     /** This thread's own overrides; the object replaces the stored one rather than merging into it. */
     setConversationSettings: (id: string, settings: AssistantConversationSettings) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { settings } }),
-    pendingQuestions: (conversationId: string, signal?: AbortSignal) =>
-      request<{ questions: AssistantQuestionRow[] }>(`/api/assistant/conversations/${conversationId}/questions`, { signal }),
+    pendingQuestions: (conversationId: string, signal?: AbortSignal) =>      request<{ questions: AssistantQuestionRow[] }>(`/api/assistant/conversations/${conversationId}/questions`, { signal }),
     answerQuestion: (conversationId: string, questionId: string, answers: AssistantQuestionAnswers) =>
       request<{ question: AssistantQuestionRow }>(
         `/api/assistant/conversations/${conversationId}/questions/${questionId}/answer`,
@@ -2225,6 +2226,8 @@ export const api = {
       request<{ knowledgeBase: KnowledgeBase }>(`/api/assistant/knowledge-bases/${id}`, { method: 'PATCH', body }),
     deleteKnowledgeBase: (id: string) =>
       request<{ deleted: true }>(`/api/assistant/knowledge-bases/${id}`, { method: 'DELETE' }),
+    indexReaderPage: (bookId: string, page: number, text: string) =>
+      request<{ indexed: number }>('/api/assistant/reader-index', { method: 'POST', body: { bookId, page, text } }),
     similarNotes: (noteId: string) =>
       request<{ status: 'ok' | 'unavailable', hits: Array<{ id: string, title: string, excerpt: string, score: number }> }>(
         `/api/assistant/similar-notes?noteId=${encodeURIComponent(noteId)}`,

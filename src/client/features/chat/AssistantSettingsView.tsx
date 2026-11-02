@@ -18,8 +18,10 @@ import { MemoryTab } from './AssistantMemoryTab'
 import { BudgetTab } from './AssistantBudgetTab'
 import { DataTab } from './AssistantDataTab'
 import { KnowledgeTab } from './AssistantKnowledgeTab'
+import { WritingTab } from './AssistantWritingTab'
+import { OtherTab } from './AssistantOtherTab'
 
-const TABS = ['model', 'mcp', 'knowledge', 'behaviour', 'memory', 'budget', 'data'] as const
+const TABS = ['model', 'mcp', 'knowledge', 'writing', 'behaviour', 'memory', 'budget', 'data', 'other'] as const
 type Tab = (typeof TABS)[number]
 
 export function AssistantSettingsView() {
@@ -91,10 +93,12 @@ export function AssistantSettingsView() {
         {tab === 'model' && <ModelTab settings={settings} />}
         {tab === 'mcp' && <McpTab />}
         {tab === 'knowledge' && <KnowledgeTab />}
+        {tab === 'writing' && <WritingTab settings={settings} />}
         {tab === 'behaviour' && <BehaviourTab settings={settings} />}
         {tab === 'memory' && <MemoryTab settings={settings} />}
         {tab === 'budget' && <BudgetTab settings={settings} />}
         {tab === 'data' && <DataTab />}
+        {tab === 'other' && <OtherTab settings={settings} />}
       </div>
     </div>
   )

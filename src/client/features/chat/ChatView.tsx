@@ -28,7 +28,7 @@ import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input, Textarea } from '../../components/form'
-import { Menu, Modal, Tooltip, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, hasOpenLayer, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
@@ -88,6 +88,7 @@ import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 import { CHAT_SHORTCUTS, isChatShortcut } from './chat-shortcuts'
 import { useChatIntent } from './chat-intents'
+import { useEditorAi } from './editor-ai'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
 /**
@@ -392,6 +393,26 @@ export function ChatView() {
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [conversationSettingsOpen, setConversationSettingsOpen] = useState(false)
   const activeConversation = activeId ? conversations.find((entry) => entry.id === activeId) ?? null : null
+  // One Escape for the whole surface: a dialog or menu keeps its own key first, then a running reply
+  // stops, then an editor request that is still waiting is cleared. The composer's own handler stays
+  // for the case where focus is in the box and nothing else is layered above it.
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || hasOpenLayer()) return
+      const state = useAssistant.getState()
+      if (state.turn && !state.turn.done) {
+        event.preventDefault()
+        state.stop()
+        return
+      }
+      if (useEditorAi.getState().request) {
+        event.preventDefault()
+        useEditorAi.getState().clear()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const navigatorRef = useRef<HTMLButtonElement>(null)
   const [navigatorOpen, setNavigatorOpen] = useState(false)
   useEffect(() => {

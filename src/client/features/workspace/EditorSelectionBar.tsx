@@ -15,6 +15,7 @@ import { runEditorAi, quotePassage, type EditorAiAction } from '../chat/editor-a
 import { useQuickAsk } from '../chat/quick-ask-store'
 import { useAssistant } from '../chat/assistant-store'
 import { runCursorCommand } from '../chat/cursor-commands'
+import { markQuotedRange } from '../../editor/quoted-highlight'
 import { getActiveEditorView } from '../../editor/commands'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -79,6 +80,7 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
     if (range.empty) return
     useAssistant.getState().seedComposer(quotePassage(view.state.doc.sliceString(range.from, range.to)))
     useUi.getState().setAssistantDock(true)
+    if (useAssistant.getState().settings?.keepQuotedHighlight !== false) markQuotedRange(view, { from: range.from, to: range.to })
     onDone()
   }
   return (

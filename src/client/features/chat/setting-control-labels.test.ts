@@ -19,6 +19,7 @@ import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
 import { useAssistant } from './assistant-store'
 import { BehaviourTab } from './AssistantBehaviourTab'
+import { OtherTab } from './AssistantOtherTab'
 import { BudgetTab } from './AssistantBudgetTab'
 import { McpTab } from './AssistantMcpTab'
 import { ModelEditorDialog } from './ModelEditorDialog'
@@ -142,13 +143,23 @@ describe('the assistant behaviour tab', () => {
     rendered = renderElement(createElement(BehaviourTab, { settings: DEFAULT_ASSISTANT_SETTINGS }))
   })
 
-  it('names the machine-name box, the timezone and the start view by their row titles', () => {
+  it('names the machine-name box and the timezone by their row titles', () => {
     expect(named(t('assistant.settings.agent_name'))?.tagName, 'the assistant name box has no accessible name').toBe('INPUT')
     expect(named(t('assistant.settings.timezone'))?.tagName, 'the timezone select has no accessible name').toBe('SELECT')
-    expect(named(t('assistant.settings.start_view'))?.tagName, 'the start view select has no accessible name').toBe('SELECT')
   })
 
   it('leaves no row title pointing at a control that is not there', () => {
+    expect(orphanLabels()).toEqual([])
+  })
+})
+
+describe('the assistant other tab', () => {
+  beforeEach(() => {
+    rendered = renderElement(createElement(OtherTab, { settings: DEFAULT_ASSISTANT_SETTINGS }))
+  })
+
+  it('names the start view by its row title', () => {
+    expect(named(t('assistant.settings.start_view'))?.tagName, 'the start view select has no accessible name').toBe('SELECT')
     expect(orphanLabels()).toEqual([])
   })
 })

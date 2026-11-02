@@ -793,8 +793,14 @@ export interface AssistantSettings {
   autoCompactMode: 'off' | 'absolute' | 'ratio'
   autoCompactTokens: number
   autoCompactRatio: number
+  /** Log request shape (model, protocol, bucket counts) without content or credentials. */
+  llmDebug: boolean
+  /** Keep the passage that was quoted into the chat marked in the editor until the note is left. */
+  keepQuotedHighlight: boolean
   /** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */
   subagentEnabled: boolean
+  /** Whether a child may run after the parent turn has returned, reporting by notification. */
+  subagentAsyncEnabled: boolean
   /** The model child agents use; null follows the parent turn's model. */
   subagentModelId: string | null
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
@@ -906,7 +912,10 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoCompactMode: 'off',
   autoCompactTokens: 100_000,
   autoCompactRatio: 0.8,
+  llmDebug: false,
+  keepQuotedHighlight: true,
   subagentEnabled: false,
+  subagentAsyncEnabled: false,
   subagentModelId: null,
   offlineMode: false,
   startView: 'chat',
@@ -1076,7 +1085,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoCompactMode: enumValue(raw.autoCompactMode, ['off', 'absolute', 'ratio'] as const, DEFAULT_ASSISTANT_SETTINGS.autoCompactMode),
     autoCompactTokens: numberInRange(raw.autoCompactTokens, 10_000, 2_000_000, DEFAULT_ASSISTANT_SETTINGS.autoCompactTokens),
     autoCompactRatio: numberInRange(raw.autoCompactRatio, 0.3, 0.95, DEFAULT_ASSISTANT_SETTINGS.autoCompactRatio),
+    llmDebug: booleanValue(raw.llmDebug, DEFAULT_ASSISTANT_SETTINGS.llmDebug),
+    keepQuotedHighlight: booleanValue(raw.keepQuotedHighlight, DEFAULT_ASSISTANT_SETTINGS.keepQuotedHighlight),
     subagentEnabled: booleanValue(raw.subagentEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentEnabled),
+    subagentAsyncEnabled: booleanValue(raw.subagentAsyncEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentAsyncEnabled),
     subagentModelId: typeof raw.subagentModelId === 'string' && raw.subagentModelId ? raw.subagentModelId.slice(0, 26) : null,
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
@@ -2095,6 +2107,29 @@ export interface AssistantToolSpec {
   /** Only a destructive tool has one: the approval card names what will be removed. */
   approvalKey?: MessageKey
   permission: ToolPermission
+  /** Optional override; the manager derives it from the name when absent. */
+  category?: AssistantToolCategory
+}
+
+export const ASSISTANT_TOOL_CATEGORIES = ['notes', 'tasks', 'memory', 'context', 'external', 'apps'] as const
+export type AssistantToolCategory = (typeof ASSISTANT_TOOL_CATEGORIES)[number]
+
+const TOOL_CATEGORY_NAMES: Record<AssistantToolCategory, readonly string[]> = {
+  notes: ['create_note', 'update_note', 'delete_note', 'list_notes', 'count_notes', 'read_note', 'search_notes', 'list_folders', 'list_tags', 'list_artifacts', 'read_artifact', 'create_artifact', 'update_artifact'],
+  tasks: ['create_task', 'create_tasks_from_note', 'list_tasks', 'get_task', 'update_task', 'complete_task', 'plan_task', 'move_task', 'list_trash', 'restore_task', 'snooze_task', 'delete_task', 'rename_task_tag', 'delete_task_tag', 'list_task_lists', 'create_task_list', 'update_task_list', 'delete_task_list', 'delete_completed_tasks', 'add_task_step', 'check_task_step', 'delete_task_step', 'decompose_task', 'plan_today', 'task_stats'],
+  memory: ['remember', 'search_memories', 'update_memory', 'forget_memory'],
+  context: ['search', 'search_knowledge', 'ask_user_question', 'read_skill', 'delegate_subagent', 'context_prune_tool_results', 'notify_reader'],
+  external: ['image_generate', 'code_execute', 'fetch_url', 'web_search'],
+  apps: [],
+}
+
+/** The group a tool is shown under. Unknown names — including remote tools — land under Apps. */
+export function toolCategoryOf(name: string, override?: AssistantToolCategory): AssistantToolCategory {
+  if (override) return override
+  for (const category of ASSISTANT_TOOL_CATEGORIES) {
+    if (TOOL_CATEGORY_NAMES[category].includes(name)) return category
+  }
+  return 'apps'
 }
 
 /**
@@ -2854,7 +2889,7 @@ export interface AssistantMessage {
    * written before a reason could be given.
    */
   feedbackReason?: string
-  usage?: { inputTokens: number, outputTokens: number } | null
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number
   /** The model that answered, kept as text for the same reason a version keeps it. */
@@ -3282,7 +3317,7 @@ export interface ChatStreamEvent {
   artifact?: AssistantArtifact
   change?: 'created' | 'updated' | 'restored'
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
-  usage?: { inputTokens: number, outputTokens: number }
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number }
   /** For `usage`: where the prompt's estimated tokens went. */
   contextBreakdown?: AssistantContextBreakdown
   /** For `mcp_problem`: which external server failed to list, and why. */

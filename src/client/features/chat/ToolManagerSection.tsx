@@ -3,7 +3,7 @@
  * approval mode. This is the account's ceiling; an Agent can only narrow it further.
  */
 import { useMemo, useState } from 'react'
-import { ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_SPECS, type AssistantToolMode } from '@shared/assistant'
+import { ASSISTANT_TOOL_CATEGORIES, ASSISTANT_TOOL_MODES, ASSISTANT_TOOL_SPECS, toolCategoryOf, type AssistantToolCategory, type AssistantToolMode } from '@shared/assistant'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Checkbox, Input, Select, SettingRow } from '../../components/form'
 import { useAssistant } from './assistant-store'
@@ -27,6 +27,8 @@ export function ToolManagerSection() {
       !needle || spec.name.toLocaleLowerCase().includes(needle) || t(spec.labelKey).toLocaleLowerCase().includes(needle))
   }, [query])
   if (!settings) return null
+  const enabledCount = ASSISTANT_TOOL_SPECS.filter((spec) => settings.toolSettings[spec.name]?.enabled !== false).length
+  const tokenEstimate = Math.round(ASSISTANT_TOOL_SPECS.reduce((total, spec) => total + spec.name.length + t(spec.labelKey).length * 2, 0) / 4)
   const entryFor = (name: string) => settings.toolSettings[name] ?? { enabled: true }
   const patch = (name: string, next: { enabled?: boolean, mode?: ModeChoice }) => {
     const current = entryFor(name)
@@ -38,6 +40,16 @@ export function ToolManagerSection() {
     void saveSettings({ toolSettings: { ...settings.toolSettings, [name]: merged } })
   }
   const modeValue = (name: string): ModeChoice => entryFor(name).mode ?? 'inherit'
+  const groups = useMemo(() => {
+    const buckets = new Map<AssistantToolCategory, typeof rows>()
+    for (const spec of rows) {
+      const category = toolCategoryOf(spec.name, spec.category)
+      buckets.set(category, [...(buckets.get(category) ?? []), spec])
+    }
+    return ASSISTANT_TOOL_CATEGORIES
+      .filter((category) => buckets.has(category))
+      .map((category) => ({ category, rows: buckets.get(category)! }))
+  }, [rows])
   return (
     <div className="space-y-2">
       <SettingRow title={t('assistant.tools.disclosure')} description={t('assistant.tools.disclosure_hint')} controlId="assistant-tool-disclosure">
@@ -61,25 +73,35 @@ export function ToolManagerSection() {
           className="h-8 w-52 text-[length:var(--text-12)]"
         />
       </SettingRow>
+      <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+        {t('assistant.tools.summary', { enabled: enabledCount, total: ASSISTANT_TOOL_SPECS.length, tokens: tokenEstimate })}
+      </p>
       <div className="max-h-72 overflow-y-auto rounded-[var(--r-md)] border border-[var(--border-subtle)]">
-        {rows.map((spec) => (
-          <div key={spec.name} className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-2.5 py-1.5 last:border-b-0">
-            <Checkbox
-              checked={entryFor(spec.name).enabled}
-              onChange={(enabled) => patch(spec.name, { enabled })}
-              label={t(spec.labelKey)}
-              className="min-w-0 flex-1 min-h-8 text-[length:var(--text-12)]"
-            />
-            <Select
-              aria-label={t('assistant.tools.mode_for', { name: t(spec.labelKey) })}
-              value={modeValue(spec.name)}
-              onChange={(event) => patch(spec.name, { mode: event.target.value as ModeChoice })}
-              className="h-7 w-32 text-[length:var(--text-11)]"
-            >
-              {(['inherit', ...ASSISTANT_TOOL_MODES] as ModeChoice[]).map((mode) => (
-                <option key={mode} value={mode}>{t(MODE_LABELS[mode])}</option>
-              ))}
-            </Select>
+        {groups.map((group) => (
+          <div key={group.category}>
+            <p className="sticky top-0 z-[1] border-b border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1 text-[length:var(--text-10-5)] font-semibold uppercase tracking-[var(--tracking-label)] text-[var(--text-quaternary)]">
+              {t(`assistant.tools.category.${group.category}` as 'assistant.tools.category.notes')}
+            </p>
+            {group.rows.map((spec) => (
+              <div key={spec.name} className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-2.5 py-1.5 last:border-b-0">
+                <Checkbox
+                  checked={entryFor(spec.name).enabled}
+                  onChange={(enabled) => patch(spec.name, { enabled })}
+                  label={t(spec.labelKey)}
+                  className="min-w-0 flex-1 min-h-8 text-[length:var(--text-12)]"
+                />
+                <Select
+                  aria-label={t('assistant.tools.mode_for', { name: t(spec.labelKey) })}
+                  value={modeValue(spec.name)}
+                  onChange={(event) => patch(spec.name, { mode: event.target.value as ModeChoice })}
+                  className="h-7 w-32 text-[length:var(--text-11)]"
+                >
+                  {(['inherit', ...ASSISTANT_TOOL_MODES] as ModeChoice[]).map((mode) => (
+                    <option key={mode} value={mode}>{t(MODE_LABELS[mode])}</option>
+                  ))}
+                </Select>
+              </div>
+            ))}
           </div>
         ))}
         {!rows.length && <p className="px-2.5 py-3 text-[length:var(--text-12)] text-[var(--text-quaternary)]">{t('assistant.tools.none')}</p>}

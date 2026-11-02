@@ -12,7 +12,6 @@ import { Button } from '../../components/primitives'
 import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { ToolManagerSection } from './ToolManagerSection'
-import { CursorCommandsSection } from './CursorCommandsSection'
 import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
@@ -27,10 +26,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setInstructions(settings.customInstructions), [settings.customInstructions])
   const [endpoint, setEndpoint] = useState(settings.webSearchEndpoint)
   useEffect(() => setEndpoint(settings.webSearchEndpoint), [settings.webSearchEndpoint])
-  const [completionConstraint, setCompletionConstraint] = useState(settings.tabCompletionConstraint)
-  useEffect(() => setCompletionConstraint(settings.tabCompletionConstraint), [settings.tabCompletionConstraint])
-  const [quickAskTrigger, setQuickAskTrigger] = useState(settings.quickAskTrigger)
-  useEffect(() => setQuickAskTrigger(settings.quickAskTrigger), [settings.quickAskTrigger])
   const [autoTokens, setAutoTokens] = useState(String(settings.autoCompactTokens))
   useEffect(() => setAutoTokens(String(settings.autoCompactTokens)), [settings.autoCompactTokens])
   const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
@@ -79,7 +74,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   // control's accessible name rather than a line of text beside it.
   const agentNameId = useId()
   const timezoneId = useId()
-  const startViewId = useId()
   const endpointId = useId()
   const engineId = useId()
   const keyId = useId()
@@ -175,141 +169,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             </Select>
           </div>
         </SettingRow>
-      </Group>
-
-      <Group title={t('assistant.settings.behaviour')}>
-        <SettingRow title={t('assistant.settings.send_enter')} description={t('assistant.settings.send_enter_hint')}>
-          <Switch checked={settings.sendOnEnter} onChange={(value) => void saveSettings({ sendOnEnter: value })} label={t('assistant.settings.send_enter')} />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.mention_mode')} description={t('assistant.settings.mention_mode_hint')}>
-          <Segmented
-            size="sm"
-            label={t('assistant.settings.mention_mode')}
-            value={settings.mentionMode}
-            onChange={(mentionMode) => void saveSettings({ mentionMode })}
-            options={[
-              { value: 'full', label: t('assistant.settings.mention_mode.full') },
-              { value: 'light', label: t('assistant.settings.mention_mode.light') },
-            ]}
-          />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.chat_scale')} description={t('assistant.settings.chat_scale_hint')}>
-          <div className="flex items-center gap-2">
-            <Slider
-              label={t('assistant.settings.chat_scale')}
-              value={Math.round(settings.chatScale * 100)}
-              min={70}
-              max={150}
-              step={5}
-              suffix="%"
-              onChange={(percent) => void saveSettings({ chatScale: percent / 100 })}
-            />
-          </div>
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.tab_completion')} description={t('assistant.settings.tab_completion_hint')}>
-          <Switch
-            checked={settings.tabCompletionEnabled}
-            label={t('assistant.settings.tab_completion')}
-            onChange={(tabCompletionEnabled) => void saveSettings({ tabCompletionEnabled })}
-          />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.completion_model')} description={t('assistant.settings.completion_model_hint')}>
-          <Select
-            aria-label={t('assistant.settings.completion_model')}
-            value={settings.tabCompletionModelId ?? ''}
-            onChange={(event) => void saveSettings({ tabCompletionModelId: event.target.value || null })}
-          >
-            <option value="">{t('assistant.settings.naming_model_follow')}</option>
-            {chatModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.model}</option>)}
-          </Select>
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.completion_constraint')} description={t('assistant.settings.completion_constraint_hint')}>
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void saveSettings({ tabCompletionConstraint: completionConstraint })
-            }}
-          >
-            <Input
-              aria-label={t('assistant.settings.completion_constraint')}
-              value={completionConstraint}
-              maxLength={1000}
-              onChange={(event) => setCompletionConstraint(event.target.value)}
-              className="h-8 w-56 text-[length:var(--text-12)]"
-            />
-            <Button type="submit" size="sm" variant="secondary" disabled={completionConstraint === settings.tabCompletionConstraint}>
-              {t('common.save')}
-            </Button>
-          </form>
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.quick_ask')} description={t('assistant.settings.quick_ask_hint')}>
-          <Switch
-            checked={settings.quickAskEnabled}
-            label={t('assistant.settings.quick_ask')}
-            onChange={(quickAskEnabled) => void saveSettings({ quickAskEnabled })}
-          />
-        </SettingRow>
-        {settings.quickAskEnabled && (
-          <SettingRow title={t('assistant.settings.quick_ask_trigger')} description={t('assistant.settings.quick_ask_trigger_hint')}>
-            <form
-              className="flex items-center gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const trigger = quickAskTrigger.trim()
-                if (trigger && trigger.length <= 3) void saveSettings({ quickAskTrigger: trigger })
-              }}
-            >
-              <Input
-                aria-label={t('assistant.settings.quick_ask_trigger')}
-                value={quickAskTrigger}
-                maxLength={3}
-                onChange={(event) => setQuickAskTrigger(event.target.value)}
-                className="h-8 w-16 text-center font-mono text-[length:var(--text-12)]"
-              />
-              <Button type="submit" size="sm" variant="secondary" disabled={!quickAskTrigger.trim() || quickAskTrigger.trim().length > 3 || quickAskTrigger === settings.quickAskTrigger}>
-                {t('common.save')}
-              </Button>
-            </form>
-          </SettingRow>
-        )}
-        <SettingRow title={t('assistant.settings.image_compress')} description={t('assistant.settings.image_compress_hint')}>
-          <Switch
-            checked={settings.imageCompressEnabled}
-            label={t('assistant.settings.image_compress')}
-            onChange={(imageCompressEnabled) => void saveSettings({ imageCompressEnabled })}
-          />
-        </SettingRow>
-        {settings.imageCompressEnabled && (
-          <SettingRow title={t('assistant.settings.image_quality')} description={t('assistant.settings.image_quality_hint')}>
-            <div className="flex items-center gap-2">
-              <Slider
-                label={t('assistant.settings.image_quality')}
-                value={settings.imageCompressQuality}
-                min={30}
-                max={100}
-                step={5}
-                onChange={(imageCompressQuality) => void saveSettings({ imageCompressQuality })}
-              />
-            </div>
-          </SettingRow>
-        )}
-        <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
-          <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')} controlId={startViewId}>
-          <Select id={startViewId} value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
-            <option value="chat">{t('assistant.view.chat')}</option>
-            <option value="memory">{t('assistant.view.memory')}</option>
-            <option value="tasks">{t('assistant.view.tasks')}</option>
-            <option value="automations">{t('assistant.view.automations')}</option>
-            <option value="settings">{t('assistant.view.settings')}</option>
-          </Select>
-        </SettingRow>
-      </Group>
-
-      <Group title={t('assistant.cursor_commands.title')}>
-        <CursorCommandsSection />
       </Group>
 
       <Group title={t('assistant.settings.compaction')}>        <SettingRow
@@ -443,6 +302,14 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
           />
         </SettingRow>
         {settings.subagentEnabled && (
+          <>
+          <SettingRow title={t('assistant.settings.subagent_async')} description={t('assistant.settings.subagent_async_hint')}>
+            <Switch
+              checked={settings.subagentAsyncEnabled}
+              label={t('assistant.settings.subagent_async')}
+              onChange={(subagentAsyncEnabled) => void saveSettings({ subagentAsyncEnabled })}
+            />
+          </SettingRow>
           <SettingRow title={t('assistant.settings.subagent_model')} description={t('assistant.settings.subagent_model_hint')} controlId="assistant-subagent-model">
             <Select
               id="assistant-subagent-model"
@@ -457,6 +324,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
               ))}
             </Select>
           </SettingRow>
+          </>
         )}
       </Group>
 

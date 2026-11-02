@@ -533,6 +533,8 @@ interface AssistantState {
   toggleMessageSaved: (messageId: string, report?: ReportFailure) => Promise<boolean>
   /** Starts a new conversation that carries this one up to the given message. */
   forkFrom: (messageId: string) => Promise<void>
+  /** Make an exchange that happened outside the thread into a real conversation. */
+  promoteConversation: (body: { title?: string, noteId?: string | null, messages: Array<{ role: 'user' | 'assistant', content: string }> }) => Promise<string | null>
   /** Deletes exactly the turns a reader selected. */
   removeMessages: (ids: readonly string[]) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
@@ -2011,6 +2013,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       useUi.getState().toast({ title: t('assistant.chat.forked', { title: conversation.title }), tone: 'success' })
     } catch (error) {
       toast(error)
+    }
+  },
+
+  promoteConversation: async (body) => {
+    try {
+      const { conversation } = await api.assistant.promoteConversation(body)
+      await get().loadConversations()
+      await get().openConversation(conversation.id)
+      return conversation.id
+    } catch (error) {
+      toast(error)
+      return null
     }
   },
 

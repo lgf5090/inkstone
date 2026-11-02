@@ -687,7 +687,7 @@ export class AssistantRunner {
     const generatedAttachments: string[] = []
     // Counted out here rather than in the `try`, because a turn that ends in `catch` still has to be
     // metered: the tokens a stopped or a failed turn produced were bought from the provider all the same.
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
     let system = ''
     let turns: ModelTurn[] = []
     // Which key the day's counters are filed against, and whether they have been written yet.
@@ -936,6 +936,17 @@ export class AssistantRunner {
         // The first step is where a model may be swapped for one further down the chain; every step after
         // it is answered by whichever model got through, so a reply never changes voice halfway.
         const candidates = steps === 1 ? chain : [served.current]
+        if (this.settings.llmDebug) {
+          // Shape only: a debug line that carried the prompt would be the reader's note in a log.
+          console.info('[inkstone] assistant request', {
+            model: served.current.model.model,
+            protocol: served.current.call.protocol,
+            steps,
+            turns: turns.length,
+            tools: schemas.length,
+            systemChars: turnSystem.length,
+          })
+        }
         for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey, signal) => ({
           baseUrl: entry.call.baseUrl,
           apiKey,
@@ -1180,7 +1191,7 @@ export class AssistantRunner {
     protocol: AssistantProtocol,
     request: UpstreamRequest,
     calls: ToolCallRecord[],
-    usage: { inputTokens: number, outputTokens: number },
+    usage: { inputTokens: number, outputTokens: number, cachedInputTokens: number },
   ): AsyncGenerator<ChatStreamEvent> {
     for await (const event of streamUpstream(protocol, request)) {
       if (event.type === 'text') {
@@ -1198,6 +1209,7 @@ export class AssistantRunner {
         // own prompt again, and each of those is real spend.
         usage.inputTokens = Math.max(usage.inputTokens, event.inputTokens)
         usage.outputTokens = Math.max(usage.outputTokens, event.outputTokens)
+        usage.cachedInputTokens = Math.max(usage.cachedInputTokens, event.cachedInputTokens ?? 0)
         continue
       }
       // The cap signal is the runner's own business: the client has no event for it, and what the
@@ -1240,7 +1252,7 @@ export class AssistantRunner {
     served: { current: ResolvedCall },
     requestFor: (entry: ResolvedCall, apiKey: string, signal: AbortSignal) => UpstreamRequest,
     calls: ToolCallRecord[],
-    usage: { inputTokens: number, outputTokens: number },
+    usage: { inputTokens: number, outputTokens: number, cachedInputTokens: number },
   ): AsyncGenerator<ChatStreamEvent> {
     let failure: unknown = null
     for (const entry of candidates) {
@@ -1255,7 +1267,7 @@ export class AssistantRunner {
         // Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt
         // had already collected before it failed.
         const attemptCalls: ToolCallRecord[] = []
-        const attemptUsage = { inputTokens: 0, outputTokens: 0 }
+        const attemptUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
         const timed = this.attemptSignal()
         try {
           const apiKey = await this.signKey(entry.provider)
@@ -1266,6 +1278,7 @@ export class AssistantRunner {
           // Only a call that got through is charged, and only its calls and counters are kept.
           usage.inputTokens += attemptUsage.inputTokens
           usage.outputTokens += attemptUsage.outputTokens
+          usage.cachedInputTokens += attemptUsage.cachedInputTokens ?? 0
           calls.push(...attemptCalls)
           served.current = entry
           return
@@ -2170,11 +2183,38 @@ export class AssistantRunner {
     return (results ?? []).map((row) => row.name)
   }
 
+  /** Starts a child that outlives the turn; the task row is what the reader can find afterwards. */
+  private async startAsyncSubagent(
+    input: { description: string, prompt: string, modelId?: string | null },
+    parentConversationId: string,
+  ): Promise<{ taskId: string, status: 'running' }> {
+    const taskId = await this.store.createSubagentTask({
+      parentConversationId,
+      parentMessageId: null,
+      callId: null,
+      description: input.description.slice(0, 200),
+      prompt: input.prompt.slice(0, 8_000),
+      modelId: input.modelId ?? this.settings.subagentModelId,
+    })
+    const work = (async () => {
+      try {
+        const result = await this.runSubagent(input, parentConversationId, taskId)
+        await this.store.createNotification({ title: input.description.slice(0, 200), body: result.text.slice(0, 1_000) || 'The sub-agent finished without an answer.' })
+      } catch (error) {
+        await this.store.createNotification({ title: input.description.slice(0, 200), body: error instanceof Error ? error.message : 'The sub-agent failed.' })
+      }
+    })()
+    if (this.deps.executionCtx?.waitUntil) this.deps.executionCtx.waitUntil(work)
+    else void work
+    return { taskId, status: 'running' }
+  }
+
   private async runSubagent(
     input: { description: string, prompt: string, modelId?: string | null },
     parentConversationId: string,
+    existingTaskId?: string,
   ): Promise<{ text: string, toolCalls: number, tokens: number }> {
-    const taskId = await this.store.createSubagentTask({
+    const taskId = existingTaskId ?? await this.store.createSubagentTask({
       parentConversationId,
       parentMessageId: null,
       callId: null,
@@ -2261,7 +2301,10 @@ export class AssistantRunner {
       // A child turn has no reader to ask, and a read-only child needs no approval card nobody can press;
       // both are expressed by leaving the callbacks it would reach for out of its context.
       ...(conversationId && !this.turnIsSubagent && this.settings.subagentEnabled
-        ? { runSubagent: (input: { description: string, prompt: string, modelId?: string | null }) => this.runSubagent(input, conversationId) }
+        ? {
+            runSubagent: (input: { description: string, prompt: string, modelId?: string | null }) => this.runSubagent(input, conversationId),
+            ...(this.settings.subagentAsyncEnabled ? { runSubagentAsync: (input: { description: string, prompt: string, modelId?: string | null }) => this.startAsyncSubagent(input, conversationId) } : {}),
+          }
         : {}),
       // A tool that waits on the reader has to stop when the turn does, and its wait has to keep the
       // run claim alive or a long question would look like a dead request and be reaped mid-question.
@@ -2393,7 +2436,7 @@ export class AssistantRunner {
     }
     const chain = await this.modelChain(primary)
     const served = { current: primary }
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
     let text = ''
     let steps = 0
     for (;;) {

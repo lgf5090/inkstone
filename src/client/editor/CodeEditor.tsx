@@ -35,6 +35,7 @@ import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
 import { useLongPress } from '../features/workspace/context-menu/use-long-press';
+import { quotedHighlight } from './quoted-highlight';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -228,6 +229,7 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             }),
             editorTheme(),
             markdownDecorations,
+            quotedHighlight,
             templaterCompartment.current.of(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })),
             tabCompletionCompartment.current.of(tabCompletionRef.current?.enabled ? tabCompletionExtension(tabCompletionRef.current) : []),
             liveCompartment.current.of(live ? livePreview((headings) => cbRef.current.onHeadings?.(headings), () => cbRef.current.noteTitle) : []),

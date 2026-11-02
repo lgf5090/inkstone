@@ -303,6 +303,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     source TEXT NOT NULL DEFAULT 'chat',
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_input_tokens INTEGER,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     model_label TEXT NOT NULL DEFAULT '',
     feedback TEXT NOT NULL DEFAULT '',
@@ -855,6 +856,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_questions',
   'chat_cursor_commands',
   'chat_subagent_tasks',
+  'ai_reader_embeddings',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -901,6 +903,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_questions_conversation',
   'idx_chat_cursor_commands_user',
   'idx_chat_subagent_tasks_parent',
+  'idx_ai_reader_embeddings_user',
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
@@ -927,7 +930,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'folder_id', 'filename', 'mime', 'size', 'key', 'extracted_text', 'is_starred', 'is_pinned', 'tags', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'suggestions', 'saved_at', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'tool_modes', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
@@ -943,6 +946,7 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
   chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
   chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],
+  ai_reader_embeddings: ['user_id', 'book_id', 'page', 'chunk', 'title', 'text', 'vector', 'norm', 'indexed_at'],
   chat_subagent_tasks: ['user_id', 'id', 'parent_conversation_id', 'parent_message_id', 'call_id', 'description', 'prompt', 'model_id', 'status', 'result', 'error', 'tool_calls', 'tokens', 'created_at', 'finished_at'],
   chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'kind', 'description', 'load_mode', 'enabled', 'source', 'position', 'created_at', 'updated_at'],
 }

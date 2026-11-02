@@ -89,7 +89,7 @@ export type UpstreamEvent
     | { type: 'tool-call', id: string, name: string, args: unknown }
     /** Pages the vendor reported as consulted, named the way the vendor names them. */
     | { type: 'sources', sources: UpstreamSource[] }
-    | { type: 'usage', inputTokens: number, outputTokens: number }
+    | { type: 'usage', inputTokens: number, outputTokens: number, cachedInputTokens?: number }
     /** The model was cut off at the output cap rather than stopping by itself. */
     | { type: 'truncated' }
     /** The provider stopped the answer under one of its own rules. */
@@ -697,10 +697,12 @@ async function* streamOpenAi(request: UpstreamRequest): AsyncGenerator<UpstreamE
     if (!parsed) continue
     const usage = parsed.usage as Record<string, unknown> | undefined
     if (usage) {
+      const details = usage.prompt_tokens_details as Record<string, unknown> | undefined
       yield {
         type: 'usage',
         inputTokens: numberOr(usage.prompt_tokens) ?? 0,
         outputTokens: numberOr(usage.completion_tokens) ?? 0,
+        ...(numberOr(details?.cached_tokens) !== undefined ? { cachedInputTokens: numberOr(details?.cached_tokens) } : {}),
       }
     }
     const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : undefined
@@ -936,8 +938,9 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
       const usage = (parsed.usage ?? {}) as Record<string, unknown>
       const input = numberOr(usage.input_tokens) ?? inputTokens
       const output = numberOr(usage.output_tokens)
-      if (input > 0 || output !== undefined) {
-        yield { type: 'usage', inputTokens: input, outputTokens: output ?? 0 }
+      const cached = numberOr(usage.cache_read_input_tokens)
+      if (input > 0 || output !== undefined || cached !== undefined) {
+        yield { type: 'usage', inputTokens: input, outputTokens: output ?? 0, ...(cached !== undefined ? { cachedInputTokens: cached } : {}) }
       }
     }
   }
@@ -1025,10 +1028,12 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
     if (!parsed) continue
     const usage = (parsed.usageMetadata ?? parsed.usage_metadata) as Record<string, unknown> | undefined
     if (usage) {
+      const cached = numberOr(usage.cachedContentTokenCount ?? usage.cached_content_token_count)
       yield {
         type: 'usage',
         inputTokens: numberOr(usage.promptTokenCount ?? usage.prompt_tokens) ?? 0,
         outputTokens: numberOr(usage.candidatesTokenCount ?? usage.candidates_tokens) ?? 0,
+        ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
       }
     }
     const candidate = Array.isArray(parsed.candidates) ? (parsed.candidates[0] as Record<string, unknown>) : undefined

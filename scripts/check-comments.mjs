@@ -1093,6 +1093,9 @@ const allowed = new Map([
     "// reader sees in the note. Letting this rejection out would leave the placeholder sitting there",
     "// instead, and every sibling upload in the same paste would lose its replacement too.",
   ]],
+  ["src/client/editor/quoted-highlight.ts", [
+    "/** The passage a reader quoted into the chat, marked read-only until the editor is left. */",
+  ]],
   ["src/client/editor/tab-completion.ts", [
     "/**\n * Inline Tab completion for the note editor.\n *\n * A completion is one short, tool-less model call made after the caret reaches a clause boundary or a\n * list marker. The answer is drawn as ghost text at the caret and only becomes document text when the\n * reader presses Tab. The request is best-effort: a slow or failed completion disappears rather than\n * interrupting the reader, because typing must never wait on the network.\n */",
     "/** Whether the text before the caret is a place a completion may be asked for. */",
@@ -1831,6 +1834,9 @@ const allowed = new Map([
     "/* Which provider the id will be filed under is the one thing the reader can get wrong here, and\n          the dialog's own title only says what is being added. */",
     "/* The brand says who answers; the small key badge keeps the one fact about this provider that\n            costs a round trip to learn without taking the vendor's mark away. */",
   ]],
+  ["src/client/features/chat/AssistantOtherTab.tsx", [
+    "/** The switches that change how the interface behaves rather than how the model answers. */",
+  ]],
   ["src/client/features/chat/AssistantSettingsView.tsx", [
     "/**\n * Assistant settings: the model it answers from, how it behaves, what it may spend, and what it keeps.\n *\n * The provider key is write-only from here. The form sends it once and never reads it back — the row\n * shows only whether a key is stored — because a key that comes back to the browser can be read by any\n * extension, any XSS, and any screenshot, and the assistant has no need of it on this side.\n */",
     "/**\n   * A load that was refused has to be named, because the store cannot tell one from a load in flight:\n   * `loadSettings` reports through a toast and leaves `settings` empty, and empty is exactly what the\n   * spinner branch renders — so the reader watched a spinner for a reply that was never coming. The route\n   * answers a successful load with settings, so still-empty once the await settles *is* the refusal.\n   */",
@@ -2394,6 +2400,9 @@ const allowed = new Map([
     "// picker because the reader is naming one thing the turn should be about.",
     "// The note search has already matched the words; only the three local lists need the same filter,",
     "// or a row the server found would be dropped because its title does not repeat the query.",
+    "// One Escape for the whole surface: a dialog or menu keeps its own key first, then a running reply",
+    "// stops, then an editor request that is still waiting is cleared. The composer's own handler stays",
+    "// for the case where focus is in the box and nothing else is layered above it.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -2742,6 +2751,8 @@ const allowed = new Map([
     "/**\n * What an agent's note write would change, shown before the approval rather than after it.\n *\n * The write itself still happens through the ordinary approved-tool path; this preview is the reader's\n * chance to see the words leaving and arriving first. A failed read leaves the card as it was.\n */",
     "/** The worker's code for that error, so the card can name a cause instead of echoing the provider. */",
     "/**\n   * Takes an approved note write back out.\n   *\n   * The write went through the notebook's own store, so it filed a version first; restoring the newest\n   * one is the same undo the note's history panel offers, not a second copy kept by the chat.\n   */",
+    "// A clipped or malformed result falls back to the raw fold below; the proposal is an extra view, not",
+    "// the only place the answer is kept.",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -2910,6 +2921,8 @@ const allowed = new Map([
     "/** The place the reader last put the panel, kept for the rest of this page's life. */",
     "// A question the reader sent parks in the corner rather than following the caret: the caret is where",
     "// they typed, not where they want to read the answer.",
+    "// The answer is already here; promote it rather than asking the model again in the sidebar, which",
+    "// would write a different answer and bill the reader for it twice.",
   ]],
   ["src/client/features/chat/SavedShelf.tsx", [
     "/**\n * The shelf: the answers the reader kept, in the sidebar's own tab strip.\n *\n * It sits beside the starred/pinned/archived shortlists because it does the same job — a list of pointers\n * into threads — with one difference: its rows name a turn rather than a conversation, so pressing one\n * opens the thread *at* that turn. The rows come from `GET /api/assistant/saved-messages` through\n * `saved-shelf.ts`, which is the only place this screen's paging state lives.\n *\n * Every state a read can answer with is drawn: the spinner while the shelf is unread, the route's own line\n * and a retry when it was refused, an empty shelf that says how a keep gets here, and the list. An empty\n * list and a refused one are two different facts, so they never share a block.\n */",
@@ -3555,6 +3568,7 @@ const allowed = new Map([
     "// rather than replacing the transcript with an error; the turn itself keeps running and can be",
     "// stopped from the composer.",
     "/** The reader's reusable editor instructions, loaded once with the settings surface. */",
+    "/** Make an exchange that happened outside the thread into a real conversation. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -12274,6 +12288,8 @@ const allowed = new Map([
     "// scanned at 800px should fill a tablet, and one captured at 240px should not sit in the middle of",
     "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
     "/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on\n          the page itself. */",
+    "/** Send this page's words to the account's knowledge base; the worker cannot read a PDF itself. */",
+    "/** Crop the painted page and hand the picture to the composer, never the whole page by accident. */",
   ]],
   ["src/client/features/reading/reader/FootnotePopover.tsx", [
     "/**\n * The note a footnote reference points at, without leaving the page.\n *\n * A reader hovers a superscript to ask \"what is this?\" and the answer has to appear where their eyes\n * already are, so the card is placed against the reference's own box and kept inside the window by\n * clipping to its scrollable ancestor — the same rule the rest of the reader's floating parts follow.\n * The card is not a tooltip: it holds a paragraph, a reader may need to select from it, and it stays\n * until they say otherwise.\n */",
@@ -29268,6 +29284,7 @@ const allowed = new Map([
     "/* The prose column is measured on the text, and the preview puts its 16px gutter outside that\n   measurement while the editor puts it inside. Widening the live column by the two gutters is what\n   lets the same paragraph break at the same word in both. */",
     "/* Templater commands: text the reader wrote but the renderer replaces. Only the editor's own marks are\n   painted here, so a template's edge stays legible inside running prose without touching the text.\n   The body borrows the inline-code colour because that is what it is; the delimiters take the syntax\n   punctuation token, and an execution command's delimiters take the keyword one so a block of code\n   reads as a block at a glance. */",
     "/* The template library's body editor wears the note editor's chrome, because the marks, the line-number\n   gutter, the caret and the selection are the same things to paint. What it takes back is the prose: a\n   template body is code being written, so it has no typewriter padding to scroll past after the last line,\n   no measured column to centre itself in, and the monospace size the dialog's textarea carried rather than\n   the size the reader writes notes at. Last in this file on purpose — the `.ink-editor` rules above it,\n   including the phone ones inside the media query, are the ones being answered. */",
+    "/* The passage the reader quoted into the chat: read-only, and gone when the note is left. */",
   ]],
   ["src/client/styles/inknote-canvas.css", [
     "/* Scoped styles for the ink note app; see docs/improvement/inknote/port-plan-1.md. */",
@@ -30073,6 +30090,11 @@ const allowed = new Map([
     "/** Whether the body is always injected or only named until the model asks for it. */",
     "/** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */",
     "/** The model child agents use; null follows the parent turn's model. */",
+    "/** Log request shape (model, protocol, bucket counts) without content or credentials. */",
+    "/** Keep the passage that was quoted into the chat marked in the editor until the note is left. */",
+    "/** Whether a child may run after the parent turn has returned, reporting by notification. */",
+    "/** Optional override; the manager derives it from the name when absent. */",
+    "/** The group a tool is shown under. Unknown names — including remote tools — land under Apps. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33402,6 +33424,8 @@ const allowed = new Map([
     "// and asking the reader a question from inside a tool call has no surface either.",
     "// A child turn has no reader to ask, and a read-only child needs no approval card nobody can press;",
     "// both are expressed by leaving the callbacks it would reach for out of its context.",
+    "// Shape only: a debug line that carried the prompt would be the reader's note in a log.",
+    "/** Starts a child that outlives the turn; the task row is what the reader can find afterwards. */",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34601,6 +34625,7 @@ const allowed = new Map([
     "/** Only a pending question can be answered; a second submission returns null rather than overwriting. */",
     "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
     "/**\n   * Marks the tool results older than the newest `keepRecent` answers as pruned.\n   *\n   * The row keeps the payload — the reader may still want to read what a tool found — and only a flag\n   * changes, which is what the context builder reads. Nothing is deleted, so this is reversible by\n   * editing one JSON blob rather than by restoring a backup.\n   */",
+    "/** The title of a reader-owned book, or null when this account does not own that id. */",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",
@@ -34877,6 +34902,9 @@ const allowed = new Map([
     "// A reader who accepted only some hunks sends the text they chose. It is a new proposal, so it goes",
     "// through the same field validation as the one the model made; a destructive call cannot be reshaped",
     "// this way, because its target was already decided.",
+    "/** Starts a child that outlives this turn and reports by notification. */",
+    "// A knowledge base that names no folders is the whole vault, and the reader's own PDF books are",
+    "// part of what they know. A scoped collection stays on its notes: book pages carry no folder.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -37810,6 +37838,8 @@ const allowed = new Map([
     "/** The cover object's key, which is the only thing a cover read needs. */",
     "/** The two objects a deletion has to release, or nothing when the account never had this book. */",
     "/**\n   * Take the book and everything read from it, in one batch.\n   *\n   * A group keeps its name when it loses a member: the reader made the group, and an empty one is a\n   * place they will put the next book.\n   */",
+    "// What the book contributed to the knowledge base goes with it: a page the reader cannot open is",
+    "// not a source an answer may cite.",
   ]],
   ["src/worker/realtime/sync-hub.ts", [
     "// Best-effort release of the server side of a socket the far end already hung up on:",
@@ -38249,6 +38279,8 @@ const allowed = new Map([
     "/**\n * Configuration without data: settings, providers, models, Skills and Agents.\n *\n * Provider keys are absent by construction, so this is the file a reader can move between accounts or\n * paste into a bug report without leaking the right to spend their balance. The restore says how many\n * rows it merged and how many it left alone because the account already had them.\n */",
     "/**\n * A Skill written as `SKILL.md` in a public repository.\n *\n * Only two hosts are reachable, and a blob address is rewritten to its raw form before the request: the\n * worker never fetches an address a file named, only one this route assembled from a repository, branch\n * and path. Redirects are followed one hop and re-checked, so a redirect cannot carry the fetch off the\n * allowlist. Nothing from the response is executed; it is text with an optional front matter block.\n */",
     "/** One `---` block at the top, then the body. Anything unreadable is simply not front matter. */",
+    "/**\n * A short exchange that happened outside the thread — a Quick Ask answer — made into a real conversation.\n *\n * The rows are written here rather than replayed through the turn runner: the answer already exists, and\n * asking the model again would produce a different one and spend the reader's budget twice. `source` stays\n * chat, so a promoted exchange can be retried and continued like any other.\n */",
+    "/**\n * One page of a reader-owned PDF, indexed for the knowledge base.\n *\n * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the\n * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,\n * so a dense page does not turn into an unbounded number of embedding calls.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

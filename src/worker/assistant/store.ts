@@ -65,6 +65,7 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
+import { cosineSimilarityPrecomputed, decodeVector } from '../mcp/ai-search'
 import {
   COMPLETED_PAGE_SIZE,
   MAX_DAY_TRACKED_MS,
@@ -701,6 +702,7 @@ interface MessageRow {
   source: string | null
   input_tokens: number | null
   output_tokens: number | null
+  cached_input_tokens: number | null
   duration_ms: number | null
   model_label: string | null
   reasoning: string | null
@@ -714,7 +716,7 @@ interface MessageRow {
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, saved_at, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, cached_input_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, saved_at, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -813,7 +815,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     error: r.error,
     source: r.source === 'import' ? 'import' : 'chat',
     createdAt: r.created_at,
-    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
+    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0, ...(r.cached_input_tokens === null ? {} : { cachedInputTokens: r.cached_input_tokens }) },
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
     ...(verdict ? { feedback: verdict.verdict } : {}),
@@ -2346,6 +2348,51 @@ export class AssistantStore {
     return rows.map(toChatAttachment)
   }
 
+
+  /** The title of a reader-owned book, or null when this account does not own that id. */
+  async readerBookTitle(bookId: string): Promise<string | null> {
+    const row = await this.one<{ title: string }>(
+      `SELECT title FROM reader_books WHERE user_id = ?1 AND id = ?2`,
+      this.userId, bookId,
+    )
+    return row?.title ?? null
+  }
+
+  async replaceReaderPage(bookId: string, page: number, title: string, chunks: Array<{ text: string, vector: ArrayBuffer, norm: number }>): Promise<void> {
+    await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2 AND page = ?3`, bookId, page)
+    const at = Date.now()
+    for (const [chunk, entry] of chunks.entries()) {
+      await this.write(
+        `INSERT INTO ai_reader_embeddings (user_id, book_id, page, chunk, title, text, vector, norm, indexed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        bookId, page, chunk, title, entry.text, entry.vector, entry.norm, at,
+      )
+    }
+  }
+
+  async searchReaderChunks(vector: Float32Array, norm: number, limit = 5): Promise<Array<{ bookId: string, title: string, page: number, text: string, score: number }>> {
+    if (!this.userId) return []
+    const rows = await this.rows<{ book_id: string, title: string, page: number, text: string, vector: ArrayBuffer, norm: number }>(
+      `SELECT book_id, title, page, text, vector, norm FROM ai_reader_embeddings
+        WHERE user_id = ?1 ORDER BY indexed_at DESC LIMIT 2000`,
+      this.userId,
+    )
+    const scored = rows.map((row) => {
+      return {
+        bookId: row.book_id,
+        title: row.title,
+        page: row.page,
+        text: row.text,
+        score: cosineSimilarityPrecomputed(vector, norm, decodeVector(row.vector), row.norm),
+      }
+    })
+    return scored.sort((a, b) => b.score - a.score).slice(0, limit)
+  }
+
+  async deleteReaderChunks(bookId: string): Promise<void> {
+    await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2`, bookId)
+  }
+
   // ----------------------------------------------------------- conversations
 
   /**
@@ -3477,7 +3524,7 @@ export class AssistantStore {
     status?: AssistantMessage['status']
     error?: string | null
     id?: string
-    usage?: { inputTokens: number, outputTokens: number } | null
+    usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
     durationMs?: number
     modelLabel?: string
     source?: 'chat' | 'import'
@@ -3503,13 +3550,14 @@ export class AssistantStore {
     const suggestionList = clipSuggestionList(input.suggestions ?? [])
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?18, ?19, ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, cached_input_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?20, ?14, ?15, '', ?17, ?18, ?19, ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
       JSON.stringify(input.sources ?? []),
       JSON.stringify((input.scopes ?? []).slice(0, MAX_TURN_SCOPES)),
       JSON.stringify(suggestionList),
+      usage?.cachedInputTokens ?? null,
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -3774,7 +3822,7 @@ export class AssistantStore {
     reasoning?: string
     tools?: ToolActivity[]
     modelLabel?: string
-    usage?: { inputTokens: number, outputTokens: number } | null
+    usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
     durationMs?: number
     createdAt?: number
   }): Promise<AssistantAnswerVersion | null> {
@@ -8223,7 +8271,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // so a restore that lost it leaves the reader with a thread whose answer they had kept, kept nowhere — and
   // because the column is nullable, `INSERT OR IGNORE` drops nothing on the way back in. The row lands with
   // the mark gone, which is the quiet version of the loss rather than the loud one.
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'suggestions', 'saved_at', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.

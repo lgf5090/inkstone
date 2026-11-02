@@ -566,3 +566,10 @@
 .ink-template-editor .cm-content {
   max-width: none;
 }
+
+/* The passage the reader quoted into the chat: read-only, and gone when the note is left. */
+.cm-quoted-highlight {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  border-radius: var(--r-xs);
+  box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--accent) 45%, transparent);
+}

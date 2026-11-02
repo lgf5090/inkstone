@@ -179,6 +179,24 @@ export function QuickAskPanel() {
 
   const openInSidebar = () => {
     const question = text.trim()
+    const settled = answer.trim()
+    if (settled) {
+      // The answer is already here; promote it rather than asking the model again in the sidebar, which
+      // would write a different answer and bill the reader for it twice.
+      const messages: Array<{ role: 'user' | 'assistant', content: string }> = []
+      if (question) messages.push({ role: 'user', content: question })
+      messages.push({ role: 'assistant', content: settled })
+      void useAssistant.getState().promoteConversation({
+        title: question.slice(0, 80) || undefined,
+        noteId: context.noteId,
+        messages,
+      }).then((id) => {
+        if (!id) return
+        useUi.getState().setAssistantDock(true)
+        close()
+      })
+      return
+    }
     useAssistant.getState().seedComposer(question)
     useUi.getState().setAssistantDock(true)
     close()

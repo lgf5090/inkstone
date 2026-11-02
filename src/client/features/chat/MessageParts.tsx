@@ -225,6 +225,27 @@ function useToolLabel(name: string) {
  * third-party call also offers to run again: a reader looking at an answer built on a stale lookup has no
  * other way to ask whether it is still stale.
  */
+function todoProposal(tool: ToolActivity): { title: string, items: string[] } | null {
+  if (!tool.result || (tool.name !== 'decompose_task' && tool.name !== 'plan_today')) return null
+  try {
+    const parsed = JSON.parse(tool.result) as Record<string, unknown>
+    if (tool.name === 'decompose_task' && Array.isArray(parsed.steps)) {
+      const items = parsed.steps.filter((step): step is string => typeof step === 'string')
+      return items.length ? { title: t('assistant.chat.todo_proposal'), items } : null
+    }
+    if (tool.name === 'plan_today' && Array.isArray(parsed.suggestions)) {
+      const items = (parsed.suggestions as Array<Record<string, unknown>>)
+        .map((entry) => (typeof entry.title === 'string' ? entry.title : ''))
+        .filter(Boolean)
+      return items.length ? { title: t('assistant.chat.todo_proposal'), items } : null
+    }
+  } catch {
+    // A clipped or malformed result falls back to the raw fold below; the proposal is an extra view, not
+    // the only place the answer is kept.
+  }
+  return null
+}
+
 function ToolCallRow({ tool, messageId, open, onToggle }: {
   tool: ToolActivity
   messageId?: string
@@ -242,6 +263,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   const [refused, setRefused] = useState<string | null>(null)
   const refs = useMemo(() => noteRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
   const taskRefs = useMemo(() => taskRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
+  const proposal = useMemo(() => todoProposal(tool), [tool])
   const body = [
     tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
     tool.result ? { key: 'assistant.chat.tool_result' as const, text: tool.result } : null,
@@ -316,6 +338,13 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
       )}
       {open && (
         <div className="flex max-w-full min-w-0 flex-col gap-1.5 border-t border-[var(--border-subtle)] px-2 py-1.5">
+          {proposal && (
+            <ul aria-label={proposal.title} className="space-y-0.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+              {proposal.items.map((item) => (
+                <li key={item} className="flex items-start gap-1.5"><SquareCheck size={11} className="mt-0.5 shrink-0 text-[var(--text-quaternary)]" aria-hidden />{item}</li>
+              ))}
+            </ul>
+          )}
           {tool.pruned && (
             <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_pruned')}</p>
           )}
@@ -700,7 +729,7 @@ export function answerStats(usage: { inputTokens: number, outputTokens: number }
  * alone took the name down with them, leaving the reader unable to say which model answered.
  */
 function AnswerFootline({ usage, durationMs, modelLabel }: {
-  usage?: { inputTokens: number, outputTokens: number } | null
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   durationMs: number
   modelLabel: string
 }) {
@@ -709,7 +738,7 @@ function AnswerFootline({ usage, durationMs, modelLabel }: {
   return (
     <span
       className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
-      {...(stats && usage ? { title: t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens }) } : {})}
+      {...(stats && usage ? { title: usage.cachedInputTokens ? t('assistant.chat.usage_cached', { input: usage.inputTokens, output: usage.outputTokens, cached: usage.cachedInputTokens }) : t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens }) } : {})}
     >
       {stats}
       {modelLabel && (stats ? ` · ${modelLabel}` : modelLabel)}

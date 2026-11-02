@@ -416,6 +416,9 @@ export class ReaderLibraryStore {
       this.db.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
+      // What the book contributed to the knowledge base goes with it: a page the reader cannot open is
+      // not a source an answer may cite.
+      this.db.prepare('DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare(
         `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
                                                FROM json_each(reader_groups.book_ids) WHERE value != ?2)
