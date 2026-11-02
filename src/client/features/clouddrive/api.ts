@@ -219,6 +219,7 @@ export const clouddriveApi = {
   removeAclGrant: (fileId: string, granteeId: string) => request<{ ok: true }>('/api/clouddrive/acl/grants', { method: 'DELETE', body: JSON.stringify({ fileId, granteeId }) }),
   sharedWithMe: () => request<{ shared: CloudDriveSharedItem[] }>('/api/clouddrive/acl/shared'),
   sharedList: (ownerId: string, fileId: string, path: string) => request<{ ownerId: string; path: string; entries: CloudDriveSharedEntry[] }>(`/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/list?${new URLSearchParams({ path }).toString()}`),
+  saveShared: (body: { ownerId: string; fileId: string; toPath?: string }) => request<{ saved: number; entry: CloudDriveEntry }>('/api/clouddrive/acl/save', json(body)),
   sharedContentUrl: (ownerId: string, fileId: string, download = false) => `/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/content${download ? '?download=1' : ''}`,
   createRequest: (body: { name: string; targetPath: string; password?: string; expiresAt?: number | null; maxFiles?: number; maxBytes?: number; maxFileBytes?: number }) => request<{ request: CloudDriveFileRequest }>('/api/clouddrive/requests', json(body)),
   patchRequest: (slug: string, body: { password?: string; expiresAt?: number | null; isEnabled?: boolean }) => request<{ request: CloudDriveFileRequest }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),

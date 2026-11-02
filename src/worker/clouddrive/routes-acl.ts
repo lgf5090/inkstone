@@ -1,12 +1,25 @@
 import { Hono, type Context } from 'hono'
+import { autoSuffixName, childPath, foldedName } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { isValidId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { readJson } from '../lib/request'
-import { parseFolderMeta, parsePath, type CloudDriveFileRow } from './lib'
+import {
+  assertWritable,
+  buildEntry,
+  chunkedBatch,
+  initialsOf,
+  parseFolderMeta,
+  parsePath,
+  resolveEntry,
+  resolveMount,
+  type CloudDriveFileRow,
+} from './lib'
 import { distributedStream, fileParts } from './distributed'
 import { hiddenByPatterns } from './meta'
+import { cloudDriveUsage } from './store'
+import { assertMetaAccess } from './routes-meta'
 
 export const clouddriveAclRoutes = new Hono<AppBindings>()
 
@@ -20,9 +33,11 @@ const BODY_LIMIT = 16 * 1024
 interface AclFileRow {
   id: string
   user_id: string
+  parent_id: string
   path: string
   kind: string
   name: string
+  category: string
   mime: string
   size: number
   etag: string | null
@@ -35,6 +50,112 @@ interface AclFileRow {
 
 function userIdOf(c: Context<AppBindings>): string {
   return c.get('userId')
+}
+
+/**
+ * The rows a single save may copy. A shared tree deep enough to exceed this is refused rather than
+ * half-copied, because a partial folder in the reader's drive is worse than an error they can retry.
+ */
+const MAX_SAVE_ROWS = 500
+
+async function subtreeOf(c: Context<AppBindings>, ownerId: string, root: AclFileRow): Promise<AclFileRow[]> {
+  const rows: AclFileRow[] = []
+  let frontier = [root.id]
+  while (frontier.length > 0) {
+    const { results } = await c.env.DB.prepare(
+      `SELECT id, user_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
+              uploaded_at, modified_at
+         FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NULL AND parent_id IN (${frontier.map(() => '?').join(',')})
+        ORDER BY kind DESC, name_folded LIMIT ?`,
+    ).bind(ownerId, ...frontier, MAX_SAVE_ROWS + 1).all<AclFileRow>()
+    const children = results ?? []
+    if (rows.length + children.length > MAX_SAVE_ROWS) {
+      throw ApiError.tooLarge(`A saved folder holds at most ${MAX_SAVE_ROWS} items`)
+    }
+    rows.push(...children)
+    frontier = children.filter((row) => row.kind === 'folder').map((row) => row.id)
+  }
+  return rows
+}
+
+clouddriveAclRoutes.post('/acl/save', async (c) => {
+  const userId = userIdOf(c)
+  const body = await readJson<{ ownerId?: unknown; fileId?: unknown; toPath?: unknown }>(c, BODY_LIMIT)
+  const ownerId = typeof body.ownerId === 'string' && isValidId(body.ownerId) ? body.ownerId : ''
+  const fileId = typeof body.fileId === 'string' && isValidId(body.fileId) ? body.fileId : ''
+  if (!ownerId || !fileId) throw ApiError.badRequest('A saved item names its owner and its file')
+  const target = await aclAllows(c, ownerId, fileId, userId)
+  if (!target) throw ApiError.notFound('File not found')
+
+  const mount = await resolveMount(c.env.DB, userId, 'primary')
+  assertWritable(mount)
+  const toPath = parsePath(body.toPath ?? '/')
+  await assertMetaAccess(c, userId, mount.id, toPath)
+  const parent = await resolveEntry(c.env.DB, userId, mount.id, toPath)
+  if (parent.kind !== 'folder') throw ApiError.badRequest('The destination is not a folder')
+
+  const rows = target.kind === 'folder' ? await subtreeOf(c, ownerId, target) : []
+  const sources = [target, ...rows]
+  // Only objects this deployment holds in its own bucket can be pointed at twice; a distributed or
+  // external row lives on a mount the reader has no claim to.
+  if (sources.some((row) => row.storage_kind !== 'r2')) {
+    throw ApiError.badRequest('This item is not stored on the primary mount and cannot be saved')
+  }
+  const bytes = sources.reduce((sum, row) => sum + (row.kind === 'file' ? row.size : 0), 0)
+  const usage = await cloudDriveUsage(c.env.DB, userId, c.env)
+  if (usage.quotaBytes !== null && usage.usedBytes + bytes > usage.quotaBytes) {
+    throw new ApiError(403, 'clouddrive_quota_exceeded', 'Saving this item would exceed your quota')
+  }
+  const rootName = await freeName(c.env.DB, userId, mount.id, parent.id, target.name)
+  const rootPath = childPath(toPath, rootName)
+
+  const now = Date.now()
+  const bySource = new Map<string, { id: string; path: string; parentId: string }>()
+  const statements: D1PreparedStatement[] = []
+  const insert = (row: AclFileRow, id: string, path: string, parentId: string, name: string) => {
+    bySource.set(row.id, { id, path, parentId })
+    statements.push(c.env.DB.prepare(
+      `INSERT INTO CloudDrive_files
+         (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path, category,
+          mime, size, etag, checksum, storage_kind, storage_key, metadata, color, starred_at,
+          last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'r2', ?, '{}', '',
+               NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+    ).bind(
+      id, userId, mount.id, parentId, row.kind, name, foldedName(name), initialsOf(name), path,
+      row.category, row.mime, row.size, row.etag, row.storage_key, now, now, row.uploaded_at, row.modified_at,
+    ))
+  }
+  const rootId = newId()
+  insert(target, rootId, rootPath, parent.id, rootName)
+  // Children keep the owner's folder shape; a name the destination already holds gets a suffix
+  // rather than silently replacing the reader's own file.
+  for (const row of rows) {
+    const above = bySource.get(row.parent_id)
+    if (!above) continue
+    const name = await freeName(c.env.DB, userId, mount.id, above.id, row.name)
+    insert(row, newId(), childPath(above.path, name), above.id, name)
+  }
+  await chunkedBatch(c.env.DB, statements)
+  const saved = await c.env.DB.prepare(
+    `SELECT * FROM CloudDrive_files WHERE user_id = ? AND mount_id = ? AND id = ?`,
+  ).bind(userId, mount.id, rootId).first<CloudDriveFileRow>()
+  if (!saved) throw new ApiError(500, 'internal', 'The saved item has no row')
+  return c.json({ saved: statements.length, entry: buildEntry(saved, mount, []) }, 201)
+})
+
+/** A name the destination folder does not already hold, using the same suffix rule as an upload. */
+async function freeName(db: D1Database, userId: string, mountId: string, parentId: string, name: string): Promise<string> {
+  let candidate = name
+  for (let attempt = 0; attempt <= 100; attempt++) {
+    const clash = await db.prepare(
+      `SELECT 1 AS hit FROM CloudDrive_files
+        WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND name_folded = ? AND deleted_at IS NULL`,
+    ).bind(userId, mountId, parentId, foldedName(candidate)).first<{ hit: number }>()
+    if (!clash) return candidate
+    candidate = autoSuffixName(name, attempt + 1)
+  }
+  return candidate
 }
 
 async function ownerFile(c: Context<AppBindings>, fileId: string): Promise<CloudDriveFileRow> {
@@ -54,7 +175,7 @@ async function aclAllows(
 ): Promise<AclFileRow | null> {
   if (!isValidId(fileId)) return null
   const target = await c.env.DB.prepare(
-    `SELECT id, user_id, path, kind, name, mime, size, etag, storage_kind, storage_key, metadata,
+    `SELECT id, user_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
             uploaded_at, modified_at
        FROM CloudDrive_files WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
   ).bind(ownerId, fileId).first<AclFileRow>()

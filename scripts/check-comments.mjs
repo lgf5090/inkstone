@@ -5699,6 +5699,9 @@ const allowed = new Map([
     "// Every field below the title is a deployment policy: the server answers a member's PATCH with 403,",
     "// so the form shows the owner's values without pretending they can be edited here.",
   ]],
+  ["src/client/features/clouddrive/shared/SharedPage.tsx", [
+    "/**\n   * A saved copy is a row of its own that points at the same object, so the reader can move, rename\n   * or delete it without touching what the owner shared. It lands in the drive root, which is where\n   * a transfer goes in every drive that has this button.\n   */",
+  ]],
   ["src/client/features/clouddrive/shares/SharesPage.tsx", [
     "/** Revoking and disabling are the same state to the reader: the link is closed. */",
     "// An empty field leaves the passcode alone: clearing it is its own decision, made by typing.",
@@ -35372,6 +35375,14 @@ const allowed = new Map([
     "/** Above this many paths, one ancestor predicate per path costs more SQL than reading the table. */",
     "/**\n * The rules for many paths in one read. A drive-wide search lands in dozens of folders, and the\n * single-path version used to fetch the mount's whole metadata table once per folder — including\n * every header and footer body.\n */",
   ]],
+  ["src/worker/clouddrive/routes-acl.ts", [
+    "/**\n * The rows a single save may copy. A shared tree deep enough to exceed this is refused rather than\n * half-copied, because a partial folder in the reader's drive is worse than an error they can retry.\n */",
+    "// Only objects this deployment holds in its own bucket can be pointed at twice; a distributed or",
+    "// external row lives on a mount the reader has no claim to.",
+    "// Children keep the owner's folder shape; a name the destination already holds gets a suffix",
+    "// rather than silently replacing the reader's own file.",
+    "/** A name the destination folder does not already hold, using the same suffix rule as an upload. */",
+  ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
     "// The toggle is off: the table is the owner's own drive even if a creator filter was sent.",
@@ -35569,6 +35580,7 @@ const allowed = new Map([
     "/**\n * The row for a file the drive created itself, once its (empty) object is already in the bucket. The\n * caller mints the id and writes the object under it, because the storage key names that id; a\n * rejected name reports a conflict instead of writing a second row, and `UNIQUE` does the same later.\n */",
     "/** What the album can show: stills, moving pictures, or both together. */",
     "/**\n * The moment a media row is filed under: the capture time the upload stamped into `metadata`, or the\n * upload time when the file carried no EXIF. `json_valid` guards a hand-edited row, which would\n * otherwise make the whole album query fail instead of one row fall back.\n */",
+    "/**\n * Whether any live row or stored version still points at an object.\n *\n * Deliberately not scoped to one account: a saved shared item is another user's row over the same\n * bytes, so a per-user check would let the owner's purge delete data the reader can still open.\n */",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -42452,6 +42464,9 @@ const allowed = new Map([
   ["tests/clouddrive-acl.test.ts", [
     "// The ceiling a member uploads against is the owner's, not the one in their own row.",
     "// The owner is never gated by a switch that speaks about other people.",
+    "// The copy points at the same bytes rather than a second copy of them.",
+    "// The owner purging their own row must not take the object the reader still references.",
+    "// Two rows, one per account, over the same object.",
   ]],
   ["tests/clouddrive-external-drivers.test.ts", [
     "// Only the first page used to be read, so the rest of the folder looked deleted.",

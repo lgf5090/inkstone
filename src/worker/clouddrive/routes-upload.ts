@@ -923,7 +923,7 @@ async function pruneVersions(
   ).bind(userId, fileId, row.version)))
   if (!bucket) return
   for (const key of new Set(extra.map((row) => row.storage_key))) {
-    if (await storageKeyReferenced(db, userId, key)) continue
+    if (await storageKeyReferenced(db, key)) continue
     try {
       await bucket.delete(key)
     } catch (error) {

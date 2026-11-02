@@ -76,7 +76,7 @@ async function prune(c: Context<AppBindings>, fileId: string): Promise<void> {
   ).bind(userIdOf(c), fileId, row.version)))
   if (!c.env.FILES) return
   for (const key of new Set(extra.map((row) => row.storage_key))) {
-    if (await storageKeyReferenced(c.env.DB, userIdOf(c), key)) continue
+    if (await storageKeyReferenced(c.env.DB, key)) continue
     try {
       await c.env.FILES.delete(key)
     } catch (error) {
@@ -184,7 +184,7 @@ clouddriveVersionRoutes.delete('/files/:id/versions/:version', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM CloudDrive_file_versions WHERE user_id = ? AND file_id = ? AND version = ?`,
   ).bind(userIdOf(c), file.id, versionNumber).run()
-  if (c.env.FILES && !(await storageKeyReferenced(c.env.DB, userIdOf(c), version.storage_key))) {
+  if (c.env.FILES && !(await storageKeyReferenced(c.env.DB, version.storage_key))) {
     try {
       await c.env.FILES.delete(version.storage_key)
     } catch (error) {

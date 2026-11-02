@@ -907,11 +907,17 @@ async function purgeTargets(
   return [...targets.values()]
 }
 
-export async function storageKeyReferenced(db: D1Database, userId: string, key: string): Promise<boolean> {
+/**
+ * Whether any live row or stored version still points at an object.
+ *
+ * Deliberately not scoped to one account: a saved shared item is another user's row over the same
+ * bytes, so a per-user check would let the owner's purge delete data the reader can still open.
+ */
+export async function storageKeyReferenced(db: D1Database, key: string): Promise<boolean> {
   const row = await db.prepare(
-    `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND storage_key = ?2)
-          + (SELECT COUNT(*) FROM CloudDrive_file_versions WHERE user_id = ?1 AND storage_key = ?2) AS count`,
-  ).bind(userId, key).first<{ count: number }>()
+    `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE storage_key = ?1)
+          + (SELECT COUNT(*) FROM CloudDrive_file_versions WHERE storage_key = ?1) AS count`,
+  ).bind(key).first<{ count: number }>()
   return (row?.count ?? 0) > 0
 }
 
@@ -961,7 +967,7 @@ async function purgeRows(
     ...versionKeys,
   ].filter((key): key is string => !!key))]
   for (const key of keys) {
-    if (await storageKeyReferenced(db, userId, key)) continue
+    if (await storageKeyReferenced(db, key)) continue
     if (!env.FILES) continue
     try {
       await env.FILES.delete(key)
