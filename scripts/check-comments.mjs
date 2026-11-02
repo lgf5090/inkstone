@@ -2716,6 +2716,7 @@ const allowed = new Map([
     "/**\n   * Whether this is the answer the reader can ask the next question from.\n   *\n   * The thread decides it, not the row: the newest settled answer is the only one a follow-up continues\n   * from, and a question aimed at an older turn would be answered against everything below it.\n   */",
     "/* The questions the answer earned, in the row it belongs to and nowhere else: an older answer in\n            the thread keeps its own chips, but only the newest one has a next turn to be asked into. */",
     "/* A citation's hint is its excerpt, up to three hundred characters of it, and the app's own\n                    tooltip is one unwrapped line — the browser's is the only one that wraps. Every other hint\n                    on this row was moved to `Tooltip`; this one stays because the text it carries cannot fit\n                    there, and a hint that paints past the viewport is worse than two systems of hint. */",
+    "/**\n * What an agent's note write would change, shown before the approval rather than after it.\n *\n * The write itself still happens through the ordinary approved-tool path; this preview is the reader's\n * chance to see the words leaving and arriving first. A failed read leaves the card as it was.\n */",
   ]],
   ["src/client/features/chat/ModelEditorDialog.tsx", [
     "/**\n * The model's own editor: what it is for, what it can do, and the numbers it is given.\n *\n * The composer's chips cover the two settings a reader changes often. This covers the rest, which are\n * per-model facts rather than per-conversation choices: whether the endpoint answers in pictures, how\n * much it claims to take in, and the vendor-specific fields our request builder does not know about.\n * Everything here is read by the request path — a switch that changed nothing would be worse than no\n * switch, because it would be believed.\n */",
@@ -3515,6 +3516,7 @@ const allowed = new Map([
     "// A stopped turn hands the last queued message back to the box; the rest are dropped, which is the",
     "// reference project's behaviour and the only one that cannot silently lose the message the reader",
     "// was about to send if they expected the queue to continue.",
+    "/** Where this turn's prompt tokens went, once the worker estimated them. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -29977,6 +29979,7 @@ const allowed = new Map([
     "/** Shrink pictures before uploading them to the model. */",
     "/** One value for both dimensions and JPEG quality, 1–100. */",
     "/** Per-tool on/off and approval, the settings page's finer gate than the three classes. */",
+    "/** For `usage`: where the prompt's estimated tokens went. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",

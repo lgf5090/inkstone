@@ -422,6 +422,53 @@ const OUTCOME_KEYS = {
   failed: 'assistant.approval.failed',
 } as const
 
+import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
+import { api } from '../../lib/api'
+
+/**
+ * What an agent's note write would change, shown before the approval rather than after it.
+ *
+ * The write itself still happens through the ordinary approved-tool path; this preview is the reader's
+ * chance to see the words leaving and arriving first. A failed read leaves the card as it was.
+ */
+function ApprovalWritePreview({ action }: { action: NonNullable<ToolActivity['approval']> }) {
+  const [state, setState] = useState<{ before: string, after: string } | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (action.tool !== 'update_note') return
+    const args = action.args ?? {}
+    const replacement = typeof args.content === 'string' ? args.content : null
+    const append = typeof args.append === 'string' ? args.append : null
+    if (replacement === null && append === null) return
+    let wanted = true
+    void api.notes.get(action.targetId)
+      .then((note) => {
+        if (!wanted) return
+        setState({
+          before: note.content,
+          after: replacement !== null ? replacement : `${note.content}\n\n${append ?? ''}`,
+        })
+      })
+      .catch(() => { if (wanted) setFailed(true) })
+    return () => { wanted = false }
+  }, [action])
+  if (action.tool !== 'update_note') return null
+  if (failed) {
+    return <p className="mt-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.approval.diff_unreadable')}</p>
+  }
+  if (!state) return null
+  const diff = buildWriteDiff(state.before, state.after)
+  return (
+    <div className="mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2">
+      <p className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('assistant.approval.diff')}</p>
+      <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"><WriteDiffSummary diff={diff} /></p>
+      <div className="mt-1 max-h-52 overflow-y-auto">
+        {diff.changed ? <WriteDiffView diff={diff} /> : <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.edit.diff_none')}</p>}
+      </div>
+    </div>
+  )
+}
+
 export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const decide = useAssistant((state) => state.decideAction)
   const [busy, setBusy] = useState<'approve' | 'always' | 'cancel' | null>(null)
@@ -480,6 +527,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
       {failed && (
         <p role="alert" className="mt-1.5 break-words text-[length:var(--text-11)] text-[var(--danger)]">{failed}</p>
       )}
+      <ApprovalWritePreview action={action} />
       <div className="mt-2 flex justify-end gap-1.5">
         <Button
           size="sm"

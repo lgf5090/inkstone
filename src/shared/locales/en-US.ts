@@ -7326,6 +7326,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.approval.approve": "Approve",
     "assistant.approval.approve_once": "Allow once",
     "assistant.approval.always": "Always allow this tool",
+    "assistant.approval.diff": "What this call would change",
+    "assistant.approval.diff_unreadable": "The current note could not be read, so the change cannot be previewed here.",
     "assistant.approval.decline": "Decline",
     "assistant.approval.done": "Approved and done",
     "assistant.approval.declined": "Declined — nothing was changed",

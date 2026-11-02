@@ -7318,6 +7318,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.approval.approve": "批准",
     "assistant.approval.approve_once": "允许一次",
     "assistant.approval.always": "始终允许此工具",
+    "assistant.approval.diff": "这次调用会改成什么",
+    "assistant.approval.diff_unreadable": "读不到当前笔记，所以这里无法预览改动。",
     "assistant.approval.decline": "拒绝",
     "assistant.approval.done": "已批准并完成",
     "assistant.approval.declined": "已拒绝——未作任何改动",
