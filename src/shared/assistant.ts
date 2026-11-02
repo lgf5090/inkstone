@@ -1582,6 +1582,25 @@ export function unknownConversationSettingKeys(raw: unknown): string[] {
   return Object.keys(raw).filter((key) => !known.has(key))
 }
 
+export const CURSOR_COMMAND_EXECUTIONS = ['quick-ask-ask', 'quick-ask-rewrite', 'add-to-composer', 'add-and-send'] as const
+export type CursorCommandExecution = (typeof CURSOR_COMMAND_EXECUTIONS)[number]
+
+/** A reusable instruction the reader can run from a selection or the command palette. */
+export interface AssistantCursorCommand {
+  id: string
+  label: string
+  instruction: string
+  execution: CursorCommandExecution
+  enabled: boolean
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
+export const MAX_CURSOR_COMMAND_LABEL_CHARS = 80
+export const MAX_CURSOR_COMMAND_INSTRUCTION_CHARS = 4_000
+export const MAX_CURSOR_COMMANDS = 100
+
 export const ASK_QUESTION_TYPES = ['single', 'multi', 'text'] as const
 export type AssistantQuestionType = (typeof ASK_QUESTION_TYPES)[number]
 

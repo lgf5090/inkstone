@@ -19,6 +19,8 @@ import type {
   AssistantConversation,
   AssistantConversationOrigin,
   AssistantConversationSettings,
+  AssistantCursorCommand,
+  CursorCommandExecution,
   AssistantQuestion,
   AssistantQuestionAnswers,
   AssistantQuestionRow,
@@ -1482,7 +1484,7 @@ export class AssistantStore {
    * literals from this module, and the caller-supplied part is only ever a value.
    */
   private async partialUpdate(
-    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'chat_knowledge_bases' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
+    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'chat_knowledge_bases' | 'chat_cursor_commands' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
   ): Promise<number> {
@@ -2231,6 +2233,63 @@ export class AssistantStore {
     if (!existing) return false
     await this.write(`DELETE FROM chat_prompts WHERE user_id = ?1 AND id = ?2`, id)
     return true
+  }
+
+  async listCursorCommands(): Promise<AssistantCursorCommand[]> {
+    const rows = await this.rows<CursorCommandRow>(
+      `SELECT id, label, instruction, execution, enabled, position, created_at, updated_at
+         FROM chat_cursor_commands WHERE user_id = ?1 ORDER BY position, created_at`,
+      this.userId,
+    )
+    return rows.map(toCursorCommand)
+  }
+
+  async createCursorCommand(input: {
+    label: string
+    instruction: string
+    execution: CursorCommandExecution
+    enabled?: boolean
+    position?: number
+  }): Promise<AssistantCursorCommand> {
+    const id = newId()
+    const at = Date.now()
+    const position = input.position ?? at
+    await this.write(
+      `INSERT INTO chat_cursor_commands (user_id, id, label, instruction, execution, enabled, position, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
+      this.userId, id, input.label, input.instruction, input.execution, input.enabled === false ? 0 : 1, position, at,
+    )
+    return { id, label: input.label, instruction: input.instruction, execution: input.execution, enabled: input.enabled !== false, position, createdAt: at, updatedAt: at }
+  }
+
+  async updateCursorCommand(id: string, patch: {
+    label?: string
+    instruction?: string
+    execution?: CursorCommandExecution
+    enabled?: boolean
+    position?: number
+  }): Promise<AssistantCursorCommand | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.label !== undefined) fields.push(['label', patch.label])
+    if (patch.instruction !== undefined) fields.push(['instruction', patch.instruction])
+    if (patch.execution !== undefined) fields.push(['execution', patch.execution])
+    if (patch.enabled !== undefined) fields.push(['enabled', patch.enabled ? 1 : 0])
+    if (patch.position !== undefined) fields.push(['position', patch.position])
+    if (fields.length) {
+      const changes = await this.partialUpdate('chat_cursor_commands', id, [...fields, ['updated_at', Date.now()]])
+      if (!changes) return null
+    }
+    const row = await this.one<CursorCommandRow>(
+      `SELECT id, label, instruction, execution, enabled, position, created_at, updated_at
+         FROM chat_cursor_commands WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return row ? toCursorCommand(row) : null
+  }
+
+  async deleteCursorCommand(id: string): Promise<boolean> {
+    const changes = await this.write(`DELETE FROM chat_cursor_commands WHERE user_id = ?1 AND id = ?2`, id)
+    return changes > 0
   }
 
   /** Every attachment the reader has, newest first — the list the composer's picker walks. */
@@ -8864,6 +8923,32 @@ function conversationOrigin(raw: string | null): AssistantConversationOrigin {
 }
 
 const QUESTION_COLUMNS = `id, conversation_id, call_id, questions, status, answers, created_at, expires_at`
+
+interface CursorCommandRow {
+  id: string
+  label: string
+  instruction: string
+  execution: string
+  enabled: number
+  position: number
+  created_at: number
+  updated_at: number
+}
+
+function toCursorCommand(row: CursorCommandRow): AssistantCursorCommand {
+  return {
+    id: row.id,
+    label: row.label,
+    instruction: row.instruction,
+    execution: (['quick-ask-ask', 'quick-ask-rewrite', 'add-to-composer', 'add-and-send'] as readonly string[]).includes(row.execution)
+      ? row.execution as CursorCommandExecution
+      : 'quick-ask-ask',
+    enabled: bool(row.enabled),
+    position: row.position,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
 
 interface QuestionRow {
   id: string

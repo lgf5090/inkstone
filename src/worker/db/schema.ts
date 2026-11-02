@@ -3283,6 +3283,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_questions(user_id, conversation_id, status, created_at DESC)`,
     ],
   },
+  {
+    version: 235,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_cursor_commands (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        execution TEXT NOT NULL DEFAULT 'quick-ask-ask',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        position REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_cursor_commands_user
+         ON chat_cursor_commands(user_id, position, created_at)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

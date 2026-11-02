@@ -21,6 +21,7 @@ import type {
   AssistantConversationSettings,
   AssistantQuestionAnswers,
   AssistantQuestionRow,
+  AssistantCursorCommand,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -616,6 +617,12 @@ interface AssistantState {
   createSkill: (input: AssistantSkillInput) => Promise<AssistantSkill | null>
   saveSkill: (id: string, input: AssistantSkillInput) => Promise<void>
   removeSkill: (id: string) => Promise<void>
+  /** The reader's reusable editor instructions, loaded once with the settings surface. */
+  cursorCommands: AssistantCursorCommand[]
+  loadCursorCommands: () => Promise<void>
+  createCursorCommand: (input: { label: string, instruction: string, execution: AssistantCursorCommand['execution'] }) => Promise<boolean>
+  updateCursorCommand: (id: string, patch: Partial<Pick<AssistantCursorCommand, 'label' | 'instruction' | 'execution' | 'enabled'>>) => Promise<boolean>
+  removeCursorCommand: (id: string) => Promise<void>
   /** Fetch the whole library and hand it to the reader as a file. */
   exportSkills: () => Promise<void>
   /**
@@ -1513,6 +1520,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   composerSeed: null,
   pending: [],
   skills: [],
+  cursorCommands: [],
   turnTools: [],
   turnScopes: [],
   questions: [],
@@ -1597,6 +1605,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // The composer’s / picker lists the reader’s own MCP tools, so they have to be known before the
       // first slash is typed — otherwise the picker shows only the built-ins until settings are opened.
       void get().loadMcp()
+      void get().loadCursorCommands()
     } catch (error) {
       set({ loading: false, error: failureLine(error) })
       toast(error)
@@ -2479,6 +2488,46 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set((state) => ({ skills: state.skills.filter((entry) => entry.id !== id) }))
     try {
       await api.assistant.removeSkill(id)
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadCursorCommands: async () => {
+    try {
+      const { commands } = await api.assistant.cursorCommands()
+      set({ cursorCommands: commands })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createCursorCommand: async (input) => {
+    try {
+      const { command } = await api.assistant.createCursorCommand(input)
+      set((state) => ({ cursorCommands: [...state.cursorCommands, command] }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  updateCursorCommand: async (id, patch) => {
+    try {
+      const { command } = await api.assistant.updateCursorCommand(id, patch)
+      set((state) => ({ cursorCommands: state.cursorCommands.map((entry) => (entry.id === id ? command : entry)) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  removeCursorCommand: async (id) => {
+    set((state) => ({ cursorCommands: state.cursorCommands.filter((entry) => entry.id !== id) }))
+    try {
+      await api.assistant.removeCursorCommand(id)
     } catch (error) {
       toast(error)
     }

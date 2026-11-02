@@ -5,15 +5,17 @@
  * the selection itself. The bar never owns the selection — the editor does — so every button re-reads
  * the live document before acting and refuses when the passage has moved.
  */
-import { Fragment } from 'react'
+import { Fragment, useRef, useState } from 'react'
 import { Maximize2, Minimize2, Languages, PanelRight, Sparkles, WandSparkles, Wand2 } from 'lucide-react'
 import type { EditorSelectionInfo } from '../../editor/CodeEditor'
 import { Button } from '../../components/primitives'
+import { Menu } from '../../components/overlay'
 import type { MessageKey } from '../../lib/i18n'
 import { t } from '../../lib/i18n'
 import { runEditorAi, quotePassage, type EditorAiAction } from '../chat/editor-ai'
 import { useQuickAsk } from '../chat/quick-ask-store'
 import { useAssistant } from '../chat/assistant-store'
+import { runCursorCommand } from '../chat/cursor-commands'
 import { getActiveEditorView } from '../../editor/commands'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
@@ -30,6 +32,9 @@ const ACTIONS: Array<{ action: EditorAiAction, label: MessageKey, icon: typeof W
 export function EditorSelectionBar({ selection, onDone }: { selection: EditorSelectionInfo, onDone: () => void }) {
   const noteId = useUi((state) => state.activeNoteId)
   const noteTitle = useNotes((state) => (noteId ? state.notes[noteId]?.title ?? '' : ''))
+  const commands = useAssistant((state) => state.cursorCommands).filter((command) => command.enabled)
+  const menuAnchor = useRef<HTMLSpanElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const run = (action: EditorAiAction) => {
     const view = getActiveEditorView()
     if (!noteId || !view) return
@@ -99,6 +104,34 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
       <Button size="sm" variant="ghost" icon={<PanelRight size={13} />} onClick={toSidebar}>
         {t('assistant.edit.to_sidebar')}
       </Button>
+      {commands.length > 0 && (
+        <>
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
+          <span ref={menuAnchor}>
+            <Button size="sm" variant="ghost" icon={<Wand2 size={13} />} onClick={() => setMenuOpen((open) => !open)}>
+              {t('assistant.cursor_commands.run')}
+            </Button>
+          </span>
+          <Menu
+            anchor={menuAnchor}
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            label={t('assistant.cursor_commands.run')}
+            items={commands.map((command) => ({
+              id: command.id,
+              label: command.label,
+              onSelect: () => {
+                const view = getActiveEditorView()
+                if (!view || !noteId) return
+                const range = view.state.selection.main
+                if (range.empty) return
+                runCursorCommand(command, view.state.doc.sliceString(range.from, range.to), { id: noteId, title: noteTitle })
+                onDone()
+              },
+            }))}
+          />
+        </>
+      )}
     </div>
   )
 }

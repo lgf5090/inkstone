@@ -12,6 +12,7 @@ import { Button } from '../../components/primitives'
 import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { ToolManagerSection } from './ToolManagerSection'
+import { CursorCommandsSection } from './CursorCommandsSection'
 import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
@@ -307,8 +308,11 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
       </Group>
 
-      <Group title={t('assistant.settings.compaction')}>
-        <SettingRow
+      <Group title={t('assistant.cursor_commands.title')}>
+        <CursorCommandsSection />
+      </Group>
+
+      <Group title={t('assistant.settings.compaction')}>        <SettingRow
           title={t('assistant.settings.compaction_mode')}
           description={t('assistant.settings.compaction_mode_hint')}
           controlId="assistant-compact-mode"

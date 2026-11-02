@@ -2512,6 +2512,9 @@ const allowed = new Map([
   ["src/client/features/chat/ConversationSettingsDialog.tsx", [
     "/**\n * One thread's own overrides.\n *\n * The form is built from the conversation it was opened on, and every field starts at \"inherit\": an\n * empty box is how the reader says \"follow the Agent and the model\", which is a different statement\n * from writing today's default into the row.\n */",
   ]],
+  ["src/client/features/chat/CursorCommandsSection.tsx", [
+    "/**\n * The reader's own instructions for a passage.\n *\n * Each row is one command rather than a mini prompt editor: a command is a name, one instruction and\n * where it goes, and anything longer belongs in a Skill.\n */",
+  ]],
   ["src/client/features/chat/DeepResearchProgress.tsx", [
     "/**\n * The deep research run, where the reader can see how far it got.\n *\n * A run is up to six paid turns driven by this tab, so it needs what any long job needs: how many steps\n * there are, which one is going on, and — when one stopped — a way to carry on that does not pay for the\n * finished ones again. The findings sit on the rows themselves, because a run that died on the fourth\n * question still has the first three, and after a reload the thread they were asked in is not where a\n * reader looks to find out what is still missing.\n */",
     "/** The icon beside a step's own words — decoration, since the state is also said in text. */",
@@ -3541,6 +3544,7 @@ const allowed = new Map([
     "// The panel is an addition to a turn that is already running. A refused listing leaves the card out",
     "// rather than replacing the transcript with an error; the turn itself keeps running and can be",
     "// stopped from the composer.",
+    "/** The reader's reusable editor instructions, loaded once with the settings surface. */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4212,6 +4216,9 @@ const allowed = new Map([
     "// draft and the committed query from drifting apart between the two commits below.",
     "// The empty box holds one icon, so the one inside its own wrapper is the search glyph.",
     "// One commit per settled burst: the text reaches the store, which is what asks the server again.",
+  ]],
+  ["src/client/features/chat/cursor-commands.ts", [
+    "/**\n * Runs one custom instruction against the passage the reader selected.\n *\n * All four executions end in one of two existing surfaces — the floating Ask panel or the assistant\n * composer — rather than a third input of their own. That is what makes the command reusable: the\n * reader has already learned both, and the command only fills them in.\n */",
   ]],
   ["src/client/features/chat/deep-research-progress.test.ts", [
     "/**\n * A research run that outlives the tab that started it.\n *\n * The run is up to six paid turns driven by the browser, so the two things worth pinning are the ones a\n * reader would notice missing: that a reload continues from the steps that already answered rather than\n * asking them again, and that a stopped step is visible with a way on that does not redo finished work.\n * The partial findings are checked in the record itself, because that is where they survive — and the\n * banner is checked for structure, roles and names only, since jsdom lays nothing out.\n */",
@@ -4947,6 +4954,7 @@ const allowed = new Map([
   ]],
   ["src/client/features/chat/quick-ask-store.ts", [
     "/**\n * The little Ask panel that floats beside the note.\n *\n * It is deliberately not the main conversation: opening Quick Ask must not change which thread the\n * chat tab is showing. The turn is sent as an ephemeral conversation, so its words are kept for the\n * retention window but never appear in the history list the reader browses.\n */",
+    "/** The instruction the panel opens with, when a saved command is what opened it. */",
   ]],
   ["src/client/features/chat/read-aloud.test.ts", [
     "/**\n * Reading an answer aloud, and putting the voice back down.\n *\n * The failure this pins is a ghost: audio of an answer that is no longer on the screen. It arrives three\n * ways — the row is unmounted, the conversation is switched, or a second answer takes the one voice the\n * browser has — and each leaves the first row still claiming, in its own state, that it is reading. So\n * every case here is about a name, a pressed state, and how many times the fake engine was told to cancel.\n *\n * The engine is faked at module scope and shared across every request in the file, because the channel is\n * one per browser: a per-test instance would let two rows each believe they own it, which is the exact bug.\n *\n * jsdom has no `speechSynthesis` and no audio: nothing here is a claim that a voice was heard. The claims\n * are that the words handed to the engine are the answer with its markup taken out, that they arrive in\n * pieces the engine will not drop, and that every way of leaving the row takes the queue with it.\n */",
@@ -30034,6 +30042,7 @@ const allowed = new Map([
     "/** Keep quiet while the reader is looking at this tab; the notification centre still records it. */",
     "/** When the thread is compacted without the reader asking, measured in tokens or in window share. */",
     "/** Removed from the model's context by the reader's prune call; the row still shows what it found. */",
+    "/** A reusable instruction the reader can run from a selection or the command palette. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",

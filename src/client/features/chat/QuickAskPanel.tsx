@@ -81,12 +81,12 @@ export function QuickAskPanel() {
       return
     }
     setMode('ask')
-    setText('')
+    setText(context.seed?.trim() ?? '')
     setAnswer('')
     setError(null)
     setBusy(false)
     setPosition(null)
-  }, [open])
+  }, [open, context.seed])
 
   if (!open) return null
 

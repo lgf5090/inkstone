@@ -49,6 +49,10 @@ import {
   MAX_AUTOMATION_TARGET_ID_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  CURSOR_COMMAND_EXECUTIONS,
+  MAX_CURSOR_COMMAND_INSTRUCTION_CHARS,
+  MAX_CURSOR_COMMAND_LABEL_CHARS,
+  MAX_CURSOR_COMMANDS,
   CONVERSATION_ORIGINS,
   normalizeConversationSettings,
   normalizeQuestionAnswers,
@@ -2947,6 +2951,50 @@ assistantRoutes.patch('/skills/:id', async (c) => {
 assistantRoutes.delete('/skills/:id', async (c) => {
   const removed = await store(c).deleteSkill(requiredId(c.req.param('id')))
   return c.json({ deleted: removed })
+})
+
+function cursorExecution(value: unknown): (typeof CURSOR_COMMAND_EXECUTIONS)[number] {
+  if (typeof value !== 'string' || !(CURSOR_COMMAND_EXECUTIONS as readonly string[]).includes(value)) {
+    throw ApiError.badRequest('Unknown execution mode.')
+  }
+  return value as (typeof CURSOR_COMMAND_EXECUTIONS)[number]
+}
+
+assistantRoutes.get('/cursor-commands', async (c) => c.json({ commands: await store(c).listCursorCommands() }))
+
+assistantRoutes.post('/cursor-commands', async (c) => {
+  const s = store(c)
+  if ((await s.listCursorCommands()).length >= MAX_CURSOR_COMMANDS) throw ApiError.badRequest('There are too many custom commands.')
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const label = text(body.label, MAX_CURSOR_COMMAND_LABEL_CHARS)
+  const instruction = text(body.instruction, MAX_CURSOR_COMMAND_INSTRUCTION_CHARS)
+  if (!label || !instruction) throw ApiError.badRequest('A command needs a name and an instruction.')
+  const command = await s.createCursorCommand({
+    label,
+    instruction,
+    execution: body.execution === undefined ? 'quick-ask-ask' : cursorExecution(body.execution),
+    enabled: body.enabled !== false,
+  })
+  return c.json({ command }, 201)
+})
+
+assistantRoutes.patch('/cursor-commands/:id', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const updated = await s.updateCursorCommand(requiredId(c.req.param('id')), {
+    ...(body.label !== undefined ? { label: text(body.label, MAX_CURSOR_COMMAND_LABEL_CHARS) } : {}),
+    ...(body.instruction !== undefined ? { instruction: text(body.instruction, MAX_CURSOR_COMMAND_INSTRUCTION_CHARS) } : {}),
+    ...(body.execution !== undefined ? { execution: cursorExecution(body.execution) } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
+  })
+  if (!updated) throw ApiError.notFound('Command not found')
+  return c.json({ command: updated })
+})
+
+assistantRoutes.delete('/cursor-commands/:id', async (c) => {
+  const removed = await store(c).deleteCursorCommand(requiredId(c.req.param('id')))
+  if (!removed) throw ApiError.notFound('Command not found')
+  return c.json({ deleted: true })
 })
 
 /**

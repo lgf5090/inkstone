@@ -14,6 +14,8 @@ export interface QuickAskContext {
   whole: string
   from: number
   to: number
+  /** The instruction the panel opens with, when a saved command is what opened it. */
+  seed?: string
 }
 
 export interface QuickAskState {

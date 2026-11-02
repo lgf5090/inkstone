@@ -109,6 +109,7 @@ import type {
   AssistantConversationSettings,
   AssistantQuestionAnswers,
   AssistantQuestionRow,
+  AssistantCursorCommand,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -2119,6 +2120,12 @@ export const api = {
     updateSkill: (id: string, body: AssistantSkillInput) =>
       request<{ skill: AssistantSkill }>(`/api/assistant/skills/${id}`, { method: 'PATCH', body }),
     removeSkill: (id: string) => request<{ deleted: boolean }>(`/api/assistant/skills/${id}`, { method: 'DELETE' }),
+    cursorCommands: () => request<{ commands: AssistantCursorCommand[] }>('/api/assistant/cursor-commands'),
+    createCursorCommand: (body: { label: string, instruction: string, execution: string }) =>
+      request<{ command: AssistantCursorCommand }>('/api/assistant/cursor-commands', { method: 'POST', body }),
+    updateCursorCommand: (id: string, body: Partial<Pick<AssistantCursorCommand, 'label' | 'instruction' | 'execution' | 'enabled'>>) =>
+      request<{ command: AssistantCursorCommand }>(`/api/assistant/cursor-commands/${id}`, { method: 'PATCH', body }),
+    removeCursorCommand: (id: string) => request<{ deleted: true }>(`/api/assistant/cursor-commands/${id}`, { method: 'DELETE' }),
     exportSkills: () => request<{ bundle: AssistantSkillBundle }>('/api/assistant/skills/export'),
     importSkills: (skills: unknown[]) =>
       request<SkillImportResult>('/api/assistant/skills/import', { method: 'POST', body: { skills } }),

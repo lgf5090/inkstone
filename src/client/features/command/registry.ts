@@ -37,6 +37,7 @@ import { useQuickAdd } from '../../store/quickadd'
 import { navigateToPath } from '../../lib/app-history'
 import { appTab } from '../shell/app-tabs'
 import { useAssistant, type AssistantView } from '../chat/assistant-store'
+import { runCursorCommand } from '../chat/cursor-commands'
 import { CHAT_SHORTCUTS } from '../chat/chat-shortcuts'
 import { requestChatIntent } from '../chat/chat-intents'
 import { startChatAboutFolder, startChatAboutNote } from '../chat/start-chat'
@@ -870,6 +871,22 @@ function assistantCommands(): AppCommand[] {
         void useAssistant.getState().loadSettings()
       },
     },
+    ...useAssistant.getState().cursorCommands.filter((command) => command.enabled).map((command) => ({
+      id: `cmd-cursor-${command.id}`,
+      kind: 'command' as const,
+      label: command.label,
+      group: t('assistant.cursor_commands.title'),
+      icon: WandSparkles,
+      run: () => {
+        const view = getActiveEditorView()
+        const doc = view?.state.doc.toString() ?? ''
+        const range = view?.state.selection.main
+        const passage = range && !range.empty ? doc.slice(range.from, range.to) : doc
+        const noteId = useUi.getState().activeNoteId
+        const noteTitle = noteId ? useNotes.getState().notes[noteId]?.title ?? '' : ''
+        runCursorCommand(command, passage, { id: noteId, title: noteTitle })
+      },
+    })),
   ]
 }
 
