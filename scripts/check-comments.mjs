@@ -38082,6 +38082,7 @@ const allowed = new Map([
     "// later tab asks once rather than on every call.",
     "/**\n * Notes whose meaning is close to one the reader has open.\n *\n * The index is the account's own and always has been; this route only asks it for neighbours and drops\n * the note itself. A deployment without Workers AI, or one whose reader switched the index off, answers\n * `unavailable` rather than an empty list, because those are different facts.\n */",
     "/**\n * One short, tool-less call: Tab completion today, and the same contract for any other low-latency\n * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.\n */",
+    "/**\n * Compact a thread by hand: fold the turns it has into the running summary and keep going from there.\n *\n * The automatic path does the same thing when the window overflows; this one is the reader asking for it\n * before that happens. It needs a model and one request from the day's budget, and it refuses rather than\n * inventing a summary when either is absent.\n */",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

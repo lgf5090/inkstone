@@ -100,6 +100,7 @@ import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assist
 import { loadMcpNote } from '../mcp/retrieval'
 import { searchSemanticNotes } from '../mcp/ai-search'
 import { OneShotError, runOneShot } from '../assistant/one-shot'
+import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
@@ -2315,6 +2316,47 @@ assistantRoutes.get('/similar-notes', async (c) => {
  * One short, tool-less call: Tab completion today, and the same contract for any other low-latency
  * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.
  */
+/**
+ * Compact a thread by hand: fold the turns it has into the running summary and keep going from there.
+ *
+ * The automatic path does the same thing when the window overflows; this one is the reader asking for it
+ * before that happens. It needs a model and one request from the day's budget, and it refuses rather than
+ * inventing a summary when either is absent.
+ */
+assistantRoutes.post('/conversations/:id/compact', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const conversation = await s.getConversation(id)
+  if (!conversation) throw ApiError.notFound('Conversation not found')
+  const messages = await s.messages(id, 80)
+  if (!messages.length) throw ApiError.badRequest('There is nothing to compact yet.')
+  const settings = await s.getSettings()
+  const transcript = messages
+    .map((message) => `${message.role === 'user' ? 'You' : 'Assistant'}: ${message.content.slice(0, 4_000)}`)
+    .join('\n\n')
+  try {
+    const answer = await runOneShot(s, settings, {
+      system: promptCatalog(settings.language).summarizer_system,
+      user: summarizerPrompt(settings.language, conversation.summary ?? null, transcript),
+      maxOutputTokens: 600,
+      temperature: 0,
+      timeoutMs: 30_000,
+      signal: c.req.raw.signal,
+    })
+    const summary = answer.text.trim().slice(0, 4_000)
+    if (!summary) throw new ApiError(502, 'internal', 'The model returned no summary.')
+    await s.setSummary(id, summary, messages[messages.length - 1]!.createdAt)
+    return c.json({ summary, upto: messages[messages.length - 1]!.createdAt })
+  } catch (error) {
+    if (error instanceof OneShotError) {
+      if (error.kind === 'no_model') throw ApiError.badRequest('No assistant model is configured.')
+      if (error.kind === 'quota') throw ApiError.conflict('The daily assistant request ceiling is spent.')
+      throw new ApiError(502, 'internal', 'The compaction call did not finish in time.')
+    }
+    throw error
+  }
+})
+
 assistantRoutes.post('/one-shot', async (c) => {
   const s = store(c)
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)

@@ -2187,7 +2187,16 @@ ${current}` : seed))
           label: tool.name,
           hint: tool.description.slice(0, 40),
         }))
-      setTriggerRows(filterRows([...TOOL_TRIGGER_ROWS, ...external], next.query))
+      const skillRows: TriggerRow[] = savedSkills.map((skill) => ({
+        id: skill.id,
+        label: skill.title || t('assistant.skills.untitled'),
+        hint: t('assistant.trigger.skill'),
+        kind: 'skill' as const,
+      }))
+      const commandRows: TriggerRow[] = [
+        { id: 'compact-context', label: t('assistant.chat.compact'), hint: t('assistant.chat.compact_hint'), kind: 'command' as const },
+      ]
+      setTriggerRows(filterRows([...commandRows, ...TOOL_TRIGGER_ROWS, ...skillRows, ...external], next.query))
       setTriggerBusy(false)
       return
     }
@@ -2237,9 +2246,35 @@ ${current}` : seed))
       setTriggerRows([])
       return
     }
-    if (trigger.sigil === '/') addTurnTool(row.id)
-    else addTurnScope({ kind: row.kind ?? 'tag', id: row.id, name: row.label.replace(/^#/, '') })
-    setValue(`${head}${tail.replace(/^ /, '')}`)
+    if (trigger.sigil === '/') {
+      if (row.kind === 'command' && row.id === 'compact-context') {
+        if (!activeId) return
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+        setTrigger(null)
+        setTriggerRows([])
+        void api.assistant.compactConversation(activeId)
+          .then(() => {
+            toast({ title: t('assistant.chat.compacted'), tone: 'success' })
+            void useAssistant.getState().openConversation(activeId)
+          })
+          .catch((error: unknown) => {
+            toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
+          })
+        return
+      }
+      if (row.kind === 'skill') {
+        const skill = savedSkills.find((entry) => entry.id === row.id)
+        if (!skill) return
+        setValue(`${head}${skill.content}${gap}${tail}`)
+        applySkill(skill)
+      } else {
+        addTurnTool(row.id)
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+      }
+    } else {
+      addTurnScope({ kind: row.kind === 'folder' ? 'folder' : 'tag', id: row.id, name: row.label.replace(/^#/, '') })
+      setValue(`${head}${tail.replace(/^ /, '')}`)
+    }
     setTrigger(null)
     setTriggerRows([])
   }

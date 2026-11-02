@@ -2204,6 +2204,8 @@ export const api = {
       ),
     oneShot: (body: { user: string, system?: string, modelId?: string, maxOutputTokens?: number, timeoutMs?: number }) =>
       request<{ text: string }>('/api/assistant/one-shot', { method: 'POST', body }),
+    compactConversation: (id: string) =>
+      request<{ summary: string, upto: number }>(`/api/assistant/conversations/${id}/compact`, { method: 'POST', body: {} }),
     automations: () =>
       request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),
     createAutomation: (body: Record<string, unknown>) =>
