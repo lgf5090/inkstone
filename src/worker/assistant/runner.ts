@@ -855,7 +855,8 @@ export class AssistantRunner {
 
       yield { type: 'stage', stage: 'generating' }
       const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
-      const schemas: ToolSchema[] = executor.available()
+      // Recomputed per step: a turn that loaded a schema has to see that tool in its very next request.
+      const toolSchemas = (): ToolSchema[] => executor.available()
         // On a protocol that sends the vendor's own search tool, that one already carries this name, and a
         // request with two entries called `web_search` is a request the provider refuses outright. The
         // vendor's search is the better of the two wherever it exists, so the built-in one steps aside.
@@ -892,6 +893,11 @@ export class AssistantRunner {
         if (!(await this.holdLease(conversationId))) throw new AbortError()
         const calls: ToolCallRecord[] = []
         let eventsSeen = 0
+        // The catalog names what disclosure left out, and it shrinks as the turn loads schemas; the tools
+        // list is rebuilt with it so a loaded schema is callable on the step that follows the load.
+        const schemas = toolSchemas()
+        const catalog = executor.catalogText()
+        const turnSystem = catalog ? `${system}\n\n${catalog}` : system
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
         // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
         this.turnTruncated = false
@@ -903,7 +909,7 @@ export class AssistantRunner {
           baseUrl: entry.call.baseUrl,
           apiKey,
           model: entry.model.model,
-          system,
+          system: turnSystem,
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all, which is the
           // same door a turn asked to answer without tools, and a model switched off for tools, both go
@@ -1045,7 +1051,8 @@ export class AssistantRunner {
       }
       const contextBreakdown = {
         system: estimateTokens(system),
-        tools: schemas.reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0),
+        tools: toolSchemas().reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0)
+          + estimateTokens(executor.catalogText()),
         rules: estimateTokens([this.settings.customInstructions, projectInstructions].filter(Boolean).join('\n')),
         skills: projectSkills.reduce((total, skill) => total + estimateTokens(`${skill.title}\n${skill.content}`), 0),
         memory: estimateTokens(JSON.stringify(memories)),

@@ -778,6 +778,11 @@ export interface AssistantSettings {
   toolGrants: Record<string, AssistantToolMode>
   /** Per-tool on/off and approval, the settings page's finer gate than the three classes. */
   toolSettings: Record<string, { enabled: boolean, mode?: AssistantToolMode }>
+  /**
+   * Whether every tool schema goes out on every request, or only a resident set plus the ones the model
+   * loads. On demand trades a catalog line per tool for the full schema of tools the turn never uses.
+   */
+  toolDisclosure: 'all' | 'on_demand'
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -879,6 +884,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   toolModes: { ...DEFAULT_TOOL_MODES },
   toolGrants: {},
   toolSettings: {},
+  toolDisclosure: 'all',
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
@@ -1039,6 +1045,7 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     toolModes: toolModesValue(raw),
     toolGrants: toolGrantsValue(raw.toolGrants),
     toolSettings: toolSettingsValue(raw.toolSettings),
+    toolDisclosure: enumValue(raw.toolDisclosure, ['all', 'on_demand'] as const, 'all'),
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),

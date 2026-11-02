@@ -40,6 +40,18 @@ export function ToolManagerSection() {
   const modeValue = (name: string): ModeChoice => entryFor(name).mode ?? 'inherit'
   return (
     <div className="space-y-2">
+      <SettingRow title={t('assistant.tools.disclosure')} description={t('assistant.tools.disclosure_hint')} controlId="assistant-tool-disclosure">
+        <Select
+          id="assistant-tool-disclosure"
+          value={settings.toolDisclosure}
+          aria-label={t('assistant.tools.disclosure')}
+          onChange={(event) => { void saveSettings({ toolDisclosure: event.target.value === 'on_demand' ? 'on_demand' : 'all' }) }}
+          className="h-7 w-44 text-[length:var(--text-11)]"
+        >
+          <option value="all">{t('assistant.tools.disclosure_all')}</option>
+          <option value="on_demand">{t('assistant.tools.disclosure_on_demand')}</option>
+        </Select>
+      </SettingRow>
       <SettingRow title={t('assistant.tools.search')} description={t('assistant.tools.hint')}>
         <Input
           value={query}

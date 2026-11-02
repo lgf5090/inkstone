@@ -285,6 +285,13 @@ interface BaseTool {
   fields: Record<string, FieldSpec>
   maxCallsPerTurn?: number
   /**
+   * A protocol tool the model uses to reach the rest of the catalog.
+   *
+   * It has no reader-facing label spec and never appears in the tool manager: it is not something the
+   * reader grants, it is the door the deferred disclosure mode opens.
+   */
+  internal?: boolean
+  /**
    * A tool the reader added through an external MCP server. Its arguments are validated by that server, not
    * by this file, so the schema the server sent is what the model sees and the object it sends back is
    * passed through as-is.
@@ -335,6 +342,12 @@ export class ToolError extends Error {
 
 function tool(definition: ToolDefinition): ToolDefinition {
   return definition
+}
+
+/** A catalog line: enough to decide whether the tool is worth loading, not the whole description. */
+function firstSentence(text: string): string {
+  const sentence = text.split(/(?<=[.!?])\s/)[0] ?? text
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}…` : sentence
 }
 
 const localDateField = (description: string, nullable = false): FieldSpec => ({
@@ -4854,6 +4867,61 @@ export const ALL_TOOLS: ToolDefinition[] = [
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
 
 /**
+ * The tools every on-demand turn keeps in its request: the ones a conversation reaches for first, so the
+ * common turn does not pay an extra round trip merely to see what it already knew it needed.
+ */
+const RESIDENT_TOOL_NAMES = new Set([
+  'ask_user_question',
+  'notify_reader',
+  'search',
+  'search_notes',
+  'search_knowledge',
+  'read_note',
+  'update_note',
+  'create_note',
+  'list_tasks',
+  'create_task',
+  'list_artifacts',
+  'read_artifact',
+])
+
+export const DEFERRED_TOOL_NAMES = ['load_tool_schemas', 'invoke_tool'] as const
+
+/**
+ * The protocol pair behind deferred disclosure.
+ *
+ * `load_tool_schemas` is how a name in the prompt's catalog becomes a callable schema for the rest of the
+ * turn; `invoke_tool` is how a call is made without that second request, which is what keeps a one-shot
+ * tool from costing a whole model round trip. Neither is a reader-facing capability, and both are
+ * intercepted by the executor rather than run as ordinary functions.
+ */
+const DEFERRED_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'load_tool_schemas',
+    permission: 'read',
+    internal: true,
+    description: 'Load the full parameter schema of one or more tools named in the catalog. Loaded tools stay callable for the rest of this turn.',
+    fields: { names: { type: 'array', items: 'string', maxItems: 20, minLength: 1 } },
+    async run() {
+      throw new ToolError('load_tool_schemas is handled by the executor.')
+    },
+  }),
+  tool({
+    name: 'invoke_tool',
+    permission: 'read',
+    internal: true,
+    description: 'Call one tool by name. Its approval, budget, duplicate and failure rules are the real tool\'s, not this wrapper\'s.',
+    fields: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      arguments: { type: 'object', optional: true },
+    },
+    async run() {
+      throw new ToolError('invoke_tool is handled by the executor.')
+    },
+  }),
+]
+
+/**
  * Refuses to start with a tool the reader could never see.
  *
  * The label and approval keys live in the shared spec list because the client renders them; a tool
@@ -4865,6 +4933,7 @@ export function assertToolsMatchSpecs(): void {
   for (const definition of ALL_TOOLS) {
     if (names.has(definition.name)) throw new Error(`duplicate assistant tool: ${definition.name}`)
     names.add(definition.name)
+    if (definition.internal) continue
     if (!ASSISTANT_TOOL_SPECS.some((spec) => spec.name === definition.name)) {
       throw new Error(`assistant tool missing from ASSISTANT_TOOL_SPECS: ${definition.name}`)
     }
@@ -4983,6 +5052,8 @@ export class ToolExecutor {
   private readonly signatures = new Map<string, number>()
   private readonly failures = new Map<string, number>()
   private readonly approvals = new Map<string, { id: string, toolId: string }>()
+  /** Schemas the model asked for this turn; cleared with the executor, because a new turn is a new request. */
+  private readonly loaded = new Set<string>()
 
   constructor(
     private readonly ctx: ToolContext,
@@ -5021,6 +5092,16 @@ export class ToolExecutor {
 
   available(): ToolDefinition[] {
     if (this.budget.maxToolCalls <= 0) return []
+    const all = this.everyOffered().filter((definition) => !definition.internal)
+    if (!this.onDemand()) return all
+    return [
+      ...all.filter((definition) => RESIDENT_TOOL_NAMES.has(definition.name) || this.loaded.has(definition.name)),
+      ...DEFERRED_TOOLS,
+    ]
+  }
+
+  /** The tools the reader's policy leaves on the table, before disclosure narrows what is sent. */
+  private everyOffered(): ToolDefinition[] {
     const own = this.ctx.mode === 'chat'
       ? ALL_TOOLS
       : ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
@@ -5029,6 +5110,27 @@ export class ToolExecutor {
     // The reader's policy comes last and can only ever take tools away: it is a ceiling on what the turn
     // may reach, not a second list of things to reach for.
     return [...own, ...remote].filter((definition) => this.offers(definition))
+  }
+
+  private onDemand(): boolean {
+    return this.ctx.mode === 'chat' && this.ctx.settings.toolDisclosure === 'on_demand'
+  }
+
+  /**
+   * The catalog line per tool that disclosure did not send.
+   *
+   * One line, not the whole schema: the point is to tell the model a tool exists and what it is for,
+   * and to let it decide whether loading the arguments is worth a round trip.
+   */
+  catalogText(): string {
+    if (!this.onDemand()) return ''
+    const lines = this.everyOffered()
+      .filter((definition) => !definition.internal
+        && !RESIDENT_TOOL_NAMES.has(definition.name)
+        && !this.loaded.has(definition.name))
+      .map((definition) => `- ${definition.name}: ${firstSentence(definition.description)}`)
+    if (!lines.length) return ''
+    return ['Tools you can load when needed (call load_tool_schemas with their names, then invoke_tool):', ...lines].join('\n')
   }
 
   /**
@@ -5074,9 +5176,40 @@ export class ToolExecutor {
     return this.approvals.get(callId)
   }
 
+  /**
+   * Answers the protocol call that turns catalog names into schemas.
+   *
+   * Only a tool the reader's policy actually leaves on the table can be loaded: disclosure shortens the
+   * request, it must not become a second route around a closed class or a switched-off tool.
+   */
+  private loadToolSchemas(rawNames: unknown): unknown {
+    const names = Array.isArray(rawNames) ? rawNames.filter((entry): entry is string => typeof entry === 'string') : []
+    const loaded: unknown[] = []
+    const skipped: string[] = []
+    const offered = this.everyOffered()
+    for (const name of [...new Set(names)].slice(0, 20)) {
+      const definition = offered.find((entry) => entry.name === name && !entry.internal)
+      if (!definition) {
+        skipped.push(name)
+        continue
+      }
+      this.loaded.add(name)
+      loaded.push({ name, description: definition.description, parameters: parametersSchema(definition.fields) })
+    }
+    return { loaded, skipped }
+  }
+
   async execute(name: string, rawArgs: unknown, callId: string): Promise<unknown> {
     const definition = this.find(name)
     if (!definition) throw new ToolError(`Tool "${name}" is not available.`)
+    // The wrapper is not a call of its own: unwrap it before counting, so budget, duplicate detection,
+    // approval and the failure counter all belong to the real tool rather than to the door it came through.
+    if (definition.internal && name === 'invoke_tool') {
+      const args = validateArgs(definition.fields, rawArgs)
+      const inner = this.find(String(args.name))
+      if (!inner || inner.internal) throw new ToolError(`Tool "${String(args.name)}" is not available. Load it with load_tool_schemas first.`)
+      return await this.execute(inner.name, args.arguments ?? {}, callId)
+    }
     if ((this.failures.get(name) ?? 0) >= 3) {
       throw new ToolError(`"${name}" has failed three times in this turn. Try a different approach instead of repeating it.`)
     }
@@ -5096,6 +5229,10 @@ export class ToolExecutor {
     this.perTool.set(name, used + 1)
     this.signatures.set(signature, (this.signatures.get(signature) ?? 0) + 1)
 
+    if (definition.internal) {
+      if (name === 'load_tool_schemas') return this.loadToolSchemas(args.names)
+      throw new ToolError(`"${name}" is handled by the executor.`)
+    }
     // A question is not an action on the reader's data, so the approval policy does not apply: the model
     // waits for an answer rather than for a press. Any other read in manual mode would open a card.
     if (definition.name === 'ask_user_question' && definition.permission !== 'destructive') {
