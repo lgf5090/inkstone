@@ -123,6 +123,36 @@ export function hiddenCategories(categories: readonly NavCategory[], unlocked: R
   return hidden
 }
 
+/**
+ * The rows a lock hides *behind* it: any category with a locked, still-locked-out ancestor.
+ *
+ * Unlike `hiddenCategories`, the locked folder itself is not in here — the reader has to see it to know
+ * what to unlock — but everything filed under it is exactly what its password is for, so its name, icon
+ * and parent id stay on the server instead of riding along in the bootstrap payload.
+ */
+export function categoriesBehindLock(categories: readonly NavCategory[], unlocked: ReadonlySet<string>): Set<string> {
+  const locked = new Set(categories
+    .filter((category) => category.hasPassword && !unlocked.has(category.id))
+    .map((category) => category.id))
+  const behind = new Set<string>()
+  if (!locked.size) return behind
+  const byId = new Map(categories.map((category) => [category.id, category]))
+  for (const category of categories) {
+    let parentId = category.parentId
+    const visited = new Set<string>()
+    while (parentId !== null && parentId !== undefined) {
+      if (locked.has(parentId)) {
+        behind.add(category.id)
+        break
+      }
+      if (visited.has(parentId)) break
+      visited.add(parentId)
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
+  }
+  return behind
+}
+
 export function visibleLinks(links: readonly NavLink[], categories: readonly NavCategory[], unlocked: ReadonlySet<string>): NavLink[] {
   const locked = hiddenCategories(categories, unlocked)
   if (!locked.size) return [...links]
@@ -192,9 +222,12 @@ export class NavStore {
       this.webdavSettings(),
     ])
     const categories = categoryRows.map(rowToCategory)
+    // What the reader may not see stays unsent, rather than sent and hidden by the client: a locked
+    // folder's contents, down to the names of the folders inside it, are the thing being protected.
+    const behind = categoriesBehindLock(categories, unlocked)
     const links = visibleLinks(linkRows.map(rowToLink), categories, unlocked)
     return {
-      categories,
+      categories: categories.filter((category) => !behind.has(category.id)),
       links,
       visits,
       settings: { display, search, ai },

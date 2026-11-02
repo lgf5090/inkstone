@@ -116,6 +116,9 @@ navDataRoutes.get('/', async (c) => {
 navDataRoutes.post('/categories', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavCategoryCreateSchema))
+  // Filing a folder inside a locked one is a write into the lock's scope, and since those rows no longer
+  // reach the client at all it would also be a write the reader could never see or undo.
+  if (input.parentId && (await hiddenFor(c, nav)).has(input.parentId)) throw ApiError.notFound('Category not found')
   const password = await passwordFields(c, input)
   const category = await nav.createCategory({
     id: input.id,

@@ -102,9 +102,11 @@ async function createCategory(
   user: string,
   name: string,
   extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
 ): Promise<NavCategory> {
   const response = await call('POST', '/api/nav/categories', {
     user,
+    headers,
     body: { name, icon: 'folder', ...extra },
   })
   expect(response.status, await response.clone().text()).toBe(200)
@@ -809,9 +811,10 @@ describe('category passwords and unlock tokens', () => {
       passwordMode: 'custom',
       password: 'parent-password',
     })
-    const child = await createCategory(USER_A, 'Child', { parentId: locked.id })
     const open = await createCategory(USER_A, 'Open')
     const seedHeaders = await seedUnlock(USER_A, locked.id, 'parent-password')
+    // Filing inside the lock takes the key, so the setup unlocks first — the reader it models is one who has it.
+    const child = await createCategory(USER_A, 'Child', { parentId: locked.id }, seedHeaders)
     const childLink = await createLink(USER_A, child.id, 'Child Link', {}, seedHeaders)
     const openLink = await createLink(USER_A, open.id, 'Open Link')
 
@@ -825,6 +828,34 @@ describe('category passwords and unlock tokens', () => {
       headers: { 'X-Nav-Unlocks': unlock.token },
     }))
     expect(after.links.map((link) => link.id).sort()).toEqual([childLink.id, openLink.id].sort())
+  })
+
+  it('does not name a locked folder\'s children to a session without the key', async () => {
+    const locked = await createCategory(USER_A, 'Passport scans', { passwordMode: 'custom', password: 'parent-password' })
+    const open = await createCategory(USER_A, 'Open')
+    const headers = await seedUnlock(USER_A, locked.id, 'parent-password')
+    const child = await createCategory(USER_A, 'Bank statements', { parentId: locked.id }, headers)
+
+    // The locked root itself has to stay in the list: it is the thing a reader clicks to unlock. Everything
+    // filed under it is exactly what the password exists to keep from a session without the key.
+    const hidden = await json<NavBootstrap>(await call('GET', '/api/nav'))
+    expect(hidden.categories.map((category) => category.id).sort()).toEqual([locked.id, open.id].sort())
+    expect(JSON.stringify(hidden).includes('Bank statements')).toBe(false)
+
+    const unlocked = await json<NavBootstrap>(await call('GET', '/api/nav', { headers }))
+    expect(unlocked.categories.map((category) => category.id).sort()).toEqual([locked.id, open.id, child.id].sort())
+  })
+
+  it('refuses to file a new folder inside a locked one without the key', async () => {
+    const locked = await createCategory(USER_A, 'Locked parent', { passwordMode: 'custom', password: 'file-password' })
+    expect((await call('POST', '/api/nav/categories', {
+      body: { name: 'Blind child', icon: 'folder', parentId: locked.id },
+    })).status).toBe(404)
+
+    const headers = await seedUnlock(USER_A, locked.id, 'file-password')
+    const created = await createCategory(USER_A, 'Seen child', { parentId: locked.id }, headers)
+    const after = await json<NavBootstrap>(await call('GET', '/api/nav', { headers }))
+    expect(after.categories.map((category) => category.id)).toContain(created.id)
   })
 
   it('ignores an unlock row whose expiry lies in the past', async () => {

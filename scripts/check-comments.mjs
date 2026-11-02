@@ -37517,6 +37517,8 @@ const allowed = new Map([
     "// file someone else's links into it — without ever asking for the key.",
     "// The store also reports how many categories landed, which the restore path needs; the import response",
     "// keeps to the two fields its readers were built against.",
+    "// Filing a folder inside a locked one is a write into the lock's scope, and since those rows no longer",
+    "// reach the client at all it would also be a write the reader could never see or undo.",
   ]],
   ["src/worker/nav/store.ts", [
     "// Walk the whole parent chain rather than one hop: a category is hidden when *any* ancestor is locked.",
@@ -37551,6 +37553,9 @@ const allowed = new Map([
     "// per-category deletes go out in their own chunks. A run interrupted between chunks leaves a superset",
     "// — links partly moved, categories still there — and deleting again finishes it, which is the same",
     "// contract the restore path documents.",
+    "/**\n * The rows a lock hides *behind* it: any category with a locked, still-locked-out ancestor.\n *\n * Unlike `hiddenCategories`, the locked folder itself is not in here — the reader has to see it to know\n * what to unlock — but everything filed under it is exactly what its password is for, so its name, icon\n * and parent id stay on the server instead of riding along in the bootstrap payload.\n */",
+    "// What the reader may not see stays unsent, rather than sent and hidden by the client: a locked",
+    "// folder's contents, down to the names of the folders inside it, are the thing being protected.",
   ]],
   ["src/worker/nav/tools.ts", [
     "// A protected folder's name, icon, parent and size are exactly what its password is for, and this view",
@@ -43477,6 +43482,9 @@ const allowed = new Map([
     "// Just past the ceiling, and never valid JSON — the point is that the size is judged first.",
     "// Two IN statements plus one DELETE per category: a folder this wide has never fit one batch, and the",
     "// split must still leave nothing behind — the tail of the tree is deleted by a later chunk.",
+    "// Filing inside the lock takes the key, so the setup unlocks first — the reader it models is one who has it.",
+    "// The locked root itself has to stay in the list: it is the thing a reader clicks to unlock. Everything",
+    "// filed under it is exactly what the password exists to keep from a session without the key.",
   ]],
   ["tests/nav-checker-ui.test.tsx", [
     "// CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the",
