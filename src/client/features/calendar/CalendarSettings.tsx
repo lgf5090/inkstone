@@ -2,7 +2,7 @@
  * Account-wide calendar preferences. The draft is saved as a whole, because the API stores the full
  * preference object and a partial write would silently reset the fields this panel does not show.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { CalendarPreferences } from '@shared/calendar/model'
 import { normalizeCalendarPreferences } from '@shared/calendar/model'
@@ -12,7 +12,7 @@ import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
 import { Input, Segmented, Select, SettingRow, Switch } from '../../components/form'
 import { DAY_HOUR_HEIGHTS } from './model'
-import { supportedTimeZones } from './timezone'
+import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 
 const HOURS = Array.from({ length: 23 }, (_entry, hour) => hour)
 const HOURS_END = Array.from({ length: 24 }, (_entry, index) => index + 1)
@@ -51,7 +51,6 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
   const [agendaDaysText, setAgendaDaysText] = useState(String(preferences.agendaDays))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const timeZones = useMemo(supportedTimeZones, [])
 
   useEffect(() => {
     if (!open) return
@@ -303,33 +302,24 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
 
         <Section title={t('calendar.settings.time')}>
           <SettingRow title={t('calendar.settings.time_zone')} controlId="calendar-settings-timezone">
-            <Select
+            <CalendarTimeZoneField
               id="calendar-settings-timezone"
+              label={t('calendar.settings.time_zone')}
               value={draft.timeZone}
-              onChange={(event) => patch({ timeZone: event.target.value })}
+              onChange={(zone) => patch({ timeZone: zone })}
               className="w-60"
-            >
-              {!timeZones.includes(draft.timeZone) && <option value={draft.timeZone}>{draft.timeZone}</option>}
-              {timeZones.map(zone => (
-                <option key={zone} value={zone}>{zone}</option>
-              ))}
-            </Select>
+            />
           </SettingRow>
           <SettingRow title={t('calendar.settings.secondary_time_zone')} controlId="calendar-settings-secondary-zone">
-            <Select
+            <CalendarTimeZoneField
               id="calendar-settings-secondary-zone"
+              label={t('calendar.settings.secondary_time_zone')}
               value={draft.secondaryTimeZone ?? ''}
-              onChange={(event) => patch({ secondaryTimeZone: event.target.value || null })}
+              allowEmpty
+              placeholder={t('calendar.settings.none')}
+              onChange={(zone) => patch({ secondaryTimeZone: zone || null })}
               className="w-60"
-            >
-              <option value="">{t('calendar.settings.none')}</option>
-              {draft.secondaryTimeZone && !timeZones.includes(draft.secondaryTimeZone) && (
-                <option value={draft.secondaryTimeZone}>{draft.secondaryTimeZone}</option>
-              )}
-              {timeZones.map(zone => (
-                <option key={zone} value={zone}>{zone}</option>
-              ))}
-            </Select>
+            />
           </SettingRow>
           <SettingRow title={t('calendar.settings.calendar_system')} controlId="calendar-settings-system">
             <Select

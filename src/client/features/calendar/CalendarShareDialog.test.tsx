@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CalendarDto, CalendarShareDto } from '@shared/calendar/model'
 import { initI18n, t } from '../../lib/i18n'
 import { renderElement, type RenderedElement } from '../../lib/test-render'
+import { ConfirmHost } from '../../components/overlay'
 import { CalendarShareDialog } from './CalendarDialogs'
 
 /**
@@ -56,7 +57,14 @@ async function settle(): Promise<void> {
 }
 
 async function open(): Promise<void> {
-  view = renderElement(createElement(CalendarShareDialog, { open: true, calendar, onClose: () => {} }))
+  view = renderElement(
+    createElement(
+      'div',
+      null,
+      createElement(CalendarShareDialog, { open: true, calendar, onClose: () => {} }),
+      createElement(ConfirmHost),
+    ),
+  )
   await settle()
 }
 
@@ -121,11 +129,20 @@ describe('the calendar share dialog', () => {
     expect(address()?.value).toBe(`${window.location.origin}/feeds/calendar/${SLUG}.ics`)
   })
 
-  it('revokes in place', async () => {
+  it('revokes in place after the confirmation', async () => {
     getMock.mockResolvedValue(share())
     revokeMock.mockResolvedValue(undefined)
     await open()
     await click(t('calendar.share.stop'))
+    const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')]
+    const confirmation = dialogs[dialogs.length - 1]!
+    const confirmButton = [...confirmation.querySelectorAll<HTMLButtonElement>('button')]
+      .find(candidate => candidate.textContent?.includes(t('calendar.share.stop')))
+    expect(confirmButton).toBeTruthy()
+    await act(async () => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await settle()
     expect(revokeMock).toHaveBeenCalledWith('cal-1')
     expect(getMock).toHaveBeenCalledTimes(1)
     expect(address()).toBeNull()

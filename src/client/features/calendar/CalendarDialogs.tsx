@@ -16,10 +16,11 @@ import { fullTime } from '../../lib/time'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { useUi } from '../../store/ui'
 import { Button } from '../../components/primitives'
-import { Modal } from '../../components/overlay'
+import { Modal, confirm } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
 import { CALENDAR_COLOR_PRESETS, deriveDarkColor } from './model'
+import { CalendarFilePicker } from './CalendarFilePicker'
 import * as api from './api'
 
 interface DialogBaseProps {
@@ -42,6 +43,33 @@ function DialogError({ children }: { children: ReactNode }) {
       <AlertTriangle size={13} className="mt-[2px] shrink-0" aria-hidden="true" />
       <span>{children}</span>
     </p>
+  )
+}
+
+interface CalendarWarning {
+  code: string
+  message: string
+  line?: number
+  uid?: string
+}
+
+function WarningList({ warnings }: { warnings: readonly CalendarWarning[] }) {
+  if (warnings.length === 0) return null
+  return (
+    <section aria-label={t('calendar.import.warning_title', { count: warnings.length })} className="mt-3 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2">
+      <h3 className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">
+        {t('calendar.import.warning_title', { count: warnings.length })}
+      </h3>
+      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+        {warnings.map((warning, index) => (
+          <li key={`${warning.code}-${warning.line ?? index}-${warning.uid ?? ''}`}>
+            {warning.line
+              ? t('calendar.import.warning_line', { line: warning.line, message: warning.message })
+              : warning.message}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -105,9 +133,13 @@ interface CalendarFormDialogProps extends DialogBaseProps {
   defaultGroupId?: string | null
 }
 
+/** Calendar data, not interface decoration: these are stored as the calendar's icon string. */
+const CALENDAR_ICON_PRESETS = ['📅', '💼', '🏠', '❤️', '⭐', '🎯', '🎓', '🎉', '✈️', '🏋️', '🧠', '🌱'] as const
+
 export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupId, onClose, onSaved }: CalendarFormDialogProps) {
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
+  const [icon, setIcon] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isDefault, setIsDefault] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -117,6 +149,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
     if (!open) return
     setName(mode === 'edit' ? calendar?.name ?? '' : '')
     setColor(mode === 'edit' ? calendar?.color ?? CALENDAR_COLOR_PRESETS[5] : CALENDAR_COLOR_PRESETS[5])
+    setIcon(mode === 'edit' ? calendar?.icon ?? '' : '')
     setGroupId(mode === 'edit' ? calendar?.groupId ?? '' : defaultGroupId ?? '')
     setIsDefault(false)
     setError(null)
@@ -137,6 +170,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
           name: trimmed,
           color,
           darkColor: deriveDarkColor(color),
+          icon: icon || null,
           groupId: groupId || null,
         }, calendar.rev)
         useUi.getState().toast({ title: t('calendar.calendar.updated'), tone: 'success' })
@@ -145,6 +179,7 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
           name: trimmed,
           color,
           darkColor: deriveDarkColor(color),
+          icon: icon || null,
           groupId: groupId || null,
           isDefault,
         })
@@ -193,6 +228,17 @@ export function CalendarFormDialog({ open, mode, calendar, groups, defaultGroupI
         </Field>
         <Field label={t('calendar.calendar.color')}>
           <div><ColorPresets value={color} onChange={setColor} /></div>
+        </Field>
+        <Field label={t('calendar.calendar.icon')}>
+          <Select value={icon} onChange={(event) => setIcon(event.target.value)}>
+            <option value="">{t('calendar.calendar.no_icon')}</option>
+            {icon && !(CALENDAR_ICON_PRESETS as readonly string[]).includes(icon) && (
+              <option value={icon}>{icon}</option>
+            )}
+            {CALENDAR_ICON_PRESETS.map(value => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </Select>
         </Field>
         <Field label={t('calendar.calendar.group')}>
           <Select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
@@ -397,6 +443,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [warnings, setWarnings] = useState<CalendarWarning[]>([])
   const writableCalendars = calendars.filter(calendar => !calendar.readOnly)
 
   useEffect(() => {
@@ -408,6 +455,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
     setColor(CALENDAR_COLOR_PRESETS[5])
     setError(null)
     setSaving(false)
+    setWarnings([])
   }, [open, calendars])
 
   const submit = async (): Promise<void> => {
@@ -428,12 +476,23 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
         ...(mode === 'existing' ? { targetCalendarId: targetId } : { newCalendar: { name: newName.trim() || file.name.replace(/\.ics$/i, ''), color } }),
         defaultTimeZone,
       })
+      const found = result.warnings ?? []
+      setWarnings(found)
       useUi.getState().toast({
         title: t('calendar.import.done', { count: result.imported }),
-        description: result.warnings?.length ? t('calendar.import.warnings', { count: result.warnings.length }) : undefined,
-        tone: 'success',
+        description: found.length ? t('calendar.import.warning_title', { count: found.length }) : undefined,
+        tone: found.length ? 'warning' : 'success',
       })
-      await closeAfterRefresh(onSaved, onClose)
+      try {
+        await onSaved()
+      } catch (refreshError) {
+        useUi.getState().toast({
+          title: t('calendar.error.refresh'),
+          description: refreshError instanceof Error ? refreshError.message : undefined,
+          tone: 'danger',
+        })
+      }
+      if (found.length === 0) onClose()
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.import.failed'))
     } finally {
@@ -449,25 +508,25 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
       description={t('calendar.import.description')}
       width={460}
       dismissible={!saving}
-      footer={(
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={() => void submit()}>
-            {saving ? t('calendar.import.importing') : t('calendar.sidebar.import')}
-          </Button>
-        </>
-      )}
+      footer={warnings.length > 0
+        ? <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
+        : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" loading={saving} onClick={() => void submit()}>
+                {saving ? t('calendar.import.importing') : t('calendar.sidebar.import')}
+              </Button>
+            </>
+          )}
     >
       <div className="space-y-4 pt-1">
         <Field label={t('calendar.import.file')} hint={t('calendar.import.file_hint')} required>
-          <input
-            type="file"
+          <CalendarFilePicker
+            label={t('calendar.import.choose_file')}
             accept=".ics,text/calendar"
-            data-autofocus
-            aria-label={t('calendar.import.file')}
-            className="block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-2 file:cursor-pointer file:rounded-[var(--r-sm)] file:border file:border-[var(--border-default)] file:bg-[var(--bg-raised)] file:px-2.5 file:py-1.5 file:text-[length:var(--text-12)] file:font-medium file:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
-            onChange={(event) => {
-              const picked = event.target.files?.[0] ?? null
+            fileName={file?.name ?? null}
+            onPick={(files) => {
+              const picked = files[0] ?? null
               setError(null)
               if (picked && picked.size > MAX_ICS_BYTES) {
                 setFile(null)
@@ -522,6 +581,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
                 </Field>
               </>
             )}
+        <WarningList warnings={warnings} />
         {error && <DialogError>{error}</DialogError>}
       </div>
     </Modal>
@@ -536,6 +596,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
   const [color, setColor] = useState<string>(CALENDAR_COLOR_PRESETS[5])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [warnings, setWarnings] = useState<CalendarWarning[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -544,6 +605,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
     setColor(CALENDAR_COLOR_PRESETS[5])
     setError(null)
     setSaving(false)
+    setWarnings([])
   }, [open])
 
   const submit = async (): Promise<void> => {
@@ -561,13 +623,28 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
     setSaving(true)
     setError(null)
     try {
-      await api.createSubscription({
+      const result = await api.createSubscription({
         url: parsed.toString(),
         ...(name.trim() ? { name: name.trim() } : {}),
         color,
       })
-      useUi.getState().toast({ title: t('calendar.subscription.done'), tone: 'success' })
-      await closeAfterRefresh(onSaved, onClose)
+      const found = result.warnings ?? []
+      setWarnings(found)
+      useUi.getState().toast({
+        title: t('calendar.subscription.done'),
+        description: found.length ? t('calendar.import.warning_title', { count: found.length }) : undefined,
+        tone: found.length ? 'warning' : 'success',
+      })
+      try {
+        await onSaved()
+      } catch (refreshError) {
+        useUi.getState().toast({
+          title: t('calendar.error.refresh'),
+          description: refreshError instanceof Error ? refreshError.message : undefined,
+          tone: 'danger',
+        })
+      }
+      if (found.length === 0) onClose()
     } catch (submitError) {
       setError(errorMessage(submitError, 'calendar.subscription.failed'))
     } finally {
@@ -583,14 +660,16 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
       description={t('calendar.subscription.description')}
       width={460}
       dismissible={!saving}
-      footer={(
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button variant="primary" loading={saving} onClick={() => void submit()}>
-            {saving ? t('calendar.subscription.working') : t('calendar.subscription.subscribe')}
-          </Button>
-        </>
-      )}
+      footer={warnings.length > 0
+        ? <Button variant="primary" onClick={onClose}>{t('common.close')}</Button>
+        : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
+              <Button variant="primary" loading={saving} onClick={() => void submit()}>
+                {saving ? t('calendar.subscription.working') : t('calendar.subscription.subscribe')}
+              </Button>
+            </>
+          )}
     >
       <div className="space-y-4 pt-1">
         <Field label={t('calendar.subscription.url')} hint={t('calendar.subscription.url_hint')} required>
@@ -621,6 +700,7 @@ export function SubscribeDialog({ open, onClose, onSaved }: SubscribeDialogProps
         <Field label={t('calendar.calendar.color')}>
           <div><ColorPresets value={color} onChange={setColor} /></div>
         </Field>
+        <WarningList warnings={warnings} />
         {error && <DialogError>{error}</DialogError>}
       </div>
     </Modal>
@@ -692,6 +772,16 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     }
   }
 
+  const revoke = async (): Promise<void> => {
+    const confirmed = await confirm({
+      title: t('calendar.share.stop_confirm_title'),
+      description: t('calendar.share.stop_confirm_body'),
+      confirmLabel: t('calendar.share.stop'),
+      tone: 'danger',
+    })
+    if (confirmed) await setLink('revoke')
+  }
+
   const copy = async (): Promise<void> => {
     if (!hasLink || !share) return
     if (!(await copyText(shareUrl(share.slug)))) {
@@ -714,7 +804,7 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
       footer={(
         <>
           {hasLink && (
-            <Button variant="danger" loading={busy} disabled={busy} onClick={() => void setLink('revoke')}>
+            <Button variant="danger" loading={busy} disabled={busy} onClick={() => void revoke()}>
               {busy ? t('calendar.share.stopping') : t('calendar.share.stop')}
             </Button>
           )}

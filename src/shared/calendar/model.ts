@@ -255,7 +255,8 @@ export interface CalendarSubscriptionDto {
   id: string
   calendarId: string
   kind: CalendarSubscriptionKind
-  url: string | null
+  /** The feed's hostname, for display only. The full address is a capability and stays server-side. */
+  urlHost: string | null
   enabled: boolean
   lastSyncAt: number | null
   lastErrorCode: string | null
@@ -267,9 +268,7 @@ export interface CalendarConnectionDto {
   id: string
   kind: CalendarConnectionKind
   label: string
-  baseUrl: string
   calendarHomeUrl: string | null
-  username: string | null
   scope: 'read' | 'write'
   writable: boolean
   status: 'connected' | 'error' | 'expired' | 'disconnected'

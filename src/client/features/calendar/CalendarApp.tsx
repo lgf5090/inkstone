@@ -15,9 +15,10 @@ import { Button } from '../../components/primitives'
 import { useUi } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { CalendarSurface } from './CalendarSurface'
-import { paintableRange } from './range-cache'
+import { coveringRange } from './range-cache'
 import { readFirstPaintMeta, saveFirstPaintMeta } from './first-paint'
-import { CalendarFormDialog } from './CalendarDialogs'
+import { CalendarFormDialog, ImportIcsDialog, SubscribeDialog } from './CalendarDialogs'
+import { CalendarConnections } from './CalendarConnections'
 import { INITIAL_RANGE_DAYS } from './model'
 import * as api from './api'
 
@@ -81,7 +82,7 @@ function LoadingCalendar() {
 function cachedFirstPaint(userId: string | null, range: { from: number; to: number }): LoadState | null {
   if (!userId) return null
   const meta = readFirstPaintMeta(userId)
-  const page = paintableRange(userId, range.from, range.to)
+  const page = coveringRange(userId, range.from, range.to)
   if (!meta || !page) return null
   return {
     status: 'ready',
@@ -103,6 +104,9 @@ export function CalendarApp() {
   statusRef.current = state.status
   const [attempt, setAttempt] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [subscribeOpen, setSubscribeOpen] = useState(false)
+  const [connectionsOpen, setConnectionsOpen] = useState(false)
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -125,7 +129,7 @@ export function CalendarApp() {
 
   const fetchAll = useCallback(async (signal?: AbortSignal): Promise<{ meta: CalendarMetaDto; events: CalendarEventDto[]; occurrences: CalendarEventDto[]; truncated: boolean; recurrenceTruncated: boolean; revision: CalendarRangeRevisionDto | null }> => {
     const [meta, eventPage] = await Promise.all([
-      api.getMeta(signal),
+      api.getMeta(t('calendar.default_name'), signal),
       api.getEvents(range, signal),
     ])
     const { events, occurrences, truncated, recurrenceTruncated, revision } = eventPage
@@ -172,7 +176,7 @@ export function CalendarApp() {
   }, [attempt, fetchAll])
 
   const refreshMeta = useCallback(async (): Promise<CalendarMetaDto> => {
-    const meta = await api.getMeta()
+    const meta = await api.getMeta(t('calendar.default_name'))
     if (userId) saveFirstPaintMeta(userId, meta)
     setState(current => (current.status === 'ready' ? { ...current, meta } : current))
     return meta
@@ -221,7 +225,14 @@ export function CalendarApp() {
             art="subscriptions"
             title={t('calendar.empty.title')}
             description={t('calendar.empty.description')}
-            action={<Button variant="primary" onClick={() => setCreateOpen(true)}>{t('calendar.empty.action')}</Button>}
+            action={(
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button variant="primary" onClick={() => setCreateOpen(true)}>{t('calendar.empty.action')}</Button>
+                <Button variant="secondary" onClick={() => setImportOpen(true)}>{t('calendar.sidebar.import')}</Button>
+                <Button variant="secondary" onClick={() => setSubscribeOpen(true)}>{t('calendar.sidebar.subscribe')}</Button>
+                <Button variant="secondary" onClick={() => setConnectionsOpen(true)}>{t('calendar.connections.add')}</Button>
+              </div>
+            )}
           />
         </div>
         {createOpen && (
@@ -242,6 +253,30 @@ export function CalendarApp() {
                 throw error
               }
             }}
+          />
+        )}
+        {importOpen && (
+          <ImportIcsDialog
+            open
+            calendars={state.meta.calendars}
+            defaultTimeZone={state.meta.preferences.timeZone}
+            onClose={() => setImportOpen(false)}
+            onSaved={() => reload()}
+          />
+        )}
+        {subscribeOpen && (
+          <SubscribeDialog
+            open
+            onClose={() => setSubscribeOpen(false)}
+            onSaved={() => reload()}
+          />
+        )}
+        {connectionsOpen && (
+          <CalendarConnections
+            open
+            connections={state.meta.connections}
+            onClose={() => setConnectionsOpen(false)}
+            onChanged={() => reload()}
           />
         )}
       </section>

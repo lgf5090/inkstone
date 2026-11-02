@@ -4,6 +4,8 @@ import {
   MAX_CACHE_BYTES,
   MAX_CACHED_RANGES,
   clearRanges,
+  coveringRange,
+  rangeCovers,
   rangeFor,
   readRanges,
   MAX_PAINT_AGE_MS,
@@ -127,5 +129,14 @@ describe('the calendar range cache', () => {
     saveRange(ALICE, entry(0, 1000, 5000))
     expect(paintableRange(ALICE, 0, 1000, localStorage, 5000 + MAX_PAINT_AGE_MS - 1)).not.toBeNull()
     expect(paintableRange(ALICE, 0, 1000, localStorage, 5000 + MAX_PAINT_AGE_MS + 1)).toBeNull()
+  })
+
+  it('separates a paint overlap from a complete mirror', () => {
+    const partial = entry(0, 1000, 5000)
+    expect(rangeCovers(partial, 100, 900)).toBe(true)
+    expect(rangeCovers(partial, -1, 900)).toBe(false)
+    saveRange(ALICE, partial)
+    expect(coveringRange(ALICE, 100, 900, localStorage, 5000)?.from).toBe(0)
+    expect(coveringRange(ALICE, -1, 900, localStorage, 5000)).toBeNull()
   })
 })

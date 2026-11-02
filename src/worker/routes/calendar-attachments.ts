@@ -111,9 +111,11 @@ calendarAttachmentRoutes.delete('/events/:id/attachments/:attachmentId', async (
   const eventId = parseEntityId(c.req.param('id'), 'id')
   const attachmentId = c.req.param('attachmentId')
   if (!isValidId(attachmentId)) throw ApiError.notFound('Attachment not found')
-  if (!(await new CalendarStore(c.env.DB, userId).getEvent(eventId))) {
+  const store = new CalendarStore(c.env.DB, userId)
+  if (!(await store.getEvent(eventId))) {
     throw ApiError.notFound('Event not found')
   }
+  await store.assertEventWritable(eventId)
   if (!(await deleteEventAttachment(c.env.DB, userId, eventId, attachmentId))) {
     throw ApiError.notFound('Attachment not found')
   }

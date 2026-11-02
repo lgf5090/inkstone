@@ -11,7 +11,9 @@
  */
 import type { CalendarMetaDto } from '@shared/calendar/model'
 
-const STORAGE_KEY = 'inkstone.calendar.first-paint.v1'
+const STORAGE_KEY = 'inkstone.calendar.first-paint.v2'
+/** v1 stored the full `CalendarMetaDto`, including subscription URLs and connection usernames. */
+const LEGACY_KEYS = ['inkstone.calendar.first-paint.v1'] as const
 const MAX_BYTES = 256 * 1024
 
 function readStorage(): Storage | null {
@@ -22,9 +24,18 @@ function keyFor(userId: string): string {
   return `${STORAGE_KEY}:${userId}`
 }
 
+function clearLegacy(userId: string, storage: Storage): void {
+  try {
+    for (const key of LEGACY_KEYS) storage.removeItem(`${key}:${userId}`)
+  } catch {
+    // A storage that cannot remove the old entry also cannot have served it to us now.
+  }
+}
+
 /** The calendars and preferences the last visit showed, or null. */
 export function readFirstPaintMeta(userId: string, storage: Storage | null = readStorage()): CalendarMetaDto | null {
   if (!storage) return null
+  clearLegacy(userId, storage)
   let raw: string | null = null
   try {
     raw = storage.getItem(keyFor(userId))
@@ -49,6 +60,7 @@ export function saveFirstPaintMeta(
   storage: Storage | null = readStorage(),
 ): void {
   if (!storage) return
+  clearLegacy(userId, storage)
   try {
     if (!meta) {
       storage.removeItem(keyFor(userId))

@@ -11,9 +11,10 @@
  */
 
 import { Hono, type Context } from 'hono'
-import { MAX_EVENTS_PER_BATCH } from '@shared/calendar/model'
+import { MAX_CALENDAR_NAME, MAX_EVENTS_PER_BATCH } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { CalendarStore } from '../calendar/store'
+import { listEventAttachments } from '../calendar/attachments'
 import { expandRecurringEvents } from '../calendar/ics'
 import {
   parseCalendarIdList,
@@ -81,7 +82,13 @@ async function fallbackTimeZone(s: CalendarStore): Promise<string> {
 // ------------------------------------------------------------- meta and preferences
 
 calendarRoutes.get('/meta', async (c) => {
-  return c.json(await store(c).meta())
+  const requested = c.req.query('defaultName')?.trim()
+  const defaultName = requested
+    && requested.length <= MAX_CALENDAR_NAME
+    && !/[\u0000-\u001f\u007f]/.test(requested)
+    ? requested
+    : undefined
+  return c.json(await store(c).meta(defaultName))
 })
 
 calendarRoutes.get('/preferences', async (c) => {
@@ -136,7 +143,12 @@ calendarRoutes.get('/events', async (c) => {
   const s = store(c)
   const result = await s.listEvents(range.fromMs, range.toMs, calendarIds)
   const timeZone = await fallbackTimeZone(s)
-  const expansion = expandRecurringEvents(result.events, range.fromMs, range.toMs, timeZone)
+  // The month view already expands recurring series in the library; asking the server to expand a
+  // second copy is pure CPU and payload. Other views (and external clients) keep the default.
+  const includeOccurrences = c.req.query('occurrences') !== '0'
+  const expansion = includeOccurrences
+    ? expandRecurringEvents(result.events, range.fromMs, range.toMs, timeZone)
+    : { occurrences: [], truncated: false }
   return c.json({
     events: result.events,
     occurrences: expansion.occurrences,
@@ -207,6 +219,20 @@ calendarRoutes.delete('/events/:id', async (c) => {
   return noContent(c)
 })
 
+calendarRoutes.get('/events/:id/extras', async (c) => {
+  readBudget(c.get('userId'))
+  const id = pathId(c)
+  const s = store(c)
+  const event = await s.getEvent(id)
+  if (!event) throw ApiError.notFound('Event not found')
+  const [reminders, attendees, attachments] = await Promise.all([
+    s.eventReminders([id]),
+    s.eventAttendees(id),
+    listEventAttachments(c.env.DB, c.get('userId'), id),
+  ])
+  return c.json({ event, reminders: reminders.get(id) ?? [], attendees, attachments })
+})
+
 calendarRoutes.get('/events/:id/reminders', async (c) => {
   readBudget(c.get('userId'))
   const id = pathId(c)
@@ -215,7 +241,6 @@ calendarRoutes.get('/events/:id/reminders', async (c) => {
   const found = await s.eventReminders([id])
   return c.json({ minutes: found.get(id) ?? [] })
 })
-
 calendarRoutes.put('/events/:id/reminders', async (c) => {
   const id = pathId(c)
   const body = parseReminderMinutes(await readJson<unknown>(c, JSON_BODY_LIMITS.small))

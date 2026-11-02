@@ -47,8 +47,8 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
   }), env(), ctx)
 }
 
-async function read(slug: string): Promise<Response> {
-  return app.fetch(new Request(`http://localhost/feeds/calendar/${slug}`), env(), ctx)
+async function read(slug: string, headers: Record<string, string> = {}): Promise<Response> {
+  return app.fetch(new Request(`http://localhost/feeds/calendar/${slug}`, { headers }), env(), ctx)
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -142,7 +142,8 @@ describe('the reader side of a public calendar link', () => {
     const response = await read(`${share.slug}.ics`)
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('text/calendar; charset=utf-8')
-    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get('etag')).toBeTruthy()
     const body = await response.text()
     expect(body).toContain('BEGIN:VCALENDAR')
     expect(body).toContain('SUMMARY:Ferry to the island')
@@ -232,5 +233,46 @@ describe('the reader side of a public calendar link', () => {
     expect((await read(share.slug)).status).toBe(404)
     user = ALICE
     expect(await shareOf(trips.id)).toBeNull()
+  })
+
+  it('refuses to publish a calendar that would be silently truncated', async () => {
+    const trips = await newCalendar('Large')
+    const events = Array.from({ length: 5001 }, (_, index) => ({
+      id: `shared-${index}`,
+      title: `Event ${index}`,
+      start: { value: '2026-12-01T09:00:00', type: 'datetime' },
+      end: { value: '2026-12-01T10:00:00', type: 'datetime' },
+      calendarId: trips.id,
+    }))
+    for (let index = 0; index < events.length; index += 200) {
+      await json(await call('POST', '/events/batch', { events: events.slice(index, index + 200), mode: 'create' }))
+    }
+    const share = (await json<{ share: CalendarShareDto }>(await call('POST', `/calendars/${trips.id}/share`))).share
+    user = ''
+    const response = await read(share.slug)
+    expect(response.status).toBe(413)
+    expect(await response.text()).not.toContain('BEGIN:VEVENT')
+    user = ALICE
+  })
+
+  it('answers 304 for an unchanged feed and changes the tag after a write', async () => {
+    const trips = await newCalendar('Trips')
+    await addEvent(trips.id, 'Ferry to the island')
+    const share = (await json<{ share: CalendarShareDto }>(await call('POST', `/calendars/${trips.id}/share`))).share
+    user = ''
+    const first = await read(share.slug)
+    expect(first.status).toBe(200)
+    const etag = first.headers.get('etag')
+    expect(etag).toBeTruthy()
+    const same = await read(share.slug, { 'if-none-match': etag! })
+    expect(same.status).toBe(304)
+    expect(await same.text()).toBe('')
+    user = ALICE
+    await addEvent(trips.id, 'Second ferry')
+    user = ''
+    const changed = await read(share.slug, { 'if-none-match': etag! })
+    expect(changed.status).toBe(200)
+    expect(changed.headers.get('etag')).not.toBe(etag)
+    user = ALICE
   })
 })

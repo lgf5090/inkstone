@@ -28,25 +28,44 @@ function durationMinutes(text: string): { minutes: number; token: string } | nul
   return null
 }
 
-function timeOfDay(text: string): { hour: number; minute: number; token: string } | null {
-  const clock = /(\d{1,2})[:\uff1a](\d{2})\s*(am|pm)?/i.exec(text)
+function periodHour(hour: number, period: string | undefined): number {
+  if (!period) return hour
+  if ((ZH.afternoonPeriods as readonly string[]).includes(period)) return hour < 12 ? hour + 12 : hour
+  if (period === ZH.noonPeriod) return hour < 11 ? hour + 12 : hour
+  if (period === ZH.midnightPeriod && hour === 12) return 0
+  return hour
+}
+
+function timeOfDay(text: string): { hour: number; minute: number; tokens: string[] } | null {
+  const clock = new RegExp(`(${ZH.periodWords})?\\s*(\\d{1,2})[:\\uff1a](\\d{2})\\s*(am|pm)?`, 'i').exec(text)
   if (clock) {
-    let hour = Number(clock[1])
-    const suffix = clock[3]?.toLowerCase()
+    let hour = Number(clock[2])
+    const suffix = clock[4]?.toLowerCase()
     if (suffix === 'pm' && hour < 12) hour += 12
     if (suffix === 'am' && hour === 12) hour = 0
-    return { hour, minute: Number(clock[2]), token: clock[0] }
+    hour = periodHour(hour, clock[1])
+    return { hour: hour % 24, minute: Number(clock[3]), tokens: [clock[0]] }
   }
   const meridiem = /(\d{1,2})\s*(am|pm)\b/i.exec(text)
   if (meridiem) {
     let hour = Number(meridiem[1])
     if (meridiem[2].toLowerCase() === 'pm' && hour < 12) hour += 12
     if (meridiem[2].toLowerCase() === 'am' && hour === 12) hour = 0
-    return { hour, minute: 0, token: meridiem[0] }
+    return { hour: hour % 24, minute: 0, tokens: [meridiem[0]] }
   }
-  const chinese = new RegExp(`(\\d{1,2})\\s*[${ZH.timeUnits}](${ZH.half})?`).exec(text)
+  const chinese = new RegExp(`(${ZH.periodWords})?\\s*(\\d{1,2})\\s*[${ZH.timeUnits}](${ZH.half}|\\d{1,2}\\s*${ZH.minuteUnit}?)?`).exec(text)
   if (chinese) {
-    return { hour: Number(chinese[1]), minute: chinese[2] ? 30 : 0, token: chinese[0] }
+    const minuteText = chinese[3]
+    const minute = minuteText === ZH.half
+      ? 30
+      : minuteText
+        ? Number(minuteText.replace(/[^\d]/g, ''))
+        : 0
+    return {
+      hour: periodHour(Number(chinese[2]), chinese[1]) % 24,
+      minute: Math.min(59, minute),
+      tokens: [chinese[0]],
+    }
   }
   return null
 }
@@ -131,7 +150,7 @@ export function parseQuickAdd(
   const end = start.add({ minutes: Math.max(5, duration?.minutes ?? defaultDurationMinutes) })
 
   let title = trimmed
-  for (const token of [date.token, time?.token, duration?.token]) {
+  for (const token of [date.token, ...(time?.tokens ?? []), duration?.token]) {
     if (token) title = title.replace(token, ' ')
   }
   title = title.replace(/\s+/g, ' ').replace(/^[-—:\uff1a,\uff0c\s]+|[-—:\uff1a,\uff0c\s]+$/g, '').trim()

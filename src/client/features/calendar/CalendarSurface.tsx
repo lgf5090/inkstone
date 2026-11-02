@@ -52,9 +52,12 @@ import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
 import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictDialog'
 import { CalendarEventExtras } from './CalendarEventExtras'
+import { CalendarEventDialog, type NewCalendarEvent } from './CalendarEventDialog'
+import { CalendarQuickAdd } from './CalendarQuickAdd'
+import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
 import { buildPrintSheet, printCalendarSheet, printPeriod } from './print'
-import { paintableRange, rangeFor, sameRevision, saveRange } from './range-cache'
+import { paintableRange, rangeCovers, rangeFor, sameRevision, saveRange } from './range-cache'
 import { observeViewSwitcher } from './view-switcher-a11y'
 import type { PrintSheet } from './print'
 import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilteredSearch'
@@ -101,13 +104,18 @@ interface SurfaceActions {
   onCalendarUpdate?: (calendar: CalendarType) => void
   onCalendarDelete?: (calendarId: string) => void | Promise<void>
   onCalendarReorder?: (fromIndex: number, toIndex: number) => void
+  /** A double-click on an empty grid cell; the date is the cell the reader pointed at. */
+  onGridDoubleClick?: (date: Date) => void
 }
 
 function viewType(name: CalendarPreferences['defaultView']): ViewType {
   return ViewType[name.toUpperCase() as keyof typeof ViewType]
 }
 
-function toViews(preferences: CalendarPreferences): CalendarView[] {
+function toViews(
+  preferences: CalendarPreferences,
+  onGridDoubleClick: (date: Date) => void,
+): CalendarView[] {
   const secondary = preferences.secondaryTimeZone ?? undefined
   const weekStart = preferences.weekStart
   // Working hours are the ruler the timed views open with; off means the whole day stays on show.
@@ -123,8 +131,10 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       showAllDay: true,
       scrollToCurrentTime: true,
       showEventDots: preferences.showEventDots,
+      // The runtime day view reads this callback even though its declaration omits it.
+      gridDateDoubleClick: onGridDoubleClick,
       ...hours,
-    }),
+    } as Parameters<typeof createDayView>[0] & { gridDateDoubleClick: (date: Date) => void }),
     createWeekView({
       hourHeight: preferences.dayHourHeight,
       timeFormat: preferences.timeFormat,
@@ -134,7 +144,7 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       scrollToCurrentTime: true,
       secondaryTimeZone: secondary,
       showEventDots: preferences.showEventDots,
-      gridDateDoubleClick: 'create-event',
+      gridDateDoubleClick: onGridDoubleClick,
       ...hours,
     }),
     createMonthView({
@@ -145,7 +155,7 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       scroll: { disabled: !preferences.monthScroll },
       eventHeight: MONTH_EVENT_HEIGHT,
       showEventDots: preferences.showEventDots,
-      gridDateDoubleClick: 'create-event',
+      gridDateDoubleClick: onGridDoubleClick,
     }),
     createYearView({
       startOfWeek: weekStart,
@@ -153,7 +163,7 @@ function toViews(preferences: CalendarPreferences): CalendarView[] {
       showTimedEventsInYearView: preferences.yearShowTimedEvents,
       gridHeatmapLevels: preferences.yearHeatmapLevels,
       showEventDots: preferences.showEventDots,
-      gridDateDoubleClick: 'create-event',
+      gridDateDoubleClick: onGridDoubleClick,
     }),
     createAgendaView({
       daysToShow: preferences.agendaDays,
@@ -291,7 +301,7 @@ function buildConfig(input: {
     },
   }
   return {
-    views: toViews(preferences),
+    views: toViews(preferences, date => actions.current.onGridDoubleClick?.(date)),
     plugins: [
       createDragPlugin({
         enableDrag: true,
@@ -398,12 +408,16 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [filteredSearchOpen, setFilteredSearchOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [createStart, setCreateStart] = useState<Date | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [rangeError, setRangeError] = useState<string | null>(null)
+  const [rangeLoading, setRangeLoading] = useState(false)
   const [rangeTruncated, setRangeTruncated] = useState(initialTruncated || initialRecurrenceTruncated)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictTarget | null>(null)
   const [extrasEventId, setExtrasEventId] = useState<string | null>(null)
+  const [extrasReadOnly, setExtrasReadOnly] = useState(false)
   const [printSheet, setPrintSheet] = useState<PrintSheet | null>(null)
   const shownRef = useRef<string | null>(null)
   const dismissedRef = useRef<string | null>(null)
@@ -431,9 +445,13 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const printCurrentPeriod = useCallback(async (): Promise<void> => {
     const preferences = preferencesRef.current
     const view = String(app.getCurrentView().type).toLowerCase()
-    const period = printPeriod(view, app.getCurrentDate(), preferences.timeZone, preferences.weekStart)
+    const period = printPeriod(view, app.getCurrentDate(), preferences.timeZone, preferences.weekStart, preferences.agendaDays)
     try {
       const fetched = await api.getEvents({ from: period.fromMs, to: period.toMs })
+      if (fetched.truncated || fetched.recurrenceTruncated) {
+        useUi.getState().toast({ title: t('calendar.print.truncated'), tone: 'warning' })
+        return
+      }
       const visible = metaRef.current.calendars.filter(calendar => calendar.isVisible)
       const shown = new Set(visible.map(calendar => calendar.id))
       const events = [...fetched.events, ...fetched.occurrences].filter(event => (
@@ -509,7 +527,11 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
 
   const [revs] = useState(() => new Map(initialEvents.map(event => [event.id, event.rev])))
   const persistenceRef = useRef<EventPersistence | null>(null)
-  const covered = useRef<Array<[number, number]>>([[initialRange.from, initialRange.to]])
+  // A truncated first page cannot prove that a smaller visible range is covered; let the surface
+  // fetch that range on its own instead of trusting a page that already hit its row ceiling.
+  const covered = useRef<Array<[number, number]>>(
+    initialTruncated || initialRecurrenceTruncated ? [] : [[initialRange.from, initialRange.to]],
+  )
   const inFlight = useRef<Array<[number, number]>>([])
   const lastRange = useRef(initialRange)
   const failedRange = useRef<{ from: number; to: number } | null>(null)
@@ -601,7 +623,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const searchAbort = useRef<AbortController | null>(null)
   useEffect(() => () => searchAbort.current?.abort(), [])
 
-  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }, truncated: boolean): Set<string> => {
+  const applySnapshot = useCallback((dtos: CalendarEventDto[], range: { from: number; to: number }, truncated: boolean, mirror = true): Set<string> => {
     const timeZone = preferencesRef.current.timeZone
     const revById = new Map(dtos.map(dto => [dto.id, dto.rev]))
     const mapped = dtos.map(dto => toDayFlowEvent(dto, timeZone))
@@ -623,9 +645,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       app.applyEventsChanges({ add, update }, false, 'remote')
     }
     // A complete range is a mirror: anything local that overlaps it and did not come back was deleted
-    // elsewhere. Recurring masters and generated occurrences are views, never rows of their own; a
-    // truncated page cannot prove absence, and a queued write must be allowed to reach the server.
-    const stale = truncated || dtos.length >= MAX_EVENTS_PER_QUERY
+    // elsewhere. A partial cached overlap is only a paint, not proof of absence. Recurring masters and
+    // generated occurrences are views, never rows of their own; a truncated page cannot prove absence,
+    // and a queued write must be allowed to reach the server.
+    const stale = !mirror || truncated || dtos.length >= MAX_EVENTS_PER_QUERY
       ? []
       : missingRangeEventIds({
           events: [...existing.values()],
@@ -644,7 +667,11 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [app, revs])
 
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
-    const page = await api.getEvents({ from, to })
+    const page = await api.getEvents({
+      from,
+      to,
+      includeOccurrences: app.getCurrentView().type !== 'month',
+    })
     const fetched = applySnapshot(page.events, { from, to }, page.truncated)
     updateOccurrences(page.occurrences, { from, to })
     setRangeTruncated(page.truncated || page.recurrenceTruncated)
@@ -652,7 +679,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     lastPage.current = { from, to, page }
     if (accountRef.current) rememberRange(accountRef.current, from, to, page)
     return fetched
-  }, [applySnapshot, updateOccurrences, userId])
+  }, [applySnapshot, updateOccurrences, userId, app])
 
   /**
    * Ask the fingerprint before pulling the rows.
@@ -710,6 +737,38 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
    */
   // The library draws the current view; this makes it announce which one that is.
   useEffect(() => observeViewSwitcher(document), [])
+
+  /**
+   * DayFlow owns the grid, but not the interaction contract around it: on a desktop a click must
+   * select the event for our extras instead of opening its full-screen mobile sheet, every event
+   * needs a keyboard stop, and the compact header/add button must speak the reader's language.
+   * The bridge observes the library's re-renders so all three stay true after a view switch.
+   */
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>('.inkstone-calendar')
+    if (!root) return
+    return attachCalendarChrome({
+      root,
+      app,
+      locale: appLocale,
+      weekStart: meta.preferences.weekStart,
+      detailTrigger: meta.preferences.eventDetailTrigger,
+      addLabel: t('calendar.event.new'),
+      untitledLabel: t('calendar.event.untitled'),
+      allDayLabel: t('calendar.event.all_day'),
+      interceptEvents: wide,
+      onAdd: () => setQuickAddOpen(true),
+      onRecurring: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
+      onSelect: id => {
+        const event = app.getEvents().find(item => item.id === id)
+        setExtrasReadOnly(event ? eventCalendarIds(event).some(calendarId => !app.canMutateFromUI(calendarId)) : false)
+        dismissedRef.current = null
+        shownRef.current = id
+        setExtrasEventId(id)
+      },
+      onOpenDetail: id => app.onEventDetailToggle(id),
+    })
+  }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, wide])
 
   useEffect(() => {
     const onVisibility = (): void => {
@@ -771,11 +830,12 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     const range = lastRange.current
     const cached = paintableRange(userId, range.from, range.to)
     if (!cached) return
-    applySnapshot(cached.events, { from: range.from, to: range.to }, false)
+    applySnapshot(cached.events, { from: range.from, to: range.to }, false, rangeCovers(cached, range.from, range.to))
     updateOccurrences(cached.occurrences, { from: range.from, to: range.to })
   }, [applySnapshot, updateOccurrences, userId])
 
   const runRangeFetch = useCallback(async (from: number, to: number): Promise<void> => {
+    setRangeLoading(true)
     try {
       await fetchRange(from, to)
       covered.current.push([from, to])
@@ -784,6 +844,8 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     } catch (error) {
       failedRange.current = { from, to }
       setRangeError(error instanceof Error && error.message ? error.message : t('calendar.error.range'))
+    } finally {
+      setRangeLoading(false)
     }
   }, [fetchRange])
 
@@ -799,13 +861,16 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [])
 
   const loadRange = useCallback((start: number, end: number): void => {
+    // A visible day/week already inside the shell's first page needs no padded refetch, even though
+    // the padded range would extend past it. This keeps the first week at one request.
+    if (isCovered(covered.current, start, end) || isCovered(inFlight.current, start, end)) return
     const { from, to } = paddedRange(start, end)
     if (isCovered(covered.current, from, to) || isCovered(inFlight.current, from, to)) return
     // The last complete answer for this range goes up before the request leaves, so a reload paints the
     // reader's week instead of an empty grid. The fetch below replaces it with the server's answer.
     const cached = userId ? paintableRange(userId, from, to) : null
     if (cached) {
-      applySnapshot(cached.events, { from, to }, false)
+      applySnapshot(cached.events, { from, to }, false, rangeCovers(cached, from, to))
       updateOccurrences(cached.occurrences, { from, to })
     }
     inFlight.current.push([from, to])
@@ -815,6 +880,22 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [applySnapshot, paddedRange, runRangeFetch, updateOccurrences, userId])
 
   const requestMiniRange = useCallback((from: number, to: number): void => loadRange(from, to), [loadRange])
+
+  // The shell fetches only a two-week first page. A month or year view still needs its own
+  // (padded) range, and waiting for the first scroll to ask for it would leave the grid empty.
+  const initialVisibleRangeLoaded = useRef(false)
+  useEffect(() => {
+    if (initialVisibleRangeLoaded.current) return
+    initialVisibleRangeLoaded.current = true
+    const period = printPeriod(
+      String(app.getCurrentView().type).toLowerCase(),
+      app.getCurrentDate(),
+      preferencesRef.current.timeZone,
+      preferencesRef.current.weekStart,
+      preferencesRef.current.agendaDays,
+    )
+    loadRange(period.fromMs, period.toMs)
+  }, [app, loadRange])
 
   const retryRange = (): void => {
     const range = failedRange.current
@@ -957,6 +1038,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     onCalendarUpdate: calendar => { void persistCalendarChange(calendar) },
     onCalendarDelete: calendarId => persistCalendarDelete(calendarId),
     onCalendarReorder: () => persistOrder(),
+    onGridDoubleClick: date => setCreateStart(date),
   }
 
   useEffect(() => {
@@ -1009,6 +1091,8 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (selected.includes('::repeat-') || selected === shownRef.current) return
     if (selected === dismissedRef.current) return
     shownRef.current = selected
+    const event = app.getEvents().find(item => item.id === selected)
+    setExtrasReadOnly(event ? eventCalendarIds(event).some(id => !app.canMutateFromUI(id)) : false)
     setExtrasEventId(selected)
   }), [app])
 
@@ -1061,7 +1145,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (appliedPreferences.current === preferencesSignature) return
     appliedPreferences.current = preferencesSignature
     app.updateConfig({
-      views: toViews(meta.preferences),
+      views: toViews(meta.preferences, date => actions.current.onGridDoubleClick?.(date)),
       timeZone: meta.preferences.timeZone,
       timeFormat: meta.preferences.timeFormat,
       calendarSystem: meta.preferences.calendarSystem,
@@ -1089,6 +1173,12 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       searchAbort.current = controller
       try {
         const response = await api.searchEvents(keyword, controller.signal)
+        if (response.truncated) {
+          useUi.getState().toast({
+            title: t('calendar.search.truncated', { count: response.results.length }),
+            tone: 'warning',
+          })
+        }
         return response.results.map(result => toSearchEvent(result, preferencesRef.current.timeZone))
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') return []
@@ -1118,6 +1208,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onClose={() => setDrawerOpen(false)}
       onOpenSettings={() => setSettingsOpen(true)}
       onOpenFilteredSearch={() => setFilteredSearchOpen(true)}
+      onOpenQuickAdd={() => setQuickAddOpen(true)}
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
       onRequestRange={requestMiniRange}
@@ -1127,6 +1218,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           eventId={extrasEventId}
           accountTimeZone={meta.preferences.timeZone}
           locale={appLocale}
+          readOnly={extrasReadOnly}
           onClose={() => {
             dismissedRef.current = extrasEventId
             shownRef.current = null
@@ -1157,6 +1249,13 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {rangeLoading && (
+          <div role="status" aria-live="polite" className="shrink-0">
+            <span className="sr-only">{t('calendar.range.loading')}</span>
+            <div aria-hidden="true" className="h-0.5 w-full animate-pulse bg-[var(--accent)]" />
+          </div>
+        )}
+
         {rangeError && (
           <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
             <AlertTriangle size={13} className="shrink-0 text-[var(--warning)]" aria-hidden="true" />
@@ -1210,6 +1309,41 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         />
       )}
 
+      {quickAddOpen && (
+        <CalendarQuickAdd
+          open
+          app={app}
+          timeZone={meta.preferences.timeZone}
+          onClose={() => setQuickAddOpen(false)}
+        />
+      )}
+
+      {createStart && (
+        <CalendarEventDialog
+          open
+          initialStart={createStart}
+          timeZone={meta.preferences.timeZone}
+          calendars={meta.calendars}
+          defaultCalendarId={defaultCalendarId(meta)}
+          onClose={() => setCreateStart(null)}
+          onCreate={(draft: NewCalendarEvent) => {
+            app.addEvent({
+              id: crypto.randomUUID(),
+              title: draft.title,
+              description: draft.description || undefined,
+              start: draft.allDay ? draft.startDate : draft.start,
+              end: draft.allDay ? draft.endDate : draft.end,
+              allDay: draft.allDay,
+              calendarId: draft.calendarId,
+              calendarIds: [draft.calendarId],
+              meta: {},
+            })
+            useUi.getState().toast({ title: t('calendar.event.created'), tone: 'success' })
+            setCreateStart(null)
+          }}
+        />
+      )}
+
       <CalendarFilteredSearch
         open={filteredSearchOpen}
         calendars={meta.calendars}
@@ -1219,6 +1353,8 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           if (date) app.setCurrentDate(date)
           app.highlightEvent(result.event.id)
           app.selectEvent(result.event.id)
+          const ids = eventCalendarIds(result.event)
+          setExtrasReadOnly(ids.some(id => meta.calendars.find(calendar => calendar.id === id)?.readOnly === true))
         }}
       />
 

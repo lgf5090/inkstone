@@ -269,6 +269,13 @@ export const useSession = create<SessionState>((set, get) => ({
       // not started into a no-op. Reporting its failure would describe a cache about to be destroyed.
       await pendingSessionCache.catch(() => {})
       await localDb.clear()
+      try {
+        const { clearCalendarSessionCaches } = await import('../features/calendar/session-cache')
+        clearCalendarSessionCaches()
+      } catch (error) {
+        // Logout must still complete; the reload below would otherwise leave the reader signed in.
+        console.warn('[inkstone] Calendar cache cleanup failed:', error instanceof Error ? error.message : error)
+      }
       // Feature-owned localStorage snapshots (the music queue and preferences) belong to the account
       // that just left; the reload would otherwise reveal them to the next login on this browser.
       window.dispatchEvent(new Event('inkstone:session-cleared'))

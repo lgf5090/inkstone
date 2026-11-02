@@ -19,7 +19,7 @@ import { ApiError } from '../lib/errors'
 import { isValidSlug } from '../lib/id'
 import { requestClientIp } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
-import { recordShareView, shareOwner, sharedCalendarChunks } from '../calendar/shares'
+import { recordShareView, sharedCalendarChunks, sharedCalendarEtag, shareOwner } from '../calendar/shares'
 
 /** A published calendar is a subscription, not a report: four megabytes of text is generous. */
 const PUBLIC_ICS_BYTES = 4 * 1024 * 1024
@@ -48,6 +48,15 @@ calendarPublicRoutes.get('/calendar/:slug', async (c) => {
   await throttled(c, slug)
   const owner = await shareOwner(c.env.DB, slug)
   if (!owner) throw ApiError.notFound('Calendar not found')
+  const fingerprint = await sharedCalendarEtag(c.env.DB, owner.userId, owner.calendarId)
+  if (!fingerprint) throw ApiError.notFound('Calendar not found')
+  const ifNoneMatch = c.req.header('if-none-match')?.split(',').map(value => value.trim()) ?? []
+  if (ifNoneMatch.includes(fingerprint.etag)) {
+    return c.body(null, 304, {
+      ETag: fingerprint.etag,
+      'Cache-Control': 'no-cache',
+    })
+  }
   const answer = await sharedCalendarChunks(c.env.DB, owner.userId, owner.calendarId, PUBLIC_ICS_BYTES)
   if (!answer.chunks) {
     throw ApiError.tooLarge('That shared calendar is too large to publish as one file')
@@ -61,7 +70,8 @@ calendarPublicRoutes.get('/calendar/:slug', async (c) => {
     },
   }), 200, {
     'Content-Type': 'text/calendar; charset=utf-8',
-    'Cache-Control': 'no-store',
+    'Cache-Control': 'no-cache',
+    ETag: fingerprint.etag,
     'X-Content-Type-Options': 'nosniff',
   })
 })

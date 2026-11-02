@@ -31,7 +31,7 @@ import {
 } from '@shared/calendar/model'
 
 /** How far around today the first fetch reaches. Navigation fetches more, padded by the same idea. */
-export const INITIAL_RANGE_DAYS = 90
+export const INITIAL_RANGE_DAYS = 14
 /** Extra days fetched on either side of a visible range, so a small scroll does not refetch. */
 export const RANGE_PADDING_DAYS = 30
 /** Events drawn per row in the month grid; the rest live behind DayFlow's "more" popup. */

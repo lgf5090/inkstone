@@ -24,6 +24,8 @@ export interface EventRangeQuery {
   from: number
   to: number
   calendarIds?: string[]
+  /** Month view expands recurring series in the library; it can skip the server's copy. */
+  includeOccurrences?: boolean
 }
 
 export interface EventSearchResponse {
@@ -36,6 +38,7 @@ export interface CalendarCreateInput {
   name: string
   color: string
   darkColor?: string
+  icon?: string | null
   groupId?: string | null
   isDefault?: boolean
   isVisible?: boolean
@@ -57,7 +60,7 @@ export interface CalendarPatchInput {
 export interface IcsImportResponse {
   calendarId: string
   imported: number
-  warnings?: Array<{ code: string; message: string }>
+  warnings?: Array<{ code: string; message: string; line?: number; uid?: string }>
 }
 
 export interface SubscriptionInput {
@@ -74,11 +77,13 @@ function rangeQuery(query: EventRangeQuery): string {
     to: new Date(query.to).toISOString(),
   })
   if (query.calendarIds?.length) params.set('calendarIds', query.calendarIds.join(','))
+  if (query.includeOccurrences === false) params.set('occurrences', '0')
   return params.toString()
 }
 
-export function getMeta(signal?: AbortSignal): Promise<CalendarMetaDto> {
-  return request<CalendarMetaDto>('/api/calendar/meta', { signal })
+export function getMeta(defaultCalendarName?: string, signal?: AbortSignal): Promise<CalendarMetaDto> {
+  const query = defaultCalendarName ? `?defaultName=${encodeURIComponent(defaultCalendarName)}` : ''
+  return request<CalendarMetaDto>(`/api/calendar/meta${query}`, { signal })
 }
 
 export interface EventRangeResponse {
@@ -144,6 +149,23 @@ export async function getEvent(id: string): Promise<CalendarEventDto | null> {
   try {
     const data = await request<{ event: CalendarEventDto }>(`/api/calendar/events/${entity(id)}`)
     return data.event
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null
+    throw error
+  }
+}
+
+export interface EventExtrasResponse {
+  event: CalendarEventDto
+  reminders: number[]
+  attendees: CalendarAttendeeDto[]
+  attachments: CalendarAttachmentDto[]
+}
+
+/** One read for the sidebar card: reminders, guests and files all belong to one event. */
+export async function getEventExtras(id: string): Promise<EventExtrasResponse | null> {
+  try {
+    return await request<EventExtrasResponse>(`/api/calendar/events/${entity(id)}/extras`)
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null
     throw error
@@ -335,7 +357,7 @@ export function unshareCalendar(calendarId: string): Promise<void> {
 export interface SubscriptionCreateResponse {
   calendarId: string
   imported: number
-  warnings: Array<{ code: string; message: string }>
+  warnings: Array<{ code: string; message: string; line?: number; uid?: string }>
 }
 
 export function createSubscription(input: SubscriptionInput): Promise<SubscriptionCreateResponse> {

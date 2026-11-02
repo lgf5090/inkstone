@@ -195,6 +195,16 @@ describe('an event attachment', () => {
     expect(patched.ok).toBe(true)
     expect((await upload(event.id, 'notes.txt')).status).toBe(403)
   })
+
+  it('refuses removing an attachment once its calendar is read-only', async () => {
+    const calendar = await newCalendar('Synced')
+    const event = await newEvent(calendar.id)
+    const { attachment } = await json<{ attachment: CalendarAttachmentDto }>(await upload(event.id, 'notes.txt'))
+    const patched = await call('PATCH', `/calendars/${calendar.id}`, { readOnly: true, rev: calendar.rev })
+    expect(patched.ok).toBe(true)
+    expect((await call('DELETE', `/events/${event.id}/attachments/${attachment.id}`)).status).toBe(403)
+    expect(count('SELECT COUNT(*) AS n FROM attachments WHERE id = ?', attachment.id)).toBe(1)
+  })
 })
 
 describe('removing an attachment', () => {

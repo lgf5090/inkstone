@@ -418,4 +418,68 @@ describe('the range fingerprint', () => {
     // `/events/:id` answers 400 for the word "revision"; a 200 here proves the probe matched first.
     expect((await call('GET', `/events/revision?${WINDOW}`)).status).toBe(200)
   })
+
+  it('can skip server-side recurrence expansion for a month view', async () => {
+    const home = (await meta()).calendars[0]!
+    await json(await call('POST', '/events', eventBody(home.id, { recurrenceRule: 'FREQ=WEEKLY' })))
+    const range = 'from=2026-10-01T00:00:00Z&to=2026-12-01T00:00:00Z'
+    const expanded = await json<{ occurrences: unknown[] }>(await call('GET', `/events?${range}`))
+    const skipped = await json<{ occurrences: unknown[]; recurrenceTruncated: boolean }>(
+      await call('GET', `/events?${range}&occurrences=0`),
+    )
+    expect(expanded.occurrences.length).toBeGreaterThan(0)
+    expect(skipped.occurrences).toEqual([])
+    expect(skipped.recurrenceTruncated).toBe(false)
+  })
+})
+
+describe('the event extras read', () => {
+  it('names the first default calendar in the caller\'s language', async () => {
+    const answer = await json<CalendarMetaDto>(await call('GET', `/meta?defaultName=${encodeURIComponent('我的日历')}`))
+    expect(answer.calendars[0]?.name).toBe('我的日历')
+  })
+
+  it('exposes a subscription host but never its capability path', async () => {
+    const home = (await meta()).calendars[0]!
+    sqlite.prepare(
+      `INSERT INTO calendar_subscriptions
+         (user_id, id, calendar_id, kind, url, enabled, sync_state_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'ics', ?, 1, '{}', ?, ?)`,
+    ).run(ALICE, 'sub-1', home.id, 'https://feeds.example.com/private/secret-token', 1, 1)
+    const answer = await meta()
+    expect(answer.subscriptions[0]?.urlHost).toBe('feeds.example.com')
+    expect(JSON.stringify(answer)).not.toContain('secret-token')
+    expect(JSON.stringify(answer)).not.toContain('/private/')
+  })
+  it('answers reminders, guests and files for one event in one read', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+    const reminders = await json<{ event: CalendarEventDto }>(await call('PUT', `/events/${created.event.id}/reminders`, {
+      minutes: [10, 60],
+      rev: created.event.rev,
+    }))
+    const attendees = await json<{ event: CalendarEventDto }>(await call('PUT', `/events/${created.event.id}/attendees`, {
+      attendees: [{ email: 'kim@example.com', name: 'Kim', status: 'accepted' }],
+      rev: reminders.event.rev,
+    }))
+    const answer = await json<{
+      event: CalendarEventDto
+      reminders: number[]
+      attendees: Array<{ email: string; status: string }>
+      attachments: unknown[]
+    }>(await call('GET', `/events/${created.event.id}/extras`))
+    expect(answer.event.id).toBe(created.event.id)
+    expect(answer.event.rev).toBe(attendees.event.rev)
+    expect(answer.reminders).toEqual([10, 60])
+    expect(answer.attendees).toEqual([{ email: 'kim@example.com', name: 'Kim', status: 'accepted' }])
+    expect(answer.attachments).toEqual([])
+  })
+
+  it('answers 404 for an event this account does not own', async () => {
+    const home = (await meta()).calendars[0]!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/events', eventBody(home.id)))
+    user = BOB
+    expect((await call('GET', `/events/${created.event.id}/extras`)).status).toBe(404)
+    user = ALICE
+  })
 })

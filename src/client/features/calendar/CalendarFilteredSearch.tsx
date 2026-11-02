@@ -49,6 +49,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
   const [results, setResults] = useState<CalendarSearchResultDto[]>([])
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<CalendarSearchResultDto | null>(null)
 
@@ -69,6 +70,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
         ...(kind ? { kind } : {}),
       })
       setResults(response.results)
+      setTruncated(response.truncated)
       setSearched(true)
     } catch (searchError) {
       setError(searchError instanceof Error && searchError.message ? searchError.message : t('calendar.search.failed'))
@@ -93,6 +95,7 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
             <Input
               data-autofocus
               value={keyword}
+              maxLength={100}
               placeholder={t('calendar.filtered_search.keyword_placeholder')}
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={(event) => {
@@ -137,6 +140,12 @@ export function CalendarFilteredSearch({ open, calendars, onClose, onPick }: Cal
         </div>
 
         {error && <p role="alert" className="text-[length:var(--text-12)] text-[var(--danger)]">{error}</p>}
+
+        {truncated && (
+          <p role="status" className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+            {t('calendar.search.truncated', { count: results.length })}
+          </p>
+        )}
 
         {searched && (
           results.length === 0

@@ -16,6 +16,7 @@ import type {
   CalendarSubscriptionDto,
 } from '@shared/calendar/model'
 import { cn } from '../../lib/cn'
+import { fullTime } from '../../lib/time'
 import { t, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
 import { useUi } from '../../store/ui'
@@ -23,7 +24,6 @@ import { Button, IconButton, SectionLabel } from '../../components/primitives'
 import { Menu, Tooltip, confirm, type MenuItem, submenuFor } from '../../components/overlay'
 import { Checkbox } from '../../components/form'
 import { MiniMonth } from './MiniMonth'
-import { CalendarQuickAdd } from './CalendarQuickAdd'
 import {
   CalendarFormDialog,
   CalendarShareDialog,
@@ -53,6 +53,8 @@ interface CalendarSidebarProps {
   onClose: () => void
   onOpenSettings: () => void
   onOpenFilteredSearch: () => void
+  /** The single natural-language entry, owned by the surface so the header "+" can open it too. */
+  onOpenQuickAdd?: () => void
   /** Refresh meta and the DayFlow registry; `reloadEvents` also refetches the visible range. */
   onRefresh: (reloadEvents: boolean) => Promise<void>
   onSelectDate: (date: Date) => void
@@ -69,15 +71,6 @@ function toastFailure(title: string, error: unknown): void {
     description: error instanceof Error && error.message ? error.message : undefined,
     tone: 'danger',
   })
-}
-
-function feedHost(raw: string | null): string | null {
-  if (!raw) return null
-  try {
-    return new URL(raw).hostname
-  } catch {
-    return null
-  }
 }
 
 function safeFileName(name: string): string {
@@ -153,6 +146,7 @@ export function CalendarSidebar({
   onClose,
   onOpenSettings,
   onOpenFilteredSearch,
+  onOpenQuickAdd,
   onRefresh,
   onSelectDate,
   onRequestRange,
@@ -165,7 +159,6 @@ export function CalendarSidebar({
   const [dialog, setDialog] = useState<DialogState>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
-  const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
@@ -182,7 +175,7 @@ export function CalendarSidebar({
     app.getCalendarRegistry().resolveColors(calendar.id, dark ? 'dark' : 'light').eventColor
 
   const openAddMenu = (kind: 'calendar' | 'group' | 'import' | 'subscribe' | 'quick'): void => {
-    if (kind === 'quick') setQuickAddOpen(true)
+    if (kind === 'quick') onOpenQuickAdd?.()
     else if (kind === 'calendar') setDialog({ kind: 'create-calendar', groupId: null })
     else if (kind === 'group') setDialog({ kind: 'create-group' })
     else if (kind === 'import') setImportOpen(true)
@@ -306,7 +299,7 @@ export function CalendarSidebar({
     const calendar = metaById.get(subscription.calendarId)
     const confirmed = await confirm({
       title: t('calendar.subscription.remove_title'),
-      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? feedHost(subscription.url) ?? subscription.kind }),
+      description: t('calendar.subscription.remove_body', { name: calendar?.name ?? subscription.urlHost ?? subscription.kind }),
       confirmLabel: t('calendar.subscription.remove'),
       tone: 'danger',
     })
@@ -557,10 +550,26 @@ export function CalendarSidebar({
                       <Checkbox
                         checked={subscription.enabled}
                         onChange={enabled => void setSubscriptionEnabled(subscription, enabled)}
+                        ariaLabel={t('calendar.subscription.enabled_named', {
+                          name: calendar?.name ?? subscription.urlHost ?? subscription.kind,
+                        })}
                         label={<span className="sr-only">{t('calendar.subscription.enabled')}</span>}
                       />
                       <Rss size={12} className="shrink-0 text-[var(--text-quaternary)]" aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate">{calendar?.name ?? feedHost(subscription.url) ?? subscription.kind}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{calendar?.name ?? subscription.urlHost ?? subscription.kind}</span>
+                        {subscription.lastErrorCode
+                          ? (
+                              <span className="block truncate text-[length:var(--text-10)] text-[var(--danger)]">
+                                {t('calendar.subscription.last_error', { code: subscription.lastErrorCode })}
+                              </span>
+                            )
+                          : subscription.lastSyncAt !== null && (
+                              <span className="block truncate text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                                {t('calendar.subscription.last_sync', { time: fullTime(subscription.lastSyncAt) })}
+                              </span>
+                            )}
+                      </span>
                       {subscription.kind === 'ics' && (
                         <>
                           <IconButton
@@ -674,14 +683,6 @@ export function CalendarSidebar({
           onSaved={() => onRefresh(true)}
         />
       )}
-      {quickAddOpen && (
-        <CalendarQuickAdd
-          open
-          app={app}
-          timeZone={preferences.timeZone}
-          onClose={() => setQuickAddOpen(false)}
-        />
-      )}
       {subscribeOpen && (
         <SubscribeDialog
           open
@@ -736,7 +737,7 @@ export function CalendarSidebar({
                 moveCalendar(calendar.id, 1)
               }
             }}
-            className="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-quaternary)] opacity-40 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] active:cursor-grabbing"
+            className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-quaternary)] opacity-40 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] active:cursor-grabbing"
           >
             <span aria-hidden="true" className="text-[length:var(--text-10)] leading-none">⠿</span>
           </button>

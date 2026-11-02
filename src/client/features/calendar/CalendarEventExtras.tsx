@@ -6,7 +6,7 @@
  * row, writes back with its revision, and hands the new revision to the surface so the write queue
  * does not send a stale PATCH afterwards.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
@@ -21,14 +21,18 @@ import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
 import { X, Trash2 } from 'lucide-react'
 import * as api from './api'
+import { CalendarFilePicker } from './CalendarFilePicker'
+import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
-import { eventTimeZone, reanchorValue, supportedTimeZones } from './timezone'
+import { eventTimeZone, reanchorValue } from './timezone'
 
 interface CalendarEventExtrasProps {
   eventId: string
   /** The zone the calendar itself is read in; an event without a zone of its own uses it. */
   accountTimeZone: string
   locale: string
+  /** True when any member calendar is read-only; the server would refuse every write anyway. */
+  readOnly?: boolean
   onClose: () => void
   onRevision: (eventId: string, rev: number) => void
   /** The row moved in time: the surface has to re-read the range so the grid shows the new instant. */
@@ -60,6 +64,7 @@ export function CalendarEventExtras({
   eventId,
   accountTimeZone,
   locale,
+  readOnly = false,
   onClose,
   onRevision,
   onChanged,
@@ -69,9 +74,12 @@ export function CalendarEventExtras({
   const [attendees, setAttendees] = useState<CalendarAttendeeDto[]>([])
   const [files, setFiles] = useState<CalendarAttachmentDto[]>([])
   const [uploading, setUploading] = useState(false)
+  const [savingReminders, setSavingReminders] = useState(false)
+  const [savingAttendees, setSavingAttendees] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const zones = supportedTimeZones()
+  const revisionRef = useRef(onRevision)
+  revisionRef.current = onRevision
 
   useEffect(() => {
     let cancelled = false
@@ -80,26 +88,23 @@ export function CalendarEventExtras({
     setAttendees([])
     setFiles([])
     setUploading(false)
+    setSavingReminders(false)
+    setSavingAttendees(false)
     setDraft('')
     setError(null)
     void (async () => {
       try {
-        const found = await api.getEvent(eventId)
+        const found = await api.getEventExtras(eventId)
         if (cancelled) return
         if (!found) {
           setError(t('calendar.extras.gone'))
           return
         }
-        const [saved, guests, attachments] = await Promise.all([
-          api.getEventReminders(found.id),
-          api.getEventAttendees(found.id),
-          api.getEventAttachments(found.id),
-        ])
-        if (cancelled) return
-        setEvent(found)
-        setMinutes(saved)
-        setAttendees(guests)
-        setFiles(attachments)
+        setEvent(found.event)
+        setMinutes(found.reminders)
+        setAttendees(found.attendees)
+        setFiles(found.attachments)
+        revisionRef.current(found.event.id, found.event.rev)
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error && loadError.message
           ? loadError.message
@@ -126,12 +131,13 @@ export function CalendarEventExtras({
   }
 
   const toggle = (lead: number): void => {
-    if (rev === null) return
+    if (rev === null || readOnly || savingReminders) return
     const previous = minutes
     const next = previous.includes(lead)
       ? previous.filter((value) => value !== lead)
       : [...previous, lead].sort((left, right) => left - right)
     setMinutes(next)
+    setSavingReminders(true)
     void (async () => {
       try {
         const answer = await api.setEventReminders(eventId, next, rev)
@@ -143,15 +149,18 @@ export function CalendarEventExtras({
         setError(saveError instanceof Error && saveError.message
           ? saveError.message
           : t('calendar.error.save_failed'))
+      } finally {
+        setSavingReminders(false)
       }
     })()
   }
 
   /** The whole list is replaced on every edit, so a failed write puts the previous one back. */
   const update = (next: CalendarAttendeeDto[]): void => {
-    if (rev === null) return
+    if (rev === null || readOnly || savingAttendees) return
     const previous = attendees
     setAttendees(next)
+    setSavingAttendees(true)
     void (async () => {
       try {
         const answer = await api.setEventAttendees(eventId, next, rev)
@@ -164,6 +173,8 @@ export function CalendarEventExtras({
         setError(saveError instanceof Error && saveError.message
           ? saveError.message
           : t('calendar.error.save_failed'))
+      } finally {
+        setSavingAttendees(false)
       }
     })()
   }
@@ -189,7 +200,7 @@ export function CalendarEventExtras({
    * as a courtesy — the route decides both for real.
    */
   const upload = (picked: FileList | null): void => {
-    if (!picked?.length || rev === null) return
+    if (!picked?.length || rev === null || readOnly) return
     const chosen = Array.from(picked)
     void (async () => {
       setUploading(true)
@@ -221,6 +232,7 @@ export function CalendarEventExtras({
   }
 
   const removeFile = (file: CalendarAttachmentDto): void => {
+    if (readOnly) return
     void (async () => {
       try {
         await api.removeEventAttachment(eventId, file.id)
@@ -235,7 +247,7 @@ export function CalendarEventExtras({
   }
 
   const changeZone = (zone: string): void => {
-    if (!event || rev === null || event.allDay) return
+    if (!event || rev === null || event.allDay || readOnly) return
     const previous = event
     const moved = {
       ...event,
@@ -253,7 +265,7 @@ export function CalendarEventExtras({
   const startMillis = event ? Number(temporalValueToEpochMs(event.start, accountTimeZone)) : 0
 
   return (
-    <section className="shrink-0 border-t border-[var(--border-subtle)] px-3 py-2.5">
+    <section className="max-h-[45vh] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)] px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {event?.title || t('calendar.event.untitled')}
@@ -262,6 +274,11 @@ export function CalendarEventExtras({
           <X size={14} aria-hidden="true" />
         </IconButton>
       </div>
+      {readOnly && (
+        <p role="status" className="mt-1.5 rounded-[var(--r-sm)] bg-[var(--bg-sunken)] px-2 py-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
+          {t('calendar.extras.read_only')}
+        </p>
+      )}
 
       <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.settings.reminder')}
@@ -273,7 +290,7 @@ export function CalendarEventExtras({
             size="sm"
             variant={minutes.includes(lead) ? 'primary' : 'secondary'}
             aria-pressed={minutes.includes(lead)}
-            disabled={rev === null}
+            disabled={rev === null || readOnly || savingReminders}
             onClick={() => { toggle(lead) }}
           >
             {leadLabel(lead)}
@@ -295,18 +312,13 @@ export function CalendarEventExtras({
         </p>
       ) : (
         <>
-          <Select
+          <CalendarTimeZoneField
             className="mt-1.5 w-full"
-            aria-label={t('calendar.extras.timezone')}
+            label={t('calendar.extras.timezone')}
             value={zone ?? accountTimeZone}
-            disabled={rev === null}
-            onChange={(change) => { changeZone(change.target.value) }}
-          >
-            {!zones.includes(zone ?? '') && zone && <option value={zone}>{zone}</option>}
-            {zones.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </Select>
+            disabled={rev === null || readOnly}
+            onChange={changeZone}
+          />
           <p className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">
             {t('calendar.extras.timezone_shown', {
               local: clockText(startMillis, zone ?? accountTimeZone, locale),
@@ -334,7 +346,7 @@ export function CalendarEventExtras({
               className="w-auto min-w-24 text-[length:var(--text-11-5)]"
               aria-label={`${t('calendar.extras.attendee_status')}: ${attendee.email}`}
               value={attendee.status}
-              disabled={rev === null}
+              disabled={rev === null || readOnly || savingAttendees}
               onChange={(change) => { update(withAttendeeStatus(attendees, attendee.email, change.target.value as CalendarAttendeeStatus)) }}
             >
               {Object.entries(statusLabels()).map(([value, label]) => (
@@ -344,6 +356,7 @@ export function CalendarEventExtras({
             <IconButton
               label={t('calendar.extras.remove_attendee', { email: attendee.email })}
               size="sm"
+              disabled={readOnly || savingAttendees}
               onClick={() => { update(withoutAttendee(attendees, attendee.email)) }}
             >
               <Trash2 size={13} aria-hidden="true" />
@@ -362,10 +375,10 @@ export function CalendarEventExtras({
           value={draft}
           placeholder={t('calendar.extras.attendee_email')}
           aria-label={t('calendar.extras.attendee_email')}
-          disabled={rev === null}
+          disabled={rev === null || readOnly}
           onChange={(change) => { setDraft(change.target.value) }}
         />
-        <Button size="sm" variant="secondary" type="submit" disabled={rev === null || draft.trim().length === 0}>
+        <Button size="sm" variant="secondary" type="submit" disabled={rev === null || readOnly || savingAttendees || draft.trim().length === 0}>
           {t('calendar.extras.add_attendee')}
         </Button>
       </form>
@@ -395,6 +408,7 @@ export function CalendarEventExtras({
             <IconButton
               label={t('calendar.extras.remove_attachment', { name: file.filename })}
               size="sm"
+              disabled={readOnly}
               onClick={() => { removeFile(file) }}
             >
               <Trash2 size={13} aria-hidden="true" />
@@ -402,18 +416,14 @@ export function CalendarEventExtras({
           </li>
         ))}
       </ul>
-      <input
-        type="file"
-        multiple
-        aria-label={t('calendar.extras.add_attachment')}
-        disabled={rev === null || uploading}
-        onChange={(change) => {
-          upload(change.target.files)
-          // The same file may be picked again after a refusal; an unchanged value fires no change event.
-          change.target.value = ''
-        }}
-        className="mt-1.5 block w-full text-[length:var(--text-12)] text-[var(--text-secondary)] file:mr-2 file:cursor-pointer file:rounded-[var(--r-sm)] file:border file:border-[var(--border-default)] file:bg-[var(--bg-raised)] file:px-2.5 file:py-1.5 file:text-[length:var(--text-12)] file:font-medium file:text-[var(--text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-      />
+      <div className="mt-1.5">
+        <CalendarFilePicker
+          label={t('calendar.extras.add_attachment')}
+          multiple
+          disabled={rev === null || readOnly || uploading}
+          onPick={upload}
+        />
+      </div>
       {uploading && (
         <p role="status" className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {t('calendar.extras.uploading')}

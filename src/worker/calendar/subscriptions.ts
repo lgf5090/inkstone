@@ -376,13 +376,22 @@ async function markSubscriptionError(
   ).bind(userId, id, code, now).run()
 }
 
+function subscriptionHost(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return null
+  }
+}
+
 function subscriptionRowToDto(row: SubscriptionRow): CalendarSubscriptionDto {
   const now = Date.now()
   return {
     id: row.id,
     calendarId: row.calendar_id,
     kind: 'ics',
-    url: row.url,
+    urlHost: subscriptionHost(row.url),
     enabled: row.enabled === 1,
     lastSyncAt: row.last_sync_at,
     lastErrorCode: row.last_error_code,

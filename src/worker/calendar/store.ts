@@ -256,6 +256,15 @@ function rangeCalendarFilter(calendarIds?: readonly string[]): string {
     : ''
 }
 
+function subscriptionHost(raw: string | null): string | null {
+  if (!raw) return null
+  try {
+    return new URL(raw).hostname
+  } catch {
+    return null
+  }
+}
+
 function chunks<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = []
   for (let start = 0; start < items.length; start += size) out.push(items.slice(start, start + size))
@@ -387,7 +396,7 @@ export class CalendarStore {
    * do not both create a "Calendar". The default flag is the palette's first pair; a later create
    * that asks to be default clears the old one in the same batch.
    */
-  async ensureDefaultCalendar(): Promise<CalendarDto[]> {
+  async ensureDefaultCalendar(name = 'Calendar'): Promise<CalendarDto[]> {
     const existing = await this.listCalendars()
     if (existing.length > 0) return existing
     const now = Date.now()
@@ -397,9 +406,9 @@ export class CalendarStore {
          user_id, id, name, color, dark_color, icon, group_id, is_default, is_visible,
          read_only, source, subscription_id, position, created_at, updated_at, rev
        )
-       SELECT ?1, ?2, 'Calendar', ?3, ?4, NULL, NULL, 1, 1, 0, 'local', NULL, 0, ?5, ?5, 1
+       SELECT ?1, ?2, ?3, ?4, ?5, NULL, NULL, 1, 1, 0, 'local', NULL, 0, ?6, ?6, 1
         WHERE NOT EXISTS (SELECT 1 FROM calendar_calendars WHERE user_id = ?1)`,
-    ).bind(this.userId, newId(), palette.color, palette.darkColor, now).run()
+    ).bind(this.userId, newId(), name, palette.color, palette.darkColor, now).run()
     return this.listCalendars()
   }
 
@@ -414,9 +423,9 @@ export class CalendarStore {
     return (results ?? []).map(toCalendarDto)
   }
 
-  async meta(): Promise<CalendarMetaDto> {
+  async meta(defaultCalendarName?: string): Promise<CalendarMetaDto> {
     const [calendars, groups, subscriptions, connections, preferences, preferencesInitialized] = await Promise.all([
-      this.ensureDefaultCalendar(),
+      this.ensureDefaultCalendar(defaultCalendarName),
       this.listGroups(),
       this.listSubscriptions(),
       this.listConnections(),
@@ -1524,11 +1533,12 @@ export class CalendarStore {
       )`)
       binds.push(...filters.calendarIds)
     }
-    binds.push(max + 1)
+    const now = Date.now()
+    binds.push(now, now, max + 1)
     const { results } = await this.db.prepare(
       `SELECT * FROM calendar_events
         WHERE ${conditions.join(' AND ')}
-        ORDER BY start_ms DESC, id ASC
+        ORDER BY CASE WHEN start_ms >= ? THEN 0 ELSE 1 END, ABS(start_ms - ?) ASC, start_ms ASC, id ASC
         LIMIT ?`,
     ).bind(...binds).all<EventRow>()
     const rows = results ?? []
@@ -1586,7 +1596,7 @@ export class CalendarStore {
       id: row.id,
       calendarId: row.calendar_id,
       kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'ics',
-      url: row.url,
+      urlHost: subscriptionHost(row.url),
       enabled: row.enabled === 1,
       lastSyncAt: row.last_sync_at,
       lastErrorCode: row.last_error_code,
@@ -1606,9 +1616,7 @@ export class CalendarStore {
       id: row.id,
       kind: row.kind === 'caldav' || row.kind === 'google' || row.kind === 'outlook' ? row.kind : 'caldav',
       label: row.label,
-      baseUrl: row.base_url,
       calendarHomeUrl: row.calendar_home_url,
-      username: row.username,
       scope: row.scope === 'write' ? 'write' : 'read',
       writable: row.writable === 1,
       status: row.status === 'error' || row.status === 'expired' || row.status === 'disconnected'

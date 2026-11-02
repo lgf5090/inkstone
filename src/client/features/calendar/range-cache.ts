@@ -99,6 +99,11 @@ export function rangeFor(
 /** How stale a painted snapshot may be before it is not worth showing. */
 export const MAX_PAINT_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
+/** Whether this answer can be treated as a complete mirror of the requested range. */
+export function rangeCovers(entry: CachedCalendarRange, from: number, to: number): boolean {
+  return entry.from <= from && entry.to >= to
+}
+
 /**
  * The entry to paint when the reader asks for this range.
  *
@@ -125,6 +130,26 @@ export function paintableRange(
     }
   }
   return best
+}
+
+/**
+ * An entry that fully covers the requested range.
+ *
+ * A partial answer may be painted for speed, but it must never be mirrored as if it were complete:
+ * events outside the cached sub-range would look deleted. The first paint and the mirror decision
+ * both ask this question, not "which entry overlaps most".
+ */
+export function coveringRange(
+  userId: string,
+  from: number,
+  to: number,
+  storage: Storage | null = readStorage(),
+  now: number = Date.now(),
+): CachedCalendarRange | null {
+  const fresh = readRanges(userId, storage).filter(entry => now - entry.savedAt <= MAX_PAINT_AGE_MS)
+  const covered = fresh.filter(entry => rangeCovers(entry, from, to))
+  if (covered.length === 0) return null
+  return covered.sort((left, right) => right.savedAt - left.savedAt)[0] ?? null
 }
 
 /** Keep this answer, dropping the oldest and anything that would push the file past its ceiling. */
