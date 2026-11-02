@@ -1355,6 +1355,32 @@ describe('bookmark import', () => {
 })
 
 describe('batch link operations', () => {
+  it('reads only the ids a request names, never the whole collection', async () => {
+    const category = await createCategory(USER_A, 'Home')
+    const links = []
+    for (let index = 0; index < 5; index += 1) links.push(await createLink(USER_A, category.id, `Row ${index}`))
+
+    const seen: string[] = []
+    const original = sqlite.prepare.bind(sqlite)
+    sqlite.prepare = ((sql: string) => {
+      seen.push(sql)
+      return original(sql)
+    }) as typeof sqlite.prepare
+
+    await call('POST', '/api/nav/visits', { body: { visits: [{ linkId: links[0]!.id, count: 1 }] } })
+    await call('POST', '/api/nav/links/batch', { body: { action: 'move', ids: [links[1]!.id, links[2]!.id], fallbackCategoryId: category.id } })
+    await call('POST', '/api/nav/links/batch', { body: { action: 'rewrite', ids: [links[3]!.id], template: 'https://rewritten.example.com/{path}' } })
+    await call('POST', '/api/nav/links/order', { body: { scope: 'category', categoryId: category.id, orderedIds: links.map((link) => link.id) } })
+    await call('DELETE', `/api/nav/links/${links[4]!.id}`)
+
+    sqlite.prepare = original as typeof sqlite.prepare
+    const wholeList = seen.filter((sql) => /SELECT \* FROM nav_links WHERE user_id = \?1 ORDER BY/.test(sql))
+    expect(wholeList, `these statements still read the tenant's whole list: ${wholeList.join(' ;; ')}`).toHaveLength(0)
+    // Not a vacuous green: the keyed lookups the writes now rely on have to actually appear.
+    expect(seen.filter((sql) => /FROM nav_links WHERE user_id = \?1 AND id IN/.test(sql)).length, 'expected id-keyed reads').toBeGreaterThan(0)
+    expect(count('nav_links')).toBe(4)
+  })
+
   it('deletes owned links, reports missing ids and clears their visits', async () => {
     const category = await createCategory(USER_A, 'Batch')
     const keep = await createLink(USER_A, category.id, 'Keep')

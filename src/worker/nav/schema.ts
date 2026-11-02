@@ -35,8 +35,10 @@ export const NAV_SCHEMA_STATEMENTS: readonly string[] = [
      ON nav_links(user_id, category_id, sort_order, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_nav_links_user_pin
      ON nav_links(user_id, pinned, pinned_order)`,
-  `CREATE INDEX IF NOT EXISTS idx_nav_links_category
-     ON nav_links(category_id)`,
+  // The reader's one hot query is the whole-list read that every write path follows, and it orders by
+  // creation, not by category: without this index that ORDER BY runs in a temporary B-tree.
+  `CREATE INDEX IF NOT EXISTS idx_nav_links_user_created
+     ON nav_links(user_id, created_at, id)`,
 
   `CREATE TABLE IF NOT EXISTS nav_link_visits (
     user_id TEXT NOT NULL,
@@ -127,7 +129,7 @@ export const NAV_REQUIRED_INDEXES = [
   'idx_nav_categories_user',
   'idx_nav_links_user_cat',
   'idx_nav_links_user_pin',
-  'idx_nav_links_category',
+  'idx_nav_links_user_created',
   'idx_nav_visits_user_time',
   'idx_nav_icons_user',
   'idx_nav_unlocks_expiry',

@@ -3301,6 +3301,14 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON calendar_reminder_snoozes(user_id, notify_at)`,
     ],
   },
+  {
+    // A bookmark is only ever listed inside its owner's tenant, so an index on `category_id` alone is
+    // written on every link insert and read by nothing: the plan for every category query already walks
+    // (user_id, category_id, …). The replacement is declared with the nav tables; this drops the old one
+    // from databases that created it before the swap.
+    version: 227,
+    statements: [`DROP INDEX IF EXISTS idx_nav_links_category`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

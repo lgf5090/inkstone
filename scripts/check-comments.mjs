@@ -36383,6 +36383,10 @@ const allowed = new Map([
     "// Account sharing, contacts, templates, resources, booking links and reminder snoozes. These",
     "// tables were introduced together with the feature batch; existing databases get them here.",
     "// Event-level color; one column per version so one refusal cannot hide the rest.",
+    "// A bookmark is only ever listed inside its owner's tenant, so an index on `category_id` alone is",
+    "// written on every link insert and read by nothing: the plan for every category query already walks",
+    "// (user_id, category_id, …). The replacement is declared with the nav tables; this drops the old one",
+    "// from databases that created it before the swap.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -37519,6 +37523,12 @@ const allowed = new Map([
     "// keeps to the two fields its readers were built against.",
     "// Filing a folder inside a locked one is a write into the lock's scope, and since those rows no longer",
     "// reach the client at all it would also be a write the reader could never see or undo.",
+    "// The ids named in the request, read by key and looked up in a map: scanning the tenant's whole list",
+    "// once per id turned a 500-id batch into seconds of isolate time on a large collection.",
+  ]],
+  ["src/worker/nav/schema.ts", [
+    "// The reader's one hot query is the whole-list read that every write path follows, and it orders by",
+    "// creation, not by category: without this index that ORDER BY runs in a temporary B-tree.",
   ]],
   ["src/worker/nav/store.ts", [
     "// Walk the whole parent chain rather than one hop: a category is hidden when *any* ancestor is locked.",
@@ -37556,6 +37566,11 @@ const allowed = new Map([
     "/**\n * The rows a lock hides *behind* it: any category with a locked, still-locked-out ancestor.\n *\n * Unlike `hiddenCategories`, the locked folder itself is not in here — the reader has to see it to know\n * what to unlock — but everything filed under it is exactly what its password is for, so its name, icon\n * and parent id stay on the server instead of riding along in the bootstrap payload.\n */",
     "// What the reader may not see stays unsent, rather than sent and hidden by the client: a locked",
     "// folder's contents, down to the names of the folders inside it, are the thing being protected.",
+    "// The group being renumbered, read from the index that already covers it — a drag inside one folder has",
+    "// no business loading the account's whole list to find its neighbours, and the ids it must cover come",
+    "// from that group either way.",
+    "/**\n   * The rows behind these ids, read by key.\n   *\n   * Every write path used to call `linkRows()` — the tenant's whole list — just to check that a handful of\n   * ids belongs to this account, so the cost of opening one bookmark followed the size of the collection\n   * (measured on a same-shape table: 34ms of read at 10k rows against 0.07ms for the keyed lookup). One\n   * batch of ≤90-id statements is a single round trip and reads exactly the ids named.\n   */",
+    "/** Only the stored URLs, for the dedup set an import needs — one column instead of twelve per row. */",
   ]],
   ["src/worker/nav/tools.ts", [
     "// A protected folder's name, icon, parent and size are exactly what its password is for, and this view",
@@ -43485,6 +43500,7 @@ const allowed = new Map([
     "// Filing inside the lock takes the key, so the setup unlocks first — the reader it models is one who has it.",
     "// The locked root itself has to stay in the list: it is the thing a reader clicks to unlock. Everything",
     "// filed under it is exactly what the password exists to keep from a session without the key.",
+    "// Not a vacuous green: the keyed lookups the writes now rely on have to actually appear.",
   ]],
   ["tests/nav-checker-ui.test.tsx", [
     "// CHECK_BATCH is 8 and three requests stay in flight, so 20 links are three chunks. Reading the",

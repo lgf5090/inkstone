@@ -296,9 +296,11 @@ navDataRoutes.post('/links/batch', async (c) => {
   const nav = store(c)
   const input = await body(c, zod(NavBatchSchema))
   const hidden = await hiddenFor(c, nav)
-  const rows = await nav.linkRows()
+  // The ids named in the request, read by key and looked up in a map: scanning the tenant's whole list
+  // once per id turned a 500-id batch into seconds of isolate time on a large collection.
+  const rows = new Map((await nav.linksByIds(input.ids)).map((row) => [row.id, row]))
   for (const id of input.ids) {
-    const row = rows.find((entry) => entry.id === id)
+    const row = rows.get(id)
     if (row && hidden.has(row.category_id)) throw ApiError.notFound('Link not found')
   }
   if (input.action === 'delete') return c.json(await nav.deleteLinks(input.ids))
