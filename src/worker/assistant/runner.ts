@@ -1348,6 +1348,7 @@ export class AssistantRunner {
       } catch (error) {
         if (abandoned) return
         const reason = error instanceof Error ? error.message : 'The tool failed.'
+        executor.recordFailure(call.name)
         call.result = JSON.stringify({ error: reason })
         call.error = true
         call.args = call.args ?? {}
@@ -2260,6 +2261,7 @@ export class AssistantRunner {
           call.result = JSON.stringify(await executor.execute(call.name, call.args, call.id) ?? null)
           call.error = false
         } catch (error) {
+          executor.recordFailure(call.name)
           call.result = JSON.stringify({ error: error instanceof Error ? error.message : 'failed' })
           call.error = true
         }

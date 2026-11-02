@@ -34717,6 +34717,7 @@ const allowed = new Map([
     "// An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the",
     "// runner passes `projectToolsLimited` beside the list.",
     "/** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */",
+    "/** One failed call, counted so a tool that keeps breaking stops being offered the same turn. */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",

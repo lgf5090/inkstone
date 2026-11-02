@@ -4928,6 +4928,7 @@ export class ToolExecutor {
   private calls = 0
   private readonly perTool = new Map<string, number>()
   private readonly signatures = new Map<string, number>()
+  private readonly failures = new Map<string, number>()
   private readonly approvals = new Map<string, { id: string, toolId: string }>()
 
   constructor(
@@ -4939,6 +4940,15 @@ export class ToolExecutor {
 
   get callCount(): number {
     return this.calls
+  }
+
+  /** One failed call, counted so a tool that keeps breaking stops being offered the same turn. */
+  recordFailure(name: string): void {
+    this.failures.set(name, (this.failures.get(name) ?? 0) + 1)
+  }
+
+  failureCount(name: string): number {
+    return this.failures.get(name) ?? 0
   }
 
   /**
@@ -5010,6 +5020,9 @@ export class ToolExecutor {
   async execute(name: string, rawArgs: unknown, callId: string): Promise<unknown> {
     const definition = this.find(name)
     if (!definition) throw new ToolError(`Tool "${name}" is not available.`)
+    if ((this.failures.get(name) ?? 0) >= 3) {
+      throw new ToolError(`"${name}" has failed three times in this turn. Try a different approach instead of repeating it.`)
+    }
     if (this.calls >= this.budget.maxToolCalls) {
       throw new ToolError('The tool-call budget for this request is spent. Answer with what you already have.')
     }
