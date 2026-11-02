@@ -33237,6 +33237,8 @@ const allowed = new Map([
     "// would make the prompt and the tool filter walk a row whose every field is empty.",
     "/**\n   * The saved skills this Agent carries, as prompt text.\n   *\n   * A skill is the reader's own words plus an arrangement; the arrangement (tools, folders, model) is\n   * applied by the composer, and the words are what belong in the standing prompt. The total is capped\n   * so an Agent with a dozen long skills does not spend the whole window before the question is read.\n   */",
     "/**\n   * A root `AGENTS.md` / `CLAUDE.md` note, when the Agent asked to read project instructions.\n   *\n   * This deployment has no filesystem; the project convention is carried by a root note instead. Only the\n   * exact root title is read, never a folder search, so enabling the switch cannot quietly pull an\n   * unrelated note with the same name into every prompt.\n   */",
+    "// Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt",
+    "// had already collected before it failed.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",

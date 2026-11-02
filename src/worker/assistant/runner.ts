@@ -1187,8 +1187,6 @@ export class AssistantRunner {
   ): AsyncGenerator<ChatStreamEvent> {
     let failure: unknown = null
     for (const entry of candidates) {
-      const attemptCalls: ToolCallRecord[] = []
-      const attemptUsage = { inputTokens: 0, outputTokens: 0 }
       const sourcesBefore = new Set(this.turnSources.keys())
       const truncatedBefore = this.turnTruncated
       const blockedBefore = this.turnBlocked
@@ -1197,6 +1195,10 @@ export class AssistantRunner {
       // already showed text cannot be taken back, so the reader is not shown two versions of the same
       // answer. The retry is still a stream; the vendor's non-stream shape has no door in this runner.
       for (let attempt = 1; attempt <= (this.settings.autoRecover ? 2 : 1); attempt++) {
+        // Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt
+        // had already collected before it failed.
+        const attemptCalls: ToolCallRecord[] = []
+        const attemptUsage = { inputTokens: 0, outputTokens: 0 }
         const timed = this.attemptSignal()
         try {
           const apiKey = await this.signKey(entry.provider)
