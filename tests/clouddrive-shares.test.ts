@@ -109,6 +109,26 @@ describe('cloud drive shares', () => {
     expect(refused.status).toBe(403)
   })
 
+  it('aggregates a link\'s visits by day for the owner and hides another slug', async () => {
+    const id = await file()
+    const slug = (await call('POST', '/api/clouddrive/shares', { targetKind: 'file', fileId: id, path: '/notes.txt', allowDownload: true })).body.share.slug as string
+    await call('GET', `/api/public/clouddrive/shares/${slug}`)
+    const raw = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
+    expect(raw.status).toBe(200)
+
+    const stats = await call('GET', `/api/clouddrive/shares/${slug}/stats`)
+    expect(stats.status).toBe(200)
+    const today = stats.body.days.find((day: { date: string }) => day.date.match(/^\d{4}-\d{2}-\d{2}$/))
+    expect(today).toBeTruthy()
+    expect(today.views).toBe(1)
+    expect(today.downloads).toBe(1)
+    // The download row carries the bytes it served; the view row legitimately carries none.
+    expect(today.bytes).toBe(17)
+    expect(stats.body.visitors).toBe(1)
+
+    expect((await call('GET', '/api/clouddrive/shares/nosuchslug/stats')).status).toBe(404)
+  })
+
   it('creates a password share, verifies it, serves the file and revokes it', async () => {
     const id = await file()
     const created = await call('POST', '/api/clouddrive/shares', {

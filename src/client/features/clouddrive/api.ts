@@ -264,6 +264,7 @@ export const clouddriveApi = {
   createShare: (body: unknown) => request<{ share: { slug: string; url: string } }>('/api/clouddrive/shares', json(body)),
   patchShare: (slug: string, body: unknown) => request<{ share: unknown }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeShare: (slug: string) => request<{ ok: true }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+  shareStats: (slug: string) => request<{ days: { date: string; views: number; downloads: number; bytes: number }[]; visitors: number }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}/stats`),
 }
 
 export function cloudDriveErrorKey(error: unknown): string {

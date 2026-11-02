@@ -149,6 +149,40 @@ clouddriveShareRoutes.patch('/shares/:slug', async (c) => {
   return c.json({ share: toShareView(updated!) })
 })
 
+clouddriveShareRoutes.get('/shares/:slug/stats', async (c) => {
+  const userId = c.get('userId')
+  const slug = c.req.param('slug')
+  const owned = await c.env.DB.prepare(
+    `SELECT 1 AS hit FROM CloudDrive_shares WHERE user_id = ?1 AND slug = ?2`,
+  ).bind(userId, slug).first<{ hit: number }>()
+  if (!owned) throw ApiError.notFound('Share not found')
+  const [days, visitors] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT strftime('%Y-%m-%d', at / 1000, 'unixepoch') AS day,
+              SUM(CASE WHEN kind = 'view' THEN 1 ELSE 0 END) AS views,
+              SUM(CASE WHEN kind = 'download' THEN 1 ELSE 0 END) AS downloads,
+              COALESCE(SUM(CASE WHEN kind = 'download' THEN bytes ELSE 0 END), 0) AS bytes
+         FROM CloudDrive_share_visits
+        WHERE user_id = ?1 AND slug = ?2
+        GROUP BY day ORDER BY day DESC LIMIT 90`,
+    ).bind(userId, slug).all<{ day: string; views: number; downloads: number; bytes: number }>(),
+    // A salted per-visitor digest, never an address: the count answers "how many people", the row
+    // cannot be reversed and the details themselves age out with the purge job.
+    c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT ip_hash) AS count FROM CloudDrive_share_visits WHERE user_id = ?1 AND slug = ?2 AND ip_hash IS NOT NULL`,
+    ).bind(userId, slug).first<{ count: number }>(),
+  ])
+  return c.json({
+    days: (days.results ?? []).map((row) => ({
+      date: row.day,
+      views: row.views ?? 0,
+      downloads: row.downloads ?? 0,
+      bytes: row.bytes ?? 0,
+    })),
+    visitors: visitors?.count ?? 0,
+  })
+})
+
 clouddriveShareRoutes.delete('/shares/:slug', async (c) => {
   const userId = c.get('userId')
   const result = await c.env.DB.prepare(

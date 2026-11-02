@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Edit3, ExternalLink, Link2, QrCode, RefreshCw, Trash2 } from 'lucide-react'
+import { BarChart3, Edit3, ExternalLink, Link2, QrCode, RefreshCw, Trash2 } from 'lucide-react'
+import { formatBytes } from '@shared/byte-format'
 import { QRCodeSVG } from 'qrcode.react'
 import { t } from '../../../lib/i18n'
 import { copyText } from '../../../lib/clipboard'
@@ -73,6 +74,8 @@ export function SharesPage() {
   const [qr, setQr] = useState<Share | null>(null)
   const [filter, setFilter] = useState<ShareFilter>('all')
   const [editing, setEditing] = useState<Share | null>(null)
+  const [statsFor, setStatsFor] = useState<Share | null>(null)
+  const [stats, setStats] = useState<{ days: { date: string; views: number; downloads: number; bytes: number }[]; visitors: number } | null>(null)
   const [form, setForm] = useState<EditForm>(EMPTY_FORM)
   const [busy, setBusy] = useState(false)
 
@@ -163,6 +166,11 @@ export function SharesPage() {
                 {isClosed(share) ? t('clouddrive.share.filter_revoked') : isExpired(share) ? t('clouddrive.share.filter_expired') : share.expiresAt === null ? t('clouddrive.share.filter_active') : `${t('clouddrive.share.filter_active')} · ${new Date(share.expiresAt).toLocaleString()}`}
               </span>
               <IconButton label={t('clouddrive.share.edit')} onClick={() => openEdit(share)}><Edit3 size={13} /></IconButton>
+              <IconButton label={t('clouddrive.share.stats')} onClick={() => {
+                setStatsFor(share)
+                setStats(null)
+                void clouddriveApi.shareStats(share.slug).then(setStats).catch(() => toast({ title: t('clouddrive.toast.failed'), tone: 'danger' }))
+              }}><BarChart3 size={13} /></IconButton>
               <a className="rounded p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" href={share.url} target="_blank" rel="noreferrer" aria-label={t('clouddrive.action.open')}><ExternalLink size={13} /></a>
               <IconButton label={t('clouddrive.share.qr')} onClick={() => setQr(share)}><QrCode size={13} /></IconButton>
               <IconButton label={t('clouddrive.share.copy')} onClick={() => void copyText(new URL(share.url, window.location.origin).toString()).then((ok) => toast({ title: ok ? t('clouddrive.toast.copied_link') : t('clouddrive.toast.failed'), tone: ok ? 'default' : 'danger' }))}><Link2 size={13} /></IconButton>
@@ -174,6 +182,48 @@ export function SharesPage() {
           ))}
         </ul>
       )}
+      <Modal
+        open={statsFor !== null}
+        onClose={() => setStatsFor(null)}
+        title={`${t('clouddrive.share.stats')}${statsFor ? ` · ${statsFor.name}` : ''}`}
+        width={520}
+        dismissible
+      >
+        {stats === null ? (
+          <div className="flex items-center gap-2 py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">
+            <Spinner size={16} /> {t('clouddrive.loading')}
+          </div>
+        ) : stats.days.length === 0 ? (
+          <p className="py-4 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.share.stats_empty')}</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
+              {t('clouddrive.share.stats_visitors', { count: stats.visitors })}
+            </p>
+            <table className="w-full border-collapse text-[length:var(--text-12)]">
+              <caption className="sr-only">{t('clouddrive.share.stats')}</caption>
+              <thead>
+                <tr className="text-left text-[var(--text-tertiary)]">
+                  <th scope="col" className="py-1 font-medium">{t('clouddrive.share.stats_date')}</th>
+                  <th scope="col" className="py-1 text-right font-medium tabular-nums">{t('clouddrive.share.views', { count: 1 })}</th>
+                  <th scope="col" className="py-1 text-right font-medium tabular-nums">{t('clouddrive.share.downloads', { count: 1 })}</th>
+                  <th scope="col" className="py-1 text-right font-medium tabular-nums">{t('clouddrive.share.stats_bytes')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.days.map((day) => (
+                  <tr key={day.date} className="border-t border-[var(--border-subtle)]">
+                    <th scope="row" className="py-1 font-normal">{day.date}</th>
+                    <td className="py-1 text-right tabular-nums">{day.views}</td>
+                    <td className="py-1 text-right tabular-nums">{day.downloads}</td>
+                    <td className="py-1 text-right tabular-nums">{day.bytes > 0 ? formatBytes(day.bytes) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}

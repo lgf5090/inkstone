@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import { APP_VERSION } from '../src/shared/constants'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
 import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
@@ -101,6 +102,24 @@ async function insertEntry(options: InsertOptions): Promise<string> {
 }
 
 describe('CloudDrive maintenance', () => {
+  it('reports an overview with no invented numbers', async () => {
+    await insertEntry({ path: '/kept.txt', storageKey: `CloudDrive/txt/${newId()}` })
+    const res = await call<Record<string, any>>(USER, 'GET', '/api/clouddrive/admin/overview')
+    expect(res.status).toBe(200)
+    // The isolate cache never existed as a real counter, so the field is gone rather than zeroed.
+    expect('cache' in res.body).toBe(false)
+    expect(res.body.version).toBe(APP_VERSION)
+    // `insertEntry` writes a 4-byte row, so the storage row must show that and not a made-up zero.
+    expect(res.body.capacity.usedBytes).toBe(4)
+    const primary = res.body.capacity.storages.find((one: { id: string }) => one.id === 'primary')
+    expect(primary.usedBytes).toBe(res.body.capacity.usedBytes)
+    // The member-file switch is read from the owner's settings instead of being hardcoded off.
+    expect(res.body.admin.ownerCanViewMemberFiles).toBe(false)
+    await call(USER, 'PATCH', '/api/clouddrive/settings', { adminOwnerCanViewMemberFiles: true })
+    const widened = await call<Record<string, any>>(USER, 'GET', '/api/clouddrive/admin/overview')
+    expect(widened.body.admin.ownerCanViewMemberFiles).toBe(true)
+  })
+
   it('lists only objects no row references and deletes only those', async () => {
     const key = `CloudDrive/txt/${newId()}`
     await insertEntry({ path: '/kept.txt', storageKey: key })

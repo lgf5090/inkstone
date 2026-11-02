@@ -6,6 +6,7 @@
  * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.
  */
 import { Hono, type Context } from 'hono'
+import { APP_VERSION } from '@shared/constants'
 import {
   CLOUDDRIVE_CATEGORIES,
   CLOUDDRIVE_LIMITS,
@@ -17,11 +18,13 @@ import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
 import { requireOwner } from '../middleware/auth'
+import { externalCapacityBytes } from './external'
 import {
   decodeCursor,
   encodeCursor,
   initialsOf,
   parseLimit,
+  PRIMARY_MOUNT,
   resolveMount,
   type CloudDriveFileRow,
   type CloudDriveMountInfo,
@@ -101,6 +104,7 @@ clouddriveAdminRoutes.get('/admin/overview', async (c) => {
   ])
 
   const types = (storageTypes.results ?? []).map((row) => ({ type: row.type, bytes: row.bytes, count: row.count }))
+  const settings = await readCloudDriveSettings(c.env.DB, userId)
   return c.json({
     scope: 'owner',
     counts: {
@@ -114,15 +118,24 @@ clouddriveAdminRoutes.get('/admin/overview', async (c) => {
       usedBytes: usage.usedBytes,
       quotaBytes: usage.quotaBytes,
       trashBytes: usage.trashBytes,
-      storages: mounts.map((mount) => ({ id: mount.id, name: mount.name, type: mount.storageType, usedBytes: 0, quotaBytes: null })),
+      storages: await Promise.all(mounts.map(async (mount) => ({
+        id: mount.id,
+        name: mount.name,
+        type: mount.storageType,
+        // An external mount's used bytes are a full driver walk, which P-03 moved off the request
+        // path on purpose; reporting `null` keeps the card honest instead of painting a zero.
+        usedBytes: mount.storageId === PRIMARY_MOUNT ? usage.usedBytes : null,
+        quotaBytes: mount.storageId === PRIMARY_MOUNT
+          ? usage.quotaBytes
+          : await externalCapacityBytes(c.env.DB, mount),
+      }))),
       types,
     },
-    cache: { entries: 0, hits: 0, misses: 0, bytes: 0, snapshotAt: Date.now(), scope: 'isolate' },
-    version: '0.8.0',
+    version: APP_VERSION,
     environment: 'Cloudflare Workers',
     database: 'D1',
     updatedAt: Date.now(),
-    admin: { ownerCanViewMemberFiles: false },
+    admin: { ownerCanViewMemberFiles: settings.adminOwnerCanViewMemberFiles },
   })
 })
 
@@ -162,17 +175,6 @@ clouddriveAdminRoutes.get('/admin/activity', async (c) => {
   })
   return c.json({ scope: 'owner', days: timeline })
 })
-
-clouddriveAdminRoutes.get('/admin/cache', (c) => c.json({
-  // The list cache is an isolate-local Map and no cache has been populated in this release yet.
-  // Reporting zeroes with the snapshot time is the honest answer; a global total cannot be known.
-  entries: 0,
-  hits: 0,
-  misses: 0,
-  bytes: 0,
-  snapshotAt: Date.now(),
-  scope: 'isolate',
-}))
 
 interface AdminFileRow extends CloudDriveFileRow {
   creator_username: string | null
