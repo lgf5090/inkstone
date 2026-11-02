@@ -281,7 +281,7 @@ export const EN_US_NAV = {
   'nav.checker.rewrite_hint': 'URL template. {old}, {old_host} and {path} are replaced.',
   'nav.checker.move_target': 'Choose a category',
   'nav.checker.close_confirm': 'A check is running. Close it and stop checking?',
-  'nav.checker.help': '2xx/3xx is OK, 4xx is a warning, 5xx or a network error is broken.',
+  'nav.checker.help': '2xx/3xx is OK; 404, 410, 5xx and network errors are broken; other 4xx are warnings.',
   'nav.checker.error.timeout': 'Timed out',
   'nav.checker.error.dns_unavailable': 'The address could not be resolved right now. Try again later',
   'nav.checker.error.network': 'Network error',

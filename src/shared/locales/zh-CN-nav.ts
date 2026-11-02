@@ -281,7 +281,7 @@ export const ZH_CN_NAV = {
   'nav.checker.rewrite_hint': 'URL 模板，支持 {old}、{old_host}、{path} 占位符。',
   'nav.checker.move_target': '选择目标分类',
   'nav.checker.close_confirm': '检测正在进行，关闭窗口会中断检测，确定吗？',
-  'nav.checker.help': '2xx/3xx 为正常，4xx 为警告，5xx 或网络错误为失效。',
+  'nav.checker.help': '2xx/3xx 为正常；404、410、5xx 与网络错误为失效；其余 4xx 为警告。',
   'nav.checker.error.timeout': '请求超时',
   'nav.checker.error.dns_unavailable': '暂时无法解析该地址，请稍后重试',
   'nav.checker.error.network': '网络错误',
