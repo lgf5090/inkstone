@@ -24,11 +24,11 @@ const CONTEXT_CAP = 8_000
 
 type Mode = 'ask' | 'continue'
 
-function place(anchor: { top: number, left: number } | null): { top: number, left: number } {
-  if (!anchor) return { top: 64, left: Math.max(PANEL_EDGE, window.innerWidth - PANEL_WIDTH - PANEL_EDGE) }
+function place(anchor: { top: number, left: number } | null, width: number): { top: number, left: number } {
+  if (!anchor) return { top: 64, left: Math.max(PANEL_EDGE, window.innerWidth - width - PANEL_EDGE) }
   return {
     top: Math.max(PANEL_EDGE, Math.min(anchor.top, window.innerHeight - 260)),
-    left: Math.max(PANEL_EDGE, Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - PANEL_EDGE)),
+    left: Math.max(PANEL_EDGE, Math.min(anchor.left, window.innerWidth - width - PANEL_EDGE)),
   }
 }
 
@@ -46,7 +46,8 @@ export function QuickAskPanel() {
   const panelRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const pos = useMemo(() => place(anchor), [anchor])
+  const width = Math.min(PANEL_WIDTH, window.innerWidth - PANEL_EDGE * 2)
+  const pos = useMemo(() => place(anchor, width), [anchor, width])
 
   useEscape(open, () => {
     abortRef.current?.abort()
@@ -154,7 +155,7 @@ export function QuickAskPanel() {
       aria-label={t('assistant.quick_ask.title')}
       data-quick-ask="1"
       className="fixed z-[var(--z-popover)] flex max-h-[min(520px,80vh)] flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)]"
-      style={{ top: pos.top, left: pos.left, width: PANEL_WIDTH }}
+      style={{ top: pos.top, left: pos.left, width }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
         <WandSparkles size={14} className="text-[var(--accent)]" />
