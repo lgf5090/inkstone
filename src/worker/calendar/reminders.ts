@@ -13,6 +13,8 @@ import { EN_US_CALENDAR_NOTIFY } from '@shared/locales/en-US-calendar-notify'
 import { ZH_CN_CALENDAR_NOTIFY } from '@shared/locales/zh-CN-calendar-notify'
 import { AssistantStore } from '../assistant/store'
 import { newPushFanoutTally, NotificationPushFanout, type PushFanoutTally } from '../assistant/push-fanout'
+import { effectiveEmailDomains, readEmailDeployment } from '../email/deployment'
+import { sendViaProvider } from '../email/outbound'
 import { CalendarStore } from './store'
 import { expandRecurringEvents } from './ics'
 import { temporalValueToEpochMs } from '@shared/calendar/model'
@@ -90,8 +92,13 @@ export async function sweepCalendarReminders(
   ).all<{ user_id: string; preferences_json: string }>()
 
   const fanout = new NotificationPushFanout(env)
+  const emailDeployment = await readEmailDeployment(env.DB).catch(() => null)
+  const emailDomains = await effectiveEmailDomains(env, env.DB).catch(() => [])
+  const emailFrom = emailDeployment?.resendFrom.trim()
+    || (emailDomains[0] ? `calendar@${emailDomains[0]}` : null)
   const stores = new Map<string, AssistantStore>()
   const settingsCache = new Map<string, Awaited<ReturnType<AssistantStore['getSettings']>>>()
+  const preferencesByUser = new Map<string, ReturnType<typeof normalizeCalendarPreferences>>()
   let due = 0
   let sent = 0
   let claimed = 0
@@ -104,6 +111,7 @@ export async function sweepCalendarReminders(
     } catch {
       continue
     }
+    preferencesByUser.set(account.user_id, preferences)
     const minutes = preferences.eventReminderMinutes
     // The window is the furthest lead this account actually uses: an account with a 10-minute default
     // and no per-event reminders keeps scanning eleven minutes, not a week.
@@ -169,6 +177,18 @@ export async function sweepCalendarReminders(
               link: `calendar:${dateKey(start, settings.timezone)}`,
             })
             fanout.track(account.user_id, notification.id)
+            if (preferences.emailReminders && preferences.reminderEmail && emailFrom) {
+              const mail = sendViaProvider(env, account.user_id, {
+                to: preferences.reminderEmail,
+                from: emailFrom,
+                subject: `${copy.title} · ${event.title}`,
+                text: fill(copy.startsAt, { title: event.title, when: whenText(start, preferences.timeZone) }),
+              }).catch((mailError: unknown) => {
+                console.warn('[inkstone] calendar reminder email failed:', mailError instanceof Error ? mailError.message : mailError)
+              })
+              if (waitUntil) waitUntil(mail)
+              else await mail
+            }
             sent++
           } catch (error) {
             failed++
@@ -181,6 +201,62 @@ export async function sweepCalendarReminders(
     }
     if (sent + claimed >= SWEEP_LIMIT) break
   }
+
+  // Snoozes are separate from leads: the reader asked for one more notification, not a new lead.
+  const { results: dueSnoozes } = await env.DB.prepare(
+    `SELECT s.user_id, s.id AS snooze_id, e.title, e.start_ms
+       FROM calendar_reminder_snoozes s
+       JOIN calendar_events e ON e.user_id = s.user_id AND e.id = s.event_id
+      WHERE s.notify_at <= ?1
+      ORDER BY s.notify_at ASC
+      LIMIT 50`,
+  ).bind(now).all<{ user_id: string; snooze_id: string; title: string; start_ms: number }>()
+  for (const row of dueSnoozes ?? []) {
+    try {
+      let store = stores.get(row.user_id)
+      if (!store) {
+        store = new AssistantStore(env.DB, row.user_id, env)
+        stores.set(row.user_id, store)
+      }
+      let settings = settingsCache.get(row.user_id)
+      if (!settings) {
+        settings = await store.getSettings()
+        settingsCache.set(row.user_id, settings)
+      }
+      const copy = settings.language === 'en-US' ? EN_US_CALENDAR_NOTIFY : ZH_CN_CALENDAR_NOTIFY
+      const start = Number(row.start_ms)
+      const notification = await store.createNotification({
+        title: `${copy.title} · ${row.title}`,
+        body: fill(copy.startsAt, { title: row.title, when: whenText(start, settings.timezone) }),
+        link: `calendar:${dateKey(start, settings.timezone)}`,
+      })
+      fanout.track(row.user_id, notification.id)
+      const preferences = preferencesByUser.get(row.user_id)
+      if (preferences?.emailReminders && preferences.reminderEmail && emailFrom) {
+        const mail = sendViaProvider(env, row.user_id, {
+          to: preferences.reminderEmail,
+          from: emailFrom,
+          subject: `${copy.title} · ${row.title}`,
+          text: fill(copy.startsAt, { title: row.title, when: whenText(start, settings.timezone) }),
+        }).catch((mailError: unknown) => {
+          console.warn('[inkstone] calendar snooze email failed:', mailError instanceof Error ? mailError.message : mailError)
+        })
+        if (waitUntil) waitUntil(mail)
+        else await mail
+      }
+      await env.DB.prepare(
+        'DELETE FROM calendar_reminder_snoozes WHERE user_id = ?1 AND id = ?2',
+      ).bind(row.user_id, row.snooze_id).run()
+      sent++
+    } catch (error) {
+      failed++
+      console.error('[inkstone] calendar snooze failed:', error instanceof Error ? error.message : error)
+    }
+  }
+  await env.DB.prepare('DELETE FROM calendar_reminder_snoozes WHERE notify_at < ?1')
+    .bind(now - FIRE_RETENTION_MS).run().catch((error: unknown) => {
+      console.warn('[inkstone] calendar snooze cleanup failed:', error instanceof Error ? error.message : error)
+    })
 
   // The fire log only needs to outlive a late tick; pruning is best-effort and must not fail delivery.
   await env.DB.prepare('DELETE FROM calendar_reminder_fires WHERE fired_at < ?1')

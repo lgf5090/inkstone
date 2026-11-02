@@ -20,6 +20,9 @@ import { isValidSlug } from '../lib/id'
 import { requestClientIp } from '../lib/request'
 import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import { recordShareView, sharedCalendarChunks, sharedCalendarEtag, shareOwner } from '../calendar/shares'
+import { CalendarStore } from '../calendar/store'
+import { expandRecurringEvents } from '../calendar/ics'
+import { temporalValueToEpochMs } from '@shared/calendar/model'
 
 /** A published calendar is a subscription, not a report: four megabytes of text is generous. */
 const PUBLIC_ICS_BYTES = 4 * 1024 * 1024
@@ -73,5 +76,91 @@ calendarPublicRoutes.get('/calendar/:slug', async (c) => {
     'Cache-Control': 'no-cache',
     ETag: fingerprint.etag,
     'X-Content-Type-Options': 'nosniff',
+  })
+})
+
+// ------------------------------------------------------------- public HTML page
+
+export const calendarSharePageRoutes = new Hono<AppBindings>()
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+calendarSharePageRoutes.get('/:slug', async (c) => {
+  const slug = stripCalendarIcsSuffix(c.req.param('slug'))
+  if (!isValidSlug(slug)) throw ApiError.notFound('Calendar not found')
+  await throttled(c, slug)
+  const owner = await shareOwner(c.env.DB, slug)
+  if (!owner) throw ApiError.notFound('Calendar not found')
+  const store = new CalendarStore(c.env.DB, owner.userId)
+  const preferences = await store.preferences()
+  const calendar = (await store.listCalendars()).find(entry => entry.id === owner.calendarId)
+  if (!calendar) throw ApiError.notFound('Calendar not found')
+  const from = Date.now() - 7 * 86_400_000
+  const to = Date.now() + 60 * 86_400_000
+  const result = await store.listEvents(from, to, [owner.calendarId])
+  const expansion = expandRecurringEvents(result.events, from, to, preferences.timeZone)
+  const events = [...result.events, ...expansion.occurrences]
+    .map(event => ({
+      title: event.title,
+      description: event.description,
+      allDay: event.allDay,
+      start: temporalValueToEpochMs(event.start, preferences.timeZone),
+      end: temporalValueToEpochMs(event.end, preferences.timeZone),
+    }))
+    .sort((left, right) => left.start - right.start)
+    .slice(0, 500)
+  const locale = (c.req.header('accept-language') ?? '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+  const day = new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: preferences.timeZone })
+  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone: preferences.timeZone })
+  const groups = new Map<string, typeof events>()
+  for (const event of events) {
+    const key = day.format(new Date(event.start))
+    const list = groups.get(key) ?? []
+    list.push(event)
+    groups.set(key, list)
+  }
+  const body = groups.size === 0
+    ? '<p class="booking-empty">No events in the next two months.</p>'
+    : [...groups.entries()].map(([label, list]) => `
+        <section class="booking-day">
+          <h2>${escapeHtml(label)}</h2>
+          <ul class="public-events">
+            ${list.map(event => `
+              <li class="public-event">
+                <span class="public-event-time">${event.allDay ? '—' : escapeHtml(time.format(new Date(event.start)))}</span>
+                <span class="public-event-body">
+                  <strong>${escapeHtml(event.title)}</strong>
+                  ${event.description ? `<span>${escapeHtml(event.description.slice(0, 500))}</span>` : ''}
+                </span>
+              </li>`).join('')}
+          </ul>
+        </section>`).join('')
+  const html = `<!doctype html>
+<html lang="${escapeHtml(locale)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>${escapeHtml(calendar.name)}</title>
+<link rel="stylesheet" href="/schedule.css">
+</head>
+<body>
+<main class="booking-card">
+<h1>${escapeHtml(calendar.name)}</h1>
+<p class="booking-meta">Public calendar · ${escapeHtml(preferences.timeZone)}</p>
+${body}
+</main>
+</body>
+</html>`
+  return c.html(html, 200, {
+    'Cache-Control': 'no-store',
+    'X-Robots-Tag': 'noindex',
   })
 })

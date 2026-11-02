@@ -321,6 +321,13 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               className="w-60"
             />
           </SettingRow>
+          <SettingRow title={t('calendar.settings.travel_mode')} description={t('calendar.settings.travel_mode_hint')}>
+            <Switch
+              label={t('calendar.settings.travel_mode')}
+              checked={draft.travelMode}
+              onChange={(value) => patch({ travelMode: value })}
+            />
+          </SettingRow>
           <SettingRow title={t('calendar.settings.calendar_system')} controlId="calendar-settings-system">
             <Select
               id="calendar-settings-system"
@@ -349,6 +356,28 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               <option value="1440">{t('calendar.settings.reminder_day')}</option>
             </Select>
           </SettingRow>
+          <SettingRow title={t('calendar.settings.email_reminders')} description={t('calendar.settings.email_reminders_hint')}>
+            <Switch
+              label={t('calendar.settings.email_reminders')}
+              checked={draft.emailReminders}
+              onChange={(value) => patch({ emailReminders: value })}
+            />
+          </SettingRow>
+          {draft.emailReminders && (
+            <SettingRow title={t('calendar.settings.reminder_email')} controlId="calendar-settings-reminder-email">
+              <Input
+                id="calendar-settings-reminder-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={draft.reminderEmail}
+                placeholder={t('calendar.settings.reminder_email_placeholder')}
+                invalid={draft.reminderEmail.length > 0 && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(draft.reminderEmail)}
+                onChange={(event) => patch({ reminderEmail: event.target.value })}
+                className="w-56"
+              />
+            </SettingRow>
+          )}
           <SettingRow title={t('calendar.settings.enable_tasks')} description={t('calendar.settings.enable_tasks_hint')}>
             <Switch
               label={t('calendar.settings.enable_tasks')}

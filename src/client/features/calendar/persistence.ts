@@ -38,6 +38,14 @@ export interface ConflictRequest {
   mine: CalendarEventInput | null
 }
 
+/** An edit aimed at one occurrence, before it is turned into an exception or a split. */
+export interface RecurrenceOccurrenceRequest {
+  masterId: string
+  intent: 'save' | 'delete'
+  before: Event
+  after: Event | null
+}
+
 export type ConflictResolution =
   | { action: 'save'; input: CalendarEventInput; rev: number }
   | { action: 'delete'; rev: number }
@@ -55,9 +63,15 @@ export interface EventPersistenceOptions {
   /** A 409: the row changed elsewhere, and the edit stays on screen until the reader decides. */
   onConflict: (request: ConflictRequest) => void
   onRecurringEdit: () => void
+  /** A single occurrence was edited or deleted; the reader picks the scope. */
+  onRecurrenceOccurrence?: (request: RecurrenceOccurrenceRequest) => void
   onReadOnlyEdit: () => void
   onCommitted?: (id: string, recurring: boolean) => void
   onDeleted?: (id: string, title: string | undefined) => void
+  /** The write met a dead network; keeping it is the caller's call. */
+  onOffline?: (entry:
+    | { kind: 'save'; eventId: string; input: CalendarEventInput }
+    | { kind: 'delete'; eventId: string; rev: number }) => void
 }
 
 function changeEvent(change: EventChange): Event {
@@ -159,8 +173,20 @@ export class EventPersistence {
     // and the optimistic change is put back rather than left as a row the server never saw.
     if (isRecurrenceOccurrence(event)) {
       if (change.source !== 'remote') {
+        const before = change.type === 'update' ? change.before : change.event
+        const after = change.type === 'update' ? change.after : null
         this.revert(change)
-        this.reportRecurring()
+        const masterId = before._recurrenceMasterId ?? before.id.split('::repeat-')[0] ?? ''
+        if (this.options.onRecurrenceOccurrence && masterId) {
+          this.options.onRecurrenceOccurrence({
+            masterId,
+            intent: change.type === 'delete' ? 'delete' : 'save',
+            before,
+            after,
+          })
+        } else {
+          this.reportRecurring()
+        }
       }
       return
     }
@@ -252,10 +278,40 @@ export class EventPersistence {
         await wait(RETRY_DELAY_MS)
         await this.attempt(id, intent)
       } catch (retryError) {
+        if (retryError instanceof ApiError && retryError.isOffline && this.options.onOffline) {
+          this.keepOffline(id, intent)
+          return
+        }
         this.revertDraft(id)
         this.options.onError(retryError)
       }
     }
+  }
+
+  /** Keep the optimistic row and hand the write to the account's durable queue. */
+  private keepOffline(id: string, intent: Intent): void {
+    const rev = this.options.revs.get(id)
+    if (intent.kind === 'delete') {
+      if (rev === undefined) {
+        // The row never reached the server, so there is nothing for the queue to delete.
+        this.drafts.delete(id)
+        return
+      }
+      const title = this.drafts.get(id)?.before?.title
+      this.options.onOffline?.({ kind: 'delete', eventId: id, rev })
+      this.drafts.delete(id)
+      this.options.onDeleted?.(id, title)
+      return
+    }
+    this.options.onOffline?.({
+      kind: 'save',
+      eventId: id,
+      input: toEventInput(intent.event, {
+        fallbackTitle: this.options.fallbackTitle(),
+        timeZone: this.options.timeZone(),
+      }),
+    })
+    this.commitDraft(id, undefined, true)
   }
 
   /** The version the reader was working on, in the shape both the API and the merge dialog use. */
@@ -302,7 +358,7 @@ export class EventPersistence {
     this.commitDraft(id)
   }
 
-  private commitDraft(id: string, after?: Event): void {
+  private commitDraft(id: string, after?: Event, offline = false): void {
     const draft = this.drafts.get(id)
     if (!draft) return
     const committed = after ?? draft.after
@@ -311,7 +367,7 @@ export class EventPersistence {
     )
     this.drafts.delete(id)
     this.options.history.record({ id, before: draft.before, after: committed })
-    this.options.onCommitted?.(id, recurring)
+    if (!offline) this.options.onCommitted?.(id, recurring)
   }
 
   /** Restore the last server-confirmed shape after a write that will not be retried. */

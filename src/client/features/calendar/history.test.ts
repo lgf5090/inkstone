@@ -34,6 +34,37 @@ describe('calendar edit history', () => {
     expect(history.canRedo).toBe(true)
   })
 
+  it('moves a redone entry back onto the undo stack', () => {
+    const applyEventsChanges = vi.fn()
+    const app = { applyEventsChanges } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    history.record({ id: 'a', before: event('a', 'A before'), after: event('a', 'A after') })
+    expect(history.undo(app)).toBe(true)
+    expect(history.redo(app)).toBe(true)
+    expect(applyEventsChanges).toHaveBeenLastCalledWith(
+      { update: [{ id: 'a', updates: expect.objectContaining({ title: 'A after' }) }] },
+      false,
+      'local',
+    )
+    expect(history.canUndo).toBe(true)
+    expect(history.canRedo).toBe(false)
+  })
+
+  it('does not let the write queue turn a replay into a fresh entry', () => {
+    const app = { applyEventsChanges: vi.fn() } as unknown as ICalendarApp
+    const history = new CalendarEditHistory()
+    const before = event('a', 'A before')
+    const after = event('a', 'A after')
+    history.record({ id: 'a', before, after })
+    history.undo(app)
+    // The persistence queue reports the replay after the synchronous call has returned.
+    history.record({ id: 'a', before: after, after: before })
+    expect(history.canRedo).toBe(true)
+    expect(history.redo(app)).toBe(true)
+    expect(history.canUndo).toBe(true)
+    expect(history.canRedo).toBe(false)
+  })
+
   it('falls back to the newest entry when no id is named', () => {
     const applyEventsChanges = vi.fn()
     const app = { applyEventsChanges } as unknown as ICalendarApp

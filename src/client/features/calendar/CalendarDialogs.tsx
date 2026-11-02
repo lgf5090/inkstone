@@ -6,8 +6,8 @@
  * `Modal` supplies focus trapping, Escape and focus return; these never use native prompts.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Copy, Link2 } from 'lucide-react'
-import type { CalendarDto, CalendarGroupDto, CalendarShareDto } from '@shared/calendar/model'
+import { AlertTriangle, Check, Copy, Link2, UserPlus, Trash2 } from 'lucide-react'
+import type { CalendarDto, CalendarGroupDto, CalendarMemberDto, CalendarShareDto } from '@shared/calendar/model'
 import { MAX_CALENDAR_NAME, MAX_GROUP_NAME, MAX_ICS_BYTES } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { isImeComposing } from '../../lib/ime'
@@ -15,7 +15,7 @@ import { copyText } from '../../lib/clipboard'
 import { fullTime } from '../../lib/time'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { useUi } from '../../store/ui'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Modal, confirm } from '../../components/overlay'
 import { Checkbox, Field, Input, Segmented, Select } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
@@ -431,6 +431,10 @@ interface ImportIcsDialogProps extends DialogBaseProps {
   defaultTimeZone: string
 }
 
+function isCsvFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.csv') || file.type === 'text/csv'
+}
+
 function isIcsFile(file: File): boolean {
   return file.name.toLowerCase().endsWith('.ics') || file.type === 'text/calendar'
 }
@@ -471,11 +475,12 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
     setError(null)
     try {
       const content = await file.text()
-      const result = await api.importIcs({
-        content,
-        ...(mode === 'existing' ? { targetCalendarId: targetId } : { newCalendar: { name: newName.trim() || file.name.replace(/\.ics$/i, ''), color } }),
-        defaultTimeZone,
-      })
+      const target = mode === 'existing'
+        ? { targetCalendarId: targetId }
+        : { newCalendar: { name: newName.trim() || file.name.replace(/\.(ics|csv)$/i, ''), color } }
+      const result = isCsvFile(file)
+        ? await api.importCsv({ content, ...target })
+        : await api.importIcs({ content, ...target, defaultTimeZone })
       const found = result.warnings ?? []
       setWarnings(found)
       useUi.getState().toast({
@@ -523,7 +528,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
         <Field label={t('calendar.import.file')} hint={t('calendar.import.file_hint')} required>
           <CalendarFilePicker
             label={t('calendar.import.choose_file')}
-            accept=".ics,text/calendar"
+            accept=".ics,.csv,text/calendar,text/csv"
             fileName={file?.name ?? null}
             onPick={(files) => {
               const picked = files[0] ?? null
@@ -533,7 +538,7 @@ export function ImportIcsDialog({ open, calendars, defaultTimeZone, onClose, onS
                 setError(t('calendar.import.too_large'))
                 return
               }
-              if (picked && !isIcsFile(picked)) {
+              if (picked && !isIcsFile(picked) && !isCsvFile(picked)) {
                 setFile(null)
                 setError(t('calendar.import.invalid'))
                 return
@@ -732,6 +737,11 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [members, setMembers] = useState<CalendarMemberDto[]>([])
+  const [memberName, setMemberName] = useState('')
+  const [memberRole, setMemberRole] = useState<'reader' | 'writer'>('reader')
+  const [memberBusy, setMemberBusy] = useState(false)
+  const [memberError, setMemberError] = useState<string | null>(null)
   const copiedTimer = useRef(0)
 
   useEffect(() => {
@@ -744,6 +754,10 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
     void api.getCalendarShare(calendar.id).then(
       (answer) => { if (!settled) setShare(answer) },
       (cause: unknown) => { if (!settled) setError(errorMessage(cause, 'calendar.share.load_failed')) },
+    )
+    void api.getCalendarMembers(calendar.id).then(
+      (answer) => { if (!settled) setMembers(answer) },
+      (cause: unknown) => { if (!settled) setMemberError(errorMessage(cause, 'calendar.share.load_failed')) },
     )
     return () => {
       settled = true
@@ -780,6 +794,35 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
       tone: 'danger',
     })
     if (confirmed) await setLink('revoke')
+  }
+
+  const invite = async (): Promise<void> => {
+    const username = memberName.trim()
+    if (!username) return
+    setMemberBusy(true)
+    setMemberError(null)
+    try {
+      const answer = await api.addCalendarMember(calendar.id, { username, role: memberRole })
+      setMembers(current => [...current.filter(member => member.memberId !== answer.member.memberId), answer.member])
+      setMemberName('')
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : t('calendar.share.member_invite_failed'))
+    } finally {
+      setMemberBusy(false)
+    }
+  }
+
+  const removeMember = async (member: CalendarMemberDto): Promise<void> => {
+    setMemberBusy(true)
+    setMemberError(null)
+    try {
+      await api.removeCalendarMember(calendar.id, member.memberId)
+      setMembers(current => current.filter(item => item.memberId !== member.memberId))
+    } catch (cause) {
+      setMemberError(cause instanceof Error ? cause.message : t('calendar.share.member_remove_failed'))
+    } finally {
+      setMemberBusy(false)
+    }
   }
 
   const copy = async (): Promise<void> => {
@@ -851,6 +894,14 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             <p className="text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
               {t('calendar.share.url_hint')}
             </p>
+            <a
+              href={`${window.location.origin}/calendar-share/${share.slug}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-block text-[length:var(--text-11)] text-[var(--accent)] underline-offset-2 hover:underline"
+            >
+              {t('calendar.share.open_page')}
+            </a>
             <p className="flex flex-wrap gap-x-3 gap-y-1 text-[length:var(--text-11)] text-[var(--text-quaternary)]">
               <span>{t('calendar.share.views', { count: share.views })}</span>
               <span>{t('calendar.share.created_at', { time: fullTime(share.createdAt) })}</span>
@@ -860,6 +911,98 @@ export function CalendarShareDialog({ open, calendar, onClose }: ShareDialogProp
             </p>
           </>
         )}
+        <div className="border-t border-[var(--border-subtle)] pt-3">
+          <h3 className="text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">
+            {t('calendar.share.members_title')}
+          </h3>
+          <p className="mt-0.5 text-[length:var(--text-11)] leading-relaxed text-[var(--text-tertiary)]">
+            {t('calendar.share.members_hint')}
+          </p>
+          <form
+            className="mt-2 flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void invite()
+            }}
+          >
+            <Input
+              value={memberName}
+              onChange={(event) => setMemberName(event.target.value)}
+              placeholder={t('calendar.share.member_username_placeholder')}
+              aria-label={t('calendar.share.member_username')}
+              autoComplete="off"
+              spellCheck={false}
+              className="min-w-0 flex-1"
+              disabled={memberBusy}
+            />
+            <Select
+              value={memberRole}
+              onChange={(event) => setMemberRole(event.target.value === 'writer' ? 'writer' : 'reader')}
+              aria-label={t('calendar.share.member_role')}
+              className="w-24 shrink-0"
+            >
+              <option value="reader">{t('calendar.share.member_reader')}</option>
+              <option value="writer">{t('calendar.share.member_writer')}</option>
+            </Select>
+            <Button
+              type="submit"
+              size="sm"
+              variant="secondary"
+              icon={<UserPlus size={12} />}
+              loading={memberBusy}
+              disabled={memberBusy || memberName.trim().length === 0}
+            >
+              {memberBusy ? t('calendar.share.member_inviting') : t('calendar.share.member_invite')}
+            </Button>
+          </form>
+          {memberError && <DialogError>{memberError}</DialogError>}
+          {members.length === 0
+            ? (
+                <p className="mt-2 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                  {t('calendar.share.member_empty')}
+                </p>
+              )
+            : (
+                <ul className="mt-2 space-y-1">
+                  {members.map(member => (
+                    <li
+                      key={member.memberId}
+                      className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--border-subtle)] px-2 py-1.5"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[length:var(--text-12)] text-[var(--text-primary)]">
+                          {member.name || member.username}
+                        </span>
+                        <span className="block truncate text-[length:var(--text-10)] text-[var(--text-quaternary)]">
+                          @{member.username} · {t(member.role === 'writer' ? 'calendar.share.member_writer' : 'calendar.share.member_reader')}
+                        </span>
+                      </span>
+                      <span className={
+                        member.status === 'accepted'
+                          ? 'shrink-0 text-[length:var(--text-10)] text-[var(--success)]'
+                          : member.status === 'declined'
+                            ? 'shrink-0 text-[length:var(--text-10)] text-[var(--text-quaternary)]'
+                            : 'shrink-0 text-[length:var(--text-10)] text-[var(--warning)]'
+                      }>
+                        {t(member.status === 'accepted'
+                          ? 'calendar.share.member_accepted'
+                          : member.status === 'declined'
+                            ? 'calendar.share.member_declined'
+                            : 'calendar.share.member_pending')}
+                      </span>
+                      <IconButton
+                        size="xs"
+                        label={t('calendar.share.member_remove', { name: member.name || member.username })}
+                        disabled={memberBusy}
+                        onClick={() => void removeMember(member)}
+                      >
+                        <Trash2 size={12} />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              )}
+        </div>
         <p className="flex items-start gap-1.5 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]">
           <AlertTriangle size={13} className="mt-[2px] shrink-0 text-[var(--warning)]" aria-hidden="true" />
           <span>{t('calendar.share.warning')}</span>

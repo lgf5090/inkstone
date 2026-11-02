@@ -179,7 +179,11 @@ describe('write conflicts', () => {
       calendarIds: ['cal-1'],
       meta: {},
       icon: null,
+      color: null,
       recurrenceRule: null,
+      recurrenceParentId: null,
+      recurrenceId: null,
+      recurrenceCancelled: false,
       rev,
       source: 'local',
       externalId: null,
@@ -298,5 +302,68 @@ describe('write conflicts', () => {
 
     expect(context.onServerState).toHaveBeenCalledTimes(1)
     context.persistence.dispose()
+  })
+})
+
+describe('occurrence edits and offline writes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.mocked(api.updateEvent).mockReset()
+    vi.mocked(api.createEvent).mockReset()
+    vi.mocked(api.deleteEvent).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function options(fake: ReturnType<typeof fakeApp>, overrides: Record<string, unknown>) {
+    return {
+      app: fake.app,
+      revs: new Map([['master::repeat-1', 2]]),
+      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      timeZone: () => 'UTC',
+      fallbackTitle: () => 'Untitled',
+      onServerState: vi.fn(),
+      onError: vi.fn(),
+      onConflict: vi.fn(),
+      onRecurringEdit: vi.fn(),
+      onReadOnlyEdit: vi.fn(),
+      ...overrides,
+    }
+  }
+
+  it('hands an occurrence edit to the scope dialog after reverting it', async () => {
+    const fake = fakeApp()
+    const onRecurrenceOccurrence = vi.fn()
+    const before = { ...event('Occurrence'), id: 'master::repeat-1' }
+    const after = { ...before, title: 'Changed occurrence' }
+    const persistence = new EventPersistence(options(fake, { onRecurrenceOccurrence }))
+    persistence.start()
+    fake.emit({ type: 'update', before, after, source: 'local' })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(api.updateEvent).not.toHaveBeenCalled()
+    expect(onRecurrenceOccurrence).toHaveBeenCalledTimes(1)
+    expect(onRecurrenceOccurrence.mock.calls[0]?.[0]).toMatchObject({
+      masterId: 'master',
+      intent: 'save',
+      after: { title: 'Changed occurrence' },
+    })
+    expect(fake.applied[0]?.source).toBe('local')
+    persistence.dispose()
+  })
+
+  it('keeps an optimistic row and queues the write when the network is gone', async () => {
+    const fake = fakeApp()
+    const onOffline = vi.fn()
+    vi.mocked(api.updateEvent).mockRejectedValue(new ApiError(0, 'offline', 'network down'))
+    const persistence = new EventPersistence(options(fake, { onOffline, revs: new Map([['evt-1', 1]]) }))
+    persistence.start()
+    fake.emit({ type: 'update', before: event('Original'), after: event('Queued'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(900)
+    expect(onOffline).toHaveBeenCalledTimes(1)
+    expect(onOffline.mock.calls[0]?.[0]).toMatchObject({ kind: 'save', eventId: 'evt-1' })
+    expect(fake.applied).toHaveLength(0)
+    persistence.dispose()
   })
 })

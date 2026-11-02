@@ -6,7 +6,7 @@
  * row, writes back with its revision, and hands the new revision to the surface so the write queue
  * does not send a stale PATCH afterwards.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { LIMITS } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
 import { CALENDAR_REMINDER_MINUTES, MAX_ATTACHMENTS_PER_EVENT, temporalValueToEpochMs } from '@shared/calendar/model'
@@ -14,14 +14,19 @@ import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
   CalendarAttendeeStatus,
+  CalendarDto,
   CalendarEventDto,
 } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
+import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Input, Select } from '../../components/form'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, Copy, FolderInput, BookmarkPlus, Video } from 'lucide-react'
 import * as api from './api'
+import { CALENDAR_COLOR_PRESETS } from './model'
 import { CalendarFilePicker } from './CalendarFilePicker'
+import { CalendarEventTransferDialog } from './CalendarEventTransferDialog'
+import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
 import { CalendarTimeZoneField } from './CalendarTimeZoneField'
 import { addAttendee, normalizeAttendeeEmail, withAttendeeStatus, withoutAttendee } from './attendees'
 import { eventTimeZone, reanchorValue } from './timezone'
@@ -31,6 +36,7 @@ interface CalendarEventExtrasProps {
   /** The zone the calendar itself is read in; an event without a zone of its own uses it. */
   accountTimeZone: string
   locale: string
+  calendars: readonly CalendarDto[]
   /** True when any member calendar is read-only; the server would refuse every write anyway. */
   readOnly?: boolean
   onClose: () => void
@@ -64,6 +70,7 @@ export function CalendarEventExtras({
   eventId,
   accountTimeZone,
   locale,
+  calendars,
   readOnly = false,
   onClose,
   onRevision,
@@ -74,15 +81,26 @@ export function CalendarEventExtras({
   const [attendees, setAttendees] = useState<CalendarAttendeeDto[]>([])
   const [files, setFiles] = useState<CalendarAttachmentDto[]>([])
   const [uploading, setUploading] = useState(false)
+  const sharedEvent = eventId.startsWith('shared:')
   const [savingReminders, setSavingReminders] = useState(false)
   const [savingAttendees, setSavingAttendees] = useState(false)
+  const [savingColor, setSavingColor] = useState(false)
+  const [savingConference, setSavingConference] = useState(false)
+  const [savingSnooze, setSavingSnooze] = useState(false)
+  const [contacts, setContacts] = useState<Array<{ name: string; email: string }>>([])
+  const contactListId = useId()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [transfer, setTransfer] = useState<'copy' | 'move' | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const revisionRef = useRef(onRevision)
   revisionRef.current = onRevision
 
   useEffect(() => {
     let cancelled = false
+    void api.getContacts().then((rows) => {
+      if (!cancelled) setContacts(rows.map(row => ({ name: row.name, email: row.email })))
+    }).catch(() => { /* The address book is a suggestion, not a requirement. */ })
     setEvent(null)
     setMinutes([])
     setAttendees([])
@@ -90,6 +108,9 @@ export function CalendarEventExtras({
     setUploading(false)
     setSavingReminders(false)
     setSavingAttendees(false)
+    setSavingColor(false)
+    setSavingConference(false)
+    setSavingSnooze(false)
     setDraft('')
     setError(null)
     void (async () => {
@@ -246,6 +267,68 @@ export function CalendarEventExtras({
     })()
   }
 
+  const changeColor = (color: string | null): void => {
+    if (rev === null || readOnly || savingColor || event?.color === color) return
+    setSavingColor(true)
+    void (async () => {
+      try {
+        const saved = await api.updateEventPatch(eventId, { color }, rev)
+        setEvent(saved)
+        onRevision(eventId, saved.rev)
+        onChanged(eventId)
+        setError(null)
+      } catch (saveError) {
+        setError(saveError instanceof Error && saveError.message
+          ? saveError.message
+          : t('calendar.error.save_failed'))
+      } finally {
+        setSavingColor(false)
+      }
+    })()
+  }
+
+  const snooze = (minutes: number): void => {
+    if (rev === null || readOnly) return
+    setSavingSnooze(true)
+    void api.snoozeEvent(eventId, minutes).then(
+      (answer) => {
+        useUi.getState().toast({
+          title: t('calendar.extras.snoozed', { time: clockText(answer.notifyAt, accountTimeZone, locale) }),
+          tone: 'success',
+        })
+        setError(null)
+      },
+      (saveError: unknown) => {
+        setError(saveError instanceof Error && saveError.message ? saveError.message : t('calendar.error.save_failed'))
+      },
+    ).finally(() => setSavingSnooze(false))
+  }
+
+  const changeConference = (add: boolean): void => {
+    if (!event || rev === null || readOnly) return
+    setSavingConference(true)
+    void (async () => {
+      try {
+        const meetingId = `inkstone-${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+        const saved = await api.updateEventPatch(eventId, {
+          conference: add
+            ? { provider: 'jitsi', joinUrl: `https://meet.jit.si/${meetingId}`, meetingId }
+            : null,
+        }, rev)
+        setEvent(saved)
+        onRevision(eventId, saved.rev)
+        setError(null)
+      } catch (saveError) {
+        setError(saveError instanceof Error && saveError.message
+          ? saveError.message
+          : t('calendar.error.save_failed'))
+      } finally {
+        setSavingConference(false)
+      }
+    })()
+  }
+
+
   const changeZone = (zone: string): void => {
     if (!event || rev === null || event.allDay || readOnly) return
     const previous = event
@@ -270,6 +353,15 @@ export function CalendarEventExtras({
         <h3 className="min-w-0 flex-1 truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">
           {event?.title || t('calendar.event.untitled')}
         </h3>
+        <IconButton label={t('calendar.event.copy_to')} size="sm" disabled={!event} onClick={() => setTransfer('copy')}>
+          <Copy size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton label={t('calendar.event.move_to')} size="sm" disabled={readOnly || sharedEvent || !event} onClick={() => setTransfer('move')}>
+          <FolderInput size={13} aria-hidden="true" />
+        </IconButton>
+        <IconButton label={t('calendar.templates.save_current')} size="sm" disabled={!event} onClick={() => setTemplatesOpen(true)}>
+          <BookmarkPlus size={13} aria-hidden="true" />
+        </IconButton>
         <IconButton label={t('common.close')} size="sm" onClick={onClose}>
           <X size={14} aria-hidden="true" />
         </IconButton>
@@ -279,6 +371,31 @@ export function CalendarEventExtras({
           {t('calendar.extras.read_only')}
         </p>
       )}
+
+      <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('calendar.calendar.color')}</p>
+      <div role="group" aria-label={t('calendar.calendar.color')} className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <Button
+          size="sm"
+          variant={event?.color ? 'secondary' : 'primary'}
+          aria-pressed={!event?.color}
+          disabled={rev === null || readOnly || savingColor}
+          onClick={() => changeColor(null)}
+        >
+          {t('calendar.event.no_color')}
+        </Button>
+        {CALENDAR_COLOR_PRESETS.map(color => (
+          <button
+            key={color}
+            type="button"
+            aria-label={color}
+            aria-pressed={event?.color?.toLowerCase() === color}
+            disabled={rev === null || readOnly || savingColor}
+            onClick={() => changeColor(color)}
+            className="size-6 rounded-full border border-[var(--border-subtle)] transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-45"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
 
       <p className="mt-1 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.settings.reminder')}
@@ -302,6 +419,20 @@ export function CalendarEventExtras({
           {t('calendar.extras.follow_default')}
         </p>
       )}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('calendar.extras.snooze')}>
+        <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('calendar.extras.snooze')}</span>
+        {[5, 10, 30].map(snoozeMinutes => (
+          <Button
+            key={snoozeMinutes}
+            size="sm"
+            variant="ghost"
+            disabled={rev === null || readOnly || sharedEvent || savingSnooze}
+            onClick={() => snooze(snoozeMinutes)}
+          >
+            {t('calendar.extras.snooze_minutes', { minutes: snoozeMinutes })}
+          </Button>
+        ))}
+      </div>
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.extras.timezone')}
@@ -327,6 +458,57 @@ export function CalendarEventExtras({
           </p>
         </>
       )}
+
+      <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+        {t('calendar.extras.conference')}
+      </p>
+      {event?.conference
+        ? (
+            <div className="mt-1 flex items-center gap-1.5">
+              <Video size={12} className="shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+              <a
+                href={event.conference.joinUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--accent)] underline-offset-2 hover:underline"
+              >
+                {event.conference.meetingId || event.conference.joinUrl}
+              </a>
+              <IconButton
+                size="xs"
+                label={t('common.copy')}
+                onClick={() => {
+                  void navigator.clipboard.writeText(event.conference?.joinUrl ?? '').then(
+                    () => useUi.getState().toast({ title: t('common.copied'), tone: 'success' }),
+                    () => useUi.getState().toast({ title: t('preview.could_not_copy'), tone: 'danger' }),
+                  )
+                }}
+              >
+                <Copy size={11} />
+              </IconButton>
+              <IconButton
+                size="xs"
+                label={t('calendar.extras.remove_conference')}
+                disabled={rev === null || readOnly || savingConference}
+                onClick={() => changeConference(false)}
+              >
+                <Trash2 size={11} />
+              </IconButton>
+            </div>
+          )
+        : (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Video size={12} />}
+              className="mt-1.5"
+              disabled={rev === null || readOnly || savingConference}
+              loading={savingConference}
+              onClick={() => changeConference(true)}
+            >
+              {t('calendar.extras.add_conference')}
+            </Button>
+          )}
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
         {t('calendar.extras.attendees')}
@@ -372,6 +554,7 @@ export function CalendarEventExtras({
         <Input
           className="min-w-0 flex-1"
           type="email"
+          list={contactListId}
           value={draft}
           placeholder={t('calendar.extras.attendee_email')}
           aria-label={t('calendar.extras.attendee_email')}
@@ -381,6 +564,11 @@ export function CalendarEventExtras({
         <Button size="sm" variant="secondary" type="submit" disabled={rev === null || readOnly || savingAttendees || draft.trim().length === 0}>
           {t('calendar.extras.add_attendee')}
         </Button>
+        <datalist id={contactListId}>
+          {contacts.map(contact => (
+            <option key={contact.email} value={contact.email}>{contact.name}</option>
+          ))}
+        </datalist>
       </form>
 
       <p className="mt-2.5 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
@@ -408,7 +596,7 @@ export function CalendarEventExtras({
             <IconButton
               label={t('calendar.extras.remove_attachment', { name: file.filename })}
               size="sm"
-              disabled={readOnly}
+              disabled={readOnly || sharedEvent}
               onClick={() => { removeFile(file) }}
             >
               <Trash2 size={13} aria-hidden="true" />
@@ -420,10 +608,15 @@ export function CalendarEventExtras({
         <CalendarFilePicker
           label={t('calendar.extras.add_attachment')}
           multiple
-          disabled={rev === null || readOnly || uploading}
+          disabled={rev === null || readOnly || uploading || sharedEvent}
           onPick={upload}
         />
       </div>
+      {sharedEvent && (
+        <p className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+          {t('calendar.extras.attachments_shared')}
+        </p>
+      )}
       {uploading && (
         <p role="status" className="mt-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
           {t('calendar.extras.uploading')}
@@ -434,6 +627,27 @@ export function CalendarEventExtras({
         <p role="alert" className="mt-1.5 text-[length:var(--text-11-5)] text-[var(--danger)]">
           {error}
         </p>
+      )}
+
+      {templatesOpen && event && (
+        <CalendarTemplatesDialog
+          open
+          event={event}
+          onClose={() => setTemplatesOpen(false)}
+        />
+      )}
+
+      {transfer && event && (
+        <CalendarEventTransferDialog
+          open
+          mode={transfer}
+          event={event}
+          calendars={calendars}
+          reminders={minutes}
+          attendees={attendees}
+          onClose={() => setTransfer(null)}
+          onDone={() => { setTransfer(null); onChanged(eventId) }}
+        />
       )}
     </section>
   )

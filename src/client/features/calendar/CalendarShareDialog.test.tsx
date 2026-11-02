@@ -25,6 +25,7 @@ vi.mock('./api', () => ({
   getCalendarShare: getMock,
   shareCalendar: mintMock,
   unshareCalendar: revokeMock,
+  getCalendarMembers: async () => [],
 }))
 
 const SLUG = 'abcdefghjkmnpqrstvwz'

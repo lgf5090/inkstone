@@ -29,7 +29,11 @@ function eventDto(overrides: Partial<CalendarEventDto> = {}): CalendarEventDto {
     calendarIds: ['cal_work'],
     meta: {},
     icon: null,
+    color: null,
     recurrenceRule: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
+    recurrenceCancelled: false,
     rev: 3,
     source: 'local',
     externalId: null,
@@ -117,6 +121,19 @@ describe('calendar DTO mapping', () => {
     expect(input.meta).toEqual({ location: 'Room 4', recurrenceRule: 'FREQ=DAILY' })
     expect(input.start).toEqual({ value: '2026-10-26T09:00:00+08:00[Asia/Shanghai]', type: 'zoned', timeZone: 'Asia/Shanghai' })
     expect(input.icon).toBe(true)
+  })
+
+  it('hides a series rule from DayFlow while exceptions exist and restores it on write', () => {
+    const exdate = { value: '2026-10-27T09:00:00+08:00[Asia/Shanghai]', type: 'zoned' as const, timeZone: 'Asia/Shanghai' }
+    const event = toDayFlowEvent(eventDto({
+      recurrenceRule: 'FREQ=DAILY',
+      meta: { exdates: [exdate] },
+    }))
+    expect(event.meta?.recurrenceRule).toBeUndefined()
+    expect(event.meta?.seriesRule).toBe('FREQ=DAILY')
+    const input = toEventInput(event, { fallbackTitle: 'Untitled', timeZone: 'Asia/Shanghai' })
+    expect(input.recurrenceRule).toBe('FREQ=DAILY')
+    expect(input.meta).toEqual({ exdates: [exdate] })
   })
 
   it('falls back to an untitled title and clears incomplete task dates', () => {

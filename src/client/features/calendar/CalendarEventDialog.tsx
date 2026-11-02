@@ -8,12 +8,12 @@
  */
 import { useEffect, useState } from 'react'
 import { Temporal } from 'temporal-polyfill'
-import type { CalendarDto } from '@shared/calendar/model'
+import type { CalendarDto, CalendarResourceDto, CalendarTemplateDto } from '@shared/calendar/model'
 import { MAX_EVENT_DESCRIPTION, MAX_EVENT_TITLE } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import { Modal } from '../../components/overlay'
-import { Checkbox, Field, Input, Select, Textarea } from '../../components/form'
+import { Checkbox, Field, Input, Segmented, Select, Textarea } from '../../components/form'
 import { DatePicker } from '../../components/date-picker'
 
 export interface NewCalendarEvent {
@@ -24,7 +24,10 @@ export interface NewCalendarEvent {
   startDate: Temporal.PlainDate
   endDate: Temporal.PlainDate
   calendarId: string
+  resourceId: string | null
   description: string
+  location: string
+  color: string | null
 }
 
 interface CalendarEventDialogProps {
@@ -33,7 +36,10 @@ interface CalendarEventDialogProps {
   initialStart: Date
   timeZone: string
   calendars: readonly CalendarDto[]
+  resources?: readonly CalendarResourceDto[]
   defaultCalendarId?: string
+  /** A reusable draft; its fields seed the form and the dates still come from the grid. */
+  template?: CalendarTemplateDto | null
   onClose: () => void
   onCreate: (event: NewCalendarEvent) => void
 }
@@ -50,11 +56,10 @@ function wall(instant: Date): { date: string; time: string } {
   }
 }
 
-function nextHourDate(date: string, time: string): string {
+function addMinutes(date: string, time: string, minutes: number): string {
   const [year, month, day] = date.split('-').map(Number)
   const [hour, minute] = time.split(':').map(Number)
-  const value = new Date(year!, month! - 1, day!, hour!, minute!)
-  value.setHours(value.getHours() + 1)
+  const value = new Date(year!, month! - 1, day!, hour!, minute! + minutes)
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
 }
 
@@ -76,43 +81,55 @@ export function CalendarEventDialog({
   initialStart,
   timeZone,
   calendars,
+  resources = [],
   defaultCalendarId,
+  template,
   onClose,
   onCreate,
 }: CalendarEventDialogProps) {
   const writable = calendars.filter(calendar => !calendar.readOnly)
   const [title, setTitle] = useState('')
+  const [block, setBlock] = useState<'event' | 'focus' | 'ooo'>('event')
   const [allDay, setAllDay] = useState(false)
   const [date, setDate] = useState('')
   const [startTime, setStartTime] = useState('09:00')
   const [endDate, setEndDate] = useState('')
   const [endTime, setEndTime] = useState('10:00')
   const [calendarId, setCalendarId] = useState('')
+  const [resourceId, setResourceId] = useState('')
+  const [color, setColor] = useState<string | null>(null)
   const [description, setDescription] = useState('')
+  const [location, setLocation] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     const available = calendars.filter(calendar => !calendar.readOnly)
     const parts = wall(initialStart)
-    const rounded = parts.time === '00:00' ? '09:00' : parts.time
-    const end = nextHourDate(parts.date, rounded)
+    const startClock = template ? '09:00' : parts.time === '00:00' ? '09:00' : parts.time
+    const end = template?.allDay
+      ? `${parts.date}T09:00`
+      : addMinutes(parts.date, startClock, Math.max(5, template?.durationMinutes ?? 60))
     const [endDay, endClock] = end.split('T')
-    setTitle('')
-    setAllDay(false)
+    setTitle(template?.title ?? '')
+    setBlock('event')
+    setAllDay(template?.allDay ?? false)
     setDate(parts.date)
-    setStartTime(rounded)
+    setStartTime(startClock)
     setEndDate(endDay ?? parts.date)
     setEndTime(endClock ?? '10:00')
+    setColor(template?.color ?? null)
+    setResourceId('')
     setCalendarId(
       available.find(calendar => calendar.isDefault)?.id
       ?? available.find(calendar => calendar.id === defaultCalendarId)?.id
       ?? available[0]?.id
       ?? '',
     )
-    setDescription('')
+    setDescription(template?.description ?? '')
+    setLocation('')
     setError(null)
-  }, [open, initialStart, defaultCalendarId, timeZone, calendars])
+  }, [open, initialStart, defaultCalendarId, timeZone, calendars, template])
 
   const submit = (): void => {
     if (!calendarId) {
@@ -139,7 +156,10 @@ export function CalendarEventDialog({
           startDate,
           endDate: end,
           calendarId,
+          resourceId: resourceId || null,
           description: description.trim(),
+          location: location.trim(),
+          color,
         })
         return
       }
@@ -157,7 +177,10 @@ export function CalendarEventDialog({
         startDate: start.toPlainDate(),
         endDate: end.toPlainDate(),
         calendarId,
+        resourceId: resourceId || null,
         description: description.trim(),
+        location: location.trim(),
+        color,
       })
     } catch {
       setError(t('calendar.event.create_failed'))
@@ -180,6 +203,23 @@ export function CalendarEventDialog({
       )}
     >
       <div className="space-y-3 pt-1">
+        <Field label={t('calendar.block.type')}>
+          <Segmented
+            value={block}
+            label={t('calendar.block.type')}
+            options={[
+              { value: 'event', label: t('calendar.block.event') },
+              { value: 'focus', label: t('calendar.block.focus') },
+              { value: 'ooo', label: t('calendar.block.ooo') },
+            ]}
+            onChange={(next) => {
+              setBlock(next)
+              const presetTitle = next === 'focus' ? t('calendar.block.focus') : next === 'ooo' ? t('calendar.block.ooo') : ''
+              setTitle(current => current === '' || current === t('calendar.block.focus') || current === t('calendar.block.ooo') ? presetTitle : current)
+              setColor(next === 'focus' ? '#8b5cf6' : next === 'ooo' ? '#f59e0b' : null)
+            }}
+          />
+        </Field>
         <Field label={t('calendar.event.title_field')} required>
           <Input
             data-autofocus
@@ -209,7 +249,7 @@ export function CalendarEventDialog({
           )}
         </div>
         <Field label={t('calendar.event.calendar')}>
-          <Select value={calendarId} onChange={(event) => setCalendarId(event.target.value)} disabled={writable.length === 0}>
+          <Select value={calendarId} onChange={(event) => { setCalendarId(event.target.value); setResourceId('') }} disabled={writable.length === 0}>
             {writable.map(calendar => (
               <option key={calendar.id} value={calendar.id}>{calendar.name}</option>
             ))}
@@ -220,6 +260,32 @@ export function CalendarEventDialog({
             {t('calendar.event.no_writable_calendar')}
           </p>
         )}
+        {resources.length > 0 && (
+          <Field label={t('calendar.resources.book')}>
+            <Select
+              value={resourceId}
+              onChange={(event) => {
+                const next = event.target.value
+                setResourceId(next)
+                const resource = resources.find(item => item.id === next)
+                if (resource) setCalendarId(resource.calendarId)
+              }}
+            >
+              <option value="">{t('calendar.resources.none')}</option>
+              {resources.map(resource => (
+                <option key={resource.id} value={resource.id}>{resource.name}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        <Field label={t('calendar.event.location')}>
+          <Input
+            value={location}
+            maxLength={200}
+            placeholder={t('calendar.event.location_placeholder')}
+            onChange={(event) => setLocation(event.target.value)}
+          />
+        </Field>
         <Field label={t('calendar.event.description')}>
           <Textarea
             rows={3}

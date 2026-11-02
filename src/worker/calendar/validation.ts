@@ -390,6 +390,7 @@ export function parseEventInput(value: unknown, options: ParseEventOptions = {})
     calendarIds: parseCalendarIds(record, true)!,
     meta,
     icon: parseIcon(record.icon),
+    color: record.color === undefined || record.color === null ? null : calendarColor(record.color, 'color'),
     recurrenceRule,
     source: record.source === undefined ? 'local' : parseSource(record.source),
     externalId: record.externalId === undefined || record.externalId === null
@@ -459,12 +460,58 @@ export function parseEventPatch(value: unknown, options: ParseEventOptions = {})
     patch.icon = parseIcon(record.icon)
     touched = true
   }
+  if (record.color !== undefined) {
+    patch.color = record.color === null ? null : calendarColor(record.color, 'color')
+    touched = true
+  }
+  if (record.recurrenceCancelled !== undefined) {
+    patch.recurrenceCancelled = booleanValue(record.recurrenceCancelled, 'recurrenceCancelled')
+    touched = true
+  }
   if (record.recurrenceRule !== undefined) {
     patch.recurrenceRule = normalizeRecurrence(record.recurrenceRule, 'recurrenceRule')
     touched = true
   }
   if (!touched) throw ApiError.badRequest('The patch does not change anything')
   return patch
+}
+
+export const RECURRENCE_CHANGE_SCOPES = ['this', 'following', 'all'] as const
+export type RecurrenceChangeScope = (typeof RECURRENCE_CHANGE_SCOPES)[number]
+export const RECURRENCE_CHANGE_ACTIONS = ['update', 'cancel'] as const
+export type RecurrenceChangeAction = (typeof RECURRENCE_CHANGE_ACTIONS)[number]
+
+export interface RecurrenceChangeInput {
+  occurrenceStart: TemporalValue
+  occurrenceEnd: TemporalValue
+  scope: RecurrenceChangeScope
+  action: RecurrenceChangeAction
+  patch: CalendarEventPatchInput | null
+}
+
+/** One edit aimed at a single occurrence of a stored series. */
+export function parseRecurrenceChange(value: unknown, options: ParseEventOptions = {}): RecurrenceChangeInput {
+  const record = requireRecord(value, 'recurrence')
+  const fallback = options.defaultTimeZone ?? defaultTimeZone()
+  if (!(RECURRENCE_CHANGE_SCOPES as readonly string[]).includes(record.scope as string)) {
+    throw ApiError.badRequest('scope must be this, following or all')
+  }
+  if (!(RECURRENCE_CHANGE_ACTIONS as readonly string[]).includes(record.action as string)) {
+    throw ApiError.badRequest('action must be update or cancel')
+  }
+  const occurrenceStart = parseTemporalField(record.occurrenceStart, 'occurrenceStart', fallback).value
+  const occurrenceEnd = parseTemporalField(record.occurrenceEnd, 'occurrenceEnd', fallback).value
+  const patch = record.patch === undefined || record.patch === null
+    ? null
+    : parseEventPatch({ ...requireRecord(record.patch, 'patch'), rev: 1 }, options)
+  if (record.action === 'update' && !patch) throw ApiError.badRequest('An update needs a patch')
+  return {
+    occurrenceStart,
+    occurrenceEnd,
+    scope: record.scope as RecurrenceChangeScope,
+    action: record.action as RecurrenceChangeAction,
+    patch,
+  }
 }
 
 /** `{ enabled, startHour, endHour }` — the ruler the day and week views open with. */
@@ -752,7 +799,29 @@ export function parsePreferences(value: unknown): CalendarPreferences {
     }
     result.eventDetailTrigger = record.eventDetailTrigger as CalendarEventTrigger
   }
+  if (record.emailReminders !== undefined) {
+    result.emailReminders = booleanValue(record.emailReminders, 'emailReminders')
+  }
+  if (record.travelMode !== undefined) {
+    result.travelMode = booleanValue(record.travelMode, 'travelMode')
+  }
+  if (record.organizerEmail !== undefined) {
+    result.organizerEmail = optionalEmail(record.organizerEmail, 'organizerEmail')
+  }
+  if (record.reminderEmail !== undefined) {
+    result.reminderEmail = optionalEmail(record.reminderEmail, 'reminderEmail')
+  }
   return normalizeCalendarPreferences(result)
+}
+
+function optionalEmail(value: unknown, field: string): string {
+  if (value === null || value === '') return ''
+  if (typeof value !== 'string') throw ApiError.badRequest(`${field} must be text`)
+  const email = value.trim()
+  if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    throw ApiError.badRequest(`${field} must be an email address`)
+  }
+  return email
 }
 
 export interface ParsedRange {

@@ -39,8 +39,9 @@ import type {
   CalendarMetaDto,
   CalendarPreferences,
   CalendarRangeRevisionDto,
+  CalendarTemplateDto,
 } from '@shared/calendar/model'
-import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
+import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, isSharedCalendarId, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
 import { useThemeDark } from '../../lib/hooks'
@@ -51,8 +52,18 @@ import { Drawer, confirm } from '../../components/overlay'
 import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
 import { CalendarConflictDialog, type ConflictTarget } from './CalendarConflictDialog'
+import { CalendarRecurrenceDialog } from './CalendarRecurrenceDialog'
+import { CalendarFreeBusyDialog } from './CalendarFreeBusyDialog'
+import { CalendarResourcesDialog } from './CalendarResourcesDialog'
+import { CalendarSchedulingDialog } from './CalendarSchedulingDialog'
+import { CalendarShortcutsDialog } from './CalendarShortcutsDialog'
 import { CalendarEventExtras } from './CalendarEventExtras'
 import { CalendarEventDialog, type NewCalendarEvent } from './CalendarEventDialog'
+import { CalendarContactsDialog } from './CalendarContactsDialog'
+import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
+import { CalendarTasksPanel } from './CalendarTasksPanel'
+import { holidayPresets } from './holidays'
+import { enqueueOutbox, flushOutbox } from './offline-outbox'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
 import { attachCalendarChrome } from './calendar-chrome'
 import { CalendarPrintSheet } from './CalendarPrintSheet'
@@ -64,7 +75,7 @@ import { CalendarFilteredSearch, calendarSearchResultDate } from './CalendarFilt
 import { CalendarConnections } from './CalendarConnections'
 import { CalendarEditHistory } from './history'
 import { EventPersistence } from './persistence'
-import type { ConflictRequest, ConflictResolution } from './persistence'
+import type { ConflictRequest, ConflictResolution, RecurrenceOccurrenceRequest } from './persistence'
 import type { ConflictView } from './conflict'
 import { attachCalendarProviders } from './providers'
 import { calendarRouteHref, readCalendarRouteState } from './view-state'
@@ -84,7 +95,25 @@ import {
 } from './model'
 
 const COLLAPSED_STORAGE_KEY = 'inkstone:calendar:sidebar-collapsed'
+const HIDDEN_SHARED_KEY = 'inkstone:calendar:hidden-shared'
 const DAY_MS = 24 * 60 * 60 * 1000
+
+function readHiddenShared(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_SHARED_KEY) ?? '[]')
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeHiddenShared(ids: Set<string>): void {
+  try {
+    localStorage.setItem(HIDDEN_SHARED_KEY, JSON.stringify([...ids]))
+  } catch {
+    // Visibility of a shared calendar is a local convenience; a full quota must not break the view.
+  }
+}
 
 interface CalendarSurfaceProps {
   meta: CalendarMetaDto
@@ -410,6 +439,9 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [createStart, setCreateStart] = useState<Date | null>(null)
+  const [contactsOpen, setContactsOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [template, setTemplate] = useState<CalendarTemplateDto | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [rangeError, setRangeError] = useState<string | null>(null)
   const [rangeLoading, setRangeLoading] = useState(false)
@@ -418,6 +450,13 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [conflict, setConflict] = useState<ConflictTarget | null>(null)
   const [extrasEventId, setExtrasEventId] = useState<string | null>(null)
   const [extrasReadOnly, setExtrasReadOnly] = useState(false)
+  const [recurrenceRequest, setRecurrenceRequest] = useState<RecurrenceOccurrenceRequest | null>(null)
+  const [freeBusyOpen, setFreeBusyOpen] = useState(false)
+  const [historyVersion, setHistoryVersion] = useState(0)
+  const historyView = useMemo(() => ({ canUndo: history.canUndo, canRedo: history.canRedo }), [history, historyVersion])
+  const [resourcesOpen, setResourcesOpen] = useState(false)
+  const [schedulingOpen, setSchedulingOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [printSheet, setPrintSheet] = useState<PrintSheet | null>(null)
   const shownRef = useRef<string | null>(null)
   const dismissedRef = useRef<string | null>(null)
@@ -571,12 +610,19 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     occurrenceRef.current = new Map(initialOccurrences.map(dto => [dto.id, toDayFlowEvent(dto, meta.preferences.timeZone)]))
   }
   const occurrenceRefreshTimer = useRef<number | undefined>(undefined)
+  /** Masters whose rule was just hidden by an exception; the next month read must expand them. */
+  const freshExceptionMasters = useRef(new Set<string>())
 
   const syncOccurrences = useCallback(() => {
     const occurrences = occurrenceRef.current
     if (!occurrences) return
     const current = new Set(app.getEvents().filter(event => isRecurrenceOccurrence(event)).map(event => event.id))
-    const desired = app.getCurrentView().type === 'month' ? [] : [...occurrences.values()]
+    const exceptionMasters = new Set(app.getEvents()
+      .filter(event => Array.isArray(event.meta?.exdates) && event.meta.exdates.length > 0)
+      .map(event => event.id))
+    const desired = app.getCurrentView().type === 'month'
+      ? [...occurrences.values()].filter(event => exceptionMasters.has(event.id.split('::repeat-')[0] ?? ''))
+      : [...occurrences.values()]
     const desiredIds = new Set(desired.map(event => event.id))
     const add = desired.filter(event => !current.has(event.id))
     const remove = [...current].filter(id => !desiredIds.has(id))
@@ -667,10 +713,20 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }, [app, revs])
 
   const fetchRange = useCallback(async (from: number, to: number): Promise<Set<string>> => {
+    const month = app.getCurrentView().type === 'month'
+    const exceptionMasters = month
+      ? [...new Set([
+          ...app.getEvents()
+            .filter(event => Array.isArray(event.meta?.exdates) && event.meta.exdates.length > 0)
+            .map(event => event.id),
+          ...freshExceptionMasters.current,
+        ])]
+      : []
     const page = await api.getEvents({
       from,
       to,
-      includeOccurrences: app.getCurrentView().type !== 'month',
+      includeOccurrences: !month || exceptionMasters.length > 0,
+      ...(month && exceptionMasters.length > 0 ? { occurrenceMasters: exceptionMasters } : {}),
     })
     const fetched = applySnapshot(page.events, { from, to }, page.truncated)
     updateOccurrences(page.occurrences, { from, to })
@@ -907,7 +963,12 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }
 
   const syncRegistry = useCallback(async (calendars: CalendarDto[]): Promise<void> => {
-    const desired = calendars.map(toCalendarType)
+    const hiddenShared = readHiddenShared()
+    const desired = calendars.map((dto) => {
+      const calendar = toCalendarType(dto)
+      if (isSharedCalendarId(dto.id) && hiddenShared.has(dto.id)) calendar.isVisible = false
+      return calendar
+    })
     const desiredById = new Map(desired.map(calendar => [calendar.id, calendar]))
     for (const current of app.getCalendars()) {
       if (desiredById.has(current.id)) continue
@@ -940,8 +1001,29 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     if (reloadEvents) await reloadLastRange()
   }, [onRefreshMeta, reloadLastRange, syncRegistry])
 
+  const addHolidays = useCallback(async (): Promise<void> => {
+    const year = new Date().getFullYear()
+    try {
+      await api.addHolidays({
+        calendarName: t('calendar.holidays.calendar_name', { year }),
+        holidays: holidayPresets(appLocale, year),
+      })
+      useUi.getState().toast({ title: t('calendar.holidays.added'), tone: 'success' })
+      await refreshRef.current()
+    } catch (error) {
+      toastFailure(t('calendar.holidays.failed'), error)
+    }
+  }, [appLocale])
+
   const persistCalendarChange = useCallback(async (calendar: CalendarType): Promise<void> => {
     if (suppressUpdate.current.delete(calendar.id)) return
+    if (isSharedCalendarId(calendar.id)) {
+      const hidden = readHiddenShared()
+      if (calendar.isVisible === false) hidden.add(calendar.id)
+      else hidden.delete(calendar.id)
+      writeHiddenShared(hidden)
+      return
+    }
     const dto = metaRef.current.calendars.find(item => item.id === calendar.id)
     if (!dto) return
     const patch: Omit<CalendarPatchInput, 'rev'> = {}
@@ -974,7 +1056,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
 
   const persistOrder = useCallback((): void => {
     if (suppressReorder.current) return
-    const ids = app.getCalendars().map(calendar => calendar.id)
+    const ids = app.getCalendars().filter(calendar => !isSharedCalendarId(calendar.id)).map(calendar => calendar.id)
     void api.reorderCalendars(ids).catch(async (error) => {
       toastFailure(t('calendar.sidebar.order_failed'), error)
       try {
@@ -1013,6 +1095,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
 
   const persistCalendarDelete = useCallback(async (calendarId: string): Promise<void> => {
     if (suppressDelete.current.delete(calendarId)) return
+    if (isSharedCalendarId(calendarId)) return
     const dto = metaRef.current.calendars.find(item => item.id === calendarId)
     if (!dto) return
     try {
@@ -1052,14 +1135,23 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onError: error => toastFailure(t('calendar.error.save_failed'), error),
       onConflict: request => { void openConflict(request) },
       onRecurringEdit: () => useUi.getState().toast({ title: t('calendar.error.recurring'), tone: 'warning' }),
+      onRecurrenceOccurrence: request => setRecurrenceRequest(request),
+      onOffline: (entry) => {
+        const account = accountRef.current
+        if (!account) return
+        enqueueOutbox(account, { ...entry, at: Date.now() })
+        useUi.getState().toast({ title: t('calendar.offline.queued'), tone: 'warning' })
+      },
       onReadOnlyEdit: () => useUi.getState().toast({ title: t('calendar.event.delete_read_only'), tone: 'warning' }),
       onCommitted: (id, recurring) => {
+        setHistoryVersion(version => version + 1)
         if (!recurring) return
         dropOccurrencesForMaster(id)
         window.clearTimeout(occurrenceRefreshTimer.current)
         occurrenceRefreshTimer.current = window.setTimeout(() => { void reloadRef.current() }, 300)
       },
       onDeleted: (id, title) => {
+        setHistoryVersion(version => version + 1)
         toastWithUndo(title ? t('calendar.event.deleted_named', { title }) : t('calendar.event.deleted'), () => {
           if (!history.undo(app, id)) useUi.getState().toast({ title: t('calendar.history.empty') })
         })
@@ -1099,6 +1191,23 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   useEffect(() => app.subscribeVisibleRangeChange(payload => {
     loadRange(payload.start.getTime(), payload.end.getTime())
   }), [app, loadRange])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    const flush = async (): Promise<void> => {
+      const result = await flushOutbox(userId)
+      if (cancelled || result.flushed === 0) return
+      await reloadRef.current()
+    }
+    void flush()
+    const online = (): void => { void flush() }
+    window.addEventListener('online', online)
+    return () => {
+      cancelled = true
+      window.removeEventListener('online', online)
+    }
+  }, [userId])
 
   useEffect(() => {
     void syncRegistry(meta.calendars).catch(error => toastFailure(t('calendar.error.refresh'), error))
@@ -1209,15 +1318,30 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onOpenSettings={() => setSettingsOpen(true)}
       onOpenFilteredSearch={() => setFilteredSearchOpen(true)}
       onOpenQuickAdd={() => setQuickAddOpen(true)}
+      onOpenTemplates={() => setTemplatesOpen(true)}
+      onOpenFreeBusy={() => setFreeBusyOpen(true)}
+      onOpenResources={() => setResourcesOpen(true)}
+      onOpenScheduling={() => setSchedulingOpen(true)}
+      onOpenShortcuts={() => setShortcutsOpen(true)}
+      onOpenContacts={() => setContactsOpen(true)}
+      onAddHolidays={() => { void addHolidays() }}
       onRefresh={refreshCalendars}
       onSelectDate={date => app.setCurrentDate(date)}
       onRequestRange={requestMiniRange}
       onPrint={() => { void printCurrentPeriod() }}
+      canUndo={historyView.canUndo}
+      canRedo={historyView.canRedo}
+      onUndo={() => { if (history.undo(app)) setHistoryVersion(version => version + 1) }}
+      onRedo={() => { if (history.redo(app)) setHistoryVersion(version => version + 1) }}
+      tasks={meta.preferences.enableTasks ? (
+        <CalendarTasksPanel app={app} calendars={meta.calendars} onChanged={() => { void reloadRef.current() }} />
+      ) : undefined}
       extras={extrasEventId ? (
         <CalendarEventExtras
           eventId={extrasEventId}
           accountTimeZone={meta.preferences.timeZone}
           locale={appLocale}
+          calendars={meta.calendars}
           readOnly={extrasReadOnly}
           onClose={() => {
             dismissedRef.current = extrasEventId
@@ -1249,6 +1373,30 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {meta.preferences.travelMode
+          && Intl.DateTimeFormat().resolvedOptions().timeZone !== meta.preferences.timeZone
+          && (
+            <div role="status" className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-1.5">
+              <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">
+                {t('calendar.travel_mode.notice', {
+                  device: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                  calendar: meta.preferences.timeZone,
+                })}
+              </span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  void onSavePreferences({
+                    ...meta.preferences,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                  }).catch((error: unknown) => toastFailure(t('calendar.error.save_failed'), error))
+                }}
+              >
+                {t('calendar.travel_mode.switch')}
+              </Button>
+            </div>
+          )}
+
         {rangeLoading && (
           <div role="status" aria-live="polite" className="shrink-0">
             <span className="sr-only">{t('calendar.range.loading')}</span>
@@ -1324,8 +1472,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           initialStart={createStart}
           timeZone={meta.preferences.timeZone}
           calendars={meta.calendars}
+          resources={meta.resources ?? []}
           defaultCalendarId={defaultCalendarId(meta)}
-          onClose={() => setCreateStart(null)}
+          template={template}
+          onClose={() => { setCreateStart(null); setTemplate(null) }}
           onCreate={(draft: NewCalendarEvent) => {
             app.addEvent({
               id: crypto.randomUUID(),
@@ -1336,13 +1486,34 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
               allDay: draft.allDay,
               calendarId: draft.calendarId,
               calendarIds: [draft.calendarId],
-              meta: {},
+              meta: {
+                ...(draft.color ? { color: draft.color } : {}),
+                ...(draft.resourceId ? { resourceId: draft.resourceId } : {}),
+                ...(draft.location ? { location: draft.location } : {}),
+              },
             })
             useUi.getState().toast({ title: t('calendar.event.created'), tone: 'success' })
             setCreateStart(null)
+            setTemplate(null)
           }}
         />
       )}
+
+      <CalendarContactsDialog
+        open={contactsOpen}
+        onClose={() => setContactsOpen(false)}
+        onChanged={async () => { await refreshRef.current() }}
+      />
+
+      <CalendarTemplatesDialog
+        open={templatesOpen}
+        onUse={(chosen) => {
+          setTemplatesOpen(false)
+          setTemplate(chosen)
+          setCreateStart(new Date())
+        }}
+        onClose={() => setTemplatesOpen(false)}
+      />
 
       <CalendarFilteredSearch
         open={filteredSearchOpen}
@@ -1366,6 +1537,42 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       />
 
       <CalendarPrintSheet sheet={printSheet} />
+
+      <CalendarShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      <CalendarSchedulingDialog
+        open={schedulingOpen}
+        calendars={meta.calendars}
+        onClose={() => setSchedulingOpen(false)}
+      />
+
+      <CalendarResourcesDialog
+        open={resourcesOpen}
+        onClose={() => setResourcesOpen(false)}
+        onChanged={async () => { await refreshRef.current() }}
+      />
+
+      <CalendarFreeBusyDialog
+        open={freeBusyOpen}
+        calendars={meta.calendars}
+        timeZone={meta.preferences.timeZone}
+        initialDate={app.getCurrentDate()}
+        onClose={() => setFreeBusyOpen(false)}
+        onPick={(start) => { setCreateStart(start) }}
+      />
+
+      {recurrenceRequest && (
+        <CalendarRecurrenceDialog
+          request={recurrenceRequest}
+          timeZone={meta.preferences.timeZone}
+          onClose={() => setRecurrenceRequest(null)}
+          onApplied={async () => {
+            freshExceptionMasters.current.add(recurrenceRequest.masterId)
+            dropOccurrencesForMaster(recurrenceRequest.masterId)
+            await reloadRef.current()
+          }}
+        />
+      )}
 
       {conflict && (
         <CalendarConflictDialog

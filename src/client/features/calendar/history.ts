@@ -23,6 +23,8 @@ export class CalendarEditHistory {
   private undoStack: EditHistoryEntry[] = []
   private redoStack: EditHistoryEntry[] = []
   private replaying = false
+  /** Ids a replay touched; their echo through the write queue must not start a new history entry. */
+  private replayPending = new Set<string>()
 
   get isReplaying(): boolean {
     return this.replaying
@@ -39,6 +41,7 @@ export class CalendarEditHistory {
   /** Called after a change has reached the API; a replay of history never records again. */
   record(entry: EditHistoryEntry): void {
     if (this.replaying) return
+    if (this.replayPending.delete(entry.id)) return
     this.undoStack.push(entry)
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift()
     this.redoStack = []
@@ -60,12 +63,13 @@ export class CalendarEditHistory {
     const entry = this.redoStack.pop()
     if (!entry) return false
     this.apply(app, entry.after, entry.before)
-    this.redoStack.push(entry)
+    this.undoStack.push(entry)
     return true
   }
 
   private apply(app: ICalendarApp, target: Event | null, opposite: Event | null): void {
     this.replaying = true
+    for (const event of [target, opposite]) if (event) this.replayPending.add(event.id)
     try {
       if (!target) {
         if (opposite) app.applyEventsChanges({ delete: [opposite.id] }, false, 'local')

@@ -12,7 +12,12 @@ import {
   temporalValueToEpochMs,
   toTemporalValue,
 } from '@shared/calendar/model'
-import type { CalendarEventDto, CalendarEventInput, TemporalValue } from '@shared/calendar/model'
+import type {
+  CalendarAttendeeDto,
+  CalendarEventDto,
+  CalendarEventInput,
+  TemporalValue,
+} from '@shared/calendar/model'
 import { sha256Hex } from '../lib/encoding'
 
 type IcalComponent = InstanceType<typeof ICAL.Component>
@@ -92,10 +97,15 @@ export interface IcsParseResult {
   warnings: IcsWarning[]
 }
 
+export interface IcsSerializableEvent extends CalendarEventInput {
+  attendees?: CalendarAttendeeDto[]
+}
+
 export interface IcsSerializeInput {
   name: string
-  events: readonly CalendarEventInput[]
+  events: readonly IcsSerializableEvent[]
   timeZone: string
+  organizerEmail?: string
 }
 
 type TimeContext =
@@ -282,6 +292,55 @@ function readCategories(
   return categories
 }
 
+function mailAddress(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const address = value.trim().replace(/^mailto:/i, '')
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address) ? address.toLowerCase() : null
+}
+
+function attendeeStatus(partstat: unknown): CalendarAttendeeDto['status'] {
+  if (typeof partstat !== 'string') return 'needs-action'
+  switch (partstat.toUpperCase()) {
+    case 'ACCEPTED': return 'accepted'
+    case 'DECLINED': return 'declined'
+    case 'TENTATIVE': return 'tentative'
+    default: return 'needs-action'
+  }
+}
+
+function readAttendees(
+  component: IcalComponent,
+  fallback: IcalComponent | undefined,
+  context: WarningContext,
+): CalendarAttendeeDto[] {
+  const source = sourceFor(component, fallback, 'attendee')
+  const guests: CalendarAttendeeDto[] = []
+  for (const property of source.getAllProperties('attendee')) {
+    try {
+      const email = mailAddress(property.getFirstValue())
+      if (!email || guests.some(guest => guest.email === email)) continue
+      const name = property.getParameter('cn')
+      guests.push({
+        email,
+        name: typeof name === 'string' ? name.trim().slice(0, 120) : '',
+        status: attendeeStatus(property.getParameter('partstat')),
+      })
+      if (guests.length >= 50) break
+    } catch {
+      addWarning(context, 'invalid_property', 'ATTENDEE could not be read.')
+    }
+  }
+  return guests
+}
+
+function readOrganizer(
+  component: IcalComponent,
+  fallback: IcalComponent | undefined,
+): string | null {
+  const property = sourceFor(component, fallback, 'organizer').getFirstProperty('organizer')
+  return property ? mailAddress(property.getFirstValue()) : null
+}
+
 function readDatesProperty(
   component: IcalComponent,
   name: 'exdate' | 'rdate',
@@ -418,6 +477,10 @@ function mapEvent(options: MapEventOptions): CalendarEventInput {
   if (categories.length > 0) meta.categories = categories
   if (httpUrl) meta.url = httpUrl
   if (recurrenceRule) meta.recurrenceRule = recurrenceRule
+  const attendees = readAttendees(component, fallback, warningContext)
+  if (attendees.length > 0) meta.attendees = attendees
+  const organizerEmail = readOrganizer(component, fallback)
+  if (organizerEmail) meta.organizerEmail = organizerEmail
   if (options.recurrenceId) {
     meta.recurrenceId = temporalValueFor(
       options.recurrenceId,
@@ -1021,7 +1084,7 @@ export function* icsCalendarChunks(input: IcsSerializeInput): Generator<string> 
       uid = `${baseUid}-${suffix}`
     }
     usedUids.add(uid)
-    yield ICAL.stringify(veventFor(event, uid).jCal)
+    yield ICAL.stringify(veventFor(event, uid, input.organizerEmail).jCal)
   }
 
   yield ICS_FOOTER
@@ -1053,7 +1116,7 @@ export function encodeIcsChunks(input: IcsSerializeInput, maxBytes: number): Uin
   return parts
 }
 
-function veventFor(event: CalendarEventInput, uid: string): IcalComponent {
+function veventFor(event: IcsSerializableEvent, uid: string, organizerEmail?: string): IcalComponent {
   const meta = metaOf(event)
   const vevent = new ICAL.Component('vevent')
   vevent.updatePropertyWithValue('uid', uid)
@@ -1097,6 +1160,24 @@ function veventFor(event: CalendarEventInput, uid: string): IcalComponent {
   const pageUrl = safeHttpUrl(meta.url, false)
   const url = joinUrl ?? pageUrl
   if (url) vevent.updatePropertyWithValue('url', url)
+
+  const organizer = mailAddress(organizerEmail ?? (typeof meta.organizerEmail === 'string' ? meta.organizerEmail : null))
+  if (organizer) {
+    const property = new ICAL.Property('organizer')
+    property.setValue(`mailto:${organizer}`)
+    vevent.addProperty(property)
+  }
+
+  const guests = event.attendees ?? (Array.isArray(meta.attendees) ? meta.attendees as CalendarAttendeeDto[] : [])
+  for (const guest of guests.slice(0, 50)) {
+    const email = mailAddress(guest.email)
+    if (!email) continue
+    const property = new ICAL.Property('attendee')
+    property.setValue(`mailto:${email}`)
+    if (guest.name) property.setParameter('cn', guest.name.slice(0, 120))
+    property.setParameter('partstat', guest.status.toUpperCase())
+    vevent.addProperty(property)
+  }
 
   return vevent
 }

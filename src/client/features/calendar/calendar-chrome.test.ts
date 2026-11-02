@@ -9,6 +9,7 @@ function fakeApp() {
     selectEvent: vi.fn(),
     highlightEvent: vi.fn(),
     onEventDetailToggle: vi.fn(),
+    getEvents: () => [],
   } as unknown as ICalendarApp
 }
 

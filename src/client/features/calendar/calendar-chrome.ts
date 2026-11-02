@@ -10,7 +10,7 @@
  * The library re-renders its grid, so every job is mirrored by a MutationObserver. We only write
  * attributes and text it does not read, so the mirror cannot fight its render.
  */
-import type { ICalendarApp } from '@dayflow/react'
+import { getCalendarColorsForHex, type ICalendarApp } from '@dayflow/react'
 import { narrowWeekdayLabels, type WeekStartDay } from '../../lib/time'
 
 const EVENT_SELECTOR = '.df-event'
@@ -84,6 +84,28 @@ export function attachCalendarChrome(options: CalendarChromeOptions): () => void
       if (element.getAttribute('role') !== 'button') element.setAttribute('role', 'button')
       const name = eventAccessibleName(element, options.untitledLabel, options.allDayLabel)
       if (name && element.getAttribute('aria-label') !== name) element.setAttribute('aria-label', name)
+      const id = element.getAttribute('data-event-id')
+      const color = id
+        ? options.app.getEvents().find(candidate => candidate.id === id)?.meta?.color
+        : undefined
+      const hex = typeof color === 'string' ? color : ''
+      if (element.dataset.inkstoneColor !== hex) {
+        element.dataset.inkstoneColor = hex
+        if (hex) {
+          try {
+            const palette = getCalendarColorsForHex(hex)
+            element.style.backgroundColor = palette.colors.eventColor
+            element.style.color = palette.colors.textColor
+            element.style.borderColor = palette.colors.lineColor
+          } catch {
+            // A provider may carry a colour this build cannot parse; the calendar colour stays.
+          }
+        } else {
+          element.style.removeProperty('background-color')
+          element.style.removeProperty('color')
+          element.style.removeProperty('border-color')
+        }
+      }
     })
   }
 
