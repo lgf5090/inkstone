@@ -6,7 +6,10 @@ import {
   BookOpen,
   Bot,
   Camera,
+  Calculator,
+  CalendarDays,
   CheckSquare,
+  Coins,
   ChevronRight,
   Columns2,
   Compass,
@@ -20,6 +23,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   LayoutTemplate,
+  LineChart,
   Link2,
   PanelLeft,
   PanelLeftClose,
@@ -27,11 +31,14 @@ import {
   Palette,
   Printer,
   QrCode,
+  Ruler,
+  Sigma,
   ScanLine,
   Settings,
   ShieldCheck,
   Sparkles,
   Star,
+  Users,
   Wrench,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -41,6 +48,7 @@ import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import {
   useToolsStore,
+  type CalculatorNavView,
   type ColorNavView,
   type IdPhotoNavView,
   type PasswordNavView,
@@ -84,6 +92,18 @@ const ID_PHOTO_NAV_SLOTS: readonly IdPhotoNavSlot[] = [
   { id: 'specs', labelKey: 'tools.id_photo.nav.specs', icon: Award },
   { id: 'history', labelKey: 'tools.id_photo.nav.history', icon: History },
   { id: 'settings', labelKey: 'tools.id_photo.nav.settings', icon: Settings },
+]
+
+const CALCULATOR_NAV_SLOTS: readonly { id: CalculatorNavView; labelKey: MessageKey; icon: ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'standard', labelKey: 'tools.calculator.nav.standard', icon: Calculator },
+  { id: 'scientific', labelKey: 'tools.calculator.nav.scientific', icon: Sigma },
+  { id: 'programmer', labelKey: 'tools.calculator.nav.programmer', icon: Binary },
+  { id: 'date', labelKey: 'tools.calculator.nav.date', icon: CalendarDays },
+  { id: 'unit', labelKey: 'tools.calculator.nav.unit', icon: Ruler },
+  { id: 'currency', labelKey: 'tools.calculator.nav.currency', icon: Coins },
+  { id: 'graph', labelKey: 'tools.calculator.nav.graph', icon: LineChart },
+  { id: 'kinship', labelKey: 'tools.calculator.nav.kinship', icon: Users },
+  { id: 'settings', labelKey: 'tools.calculator.nav.settings', icon: Settings },
 ]
 
 const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
@@ -163,6 +183,10 @@ export function ToolsSidebar({
   const toggleColorModuleExpanded = useToolsStore((s) => s.toggleColorModuleExpanded)
   const activeColorView = useToolsStore((s) => s.activeColorView)
   const setActiveColorView = useToolsStore((s) => s.setActiveColorView)
+  const calculatorModuleExpanded = useToolsStore((s) => s.calculatorModuleExpanded)
+  const toggleCalculatorModuleExpanded = useToolsStore((s) => s.toggleCalculatorModuleExpanded)
+  const activeCalculatorView = useToolsStore((s) => s.activeCalculatorView)
+  const setActiveCalculatorView = useToolsStore((s) => s.setActiveCalculatorView)
   const shortlinksModuleExpanded = useToolsStore((s) => s.shortlinksModuleExpanded)
   const toggleShortlinksModuleExpanded = useToolsStore((s) => s.toggleShortlinksModuleExpanded)
   const activeShortlinksView = useToolsStore((s) => s.activeShortlinksView)
@@ -198,6 +222,12 @@ export function ToolsSidebar({
   const handleColorSlotClick = (slotId: ColorNavView) => {
     setActiveSubmodule('color')
     setActiveColorView(slotId)
+    onNavigate?.()
+  }
+
+  const handleCalculatorSlotClick = (slotId: CalculatorNavView) => {
+    setActiveSubmodule('calculator')
+    setActiveCalculatorView(slotId)
     onNavigate?.()
   }
 
@@ -290,6 +320,19 @@ export function ToolsSidebar({
               }}
             >
               <Palette size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.calculator.module_name')} side="right">
+            <IconButton
+              label={t('tools.calculator.module_name')}
+              size="sm"
+              active={activeSubmodule === 'calculator'}
+              onClick={() => {
+                setActiveSubmodule('calculator')
+                onExpand?.()
+              }}
+            >
+              <Calculator size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -604,6 +647,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleColorSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Sixth submodule: Calculator (tools/calculator) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={calculatorModuleExpanded}
+            onClick={toggleCalculatorModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'calculator' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  calculatorModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Calculator size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.calculator.module_name')}</span>
+            </div>
+          </button>
+
+          {calculatorModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {CALCULATOR_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'calculator' && activeCalculatorView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleCalculatorSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

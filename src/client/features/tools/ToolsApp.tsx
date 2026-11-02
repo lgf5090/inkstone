@@ -15,6 +15,7 @@ const QrCodeApp = lazy(() => import('./qrcode/QrCodeApp').then((m) => ({ default
 const IdPhotoApp = lazy(() => import('./id-photo/IdPhotoApp').then((m) => ({ default: m.IdPhotoApp })))
 const ColorApp = lazy(() => import('./color/ColorApp').then((m) => ({ default: m.ColorApp })))
 const ShortlinksApp = lazy(() => import('./shortlinks/ShortlinksApp').then((m) => ({ default: m.ShortlinksApp })))
+const CalculatorApp = lazy(() => import('./calculator/CalculatorApp').then((m) => ({ default: m.CalculatorApp })))
 
 export function ToolsApp() {
   const breakpoint = useBreakpoint()
@@ -59,7 +60,9 @@ export function ToolsApp() {
                     ? t('tools.id_photo.module_name')
                     : activeSubmodule === 'color'
                       ? t('tools.color.module_name')
-                      : t('tools.shortlinks.module_name')}
+                      : activeSubmodule === 'calculator'
+                        ? t('tools.calculator.module_name')
+                        : t('tools.shortlinks.module_name')}
             </span>
           </div>
         </header>
@@ -98,6 +101,7 @@ export function ToolsApp() {
             {activeSubmodule === 'id_photo' && <IdPhotoApp />}
             {activeSubmodule === 'color' && <ColorApp />}
             {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
+            {activeSubmodule === 'calculator' && <CalculatorApp />}
           </Suspense>
         </main>
       </div>

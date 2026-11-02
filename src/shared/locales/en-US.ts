@@ -23,6 +23,8 @@ import { EN_US_CLOUDDRIVE } from './en-US-clouddrive';
 import { EN_US_CLOUDDRIVE_ADMIN } from './en-US-clouddrive-admin';
 import { EN_US_CLOUDDRIVE_MEDIA } from './en-US-clouddrive-media';
 import { EN_US_TOOLS } from './en-US-tools';
+import { EN_US_CALCULATOR } from './en-US-calculator';
+import { EN_US_CALCULATOR_UI } from './en-US-calculator-ui';
 import { EN_US_YOUTUBE } from './en-US-youtube';
 import { EN_US_BLOG_ADMIN } from './en-US-blog-admin';
 import { EN_US_CALENDAR } from './en-US-calendar';
@@ -10353,6 +10355,8 @@ const CORE_MESSAGES_TAIL = {
     ...EN_US_EMAIL_TEMPLATES,
     ...EN_US_MUSIC,
     ...EN_US_TOOLS,
+    ...EN_US_CALCULATOR,
+    ...EN_US_CALCULATOR_UI,
     ...EN_US_CALENDAR,
     ...EN_US_DEVELOPMENT_DATABASE,
     ...EN_US_DEVELOPMENT_APITESTER,
