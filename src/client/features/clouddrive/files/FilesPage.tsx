@@ -347,30 +347,30 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     event.dataTransfer.setData(DRAG_MIME, ids.join(','))
   }, [entries, external, selected, writable])
 
-  const canDropOn = useCallback((targetPath: string): boolean => {
-    const payload = dragRef.current
+  /** A folder accepts the drag unless it is where the rows already are, or is one of them, or is inside one. */
+  const accepts = useCallback((payload: { ids: string[]; paths: string[] } | null, targetPath: string): boolean => {
     if (!payload || !writable || external) return false
     if (targetPath === path) return false
     return !payload.paths.some((one) => targetPath === one || targetPath.startsWith(`${one}/`))
   }, [external, path, writable])
 
   const dragOverTarget = useCallback((targetPath: string, event: ReactDragEvent<HTMLElement>): boolean => {
-    if (!event.dataTransfer.types.includes(DRAG_MIME) || !canDropOn(targetPath)) return false
+    if (!event.dataTransfer.types.includes(DRAG_MIME) || !accepts(dragRef.current, targetPath)) return false
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     return true
-  }, [canDropOn])
+  }, [accepts])
 
   const dropOnTarget = useCallback((targetPath: string, event: ReactDragEvent<HTMLElement>) => {
     if (!event.dataTransfer.types.includes(DRAG_MIME)) return
     event.preventDefault()
     const payload = dragRef.current
     dragRef.current = null
-    if (!payload || !canDropOn(targetPath)) return
+    if (!accepts(payload, targetPath)) return
     const moved = entries.filter((one) => payload.ids.includes(one.id))
     setSelected(new Set())
     void actions.move(payload.ids, targetPath, moved)
-  }, [actions, canDropOn, entries])
+  }, [accepts, actions, entries])
 
   const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
     setSelected((current) => {

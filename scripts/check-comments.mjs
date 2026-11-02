@@ -5582,7 +5582,6 @@ const allowed = new Map([
   ["src/client/features/clouddrive/clouddrive.css", [
     "/* A trash page can hold hundreds of rows and the ones off screen cost layout nobody looks at; they\n   are skipped until the row comes near the viewport. `auto` in front of the size keeps the last\n   measured box, so the scrollbar does not jump as you scroll. */",
     "/* CloudDrive's own layout glue. Colours and spacing come from design tokens; the variables below\n   are the only values the reader changes at runtime (gap, icon size, row height, sidebar width). */",
-    "/* The folder a dragged row is currently hovering: a row, a grid tile or one breadcrumb step. An\n   outline rather than a background, so it stays readable on a selected row too. */",
   ]],
   ["src/client/features/clouddrive/files/ColorTagMenus.tsx", [
     "/** The colour dots a row or grid tile carries. Names stay in the inspector and list. */",
@@ -5627,6 +5626,7 @@ const allowed = new Map([
     "// comes first in the browser is the reader's \"folders first\" choice.",
     "/** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */",
     "/**\n   * Pointer drag moves rows into a folder. `dataTransfer` hides its payload until the drop, so the\n   * page records what is in flight itself and every drop target consults that; the keyboard and\n   * context-menu route to the same `actions.move` stays the way to do it without a pointer.\n   */",
+    "/** A folder accepts the drag unless it is where the rows already are, or is one of them, or is inside one. */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
@@ -5646,6 +5646,7 @@ const allowed = new Map([
     "/* The extension rides with the last segment: `overflow-wrap` may break the base name, never\n   \".json\". */",
     "/* Drive-wide search rows keep the folder: on a narrow screen the place matters more than\n     the kind, which the icon already says. */",
     "/* Tiles are the other long list in this app: hundreds of them in one folder means hundreds of layout\n   boxes off screen. `auto` in front of the size remembers each box, so the scrollbar does not jump.\n   The list view is deliberately absent — a `<tr>` takes no containment from the browser. */",
+    "/* The folder a dragged row is hovering: a list row, a grid tile or one breadcrumb step. An inset\n   ring rather than an outline, because `.cd-list-row` already answers `outline: none` and the focus\n   ring has to stay readable on a row that is both focused and a target. */",
   ]],
   ["src/client/features/clouddrive/files/format.ts", [
     "/** One formatter per locale; the list can draw hundreds of dates in one render. */",

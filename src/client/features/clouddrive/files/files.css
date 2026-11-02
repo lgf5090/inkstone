@@ -338,3 +338,10 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
 }
+/* The folder a dragged row is hovering: a list row, a grid tile or one breadcrumb step. An inset
+   ring rather than an outline, because `.cd-list-row` already answers `outline: none` and the focus
+   ring has to stay readable on a row that is both focused and a target. */
+[data-clouddrive-files] .cd-drop-target {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--accent-soft);
+}
