@@ -2308,6 +2308,15 @@ ${current}` : seed))
   const onPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files]
     const text = event.clipboardData.getData('text')
+    // A pasted address is a reference, not a paragraph: the reader who copies a URL into the box means
+    // "read this page", and the worker already knows how to fetch it safely. A message that merely
+    // contains a URL keeps its text.
+    const soleUrl = text.trim()
+    if (!files.length && /^https?:\/\/\S+$/i.test(soleUrl) && soleUrl.length <= 2_048) {
+      event.preventDefault()
+      void attachUrl(soleUrl)
+      return
+    }
     const asFile = !files.length && text.length >= PASTE_FILE_MIN_CHARS
     // The decision has to be made before the handler returns: once the browser has pasted, calling
     // preventDefault is a no-op and the reader gets the wall of text next to the file.

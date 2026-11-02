@@ -2377,6 +2377,9 @@ const allowed = new Map([
     "// of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than",
     "// returning early keeps every hook above on the same path.",
     "/* A different icon from the clip beside it on purpose: the clip puts a file into this\n                one turn, this one opens everything the chat has ever been sent. */",
+    "// A pasted address is a reference, not a paragraph: the reader who copies a URL into the box means",
+    "// \"read this page\", and the worker already knows how to fetch it safely. A message that merely",
+    "// contains a URL keeps its text.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
