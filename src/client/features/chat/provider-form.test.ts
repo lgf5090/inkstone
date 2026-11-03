@@ -389,3 +389,65 @@ describe('a save the route refuses', () => {
     expect(document.querySelector('[role="alert"]')).toBeNull()
   })
 })
+
+/**
+ * The address of the wire the provider is called on.
+ *
+ * The form draws an address box only for the protocols it is *not* on. An entry for the current one is
+ * therefore invisible, and it used to still be judged and sent: the save stayed disabled over a box that
+ * was not on screen, or the route refused an address under a field the reader could not reach. Choosing a
+ * protocol now takes the address typed for it into the address box, and a stored copy for the current
+ * protocol is dropped instead of sent back.
+ */
+describe('an address for the wire the provider is on', () => {
+  const PROTOCOL_LABEL_KEYS = {
+    anthropic: 'assistant.settings.protocol.anthropic',
+    gemini: 'assistant.settings.protocol.gemini',
+  } as const
+  const endpointBox = (protocol: keyof typeof PROTOCOL_LABEL_KEYS) => document.querySelector<HTMLInputElement>(
+    `input[aria-label="${t('assistant.settings.endpoint_other')} ${t(PROTOCOL_LABEL_KEYS[protocol])}"]`,
+  )
+  const protocolSelect = () => [...document.querySelectorAll<HTMLSelectElement>('select')]
+    .find((node) => [...node.options].some((option) => option.value === 'anthropic'))
+  const choose = (value: string) => {
+    const node = protocolSelect()
+    expect(node, 'the protocol select is not rendered').toBeTruthy()
+    act(() => {
+      node!.value = value
+      node!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  const editButton = () => buttons().find((node) => node.textContent?.trim() === t('assistant.settings.edit_provider'))
+
+  it('moves the address typed for the chosen protocol into the address box', () => {
+    const address = 'https://api.deepseek.com/anthropic'
+    act(() => { type(endpointBox('anthropic')!, address) })
+    choose('anthropic')
+    expect(baseBox()?.value, 'the address stayed behind in a box the form no longer draws').toBe(address)
+    expect(endpointBox('anthropic'), 'a box for the protocol now in use is still drawn').toBeFalsy()
+    expect(submit()?.disabled).toBe(false)
+  })
+
+  it('shows a value it could not use, rather than keeping the save disabled in silence', () => {
+    act(() => { type(endpointBox('anthropic')!, 'lgf5090') })
+    choose('anthropic')
+    // The junk is not adopted quietly and it is not hidden either: it lands in the address box the form
+    // does draw, marked, with the reason under it.
+    expect(baseBox()?.getAttribute('aria-invalid')).toBe('true')
+    expect(document.body.textContent).toContain(t('assistant.settings.address_invalid'))
+    // The only remaining reason for a disabled save is the one now on screen.
+    expect(endpointBox('anthropic')).toBeFalsy()
+  })
+
+  it('drops a stored address for the provider own protocol instead of sending it back', async () => {
+    const provider = {
+      id: 'p1', label: 'Legacy Gateway', protocol: 'openai', baseUrl: 'https://api.deepseek.com',
+      endpoints: { openai: 'lgf5090' }, hasKey: false, icon: '', keyHint: '', reasoningDialect: null, createdAt: 1, updatedAt: 1,
+    } as unknown as AssistantProvider
+    await act(async () => { root.render(createElement(ProviderForm, { open: true, provider, onClose: onCloseSpy })) })
+    expect(editButton()?.disabled, 'an address no box shows kept the save disabled').toBe(false)
+    await act(async () => { editButton()!.click() })
+    const body = vi.mocked(useAssistant.getState().updateProvider).mock.calls[0]?.[1] as Record<string, unknown>
+    expect(body.endpoints).toEqual({})
+  })
+})
