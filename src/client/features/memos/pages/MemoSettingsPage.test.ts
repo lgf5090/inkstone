@@ -48,6 +48,7 @@ function token(overrides: Partial<MemoToken> = {}): MemoToken {
     id: 'token-1',
     description: 'Web Clipper',
     prefix: 'memo_pat_abcd1234',
+    scope: 'memos',
     expiresAt: null,
     createdAt: 1_700_000_000,
     lastUsedAt: null,

@@ -633,11 +633,32 @@ cloudDriveFilesRoutes.get('/trash', async (c) => {
     cursor: c.req.query('cursor') || undefined,
     limit: parseLimit(c.req.query('limit')),
   })
-  const [folders, files] = await Promise.all([
-    entriesOf(c.env.DB, userId, mount, result.folders),
-    entriesOf(c.env.DB, userId, mount, result.files),
-  ])
+  // A password folder's contents stay out of the trash until the folder is unlocked, the same rule
+  // the live listing applies. The row's parent is what carries the lock, and a hidden name is the
+  // other half of the same folder policy.
   const roots = [...result.folders, ...result.files]
+  const parents = roots.map((row) => parentPathOf(row.path))
+  const [metas, folderRules] = await Promise.all([
+    effectiveMetas(c.env.DB, userId, mount.id, parents),
+    folderHiddenPatterns(c.env.DB, userId, mount.id, parents),
+  ])
+  const unlocked = new Map<string, boolean>()
+  const visible = async (rows: typeof roots): Promise<typeof roots> => {
+    const kept: typeof roots = []
+    for (const row of rows) {
+      const parent = parentPathOf(row.path)
+      const meta = metas.get(parent) ?? NO_META
+      if (hiddenByPatterns(row.name, [...meta.hidePatterns, ...(folderRules.get(parent) ?? [])])) continue
+      if (!(await isMetaOpen(c, userId, mount.id, meta, unlocked))) continue
+      kept.push(row)
+    }
+    return kept
+  }
+  const [visibleFolders, visibleFiles] = await Promise.all([visible(result.folders), visible(result.files)])
+  const [folders, files] = await Promise.all([
+    entriesOf(c.env.DB, userId, mount, visibleFolders),
+    entriesOf(c.env.DB, userId, mount, visibleFiles),
+  ])
   const trashedWith = new Map(roots.map((row) => [row.id, row.descendantsTrashed]))
   const deletedWhen = new Map(roots.map((row) => [row.id, row.deleted_at]))
   const inTrash = (entry: CloudDriveEntry): CloudDriveEntry => ({

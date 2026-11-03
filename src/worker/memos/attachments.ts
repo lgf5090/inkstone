@@ -372,6 +372,7 @@ export async function deleteMemoAttachments(
   const rows = await attachmentsByIds(env.DB, userId, ids)
   if (!rows.length) return { deleted: 0, freedBytes: 0 }
   const expanded = await expandMotionGroups(env.DB, userId, rows)
+  await assertAttachmentsUnbound(expanded)
   await assertAttachmentsUnreferenced(env.DB, userId, expanded)
   const result = await deleteAttachmentRows(env, userId, expanded, false)
   await drainCleanupBestEffort(env, userId)
@@ -542,6 +543,25 @@ async function expandMotionGroups(
     for (const row of results) byId.set(row.id, row)
   }
   return [...byId.values()]
+}
+
+/**
+ * An attachment a memo row owns is not the library's to delete.
+ *
+ * The body check above only sees files a memo *renders*; a comment keeps its uploads in the
+ * attachment row without writing every URL into its text, and a live photo keeps a video beside the
+ * still. `memo_id` is the structured link those cases share, so it is the rule the delete path asks
+ * first: a row still bound to a memo answers 409, and only an unbound row can be removed here.
+ */
+async function assertAttachmentsUnbound(rows: readonly MemoAttachmentRow[]): Promise<void> {
+  const bound = rows.find((row) => row.memo_id !== null)
+  if (!bound) return
+  throw new MemoAttachmentError(
+    409,
+    'memo_attachment_in_use',
+    `Attachment ${bound.id} is still used by memo ${bound.memo_id}`,
+    { attachmentId: bound.id, memoId: bound.memo_id },
+  )
 }
 
 async function assertAttachmentsUnreferenced(

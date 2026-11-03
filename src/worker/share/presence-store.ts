@@ -187,7 +187,7 @@ export async function loadLiveShareBySlug(db: D1Database, slug: string): Promise
     .prepare(
       `SELECT s.slug, s.password_hash, s.expires_at, n.title
          FROM shares s JOIN notes n ON n.id = s.note_id
-        WHERE s.slug = ?1`,
+        WHERE s.slug = ?1 AND s.is_enabled = 1 AND n.deleted_at IS NULL`,
     )
     .bind(slug)
     .first<LiveShare>()

@@ -225,6 +225,19 @@ describe('the reader half', () => {
     expect(ok.headers.get('set-cookie')).toContain(shareAssetCookieName(share.slug))
   })
 
+  it('treats a paused link as revoked, in the API and in the public document', async () => {
+    const { share } = await createShare()
+    sqlite.prepare('UPDATE shares SET is_enabled = 0 WHERE slug = ?').run(share.slug)
+
+    const refused = await errorOf(await request(`/api/public/${share.slug}`, jsonInit('POST', {}), ''))
+    expect(refused.message).toBe('The link does not exist or has been revoked')
+
+    const page = await (await request(`/s/${share.slug}`, {}, '')).text()
+    expect(page).toContain('<title>Content unavailable · Inkstone</title>')
+    expect(page).not.toContain('og:description')
+    expect(page).not.toContain('Q3 review')
+  })
+
   it('counts a served view off the response path, once per window per visitor', async () => {
     const { share } = await createShare()
     const first = await request(`/api/public/${share.slug}`, jsonInit('POST', {}), '')

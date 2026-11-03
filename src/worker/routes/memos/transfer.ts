@@ -3,7 +3,7 @@ import { MEMO_IMPORT_CHUNK_BYTES } from '@shared/memos/constants'
 import type { AppBindings } from '../../env'
 import { ApiError, errorResponse } from '../../lib/errors'
 import { JSON_BODY_LIMITS, readBytesWithinLimit, readJson, readOptionalJson } from '../../lib/request'
-import { requireMemoUser } from '../../memos/auth'
+import { requireMemoOwner, requireMemoUser } from '../../memos/auth'
 import { buildMemoExport } from '../../memos/export'
 import {
   MemoImportError,
@@ -33,7 +33,7 @@ memoTransferRoutes.onError((err, c) => {
   return errorResponse(c, err)
 })
 
-memoTransferRoutes.get('/export', async (c) => {
+memoTransferRoutes.get('/export', requireMemoOwner, async (c) => {
   const archive = await buildMemoExport(c.env, c.get('userId'))
   return new Response(archive.stream, {
     headers: {

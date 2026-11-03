@@ -127,4 +127,12 @@ describe('a share reader without a session', () => {
     mocks.userId = ''
     expect((await get(`/api/files/${ATTACHMENT}`)).status).toBe(401)
   })
+
+  it('refuses the bytes once the share is paused, even with a valid slug and id', async () => {
+    sqlite.prepare('UPDATE shares SET is_enabled = 0 WHERE slug = ?').run(SLUG)
+    mocks.userId = ''
+    const response = await get(`/api/files/${ATTACHMENT}?share=${SLUG}`)
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ error: { message: 'You do not have access to this attachment' } })
+  })
 })

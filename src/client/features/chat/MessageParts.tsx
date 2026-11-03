@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { AssistantErrorCard } from './AssistantErrorCard'
+import { approvalOffersAlways } from './approval-policy'
 import {
   AlertTriangle,
   Check,
@@ -640,7 +641,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
         >
           {t('assistant.approval.decline')}
         </Button>
-        {spec?.permission !== 'destructive' && (
+        {approvalOffersAlways(action.tool, spec?.permission) && (
           <Button
             size="sm"
             variant="ghost"

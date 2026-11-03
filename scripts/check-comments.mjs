@@ -3286,6 +3286,9 @@ const allowed = new Map([
     "// A paged-back answer brings its own trace along: reading it under the live one would credit the",
     "// older answer to the thinking the newer model just did.",
   ]],
+  ["src/client/features/chat/approval-policy.ts", [
+    "/**\n * Whether a pending approval card may offer \"Always allow\".\n *\n * A destructive built-in tool may not be granted, and neither may an external (MCP) one: its\n * permission belongs to the third-party server, `ASSISTANT_TOOL_BY_NAME` knows nothing about it, and\n * the server refuses to store that grant. Kept in its own module so the rule can be tested without\n * loading the whole chat surface.\n */",
+  ]],
   ["src/client/features/chat/artifact-rendering.test.ts", [
     "/**\n * What a draft looks like when the canvas draws it.\n *\n * The panel's other file mocks the renderer on purpose — it is about the panel's own wiring. This one\n * mounts the notebook's real Markdown pipeline behind the panel, because the things that matter about a\n * drawn draft are exactly the things a stand-in cannot answer: whether a fence comes out with a copy\n * button that copies *that fence*, whether a table keeps its cells inside the panel, whether a `![[note]]`\n * arrives or sits there saying \"Loading\" forever, and whether markup a model wrote can come back as\n * markup. None of those is visible from a mocked component, and all of them are the difference between a\n * draft that reads like a document and a draft that only looks like one.\n */",
     "/** Payload a model writes as text, which must never come back as live markup. */",
@@ -31061,6 +31064,9 @@ const allowed = new Map([
   ["src/shared/memos/map-endpoints.ts", [
     "/** External endpoints shared by the memo map client and the Worker CSP. */",
   ]],
+  ["src/shared/memos/types.ts", [
+    "/**\n * What a Memos access token may reach.\n *\n * `memos` is the default and covers the memo data an automation needs. `owner` additionally reaches\n * the token ledger and the account archive, which a leaked automation credential must not be able to\n * use to renew itself or to take the whole account with it.\n */",
+  ]],
   ["src/shared/music/api.ts", [
     "/** Wire shapes for `/api/music`. The worker returns camelCase; D1 rows never leave the worker. */",
     "/** Absent keeps the saved token; an empty string clears it. */",
@@ -33117,6 +33123,10 @@ const allowed = new Map([
     "/** A `YYYY-MM-DD` or ISO date-time, read in the reader's own timezone. */",
     "/** The `drive_list` statement: one folder or its whole subtree, narrowed by every filter at once. */",
     "// Only still-live rows: a file the reader already trashed in the meantime needs no second move.",
+    "/** Every live folder inside the walked subtree, so the walk can ask what each one protects. */",
+    "// A recursive walk is the only read that can cross a password folder without the reader opening",
+    "// it. The `effectiveMeta` per folder is what keeps the tool's promise: a lock anywhere in the",
+    "// subtree refuses the walk instead of returning a quietly incomplete answer.",
   ]],
   ["src/worker/assistant/code-sandbox.ts", [
     "/** How much of a program's chatter is worth keeping. A loop that logs is a program that hangs anyway. */",
@@ -35533,6 +35543,9 @@ const allowed = new Map([
     "// A remote server lists its tools in whatever order it likes, and that order is not stable across",
     "// connections. Sorting by name makes the block the same bytes on every request, so the cache in front",
     "// of it stays valid.",
+    "// An external tool's permission is decided by its remote server, and an \"always allow\" grant is",
+    "// never stored for one. A grant that somehow predates that rule must not be honoured either: the",
+    "// third party's call is held for a press every time, whatever the local settings say.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -36280,6 +36293,11 @@ const allowed = new Map([
     "// Children keep the owner's folder shape; a name the destination already holds gets a suffix",
     "// rather than silently replacing the reader's own file.",
     "/** A name the destination folder does not already hold, using the same suffix rule as an upload. */",
+    "// The drive's folder password is an access boundary here too: a grantee who was handed a folder",
+    "// cannot list what the owner later locked, and the same `hidePatterns` rule the owner's own",
+    "// listing applies decides which names the directory shows.",
+    "// A grant to a file under a password folder follows the folder's lock, exactly as the owner's own",
+    "// file route does (it checks the containing directory, not the file path).",
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
@@ -36360,6 +36378,9 @@ const allowed = new Map([
     "// A directory upload walks the same path for every file inside it, so it asks for the folder it",
     "// already made instead of taking a 409 and inventing `docs (1)`.",
     "/**\n * One line of write on purpose: the recent-view page has nothing to show until a read says it happened.\n * It is not a mutation of the file, so it takes the same read permission and no write grant.\n */",
+    "// A password folder's contents stay out of the trash until the folder is unlocked, the same rule",
+    "// the live listing applies. The row's parent is what carries the lock, and a hidden name is the",
+    "// other half of the same folder policy.",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -36421,6 +36442,9 @@ const allowed = new Map([
     "// Only a type this route is willing to draw may switch to inline; `text/html` in particular keeps",
     "// the attachment disposition the app-wide rule gave it.",
     "/** The page a cursor asks for; anything that is not a sane offset starts the folder over. */",
+    "// A download is a request, not a header shape: a visitor who asks for `bytes=1-` receives the",
+    "// same file as one who asks without a Range, so counting only the no-range/`bytes=0-` case let",
+    "// `max_downloads` be bypassed with one extra header. HEAD stays free because it returns no bytes.",
   ]],
   ["src/worker/clouddrive/routes-upload.ts", [
     "/**\n * Session-based uploads into the primary R2 mount.\n *\n * Small files take one PUT of raw bytes; everything else becomes an R2 multipart upload whose parts\n * are recorded in `CloudDrive_upload_parts` so a refresh can resume. The object key is allocated at\n * init (`CloudDrive/{category}/{fileId}`) and the file row is only written on completion, which keeps\n * an abandoned upload out of the virtual tree.\n *\n * Only the primary mount is accepted here. External mounts need a storage driver and are out of scope\n * for this pass; the `clouddrive_mount_unavailable` answer is explicit rather than a silent fallback.\n *\n * TODO: `POST /uploads/url` (SSRF-checked remote fetch) is not implemented in this pass.\n */",
@@ -37447,6 +37471,9 @@ const allowed = new Map([
     "// `chat_messages` until now, so the day's counters — the ones the cost screen reads — could not say how",
     "// much of a prompt a vendor served from its cache. Four tables, four migrations: each ALTER is guarded",
     "// by its own column so a database that already has one is not skipped along with the rest.",
+    "// A Memos token is no longer a session: `scope` says what it may reach, and `parent_token_id`",
+    "// remembers which token minted it so revoking the parent takes its children with it. Both are",
+    "// additive and default to the safe side (`memos`, no parent) for rows written before this version.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -37659,6 +37686,7 @@ const allowed = new Map([
     "/** Optional public base for the versioned reading runtime. */",
     "/** HMAC secret for protected-post unlock tokens; unset disables the unlock endpoint. */",
     "/** Click-detail retention in days; unset keeps the default, `0` disables the sweep. */",
+    "/** Set only when the request authenticated with a Memos access token rather than a session. */",
   ]],
   ["src/worker/folders/store.ts", [
     "/**\n * Every read and write the folder HTTP routes make against D1.\n *\n * The shape follows `notes/store.ts` and `assistant/store.ts`: a store built per request from the\n * account it serves, methods that take already-validated input and hand back rows or the record the\n * route needs to answer with, and nothing in between that knows about HTTP. Two rules hold throughout:\n *  - every statement carries `user_id`, so one account's tree can never be read, moved or deleted\n *    through another's ids. The single exception is the id-collision probe, which answers a\n *    client-supplied id and is only meaningful across accounts;\n *  - a mutation's statements stay in one D1 batch. Folder writes are guarded on `updated_at`, and the\n *    recursive `ancestors`/`descendants` clauses inside them read the same rows they are about to\n *    change, so splitting a batch into sequential runs would let a concurrent move slip between the\n *    depth check and the update and produce a cycle the guard was written to refuse.\n *\n * The hierarchy rules themselves — parent validation, depth, subtree height, the name a new folder\n * gets, where a reordered folder lands — stay with the route, because they are decisions about the\n * request, and the errors they raise belong to the response.\n */",
@@ -38099,9 +38127,22 @@ const allowed = new Map([
     "/** The same row without `content`: a 1.9 MB body a flag flip never looks at. */",
     "// The conflict payload keeps carrying the body even when the pre-read was metadata only.",
   ]],
+  ["src/worker/memos/attachments.ts", [
+    "/**\n * An attachment a memo row owns is not the library's to delete.\n *\n * The body check above only sees files a memo *renders*; a comment keeps its uploads in the\n * attachment row without writing every URL into its text, and a live photo keeps a video beside the\n * still. `memo_id` is the structured link those cases share, so it is the rule the delete path asks\n * first: a row still bound to a memo answers 409, and only an unbound row can be removed here.\n */",
+  ]],
+  ["src/worker/memos/auth.ts", [
+    "/**\n * The token ledger and the account archive stay behind a session or an explicit owner-scope token.\n *\n * Everything else a `memos` token reaches is ordinary memo data; a leaked automation credential must\n * not be able to list and mint more tokens (renewing itself) or download the whole account archive.\n */",
+    "// Resolve the credential first: a delegating call that only reports its refusal afterwards cannot",
+    "// catch the scope it just learned, and the route would already have run.",
+  ]],
+  ["src/worker/memos/pat.ts", [
+    "/** A token's reach, named explicitly; anything else would silently become a session. */",
+    "/**\n * Revokes one token and every token it minted.\n *\n * A token can create children (an owner-scope token does, when it manages the ledger), and a child\n * outliving its parent would be exactly the \"revoked but still works\" hole the scope split exists to\n * close. The recursive CTE walks that parent chain in one statement.\n */",
+  ]],
   ["src/worker/memos/public.ts", [
     "/** Drop the real account id, role and sign-up time from the public creator. */",
     "/** Build the public shape explicitly so fields added to `Memo` do not leak by default. */",
+    "/**\n * Drop the exact capture coordinates from a photo the public path hands out.\n *\n * A memo's own location is already nulled above, but an uploaded photo carries its EXIF copy in\n * `mediaMetadata`, and that is the one that names the place the picture was taken. Every other field\n * (size, capture time, camera) stays: the reader of a public memo is shown the photo, not where the\n * photographer stood.\n */",
   ]],
   ["src/worker/memos/webhooks.ts", [
     "/**\n * Standard Webhooks signs `id.timestamp.body` with the decoded secret, and the versioned prefix is what\n * lets a receiver tell which scheme produced the value. The body is the JSON exactly as sent, so a\n * re-serialised copy at the receiver would not verify.\n */",
@@ -39240,9 +39281,6 @@ const allowed = new Map([
     "// else: saying \"that belongs to another thread\" would confirm the thread exists.",
     "/**\n * A short exchange that happened outside the thread — a Quick Ask answer — made into a real conversation.\n *\n * The rows are written here rather than replayed through the turn runner: the answer already exists, and\n * asking the model again would produce a different one and spend the reader's budget twice. `source` stays\n * chat, so a promoted exchange can be retried and continued like any other.\n */",
     "/**\n * One page of a reader-owned PDF, indexed for the knowledge base.\n *\n * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the\n * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,\n * so a dense page does not turn into an unbounded number of embedding calls.\n */",
-    "// \"Always allow this tool\" is remembered as a grant for this one name. It cannot widen the account's",
-    "// class policy or an Agent's switch — those are checked before it — and it is stored in settings so a",
-    "// later tab asks once rather than on every call.",
     "/** Folder ids an Agent may read or exclude. Shape only; the scope resolver owns ownership. */",
     "/**\n * The built-in tools an Agent may use.\n *\n * Unknown names are refused rather than dropped: a name that is not in this build's catalog is either a\n * typo or a tool that was removed, and either way a silently shortened list would read as an Agent that\n * can do less than its editor shows.\n */",
     "/** The base ids an Agent answers from. Refused rather than dropped when one is not this account's. */",
@@ -39265,6 +39303,11 @@ const allowed = new Map([
     "// Only a provider that carried the active model takes the default down with it. Recomputing for",
     "// every deletion replaced a default the reader had chosen with the first suggestion, which made",
     "// removing an unrelated provider an edit of a setting nobody asked to change.",
+    "// \"Always allow this tool\" is validated before the action runs, so a refused grant cannot be the",
+    "// side effect of an action that already happened. It is remembered as a grant for this one name:",
+    "// it cannot widen the account's class policy or an Agent's switch — those are checked before it —",
+    "// and it is stored in settings so a later tab asks once rather than on every call. External tools",
+    "// are never granted: their permission belongs to a third party, and the card stays every time.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -39858,6 +39901,9 @@ const allowed = new Map([
     "// and nothing here hands out a URL — a member is a slug, which is all the reader of it needs.",
     "/**\n * The document a published directory is read from.\n *\n * A separate mount from the JSON it boots with, for the same reason `/s` is separate from\n * `/api/public`: a reader's first request has no passcode in it, and a document that 401ed would\n * never get to show the gate. What it returns is the app shell with a title and a refusal to be\n * indexed — nothing about the directory's contents, because the shell is what a crawler sees before\n * any of the rules below have been answered.\n */",
     "/**\n * The heading a directory's document may carry, or null when it may not carry one.\n *\n * A passcode-guarded, paused or expired directory answers with no title at all: the owner named it,\n * and a link preview would hand that name to whoever the passcode was keeping out.\n */",
+    "// A directory entry is a link, not a preview: a member behind a passcode keeps the same",
+    "// title/excerpt rule the single share page applies, so the directory cannot be the place",
+    "// that hands out what the passcode is keeping back.",
   ]],
   ["src/worker/routes/share-organizer.ts", [
     "/**\n * The share hub's organizer endpoints: the folder tree and the tag list a published link is filed\n * under, the filing writes themselves, and the batch actions a hub selection runs.\n *\n * This file does three things and no more: it reads a body, hands the values to `ShareOrganizer`, and\n * turns the row that comes back into the shape the hub holds. Every rule — the depth of the tree, which\n * tag names exist, how many links a batch may name — is the organizer's, so the notebook's organizer and\n * this one cannot drift into meaning different things by the time somebody reads them both.\n *\n * Mounted under `/api/share` behind `requireAuth`, and it asks for that middleware itself too: an\n * organizer that answered the account that was already in the request would be a way to file somebody\n * else's links.\n */",
@@ -39922,6 +39968,8 @@ const allowed = new Map([
     "// from a stranger to nobody: the same account that can read this row is the one that wrote it.",
     "// A paused link reads as gone rather than as \"paused\": telling a stranger that a link exists and",
     "// is merely switched off is information the owner did not choose to publish.",
+    "// A paused link keeps its address but publishes nothing, exactly as an expired one: the preview must",
+    "// not be the one surface that still hands a stranger the title the owner switched off.",
   ]],
   ["src/worker/routes/subscriptions-inbound.ts", [
     "/**\n * The one way in from outside: a script, a cron job, a phone shortcut.\n *\n * It is mounted at `/hooks/subscriptions` rather than under `/api` for a specific reason: every `/api`\n * POST requires the client-identification header this app's own browser sends, which is a CSRF guard and\n * exactly the wrong thing to ask a third-party `curl` for. Nothing here is authenticated by a session;\n * the token in the path is the credential, and it is compared against a stored digest.\n *\n * The budget is per token rather than per address, because the token is what identifies the caller and\n * an attacker who has it does not need to be polite about which address they use.\n */",
@@ -43597,6 +43645,7 @@ const allowed = new Map([
     "// The copy points at the same bytes rather than a second copy of them.",
     "// The owner purging their own row must not take the object the reader still references.",
     "// Two rows, one per account, over the same object.",
+    "// The owner closes the folder after the grant; that lock is part of the folder's access policy.",
   ]],
   ["tests/clouddrive-dav-locks.test.ts", [
     "// A refresh that names no Timeout restarts the clock at the server default, not at the",
@@ -44620,6 +44669,17 @@ const allowed = new Map([
     "// `exports`; neither can be built outside a Worker. The fake is checked field by field against hono's",
     "// context — everything the write path actually reads — and only then widened, one comparable assertion.",
   ]],
+  ["tests/memos-attachments.test.ts", [
+    "// Only a row no memo owns is deletable: an attachment bound to a memo row is what a comment or a",
+    "// live photo keeps, and deleting it from the library would take bytes that memo still needs.",
+  ]],
+  ["tests/memos-pat-scope.test.ts", [
+    "/**\n * What a Memos personal access token may reach.\n *\n * A PAT exists so an automation can read and write memos without holding a session cookie. It must\n * not become a session: the token ledger (`/tokens`) and a full-account archive (`/export`) stay\n * behind `requireMemoOwner`, and revoking a token takes every token it minted with it.\n */",
+  ]],
+  ["tests/memos-tokens.test.ts", [
+    "// A PAT reaches memo data and nothing beyond it: the ledger and the archive are session-only",
+    "// unless the token was explicitly minted with the owner scope.",
+  ]],
   ["tests/mention-identity.test.ts", [
     "/**\n * The note a mention points at, and the note that actually arrives.\n *\n * A picked note used to travel as nothing but its title, which is a description rather than an address:\n * rename the note, or give two notes the same title, and the model is handed a different document from the\n * one the reader chose — quietly. So the composer writes the id into the link and keeps the title as the\n * alias the reader reads, and the worker resolves on the id first. The mentions already stored in a\n * conversation are title-only and stay that way, so the older lookup has to keep answering too.\n *\n * This file sits with the worker's tests because it is the only place both halves can be reached: the\n * composer writes the text on one side of the boundary and the resolver reads it back on the other, and\n * the round trip is the promise.\n */",
     "/** ULID-shaped, because the resolver only trusts an id of exactly this shape. */",
@@ -45503,6 +45563,7 @@ const allowed = new Map([
     "// The context a real Worker hands every request. It used to be declared here and never passed to",
     "// `fetch`, so the harness ran without one; the presence routes do not read it, but a fixture that",
     "// claims to stand for the runtime has to reach the runtime's own entry point.",
+    "// The dead room is taken with it, so the next beat answers the same way rather than waiting out the lease.",
   ]],
   ["tests/share-route.test.ts", [
     "/**\n * Behavioural coverage for `src/worker/routes/share.ts` (the SQL itself now lives in\n * `src/worker/share/store.ts`; the claims here are about what the routes answer, not about\n * which file the statements sit in).\n *\n * The cases are the ones the share contract commits to: the owner can create, list, read back and\n * revoke only their own link; re-sharing keeps what the request did not name; a forged slug, an\n * expired link and a deleted note all answer the same way as a link that never existed; a passcode\n * link verifies against the stored hash under its throttle and only then hands out the asset\n * cookie; and the view counter moves off the response path.\n */",

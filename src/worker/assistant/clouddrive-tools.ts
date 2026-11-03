@@ -31,7 +31,7 @@ import {
   type CloudDriveFileRow,
   type CloudDriveMountInfo,
 } from '../clouddrive/lib'
-import { effectiveMeta } from '../clouddrive/meta'
+import { effectiveMeta, effectiveMetas, hiddenByPatterns } from '../clouddrive/meta'
 import { cloudDriveUsage, listMounts, readCloudDriveSettings } from '../clouddrive/store'
 import {
   createFolder,
@@ -185,6 +185,20 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`)
 }
 
+/** Every live folder inside the walked subtree, so the walk can ask what each one protects. */
+async function subtreeFolderPaths(
+  ctx: ToolContext,
+  mount: CloudDriveMountInfo,
+  subtree: { sql: string; binds: string[] } | null,
+): Promise<string[]> {
+  const scope = subtree ? " AND (substr(path, 1, length(?3) + 1) = ?4 || '/')" : ''
+  const { results } = await ctx.env.DB.prepare(
+    `SELECT path FROM CloudDrive_files
+      WHERE user_id = ?1 AND mount_id = ?2 AND kind = 'folder' AND deleted_at IS NULL${scope}`,
+  ).bind(ctx.store.userId, mount.id, ...(subtree?.binds ?? [])).all<{ path: string }>()
+  return (results ?? []).map((row) => row.path)
+}
+
 /** The `drive_list` statement: one folder or its whole subtree, narrowed by every filter at once. */
 async function listDrive(
   ctx: ToolContext,
@@ -201,14 +215,34 @@ async function listDrive(
   const params: unknown[] = [ctx.store.userId, mount.id]
 
   const recursive = args.recursive === true
+  const subtree = folder.path === '/'
+    ? null
+    : {
+        sql: "substr(path, 1, length(?) + 1) = ? || '/'",
+        binds: [folder.path, folder.path],
+      }
   if (recursive) {
-    if (folder.path !== '/') {
-      clauses.push("substr(f.path, 1, length(?) + 1) = ? || '/'")
-      params.push(folder.path, folder.path)
+    if (subtree) {
+      clauses.push(`substr(f.path, 1, length(?) + 1) = ? || '/'`)
+      params.push(...subtree.binds)
     }
   } else {
     clauses.push('f.parent_id = ?')
     params.push(folder.id)
+  }
+
+  // A recursive walk is the only read that can cross a password folder without the reader opening
+  // it. The `effectiveMeta` per folder is what keeps the tool's promise: a lock anywhere in the
+  // subtree refuses the walk instead of returning a quietly incomplete answer.
+  const folderPaths = recursive
+    ? [folder.path, ...(await subtreeFolderPaths(ctx, mount, subtree))]
+    : [folder.path]
+  const metas = await effectiveMetas(ctx.env.DB, ctx.store.userId, mount.id, folderPaths)
+  if (recursive) {
+    const locked = folderPaths.find((path) => metas.get(path)?.passwordHash)
+    if (locked) {
+      throw new ToolError(`"${locked}" is password protected. Unlock it in the Cloud Drive app and ask again; the assistant cannot enter a locked folder.`)
+    }
   }
 
   const q = typeof args.q === 'string' ? foldedName(args.q.trim()) : ''
@@ -255,7 +289,10 @@ async function listDrive(
       ORDER BY ${orderClause(sortOf(args.sort), dirOf(args.dir))}
       LIMIT ?`,
   ).bind(...params, limit + 1).all<CloudDriveFileRow>()
-  const rows = results ?? []
+  const rows = (results ?? []).filter((row) => {
+    const patterns = metas.get(parentPathOf(row.path))?.hidePatterns ?? []
+    return !hiddenByPatterns(row.name, patterns)
+  })
   return { rows: rows.slice(0, limit), truncated: rows.length > limit }
 }
 

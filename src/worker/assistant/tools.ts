@@ -5296,9 +5296,13 @@ export class ToolExecutor {
 
   /** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */
   private modeFor(definition: ToolDefinition): AssistantToolMode {
+    // An external tool's permission is decided by its remote server, and an "always allow" grant is
+    // never stored for one. A grant that somehow predates that rule must not be honoured either: the
+    // third party's call is held for a press every time, whatever the local settings say.
+    const grant = definition.external ? undefined : this.ctx.settings.toolGrants[definition.name]
     return this.ctx.projectToolOverrides?.[definition.name]
       ?? this.ctx.settings.toolSettings[definition.name]?.mode
-      ?? this.ctx.settings.toolGrants[definition.name]
+      ?? grant
       ?? toolModeFor(this.ctx.settings, definition.permission)
   }
 

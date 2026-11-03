@@ -66,11 +66,12 @@ async function file(): Promise<string> {
   return id
 }
 
-async function call(method: string, path: string, body?: unknown, cookie = ''): Promise<{ status: number; body: any; headers: Headers }> {
+async function call(method: string, path: string, body?: unknown, cookie = '', extraHeaders: Record<string, string> = {}): Promise<{ status: number; body: any; headers: Headers }> {
   const headers = new Headers()
   if (body !== undefined) headers.set('content-type', 'application/json')
   if (method !== 'GET' && method !== 'HEAD') headers.set('X-Inkstone-Client', '1')
   if (cookie) headers.set('cookie', cookie)
+  for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value)
   const response = await app().fetch(new Request(`http://localhost${path}`, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body),
   }), env)
@@ -107,6 +108,24 @@ describe('cloud drive shares', () => {
     await db.prepare(`UPDATE CloudDrive_shares SET views = 3 WHERE slug = ?1`).bind(slug).run()
     const refused = await call('GET', `/api/public/clouddrive/shares/${slug}`)
     expect(refused.status).toBe(403)
+  })
+
+  it('counts a ranged download against the download limit', async () => {
+    const id = await file()
+    const created = await call('POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: id, path: '/notes.txt', allowDownload: true, maxDownloads: 1,
+    })
+    expect(created.status).toBe(200)
+    const slug = created.body.share.slug as string
+
+    const ranged = await call('GET', `/api/public/clouddrive/shares/${slug}/download`, undefined, '', {
+      Range: 'bytes=1-',
+    })
+    expect(ranged.status).toBe(206)
+
+    const exhausted = await call('GET', `/api/public/clouddrive/shares/${slug}/download`)
+    expect(exhausted.status).toBe(403)
+    expect(exhausted.body.error.code).toBe('clouddrive_share_expired')
   })
 
   it('aggregates a link\'s visits by day for the owner and hides another slug', async () => {

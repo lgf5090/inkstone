@@ -3,12 +3,12 @@ import type { MemoTokenCreateInput } from '@shared/memos/types'
 import type { AppBindings } from '../../env'
 import { ApiError } from '../../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../../lib/request'
-import { requireMemoUser } from '../../memos/auth'
+import { requireMemoOwner } from '../../memos/auth'
 import { createToken, listTokens, revokeToken } from '../../memos/pat'
 
 export const memoTokenRoutes = new Hono<AppBindings>()
 
-memoTokenRoutes.use('*', requireMemoUser)
+memoTokenRoutes.use('*', requireMemoOwner)
 
 memoTokenRoutes.get('/', async (c) => {
   const tokens = await listTokens(c.env.DB, c.get('userId'))
@@ -17,7 +17,7 @@ memoTokenRoutes.get('/', async (c) => {
 
 memoTokenRoutes.post('/', async (c) => {
   const body = await readJson<MemoTokenCreateInput>(c, JSON_BODY_LIMITS.small)
-  const result = await createToken(c.env.DB, c.get('userId'), body)
+  const result = await createToken(c.env.DB, c.get('userId'), body, c.get('memoPatId'))
   return c.json(result, 201)
 })
 

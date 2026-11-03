@@ -597,6 +597,35 @@ describe('the public directory', () => {
     expect(Object.keys(page.body).sort()).toEqual(['count', 'limit', 'nextCursor', 'notes', 'title'])
   })
 
+  it('withholds a locked member’s title and excerpt from the directory', async () => {
+    const slug = newSlug()
+    const db = seed({
+      folders: [{ id: FOLDER_ID, name: 'Published' }],
+      links: [
+        {
+          noteId: NOTE_A,
+          slug: MEMBER_SLUG_A,
+          folderId: FOLDER_ID,
+          title: 'Locked page',
+          excerpt: 'locked excerpt',
+          passwordHash: 'stored-passcode-hash',
+        },
+        { noteId: NOTE_B, slug: MEMBER_SLUG_B, folderId: FOLDER_ID, title: 'Open page', excerpt: 'open excerpt' },
+      ],
+      collections: [{ id: COLLECTION_ID, slug, targetType: 'folder', targetValue: FOLDER_ID }],
+    })
+    const page = await jsonAt<{ notes: Array<{ slug: string; title: string; excerpt: string; hasPassword: boolean }> }>(
+      publicApp(),
+      db,
+      `/api/public/c/${slug}`,
+    )
+    const locked = page.body.notes.find((note) => note.slug === MEMBER_SLUG_A)!
+    expect(locked).toMatchObject({ hasPassword: true, title: '', excerpt: '' })
+    expect(page.body.notes.find((note) => note.slug === MEMBER_SLUG_B)).toMatchObject({
+      hasPassword: false, title: 'Open page', excerpt: 'open excerpt',
+    })
+  })
+
   it('shows a directory page no note id and no note body', async () => {
     const { db, app, slug } = published()
     const response = await app.request(`http://inkstone.test/api/public/c/${slug}`, {}, env(db))

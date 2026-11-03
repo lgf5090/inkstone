@@ -288,10 +288,20 @@ export interface MemoDraft {
   updatedAt: number
 }
 
+/**
+ * What a Memos access token may reach.
+ *
+ * `memos` is the default and covers the memo data an automation needs. `owner` additionally reaches
+ * the token ledger and the account archive, which a leaked automation credential must not be able to
+ * use to renew itself or to take the whole account with it.
+ */
+export type MemoTokenScope = 'memos' | 'owner'
+
 export interface MemoToken {
   id: string
   description: string
   prefix: string
+  scope: MemoTokenScope
   expiresAt: number | null
   createdAt: number
   lastUsedAt: number | null
@@ -299,6 +309,7 @@ export interface MemoToken {
 
 export interface MemoTokenCreateInput {
   description?: string
+  scope?: MemoTokenScope
   expiresAt?: number | null
 }
 

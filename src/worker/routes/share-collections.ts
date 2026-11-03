@@ -364,8 +364,11 @@ async function directory(c: Context<AppBindings>, password: string): Promise<Res
     notes: page.rows.map(
       (row): PublicCollectionNote => ({
         slug: row.slug,
-        title: row.title,
-        excerpt: row.excerpt,
+        // A directory entry is a link, not a preview: a member behind a passcode keeps the same
+        // title/excerpt rule the single share page applies, so the directory cannot be the place
+        // that hands out what the passcode is keeping back.
+        title: row.password_hash ? '' : row.title,
+        excerpt: row.password_hash ? '' : row.excerpt,
         hasPassword: Boolean(row.password_hash),
       }),
     ),
