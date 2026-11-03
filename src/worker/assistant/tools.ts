@@ -1919,6 +1919,11 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     },
     async run(args, ctx) {
       const id = String(args.id)
+      // Both body fields are optional in the schema, so a call that names neither would otherwise replace
+      // the body with the empty string. A title by itself is not permission to erase what is under it.
+      if (typeof args.content !== 'string' && typeof args.append !== 'string') {
+        throw new ToolError('update_note needs `content` (the new body) or `append` (text to add); a title alone cannot replace the body.')
+      }
       await assertNoteReadable(ctx.env.DB, ctx.store.userId, id, await ctx.noteScope())
       const writeContext = requireWriteContext(ctx)
       if (typeof args.append === 'string') {
@@ -1936,7 +1941,8 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         operationId: ctx.callId ?? 'assistant',
         noteId: id,
         expectedRev: await currentNoteRev(ctx, id),
-        operation: 'replace',
+        // `replace` is a passage swap and refuses without `old_text`; the whole body is `replace_all`.
+        operation: 'replace_all',
         text: String(args.content ?? ''),
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
       })

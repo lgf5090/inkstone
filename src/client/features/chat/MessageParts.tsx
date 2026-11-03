@@ -480,6 +480,9 @@ function ApprovalWritePreview({ action, onOverride }: { action: NonNullable<Tool
   const [state, setState] = useState<{ before: string, after: string } | null>(null)
   const [failed, setFailed] = useState(false)
   const [accepted, setAccepted] = useState<ReadonlySet<number>>(new Set())
+  // A write is held as the call itself, so the card has no resolved `targetId` (that lookup is the
+  // destructive path's). The note it would change is the one the call names.
+  const noteId = typeof action.args?.id === 'string' ? action.args.id : action.targetId
   useEffect(() => {
     if (action.tool !== 'update_note') return
     const args = action.args ?? {}
@@ -487,7 +490,7 @@ function ApprovalWritePreview({ action, onOverride }: { action: NonNullable<Tool
     const append = typeof args.append === 'string' ? args.append : null
     if (replacement === null && append === null) return
     let wanted = true
-    void api.notes.get(action.targetId)
+    void api.notes.get(noteId)
       .then((note) => {
         if (!wanted) return
         const next = {
@@ -499,7 +502,7 @@ function ApprovalWritePreview({ action, onOverride }: { action: NonNullable<Tool
       })
       .catch(() => { if (wanted) setFailed(true) })
     return () => { wanted = false }
-  }, [action])
+  }, [action, noteId])
   const replacement = typeof action.args?.content === 'string' ? action.args.content : null
   useEffect(() => {
     if (!state || !onOverride || replacement === null) return
@@ -564,12 +567,15 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
    */
   const undoWrite = () => {
     setUndoing(true)
-    void api.notes.versions(action.targetId)
+    // The write's own call names the note: a non-destructive approval keeps the call whole rather than a
+    // resolved target, so the id lives beside `content`, not in `targetId`.
+    const noteId = typeof action.args?.id === 'string' ? action.args.id : action.targetId
+    void api.notes.versions(noteId)
       .then(async ({ versions }) => {
         const latest = versions[0]
         if (!latest) throw new Error(t('assistant.approval.undo_missing'))
-        const full = await api.notes.version(action.targetId, latest.id)
-        const restored = await useNotes.getState().restoreVersion(action.targetId, latest.id, full.content, full.title)
+        const full = await api.notes.version(noteId, latest.id)
+        const restored = await useNotes.getState().restoreVersion(noteId, latest.id, full.content, full.title)
         if (!restored) throw new Error(t('assistant.approval.undo_failed'))
         useUi.getState().toast({ title: t('assistant.approval.undone'), tone: 'success' })
       })

@@ -114,6 +114,16 @@ describe('counting the notebook from a tool call', () => {
     await expect(run('count_notes', { folder: '没有这个文件夹' })).rejects.toThrow(/list_folders/)
   })
 
+  it('refuses a note update that names no new body', async () => {
+    // `content` and `append` are both optional, and a call carrying neither used to reach the write path
+    // with an empty body. A model that only meant to rename must not erase the note as a side effect.
+    const settings = {
+      ...DEFAULT_ASSISTANT_SETTINGS,
+      toolModes: { ...DEFAULT_ASSISTANT_SETTINGS.toolModes, write: 'auto' as const },
+    }
+    await expect(run('update_note', { id: IN_WORK }, { settings })).rejects.toThrow(/content.*append|append.*content/)
+  })
+
   it('leaves out what the reader told the assistant to leave out', async () => {
     scope = { restricted: true, folderIds: new Set([PERSONAL]), tagIds: new Set(), noteIds: new Set() }
     const result = await run('count_notes') as Record<string, unknown>

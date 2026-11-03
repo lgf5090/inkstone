@@ -70,10 +70,14 @@ function scopeClause(scope: NoteScope, inList: (values: readonly string[]) => st
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]
   const excluded = [...(scope.excludeFolderIds ?? [])]
+  const pins = [...(scope.pinIds ?? [])]
   // Restricted to nothing is a real state — every folder the reader named has since been deleted — and
   // reading it as "no scope was set" would hand back the whole vault. An exclusion is different: it is a
-  // whole-vault scope minus some folders, so it is a predicate rather than "nothing".
-  if (!folders.length && !tags.length && !excluded.length) return ' AND 0'
+  // whole-vault scope minus some folders, so it is a predicate rather than "nothing". A project's named
+  // pages are the other real scope: when nothing else narrows the turn, they are what the project reads.
+  if (!folders.length && !tags.length && !excluded.length) {
+    return pins.length ? ` AND n.id IN (${inList(pins)})` : ' AND 0'
+  }
   const parts: string[] = []
   if (folders.length) parts.push(`n.folder_id IN (${inList(folders)})`)
   if (tags.length) parts.push(`EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND nt.tag_id IN (${inList(tags)}))`)

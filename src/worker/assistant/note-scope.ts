@@ -24,13 +24,20 @@ export interface NoteScope {
   /**
    * Notes this turn may read whatever the folder and tag scope say.
    *
-   * This is the note the reader had open when they asked. It is the one place a turn reaches past the
-   * standing scope, and it is deliberate: the reader pointing at a page and asking about it is a
-   * narrower act than the scope they set once, and answering "that folder is out of scope" to a
-   * question about the page in front of them would be correct and useless. It reaches a single named
-   * note, never a folder, and it is spent with the turn.
+   * This is the note the reader had open when they asked, and the chips they pinned by hand. Both are
+   * the same act — pointing at a page and asking about it — and both are an addition: naming a page does
+   * not narrow the vault, it reaches one page the folder scope might not include.
    */
   noteIds: Set<string>
+  /**
+   * The pages a project names as its own knowledge.
+   *
+   * Unlike a turn's named notes this *is* a restriction: a project that named one page and also read the
+   * rest of the vault would present itself as a knowledge base and behave as an open one. When the turn
+   * names no folder or tag, these ids are the whole readable set; beside a folder scope they are
+   * readable by identity in addition to it.
+   */
+  pinIds?: Set<string>
 }
 
 /**
@@ -67,28 +74,32 @@ export async function resolveNoteScope(
   db: D1Database,
   userId: string,
   scopeFolderIds: readonly string[],
-  extra: { folderIds?: readonly string[], excludeFolderIds?: readonly string[], tagIds?: readonly string[], noteIds?: readonly string[] } = {},
+  extra: { folderIds?: readonly string[], excludeFolderIds?: readonly string[], tagIds?: readonly string[], noteIds?: readonly string[], pinIds?: readonly string[] } = {},
 ): Promise<NoteScope> {
   const shape = (id: string): boolean => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)
   const wanted = [...new Set([...scopeFolderIds, ...(extra.folderIds ?? [])].filter(shape))]
   const excludedRoots = [...new Set([...(extra.excludeFolderIds ?? [])].filter(shape))]
   const tagIds = new Set([...(extra.tagIds ?? [])].filter(shape))
   const noteIds = new Set([...(extra.noteIds ?? [])].filter(shape))
+  const pinIds = new Set([...(extra.pinIds ?? [])].filter(shape))
   const excluded = await expandFolderTree(db, userId, excludedRoots)
   if (!wanted.length) {
     return {
-      restricted: tagIds.size > 0 || noteIds.size > 0 || excluded.size > 0,
+      // A turn's named notes are an addition, so they never narrow the vault on their own. A project's
+      // named pages do: a project with pins and no folder scope reads its pages, not the account.
+      restricted: tagIds.size > 0 || excluded.size > 0 || pinIds.size > 0,
       folderIds: new Set(),
       excludeFolderIds: excluded,
       tagIds,
       noteIds,
+      pinIds,
     }
   }
   const owned = await expandFolderTree(db, userId, wanted)
   // Folders the reader no longer owns (deleted, or named by another account's backup) leave the set
   // empty, which reads as "nothing is in scope" — not as "no scope was set", which would open the vault.
-  if (!owned.size) return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds }
-  return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds }
+  if (!owned.size) return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds, pinIds }
+  return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds, pinIds }
 }
 
 /**
@@ -137,10 +148,11 @@ export async function readableNoteIds(
   const ids = [...new Set(noteIds)].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id))
   if (!ids.length) return new Set()
   if (!scope.restricted) return new Set(ids)
-  // The named notes are allowed by identity, so they are answered here rather than sent through the
-  // folder query — which is also what keeps this one query instead of two predicates to union.
-  const named = ids.filter((id) => scope.noteIds.has(id))
-  const asked = ids.filter((id) => !scope.noteIds.has(id))
+  // Named notes are allowed by identity, so they are answered here rather than sent through the folder
+  // query — which is also what keeps this one query instead of two predicates to union. That covers a
+  // turn's own additions and the pages a project named.
+  const named = ids.filter((id) => scope.noteIds.has(id) || scope.pinIds?.has(id))
+  const asked = ids.filter((id) => !scope.noteIds.has(id) && !scope.pinIds?.has(id))
   if (!asked.length) return new Set(named)
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]

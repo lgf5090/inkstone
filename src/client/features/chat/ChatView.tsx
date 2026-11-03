@@ -2164,7 +2164,11 @@ ${current}` : seed))
 
   const submit = () => {
     const text = value.trim()
-    if ((!text && !pending.length) || streaming || disabled || uploading) return
+    if ((!text && !pending.length) || disabled || uploading) return
+    // A turn that is already running takes the words as the next turn instead of refusing them. A queued
+    // turn carries no files (the queue holds text and a model id), so a draft with attachments keeps
+    // waiting for the running turn rather than sending its words and silently leaving the files behind.
+    if (streaming && (!text || pending.length)) return
     setValue('')
     // A turn the worker never took hands the whole draft back: the store returns the attachments and the
     // chips, and this box owns the words. Refused and stopped-before-the-first-frame are the same thing
@@ -2684,9 +2688,26 @@ ${current}` : seed))
               <Divider vertical className="mx-0.5" />
               <VoiceButton onText={(chunk) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${chunk}`)} />
               {streaming ? (
-                <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
-                  <Square size={12} className="fill-current" />
-                </IconButton>
+                <>
+                  {/* Words typed while an answer streams are the next turn: the store holds up to five and
+                      the strip above the box names them. The stop button stays beside it, because a reader
+                      who wants the current answer to end should not have to erase the draft to reach it. */}
+                  {value.trim() && !pending.length && (
+                    <IconButton
+                      label={t('assistant.chat.queue_send')}
+                      size="sm"
+                      variant="primary"
+                      disabled={disabled || uploading}
+                      onClick={submit}
+                      className="size-8 rounded-[var(--r-md)]"
+                    >
+                      <ArrowUp size={15} />
+                    </IconButton>
+                  )}
+                  <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
+                    <Square size={12} className="fill-current" />
+                  </IconButton>
+                </>
               ) : (
                 <IconButton
                   label={t('assistant.chat.send')}

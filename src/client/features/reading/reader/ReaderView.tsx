@@ -12,6 +12,7 @@ import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maxim
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
+import { ApiError } from '../../../lib/api'
 import { navigateToPath } from '../../../lib/app-history'
 import { useNotes } from '../../../store/notes'
 import { useUi } from '../../../store/ui'
@@ -646,7 +647,13 @@ export function ReaderView({ book }: { book: BookRecord }) {
                 void fixedStage.current?.indexBook().then((result) => {
                   useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
                 }).catch((error: unknown) => {
-                  useUi.getState().toast({ title: error instanceof Error ? error.message : t('reading.index_book_failed'), tone: 'danger' })
+                  // The route's own sentence says which half of the indexing is missing (no embedding
+                  // model, a page it could not read); the transport headline alone is a dead end.
+                  useUi.getState().toast({
+                    title: t('reading.index_book_failed'),
+                    description: error instanceof ApiError ? error.serverMessage : error instanceof Error ? error.message : undefined,
+                    tone: 'danger',
+                  })
                 })
               }}
             >

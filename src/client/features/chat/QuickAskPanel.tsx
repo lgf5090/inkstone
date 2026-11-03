@@ -224,7 +224,7 @@ export function QuickAskPanel() {
       aria-modal="false"
       aria-label={t('assistant.quick_ask.title')}
       data-quick-ask="1"
-      className="fixed z-[var(--z-popover)] flex max-h-[min(520px,80vh)] flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)]"
+      className="fixed z-[var(--z-prompt)] flex max-h-[min(520px,80vh)] flex-col overflow-hidden rounded-[var(--r-xl)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)]"
       style={{ top: pos.top, left: pos.left, width }}
     >
       <div

@@ -91,7 +91,7 @@ export function WritingTab({ settings }: { settings: AssistantSettings }) {
         )}
       </Group>
 
-      <Group title={t('assistant.settings.image_compress')}>
+      <Group title={t('assistant.settings.editor_assist')}>
         <SettingRow title={t('assistant.settings.keep_quoted_highlight')} description={t('assistant.settings.keep_quoted_highlight_hint')}>
           <Switch
             checked={settings.keepQuotedHighlight}
@@ -99,6 +99,9 @@ export function WritingTab({ settings }: { settings: AssistantSettings }) {
             onChange={(keepQuotedHighlight) => void saveSettings({ keepQuotedHighlight })}
           />
         </SettingRow>
+      </Group>
+
+      <Group title={t('assistant.settings.image_compress')}>
         <SettingRow title={t('assistant.settings.image_compress')} description={t('assistant.settings.image_compress_hint')}>
           <Switch
             checked={settings.imageCompressEnabled}

@@ -177,6 +177,14 @@ describe('a project\'s facts leave with it', () => {
     const own = await fileFact('The budget review is monthly', clientA.id)
     const shared = await fileFact('The budget is 40k', null)
     const other = await fileFact('The budget owner is Dana', clientB.id)
+    // The fact's vector is tied to the fact: a row whose memory is gone would keep inflating the
+    // embedding count on the settings card while no turn could recall it. Written here rather than
+    // through the encoder because this file is about what leaves with the project, not how it was filed.
+    const embed = (memoryId: string) => env.DB.prepare(
+      `INSERT INTO chat_memory_embeddings (user_id, memory_id, model, vector, norm, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(USER, memoryId, 'test', new Uint8Array([1, 2, 3]), 1, Date.now()).run()
+    await embed(own.id)
+    await embed(other.id)
 
     await store.deleteProject(clientA.id)
 
@@ -185,5 +193,7 @@ describe('a project\'s facts leave with it', () => {
     expect(await store.getMemory(own.id)).toBeNull()
     expect(await store.getMemory(shared.id)).not.toBeNull()
     expect(await store.getMemory(other.id)).not.toBeNull()
+    const vectors = await env.DB.prepare(`SELECT memory_id FROM chat_memory_embeddings WHERE user_id = ?1`).bind(USER).all<{ memory_id: string }>()
+    expect((vectors.results ?? []).map((row) => row.memory_id)).toEqual([other.id])
   })
 })

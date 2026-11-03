@@ -6473,7 +6473,7 @@ export class AssistantStore {
     // or strand them under a project that no longer exists, listed on the memory page and unreachable by
     // any turn. A conversation is a record and stays; a fact about a context that is gone does not.
     const filed = await this.rows<{ id: string, content: string }>(
-      `SELECT id, content FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id,
+      `SELECT id, content FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, this.userId, id,
     )
     if (filed.length) {
       // The vectors go with the facts: `memoryEmbeddingCount` is a plain count of rows, so a vector whose

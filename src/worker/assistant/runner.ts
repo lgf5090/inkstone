@@ -1945,13 +1945,11 @@ export class AssistantRunner {
         excludeFolderIds: project?.excludeIds ?? [],
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
-        // The note the reader had open, the notes they pinned as chips, and the pages the project names.
-        // All three are the same act — pointing at a page and asking about it — and `noteIds` is the one
-        // channel the scope has for it: "summarise this" is a question about the page in front of them,
-        // and refusing it because the folder they excluded happens to hold it would answer a question
-        // nobody asked. A project's own list is that decision made once and standing, so it travels the
-        // same channel; the ids were checked against this account when the project was saved.
-        noteIds: [...turnNoteIds(this.contextNoteId, this.turnScopes), ...(project?.pinIds ?? [])],
+        // The note the reader had open and the chips they pinned are additions to this turn. The pages a
+        // project names are a different channel: they are the project's own scope when it names no folder,
+        // so they travel as pins rather than as another turn addition.
+        noteIds: turnNoteIds(this.contextNoteId, this.turnScopes),
+        pinIds: project?.pinIds ?? [],
       })
     }
     return this.scopePromise
