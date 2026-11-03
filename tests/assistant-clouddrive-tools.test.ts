@@ -240,10 +240,16 @@ describe('reading the drive', () => {
   it('reports a folder’s real size, when it was last opened and what is shared', async () => {
     const answer = await run('drive_info', { path: '/归档' }) as {
       sizeBytes: number
+      itemCount: number
+      fileCount: number
+      folderCount: number
       lastViewedAt: string | null
       acl: { writable: boolean; activeGrants: number; activeShareLinks: number }
     }
     expect(answer.sizeBytes).toBe(1024 + 2048 + 4096)
+    expect(answer.itemCount).toBe(3)
+    expect(answer.fileCount).toBe(3)
+    expect(answer.folderCount).toBe(0)
     expect(answer.lastViewedAt).not.toBeNull()
     expect(answer.acl.writable).toBe(true)
     expect(answer.acl.activeShareLinks).toBe(0)

@@ -344,7 +344,7 @@ export const CLOUDDRIVE_TOOLS: ToolDefinition[] = [
     name: 'drive_info',
     permission: 'read',
     maxCallsPerTurn: 5,
-    description: 'Read one file or folder: its size (a folder\'s is the whole subtree), when it was last opened, and the access summary — whether the mount is writable, how many ACL grants are live and how many share links point at it.',
+    description: 'Read one file or folder: its size (a folder\'s is the whole subtree), how many items a folder directly holds, when it was last opened, and the access summary — whether the mount is writable, how many ACL grants are live and how many share links point at it. A folder can hold files of zero bytes, so use itemCount rather than sizeBytes to decide whether it is empty.',
     fields: {
       mountId: { type: 'string', description: 'Mount id; defaults to the primary drive.', maxLength: 64, optional: true },
       path: { type: 'string', description: 'File or folder path such as "/Archive/2024 report.pdf".', maxLength: 1024 },
@@ -367,6 +367,16 @@ export const CLOUDDRIVE_TOOLS: ToolDefinition[] = [
                   AND substr(path, 1, length(?) + 1) = ? || '/'`,
         ).bind(...(row.path === '/' ? [ctx.store.userId, mount.id] : [ctx.store.userId, mount.id, row.path, row.path]))
           .first<{ viewed: number | null }>())?.viewed ?? null
+      const counts = row.kind === 'folder'
+        ? await ctx.env.DB.prepare(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN kind = 'file' THEN 1 ELSE 0 END) AS files,
+                  SUM(CASE WHEN kind = 'folder' THEN 1 ELSE 0 END) AS folders
+             FROM CloudDrive_files
+            WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND deleted_at IS NULL
+              AND name_folded <> '.keep'`,
+        ).bind(ctx.store.userId, mount.id, row.id).first<{ total: number; files: number; folders: number }>()
+        : null
       const [grants, shares] = await Promise.all([
         ctx.env.DB.prepare(
           `SELECT COUNT(*) AS count FROM CloudDrive_acl
@@ -386,6 +396,13 @@ export const CLOUDDRIVE_TOOLS: ToolDefinition[] = [
         mount: mount.name,
         entry: entryView(row),
         sizeBytes: bytes,
+        ...(counts
+          ? {
+            itemCount: Number(counts.total ?? 0),
+            fileCount: Number(counts.files ?? 0),
+            folderCount: Number(counts.folders ?? 0),
+          }
+          : {}),
         lastViewedAt: isoOrNull(viewed),
         acl: {
           writable: !mount.readOnly && mount.storageId === PRIMARY_MOUNT,
