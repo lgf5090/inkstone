@@ -5903,6 +5903,7 @@ const allowed = new Map([
     "/** Both pointer routes agree on this: the rows leave the selection and one move is asked for. */",
     "/* The chip rides the finger. It leaves the page's own stacking contexts by going to the body.\n      */",
     "/** The browser still delivers a click after a handled tap; that click would select instead of open. */",
+    "/**\n   * What the dock is told about this screen: which drive, which folder, and how much is in it.\n   *\n   * The facts are the page's own words rather than a summary of the listing, so \"move these into\n   * Archive\" can name the folder the reader is actually looking at. A search narrows the listing, and\n   * saying so keeps the model from reporting the whole drive's contents as the screen's.\n   */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
