@@ -2641,6 +2641,15 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'calendar_free_busy', labelKey: 'assistant.tool.calendar_free_busy', permission: 'read' },
   { name: 'calendar_find_slot', labelKey: 'assistant.tool.calendar_find_slot', permission: 'read' },
   { name: 'calendar_delete_event', labelKey: 'assistant.tool.calendar_delete_event', approvalKey: 'assistant.approval.calendar_delete_event', permission: 'destructive' },
+  { name: 'drive_list', labelKey: 'assistant.tool.drive_list', permission: 'read' },
+  { name: 'drive_info', labelKey: 'assistant.tool.drive_info', permission: 'read' },
+  { name: 'drive_storage_stats', labelKey: 'assistant.tool.drive_storage_stats', permission: 'read' },
+  { name: 'drive_create_folder', labelKey: 'assistant.tool.drive_create_folder', permission: 'write' },
+  { name: 'drive_move', labelKey: 'assistant.tool.drive_move', permission: 'write' },
+  { name: 'drive_rename', labelKey: 'assistant.tool.drive_rename', permission: 'write' },
+  { name: 'drive_share_link', labelKey: 'assistant.tool.drive_share_link', permission: 'write' },
+  { name: 'drive_trash', labelKey: 'assistant.tool.drive_trash', approvalKey: 'assistant.approval.drive_trash', permission: 'destructive' },
+  { name: 'drive_empty_trash', labelKey: 'assistant.tool.drive_empty_trash', approvalKey: 'assistant.approval.drive_empty_trash', permission: 'destructive' },
 
 ]
 
