@@ -6,7 +6,7 @@
  * `app.reorderCalendars`; the surface's callbacks persist them, which keeps one write per gesture.
  */
 import { useEffect, useReducer, useState, type ReactNode } from 'react'
-import { ChevronDown, Keyboard, Lock, MoreHorizontal, Plus, Printer, Redo2, RefreshCw, Rss, Search, Settings, Star, Trash2, Undo2, Users } from 'lucide-react'
+import { ChevronDown, Keyboard, Lock, MoreHorizontal, Plus, Printer, Redo2, RefreshCw, Rss, Search, Settings, Sparkles, Star, Trash2, Undo2, Users } from 'lucide-react'
 import type { CalendarType, ICalendarApp } from '@dayflow/react'
 import {
   parseSharedCalendarId,
@@ -77,6 +77,10 @@ interface CalendarSidebarProps {
   canUndo?: boolean
   canRedo?: boolean
   onOpenShortcuts?: () => void
+  /** The assistant's column is open beside this calendar. */
+  assistantOpen?: boolean
+  /** Opens or closes the assistant dock; absent on a phone, where chat has a tab of its own. */
+  onToggleAssistant?: () => void
 }
 
 function toastFailure(title: string, error: unknown): void {
@@ -184,6 +188,8 @@ export function CalendarSidebar({
   canUndo = false,
   canRedo = false,
   onOpenShortcuts,
+  assistantOpen = false,
+  onToggleAssistant,
 }: CalendarSidebarProps) {
   useLocaleRepaint()
   const dark = useThemeDark()
@@ -749,6 +755,19 @@ export function CalendarSidebar({
           <Tooltip label={t('calendar.shortcuts.title')} side="top">
             <IconButton size="sm" label={t('calendar.shortcuts.title')} onClick={onOpenShortcuts}>
               <Keyboard size={14} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
+        {onToggleAssistant && (
+          <Tooltip label={t('assistant.dock.toggle')} side="top">
+            <IconButton
+              size="sm"
+              label={t('assistant.dock.toggle')}
+              aria-pressed={assistantOpen}
+              active={assistantOpen}
+              onClick={onToggleAssistant}
+            >
+              <Sparkles size={14} aria-hidden="true" />
             </IconButton>
           </Tooltip>
         )}

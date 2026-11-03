@@ -827,6 +827,9 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
                 end_ms: slotEnd,
                 day: day.toString(),
               })
+              // One gap per day: "which gaps does this week have" is answered by five days, not by the
+              // five overlapping starts a quarter-hour step would put on the first free morning.
+              break
             }
             cursor += stride
           }
