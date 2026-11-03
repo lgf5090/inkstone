@@ -7,12 +7,12 @@ import type { EmailTemplate } from '@shared/email/templates'
 import { buildEmailQuoteMarkdown, formatEmailQuotedDate, splitEmailList, stripEmailHtmlToText } from '@shared/email/format'
 import { Button, IconButton } from '../../components/primitives'
 import { Field, Input, Segmented } from '../../components/form'
-import { confirm, Menu, type MenuItem } from '../../components/overlay'
+import { confirm, Menu, Modal, type MenuItem } from '../../components/overlay'
 import { toastWithUndo, useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { formatBytes, fullTime } from '../../lib/time'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { attachmentHubApi } from '../attachment-hub/api'
 import { FilePreviewModal } from '../file-preview'
 import { FormatToolbar, ToolButton } from '../../editor/FormatToolbar'
@@ -31,6 +31,17 @@ interface ComposeAttachment {
   size: number
   contentId?: string | null
   disposition?: string | null
+}
+
+/** The other device's copy of this draft, as a save refused it. */
+interface DraftConflict {
+  subject: string
+  recipient: string
+  cc: string | null
+  bcc: string | null
+  body: string
+  bodySource: string | null
+  updatedAt: number
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -216,7 +227,12 @@ export function ComposePanel({
   const autoSaveTimer = useRef<number | null>(null)
   const undoTimer = useRef<number | null>(null)
   const undoInterval = useRef<number | null>(null)
-  const pendingSend = useRef<{ id: string; input: EmailSendInput } | null>(null)
+  const pendingSend = useRef<{ id: string; input: EmailSendInput; jobId: string | null } | null>(null)
+  /** The draft write this save is typed on; a mismatch means another device saved after it. */
+  const draftUpdatedAt = useRef<number | null>(null)
+  /** True while the conflict dialog is up: auto-save stays still until the reader chooses. */
+  const conflictOpen = useRef(false)
+  const [draftConflict, setDraftConflict] = useState<DraftConflict | null>(null)
   const autoSave = useRef<(silent: boolean) => Promise<string | null>>(async () => null)
   const sent = useRef(false)
   const dirty = to !== baseline.to || cc !== baseline.cc || bcc !== baseline.bcc || subject !== baseline.subject || body !== baseline.body
@@ -250,6 +266,7 @@ export function ComposePanel({
       setSubject(loaded.subject)
       setBody(loaded.body)
       setBaseline(loaded)
+      draftUpdatedAt.current = typeof message.updatedAt === 'number' ? message.updatedAt : null
       setShowCc(Boolean(message.cc || message.bcc))
       setThreading({ inReplyTo: message.inReplyTo, threadId: message.threadId })
       setAttachments(message.attachments.map((entry) => ({
@@ -293,7 +310,7 @@ export function ComposePanel({
   }, [])
 
   const saveDraft = async (silent = false): Promise<string | null> => {
-    if (saveInFlight.current) return null
+    if (saveInFlight.current || conflictOpen.current) return null
     saveInFlight.current = true
     const snapshot = { to, cc, bcc, subject, body }
     setSaving(true)
@@ -311,13 +328,25 @@ export function ComposePanel({
         inReplyTo: threading.inReplyTo ?? undefined,
         threadId: threading.threadId ?? undefined,
         draftId: draft ?? undefined,
+        ...(draft && draftUpdatedAt.current !== null ? { expectedUpdatedAt: draftUpdatedAt.current } : {}),
       })
       setDraft(saved.draftId)
+      if (typeof saved.updatedAt === 'number') draftUpdatedAt.current = saved.updatedAt
       setBaseline(snapshot)
       setSaveState('saved')
       if (!silent) toast(t('email.compose.draft_saved'))
       return saved.draftId
     } catch (reason) {
+      if (reason instanceof ApiError && reason.isConflict) {
+        const server = (reason.details as { server?: DraftConflict } | undefined)?.server
+        if (server) {
+          conflictOpen.current = true
+          setDraftConflict(server)
+          setSaveState('error')
+          setSaveError(t('email.compose.draft_conflict_title'))
+          return null
+        }
+      }
       const message = (reason as Error).message
       setSaveState('error')
       setSaveError(message)
@@ -330,6 +359,41 @@ export function ComposePanel({
       saveInFlight.current = false
       setSaving(false)
     }
+  }
+
+  /** Keep the text in front of the reader, accepting the other device's newer timestamp as the base. */
+  const keepMyDraft = async (): Promise<void> => {
+    const server = draftConflict
+    if (!server) return
+    draftUpdatedAt.current = server.updatedAt
+    conflictOpen.current = false
+    setDraftConflict(null)
+    await saveDraft()
+  }
+
+  /** Take the other device's copy into this form and drop what was typed here. */
+  const useServerDraft = (): void => {
+    const server = draftConflict
+    if (!server) return
+    const loaded = {
+      to: server.recipient ?? '',
+      cc: server.cc ?? '',
+      bcc: server.bcc ?? '',
+      subject: server.subject,
+      body: server.bodySource ?? stripEmailHtmlToText(server.body),
+    }
+    conflictOpen.current = false
+    draftUpdatedAt.current = server.updatedAt
+    setDraftConflict(null)
+    setTo(loaded.to)
+    setCc(loaded.cc)
+    setBcc(loaded.bcc)
+    setShowCc(Boolean(server.cc || server.bcc))
+    setSubject(loaded.subject)
+    setBody(loaded.body)
+    setBaseline(loaded)
+    setSaveState('saved')
+    setSaveError(null)
   }
 
   useEffect(() => {
@@ -354,11 +418,18 @@ export function ComposePanel({
   }, [to, cc, bcc, subject, body, attachmentKey, canAutoSave, sending, scheduling])
 
   const cancelPendingSend = () => {
-    if (!pendingSend.current) return
+    const pending = pendingSend.current
+    if (!pending) return
     pendingSend.current = null
     clearUndoTimers()
     setUndoSeconds(null)
     setSending(false)
+    if (pending.jobId) {
+      // The send itself was handed to the server as a queued job; undo is its cancel, not a timer in
+      // this tab. A job the sweep already claimed answers 404, which means the mail is on its way and
+      // there is nothing left to take back.
+      void api.email.cancelScheduledSend(account.id, pending.jobId).catch(() => {})
+    }
     toast(t('email.compose.send_cancelled'))
   }
 
@@ -372,6 +443,23 @@ export function ComposePanel({
       return
     }
     try {
+      // Cancel the queued job first: if the sweep already claimed it, this answers 404 and the server
+      // sends the one copy that exists. Only a successful cancel means this tab must send it now, so
+      // the two paths can never both deliver.
+      if (pending.jobId) {
+        try {
+          await api.email.cancelScheduledSend(account.id, pending.jobId)
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404) {
+            sent.current = true
+            clearAutoSaveTimer()
+            toast(t('email.compose.sent'))
+            onSent()
+            return
+          }
+          throw error
+        }
+      }
       await api.email.sendDraft(account.id, pending.id, pending.input)
       sent.current = true
       clearAutoSaveTimer()
@@ -414,7 +502,23 @@ export function ComposePanel({
       attachmentIds: attachments.map((entry) => entry.id),
       operationId: crypto.randomUUID(),
     }
-    pendingSend.current = { id, input }
+    pendingSend.current = { id, input, jobId: null }
+    // The undo window is a server-side queued send, not a timer that dies with the tab: closing the
+    // page inside nine seconds must still deliver, and undo is a cancel of that job. A deployment
+    // where the schedule call fails keeps the old in-tab timer as the fallback.
+    try {
+      const job = await api.email.scheduleDraftSend(account.id, id, {
+        sendAt: new Date(Date.now() + UNDO_WINDOW_MS).toISOString(),
+        operationId: crypto.randomUUID(),
+      })
+      pendingSend.current = { id, input, jobId: job.id }
+    } catch (reason) {
+      // A deployment without the schedule route keeps the in-tab timer; an offline client is the
+      // ordinary case of that, not something to log on every send.
+      if (!(reason instanceof ApiError && reason.isOffline)) {
+        console.warn('[inkstone] the undo window could not be queued on the server', reason)
+      }
+    }
     setUndoSeconds(Math.ceil(UNDO_WINDOW_MS / UNDO_TICK_MS))
     toastWithUndo(t('email.compose.sending_toast'), cancelPendingSend, { duration: UNDO_WINDOW_MS })
     undoInterval.current = window.setInterval(() => {
@@ -950,6 +1054,21 @@ export function ComposePanel({
           file={{ url: api.email.attachmentUrl(preview.id), filename: preview.filename, mime: preview.mime, size: preview.size }}
         />
       )}
+      <Modal
+        open={Boolean(draftConflict)}
+        onClose={() => {}}
+        dismissible={false}
+        width={460}
+        title={t('email.compose.draft_conflict_title')}
+        footer={(
+          <div className="flex w-full items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={useServerDraft}>{t('email.compose.use_server_version')}</Button>
+            <Button size="sm" onClick={() => { void keepMyDraft() }}>{t('email.compose.keep_mine')}</Button>
+          </div>
+        )}
+      >
+        <p className="text-sm text-[var(--text-secondary)]">{t('email.compose.draft_conflict_description')}</p>
+      </Modal>
     </section>
   )
 }

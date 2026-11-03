@@ -20,9 +20,17 @@ describe('cloud drive paths', () => {
   })
 
   it('refuses traversal, control characters and windows-hostile names', () => {
-    for (const value of ['/../etc/passwd', '/a/../b', '/%2e%2e/x', '/a\\b', '/a/\u0000b', '/a.', '/a ', '/CON', '/com1.txt']) {
+    for (const value of ['/../etc/passwd', '/a/../b', '/a\\b', '/a/\u0000b', '/a.', '/a ', '/CON', '/com1.txt']) {
       expect(() => normalizeCloudDrivePath(value), value).toThrow('invalid_path')
     }
+  })
+
+  it('treats already-decoded names literally instead of decoding them a second time', () => {
+    // The transport decoded the value once: `%25` in a URL is `%` here. Decoding again would either
+    // throw on a lone percent or turn an encoded slash into a real separator.
+    expect(normalizeCloudDrivePath('/100%.txt')).toBe('/100%.txt')
+    expect(normalizeCloudDrivePath('/a%2Fb')).toBe('/a%2Fb')
+    expect(normalizeCloudDrivePath('/a%2Fb')).not.toBe('/a/b')
   })
 
   it('keeps unicode names and joins children', () => {

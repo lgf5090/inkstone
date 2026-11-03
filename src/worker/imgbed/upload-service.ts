@@ -27,6 +27,7 @@ import {
 } from './storage'
 import { availableChannelsForUpload, type ResolvedChannel } from './channels'
 import { imgbedMetric } from './metrics'
+import { newId } from '../lib/id'
 
 export interface UploadQuery {
   uploadChannel?: string
@@ -49,6 +50,17 @@ export interface UploadResult {
   height: number | null
   channel: string
   channelName: string
+}
+
+export interface UploadOptions {
+  /**
+   * Store the row under this id, replacing the row already there.
+   *
+   * WebDAV PUT is an overwrite: its path is the row id, so the new bytes have to land under a key of
+   * their own and the row can only point at them once the upload succeeded. Callers that do not
+   * overwrite leave this out and get the usual generated id.
+   */
+  replaceId?: string
 }
 
 const CHANNEL_FALLBACK_ORDER: ImgbedChannelType[] = ['cfr2', 'telegram', 's3', 'huggingface', 'webdav', 'discord']
@@ -155,6 +167,7 @@ export async function uploadSingle(
   request: Request,
   form: FormData,
   query: UploadQuery,
+  options: UploadOptions = {},
 ): Promise<UploadResult> {
   const page = await getSettingsGroup(db, 'page')
   const upload = await getSettingsGroup(db, 'upload')
@@ -181,10 +194,14 @@ export async function uploadSingle(
 
   const folder = sanitizeFolderPath(query.uploadFolder ?? page.defaultFolder)
   const nameType = (query.uploadNameType ?? page.defaultNameType) as 'default' | 'index' | 'origin' | 'short'
-  const id = await buildFileId({
+  const id = options.replaceId ?? await buildFileId({
     fileName, fileType, folder, nameType,
     exists: (candidate) => fileExists(db, candidate),
   })
+  // An overwrite writes the new bytes under a key of their own; the old object keeps serving until the
+  // row is switched to the new one. Sharing the key would replace the original before the upload is
+  // known to have succeeded, which is the failure this exists to prevent.
+  const storageId = options.replaceId ? `${options.replaceId}~${newId()}` : id
   const dimensions = fileTypeCategory(fileType) === 'image' ? dimensionsOf(bytes, fileType) : null
   const address = await lookupAddress(security, ip)
   const now = Date.now()
@@ -216,7 +233,7 @@ export async function uploadSingle(
     ?? null
   if (!chosen) throw new StorageError(`No enabled ${requestedType} channel is configured`, 400)
 
-  const storageFile: StorageFile = { id, fileName, fileType, bytes }
+  const storageFile: StorageFile = { id: storageId, fileName, fileType, bytes }
   const attempts: ResolvedChannel[] = [chosen]
   if (query.autoRetry !== 'false') {
     for (const type of CHANNEL_FALLBACK_ORDER) {
@@ -243,7 +260,7 @@ export async function uploadSingle(
   }
 
   const fileRecord = {
-    id, objectKey: put.objectKey, fileName, fileType, sizeBytes: size,
+    id: storageId, objectKey: put.objectKey, fileName, fileType, sizeBytes: size,
     width: null, height: null, uploadIp: ip, uploadAddress: address,
     listType: 'None' as const, label: 'None' as const, directory: '', source: channel.type,
     externalLink: null, channel: canonicalChannel(channel),

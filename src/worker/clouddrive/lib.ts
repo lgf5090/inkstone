@@ -101,6 +101,23 @@ export function parsePath(input: unknown, options: { allowRoot?: boolean } = {})
   }
 }
 
+/**
+ * A percent-encoded URL pathname, decoded exactly once and then validated.
+ *
+ * `c.req.path` keeps the escapes a WebDAV client sent (`%2e%2e`, `%20`); every other source already
+ * arrives decoded. Decoding here rather than inside the shared model keeps that single decode at the
+ * one boundary that has an encoded value, so a literal `%2F` in a name cannot alias another folder.
+ */
+export function parseEncodedPath(input: string, options: { allowRoot?: boolean } = {}): string {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(input)
+  } catch {
+    throw pathInvalid()
+  }
+  return parsePath(decoded, options)
+}
+
 /** Validate a name segment the way a path segment is validated, with a readable message. */
 export function parseName(input: unknown): string {
   if (typeof input !== 'string') throw pathInvalid('A name is required')

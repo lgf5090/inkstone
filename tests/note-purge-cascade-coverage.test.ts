@@ -196,7 +196,7 @@ describe('a purged note is cleared out of every chat table that names it', () =>
     ])
 
     const withoutBatch = STORE_TEXT.replace(
-      /`UPDATE chat_memories SET note_id = NULL WHERE user_id = \?1 AND note_id \$\{inTrash\}`/,
+      /`UPDATE chat_memories SET note_id = NULL WHERE user_id = \?1 AND note_id \$\{inTrash\}[\s\S]*?`/,
       '',
     )
     expect(withoutBatch, 'the planted edit found nothing to remove').not.toBe(STORE_TEXT)

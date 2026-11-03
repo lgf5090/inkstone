@@ -3,7 +3,7 @@ import { create, type StoreApi } from 'zustand';
 import { numericCollator } from '../lib/collator';
 import { useMemo } from 'react';
 import { countText, deriveExcerpt, extractTags, normalizeLinkKey, notesCarryAnyTag, notesCarryEveryTag, sortTagNames } from '@shared/markdown-utils';
-import { duplicateNoteTitle } from '@shared/text-utils';
+import { duplicateNoteTitle, utf8ByteLength } from '@shared/text-utils';
 import { LIMITS } from '@shared/constants';
 import type { AppLocale, DateRangeFilter, Folder, Note, NoteSummary, SortKey, SortOrder, SyncResponse, Tag, ViewKind, } from '@shared/types';
 import { api, ApiError, CLIENT_ID } from '../lib/api';
@@ -865,6 +865,15 @@ export const useNotes = create<NotesState>((set, get) => ({
                 return;
             }
             let rev = dirty.get(id)?.rev ?? summary.rev;
+            // A body is saved through the offline journal, not this metadata helper. If a patch does
+            // carry one, the refusal below applies to it too, and the conflict branch must not resend
+            // it over another device's revision.
+            const carriesBody = typeof (patch as { content?: unknown }).content === 'string';
+            if (carriesBody && noteContentTooLarge((patch as { content: string }).content)) {
+                finishNoteMutation(id, mutation);
+                warnOversizedContent(id, t("notes.content_too_large"));
+                return;
+            }
             for (let attempt = 0; attempt < 4; attempt++) {
                 try {
                     const saved = await api.notes.patch(id, { rev, ...patch });
@@ -877,10 +886,29 @@ export const useNotes = create<NotesState>((set, get) => ({
                     const server = err instanceof ApiError && err.isConflict
                         ? (err.details as { server?: Note } | undefined)?.server
                         : undefined;
-                    if (server?.id === id && server.rev > rev && attempt < 3) {
+                    if (server?.id === id && server.rev > rev && attempt < 3 && !carriesBody) {
                         adoptNote(server, set, get);
                         rev = server.rev;
                         continue;
+                    }
+                    if (server?.id === id && carriesBody) {
+                        const localContent = (patch as { content?: string }).content ?? '';
+                        finishNoteMutation(id, mutation);
+                        if (server.content !== localContent) {
+                            const copyId = await get().createNote({
+                                title: duplicateNoteTitle(summary.title, LIMITS.titleMaxLength),
+                                content: localContent,
+                                folderId: summary.folderId,
+                                open: false,
+                            });
+                            if (copyId) {
+                                adoptNote(server, set, get);
+                                showOfflineRecoveryToast(copyId, true);
+                                return;
+                            }
+                        }
+                        adoptNote(server, set, get);
+                        return;
                     }
                     await recoverNoteMutation(id, mutation, err, set, get);
                     toastError(err, t("common.action_failed"));
@@ -1760,6 +1788,8 @@ function stageNoteTextWrite(id: string, content: string, title: string | undefin
     }));
     if (contentChanged)
         scheduleSummaryDerivation(id, content, updatedAt, set, get);
+    if (contentChanged && contentDirty && noteContentTooLarge(content))
+        warnOversizedContent(id);
     if (titleChanged)
         scheduleShellSave(get);
     pendingContentWrites.set(id, {
@@ -2329,6 +2359,7 @@ function revalidateNote(id: string, rev: number, set: SetNotesState, get: () => 
     });
 }
 async function settleSavedPatch(id: string, submitted: Pick<DirtyNoteWrite, 'content' | 'writeId'>, saved: Note, set: SetNotesState, get: () => NotesState): Promise<void> {
+    oversizedContentWarned.delete(id);
     const latest = dirty.get(id);
     if (latest && latest.writeId !== submitted.writeId) {
         advanceDirtyRevision(id, latest.rev, saved.rev, get);
@@ -2559,6 +2590,36 @@ function replayOutbox(get: () => NotesState, set: SetNotesState): Promise<void> 
     });
     return outboxReplayPromise;
 }
+/**
+ * Notes whose oversized body has already been announced.
+ *
+ * The replay pass runs on every edit, blur and poll, and each attempt re-sends the same rejected
+ * body. One toast per note (cleared by the next successful save) tells the reader the write is
+ * kept locally and not lost, without turning the failure into a message every few seconds.
+ */
+const oversizedContentWarned = new Set<string>();
+
+function noteContentTooLarge(content: string): boolean {
+    // A byte count can never exceed a character count, so an ordinary body is refused by this cheap
+    // comparison alone; only a body already past the ceiling pays for the exact UTF-8 count.
+    if (content.length <= LIMITS.contentMaxBytes)
+        return false;
+    return utf8ByteLength(content) > LIMITS.contentMaxBytes;
+}
+
+function warnOversizedContent(noteId: string, description?: string): void {
+    if (oversizedContentWarned.has(noteId))
+        return;
+    oversizedContentWarned.add(noteId);
+    useUi.getState().toast({
+        title: t("notes.content_too_large"),
+        ...(description ? { description } : {}),
+        tone: 'danger',
+        // A refusal that leaves the text on one device is not a transient notice; keep it long enough
+        // to be read (and hovered, which pauses it) rather than for the usual error flash.
+        duration: 15000,
+    });
+}
 async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promise<void> {
     const attempted = new Set<string>();
     let stoppedOffline = false;
@@ -2635,6 +2696,15 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
             const rev = latestLocal?.rev ?? item.payload.rev;
             if (typeof content !== 'string' || !Number.isInteger(rev) || (rev as number) < 1) {
                 await localDb.markOutboxFailure(item.id, item.writeId, 'invalid offline journal payload').catch(() => { });
+                continue;
+            }
+            // A body over the route's byte ceiling is refused before it is sent: the server would answer
+            // 413 for the same reason, and sending a 2 MB payload on every replay only to discard it is
+            // pure cost. The queue keeps the edit (the reader's text is still in the editor and the
+            // local cache) and the toast says why it is not reaching the server.
+            if (contentDirty && noteContentTooLarge(content)) {
+                await localDb.markOutboxFailure(item.id, item.writeId, 'note content exceeds the save limit').catch(() => { });
+                warnOversizedContent(item.entityId, t("notes.content_too_large"));
                 continue;
             }
             try {
@@ -2793,7 +2863,11 @@ async function replayOutboxNow(get: () => NotesState, set: SetNotesState): Promi
                     break;
                 }
                 if (err instanceof ApiError && err.status === 413) {
-                    await completeOutboxQuietly(item.id, item.writeId);
+                    // A 413 is a refusal, not a save: the old branch completed the queue row and the
+                    // editor then believed the body had landed. Keep the write queued with its failure,
+                    // so it is not silently dropped, and tell the reader once what the limit is.
+                    await localDb.markOutboxFailure(item.id, item.writeId, err.message).catch(() => { });
+                    warnOversizedContent(item.entityId, err.message);
                     continue;
                 }
                 if (err instanceof ApiError && err.isAuth) {

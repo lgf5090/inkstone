@@ -647,6 +647,7 @@ function toMessage(row: EmailRow, attachments: EmailAttachment[]): EmailMessage 
     ...toSummary(row),
     body: row.body,
     bodySource: row.body_source,
+    updatedAt: row.updated_at,
     inReplyTo: row.in_reply_to,
     references: parseReferences(row.email_references),
     messageId: row.message_id,
@@ -1422,6 +1423,13 @@ emailRoutes.post('/accounts/:id/drafts', async (c) => {
   if (body.inReplyTo !== undefined && body.inReplyTo !== null && body.inReplyTo !== '' && typeof body.inReplyTo !== 'string') {
     throw draftInvalid('The in-reply-to value must be a string')
   }
+  let expectedUpdatedAt: number | null = null
+  if (body.expectedUpdatedAt !== undefined && body.expectedUpdatedAt !== null) {
+    if (typeof body.expectedUpdatedAt !== 'number' || !Number.isSafeInteger(body.expectedUpdatedAt)) {
+      throw draftInvalid('The expected revision must be an integer timestamp')
+    }
+    expectedUpdatedAt = body.expectedUpdatedAt
+  }
   if (body.threadId !== undefined && body.threadId !== null && body.threadId !== '' && typeof body.threadId !== 'string') {
     throw draftInvalid('The thread id must be a string')
   }
@@ -1438,7 +1446,7 @@ emailRoutes.post('/accounts/:id/drafts', async (c) => {
     threadId = original?.thread_id ?? inReplyTo
   }
   const id = draftId ?? newId()
-  const saved = await mailbox.saveDraft(draftId, {
+  const saved = await mailbox.saveDraftChecked(draftId, {
     id,
     subject: body.subject,
     sender: row.address,
@@ -1450,9 +1458,28 @@ emailRoutes.post('/accounts/:id/drafts', async (c) => {
     bodySource: body.body,
     inReplyTo,
     threadId: threadId ?? id,
-  })
-  if (!saved) throw draftInvalid('The draft could not be saved')
-  return c.json({ draftId: saved }, draftId ? 200 : 201)
+  }, expectedUpdatedAt)
+  if (!saved.ok) {
+    if (saved.reason === 'conflict' && draftId) {
+      // The reader's other tab (or another device) wrote this draft after the copy this save was
+      // typed on. Answer with that copy so the surface can ask which text survives.
+      const latest = await mailbox.getEmail(draftId)
+      throw ApiError.conflict('The draft changed on another device', latest ? {
+        server: {
+          id: latest.id,
+          subject: latest.subject,
+          recipient: latest.recipient,
+          cc: latest.cc,
+          bcc: latest.bcc,
+          body: latest.body,
+          bodySource: latest.body_source,
+          updatedAt: latest.updated_at,
+        },
+      } : undefined)
+    }
+    throw draftInvalid('The draft could not be saved')
+  }
+  return c.json({ draftId: saved.id, updatedAt: saved.updatedAt }, draftId ? 200 : 201)
 })
 
 emailRoutes.post('/accounts/:id/drafts/:draftId/attachments', async (c) => {

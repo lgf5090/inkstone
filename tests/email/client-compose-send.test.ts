@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { EmailAccount, EmailMessage, EmailScheduledSend } from '@shared/email/model'
 import { api } from '../../src/client/lib/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
@@ -115,6 +115,27 @@ function completeRecipient(): void {
   press(to, 'Enter')
 }
 
+const scheduledJob: EmailScheduledSend = {
+  id: 'job-1',
+  accountId: account.id,
+  draftId: 'd1',
+  sendAt: '2026-01-01T00:00:00.000Z',
+  status: 'queued',
+  attempts: 0,
+  lastError: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+let scheduleDraftSend: MockInstance
+let cancelScheduledSend: MockInstance
+
+beforeEach(() => {
+  // The undo window is a queued server send; these cases measure the panel, not the route.
+  scheduleDraftSend = vi.spyOn(api.email, 'scheduleDraftSend').mockResolvedValue(scheduledJob)
+  cancelScheduledSend = vi.spyOn(api.email, 'cancelScheduledSend').mockResolvedValue(undefined)
+})
+
 afterEach(() => {
   document.body.innerHTML = ''
   vi.restoreAllMocks()
@@ -135,6 +156,8 @@ describe('the compose panel undo send window', () => {
     })
     await flush()
     expect(saveDraft).toHaveBeenCalledTimes(1)
+    // The window lives on the server: a queued job whose send time is nine seconds out.
+    expect(scheduleDraftSend).toHaveBeenCalledTimes(1)
     expect(sendDraft).not.toHaveBeenCalled()
     expect(labelled(t('email.compose.schedule_send')).disabled).toBe(true)
     expect(view.container.textContent).toContain(t('email.compose.sending_in', { seconds: 9 }))
@@ -144,6 +167,7 @@ describe('the compose panel undo send window', () => {
     expect(view.container.textContent).toContain(t('email.compose.sending_in', { seconds: 8 }))
     expect(sendDraft).not.toHaveBeenCalled()
     await settle(8000)
+    expect(cancelScheduledSend).toHaveBeenCalledWith(account.id, 'job-1')
     expect(sendDraft).toHaveBeenCalledTimes(1)
     expect(onSent).toHaveBeenCalledTimes(1)
     saveDraft.mockRestore()
@@ -166,6 +190,7 @@ describe('the compose panel undo send window', () => {
     expect(undo?.label).toBe(t('common.undo'))
     act(() => { undo?.run() })
     await settle(10000)
+    expect(cancelScheduledSend).toHaveBeenCalledWith(account.id, 'job-1')
     expect(sendDraft).not.toHaveBeenCalled()
     expect(onSent).not.toHaveBeenCalled()
     expect(useUi.getState().toasts.map(({ title }) => title)).toContain(t('email.compose.send_cancelled'))
@@ -176,7 +201,7 @@ describe('the compose panel undo send window', () => {
     view.unmount()
   })
 
-  it('cancels the pending send when the panel unmounts', async () => {
+  it('leaves the queued send with the server when the panel unmounts', async () => {
     vi.useFakeTimers()
     const saveDraft = vi.spyOn(api.email, 'saveDraft').mockResolvedValue({ draftId: 'd1' })
     const sendDraft = vi.spyOn(api.email, 'sendDraft').mockResolvedValue({ id: 'd1', status: 'sent' })
@@ -188,7 +213,10 @@ describe('the compose panel undo send window', () => {
     await flush()
     view.unmount()
     await settle(10000)
+    // The tab closed inside the window, so this panel cannot send — and must not cancel either: the
+    // queued job is the delivery that survives the page.
     expect(sendDraft).not.toHaveBeenCalled()
+    expect(cancelScheduledSend).not.toHaveBeenCalled()
     saveDraft.mockRestore()
     sendDraft.mockRestore()
   })

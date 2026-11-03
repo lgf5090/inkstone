@@ -376,7 +376,25 @@ calendarRoutes.post('/events/:id/recurrence', async (c) => {
   const id = pathId(c)
   const s = store(c)
   const timeZone = await fallbackTimeZone(s)
-  const change = parseRecurrenceChange(await readJson<unknown>(c, EVENT_BODY_LIMIT), { defaultTimeZone: timeZone })
+  const target = await sharedEventTarget(c, id)
+  const raw = await readJson<Record<string, unknown>>(c, EVENT_BODY_LIMIT)
+  // A recurrence write is a PATCH of the master in disguise: its patch can name calendars, and those
+  // have to be rewritten to the owner's raw ids before validation, exactly as the PATCH route does.
+  let body = raw
+  if (target && raw.patch && typeof raw.patch === 'object' && !Array.isArray(raw.patch)) {
+    const prepared = await prepareSharedWrite(c, raw.patch as Record<string, unknown>)
+    body = { ...raw, patch: prepared.body }
+  }
+  const change = parseRecurrenceChange(body, { defaultTimeZone: timeZone })
+  if (target) {
+    if (change.patch?.calendarIds && !change.patch.calendarIds.every(calendarId => target.event.calendarIds.includes(calendarId))) {
+      throw ApiError.forbidden('A guest cannot move an event outside the shared calendars')
+    }
+    const answer = await target.store.applyRecurrenceChange(target.eventId, change)
+    return c.json({
+      masterId: answer.masterId === null ? null : sharedCalendarId(target.ownerId, answer.masterId),
+    })
+  }
   return c.json(await s.applyRecurrenceChange(id, change))
 })
 

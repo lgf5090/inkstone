@@ -1583,7 +1583,7 @@ export const api = {
     forward: (id: string, messageId: string, body: EmailSendInput) =>
       request<EmailSendResult>(`/api/email/accounts/${id}/emails/${messageId}/forward`, { method: 'POST', body }),
     saveDraft: (id: string, draft: EmailDraftInput) =>
-      request<{ draftId: string }>(`/api/email/accounts/${id}/drafts`, { method: 'POST', body: draft }),
+      request<{ draftId: string; updatedAt?: number }>(`/api/email/accounts/${id}/drafts`, { method: 'POST', body: draft }),
     sendDraft: (id: string, draftId: string, body: EmailSendInput) =>
       request<EmailSendResult>(`/api/email/accounts/${id}/drafts/${draftId}/send`, { method: 'POST', body }),
     scheduleDraftSend: (id: string, draftId: string, body: EmailScheduledSendInput) =>

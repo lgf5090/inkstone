@@ -47,6 +47,33 @@ function fakeApp(): { app: ICalendarApp; emit: (change: EventChange) => void; ap
   }
 }
 
+function serverEventDto(rev: number, overrides: Partial<CalendarEventDto> = {}): CalendarEventDto {
+  return {
+    id: 'evt-1',
+    title: 'New',
+    description: '',
+    kind: 'event',
+    task: null,
+    conference: null,
+    start: { value: '2026-10-26T09:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    end: { value: '2026-10-26T10:00:00+00:00[UTC]', type: 'zoned', timeZone: 'UTC' },
+    allDay: false,
+    calendarId: 'cal-1',
+    calendarIds: ['cal-1'],
+    meta: {},
+    icon: null,
+    color: null,
+    recurrenceRule: null,
+    recurrenceParentId: null,
+    recurrenceId: null,
+    recurrenceCancelled: false,
+    rev,
+    source: 'local',
+    externalId: null,
+    ...overrides,
+  }
+}
+
 describe('event persistence rollback', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -143,6 +170,49 @@ describe('event persistence rollback', () => {
 
     expect(onError).toHaveBeenCalledTimes(1)
     expect(fake.applied[0]?.changes).toMatchObject({ delete: ['evt-1'] })
+    persistence.dispose()
+  })
+
+  it('adopts the id a shared calendar answers with, so the next edit reaches that row', async () => {
+    const fake = fakeApp()
+    const revs = new Map<string, number>()
+    const persistence = new EventPersistence({
+      app: fake.app,
+      revs,
+      history: { record: vi.fn() } as unknown as CalendarEditHistory,
+      timeZone: () => 'UTC',
+      fallbackTitle: () => 'Untitled',
+      onServerState: vi.fn(),
+      onError: vi.fn(),
+      onConflict: vi.fn(),
+      onRecurringEdit: vi.fn(),
+      onReadOnlyEdit: vi.fn(),
+    })
+    persistence.start()
+    const sharedId = 'shared:owner-1:evt-1'
+    vi.mocked(api.createEvent).mockResolvedValue(serverEventDto(4, { id: sharedId }) as never)
+    vi.mocked(api.updateEvent).mockResolvedValue(serverEventDto(5, { id: sharedId, title: 'Edited' }) as never)
+
+    fake.emit({ type: 'create', event: event('New'), source: 'local' })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(revs.has('evt-1')).toBe(false)
+    expect(revs.get(sharedId)).toBe(4)
+    expect(fake.applied[0]?.changes).toMatchObject({ delete: ['evt-1'], add: [{ id: sharedId }] })
+
+    // The app echoes the repaint it was handed; the skip entries eat those two, not the reader's edit.
+    fake.emit({ type: 'delete', event: { ...event('New'), id: 'evt-1' }, source: 'remote' })
+    fake.emit({ type: 'create', event: { ...event('New'), id: sharedId }, source: 'remote' })
+
+    fake.emit({
+      type: 'update',
+      before: { ...event('New'), id: sharedId },
+      after: { ...event('Edited'), id: sharedId },
+      source: 'local',
+    })
+    await vi.advanceTimersByTimeAsync(300)
+
+    expect(api.updateEvent).toHaveBeenCalledWith(sharedId, expect.anything(), 4)
     persistence.dispose()
   })
 })

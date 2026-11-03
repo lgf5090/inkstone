@@ -1097,7 +1097,7 @@ describe('email drafts and attachments', () => {
       bodyHtml: '<p>Updated</p>',
     })
     expect(replaced.status).toBe(200)
-    expect(await json<{ draftId: string }>(replaced)).toEqual({ draftId })
+    expect(await json<{ draftId: string }>(replaced)).toMatchObject({ draftId })
     expect(store.getEmail(draftId)?.subject).toBe('Draft two')
     expect(store.getEmail(draftId)?.body_source).toBe('Updated')
 
@@ -1126,6 +1126,45 @@ describe('email drafts and attachments', () => {
       bodyHtml: 'x'.repeat(EMAIL_BODY_MAX_BYTES + 1),
     })
     expect(tooLarge.status).toBe(413)
+  })
+
+  it('refuses a draft write typed on a superseded revision and names the newer copy', async () => {
+    const created = await call('POST', `/accounts/${accountId}/drafts`, {
+      to: 'bob@example.com',
+      subject: 'Mine',
+      body: 'typed here',
+      bodyHtml: '<p>typed here</p>',
+    })
+    const { draftId, updatedAt } = await json<{ draftId: string; updatedAt: number }>(created)
+
+    // Another device wrote this draft after the copy the save above was typed on.
+    sqlite.prepare(`UPDATE email_messages SET subject = 'Theirs', body = '<p>their text</p>',
+      body_source = 'their text', updated_at = ?1 WHERE id = ?2`).run(updatedAt + 5, draftId)
+
+    const stale = await call('POST', `/accounts/${accountId}/drafts`, {
+      draftId,
+      to: 'bob@example.com',
+      subject: 'Mine still',
+      body: 'still mine',
+      bodyHtml: '<p>still mine</p>',
+      expectedUpdatedAt: updatedAt,
+    })
+    expect(stale.status).toBe(409)
+    const failure = await json<{ error: { details?: { server?: { subject?: string; updatedAt?: number } } } }>(stale)
+    expect(failure.error.details?.server?.subject).toBe('Theirs')
+    // The other device's text was not overwritten by the refused write.
+    expect(store.getEmail(draftId)?.subject).toBe('Theirs')
+
+    const accepted = await call('POST', `/accounts/${accountId}/drafts`, {
+      draftId,
+      to: 'bob@example.com',
+      subject: 'Mine, on the newer copy',
+      body: 'still mine',
+      bodyHtml: '<p>still mine</p>',
+      expectedUpdatedAt: updatedAt + 5,
+    })
+    expect(accepted.status).toBe(200)
+    expect(store.getEmail(draftId)?.subject).toBe('Mine, on the newer copy')
   })
 
   it('links an unfiled attachment to a draft and unlinks it into deletion', async () => {

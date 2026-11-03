@@ -64,18 +64,29 @@ export async function collectExportTasks(
   store: AssistantStore,
 ): Promise<{ tasks: TodoTask[]; truncated: boolean }> {
   const tasks: TodoTask[] = []
+  // `includeShelvedLists` is what makes this the whole account: the shelf predicate every listing uses
+  // hides rows filed in a list the reader put away, and a document about what they owe must still carry
+  // that work. Archived *rows* were already included by `archived: 'any'`.
+  const query = {
+    status: 'all' as const,
+    archived: 'any' as const,
+    includeShelvedLists: true,
+    sort: 'created' as const,
+  }
   while (tasks.length < MAX_EXPORT_TASKS) {
     const page = await store.listTasks({
-      status: 'all',
-      archived: 'any',
-      sort: 'created',
+      ...query,
       limit: Math.min(MAX_TASKS_PER_QUERY, MAX_EXPORT_TASKS - tasks.length),
       offset: tasks.length,
     })
     tasks.push(...page)
     if (page.length < MAX_TASKS_PER_QUERY) return { tasks, truncated: false }
   }
-  return { tasks, truncated: true }
+  // The walk stopped at the ceiling. An account holding exactly the ceiling is complete, so one probe
+  // row past it decides whether `truncated` is a fact or an assumption — and a file must not claim to be
+  // partial when it is not (nor complete when it is).
+  const [next] = await store.listTasks({ ...query, limit: 1, offset: tasks.length })
+  return { tasks, truncated: Boolean(next) }
 }
 
 /** The lossless document: the rows as the API answers them, plus what the walk saw. */

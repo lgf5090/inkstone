@@ -36,6 +36,9 @@ import { findNoteByTitle, useNotes } from './notes'
 import { api } from '../lib/api'
 import { getInboxFolderId, setInboxFolderId } from '../lib/folder-prefs'
 import { ApiError } from '../lib/api'
+import { LIMITS } from '@shared/constants'
+import { t } from '../lib/i18n'
+import { useUi } from './ui'
 
 const note: Note = {
   id: '01m1r8923zajxnw9y0dhs6sy8j', title: 'Example', excerpt: 'old', content: 'old',
@@ -115,6 +118,52 @@ it('saves conflicting local edits as a copy without retrying over the server not
   expect(useNotes.getState().contents[note.id]).toBe('remote important edit')
   expect(useNotes.getState().notes[note.id].rev).toBe(3)
   expect(mocks.queue).toHaveLength(0)
+})
+
+it('keeps a refused 413 body in the outbox instead of calling it saved', async () => {
+  useNotes.setState({ online: true })
+  mocks.queue.push({
+    id: `patch:${note.id}`, clientId: 'client', writeId: 'write-413', entity: 'note', entityId: note.id,
+    payload: { content: 'body', contentDirty: true, rev: 1 }, attempts: 0, createdAt: 1,
+  })
+  mocks.patch.mockRejectedValueOnce(new ApiError(413, 'payload_too_large', 'Note content exceeds the 1.9 MB limit'))
+  await useNotes.getState().replayPending()
+  expect(mocks.patch).toHaveBeenCalledTimes(1)
+  // The old branch completed the row; the write must still be queued so the body is not lost.
+  expect(mocks.queue).toHaveLength(1)
+})
+
+it('refuses to send a body over the byte ceiling before the request', async () => {
+  useNotes.setState({ online: true })
+  const oversized = 'x'.repeat(LIMITS.contentMaxBytes + 1)
+  mocks.queue.push({
+    id: `patch:${note.id}`, clientId: 'client', writeId: 'write-big', entity: 'note', entityId: note.id,
+    payload: { content: oversized, contentDirty: true, rev: 1 }, attempts: 0, createdAt: 1,
+  })
+  await useNotes.getState().replayPending()
+  expect(mocks.patch).not.toHaveBeenCalled()
+  expect(mocks.queue).toHaveLength(1)
+})
+
+it('does not resend a body over another device after a 409, and keeps it as a copy', async () => {
+  const remote = { ...note, rev: 4, content: 'remote important edit' }
+  mocks.patch.mockRejectedValueOnce(new ApiError(409, 'conflict', 'conflict', { server: remote }))
+  mocks.create.mockImplementation(async (input: any) => ({ ...note, ...input, rev: 1 }))
+  await useNotes.getState().patchNote(note.id, { isStarred: true, content: 'local body' } as any)
+  expect(mocks.patch).toHaveBeenCalledTimes(1)
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ content: 'local body' }))
+  expect(useNotes.getState().contents[note.id]).toBe('remote important edit')
+  expect(useNotes.getState().notes[note.id].rev).toBe(4)
+})
+
+it('retries a metadata patch on the server revision a 409 handed back', async () => {
+  const remote = { ...note, rev: 4, isStarred: true }
+  mocks.patch
+    .mockRejectedValueOnce(new ApiError(409, 'conflict', 'conflict', { server: remote }))
+    .mockResolvedValueOnce({ ...remote, rev: 5, folderId: 'folder-a' })
+  await useNotes.getState().patchNote(note.id, { folderId: 'folder-a' })
+  expect(mocks.patch).toHaveBeenNthCalledWith(2, note.id, { rev: 4, folderId: 'folder-a' })
+  expect(useNotes.getState().notes[note.id].folderId).toBe('folder-a')
 })
 
 it('forgets the inbox folder only once its deletion is confirmed', async () => {
@@ -301,4 +350,18 @@ describe('the note a [[name]] resolves to', () => {
     expect(findNoteByTitle('  stand  up ')?.id).toBe('01spaced')
     expect(findNoteByTitle('Standup'), 'a different name is still a different name').toBeUndefined()
   })
+})
+
+// Last in this file on purpose: it leaves a 1.9 MB dirty body in the module's write-ahead state,
+// which is the thing it is asserting about and would distort any case that runs after it.
+it('warns as soon as a typed body passes the save ceiling', () => {
+  const id = '01oversizedbodynote'
+  useNotes.setState((state) => ({
+    notes: { ...state.notes, [id]: { ...note, id, content: 'start', excerpt: 'start' } },
+    contents: { ...state.contents, [id]: 'start' },
+  }))
+  useUi.setState({ toasts: [] })
+  useNotes.getState().editContent(id, 'x'.repeat(LIMITS.contentMaxBytes + 1))
+  const warning = useUi.getState().toasts.find((entry) => entry.tone === 'danger')
+  expect(warning?.title).toBe(t('notes.content_too_large'))
 })

@@ -87,6 +87,8 @@ export function fakeEmailMailboxNamespace(store: MailboxStore): DurableObjectNam
     checkSendRateLimit: (now?: number) => store.checkSendRateLimit(now),
     createEmail: (folder: string, email: EmailData) => store.createEmail(folder, email),
     saveDraft: (draftId: string | null, email: EmailData) => store.saveDraft(draftId, email),
+    saveDraftChecked: (draftId: string | null, email: EmailData, expectedUpdatedAt?: number | null) =>
+      store.saveDraftChecked(draftId, email, expectedUpdatedAt),
     sendDraft: (draftId: string, fields: Parameters<MailboxStore['sendDraft']>[1]) => store.sendDraft(draftId, fields),
     setHasAttachment: (id: string, value: boolean) => store.setHasAttachment(id, value),
     updateDelivery: (id: string, status: string, error: string | null, providerMessageId: string | null = null) =>
