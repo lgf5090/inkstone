@@ -204,7 +204,9 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
             if (/^(input|textarea|select)$/.test(target.tagName.toLowerCase()) || target.isContentEditable)
                 lastField = target;
         };
-        const keepCaretInside = () => {
+        const keepCaretInside = (event: FocusEvent) => {
+            if (!caretLeavesPanel(event, panelRef.current))
+                return;
             queueMicrotask(() => {
                 if (dialogStack[dialogStack.length - 1] !== token)
                     return;
@@ -263,6 +265,20 @@ export function useDialogFocus<T extends HTMLElement>(active: boolean, panelRef:
             returnCaret(previousFocus);
         };
     }, [active, initialFocusRef, panelRef]);
+}
+
+/**
+ * Whether a `focusout` means the caret is leaving the panel rather than moving within it.
+ *
+ * A `focusout` is dispatched before the element that is about to take the caret has it, so the restore
+ * scheduled from it runs while the document still reports `body`. Reading that gap as "the caret fell
+ * out" made every mouse-driven focus change inside a dialog get undone — clicking a field did nothing
+ * while Tab, which moves the caret itself, kept working. The next target is the one fact that tells a
+ * transfer apart from a loss, so it decides here instead of after the fact.
+ */
+export function caretLeavesPanel(event: Pick<FocusEvent, 'relatedTarget'>, panel: HTMLElement | null): boolean {
+    const next = event.relatedTarget;
+    return !(next instanceof HTMLElement && panel?.contains(next));
 }
 
 function isAvailableFocusTarget(element: HTMLElement): boolean {
