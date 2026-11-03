@@ -13,6 +13,16 @@ export interface AdminResource<T> {
   reload: () => Promise<void>
 }
 
+/** The article the editor has open, as the assistant's page context needs it. */
+export interface BlogArticleContext {
+  noteId: string
+  title: string
+  /** Null until the note has a blog projection, which is the state the first draft is made in. */
+  status: BlogPostStatus | null
+  series: string | null
+  slug: string | null
+}
+
 export function useAdminResource<T>(load: () => Promise<T>, deps: unknown[] = []): AdminResource<T> {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)

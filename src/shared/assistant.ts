@@ -2662,7 +2662,12 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'memo_create', labelKey: 'assistant.tool.memo_create', permission: 'write' },
   { name: 'memo_comment', labelKey: 'assistant.tool.memo_comment', approvalKey: 'assistant.approval.memo_comment', permission: 'destructive' },
   { name: 'memo_delete', labelKey: 'assistant.tool.memo_delete', approvalKey: 'assistant.approval.memo_delete', permission: 'destructive' },
-
+  { name: 'blog_list_posts', labelKey: 'assistant.tool.blog_list_posts', permission: 'read' },
+  { name: 'blog_read_post', labelKey: 'assistant.tool.blog_read_post', permission: 'read' },
+  { name: 'blog_create_draft', labelKey: 'assistant.tool.blog_create_draft', permission: 'write' },
+  { name: 'blog_update_post', labelKey: 'assistant.tool.blog_update_post', permission: 'write' },
+  { name: 'blog_seo', labelKey: 'assistant.tool.blog_seo', permission: 'write' },
+  { name: 'blog_publish', labelKey: 'assistant.tool.blog_publish', approvalKey: 'assistant.approval.blog_publish', permission: 'destructive' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

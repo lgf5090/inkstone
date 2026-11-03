@@ -1,6 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { MessageKey } from '@shared/locales/en-US'
+import type { AssistantPageContext } from '@shared/assistant'
 import {
+  Bot,
   CalendarDays,
   ChevronRight,
   CircleHelp,
@@ -28,7 +30,9 @@ import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { useSession } from '../../store/session'
-import { useAdminResource } from './shared'
+import { useUi } from '../../store/ui'
+import { AssistantDock } from '../chat/AssistantDock'
+import { useAdminResource, type BlogArticleContext } from './shared'
 import { DashboardPanel } from './DashboardPanel'
 import { CalendarPanel } from './CalendarPanel'
 import { PostsPanel } from './PostsPanel'
@@ -229,8 +233,30 @@ export function BlogAdminApp() {
   const user = useSession((state) => state.user)
   const active = activeNav(pathname)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [articleContext, setArticleContext] = useState<BlogArticleContext | null>(null)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const settings = useAdminResource(() => api.blog.settings.get(), [])
   const overview = useAdminResource(() => api.blog.overview(), [])
+
+  // What the assistant is told about this screen: the section, and the article the editor has open.
+  // Rebuilt only when one of those changes, so opening the dock does not re-attach a chip the reader
+  // already took off.
+  const assistantPageContext = useMemo<AssistantPageContext>(() => {
+    const facts = [`section: ${active}`]
+    if (articleContext) {
+      facts.push(`note: ${articleContext.title} (id: ${articleContext.noteId})`)
+      facts.push(`post status: ${articleContext.status ?? 'no blog post yet'}`)
+      if (articleContext.slug) facts.push(`slug: /${articleContext.slug}`)
+      facts.push(`series: ${articleContext.series ?? 'none'}`)
+    }
+    return {
+      surface: 'blog',
+      label: articleContext
+        ? `${t('blog.admin.title')} · ${articleContext.title}`
+        : `${t('blog.admin.title')} · ${t(navLabel(active))}`,
+      facts,
+    }
+  }, [active, articleContext])
 
   useEffect(() => {
     setDrawerOpen(false)
@@ -281,6 +307,13 @@ export function BlogAdminApp() {
             <span className="truncate font-medium text-[var(--text-primary)]">{t(navLabel(active))}</span>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            <IconButton
+              label={t('assistant.dock.title')}
+              active={assistantDockOpen}
+              onClick={() => useUi.getState().toggleAssistantDock()}
+            >
+              <Bot size={15} />
+            </IconButton>
             {blogUrl && (
               <a
                 href={blogUrl}
@@ -321,10 +354,12 @@ export function BlogAdminApp() {
 
         <main className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
-            <AdminRoute pathname={clean} onReloadOverview={overview.reload} settings={settings.data} siteTitle={siteTitle} blogUrl={blogUrl} onSettingsSaved={settings.reload} />
+            <AdminRoute pathname={clean} onReloadOverview={overview.reload} settings={settings.data} siteTitle={siteTitle} blogUrl={blogUrl} onSettingsSaved={settings.reload} onArticleContext={setArticleContext} />
           </Suspense>
         </main>
       </div>
+
+      {assistantDockOpen && <AssistantDock surface="blog" pageContext={assistantPageContext} />}
     </div>
   )
 }
@@ -340,6 +375,7 @@ function AdminRoute({
   siteTitle,
   blogUrl,
   onSettingsSaved,
+  onArticleContext,
 }: {
   pathname: string
   onReloadOverview: () => Promise<void>
@@ -347,6 +383,7 @@ function AdminRoute({
   siteTitle: string
   blogUrl: string
   onSettingsSaved: () => Promise<void>
+  onArticleContext: (context: BlogArticleContext | null) => void
 }) {
   if (pathname === '/blog-admin') {
     return <Scroll><DashboardPanel siteTitle={siteTitle} blogUrl={blogUrl} /></Scroll>
@@ -355,7 +392,7 @@ function AdminRoute({
   if (pathname === '/blog-admin/posts') return <Scroll><PostsPanel onReloadOverview={onReloadOverview} /></Scroll>
   if (pathname === '/blog-admin/posts/new') return <NewPostRoute type="post" />
   if (pathname.startsWith('/blog-admin/posts/')) {
-    return <PostEditor noteId={decodeURIComponent(pathname.slice('/blog-admin/posts/'.length))} />
+    return <PostEditor noteId={decodeURIComponent(pathname.slice('/blog-admin/posts/'.length))} onArticleContext={onArticleContext} />
   }
   if (pathname === '/blog-admin/pages') return <Scroll><PagesPanel /></Scroll>
   if (pathname === '/blog-admin/pages/new') return <NewPostRoute type="page" />
