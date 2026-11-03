@@ -4420,9 +4420,27 @@ describe('external MCP servers', () => {
       return bodies
     }
 
-    function systemOf(body: string | undefined): string {
-      const parsed = JSON.parse(body ?? '{}') as { messages?: { role: string, content: string }[], system?: string }
-      return String(parsed.messages?.find((entry) => entry.role === 'system')?.content ?? parsed.system ?? '')
+    /**
+     * Everything the runner sent as prompt text, read the way the model reads it.
+     *
+     * The standing instructions are the system message, while the clock, the pins and the turn's own
+     * context travel as a tail block on the user message, so both halves have to be read to see what the
+     * model was told.
+     */
+    function promptOf(body: string | undefined): string {
+      const parsed = JSON.parse(body ?? '{}') as {
+        messages?: { role: string, content: unknown }[]
+        system?: string | { type?: string, text?: string }[]
+      }
+      // Anthropic sends its instructions as a block list once a cache breakpoint is attached.
+      const system = Array.isArray(parsed.system)
+        ? parsed.system.map((block) => String(block.text ?? '')).join('\n')
+        : String(parsed.system ?? '')
+      const messages = (parsed.messages ?? []).flatMap((entry) =>
+        Array.isArray(entry.content)
+          ? (entry.content as { text?: string }[]).map((block) => String(block.text ?? ''))
+          : [String(entry.content ?? '')])
+      return [system, ...messages].join('\n')
     }
 
     it('names a remote search tool when the protocol has no vendor search', async () => {
@@ -4433,7 +4451,7 @@ describe('external MCP servers', () => {
       await settleTurns()
       vi.unstubAllGlobals()
       expect(events.some((event) => event.type === 'done')).toBe(true)
-      expect(systemOf(bodies[0])).toContain(searchName)
+      expect(promptOf(bodies[0])).toContain(searchName)
     })
 
     it('mentions nothing in the prompt when the switch is off, though the tool is still offered', async () => {
@@ -4443,7 +4461,7 @@ describe('external MCP servers', () => {
       await chatEvents({ message: 'What is the weather in Shanghai today?' })
       await settleTurns()
       vi.unstubAllGlobals()
-      expect(systemOf(bodies[0])).not.toContain(searchName)
+      expect(promptOf(bodies[0])).not.toContain(searchName)
       // The absence is only in the prompt line: the server's tool remains in the schema list, so a
       // green here cannot come from the whole server having vanished.
       expect(bodies[0] ?? '').toContain(searchName)
@@ -4464,7 +4482,7 @@ describe('external MCP servers', () => {
       expect(events.some((event) => event.type === 'done')).toBe(true)
       const sent = bodies[0] ?? ''
       expect(sent).toContain('web_search_20250305')
-      expect(systemOf(sent)).not.toContain(searchName)
+      expect(promptOf(sent)).not.toContain(searchName)
     })
 
     it('treats anything but true as off', async () => {
@@ -4474,7 +4492,7 @@ describe('external MCP servers', () => {
       await chatEvents({ message: 'What is the weather in Shanghai today?', webSearch: 'yes' })
       await settleTurns()
       vi.unstubAllGlobals()
-      expect(systemOf(bodies[0])).not.toContain(searchName)
+      expect(promptOf(bodies[0])).not.toContain(searchName)
     })
   })
 })

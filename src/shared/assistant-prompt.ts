@@ -1,10 +1,20 @@
 /**
- * Assembling the assistant's system prompt.
+ * Assembling the assistant's prompt.
  *
  * The worker builds the prompt, not the browser: a reader's own client must not be able to edit the
  * rules that decide what the model may touch. The wording comes from the two prompt catalogs, chosen
  * by the reader's interface language, so a Chinese reader gets a Chinese answer without anyone
  * translating it twice.
+ *
+ * The prompt is built in two halves, and the split is what makes a vendor's prompt cache worth having.
+ * The standing half — identity, personality, rules, the reader's own instructions and the note scope —
+ * is the same on every request a conversation makes, so it stays the system message and is the prefix a
+ * cache can keep. Everything that describes *this* turn — the clock, the pins, the open note, the
+ * memories, the summary, the page the reader is on — changes between turns (the clock changes between
+ * minutes), and putting one changing line in the system message invalidated everything after it,
+ * including the whole tool block. Those sections now travel as a tail block on the turn's last user
+ * message instead. The clock is still stated, and every section keeps the wording that says its
+ * contents are data rather than instructions.
  */
 
 import type { PromptMemory } from './assistant-memory'
@@ -73,9 +83,24 @@ export interface SystemPromptContext {
   customInstructions?: string | null
 }
 
-export function buildSystemPrompt(context: SystemPromptContext): string {
+/** The two halves a request sends separately: the stable system message and this turn's tail block. */
+export interface PromptParts {
+  /** The standing instructions. Identical on every request in a conversation, so a cache can keep it. */
+  system: string
+  /** What describes this one turn; empty when there is nothing to add. */
+  turnContext: string
+}
+
+/**
+ * The standing half: everything that does not change between turns of one conversation.
+ *
+ * Only these sections are safe in a system message. Anything whose text can move between two requests —
+ * a clock reading, a memory list, a summary, an open note — belongs to `turnContext`, because a vendor's
+ * prefix cache stops at the first byte that differs.
+ */
+function systemSections(context: SystemPromptContext): string[] {
   const catalog = promptCatalog(context.language)
-  const sections = [
+  return [
     fill(catalog.identity, { name: context.agentName }),
     catalog.personality,
     `${catalog.rules}\n${context.autoMemory ? catalog.rule_auto_memory : catalog.rule_explicit_memory}`,
@@ -84,7 +109,6 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     context.customInstructions?.trim()
       ? fill(catalog.custom_instructions, { instructions: context.customInstructions.trim() })
       : '',
-    context.timeAware === false ? '' : fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
     context.noteScope.length
       ? fill(catalog.note_scope_folders, { folders: (context.noteScopeLabels?.length ? context.noteScopeLabels : context.noteScope).join(', ') })
       : catalog.note_scope_all,
@@ -94,6 +118,27 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     context.noteTagLabels?.length
       ? fill(catalog.note_scope_tags, { tags: context.noteTagLabels.join(', ') })
       : '',
+    // A scheduled run is decided before its first request and holds for every step of it.
+    context.scheduled ? catalog.scheduled_run : '',
+  ].filter(Boolean)
+}
+
+/**
+ * The changing half: what describes this turn and would invalidate a cached prefix if it sat in front.
+ *
+ * The order is deliberately "what the turn was asked about" after "what it may reach", the same reading
+ * the old system prompt had: the scope is a permission and sits in the standing half, while the pins,
+ * the open note and the page are what the reader pointed at.
+ */
+function turnContextSections(context: SystemPromptContext): string[] {
+  const catalog = promptCatalog(context.language)
+  const line = (memory: PromptMemory) => `- [${memory.category}] ${memory.content}${memory.note ? ` (${memory.note})` : ''}`
+  const current = context.memories.filter((memory) => memory.status === 'active')
+  const uncertain = context.memories.filter((memory) => memory.status === 'uncertain')
+  const past = context.memories.filter((memory) => memory.status === 'historical')
+  return [
+    catalog.turn_context_header,
+    context.timeAware === false ? '' : fill(catalog.clock, { when: context.localTime, timezone: context.timezone }),
     context.turnTools?.length
       ? fill(catalog.turn_tools, { tools: context.turnTools.join(', ') })
       : '',
@@ -105,8 +150,6 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
         notes: context.pinnedNotes.map((note) => `"${note.title}" (id ${note.id})`).join(', '),
       })
       : '',
-    // What the reader had on screen. It sits after the scope lines on purpose: the scope is what the
-    // turn is *allowed* to reach, and this is what it was *asked* about, so the permission reads first.
     context.project
       ? fill(catalog.project_brief, { name: context.project.name, instructions: context.project.instructions })
       : '',
@@ -133,27 +176,20 @@ export function buildSystemPrompt(context: SystemPromptContext): string {
     context.browsingFolder
       ? fill(catalog.browsing_folder, { folder: context.browsingFolder })
       : '',
+    current.length ? fill(catalog.memories_current, { lines: current.map(line).join('\n') }) : '',
+    uncertain.length ? fill(catalog.memories_uncertain, { lines: uncertain.map(line).join('\n') }) : '',
+    past.length ? fill(catalog.memories_past, { lines: past.map(line).join('\n') }) : '',
+    context.conversationSummary ? fill(catalog.summary, { summary: context.conversationSummary }) : '',
+    context.continuing ? catalog.continuing : '',
   ].filter(Boolean)
+}
 
-  const line = (memory: PromptMemory) => `- [${memory.category}] ${memory.content}${memory.note ? ` (${memory.note})` : ''}`
-  const current = context.memories.filter((memory) => memory.status === 'active')
-  const uncertain = context.memories.filter((memory) => memory.status === 'uncertain')
-  const past = context.memories.filter((memory) => memory.status === 'historical')
-  if (current.length) {
-    sections.push(fill(catalog.memories_current, { lines: current.map(line).join('\n') }))
+/** The prompt as the two halves a request actually sends. */
+export function buildPromptParts(context: SystemPromptContext): PromptParts {
+  return {
+    system: systemSections(context).join('\n\n'),
+    turnContext: turnContextSections(context).join('\n\n'),
   }
-  if (uncertain.length) {
-    sections.push(fill(catalog.memories_uncertain, { lines: uncertain.map(line).join('\n') }))
-  }
-  if (past.length) {
-    sections.push(fill(catalog.memories_past, { lines: past.map(line).join('\n') }))
-  }
-  if (context.conversationSummary) {
-    sections.push(fill(catalog.summary, { summary: context.conversationSummary }))
-  }
-  if (context.scheduled) sections.push(catalog.scheduled_run)
-  if (context.continuing) sections.push(catalog.continuing)
-  return sections.join('\n\n')
 }
 
 export const SUMMARIZER_SYSTEM_PROMPT_LIMIT = 2_000

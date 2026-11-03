@@ -136,6 +136,13 @@ function UsageDetail() {
     return [...seen].map(([id, label]) => ({ id, label }))
   }, [stats])
 
+  // How much of the window's input a vendor served from its own prompt cache. `inputTokens` is what the
+  // vendor reported, cached share included on the OpenAI-compatible wires, so the ratio is read straight
+  // off the two counters; a window with no input has no rate to state rather than a zero to misread.
+  const cacheRate = stats && stats.total.inputTokens > 0
+    ? Math.min(1, stats.total.cachedInputTokens / stats.total.inputTokens)
+    : null
+
   return (
     <Group title={t('assistant.stats.title')}>
       <div className="flex flex-wrap items-center gap-2 py-2">
@@ -163,7 +170,7 @@ function UsageDetail() {
           {/* The money leads, because it is the number a reader opens this screen to check. It is a card
               rather than a line of text so a glance is enough, and the unpriced count travels inside it:
               a total that quietly left models out is worse than one that says what it left out. */}
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
             <div className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-2">
               <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                 <Coins size={11} className="mr-1 inline align-[-1px]" />
@@ -181,6 +188,7 @@ function UsageDetail() {
               [t('assistant.stats.tokens_in'), compact(stats.total.inputTokens)],
               [t('assistant.stats.tokens_out'), compact(stats.total.outputTokens)],
               [t('assistant.stats.tools'), stats.total.toolCalls.toLocaleString()],
+              [t('assistant.stats.cache_hit'), cacheRate === null ? t('assistant.stats.cache_hit_none') : `${(cacheRate * 100).toFixed(1)}%`],
             ].map(([label, value]) => (
               <div key={label} className="rounded-[var(--r-md)] bg-[var(--bg-inset)] px-2.5 py-2">
                 <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{label}</p>

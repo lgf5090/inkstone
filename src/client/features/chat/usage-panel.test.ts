@@ -23,10 +23,10 @@ const STATS: AssistantStats = {
   range: '7',
   from: '2026-10-10',
   to: '2026-10-16',
-  total: { requests: 12, inputTokens: 2_500_000, outputTokens: 500_000, toolCalls: 4, scheduledRuns: 0, embeddings: 0, errors: 1 },
+  total: { requests: 12, inputTokens: 2_500_000, outputTokens: 500_000, cachedInputTokens: 2_000_000, toolCalls: 4, scheduledRuns: 0, embeddings: 0, errors: 1 },
   days: [
-    { day: '2026-10-10', requests: 5, inputTokens: 1_000_000, outputTokens: 200_000, toolCalls: 2, scheduledRuns: 0, embeddings: 0, errors: 0 },
-    { day: '2026-10-12', requests: 7, inputTokens: 1_500_000, outputTokens: 300_000, toolCalls: 2, scheduledRuns: 0, embeddings: 0, errors: 1 },
+    { day: '2026-10-10', requests: 5, inputTokens: 1_000_000, outputTokens: 200_000, cachedInputTokens: 800_000, toolCalls: 2, scheduledRuns: 0, embeddings: 0, errors: 0 },
+    { day: '2026-10-12', requests: 7, inputTokens: 1_500_000, outputTokens: 300_000, cachedInputTokens: 1_200_000, toolCalls: 2, scheduledRuns: 0, embeddings: 0, errors: 1 },
   ],
   models: [
     { label: 'deepseek-chat', requests: 10, inputTokens: 2_000_000, outputTokens: 400_000, toolCalls: 4, errors: 0, currency: 'CNY', cost: 3.2 },

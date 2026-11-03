@@ -3305,6 +3305,8 @@ export interface UsageCounters {
   requests: number
   inputTokens: number
   outputTokens: number
+  /** The share of `inputTokens` a vendor reported it served from its own prompt cache. */
+  cachedInputTokens: number
   toolCalls: number
   scheduledRuns: number
   embeddings: number
@@ -3317,6 +3319,7 @@ export const EMPTY_USAGE: UsageCounters = {
   requests: 0,
   inputTokens: 0,
   outputTokens: 0,
+  cachedInputTokens: 0,
   toolCalls: 0,
   scheduledRuns: 0,
   embeddings: 0,

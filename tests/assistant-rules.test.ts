@@ -48,7 +48,7 @@ import {
   zonedTimeToUtc,
 } from '../src/shared/assistant-schedule'
 import { localDayBounds, parseLocalTime, toLocalMinute } from '../src/shared/assistant-time'
-import { buildSystemPrompt, fill, offlineAnswer, promptCatalog, type SystemPromptContext } from '../src/shared/assistant-prompt'
+import { buildPromptParts, fill, offlineAnswer, promptCatalog, type SystemPromptContext } from '../src/shared/assistant-prompt'
 import { EN_US_ASSISTANT_PROMPT } from '../src/shared/locales/en-US-assistant-prompt'
 import { ZH_CN_ASSISTANT_PROMPT } from '../src/shared/locales/zh-CN-assistant-prompt'
 import { EN_US_MESSAGES } from '../src/shared/locales/en-US'
@@ -61,6 +61,11 @@ import { SCHEMA_STATEMENTS, chunkStatements } from '../src/worker/db/schema'
 import { ASSISTANT_REQUIRED_INDEXES, ASSISTANT_REQUIRED_TABLES } from '../src/worker/assistant/schema'
 
 const iso = (value: Date | number) => new Date(value).toISOString()
+
+const fullPrompt = (context: SystemPromptContext): string => {
+  const parts = buildPromptParts(context)
+  return [parts.system, parts.turnContext].filter(Boolean).join('\n\n')
+}
 
 describe('token estimate', () => {
   it('counts one token per Han character, not one per four bytes', () => {
@@ -539,7 +544,7 @@ describe('prompt catalog', () => {
   })
 
   it('adds the tools and tags the reader pinned to this turn, and only when they did', () => {
-    const promptWith = (over: Partial<SystemPromptContext>) => buildSystemPrompt({
+    const promptWith = (over: Partial<SystemPromptContext>) => fullPrompt({
       agentName: 'Friday',
       language: 'zh-CN',
       timezone: 'Asia/Shanghai',
@@ -559,7 +564,7 @@ describe('prompt catalog', () => {
   })
 
   it('says what the reader had on screen, and only when they had something', () => {
-    const promptWith = (over: Partial<SystemPromptContext>) => buildSystemPrompt({
+    const promptWith = (over: Partial<SystemPromptContext>) => fullPrompt({
       agentName: 'Friday',
       language: 'zh-CN',
       timezone: 'Asia/Shanghai',
@@ -584,7 +589,7 @@ describe('prompt catalog', () => {
   })
 
   it('builds a prompt that states the clock, the scope and the memories', () => {
-    const prompt = buildSystemPrompt({
+    const prompt = fullPrompt({
       agentName: 'Friday',
       language: 'zh-CN',
       timezone: 'Asia/Shanghai',

@@ -259,6 +259,7 @@ export const USAGE_COLUMNS: Readonly<Record<keyof UsageCounters, string>> = {
   requests: 'requests',
   inputTokens: 'input_tokens',
   outputTokens: 'output_tokens',
+  cachedInputTokens: 'cached_input_tokens',
   toolCalls: 'tool_calls',
   scheduledRuns: 'scheduled_runs',
   embeddings: 'embeddings',
@@ -7207,8 +7208,9 @@ export class AssistantStore {
     const periodTokens = {
       input: Math.max(0, Math.round(counters.inputTokens ?? 0)),
       output: Math.max(0, Math.round(counters.outputTokens ?? 0)),
+      cached: Math.max(0, Math.round(counters.cachedInputTokens ?? 0)),
     }
-    if (modelLabel && (periodTokens.input || periodTokens.output)) {
+    if (modelLabel && (periodTokens.input || periodTokens.output || periodTokens.cached)) {
       // One model per label is the same condition the model row uses to claim an id. A label shared by
       // two rows has no single price schedule, so its tokens stay at the base rate instead of being
       // billed against whichever row happened to come back first.
@@ -7230,10 +7232,11 @@ export class AssistantStore {
         )
         await this.db.prepare(
           `UPDATE chat_usage_daily_period
-              SET input_tokens = input_tokens + ?7, output_tokens = output_tokens + ?8
+              SET input_tokens = input_tokens + ?7, output_tokens = output_tokens + ?8,
+                  cached_input_tokens = cached_input_tokens + ?9
             WHERE user_id = ?1 AND day = ?2 AND model_label = ?3 AND period_id = ?4
               AND provider_id = ?5 AND key_id = ?6`,
-        ).bind(this.userId, today, modelLabel.slice(0, 120), period.id, providerId, keyId, periodTokens.input, periodTokens.output).run()
+        ).bind(this.userId, today, modelLabel.slice(0, 120), period.id, providerId, keyId, periodTokens.input, periodTokens.output, periodTokens.cached).run()
       }
     }
     const targets: Array<{ table: string, guard: string, extra: unknown[] }> = []
@@ -7320,13 +7323,14 @@ export class AssistantStore {
   async backfillModelUsage(today = usageDay()): Promise<number> {
     const result = await this.db.prepare(
       `INSERT OR IGNORE INTO chat_usage_daily_model
-         (user_id, day, model_label, requests, input_tokens, output_tokens, tool_calls, errors)
+         (user_id, day, model_label, requests, input_tokens, output_tokens, cached_input_tokens, tool_calls, errors)
        SELECT m.user_id, m.day, m.model_label, COUNT(*),
               COALESCE(SUM(m.input_tokens), 0), COALESCE(SUM(m.output_tokens), 0),
+              COALESCE(SUM(m.cached_input_tokens), 0),
               COALESCE(SUM(CASE WHEN json_valid(m.tools) THEN json_array_length(m.tools) ELSE 0 END), 0),
               COALESCE(SUM(CASE WHEN m.status = 'error' THEN 1 ELSE 0 END), 0)
          FROM (
-           SELECT user_id, model_label, input_tokens, output_tokens, tools, status,
+           SELECT user_id, model_label, input_tokens, output_tokens, cached_input_tokens, tools, status,
                   strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day
              FROM chat_messages
             WHERE user_id = ?1 AND role = 'assistant' AND model_label <> ''
@@ -7354,7 +7358,8 @@ export class AssistantStore {
     const { results } = await this.db.prepare(
       `SELECT provider_id, provider_label, key_id, key_label, model_label,
               SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_key
         WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
         GROUP BY provider_id, provider_label, key_id, key_label, model_label
@@ -7369,6 +7374,7 @@ export class AssistantStore {
       requests: Number(row.requests ?? 0),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
+      cachedInputTokens: Number(row.cached_input_tokens ?? 0),
       toolCalls: Number(row.tool_calls ?? 0),
       scheduledRuns: 0,
       embeddings: 0,
@@ -7380,7 +7386,8 @@ export class AssistantStore {
   async modelUsageRange(from: string, to: string): Promise<Array<{ modelLabel: string, modelId: string } & UsageCounters>> {
     const { results } = await this.db.prepare(
       `SELECT model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_model
         WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
         GROUP BY model_label
@@ -7392,6 +7399,7 @@ export class AssistantStore {
       requests: Number(row.requests ?? 0),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
+      cachedInputTokens: Number(row.cached_input_tokens ?? 0),
       toolCalls: Number(row.tool_calls ?? 0),
       scheduledRuns: 0,
       embeddings: 0,
@@ -7414,10 +7422,12 @@ export class AssistantStore {
     keyId: string
     inputTokens: number
     outputTokens: number
+    cachedInputTokens: number
   }>> {
     const { results } = await this.db.prepare(
       `SELECT day, model_label, MAX(model_id) AS model_id, period_id, provider_id, key_id,
-              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens
+              SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+              SUM(cached_input_tokens) AS cached_input_tokens
          FROM chat_usage_daily_period
         WHERE user_id = ?1 AND day >= ?2 AND day <= ?3
         GROUP BY day, model_label, period_id, provider_id, key_id
@@ -7432,6 +7442,7 @@ export class AssistantStore {
       keyId: String(row.key_id ?? ''),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
+      cachedInputTokens: Number(row.cached_input_tokens ?? 0),
     }))
   }
 
@@ -7465,6 +7476,7 @@ export class AssistantStore {
       requests: Number(row.requests ?? 0),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
+      cachedInputTokens: Number(row.cached_input_tokens ?? 0),
       toolCalls: Number(row.tool_calls ?? 0),
       scheduledRuns: 0,
       embeddings: 0,
@@ -7512,7 +7524,8 @@ export class AssistantStore {
       if (filter.model) binds.push(filter.model)
       return this.dimensionCounters(await this.one<Record<string, number | null>>(
         `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
-                COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
+                COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(cached_input_tokens),0) AS cached_input_tokens,
+                COALESCE(SUM(tool_calls),0) AS tool_calls,
                 COALESCE(SUM(errors),0) AS errors
            FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}`,
         ...binds,
@@ -7522,7 +7535,8 @@ export class AssistantStore {
     const where = this.dimensionWhere(filter, binds)
     return this.dimensionCounters(await this.one<Record<string, number | null>>(
       `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
-              COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
+              COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(cached_input_tokens),0) AS cached_input_tokens,
+              COALESCE(SUM(tool_calls),0) AS tool_calls,
               COALESCE(SUM(errors),0) AS errors
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}`,
       ...binds,
@@ -7537,7 +7551,8 @@ export class AssistantStore {
       if (filter.model) binds.push(filter.model)
       const { results } = await this.db.prepare(
         `SELECT day, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+                SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+                SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
            FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
           GROUP BY day ORDER BY day ASC`,
       ).bind(...binds).all<Record<string, number | string>>()
@@ -7547,7 +7562,8 @@ export class AssistantStore {
     const where = this.dimensionWhere(filter, binds)
     const { results } = await this.db.prepare(
       `SELECT day, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
         GROUP BY day ORDER BY day ASC`,
     ).bind(...binds).all<Record<string, number | string>>()
@@ -7562,7 +7578,8 @@ export class AssistantStore {
       if (filter.model) binds.push(filter.model)
       const { results } = await this.db.prepare(
         `SELECT model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+                SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+                SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
            FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
           GROUP BY model_label
           ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
@@ -7573,7 +7590,8 @@ export class AssistantStore {
     const where = this.dimensionWhere(filter, binds)
     const { results } = await this.db.prepare(
       `SELECT model_label, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
         GROUP BY model_label
         ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC, model_label ASC`,
@@ -7610,7 +7628,8 @@ export class AssistantStore {
     const { results } = await this.db.prepare(
       `SELECT day, model_label, provider_id, provider_label, key_id, key_label,
               SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_key WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}
         GROUP BY day, model_label, provider_id, provider_label, key_id, key_label
         ORDER BY day ASC`,
@@ -7642,7 +7661,8 @@ export class AssistantStore {
       : ''
     const { results } = await this.db.prepare(
       `SELECT day, model_label, MAX(model_id) AS model_id, SUM(requests) AS requests, SUM(input_tokens) AS input_tokens,
-              SUM(output_tokens) AS output_tokens, SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
+              SUM(output_tokens) AS output_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+              SUM(tool_calls) AS tool_calls, SUM(errors) AS errors
          FROM chat_usage_daily_model WHERE user_id = ?1 AND day >= ?2 AND day <= ?3${where}${unkeyed}
         GROUP BY day, model_label ORDER BY day ASC`,
     ).bind(...binds).all<Record<string, number | string>>()
@@ -7751,7 +7771,7 @@ export class AssistantStore {
   /** Every day in the range that has a number on it, for the trend and the heat map. */
   async usageDays(from: string, to: string): Promise<Array<{ day: string } & UsageCounters>> {
     const { results } = await this.db.prepare(
-      `SELECT day, requests, input_tokens, output_tokens, tool_calls, scheduled_runs, embeddings, errors
+      `SELECT day, requests, input_tokens, output_tokens, cached_input_tokens, tool_calls, scheduled_runs, embeddings, errors
          FROM chat_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3 ORDER BY day ASC`,
     ).bind(this.userId, from, to).all<Record<string, number | string>>()
     return (results ?? []).map((row) => ({
@@ -7759,6 +7779,7 @@ export class AssistantStore {
       requests: Number(row.requests ?? 0),
       inputTokens: Number(row.input_tokens ?? 0),
       outputTokens: Number(row.output_tokens ?? 0),
+      cachedInputTokens: Number(row.cached_input_tokens ?? 0),
       toolCalls: Number(row.tool_calls ?? 0),
       scheduledRuns: Number(row.scheduled_runs ?? 0),
       embeddings: Number(row.embeddings ?? 0),
@@ -7769,7 +7790,8 @@ export class AssistantStore {
   async usageRange(from: string, to: string): Promise<UsageCounters> {
     const r = await this.one<Record<string, number | null>>(
       `SELECT COALESCE(SUM(requests),0) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
-              COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(tool_calls),0) AS tool_calls,
+              COALESCE(SUM(output_tokens),0) AS output_tokens, COALESCE(SUM(cached_input_tokens),0) AS cached_input_tokens,
+              COALESCE(SUM(tool_calls),0) AS tool_calls,
               COALESCE(SUM(scheduled_runs),0) AS scheduled_runs, COALESCE(SUM(embeddings),0) AS embeddings,
               COALESCE(SUM(errors),0) AS errors
          FROM chat_usage_daily WHERE user_id = ?1 AND day >= ?2 AND day <= ?3`,
@@ -7780,6 +7802,7 @@ export class AssistantStore {
       requests: r.requests ?? 0,
       inputTokens: r.input_tokens ?? 0,
       outputTokens: r.output_tokens ?? 0,
+      cachedInputTokens: r.cached_input_tokens ?? 0,
       toolCalls: r.tool_calls ?? 0,
       scheduledRuns: r.scheduled_runs ?? 0,
       embeddings: r.embeddings ?? 0,

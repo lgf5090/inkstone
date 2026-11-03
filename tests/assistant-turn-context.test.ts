@@ -11,8 +11,13 @@
  * is the note tools' own gate, exercised in `assistant-note-scope.test.ts`.
  */
 import { describe, expect, it } from 'vitest'
-import { buildSystemPrompt } from '../src/shared/assistant-prompt'
+import { buildPromptParts, type SystemPromptContext } from '../src/shared/assistant-prompt'
 import { turnNoteIds } from '../src/worker/assistant/note-scope'
+
+const fullPrompt = (context: SystemPromptContext): string => {
+  const parts = buildPromptParts(context)
+  return [parts.system, parts.turnContext].filter(Boolean).join('\n\n')
+}
 
 const NOTE = '01hzzzzzzzzzzzzzzzzzzzzz11'
 const OTHER = '01hzzzzzzzzzzzzzzzzzzzzz12'
@@ -50,12 +55,12 @@ describe('what the prompt says about them', () => {
   }
 
   it('names each pinned note, so the model reads them instead of searching', () => {
-    const prompt = buildSystemPrompt({ ...base, pinnedNotes: [{ id: NOTE, title: 'Quarterly plan' }] })
+    const prompt = fullPrompt({ ...base, pinnedNotes: [{ id: NOTE, title: 'Quarterly plan' }] })
     expect(prompt).toContain('Quarterly plan')
     expect(prompt).toContain(NOTE)
   })
 
   it('says nothing about chips when there are none', () => {
-    expect(buildSystemPrompt({ ...base, pinnedNotes: [] })).not.toContain('pinned these notes')
+    expect(fullPrompt({ ...base, pinnedNotes: [] })).not.toContain('pinned these notes')
   })
 })
