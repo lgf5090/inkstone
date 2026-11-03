@@ -5740,6 +5740,7 @@ const allowed = new Map([
     "/** The chip a long-press drag carries: a name that fits, and how many more rows ride with it. */",
     "/** Both pointer routes agree on this: the rows leave the selection and one move is asked for. */",
     "/* The chip rides the finger. It leaves the page's own stacking contexts by going to the body.\n      */",
+    "/** The browser still delivers a click after a handled tap; that click would select instead of open. */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
@@ -5789,6 +5790,9 @@ const allowed = new Map([
     "// that tracks the callbacks it actually uses.",
     "// A hoisted handler cannot rely on a narrowing made outside it, so the payload is named once here.",
     "/** A finger that keeps moving is scrolling; the page must not jump while the rows are held. */",
+    "/** A touch that never became a drag is a tap, and a tap has to open the row: a phone never fires the double click the mouse path uses. */",
+    "// A press that starts on a control belongs to that control: the row checkbox selects, it must not",
+    "// also pick the row up or open it.",
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
