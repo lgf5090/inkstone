@@ -2656,6 +2656,12 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'drive_share_link', labelKey: 'assistant.tool.drive_share_link', permission: 'write' },
   { name: 'drive_trash', labelKey: 'assistant.tool.drive_trash', approvalKey: 'assistant.approval.drive_trash', permission: 'destructive' },
   { name: 'drive_empty_trash', labelKey: 'assistant.tool.drive_empty_trash', approvalKey: 'assistant.approval.drive_empty_trash', permission: 'destructive' },
+  { name: 'memo_list', labelKey: 'assistant.tool.memo_list', permission: 'read' },
+  { name: 'memo_search', labelKey: 'assistant.tool.memo_search', permission: 'read' },
+  { name: 'memo_read', labelKey: 'assistant.tool.memo_read', permission: 'read' },
+  { name: 'memo_create', labelKey: 'assistant.tool.memo_create', permission: 'write' },
+  { name: 'memo_comment', labelKey: 'assistant.tool.memo_comment', approvalKey: 'assistant.approval.memo_comment', permission: 'destructive' },
+  { name: 'memo_delete', labelKey: 'assistant.tool.memo_delete', approvalKey: 'assistant.approval.memo_delete', permission: 'destructive' },
 
 ]
 

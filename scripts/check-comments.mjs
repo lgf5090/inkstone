@@ -7361,6 +7361,13 @@ const allowed = new Map([
     "// `calendar-activity.test.ts` can hold the fast answer against this slow oracle.",
     "/** The newest edit the note list could actually show (archived and deleted are out); null when nothing qualifies. */",
   ]],
+  ["src/client/features/memos/MemosApp.tsx", [
+    "// The dock's facts follow the same state the feed reads: moving to another space, typing a search, or",
+    "// opening a memo changes what \"this page\" means, so the chip below the composer must move with it.",
+    "/* The same dock the notebook mounts, under the same conditions: one conversation, and the\n            page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */",
+    "// A tablet has the room for a 380px column beside the feed, which is the same rule the subscriptions",
+    "// app uses. Only a phone keeps the assistant in its own tab, because there is no honest room for both.",
+  ]],
   ["src/client/features/memos/ai-client.test.ts", [
     "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
   ]],
@@ -7371,6 +7378,17 @@ const allowed = new Map([
     "/** The enabled text models that may answer the transcription call, in the reader's own order. */",
     "/** The provider and model one recording is sent to. */",
     "/**\n * The provider and model a recording is sent to, or null when the account has none.\n *\n * A configured provider wins when the listing still holds it; otherwise the first usable one does, so\n * a deleted provider or model falls back instead of failing the recording. Anthropic has no audio\n * endpoint this app can call, so a listing that only holds one is the same answer as an empty listing.\n */",
+  ]],
+  ["src/client/features/memos/assistant-context.test.ts", [
+    "/**\n * The page facts the Memos dock sends.\n *\n * The assistant is asked \"these three\" while the reader looks at a filtered feed, so the tests pin that the\n * space, the filters, the visible count and the first titles are what travel — and that a page with no\n * filter says so rather than sending an empty line the model has to interpret.\n */",
+  ]],
+  ["src/client/features/memos/assistant-context.ts", [
+    "/**\n * What the Memos page tells the assistant about itself.\n *\n * The page already knows the space it is showing, the filters narrowing it, how many memos are on screen,\n * and the first few titles. None of that is a secret, and all of it is what \"this memo\" or \"these three\"\n * means in a sentence typed beside the page — so it is handed over as bounded facts, the same shape every\n * other page uses, rather than given a context type of its own.\n */",
+    "/** The space the feed is restricted to, when it is one. */",
+    "/** The memos currently on screen, newest first. */",
+    "/** The memo open in the detail panel, when one is. */",
+    "/** The filters as one human-readable line, or `all` when nothing narrows the feed. */",
+    "/** The section as the sidebar names it: home, a space, the archive. */",
   ]],
   ["src/client/features/memos/components/MemoBody.tsx", [
     "/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */",
@@ -33256,6 +33274,18 @@ const allowed = new Map([
     "// Only the scope this fact was filed in: the account's own facts, or one project's. A comparison",
     "// across scopes would let one client's fact silently retire another's.",
   ]],
+  ["src/worker/assistant/memos-tools.ts", [
+    "/**\n * The Memos tools: the app's memos reached from the assistant.\n *\n * Every read and write goes through `MemosStore`, the same store the Memos app and its HTTP routes use,\n * so a tool cannot reach a row the app itself would refuse: the store pins every query to the reader's\n * own `user_id`, and the space lookup below refuses an id that is not the reader's before a list runs.\n *\n * A comment is published under the reader's own name beside their memo, so it is approved like a\n * deletion rather than fired on the model's say-so — the model can propose the words, the reader\n * presses the button. Deletion is the same prepare/commit pair, bounded to one small batch, and the\n * card names the exact memos and how many there are before anything is removed.\n */",
+    "/** A quoted fragment of the reader's own text, shortened so an approval card stays readable. */",
+    "/** A string literal inside a memo filter expression, escaped the way the filter lexer reads it. */",
+    "/**\n * The space an argument names, checked against the reader's own spaces.\n *\n * `undefined` means \"no restriction\", `null` means \"the unfiled list\", and an id means that space.\n * The extra `spaceBelongsToUser` call is the same guard the store applies on create: a space id the\n * reader does not own is refused before a listing runs rather than answered as an empty page.\n */",
+    "/** The filter expression the memo list understands, built only from fields the tool itself validated. */",
+    "/** The tags in a create call, checked against what the memo parser would actually keep. */",
+    "/** The body a memo write stores: the reader's text, with any tags the call named added as #tags. */",
+    "/** The memos a deletion names, either by id or by the same filters a search uses. */",
+    "// Read again rather than trusting the id: a memo removed between the card and the press is gone,",
+    "// and a deletion must not become a 404 that reports the whole approval as failed.",
+  ]],
   ["src/worker/assistant/model-config.ts", [
     "/** Why nothing was resolved, so the UI can say which of the two rows to fix. */",
     "/** The first usable model, for the moment a reader adds a provider and has not picked yet. */",
@@ -41867,6 +41897,13 @@ const allowed = new Map([
     "// The fact's vector is tied to the fact: a row whose memory is gone would keep inflating the",
     "// embedding count on the settings card while no turn could recall it. Written here rather than",
     "// through the encoder because this file is about what leaves with the project, not how it was filed.",
+  ]],
+  ["tests/assistant-memos-tools.test.ts", [
+    "/**\n * The Memos tools: what the model may name, what the tools write, and what another account cannot touch.\n *\n * The store is the real one over SQLite: a dependency of the assistant is a dependency of the Memos app,\n * so a mock here would only prove that a mock answers. The rows below are written and read through\n * `MemosStore`, and every refusal is a refusal the Memos app itself would make.\n */",
+    "// The declaration itself caps the batch: a model that names eleven memos is handed ten, and the",
+    "// approval card then says how many of them it will delete.",
+    "// Nothing has changed while the card waits.",
+    "// BOB's own account still sees it.",
   ]],
   ["tests/assistant-model-choice.test.ts", [
     "/**\n * What a resolution is allowed to name, which is what the interface is allowed to show.\n *\n * The composer chip and an answer's own footer both read one thing out to the reader: which model answered.\n * That makes this function the trust boundary for the *name*, not only for the call — a model id arrives\n * from the request (`TurnInput.modelId`), and a request can carry an id that is not this account's, is\n * switched off, or belongs to a provider that has gone away. Each of those has to resolve to nothing,\n * because an answer produced by the default model and shown under another account's name is a claim about a\n * cost nobody incurred.\n *\n * Two facts already exist and are deliberately not re-invented here: the per-turn name (`overrideModelId`)\n * and the daily cost rows keyed by `model_id`. What is pinned is which rows may come back out of them.\n */",
