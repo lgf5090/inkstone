@@ -25,7 +25,7 @@ import type { DatabaseAssistantContext } from '@shared/development/database/assi
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { cn } from '../../lib/cn'
-import { getLocale, t } from '../../lib/i18n'
+import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button, Spinner } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
@@ -62,11 +62,10 @@ function twoDigits(value: number): string {
 
 /** The calendar's own label, since the month is the thing the reader is actually looking at. */
 function calendarLabel(now = new Date()): string {
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
-  return getLocale() === 'zh-CN'
-    ? `${year} 年 ${month} 月${t('todo.view.calendar')}`
-    : `${t('todo.view.calendar')} ${year}-${twoDigits(month)}`
+  return t('assistant.dock.page_calendar', {
+    year: String(now.getFullYear()),
+    month: twoDigits(now.getMonth() + 1),
+  })
 }
 
 /**
