@@ -422,7 +422,7 @@ export function TaskEditor() {
       return () => { alive = false }
     }
     return undefined
-  }, [open, draft, tasks, completed, timezone])
+  }, [open, draft?.id, timezone])
 
   // Rendered only while the preview face is up: a note is prose, so the sanitized pipeline is the
   // only thing allowed to produce markup for it, and there is no reason to run it per keystroke on
@@ -530,18 +530,27 @@ export function TaskEditor() {
     // and the footer's save is disabled for the same reason, so the panel is never left with a press that
     // quietly does nothing.
     if (!body.title || estimateInvalid) return
-    if (existing) await updateTask(existing.id, body)
+    // The panel closes on a save, not on a press: both writes answer null when the row could not be
+    // written (the store has already toasted the reason), and closing then would throw away the fields
+    // the reader still has in front of them.
+    if (existing) {
+      const saved = await updateTask(existing.id, body)
+      if (!saved) return
+    }
     // The spent half of a quick-add pair is the one thing this panel hands on without owning it: no
     // field of the form shows it, because it is a ledger span rather than a column of the row. Reading
     // it off the opening draft — and only off a draft that names no row — is what keeps this door the
     // same shape as the board's inline enter, which forwards the same field to the same ledger write.
-    else await createTask({
-      ...body,
-      steps: steps.map((step) => step.text),
-      ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
-        ? { timeLoggedMs: draft.timeLoggedMs }
-        : {}),
-    })
+    else {
+      const created = await createTask({
+        ...body,
+        steps: steps.map((step) => step.text),
+        ...(draft?.id === undefined && draft?.timeLoggedMs !== undefined
+          ? { timeLoggedMs: draft.timeLoggedMs }
+          : {}),
+      })
+      if (!created) return
+    }
     close()
   }
 

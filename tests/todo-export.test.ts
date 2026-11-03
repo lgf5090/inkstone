@@ -103,6 +103,49 @@ async function csv(): Promise<{ text: string; tasks: TodoTask[] }> {
   }
 }
 
+describe('what the export walk reaches', () => {
+  it('carries the work filed in a list the reader archived', async () => {
+    const s = store()
+    const shelved = await s.createTaskList({ name: '旧项目' })
+    await s.createTask({ title: '归档清单里的任务', listId: shelved.id }, 'UTC')
+    await s.updateTaskList(shelved.id, { archivedAt: Date.now() })
+    // The listing hides it, which is why the export needs a rule of its own rather than reusing one.
+    const listed = await s.listTasks({ status: 'all', archived: 'any' })
+    expect(listed.some((task) => task.title === '归档清单里的任务')).toBe(false)
+
+    const { tasks } = await collectExportTasks(s)
+    expect(tasks.map((task) => task.title)).toContain('归档清单里的任务')
+  })
+
+  it('reports a complete account with exactly the ceiling as complete', async () => {
+    const rows = Array.from({ length: MAX_EXPORT_TASKS }, (_, index) => (
+      { id: `t-${index}`, title: `Task ${index}` } as TodoTask
+    ))
+    const stub = {
+      listTasks: async ({ limit = MAX_TASKS_PER_QUERY, offset = 0 }: { limit?: number; offset?: number }) =>
+        rows.slice(offset, offset + limit),
+    } as unknown as AssistantStore
+
+    const { tasks, truncated } = await collectExportTasks(stub)
+    expect(tasks).toHaveLength(MAX_EXPORT_TASKS)
+    expect(truncated).toBe(false)
+  })
+
+  it('reports one row past the ceiling as partial', async () => {
+    const rows = Array.from({ length: MAX_EXPORT_TASKS + 1 }, (_, index) => (
+      { id: `t-${index}`, title: `Task ${index}` } as TodoTask
+    ))
+    const stub = {
+      listTasks: async ({ limit = MAX_TASKS_PER_QUERY, offset = 0 }: { limit?: number; offset?: number }) =>
+        rows.slice(offset, offset + limit),
+    } as unknown as AssistantStore
+
+    const { tasks, truncated } = await collectExportTasks(stub)
+    expect(tasks).toHaveLength(MAX_EXPORT_TASKS)
+    expect(truncated).toBe(true)
+  })
+})
+
 describe('the CSV round trip', () => {
   it('is read back by the importer as the same set of tasks', async () => {
     const { text, tasks } = await csv()

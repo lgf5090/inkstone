@@ -116,11 +116,6 @@ imgbedDavRoutes.put('*', async (c) => {
   const bytes = new Uint8Array(await c.req.raw.arrayBuffer())
   if (bytes.byteLength > 50 * 1024 * 1024) return new Response('File is too large', { status: 413 })
   const existing = await getFile(c.env.DB, path)
-  if (existing) {
-    const channel = await channelFor(c.env, c.env.DB, existing)
-    if (channel) await deleteWholeFile(c.env, channel, existing).catch(() => {})
-    await deleteFileRow(c.env.DB, existing.id)
-  }
   const fileName = baseNameOf(path)
   const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1).replace(/\/$/, '') : ''
   const fileType = fileName.includes('.') ? '' : 'application/octet-stream'
@@ -131,12 +126,19 @@ imgbedDavRoutes.put('*', async (c) => {
     kind: 'session', userId: await ownerId(c), role: 'owner',
     scopes: ['list', 'upload', 'delete', 'manage'], actorKey: 'dav',
   }
+  // The new object is written and the row is switched to it before the old object goes: an upload that
+  // fails leaves the previous file whole, which is what an overwrite must promise a client that is
+  // replacing the only copy it has.
   await uploadSingle(c.env, c.env.DB, actor, c.req.raw, form, {
     uploadChannel: auth.settings.webDAV.uploadChannel || undefined,
     channelName: auth.settings.webDAV.channelName || undefined,
     uploadFolder: folder,
     uploadNameType: 'origin',
-  })
+  }, { replaceId: path })
+  if (existing) {
+    const previousChannel = await channelFor(c.env, c.env.DB, existing)
+    if (previousChannel) await deleteWholeFile(c.env, previousChannel, existing).catch(() => {})
+  }
   return new Response(null, { status: 201 })
 })
 

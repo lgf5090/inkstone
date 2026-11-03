@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EmailAccount, EmailMessage, EmailSendResult } from '@shared/email/model'
 import { EMAIL_ATTACHMENT_MAX_BYTES } from '@shared/email/model'
 import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
-import { api } from '../../src/client/lib/api'
+import { api, ApiError } from '../../src/client/lib/api'
 import { attachmentHubApi } from '../../src/client/features/attachment-hub/api'
 import { renderElement, type RenderedElement } from '../../src/client/lib/test-render'
 import { t } from '../../src/client/lib/i18n'
@@ -478,6 +478,44 @@ describe('the compose panel', () => {
     expect(editorText()).toContain('Ada at home')
     expect(occurrences(editorText(), 'Ada at home')).toBe(1)
     expect(editorText()).toContain('Hello there')
+    view.unmount()
+  })
+
+  it('asks which copy to keep when another device wrote the draft', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(api.email, 'getEmail').mockResolvedValue({
+      ...original,
+      id: 'd1',
+      folderId: 'draft',
+      subject: 'Hello',
+      recipient: 'grace@example.com',
+      cc: null,
+      body: 'Hello there',
+      bodySource: 'Hello there',
+      inReplyTo: null,
+      threadId: null,
+      updatedAt: 100,
+    })
+    vi.spyOn(api.email, 'saveDraft').mockRejectedValueOnce(new ApiError(409, 'conflict', 'conflict', {
+      server: {
+        subject: 'Written elsewhere',
+        recipient: 'grace@example.com',
+        cc: null,
+        bcc: null,
+        body: '<p>Other text</p>',
+        bodySource: 'Other text',
+        updatedAt: 200,
+      },
+    }))
+    const view = panel('new', 'd1')
+    await flush()
+    change(inputFor(t('email.compose.subject')), 'Mine')
+    await settle(2000)
+
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(t('email.compose.draft_conflict_title'))
+    act(() => { button(t('email.compose.use_server_version')).click() })
+    expect(inputFor(t('email.compose.subject')).value).toBe('Written elsewhere')
+    expect(editorText()).toContain('Other text')
     view.unmount()
   })
 

@@ -106,13 +106,11 @@ export interface NormalizePathOptions {
 
 export function normalizeCloudDrivePath(input: string, options: NormalizePathOptions = {}): string {
   const allowRoot = options.allowRoot ?? true
-  let decoded = input
-  try {
-    decoded = decodeURIComponent(input)
-  } catch {
-    throw new Error('invalid_path')
-  }
-  let path = decoded.normalize('NFC')
+  // Callers hand this an already-decoded value: `URLSearchParams` and JSON bodies decode once at the
+  // transport boundary, and a user typing a path decodes nothing. Decoding here too would throw on a
+  // literal `%` (`100%.txt`) and would turn an encoded slash (`a%2Fb`) into a real directory separator.
+  // Raw URL pathnames are the one encoded source; `parseEncodedPath()` in the worker decodes those once.
+  let path = input.normalize('NFC')
   if (!path.startsWith('/')) path = `/${path}`
   path = path.replace(/\/{2,}/g, '/')
   if (path.length > 1) path = path.replace(/\/+$/, '')

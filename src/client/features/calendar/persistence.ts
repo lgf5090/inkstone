@@ -9,7 +9,7 @@
  * edit and asks the reader which parts of it survive; see `resolveConflict`.
  */
 import type { Event, EventChange, ICalendarApp } from '@dayflow/react'
-import type { CalendarEventInput } from '@shared/calendar/model'
+import type { CalendarEventInput, CalendarEventDto } from '@shared/calendar/model'
 import { ApiError } from '../../lib/api'
 import * as api from './api'
 import type { CalendarEditHistory } from './history'
@@ -350,12 +350,58 @@ export class EventPersistence {
         ? (await api.createEvents([input], 'upsert'))[0]
         : await api.createEvent(input)
       if (!created) throw new Error('The calendar server did not return the saved event')
+      if (created.id !== id) {
+        // A shared calendar rewrites the id to its synthetic `shared:owner:row` form. Adopting that id
+        // here is what lets the first edit or delete after a create address the row the server owns;
+        // keeping the local id makes every later write a 404.
+        this.remapCreated(id, created)
+        this.commitDraft(created.id)
+        return
+      }
       this.options.revs.set(id, created.rev)
     } else {
       const updated = await api.updateEvent(id, input, rev)
       this.options.revs.set(id, updated.rev)
     }
     this.commitDraft(id)
+  }
+
+  /**
+   * Adopt the id the server answered for a freshly created row.
+   *
+   * A shared calendar prefixes every id with `shared:owner:`, so the id a create was typed under is not
+   * the id the row will answer to afterwards. Moving the revision, the draft and any edit that queued
+   * during the request keeps the next PATCH or DELETE addressing the row that exists; repainting the
+   * app's copy under the new id keeps the reader's own edit pointing at the same event.
+   */
+  private remapCreated(id: string, created: CalendarEventDto): void {
+    this.options.revs.delete(id)
+    this.options.revs.set(created.id, created.rev)
+    const draft = this.drafts.get(id)
+    if (draft) {
+      this.drafts.delete(id)
+      this.drafts.set(created.id, {
+        before: draft.before ? { ...draft.before, id: created.id } : null,
+        after: draft.after ? { ...draft.after, id: created.id } : null,
+      })
+    }
+    const queued = this.pending.get(id)
+    if (queued) {
+      this.pending.delete(id)
+      this.pending.set(created.id, queued)
+    }
+    const conflict = this.conflicts.get(id)
+    if (conflict) {
+      this.conflicts.delete(id)
+      this.conflicts.set(created.id, { ...conflict, id: created.id })
+    }
+    this.skipped.add(id)
+    this.skipped.add(created.id)
+    this.options.app.applyEventsChanges(
+      { delete: [id], add: [toDayFlowEvent(created, this.options.timeZone())] },
+      false,
+      'remote',
+    )
   }
 
   private commitDraft(id: string, after?: Event, offline = false): void {

@@ -1168,6 +1168,14 @@ export interface TaskQuery {
    * to ask can never start showing the reader work they put away.
    */
   archived?: boolean | 'any'
+  /**
+   * Include rows filed in a list the reader put away, which the shelf predicate normally hides.
+   *
+   * Only a document that hands the account back wholesale asks for this (`todos/export-tasks.ts`):
+   * a listing still means "what the reader can find on screen", and an export that skipped a shelved
+   * list would silently arrive without work the reader still owns.
+   */
+  includeShelvedLists?: boolean
   query?: string
   /** Only tasks due at or after this instant. An undated task is in no due range. */
   dueFrom?: number
@@ -4582,7 +4590,9 @@ export class AssistantStore {
     // here rather than left baked into the default predicate: `visibleTaskQuery` always hides put-away
     // rows, and a search that used it could answer "no such task" about work the reader only shelved.
     const q = query.archived === true || query.archived === 'any'
-      ? new Query(this.userId).raw(taskVisibleOnShelf(query.archived === true ? 'on' : 'any'))
+      ? new Query(this.userId).raw(query.archived === 'any' && query.includeShelvedLists
+        ? taskLive()
+        : taskVisibleOnShelf(query.archived === true ? 'on' : 'any'))
       : this.visibleTaskQuery()
     const status = query.status ?? 'all'
     if (Array.isArray(status)) q.inList(`status`, status)

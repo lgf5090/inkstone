@@ -91,6 +91,21 @@ describe('trashPurgeStatements', () => {
     expect(count('SELECT COUNT(*) AS n FROM fts_index_queue WHERE user_id = ? AND kind = ?', MINE, 'delete')).toBe(2)
   })
 
+  it('leaves a note and its children alone once another device restored it', async () => {
+    const ids = trashedIdsOf(MINE)
+    // The page was read a moment ago; a restore lands before the batch does.
+    sqlite.prepare(`UPDATE notes SET deleted_at = NULL WHERE id = 'trash-1'`).run()
+    expect(await purge(ids)).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM notes WHERE id = ?', 'trash-1')).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM note_tags WHERE note_id = ?', 'trash-1')).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM note_versions WHERE note_id = ?', 'trash-1')).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM shares WHERE note_id = ?', 'trash-1')).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM share_asset_sessions')).toBe(1)
+    expect(sqlite.prepare('SELECT note_id FROM attachments WHERE id = ?').get('at1')?.note_id).toBe('trash-1')
+    expect(count('SELECT COUNT(*) AS n FROM links WHERE user_id = ? AND source_note_id = ?', MINE, 'trash-1')).toBe(1)
+    expect(count('SELECT COUNT(*) AS n FROM import_mappings WHERE target_id = ?', 'trash-1')).toBe(1)
+  })
+
   it('retargets inbound links to a surviving note before the trashed row goes', async () => {
     await purge(trashedIdsOf(MINE))
     const link = sqlite.prepare('SELECT target_note_id FROM links WHERE source_note_id = ?').get('keep')

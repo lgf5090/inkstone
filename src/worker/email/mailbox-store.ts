@@ -107,6 +107,11 @@ export interface EmailRow {
   updated_at: number
 }
 
+/** What one draft save did: the row it wrote, or why it wrote nothing. */
+export type DraftSaveOutcome =
+  | { ok: true; id: string; updatedAt: number }
+  | { ok: false; reason: 'conflict' | 'failed' }
+
 export interface FolderRow {
   id: string
   name: string
@@ -1820,9 +1825,32 @@ export class MailboxStore {
   }
 
   saveDraft(draftId: string | null, email: EmailData): string | null {
+    const outcome = this.saveDraftChecked(draftId, email)
+    return outcome.ok ? outcome.id : null
+  }
+
+  /**
+   * Save a draft, optionally refusing to overwrite a newer write.
+   *
+   * The comparison happens inside the mailbox's own synchronous store, so there is no window between
+   * reading `updated_at` and the write it guards: two tabs editing the same draft cannot both pass the
+   * check. Without `expectedUpdatedAt` the save is the unconditional one the agent and import paths use.
+   */
+  saveDraftChecked(
+    draftId: string | null,
+    email: EmailData,
+    expectedUpdatedAt?: number | null,
+  ): DraftSaveOutcome {
     const id = draftId ?? email.id
-    const existing = draftId ? this.one<{ id: string }>(`SELECT id FROM email_messages WHERE id = ?1`, draftId) : null
+    const existing = draftId
+      ? this.one<{ id: string; updated_at: number }>(`SELECT id, updated_at FROM email_messages WHERE id = ?1`, draftId)
+      : null
+    if (existing && expectedUpdatedAt !== undefined && expectedUpdatedAt !== null
+      && existing.updated_at !== expectedUpdatedAt) {
+      return { ok: false, reason: 'conflict' }
+    }
     const now = Date.now()
+    const updatedAt = existing ? email.date || now : now
     if (existing) {
       this.sql.exec(
         `UPDATE email_messages SET folder_id = 'draft', subject = ?1, sender = ?2, recipient = ?3,
@@ -1840,10 +1868,12 @@ export class MailboxStore {
         email.date || now,
         id,
       )
-      return id
+      return { ok: true, id, updatedAt }
     }
-    if (!this.createEmail('draft', { ...email, id, date: email.date || now })) return null
-    return id
+    if (!this.createEmail('draft', { ...email, id, date: email.date || now })) {
+      return { ok: false, reason: 'failed' }
+    }
+    return { ok: true, id, updatedAt: now }
   }
 
   sendDraft(draftId: string, fields: {

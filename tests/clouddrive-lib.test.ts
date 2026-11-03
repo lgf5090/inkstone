@@ -1,7 +1,20 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { D1_BATCH_CHUNK, chunkedBatch, queryExternalEntries } from '../src/worker/clouddrive/lib'
+import { D1_BATCH_CHUNK, chunkedBatch, parseEncodedPath, queryExternalEntries } from '../src/worker/clouddrive/lib'
 import type { CloudDriveEntry } from '../src/shared/clouddrive/model'
+
+describe('clouddrive encoded URL paths', () => {
+  it('decodes a raw pathname exactly once and keeps a literal percent as a literal', () => {
+    // `%252F` is a name that literally contains `%2F`; one decode leaves the text, not a separator.
+    expect(parseEncodedPath('/a%252Fb')).toBe('/a%2Fb')
+    expect(parseEncodedPath('/100%25.txt')).toBe('/100%.txt')
+    expect(parseEncodedPath('/a%20b')).toBe('/a b')
+  })
+
+  it('still refuses an escaped traversal segment', () => {
+    expect(() => parseEncodedPath('/%2e%2e/etc/passwd')).toThrow()
+  })
+})
 
 function statementRecorder() {
   const sizes: number[] = []

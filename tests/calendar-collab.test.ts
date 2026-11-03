@@ -131,6 +131,57 @@ describe('account sharing', () => {
     expect(ownerEvent.event.title).toBe('Bob edited')
   })
 
+  it('routes a shared series edit through the owner store and answers the shared id', async () => {
+    const calendar = await defaultCalendar()
+    await invite(calendar.id, 'bob', 'writer')
+    user = BOB
+    await accept(ALICE, calendar.id)
+    const shared = (await json<CalendarMetaDto>(await call('GET', '/api/calendar/meta')))
+      .calendars.find(entry => entry.id.startsWith('shared:'))!
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', eventBody(shared.id, {
+      title: 'Shared series',
+      recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+
+    const answer = await call('POST', `/api/calendar/events/${encodeURIComponent(created.event.id)}/recurrence`, {
+      occurrenceStart: created.event.start,
+      occurrenceEnd: created.event.end,
+      scope: 'all',
+      action: 'update',
+      patch: { title: 'Shared series edited' },
+    })
+    expect(answer.status).toBe(200)
+    const result = await answer.json() as { masterId: string | null }
+    // The response speaks the guest's id space, because that is the id their next write will use.
+    expect(result.masterId).toBe(created.event.id)
+
+    user = ALICE
+    const ownerEvent = await json<{ event: CalendarEventDto }>(
+      await call('GET', `/api/calendar/events/${created.event.id.split(':').at(-1)}`),
+    )
+    expect(ownerEvent.event.title).toBe('Shared series edited')
+  })
+
+  it('refuses a reader editing a shared series', async () => {
+    const calendar = await defaultCalendar()
+    const created = await json<{ event: CalendarEventDto }>(await call('POST', '/api/calendar/events', eventBody(calendar.id, {
+      title: 'Owner series',
+      recurrenceRule: 'FREQ=DAILY;COUNT=3',
+    })))
+    await invite(calendar.id, 'carol', 'reader')
+    user = CAROL
+    await accept(ALICE, calendar.id)
+    const sharedId = `shared:${ALICE}:${created.event.id}`
+    const answer = await call('POST', `/api/calendar/events/${encodeURIComponent(sharedId)}/recurrence`, {
+      occurrenceStart: created.event.start,
+      occurrenceEnd: created.event.end,
+      scope: 'all',
+      action: 'update',
+      patch: { title: 'Should not land' },
+    })
+    expect(answer.status).toBe(403)
+  })
+
   it('refuses a writer moving a shared event into an owner-only calendar', async () => {
     const calendar = await defaultCalendar()
     const privateCal = await json<{ calendar: CalendarDto }>(await call('POST', '/api/calendar/calendars', { name: 'Private' }))

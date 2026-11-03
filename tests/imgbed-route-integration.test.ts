@@ -352,4 +352,47 @@ describe('imgbed WebDAV integration', () => {
     expect(await db.prepare('SELECT id FROM imgbed_files WHERE id = ?1').bind('dav/renamed.txt').first()).toBeNull()
     expect(bucket.objects.has(renamed!.object_key)).toBe(false)
   })
+
+  it('replaces an existing file through a new object before removing the old one', async () => {
+    const { sqlite, db, bucket, env, app, auth } = await davEnvironment()
+    sqlite.prepare("INSERT INTO users (id, username, password_hash, login, role, created_at, last_seen_at) VALUES ('owner1','owner','x','owner','owner',1,1)").run()
+    await seedFile(db, bucket, 'dav/keep.txt', { fileName: 'keep.txt', fileType: 'text/plain', body: 'old-bytes' })
+    const before = await db.prepare('SELECT object_key FROM imgbed_files WHERE id = ?1').bind('dav/keep.txt')
+      .first<{ object_key: string }>()
+
+    const put = await app.request('/imgbed/dav/dav/keep.txt', {
+      method: 'PUT', headers: { authorization: auth }, body: new TextEncoder().encode('new-bytes'),
+    }, env)
+    expect(put.status).toBe(201)
+
+    const after = await db.prepare('SELECT object_key FROM imgbed_files WHERE id = ?1').bind('dav/keep.txt')
+      .first<{ object_key: string }>()
+    expect(after?.object_key).not.toBe(before?.object_key)
+    expect(new TextDecoder().decode(bucket.objects.get(after!.object_key))).toBe('new-bytes')
+    // The row still answers to the WebDAV path, and the old object is gone rather than left orphaned.
+    expect(bucket.objects.has(before!.object_key)).toBe(false)
+    const served = await appFor('/imgbed', imgbedServeRoutes).request('/imgbed/file/dav/keep.txt', {}, env)
+    expect(await served.text()).toBe('new-bytes')
+  })
+
+  it('keeps the previous file when the replacement upload fails', async () => {
+    const { sqlite, db, bucket, env, app, auth } = await davEnvironment()
+    sqlite.prepare("INSERT INTO users (id, username, password_hash, login, role, created_at, last_seen_at) VALUES ('owner1','owner','x','owner','owner',1,1)").run()
+    await seedFile(db, bucket, 'dav/keep.txt', { fileName: 'keep.txt', fileType: 'text/plain', body: 'old-bytes' })
+    const before = await db.prepare('SELECT object_key FROM imgbed_files WHERE id = ?1').bind('dav/keep.txt')
+      .first<{ object_key: string }>()
+    // No upload channel is available on this deployment, which is a failed PUT rather than a slow one.
+    const brokenEnv = testBindings(db, {})
+
+    const put = await app.request('/imgbed/dav/dav/keep.txt', {
+      method: 'PUT', headers: { authorization: auth }, body: new TextEncoder().encode('new-bytes'),
+    }, brokenEnv)
+    expect(put.ok).toBe(false)
+    const after = await db.prepare('SELECT object_key FROM imgbed_files WHERE id = ?1').bind('dav/keep.txt')
+      .first<{ object_key: string }>()
+    expect(after?.object_key).toBe(before?.object_key)
+    expect(new TextDecoder().decode(bucket.objects.get(before!.object_key))).toBe('old-bytes')
+    const served = await appFor('/imgbed', imgbedServeRoutes).request('/imgbed/file/dav/keep.txt', {}, env)
+    expect(await served.text()).toBe('old-bytes')
+  })
 })

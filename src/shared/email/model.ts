@@ -329,6 +329,8 @@ export interface EmailSummary {
 export interface EmailMessage extends EmailSummary {
   body: string
   bodySource: string | null
+  /** The row's write time, the token a draft save compares before it overwrites another device. */
+  updatedAt?: number
   inReplyTo: string | null
   references: string[]
   messageId: string | null
@@ -354,6 +356,13 @@ export interface EmailDraftInput {
   inReplyTo?: string
   threadId?: string
   draftId?: string
+  /**
+   * The `updatedAt` this save was written against.
+   *
+   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the
+   * unconditional write the agent and import paths have always made.
+   */
+  expectedUpdatedAt?: number | null
 }
 
 export interface EmailSendInput extends EmailDraftInput {

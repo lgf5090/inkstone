@@ -25,7 +25,7 @@ import {
   deleteObjectQuietly,
   initialsOf,
   parseName,
-  parsePath,
+  parseEncodedPath,
   resolveEntry,
   resolveMount,
   assertPasscodeAttemptsLeft,
@@ -207,12 +207,12 @@ async function davCredentials(
   return { response: unauthorized('Invalid credentials') }
 }
 
-/** `c.req.path` is still percent-encoded; `parsePath` decodes it exactly once. */
+/** `c.req.path` is still percent-encoded; `parseEncodedPath` decodes it exactly once. */
 function davPathOf(c: Context<AppBindings>): string {
   const raw = c.req.path
   if (raw === DAV_PREFIX || raw === `${DAV_PREFIX}/`) return '/'
   if (!raw.startsWith(`${DAV_PREFIX}/`)) throw ApiError.notFound('WebDAV path not found')
-  return parsePath(raw.slice(DAV_PREFIX.length))
+  return parseEncodedPath(raw.slice(DAV_PREFIX.length))
 }
 
 function assertPrefix(actor: DavActor, path: string): void {
@@ -925,7 +925,7 @@ function destinationPath(c: Context<AppBindings>): string {
   }
   return pathname === DAV_PREFIX || pathname === `${DAV_PREFIX}/`
     ? '/'
-    : parsePath(pathname.slice(DAV_PREFIX.length))
+    : parseEncodedPath(pathname.slice(DAV_PREFIX.length))
 }
 
 function overwriteRequested(c: Context<AppBindings>): boolean {

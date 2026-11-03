@@ -106,6 +106,9 @@ export class EmailMailbox extends DurableObject<Env> {
   checkSendRateLimit(now?: number) { return this.store.checkSendRateLimit(now) }
   createEmail(folder: string, email: EmailData) { return this.store.createEmail(folder, email) }
   saveDraft(draftId: string | null, email: EmailData) { return this.store.saveDraft(draftId, email) }
+  saveDraftChecked(draftId: string | null, email: EmailData, expectedUpdatedAt?: number | null) {
+    return this.store.saveDraftChecked(draftId, email, expectedUpdatedAt)
+  }
   sendDraft(draftId: string, fields: Parameters<MailboxStore['sendDraft']>[1]) { return this.store.sendDraft(draftId, fields) }
   setHasAttachment(id: string, value: boolean) { return this.store.setHasAttachment(id, value) }
   updateDelivery(id: string, status: string, error: string | null, providerMessageId: string | null = null) {
