@@ -63,6 +63,8 @@ export const ZH_CN_CLOUDDRIVE_ADMIN = {
   'clouddrive.admin.index.clear_title': '清空首字母索引？',
   'clouddrive.admin.index.clear_body': '名称搜索与排序不受影响；拼音搜索在重建前不可用。',
   'clouddrive.admin.index.clear_note': '只清空拼音首字母索引。',
+  'clouddrive.admin.index.running': '索引任务进行中：已写入 {count} 行。',
+  'clouddrive.admin.index.cancel': '停止任务',
   'clouddrive.admin.index.pending': '待处理变更',
   'clouddrive.admin.index.total_pending': '总待处理',
   'clouddrive.admin.index.last_indexed': '最后索引',

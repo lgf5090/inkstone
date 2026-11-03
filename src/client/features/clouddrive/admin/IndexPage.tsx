@@ -4,21 +4,35 @@ import { Button } from '../../../components/primitives'
 import { confirm } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { AdminCard, AdminEmpty, AdminError, AdminForbidden, AdminLoading, AdminNotice, AdminPage, adminT, formatAdminDateTime, formatAdminNumber, useAdminOwner } from './shared'
-import { clouddriveAdminApi, type CloudDriveAdminIndex } from './api-admin'
+import { clouddriveAdminApi, type CloudDriveAdminIndex, type CloudDriveTask } from './api-admin'
+
+const TASK_POLL_MS = 3_000
 
 export function IndexPage() {
   const owner = useAdminOwner()
   const toast = useUi((state) => state.toast)
   const [index, setIndex] = useState<CloudDriveAdminIndex | null>(null)
+  const [task, setTask] = useState<CloudDriveTask | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = async () => {
     setStatus('loading'); setError(null)
-    try { setIndex(await clouddriveAdminApi.index()); setStatus('ready') } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus('error') }
+    try {
+      const [nextIndex, nextTasks] = await Promise.all([clouddriveAdminApi.index(), clouddriveAdminApi.tasks()])
+      setIndex(nextIndex)
+      setTask(nextTasks.tasks.find((one) => one.type === 'reindex' && (one.status === 'queued' || one.status === 'running')) ?? null)
+      setStatus('ready')
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); setStatus('error') }
   }
   useEffect(() => { if (owner) void load() }, [owner])
+  // A rebuild now runs in the background, so the page keeps watching it while it is open.
+  useEffect(() => {
+    if (!owner || !task) return
+    const timer = window.setInterval(() => { void load() }, TASK_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [owner, task])
 
   if (!owner) return <AdminForbidden />
   const run = async (work: () => Promise<unknown>) => {
@@ -33,6 +47,22 @@ export function IndexPage() {
       {status === 'ready' && index && (
         <div className="flex flex-col gap-3">
           <AdminNotice>{adminT('clouddrive.admin.index.clear_note')}</AdminNotice>
+          {task && (
+            <AdminNotice tone="warning">
+              <span className="flex flex-wrap items-center gap-2">
+                {adminT('clouddrive.admin.index.running', { count: Number(task.progress.done ?? 0) })}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void clouddriveAdminApi.cancelTask(task.id).then(() => load()).catch((caught) => {
+                    toast({ title: adminT('clouddrive.common.failed'), description: caught instanceof Error ? caught.message : '', tone: 'danger' })
+                  })}
+                >
+                  {adminT('clouddrive.admin.index.cancel')}
+                </Button>
+              </span>
+            </AdminNotice>
+          )}
           <div className="grid gap-2 sm:grid-cols-2">
             <AdminCard title={adminT('clouddrive.admin.index.total_pending')}><div className="text-[length:var(--text-20)] font-semibold tabular">{formatAdminNumber(index.pending)}</div></AdminCard>
             <AdminCard title={adminT('clouddrive.admin.index.last_indexed')}><div className="text-[length:var(--text-14)] font-medium">{formatAdminDateTime(index.lastIndexedAt)}</div></AdminCard>

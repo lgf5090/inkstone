@@ -13,7 +13,7 @@ import {
   foldedName,
   type CloudDriveCategory,
 } from '@shared/clouddrive/model'
-import type { AppBindings } from '../env'
+import type { AppBindings, Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
 import { JSON_BODY_LIMITS, readJson, readOptionalJson } from '../lib/request'
@@ -474,70 +474,6 @@ async function mountForIndex(c: Context<AppBindings>, body: { mountId?: unknown 
   return mount
 }
 
-async function updateInitials(
-  db: D1Database,
-  userId: string,
-  mountId: string,
-  rebuild: boolean,
-  lastIndexedAt: number,
-): Promise<{ updated: number; batches: number }> {
-  let afterId = ''
-  let updated = 0
-  let batches = 0
-  for (;;) {
-    const clauses = ['user_id = ?', 'mount_id = ?', 'deleted_at IS NULL', 'id > ?']
-    const params: unknown[] = [userId, mountId, afterId]
-    if (!rebuild) {
-      clauses.push("(updated_at > ? OR name_initials = '')")
-      params.push(lastIndexedAt)
-    }
-    const { results } = await db.prepare(
-      `SELECT id, name FROM CloudDrive_files
-        WHERE ${clauses.join(' AND ')}
-        ORDER BY id
-        LIMIT ${INDEX_BATCH}`,
-    ).bind(...params).all<{ id: string; name: string }>()
-    const rows = results ?? []
-    if (rows.length === 0) break
-    const statements = rows.map((row) => db.prepare(
-      `UPDATE CloudDrive_files SET name_folded = ?, name_initials = ?
-        WHERE user_id = ? AND mount_id = ? AND id = ?`,
-    ).bind(foldedName(row.name), initialsOf(row.name), userId, mountId, row.id))
-    for (let offset = 0; offset < statements.length; offset += WRITE_BATCH) {
-      await db.batch(statements.slice(offset, offset + WRITE_BATCH))
-      batches++
-    }
-    updated += rows.length
-    afterId = rows[rows.length - 1]!.id
-    if (rows.length < INDEX_BATCH) break
-  }
-  return { updated, batches }
-}
-
-async function recordIndexTask(
-  db: D1Database,
-  userId: string,
-  mountId: string,
-  mode: 'rebuild' | 'incremental',
-  updated: number,
-  now: number,
-): Promise<string> {
-  const taskId = newId()
-  await db.prepare(
-    `INSERT INTO CloudDrive_tasks
-       (id, user_id, type, status, payload, progress, error, locked_until,
-        created_at, started_at, finished_at, updated_at)
-     VALUES (?, ?, 'reindex', 'completed', ?, ?, NULL, NULL, ?, ?, ?, ?)`,
-  ).bind(
-    taskId,
-    userId,
-    JSON.stringify({ mountId, mode }),
-    JSON.stringify({ total: updated, done: updated, failed: 0 }),
-    now, now, now, now,
-  ).run()
-  return taskId
-}
-
 async function markIndexSucceeded(
   db: D1Database,
   userId: string,
@@ -553,18 +489,183 @@ async function markIndexSucceeded(
   ).bind(userId, mountId, now, now).run()
 }
 
-for (const [mode, rebuild] of [['rebuild', true], ['incremental', false]] as const) {
+/**
+ * A resumable index task. The row carries the last id it wrote, so an isolate that runs out of time
+ * or memory hands the rest of the tree to the next call instead of starting over.
+ */
+interface IndexTaskRow {
+  id: string
+  user_id: string
+  status: string
+  payload: string
+  progress: string
+}
+
+const INDEX_TIME_BUDGET_MS = 6_000
+const INDEX_LOCK_MS = 90_000
+
+function indexTaskCursor(progress: string): { cursor: string; done: number } {
+  try {
+    const value = JSON.parse(progress) as { cursor?: unknown; done?: unknown }
+    return {
+      cursor: typeof value.cursor === 'string' ? value.cursor : '',
+      done: typeof value.done === 'number' && Number.isFinite(value.done) ? value.done : 0,
+    }
+  } catch {
+    return { cursor: '', done: 0 }
+  }
+}
+
+/** One batch of initials, starting after the cursor. Returns the new cursor and how many it wrote. */
+async function indexStep(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  rebuild: boolean,
+  lastIndexedAt: number,
+  afterId: string,
+): Promise<{ rows: number; cursor: string; updated: number }> {
+  const clauses = ['user_id = ?', 'mount_id = ?', 'deleted_at IS NULL', 'id > ?']
+  const params: unknown[] = [userId, mountId, afterId]
+  if (!rebuild) {
+    clauses.push("(updated_at > ? OR name_initials = '')")
+    params.push(lastIndexedAt)
+  }
+  const { results } = await db.prepare(
+    `SELECT id, name FROM CloudDrive_files
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY id
+      LIMIT ${INDEX_BATCH}`,
+  ).bind(...params).all<{ id: string; name: string }>()
+  const rows = results ?? []
+  const statements = rows.map((row) => db.prepare(
+    `UPDATE CloudDrive_files SET name_folded = ?, name_initials = ?
+      WHERE user_id = ? AND mount_id = ? AND id = ?`,
+  ).bind(foldedName(row.name), initialsOf(row.name), userId, mountId, row.id))
+  for (let offset = 0; offset < statements.length; offset += WRITE_BATCH) {
+    await db.batch(statements.slice(offset, offset + WRITE_BATCH))
+  }
+  return { rows: rows.length, cursor: rows.length > 0 ? rows[rows.length - 1]!.id : afterId, updated: rows.length }
+}
+
+/**
+ * Works the queued reindex tasks of one account until the time budget runs out, then leaves the rest
+ * to the next call. The cron sweep runs the same function, so a rebuild survives a closed tab, a
+ * redeploy, or an isolate that is killed mid-run.
+ */
+async function runIndexTask(env: Env, task: IndexTaskRow, now: number): Promise<'completed' | 'handed-off' | 'cancelled'> {
+  const payload = safeParse(task.payload)
+  const mountId = typeof payload.mountId === 'string' ? payload.mountId : 'primary'
+  const rebuild = payload.mode !== 'incremental'
+  const state = await env.DB.prepare(
+    `SELECT last_indexed_at FROM CloudDrive_index_state WHERE user_id = ? AND mount_id = ?`,
+  ).bind(task.user_id, mountId).first<{ last_indexed_at: number | null }>()
+  const lastIndexedAt = state?.last_indexed_at ?? 0
+  const started = now
+  let { cursor, done } = indexTaskCursor(task.progress)
+
+  for (;;) {
+    const fresh = await env.DB.prepare(
+      `SELECT status FROM CloudDrive_tasks WHERE user_id = ? AND id = ?`,
+    ).bind(task.user_id, task.id).first<{ status: string }>()
+    // The reader may have cancelled while a batch was in flight; the next step must not resume it.
+    if (!fresh || fresh.status === 'cancelled') return 'cancelled'
+
+    const step = await indexStep(env.DB, task.user_id, mountId, rebuild, lastIndexedAt, cursor)
+    cursor = step.cursor
+    done += step.updated
+    const finished = step.rows < INDEX_BATCH
+    await env.DB.prepare(
+      `UPDATE CloudDrive_tasks
+          SET status = ?, progress = ?, error = NULL, locked_until = ?, finished_at = ?, updated_at = ?
+        WHERE user_id = ? AND id = ?`,
+    ).bind(
+      finished ? 'completed' : 'running',
+      JSON.stringify({ cursor: finished ? '' : cursor, done, failed: 0 }),
+      finished ? null : now + INDEX_LOCK_MS,
+      finished ? Date.now() : null,
+      Date.now(),
+      task.user_id, task.id,
+    ).run()
+    if (finished) {
+      await markIndexSucceeded(env.DB, task.user_id, mountId, Date.now())
+      return 'completed'
+    }
+    if (Date.now() - started > INDEX_TIME_BUDGET_MS) return 'handed-off'
+  }
+}
+
+function safeParse(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * The cron's share of the work: pick up any reindex task that is queued, or running with an expired
+ * lock (the isolate that held it is gone), and take it as far as the budget allows.
+ */
+export async function resumeCloudDriveIndexTasks(env: Env, now = Date.now(), limit = 4): Promise<number> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, user_id, status, payload, progress FROM CloudDrive_tasks
+      WHERE type = 'reindex'
+        AND (status = 'queued' OR (status = 'running' AND (locked_until IS NULL OR locked_until < ?)))
+      ORDER BY created_at
+      LIMIT ?`,
+  ).bind(now, Math.max(1, Math.min(20, limit))).all<IndexTaskRow>()
+  let resumed = 0
+  for (const task of results ?? []) {
+    try {
+      await runIndexTask(env, task, now)
+      resumed++
+    } catch (error) {
+      console.warn('[clouddrive] a reindex task could not continue:', task.id, error)
+      await env.DB.prepare(
+        `UPDATE CloudDrive_tasks SET status = 'failed', error = ?, updated_at = ?, finished_at = ?
+          WHERE user_id = ? AND id = ?`,
+      ).bind(error instanceof Error ? error.message.slice(0, 500) : 'unknown', Date.now(), Date.now(), task.user_id, task.id).run()
+    }
+  }
+  return resumed
+}
+
+for (const mode of ['rebuild', 'incremental'] as const) {
   clouddriveAdminRoutes.post(`/admin/index/${mode}`, async (c) => {
     const userId = userIdOf(c)
     const body = await readOptionalJson<{ mountId?: unknown }>(c, JSON_BODY_LIMITS.small, {})
     const mount = await mountForIndex(c, body)
-    const state = (await indexStates(c.env.DB, userId)).get(mount.id)
-    const lastIndexedAt = state?.last_indexed_at ?? 0
     const now = Date.now()
-    const result = await updateInitials(c.env.DB, userId, mount.id, rebuild, lastIndexedAt)
-    const taskId = await recordIndexTask(c.env.DB, userId, mount.id, mode, result.updated, now)
-    await markIndexSucceeded(c.env.DB, userId, mount.id, now)
-    return c.json({ mountId: mount.id, updated: result.updated, batches: result.batches, taskId })
+    const running = await c.env.DB.prepare(
+      `SELECT id FROM CloudDrive_tasks
+        WHERE user_id = ? AND type = 'reindex' AND status IN ('queued', 'running')
+          AND (locked_until IS NULL OR locked_until > ?)`,
+    ).bind(userId, now).first<{ id: string }>()
+    if (running) throw ApiError.conflict('An index task is already running')
+
+    const taskId = newId()
+    await c.env.DB.prepare(
+      `INSERT INTO CloudDrive_tasks
+         (id, user_id, type, status, payload, progress, error, locked_until,
+          created_at, started_at, finished_at, updated_at)
+       VALUES (?, ?, 'reindex', 'queued', ?, '{"cursor":"","done":0}', NULL, NULL, ?, NULL, NULL, ?)`,
+    ).bind(taskId, userId, JSON.stringify({ mountId: mount.id, mode }), now, now).run()
+    await c.env.DB.prepare(
+      `INSERT INTO CloudDrive_index_state (user_id, mount_id, last_indexed_at, status, error, updated_at)
+       VALUES (?, ?, 0, 'running', NULL, ?)
+       ON CONFLICT(user_id, mount_id)
+       DO UPDATE SET status = 'running', error = NULL, updated_at = excluded.updated_at`,
+    ).bind(userId, mount.id, now).run()
+
+    const task: IndexTaskRow = { id: taskId, user_id: userId, status: 'queued', payload: JSON.stringify({ mountId: mount.id, mode }), progress: '{"cursor":"","done":0}' }
+    // Start it now and let the request finish; whatever the time budget does not cover, the cron
+    // sweep picks up on the next tick.
+    c.executionCtx.waitUntil(runIndexTask(c.env, task, now).catch((error) => {
+      console.warn('[clouddrive] the started reindex task failed:', taskId, error)
+    }))
+    return c.json({ mountId: mount.id, taskId, started: true }, 202)
   })
 }
 

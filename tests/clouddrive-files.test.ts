@@ -483,6 +483,34 @@ describe('clouddrive file API', () => {
     expect(listing.body.files.map((entry) => entry.name)).not.toContain('.keep')
   })
 
+  it('answers a search with prefix matches first and pages across both arms', async () => {
+    await insertEntry({ path: '/alpha-1.txt', name: 'alpha-1.txt' })
+    await insertEntry({ path: '/alpha-3.txt', name: 'alpha-3.txt' })
+    await insertEntry({ path: '/zz-alpha-2.txt', name: 'zz-alpha-2.txt' })
+    await insertEntry({ path: '/other.txt', name: 'other.txt' })
+
+    const first = await call<{ files: { name: string }[]; cursor: string | null; total: number | null }>(
+      USER, 'GET', '/api/clouddrive/search?q=alpha&limit=2',
+    )
+    expect(first.body.files.map((entry) => entry.name)).toEqual(['alpha-1.txt', 'alpha-3.txt'])
+    // A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.
+    expect(first.body.total).toBeNull()
+    expect(first.body.cursor).toBeTruthy()
+
+    const second = await call<{ files: { name: string }[]; cursor: string | null; total: number | null }>(
+      USER, 'GET', `/api/clouddrive/search?q=alpha&limit=2&cursor=${encodeURIComponent(first.body.cursor!)}`,
+    )
+    expect(second.body.files.map((entry) => entry.name)).toEqual(['zz-alpha-2.txt'])
+    expect(second.body.total).toBe(1)
+    expect(second.body.cursor).toBeNull()
+
+    const whole = await call<{ files: { name: string }[]; total: number | null }>(
+      USER, 'GET', '/api/clouddrive/search?q=alpha&limit=10',
+    )
+    expect(whole.body.files.map((entry) => entry.name)).toEqual(['alpha-1.txt', 'alpha-3.txt', 'zz-alpha-2.txt'])
+    expect(whole.body.total).toBe(3)
+  })
+
   it('hashes the WebDAV password and never returns it', async () => {
     const patched = await call<{ settings: Record<string, unknown> }>(USER, 'PATCH', '/api/clouddrive/settings', {
       webdavEnabled: true,

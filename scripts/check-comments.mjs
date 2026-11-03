@@ -5558,6 +5558,9 @@ const allowed = new Map([
     "// The demo instance has no database or bucket to put a drive on. The rail already hides the tab;",
     "// a direct URL still has to say why and hand the reader back to something that works.",
   ]],
+  ["src/client/features/clouddrive/admin/IndexPage.tsx", [
+    "// A rebuild now runs in the background, so the page keeps watching it while it is open.",
+  ]],
   ["src/client/features/clouddrive/admin/PreviewSettingsPage.tsx", [
     "/** Extensions more than one rule claims; the viewer stops at the first one. */",
   ]],
@@ -6598,6 +6601,9 @@ const allowed = new Map([
     "// `preview.<mime>` and read the extension as `.image/png`, declaring every attachment",
     "// unsupported. Handing it a real File keeps the name authoritative instead.",
     "// A host builds its `policy` once per settings read, so the object itself is a stable key here.",
+    "/** What every renderer in the current `@file-viewer` build has to hold in memory to draw a frame. */",
+    "// Every renderer the viewer ships reads the whole document before it draws, so past this",
+    "// ceiling the tab would hold the file in memory for nothing; send the reader to the download.",
   ]],
   ["src/client/features/file-preview/registry.ts", [
     "/**\n * A lazy loader for one renderer package. Each returns the package's default plugin, widened once\n * here: the packages type their handler to a narrower render target than the viewer registry's\n * default, so the plugin only fits the `renderers` option after this assertion.\n */",
@@ -35400,11 +35406,13 @@ const allowed = new Map([
   ]],
   ["src/worker/clouddrive/routes-admin.ts", [
     "/**\n * Owner-only maintenance endpoints behind the CloudDrive admin pages.\n *\n * The overview, activity, file table and index page all speak the same rule as the rest of the app:\n * a query names its owner. The optional member-file view is the single deliberate widening, and it\n * only happens when the owner has turned `admin.ownerCanViewMemberFiles` on.\n */",
-    "// The toggle is off: the table is the owner's own drive even if a creator filter was sent.",
-    "// The object keys are deliberately left in R2; the orphan scan is the documented cleanup path.",
     "// Only the pinyin index is dropped; `name_folded` still backs search, sorting and uniqueness.",
-    "// An external mount's used bytes are a full driver walk, which P-03 moved off the request",
-    "// path on purpose; reporting `null` keeps the card honest instead of painting a zero.",
+    "/** One batch of initials, starting after the cursor. Returns the new cursor and how many it wrote. */",
+    "/**\n * Works the queued reindex tasks of one account until the time budget runs out, then leaves the rest\n * to the next call. The cron sweep runs the same function, so a rebuild survives a closed tab, a\n * redeploy, or an isolate that is killed mid-run.\n */",
+    "// The reader may have cancelled while a batch was in flight; the next step must not resume it.",
+    "/**\n * The cron's share of the work: pick up any reindex task that is queued, or running with an expired\n * lock (the isolate that held it is gone), and take it as far as the budget allows.\n */",
+    "// Start it now and let the request finish; whatever the time budget does not cover, the cron",
+    "// sweep picks up on the next tick.",
   ]],
   ["src/worker/clouddrive/routes-content.ts", [
     "// Image Resizing refuses formats/corrupt files it cannot decode; the honest thumbnail is then",
@@ -35601,6 +35609,12 @@ const allowed = new Map([
     "/** What the album can show: stills, moving pictures, or both together. */",
     "/**\n * The moment a media row is filed under: the capture time the upload stamped into `metadata`, or the\n * upload time when the file carried no EXIF. `json_valid` guards a hand-edited row, which would\n * otherwise make the whole album query fail instead of one row fall back.\n */",
     "/**\n * Whether any live row or stored version still points at an object.\n *\n * Deliberately not scoped to one account: a saved shared item is another user's row over the same\n * bytes, so a per-user check would let the owner's purge delete data the reader can still open.\n */",
+    "// The cursor says which of the two arms it stopped in: rank 0 is the prefix arm, rank 1 the",
+    "// contains arm. That is what lets a second page resume mid-list without a second full scan.",
+    "// The prefix arm is a range scan over the search index, so the common query - the reader typed",
+    "// the beginning of a name - never touches the rest of the table.",
+    "// No second full scan for a headline number: a page that came back short is the whole answer, and",
+    "// a full page honestly reports that the total is unknown.",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -42506,6 +42520,7 @@ const allowed = new Map([
     "// A row whose metadata is not JSON still lists, grouped by its upload time.",
     "// Without the flag the clash is still a conflict with a suggestion, as it has always been.",
     "// A file of the same name is not a folder to reuse.",
+    "// A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",
@@ -42513,6 +42528,9 @@ const allowed = new Map([
     "// The isolate cache never existed as a real counter, so the field is gone rather than zeroed.",
     "// `insertEntry` writes a 4-byte row, so the storage row must show that and not a made-up zero.",
     "// The member-file switch is read from the owner's settings instead of being hardcoded off.",
+    "// Every real request carries an ExecutionContext; the routes that start background work need one.",
+    "// A finished task holds no lock, so the next one can start immediately.",
+    "// A task that is still running refuses a second one instead of racing it.",
   ]],
   ["tests/clouddrive-meta.test.ts", [
     "// A rule written as a regular expression cannot match anything here, so it is refused instead of",

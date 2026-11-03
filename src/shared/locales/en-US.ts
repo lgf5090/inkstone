@@ -2351,6 +2351,7 @@ const CORE_MESSAGES = {
     "filepreview.loading": "Loading preview…",
     "filepreview.retry": "Try again",
     "filepreview.unsupported": "Can't preview {value0}.",
+    "filepreview.too_large": "{value0} is too large to preview here. Download it to open it.",
     "filepreview.failed": "Couldn't open {value0}.",
     "preview.link_kind_web": "Web address",
     "preview.link_kind_image": "Picture",

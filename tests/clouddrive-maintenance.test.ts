@@ -58,11 +58,12 @@ async function call<T = Record<string, unknown>>(
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: T }> {
+  // Every real request carries an ExecutionContext; the routes that start background work need one.
   const response = await appFor(userId).fetch(new Request(`http://localhost${path}`, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-  }), env)
+  }), env, { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext)
   const text = await response.text()
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T }
 }
@@ -118,6 +119,34 @@ describe('CloudDrive maintenance', () => {
     await call(USER, 'PATCH', '/api/clouddrive/settings', { adminOwnerCanViewMemberFiles: true })
     const widened = await call<Record<string, any>>(USER, 'GET', '/api/clouddrive/admin/overview')
     expect(widened.body.admin.ownerCanViewMemberFiles).toBe(true)
+  })
+
+  it('runs an index rebuild as a resumable background task', async () => {
+    await insertEntry({ path: '/a.txt' })
+    await insertEntry({ path: '/b.txt' })
+
+    const started = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    expect(started.status).toBe(202)
+    const taskId = started.body.taskId as string
+    expect(taskId).toBeTruthy()
+
+    const row = sqlite.prepare(
+      `SELECT status, progress, locked_until FROM CloudDrive_tasks WHERE user_id = ? AND id = ?`,
+    ).get(USER, taskId) as { status: string; progress: string; locked_until: number | null }
+    expect(row.status).toBe('completed')
+    expect((JSON.parse(row.progress) as { done: number }).done).toBe(2)
+    // A finished task holds no lock, so the next one can start immediately.
+    expect(row.locked_until).toBe(null)
+    const state = sqlite.prepare(
+      `SELECT status FROM CloudDrive_index_state WHERE user_id = ? AND mount_id = 'primary'`,
+    ).get(USER) as { status: string }
+    expect(state.status).toBe('idle')
+
+    // A task that is still running refuses a second one instead of racing it.
+    sqlite.prepare(`UPDATE CloudDrive_tasks SET status = 'running', locked_until = ? WHERE id = ?`)
+      .run(Date.now() + 60_000, taskId)
+    const clash = await call(USER, 'POST', '/api/clouddrive/admin/index/incremental', {})
+    expect(clash.status).toBe(409)
   })
 
   it('lists only objects no row references and deletes only those', async () => {

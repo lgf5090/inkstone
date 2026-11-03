@@ -64,6 +64,8 @@ export const EN_US_CLOUDDRIVE_ADMIN = {
   'clouddrive.admin.index.clear_title': 'Clear the initials index?',
   'clouddrive.admin.index.clear_body': 'Name search and sorting keep working; pinyin search stays unavailable until a rebuild.',
   'clouddrive.admin.index.clear_note': 'Only pinyin initials are cleared.',
+  'clouddrive.admin.index.running': 'Index task running: {count} rows written so far.',
+  'clouddrive.admin.index.cancel': 'Stop task',
   'clouddrive.admin.index.pending': 'Pending changes',
   'clouddrive.admin.index.total_pending': 'Total pending',
   'clouddrive.admin.index.last_indexed': 'Last indexed',

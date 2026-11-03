@@ -1234,14 +1234,8 @@ export async function searchEntries(
     'f.mount_id = ?',
     'f.deleted_at IS NULL',
     "f.name_folded <> '.keep'",
-    "(f.name_folded LIKE ? ESCAPE '\\' OR f.name_initials LIKE ? ESCAPE '\\')",
   ]
-  const params: unknown[] = [
-    userId,
-    mountId,
-    `%${escapeLike(query)}%`,
-    `${escapeLike(query)}%`,
-  ]
+  const params: unknown[] = [userId, mountId]
   const type = typeFilter(options.type)
   if (type) {
     clauses.push('f.category = ?')
@@ -1257,43 +1251,69 @@ export async function searchEntries(
     params.push(options.to)
   }
   const baseSql = clauses.join(' AND ')
+  const prefixSql = `${escapeLike(query)}%`
+  const containsSql = `%${escapeLike(query)}%`
 
-  let cursorClause = ''
-  const cursorParams: unknown[] = []
+  // The cursor says which of the two arms it stopped in: rank 0 is the prefix arm, rank 1 the
+  // contains arm. That is what lets a second page resume mid-list without a second full scan.
+  let arm = 0
+  let afterName = ''
+  let afterId = ''
   if (options.cursor) {
     const decoded = decodeCursor(options.cursor, 'name')
     const encoded = requireString(decoded.v)
     const separator = encoded.indexOf('\u0000')
     if (separator < 0) throw ApiError.badRequest('The cursor is invalid')
     const rank = Number(encoded.slice(0, separator))
-    const name = encoded.slice(separator + 1)
     if (!Number.isFinite(rank)) throw ApiError.badRequest('The cursor is invalid')
-    cursorClause = ` AND (
-      (CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) > ?
-      OR ((CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) = ?
-        AND (f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))))`
-    const prefix = `${escapeLike(query)}%`
-    cursorParams.push(prefix, rank, prefix, rank, name, name, decoded.id)
+    arm = rank === 0 ? 0 : 1
+    afterName = encoded.slice(separator + 1)
+    afterId = decoded.id
   }
 
-  const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${baseSql}${cursorClause}
-      ORDER BY (CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) ASC,
-               f.name_folded ASC, f.id ASC
-      LIMIT ?`,
-  ).bind(...params, ...cursorParams, `${escapeLike(query)}%`, options.limit).all<CloudDriveFileRow>()
-  const files = results ?? []
+  const files: CloudDriveFileRow[] = []
+  const runArm = (sql: string, params: unknown[]) => db.prepare(sql).bind(...params).all<CloudDriveFileRow>()
+
+  if (arm === 0) {
+    // The prefix arm is a range scan over the search index, so the common query - the reader typed
+    // the beginning of a name - never touches the rest of the table.
+    const { results } = await runArm(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${baseSql} AND f.name_folded LIKE ? ESCAPE '\\'
+          AND (? = '' OR f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))
+        ORDER BY f.name_folded ASC, f.id ASC
+        LIMIT ?`,
+      [...params, prefixSql, afterName, afterName, afterName, afterId, options.limit],
+    )
+    files.push(...(results ?? []))
+  }
+  if (files.length < options.limit) {
+    const { results } = await runArm(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${baseSql}
+          AND f.name_folded NOT LIKE ? ESCAPE '\\'
+          AND (f.name_folded LIKE ? ESCAPE '\\' OR f.name_initials LIKE ? ESCAPE '\\')
+          AND (? = '' OR f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))
+        ORDER BY f.name_folded ASC, f.id ASC
+        LIMIT ?`,
+      [
+        ...params, prefixSql, containsSql, containsSql,
+        arm === 1 ? afterName : '', arm === 1 ? afterName : '', arm === 1 ? afterName : '', arm === 1 ? afterId : '',
+        options.limit - files.length,
+      ],
+    )
+    files.push(...(results ?? []))
+  }
+
   const last = files[files.length - 1]
   let cursor: string | null = null
   if (last && files.length === options.limit) {
-    const prefix = last.name_folded.startsWith(query) ? 0 : 1
-    cursor = encodeCursor('name', `${prefix}\u0000${last.name_folded}`, last.id)
+    const rank = last.name_folded.startsWith(query) ? 0 : 1
+    cursor = encodeCursor('name', `${rank}\u0000${last.name_folded}`, last.id)
   }
-  const count = await db.prepare(
-    `SELECT COUNT(*) AS count FROM CloudDrive_files f WHERE ${baseSql}`,
-  ).bind(...params).first<{ count: number }>()
-  const total = (count?.count ?? 0) > LIST_TOTAL_CAP ? null : count?.count ?? 0
+  // No second full scan for a headline number: a page that came back short is the whole answer, and
+  // a full page honestly reports that the total is unknown.
+  const total = files.length < options.limit ? files.length : null
   return { files, cursor, total }
 }
 
