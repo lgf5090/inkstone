@@ -8469,6 +8469,8 @@ const CORE_MESSAGES_TAIL = {
     "assistant.stats.requests": "Requests",
     "assistant.stats.tokens_in": "Input tokens",
     "assistant.stats.tokens_out": "Output tokens",
+    "assistant.stats.cache_hit": "Cache hit rate",
+    "assistant.stats.cache_hit_none": "No data",
     "assistant.stats.tools": "Tool calls",
     "assistant.stats.cost": "Estimated spend",
     "assistant.stats.cost_none": "No model has a price yet",

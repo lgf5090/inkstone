@@ -3547,6 +3547,30 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
        )`,
     ],
   },
+  // The cached share of a prompt, filed beside the input it came out of. It lived only on
+  // `chat_messages` until now, so the day's counters — the ones the cost screen reads — could not say how
+  // much of a prompt a vendor served from its cache. Four tables, four migrations: each ALTER is guarded
+  // by its own column so a database that already has one is not skipped along with the rest.
+  {
+    version: 256,
+    skipIfColumnExists: { table: 'chat_usage_daily', column: 'cached_input_tokens' },
+    statements: [`ALTER TABLE chat_usage_daily ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 257,
+    skipIfColumnExists: { table: 'chat_usage_daily_model', column: 'cached_input_tokens' },
+    statements: [`ALTER TABLE chat_usage_daily_model ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 258,
+    skipIfColumnExists: { table: 'chat_usage_daily_key', column: 'cached_input_tokens' },
+    statements: [`ALTER TABLE chat_usage_daily_key ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 259,
+    skipIfColumnExists: { table: 'chat_usage_daily_period', column: 'cached_input_tokens' },
+    statements: [`ALTER TABLE chat_usage_daily_period ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

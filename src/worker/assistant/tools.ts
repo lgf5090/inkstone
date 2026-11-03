@@ -5172,6 +5172,14 @@ export class ToolExecutor {
   private readonly approvals = new Map<string, { id: string, toolId: string }>()
   /** Schemas the model asked for this turn; cleared with the executor, because a new turn is a new request. */
   private readonly loaded = new Set<string>()
+  /**
+   * The same schemas in the order they were loaded.
+   *
+   * Kept beside the set because position is what a prompt cache sees: a schema appended to the end of the
+   * tools array leaves every earlier byte untouched, while one inserted before the protocol pair rewrote
+   * the middle of the array for the next request.
+   */
+  private readonly loadedTools: ToolDefinition[] = []
 
   constructor(
     private readonly ctx: ToolContext,
@@ -5212,9 +5220,13 @@ export class ToolExecutor {
     if (this.budget.maxToolCalls <= 0) return []
     const all = this.everyOffered().filter((definition) => !definition.internal)
     if (!this.onDemand()) return all
+    // The residents, then the protocol pair, then whatever was loaded this turn — in load order. A loaded
+    // schema used to be spliced in before the protocol pair, which changed the array in the middle: every
+    // schema after the insertion point stopped matching the previous request's cached prefix.
     return [
-      ...all.filter((definition) => RESIDENT_TOOL_NAMES.has(definition.name) || this.loaded.has(definition.name)),
+      ...all.filter((definition) => RESIDENT_TOOL_NAMES.has(definition.name)),
       ...DEFERRED_TOOLS,
+      ...this.loadedTools.filter((definition) => !RESIDENT_TOOL_NAMES.has(definition.name)),
     ]
   }
 
@@ -5225,9 +5237,13 @@ export class ToolExecutor {
       : ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
     // An automation has no reader watching, so a remote tool that needs an Approve press is not offered.
     const remote = this.ctx.mode === 'chat' ? this.external : this.external.filter((definition) => definition.permission !== 'destructive')
+    // A remote server lists its tools in whatever order it likes, and that order is not stable across
+    // connections. Sorting by name makes the block the same bytes on every request, so the cache in front
+    // of it stays valid.
+    const orderedRemote = [...remote].sort((left, right) => left.name.localeCompare(right.name))
     // The reader's policy comes last and can only ever take tools away: it is a ceiling on what the turn
     // may reach, not a second list of things to reach for.
-    return [...own, ...remote].filter((definition) => this.offers(definition))
+    return [...own, ...orderedRemote].filter((definition) => this.offers(definition))
   }
 
   private onDemand(): boolean {
@@ -5313,6 +5329,7 @@ export class ToolExecutor {
         continue
       }
       this.loaded.add(name)
+      if (!this.loadedTools.some((entry) => entry.name === name)) this.loadedTools.push(definition)
       loaded.push({ name, description: definition.description, parameters: parametersSchema(definition.fields) })
     }
     return { loaded, skipped }

@@ -34,7 +34,7 @@ import { renderInknoteContext } from '../inknote/context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import { loadExternalTools, type ExternalToolsResult } from './mcp-tools'
-import { buildSystemPrompt, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
+import { buildPromptParts, namingPrompt, offlineAnswer, promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { describeLocalTime, localDayBounds } from '@shared/assistant-time'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
@@ -715,7 +715,7 @@ export class AssistantRunner {
      * tokens twice. The request quota is not in here: it is spent by `reserve`, once per turn, and this
      * cannot become a second way to charge it.
      */
-    const chargeUsage = async (counters: { inputTokens: number, outputTokens: number, toolCalls?: number, errors?: number }) => {
+    const chargeUsage = async (counters: { inputTokens: number, outputTokens: number, cachedInputTokens?: number, toolCalls?: number, errors?: number }) => {
       if (usageCharged) return
       usageCharged = true
       await this.store.incrementUsage(counters, undefined, modelLabel, keyRef)
@@ -876,7 +876,7 @@ export class AssistantRunner {
       const projectSkills = await this.projectSkills()
       const projectInstructionsFile = await this.projectInstructionsFile()
       const projectInstructions = [project?.instructions, projectInstructionsFile].filter(Boolean).join('\n\n')
-      system = buildSystemPrompt({
+      const prompt = buildPromptParts({
         agentName: this.settings.agentName,
         language: this.settings.language,
         timezone: this.settings.timezone,
@@ -898,13 +898,17 @@ export class AssistantRunner {
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
       })
-      // The page the reader is on rides at the end of the standing instructions: it is true for this turn
-      // only, and it is not a note or a mention that a tool would resolve. The block is already bounded,
-      // and an absent page leaves the prompt exactly as it was.
-      if (this.contextPage) system = `${system}\n\n${renderAssistantPageContext(this.contextPage)}`
+      // The standing half stays the system message, so the tool block and the rules in front of it are the
+      // same bytes on every request and a cache can keep them. Everything that describes this one turn —
+      // the clock, the pins, the open note, the memories, the summary, the page — rides as a tail block on
+      // the turn's own message instead. The page block is already bounded, and an absent page adds nothing.
+      system = prompt.system
+      const turnContext = [prompt.turnContext, this.contextPage ? renderAssistantPageContext(this.contextPage) : '']
+        .filter(Boolean)
+        .join('\n\n')
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
       // answer the turn is going to write, and the results the steps after this one read back into it.
-      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
+      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - estimateTokens(turnContext) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
       let window = buildContextWindow(recentHistory, historyBudget, promptSummaryUpto)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
@@ -950,6 +954,25 @@ export class AssistantRunner {
         images: entry.images,
         audio: entry.audio,
       }))
+      // The turn's changing context rides on its own last user message. Its base content is kept aside so
+      // each step repaints the same message rather than stacking the block once per step; the catalog of
+      // not-yet-loaded tools is painted with it because it shrinks as schemas load, and a change at the end
+      // of the messages is a far smaller cache miss than one inside the system message.
+      let contextIndex = turns.reduce((found, entry, index) => (entry.role === 'user' ? index : found), -1)
+      if (contextIndex < 0) {
+        // A turn with no user message of its own (a continued answer) still has to carry the block.
+        turns.push({ role: 'user', content: '' })
+        contextIndex = turns.length - 1
+      }
+      const baseTurnContent = turns[contextIndex]!.content
+      const paintTurnContext = (catalog: string): void => {
+        const block = [turnContext, catalog].filter(Boolean).join('\n\n')
+        if (!block) return
+        turns[contextIndex] = { ...turns[contextIndex]!, content: [baseTurnContent, block].filter(Boolean).join('\n\n') }
+      }
+      // The catalog the last step painted, so the accounting below reads the same text the request sent
+      // rather than building the 128-line list a second time.
+      let lastCatalog = ''
       // Which ceiling ended the turn, when the model was cut off rather than finished. Named in the notice
       // the row is filed with, because "it stopped" and "it ran out of room to keep going" are different
       // things for the reader to act on.
@@ -973,7 +996,8 @@ export class AssistantRunner {
         // list is rebuilt with it so a loaded schema is callable on the step that follows the load.
         const schemas = toolSchemas()
         const catalog = executor.catalogText()
-        const turnSystem = catalog ? `${system}\n\n${catalog}` : system
+        lastCatalog = catalog
+        paintTurnContext(catalog)
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
         // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
         this.turnTruncated = false
@@ -992,7 +1016,8 @@ export class AssistantRunner {
             steps,
             turns: turns.length,
             tools: schemas.length,
-            systemChars: turnSystem.length,
+            systemChars: system.length,
+            tailChars: turnContext.length + catalog.length,
             pageContext: this.contextPage ? `${this.contextPage.surface}:${this.contextPage.label}` : null,
             temperature: this.conversationSettings.temperature ?? project?.temperature ?? served.current.model.temperature,
             topP: this.conversationSettings.topP ?? project?.topP ?? served.current.model.topP,
@@ -1006,7 +1031,7 @@ export class AssistantRunner {
           baseUrl: entry.call.baseUrl,
           apiKey,
           model: entry.model.model,
-          system: turnSystem,
+          system,
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all, which is the
           // same door a turn asked to answer without tools, and a model switched off for tools, both go
@@ -1098,7 +1123,7 @@ export class AssistantRunner {
       // The label travels with the counters so the day's models can be told apart: a reader with two
       // providers has two prices, and one total cannot be split after the fact. The provider rides along
       // too, so the same counters can be read back per key.
-      await chargeUsage({ inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, toolCalls: executor.callCount })
+      await chargeUsage({ inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cachedInputTokens: usage.cachedInputTokens, toolCalls: executor.callCount })
       if (stopped()) {
         yield { type: 'done', finalMessage: await finish('cancelled', null, usage) }
         return
@@ -1147,9 +1172,9 @@ export class AssistantRunner {
         }
       }
       const contextBreakdown = {
-        system: estimateTokens(system),
+        system: estimateTokens(system) + estimateTokens(turnContext),
         tools: toolSchemas().reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0)
-          + estimateTokens(executor.catalogText()),
+          + estimateTokens(lastCatalog),
         rules: estimateTokens([this.settings.customInstructions, projectInstructions].filter(Boolean).join('\n')),
         skills: projectSkills.reduce((total, skill) => total + estimateTokens(`${skill.title}\n${skill.content}`), 0),
         memory: estimateTokens(JSON.stringify(memories)),
@@ -2563,7 +2588,7 @@ export class AssistantRunner {
       throw ApiError.conflict('The daily assistant request limit was reached.')
     }
     const selected = await this.recallMemories(prompt)
-    const system = buildSystemPrompt({
+    const parts = buildPromptParts({
       agentName: this.settings.agentName,
       language: this.settings.language,
       timezone: this.settings.timezone,
@@ -2574,13 +2599,16 @@ export class AssistantRunner {
       noteScopeLabels: await this.scopeLabels(),
       scheduled: true,
     })
+    // The same split a live turn uses: the standing instructions are the cached head, and the clock and
+    // memories ride on the run's own message.
+    const system = parts.system
     const executor = new ToolExecutor(await this.toolContext(), { maxToolCalls: Math.min(limits.maxToolCalls, 4) })
     const schemas = executor.available().map((definition) => ({
       name: definition.name,
       description: definition.description,
       parameters: parametersSchema(definition.fields),
     }))
-    const turns: ModelTurn[] = [{ role: 'user', content: prompt }]
+    const turns: ModelTurn[] = [{ role: 'user', content: [prompt, parts.turnContext].filter(Boolean).join('\n\n') }]
     // A routine runs unwatched, so a model the vendor has retired or a service that is down would fail it
     // silently. It walks the same fallback chain a turn does, for the same reason.
     const primary: ResolvedCall = {

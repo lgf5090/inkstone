@@ -8462,6 +8462,8 @@ console.log(\`Hello, \${name}!\`)
     "assistant.stats.requests": "请求次数",
     "assistant.stats.tokens_in": "输入 Token",
     "assistant.stats.tokens_out": "输出 Token",
+    "assistant.stats.cache_hit": "缓存命中率",
+    "assistant.stats.cache_hit_none": "暂无数据",
     "assistant.stats.tools": "工具调用",
     "assistant.stats.cost": "估算花费",
     "assistant.stats.cost_none": "尚未给任何模型填写单价",
