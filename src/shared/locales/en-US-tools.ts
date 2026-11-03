@@ -559,6 +559,7 @@ export const EN_US_TOOLS = {
   'tools.qrcode.scanner.no_result': 'No readable QR code found. Try adjusting contrast or brightness sliders above.',
   'tools.qrcode.scanner.camera_permission_denied': 'Cannot access camera. Please check browser camera permissions.',
   'tools.qrcode.scanner.camera_start_failed': 'Failed to start video stream. Please retry or choose another camera device.',
+  'tools.qrcode.scanner.camera_device': 'Camera device',
   'tools.qrcode.scanner.pause_camera': 'Pause Scanning',
   'tools.qrcode.scanner.resume_camera': 'Resume Scanning',
   'tools.qrcode.compare.title': 'AI QR Code Quality & Diff Diagnostics',

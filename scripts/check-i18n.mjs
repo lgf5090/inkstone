@@ -435,7 +435,7 @@ const catalogFragments = {
 // not carry the interface's seven thousand keys to reach twenty sentences.
 // The API Tester's mock pools are sample data a user generates, not interface copy: a Chinese
 // mock record is what the zh generator is asked to produce.
-const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts'), path.join(localeRoot, 'zh-CN-calendar-notify.ts'), path.join(localeRoot, 'zh-CN-quick-add-keywords.ts'), path.join(localeRoot, 'zh-CN-calendar-csv.ts'), path.join(localeRoot, '..', 'development/api-tester/mock-data.ts')];
+const hanAllowedCatalogs = [path.join(localeRoot, 'zh-CN.ts'), ...catalogFragments.zh.map(([file]) => file), assistantPromptBodyFiles.zh[0], path.join(localeRoot, 'zh-CN-subscriptions-notify.ts'), path.join(localeRoot, 'zh-CN-todo-notify.ts'), path.join(localeRoot, 'zh-CN-calendar-notify.ts'), path.join(localeRoot, 'zh-CN-quick-add-keywords.ts'), path.join(localeRoot, 'zh-CN-calendar-csv.ts'), path.join(localeRoot, 'zh-CN-shortlinks-public.ts'), path.join(localeRoot, '..', 'development/api-tester/mock-data.ts')];
 function readCatalog(variableFile, variableName, fragments) {
     const messages = readMessages(variableFile, variableName);
     for (const [file, name] of fragments) {

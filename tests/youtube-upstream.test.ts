@@ -390,6 +390,21 @@ describe('youtube quota guards', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('does not let two concurrent searches spend the same remaining budget', async () => {
+    stubFetch((url) => url.pathname.endsWith('/search')
+      ? json({ items: [searchVideoItem('vid00000001')] })
+      : json({ items: [videoItem('vid00000001')] }))
+    const env = envWith({ YOUTUBE_DAILY_QUOTA: '150' })
+
+    const responses = await Promise.all([
+      get('/discover?q=first', env),
+      get('/discover?q=second', env),
+    ])
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 429])
+    // Only the search that held the budget reached the upstream; the other was refused before it.
+    expect(calls.filter((url) => url.pathname.endsWith('/search')).length).toBeLessThanOrEqual(1)
+  })
+
   it('records every request and accumulates units across calls', async () => {
     stubFetch((url) => url.pathname.endsWith('/search')
       ? json({ items: [searchVideoItem('vid00000001')] })

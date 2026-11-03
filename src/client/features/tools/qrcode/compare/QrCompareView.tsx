@@ -14,6 +14,7 @@ import { useUi } from '../../../../store/ui'
 import { QrEngine } from '../engine/qr-engine'
 import { ImageDropZone } from '../ImageDropZone'
 import { Button } from '../../../../components/primitives'
+import { Select } from '../../../../components/form'
 import { GridAlignModal } from './GridAlignModal'
 import {
   compareSegments,
@@ -309,17 +310,18 @@ export const QrCompareView: React.FC = () => {
                     <span className="text-xs text-[var(--text-secondary)]">
                       {t('tools.qrcode.compare.blend_mode')}
                     </span>
-                    <select
+                    <Select
+                      aria-label={t('tools.qrcode.compare.blend_mode')}
                       value={blendMode}
                       onChange={(e) => setBlendMode(e.target.value as GlobalCompositeOperation)}
-                      className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+                      className="h-8 w-full px-2.5 py-1.5 text-xs"
                     >
                       <option value="difference">{t('tools.qrcode.compare.blend_difference')}</option>
                       <option value="source-over">{t('tools.qrcode.compare.blend_normal')}</option>
                       <option value="multiply">{t('tools.qrcode.compare.blend_multiply')}</option>
                       <option value="screen">{t('tools.qrcode.compare.blend_screen')}</option>
                       <option value="overlay">{t('tools.qrcode.compare.blend_overlay')}</option>
-                    </select>
+                    </Select>
                   </div>
 
                   <div className="space-y-1">

@@ -21,8 +21,20 @@ import {
 } from './shared'
 
 const PAGE_SIZE = 60
+/** One selection uploads at most this many files; the rest wait for a second selection. */
+export const MEDIA_UPLOAD_LIMIT = 20
 const KIND_ICON: Record<string, typeof FileText> = { image: ImageIcon, audio: Music, video: Video, file: FileText }
 const ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/avif,audio/*,video/*,application/pdf,text/plain,application/zip'
+
+/**
+ * The files one upload actually processes.
+ *
+ * The counter that drives the button's loading state comes from this same list, so a selection of
+ * 21 files cannot leave a remainder on the counter after the loop has finished.
+ */
+export function uploadBatch(files: FileList | File[] | null): File[] {
+  return files ? Array.from(files).slice(0, MEDIA_UPLOAD_LIMIT) : []
+}
 
 export function MediaPanel() {
   const toast = useUi((state) => state.toast)
@@ -45,17 +57,15 @@ export function MediaPanel() {
   const totalBytes = useMemo(() => items.reduce((sum, item) => sum + item.size, 0), [items])
 
   const upload = async (files: FileList | File[] | null) => {
-    const list = files ? Array.from(files) : []
+    const list = uploadBatch(files)
     if (list.length === 0) return
     setUploading(list.length)
     let uploaded = 0
-    let failed = 0
-    for (const file of list.slice(0, 20)) {
+    for (const file of list) {
       try {
         await api.blog.media.upload(file)
         uploaded += 1
       } catch (error) {
-        failed += 1
         toast({
           title: t('blog.admin.media_upload_failed'),
           description: `${file.name}: ${error instanceof Error ? error.message : String(error)}`,
@@ -70,7 +80,9 @@ export function MediaPanel() {
       setPage(1)
       await media.reload()
     }
-    if (failed === 0 && fileRef.current) fileRef.current.value = ''
+    // A failed file has to be selectable again: the browser fires no change event for the same path
+    // unless the input was reset, and the upload button's loading state is already back to idle.
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   const copy = async (item: BlogMediaItem) => {

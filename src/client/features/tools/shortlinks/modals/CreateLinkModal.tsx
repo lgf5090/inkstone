@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Modal } from '../../../../components/overlay'
 import { Button } from '../../../../components/primitives'
-import { FIELD_BASE, Input } from '../../../../components/form'
+import { Input, Select } from '../../../../components/form'
 import { DatePicker } from '../../../../components/date-picker'
 import { t } from '../../../../lib/i18n'
 import { useUiStore } from '../../../../lib/ui-store'
@@ -162,13 +162,17 @@ export function CreateLinkModal() {
 
         {bundles.length > 0 && (
           <div>
-            <label className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1">
+            <label
+              htmlFor="shortlinks-create-bundle"
+              className="block text-[length:var(--text-12)] font-medium text-[var(--text-secondary)] mb-1"
+            >
               {t('tools.shortlinks.modal.bundle_label')}
             </label>
-            <select
+            <Select
+              id="shortlinks-create-bundle"
               value={bundleId}
               onChange={(e) => setBundleId(e.target.value ? Number(e.target.value) : '')}
-              className={`${FIELD_BASE} h-9`}
+              className="h-9"
             >
               <option value="">{t('tools.shortlinks.modal.bundle_none')}</option>
               {bundles.map((b) => (
@@ -176,7 +180,7 @@ export function CreateLinkModal() {
                   {b.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         )}
       </form>

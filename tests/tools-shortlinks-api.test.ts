@@ -64,7 +64,13 @@ async function call(
   options: CallOptions = {},
 ): Promise<Response> {
   const userId = options.user === undefined ? USER_A : options.user
-  const headers: Record<string, string> = { ...options.headers }
+  // Public pages used to be Chinese-only, so the suite's public assertions name Chinese; a real
+  // browser sends both a user agent and a language, and the bot check reads the first.
+  const headers: Record<string, string> = {
+    'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    'accept-language': 'zh-CN,zh;q=0.9',
+    ...options.headers,
+  }
   if (userId) {
     headers['x-test-user'] = userId
   }
@@ -296,6 +302,79 @@ describe('Shortlinks Link Lifecycle & Slugs', () => {
     })
     const red4 = await call('GET', '/l/disable-me', { user: null })
     expect(red4.status).toBe(404)
+  })
+
+  it('counts a repeat reload once and a different visitor separately', async () => {
+    // A visitor id only exists when the deployment has a salt; without one `computeVisitorFingerprint`
+    // refuses to invent an identity, and this test would be measuring nothing.
+    env = testBindings(makeD1(sqlite), { FILES: testR2Bucket(), SHORTLINKS_SECRET: 'test-secret' })
+    const link = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/repeat', custom_slug: 'repeat-visitor' },
+      }),
+    )).data
+    const visitorA = {
+      'cf-connecting-ip': '203.0.113.9',
+      'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+    }
+
+    await call('GET', '/l/repeat-visitor', { user: null, headers: visitorA })
+    await call('GET', '/l/repeat-visitor', { user: null, headers: visitorA })
+    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(1)
+
+    await call('GET', '/l/repeat-visitor', { user: null, headers: { ...visitorA, 'cf-connecting-ip': '203.0.113.10' } })
+    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(2)
+  })
+
+  it('does not write a click for a crawler', async () => {
+    env = testBindings(makeD1(sqlite), { FILES: testR2Bucket(), SHORTLINKS_SECRET: 'test-secret' })
+    const link = (await json<any>(
+      await call('POST', '/api/tools/shortlinks/links', {
+        body: { url: 'https://example.com/bot', custom_slug: 'bot-visited' },
+      }),
+    )).data
+    await call('GET', '/l/bot-visited', {
+      user: null,
+      headers: {
+        'cf-connecting-ip': '203.0.113.11',
+        'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+      },
+    })
+    expect((await json<any>(await call('GET', `/api/tools/shortlinks/links/${link.id}`))).data.total_clicks).toBe(0)
+  })
+
+  it('refuses a target that is not an http address', async () => {
+    for (const url of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'ftp://example.com/file', 'https://user:pass@example.com/']) {
+      const response = await call('POST', '/api/tools/shortlinks/links', { body: { url } })
+      expect(response.status, url).toBe(400)
+    }
+  })
+
+  it('does not redirect a legacy row whose target is not a web address', async () => {
+    sqlite.prepare(
+      `INSERT INTO tools_shortlinks_links (id, user_id, url, label, password_hash, is_password_protected, created_at)
+       VALUES (1, ?, 'javascript:alert(1)', NULL, NULL, 0, 1)`,
+    ).run(USER_A)
+    sqlite.prepare(
+      `INSERT INTO tools_shortlinks_slugs (slug, user_id, link_id, is_custom, is_primary, created_at, disabled_at)
+       VALUES ('legacy-bad', ?, 1, 0, 1, 1, NULL)`,
+    ).run(USER_A)
+    const response = await call('GET', '/l/legacy-bad', { user: null })
+    expect(response.status).toBe(404)
+    expect(response.headers.get('Location')).toBeNull()
+  })
+
+  it('answers the public pages in the language the visitor asks for', async () => {
+    const english = await call('GET', '/l/missing-page', {
+      user: null,
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+    })
+    expect(await english.text()).toContain('<html lang="en-US">')
+    const chinese = await call('GET', '/l/missing-page', {
+      user: null,
+      headers: { 'accept-language': 'zh-CN,zh;q=0.9' },
+    })
+    expect(await chinese.text()).toContain('<html lang="zh-CN">')
   })
 
   it('sorts the list by the materialised click counter', async () => {

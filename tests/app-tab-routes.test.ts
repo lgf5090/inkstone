@@ -37,6 +37,16 @@ describe('the addresses the client routes on its own', () => {
     expect(tabIdForPath('/cloudflare/ai')).toBe('cloudflare')
   })
 
+  it('names a container for every tab the rail offers', () => {
+    // A rail entry whose container is missing opens the placeholder instead of an app, which is how
+    // the old `projects` row looked like a real feature that had never been built.
+    const host = readFileSync('src/client/features/shell/AppTabHost.tsx', 'utf8')
+    for (const tab of APP_TABS) {
+      const key = tab.id.includes('-') ? `'${tab.id}'` : tab.id
+      expect(host, `${tab.id} has no container`).toContain(`${key}:`)
+    }
+  })
+
   it('routes nested tools paths to the tools tab', () => {
     expect(tabIdForPath('/tools')).toBe('tools')
     expect(tabIdForPath('/tools/')).toBe('tools')

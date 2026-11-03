@@ -25,6 +25,16 @@ import { resolveYouTubeApiKey, resolveYouTubeLimits } from './settings'
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
+/**
+ * The row that holds the day's reserved total.
+ *
+ * The per-endpoint rows are the panel's breakdown, written after the response arrives. The budget
+ * lives in its own row so a reservation can be one conditional write: two tabs reading the same
+ * "used" sum and both deciding there is room is exactly the race this row removes. It is a ledger
+ * detail, not an endpoint, so the panel filters it out.
+ */
+export const YOUTUBE_QUOTA_BUDGET_ROW = '__budget__'
+
 export type YouTubeEndpoint =
   | 'search'
   | 'videos'
@@ -257,13 +267,29 @@ export async function recordQuotaUsage(db: D1Database, endpoint: YouTubeEndpoint
  */
 export async function assertYouTubeQuota(env: Env, db: D1Database, cost: number): Promise<void> {
   const config = await youtubeConfig(env, db)
-  const row = await db.prepare(
-    'SELECT COALESCE(SUM(units), 0) AS used FROM youtube_quota_usage WHERE date = ?',
-  )
-    .bind(utcDate())
-    .first<{ used: number }>()
-  const used = asNumber(row?.used)
-  if (used + cost > config.limit) {
+  const date = utcDate()
+
+  // Both statements run in one D1 transaction. On a day whose budget row does not exist yet, the first
+  // seeds it from the endpoint rows already on the ledger — otherwise a restart would let the day
+  // start spending from zero again. The second is the reservation itself: it writes only while the
+  // total (actual usage already folded in + in-flight cost) stays inside the limit.
+  const [, reservation] = await db.batch([
+    db.prepare(
+      `INSERT OR IGNORE INTO youtube_quota_usage (date, endpoint, units, count)
+       SELECT ?, ?, COALESCE((SELECT SUM(units) FROM youtube_quota_usage WHERE date = ? AND endpoint <> ?), 0), 0`,
+    ).bind(date, YOUTUBE_QUOTA_BUDGET_ROW, date, YOUTUBE_QUOTA_BUDGET_ROW),
+    db.prepare(
+      `UPDATE youtube_quota_usage SET units = units + ?
+        WHERE date = ? AND endpoint = ? AND units + ? <= ?`,
+    ).bind(cost, date, YOUTUBE_QUOTA_BUDGET_ROW, cost, config.limit),
+  ])
+
+  if ((reservation.meta.changes ?? 0) === 0) {
+    const row = await db
+      .prepare('SELECT units FROM youtube_quota_usage WHERE date = ? AND endpoint = ?')
+      .bind(date, YOUTUBE_QUOTA_BUDGET_ROW)
+      .first<{ units: number }>()
+    const used = asNumber(row?.units)
     throw new ApiError(
       429,
       'youtube_quota_exceeded',

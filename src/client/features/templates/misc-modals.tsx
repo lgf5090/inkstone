@@ -7,7 +7,7 @@ import { Button, Kbd } from '../../components/primitives'
 import { Checkbox } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { t } from '../../lib/i18n'
-import { bodyRunsCode } from './template-engine'
+import { bodyHasAiSlots, bodyRunsCode } from './template-engine'
 import { TemplateTag } from './template-tag'
 
 const HELP_MODAL_WIDTH = 440
@@ -54,10 +54,12 @@ export function PublishTemplateDialog({ template, category, onClose, onPublished
   onPublished: () => void
 }) {
   const [isBusy, setIsBusy] = useState(false)
-  // A body with no command in it publishes with nothing to acknowledge; the checkbox only exists for the
-  // ones that will run code on somebody else's device.
+  // A body that neither runs code nor asks the assistant for text publishes with nothing to
+  // acknowledge; the checkbox exists for the bodies that will act on somebody else's device.
   const runsCode = bodyRunsCode(template.content)
-  const [acknowledged, setAcknowledged] = useState(!runsCode)
+  const fillsWithAi = bodyHasAiSlots(template.content)
+  const needsAcknowledgement = runsCode || fillsWithAi
+  const [acknowledged, setAcknowledged] = useState(!needsAcknowledgement)
   const publish = async () => {
     if (isBusy || !acknowledged) return
     setIsBusy(true)
@@ -85,12 +87,12 @@ export function PublishTemplateDialog({ template, category, onClose, onPublished
     </>}>
     <div className='space-y-3'>
       <p className='text-[length:var(--text-12)] leading-relaxed text-[var(--text-tertiary)]'>{t('templates.publish_hint')}</p>
-      {runsCode && (
-        // Plan §D15: the author is the one person who can say what a script template does, so the publish
+      {needsAcknowledgement && (
+        // Plan §D15: the author is the one person who can say what a template does, so the publish
         // path asks them to acknowledge it before the body reaches anybody else's device.
         <div className='rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3'>
           <Checkbox
-            label={t('templates.publish_runs_code')}
+            label={t(runsCode ? 'templates.publish_runs_code' : 'templates.publish_ai_fill')}
             checked={acknowledged}
             onChange={setAcknowledged}/>
         </div>

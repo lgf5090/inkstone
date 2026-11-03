@@ -559,6 +559,7 @@ export const ZH_CN_TOOLS = {
   'tools.qrcode.scanner.no_result': '未检测到可识别的二维码，尝试调整上方对比度或亮度滑块',
   'tools.qrcode.scanner.camera_permission_denied': '无法访问摄像头，请检查浏览器权限授予设置',
   'tools.qrcode.scanner.camera_start_failed': '启动视频流失败，请重试或更换摄像头设备',
+  'tools.qrcode.scanner.camera_device': '摄像头',
   'tools.qrcode.scanner.pause_camera': '暂停扫码',
   'tools.qrcode.scanner.resume_camera': '继续扫码',
   'tools.qrcode.compare.title': 'AI 二维码对比与质量诊断',

@@ -13,7 +13,7 @@ import {
   type YouTubeQuotaData,
 } from '@shared/youtube/model'
 import type { AppBindings } from '../env'
-import { utcDate, youtubeConfigured } from './upstream'
+import { utcDate, YOUTUBE_QUOTA_BUDGET_ROW, youtubeConfigured } from './upstream'
 import { resolveYouTubeLimits } from './settings'
 
 export const youtubeQuotaRoutes = new Hono<AppBindings>()
@@ -64,29 +64,29 @@ youtubeQuotaRoutes.get('/', async (c) => {
   const last = dates[dates.length - 1]!
 
   const todayRows = await c.env.DB.prepare(
-    'SELECT endpoint, units, count FROM youtube_quota_usage WHERE date = ? ORDER BY units DESC',
+    'SELECT endpoint, units, count FROM youtube_quota_usage WHERE date = ? AND endpoint <> ? ORDER BY units DESC',
   )
-    .bind(today)
+    .bind(today, YOUTUBE_QUOTA_BUDGET_ROW)
     .all<TodayRow>()
 
   const historyRows = await c.env.DB.prepare(
     `SELECT date, COALESCE(SUM(units), 0) AS units, COALESCE(SUM(count), 0) AS count
        FROM youtube_quota_usage
-      WHERE date >= ? AND date <= ?
+      WHERE date >= ? AND date <= ? AND endpoint <> ?
       GROUP BY date
       ORDER BY date ASC`,
   )
-    .bind(first, last)
+    .bind(first, last, YOUTUBE_QUOTA_BUDGET_ROW)
     .all<HistoryRow>()
 
   const weekRows = await c.env.DB.prepare(
     `SELECT endpoint, COALESCE(SUM(units), 0) AS units, COALESCE(SUM(count), 0) AS count
        FROM youtube_quota_usage
-      WHERE date >= ? AND date <= ?
+      WHERE date >= ? AND date <= ? AND endpoint <> ?
       GROUP BY endpoint
       ORDER BY units DESC`,
   )
-    .bind(first, last)
+    .bind(first, last, YOUTUBE_QUOTA_BUDGET_ROW)
     .all<WeekRow>()
 
   const breakdown = (todayRows.results ?? []).map(breakdownOf)

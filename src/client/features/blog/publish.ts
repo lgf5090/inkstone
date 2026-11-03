@@ -140,11 +140,18 @@ export async function publishNoteToBlog(
 export async function refreshBlogSnapshot(noteId: string): Promise<boolean> {
   const ui = useUi.getState()
   try {
-    const note = await api.notes.get(noteId)
-    const meta = readBlogFrontMatter(note.content)
+    // "Update" publishes what the reader sees. The editor keeps unsaved keystrokes in the store, so
+    // reading the note from the server here would re-publish the previous paragraph — the one the
+    // stale-render badge warns about only after readers have already seen it.
+    const notes = useNotes.getState()
+    if (notes.contents[noteId] !== undefined) {
+      await notes.flush({ immediate: true })
+    }
+    const content = notes.contents[noteId] ?? (await api.notes.get(noteId)).content
+    const meta = readBlogFrontMatter(content)
     if (!meta.isPublished) return false
     if (meta.type === 'page') return false
-    const snapshot = await captureBlogSnapshot(noteId, note.content)
+    const snapshot = await captureBlogSnapshot(noteId, content)
     await api.blog.publish(noteId, snapshot)
     return true
   } catch (error) {

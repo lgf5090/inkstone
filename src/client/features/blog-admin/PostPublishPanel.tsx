@@ -11,6 +11,7 @@ import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { useUi } from '../../store/ui'
 import { MediaPicker } from './MediaPicker'
+import { saveDetailsInOrder } from './save-details'
 import { PostStatusBadge, formatDateTime, useAdminResource } from './shared'
 
 const LANGUAGES = ['en', 'zh-CN', 'zh-TW', 'ja', 'ko', 'es', 'id', 'th', 'tr', 'vi']
@@ -44,6 +45,9 @@ export function PostPublishPanel({
   publishRef,
   onChanged,
   onOpenHistory,
+  dirtyRef,
+  saveDetailsRef,
+  onDirtyChange,
 }: {
   noteId: string
   post: BlogPostAdminDetail
@@ -52,6 +56,10 @@ export function PostPublishPanel({
   publishRef: MutableRefObject<(() => Promise<void>) | null>
   onChanged: () => Promise<void>
   onOpenHistory: () => void
+  /** Lets the editor know that leaving would drop metadata the reader has not saved. */
+  dirtyRef?: MutableRefObject<boolean>
+  saveDetailsRef?: MutableRefObject<(() => Promise<boolean>) | null>
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const toast = useUi((state) => state.toast)
   const taxonomy = useAdminResource(() => api.blog.taxonomy.list(), [])
@@ -123,30 +131,39 @@ export function PostPublishPanel({
     clearPassword
   ), [post, slug, excerpt, description, categoryId, seriesId, seriesOrder, tags, pinned, commentsEnabled, hideHomeContent, language, license, alias, permalink, coverAssetId, password, clearPassword])
 
+  useEffect(() => {
+    if (dirtyRef) dirtyRef.current = dirty
+    onDirtyChange?.(dirty)
+  }, [dirty, dirtyRef, onDirtyChange])
+
   const saveDetails = async (silent = false): Promise<boolean> => {
     setBusy('save')
     try {
       const { updateNoteBlogMeta } = await import('../blog/publish')
       const tagNames = tags.split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 30)
-      if (!(await updateNoteBlogMeta(noteId, { tags: tagNames }))) return false
-      await api.blog.patchPost(post.id, {
-        slug,
-        excerpt,
-        description,
-        categoryId: categoryId || null,
-        seriesId: seriesId || null,
-        seriesOrder: seriesOrder === '' ? null : Number(seriesOrder),
-        pinned,
-        commentsEnabled,
-        hideHomeContent,
-        language,
-        license,
-        alias,
-        permalink,
-        coverAssetId: coverAssetId || null,
-        ...(password.trim() ? { password } : {}),
-        ...(clearPassword ? { clearPassword: true } : {}),
-      })
+      // The post row is the write that can be refused (a slug another article already uses), so it
+      // goes first: the frontmatter tags are only written once the row has accepted the rest.
+      if (!(await saveDetailsInOrder(
+        () => api.blog.patchPost(post.id, {
+          slug,
+          excerpt,
+          description,
+          categoryId: categoryId || null,
+          seriesId: seriesId || null,
+          seriesOrder: seriesOrder === '' ? null : Number(seriesOrder),
+          pinned,
+          commentsEnabled,
+          hideHomeContent,
+          language,
+          license,
+          alias,
+          permalink,
+          coverAssetId: coverAssetId || null,
+          ...(password.trim() ? { password } : {}),
+          ...(clearPassword ? { clearPassword: true } : {}),
+        }),
+        () => updateNoteBlogMeta(noteId, { tags: tagNames }),
+      ))) return false
       setPassword('')
       setClearPassword(false)
       if (!silent) toast({ title: t('blog.admin.saved'), tone: 'success' })
@@ -248,6 +265,7 @@ export function PostPublishPanel({
   }
 
   publishRef.current = publishNow
+  if (saveDetailsRef) saveDetailsRef.current = () => saveDetails(true)
 
   const chooseCover = (item: BlogMediaItem) => {
     setCoverAssetId(item.id)
