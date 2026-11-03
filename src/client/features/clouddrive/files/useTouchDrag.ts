@@ -29,6 +29,8 @@ export function useTouchDrag(input: {
   payloadFor: (entry: CloudDriveEntry) => TouchDragPayload | null
   accepts: (payload: TouchDragPayload | null, targetPath: string) => boolean
   onDrop: (payload: TouchDragPayload, targetPath: string) => void
+  /** A touch that never became a drag is a tap, and a tap has to open the row: a phone never fires the double click the mouse path uses. */
+  onTap: (entry: CloudDriveEntry) => void
   /** The text the floating chip shows while the rows are in the air. */
   labelFor: (entry: CloudDriveEntry, count: number) => string
 }) {
@@ -45,6 +47,9 @@ export function useTouchDrag(input: {
 
   const onPointerDownEntry = useCallback((entry: CloudDriveEntry, event: ReactPointerEvent<HTMLElement>) => {
     if (event.pointerType === 'mouse' || !event.isPrimary || event.button !== 0 || active.current) return
+    // A press that starts on a control belongs to that control: the row checkbox selects, it must not
+    // also pick the row up or open it.
+    if ((event.target as HTMLElement).closest('input, button, a, select, label')) return
     const payload = latest.current.payloadFor(entry)
     if (!payload) return
     // A hoisted handler cannot rely on a narrowing made outside it, so the payload is named once here.
@@ -113,8 +118,10 @@ export function useTouchDrag(input: {
     function onUp(upEvent: PointerEvent) {
       if (upEvent.pointerId !== pointerId) return
       const dropped = held ? targetPath : null
+      const tapped = !held
       stop()
       if (dropped) latest.current.onDrop(drag, dropped)
+      else if (tapped) latest.current.onTap(entry)
     }
 
     active.current = true

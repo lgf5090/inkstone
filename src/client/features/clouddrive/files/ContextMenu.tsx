@@ -13,6 +13,7 @@ import {
   Pencil,
   Scissors,
   Share2,
+  Star,
   Tags,
   Trash2,
 } from 'lucide-react'
@@ -40,6 +41,7 @@ export interface ContextMenuProps {
   onPreview: (entry: CloudDriveEntry) => void
   onDownload: (entries: CloudDriveEntry[]) => void
   onOffline: (entry: CloudDriveEntry) => void
+  onStar: (entries: CloudDriveEntry[], starred: boolean) => void
   onShare: (entries: CloudDriveEntry[]) => void
   onVersions: (entry: CloudDriveEntry) => void
   onCopy: (entries: CloudDriveEntry[]) => void
@@ -67,6 +69,7 @@ export function ContextMenu({
   onPreview,
   onDownload,
   onOffline,
+  onStar,
   onShare,
   onVersions,
   onCopy,
@@ -98,6 +101,7 @@ export function ContextMenu({
   const copyable = writable && !external && targets.every((item) => item.storageKind !== 'external')
   const single = targets.length === 1 && entry !== null
   const isFolder = entry?.kind === 'folder'
+  const allStarred = targets.length > 0 && targets.every((item) => Boolean(item.starredAt))
 
   const items = useMemo<MenuItem[]>(() => {
     if (!entry) return []
@@ -121,6 +125,13 @@ export function ContextMenu({
         icon: <HardDriveDownload size={14} />,
         disabled: !single || isFolder,
         onSelect: () => onOffline(entry),
+      },
+      {
+        id: 'star',
+        label: allStarred ? t('clouddrive.action.unstar') : t('clouddrive.action.star'),
+        icon: <Star size={14} />,
+        disabled: !metadataWritable,
+        onSelect: () => onStar(targets, !allStarred),
       },
       {
         id: 'share',
@@ -238,6 +249,7 @@ export function ContextMenu({
     onPreview,
     onDownload,
     onOffline,
+    onStar,
     onShare,
     onVersions,
     onCopy,

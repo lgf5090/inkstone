@@ -5557,6 +5557,7 @@ const allowed = new Map([
     "/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */",
     "// The demo instance has no database or bucket to put a drive on. The rail already hides the tab;",
     "// a direct URL still has to say why and hand the reader back to something that works.",
+    "// The offline copy arrives as a blob URL the viewer fetches; it is ours to release.",
   ]],
   ["src/client/features/clouddrive/admin/IndexPage.tsx", [
     "// A rebuild now runs in the background, so the page keeps watching it while it is open.",
@@ -5677,6 +5678,7 @@ const allowed = new Map([
   ["src/client/features/clouddrive/files/useFileActions.ts", [
     "/** Local list updates applied before the refresh confirms them. */",
     "/**\n   * One rename after another, in listing order: the dialog has already ruled out the collisions the\n   * folder can see, and a row the drive still refuses stops the run with its own error rather than\n   * sending two hundred writes that race each other for the same name.\n   */",
+    "// A view is not something the reader cares about failing, but a silent catch is not allowed either.",
   ]],
   ["src/client/features/clouddrive/files/useTouchDrag.ts", [
     "/**\n * Long-press drag for touch and pen, which HTML5 drag-and-drop never delivers.\n *\n * The desktop gesture in `FilesPage` stays the authority on what a drop means: this hook only turns\n * a pointer into the same payload and the same target, so both routes end in one `actions.move`.\n * A press becomes a drag only after it is held still, because a finger that moves first is scrolling.\n */",
@@ -5690,6 +5692,9 @@ const allowed = new Map([
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
+  ]],
+  ["src/client/features/clouddrive/offline/OfflinePage.tsx", [
+    "/** Hand the local copy to the same preview layer the drive uses, rather than a bare browser tab. */",
   ]],
   ["src/client/features/clouddrive/offline/store.test.ts", [
     "// The pre-flight check runs on the known size, so a lying `content-length` is not the only guard.",
@@ -35524,6 +35529,7 @@ const allowed = new Map([
     "/** The live child row with this name, used by a directory upload that re-enters a path it made. */",
     "// A directory upload walks the same path for every file inside it, so it asks for the folder it",
     "// already made instead of taking a 409 and inventing `docs (1)`.",
+    "/**\n * One line of write on purpose: the recent-view page has nothing to show until a read says it happened.\n * It is not a mutation of the file, so it takes the same read permission and no write grant.\n */",
   ]],
   ["src/worker/clouddrive/routes-jobs.ts", [
     "/**\n * Scheduled CloudDrive jobs.\n *\n * There is no arbitrary code here: a job names one of four built-in handlers, a whitelist the route\n * enforces on create and update. Built-ins are seeded on the first listing and may be disabled but\n * not deleted. A run claims `lock_until` with a conditional UPDATE, so two cron fires (or a manual\n * run racing the cron) cannot execute the same job twice; the run and its result are recorded in\n * `CloudDrive_job_runs` whether the handler succeeded or failed.\n */",
@@ -35668,6 +35674,7 @@ const allowed = new Map([
     "// the beginning of a name - never touches the rest of the table.",
     "// No second full scan for a headline number: a page that came back short is the whole answer, and",
     "// a full page honestly reports that the total is unknown.",
+    "/**\n * Record that a file was just opened. The recent-view page is ordered by this column, so a writer\n * it stays empty forever; only the read route knows a view actually happened.\n */",
   ]],
   ["src/worker/clouddrive/store-keys.ts", [
     "/**\n * CloudDrive API keys.\n *\n * A key is `cdk_` plus 32 random bytes in base64url; only its SHA-256 hash is stored. The plaintext\n * exists once, in the POST response, and the listing shows the short prefix instead. The same lookup\n * authenticates WebDAV (`apikey` + token) and the key owner is then used for every scoped query.\n */",
@@ -42578,6 +42585,8 @@ const allowed = new Map([
     "// Without the flag the clash is still a conflict with a suggestion, as it has always been.",
     "// A file of the same name is not a folder to reuse.",
     "// A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.",
+    "// The recent page has no rows until a read says one happened.",
+    "// A star outside the root still has to reach the starred page, which is why it is a global query.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",

@@ -41,6 +41,7 @@ import { formatBytes } from '@shared/byte-format'
 import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './address'
 import { parsePreviewRules } from '@shared/clouddrive/settings'
 import { cloudDrivePreviewPolicy } from './preview-policy'
+import type { FilePreviewTarget } from '../file-preview/types'
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
@@ -121,7 +122,7 @@ export function ClouddriveApp() {
     () => cloudDrivePreviewPolicy(parsePreviewRules(bootstrap?.settings.previewRules)),
     [bootstrap],
   )
-  const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number } | null>(null)
+  const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number; target?: FilePreviewTarget } | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -269,7 +270,7 @@ export function ClouddriveApp() {
                 : address.page === 'trash'
                   ? <TrashPage mountId={address.mountId} />
                   : address.page === 'offline'
-                  ? <OfflinePage />
+                  ? <OfflinePage onOpen={(target) => setPreview({ entries: [], index: 0, target })} />
                 : address.page === 'album'
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
               : address.page === 'dashboard'
@@ -322,14 +323,18 @@ export function ClouddriveApp() {
           ))}
         </div>
       </Drawer>
-      {preview && preview.entries[preview.index] && (
+      {preview && (preview.target || preview.entries[preview.index]) && (
         <>
           <FilePreviewModal
-            key={preview.entries[preview.index]!.id}
+            key={preview.target?.filename ?? preview.entries[preview.index]!.id}
             open
-            onClose={() => setPreview(null)}
+            onClose={() => {
+              // The offline copy arrives as a blob URL the viewer fetches; it is ours to release.
+              if (preview.target?.url.startsWith('blob:')) URL.revokeObjectURL(preview.target.url)
+              setPreview(null)
+            }}
             policy={previewPolicy}
-            file={{
+            file={preview.target ?? {
               url: `/api/clouddrive/files/${encodeURIComponent(preview.entries[preview.index]!.id)}/content`,
               filename: preview.entries[preview.index]!.name,
               mime: preview.entries[preview.index]!.mime,

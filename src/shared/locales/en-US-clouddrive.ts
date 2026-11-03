@@ -113,6 +113,8 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.action.download_zip': 'Download as ZIP',
   'clouddrive.action.new_folder_here': 'New folder',
   'clouddrive.action.star': 'Star',
+  'clouddrive.action.unstar': 'Remove star',
+  'clouddrive.action.starred': 'Starred',
 
   'clouddrive.selection.count': '{count} selected',
   'clouddrive.selection.none': 'No selection',
@@ -480,6 +482,7 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.offline.remove_failed': 'Could not remove the offline copy',
   'clouddrive.offline.saved': 'Kept {name} offline',
   'clouddrive.offline.save_failed': 'Could not keep this file offline',
+  'clouddrive.offline.open_failed': 'This offline copy is no longer in this browser',
   'clouddrive.offline.offline_too_large': 'This file is larger than the 200 MB offline limit',
   'clouddrive.offline.offline_quota': 'The offline cache is full (500 MB)',
   'clouddrive.offline.unavailable': 'Offline storage is unavailable in this browser',

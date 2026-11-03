@@ -157,6 +157,7 @@ export const clouddriveApi = {
   mkdir: (body: { mountId: string; parentPath: string; name: string; conflict?: 'reuse' }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
   createFile: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/files', json(body)),
   patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  view: (id: string) => request<{ ok: true }>(`/api/clouddrive/files/${encodeURIComponent(id)}/view`, { method: 'POST', body: '{}' }),
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
   copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/copy', json(body)),
   remove: (ids: string[]) => request<{ deleted: number; taskId?: string }>('/api/clouddrive/files', { method: 'DELETE', body: JSON.stringify({ ids }) }),
@@ -172,7 +173,7 @@ export const clouddriveApi = {
     if (params.limit) search.set('limit', String(params.limit))
     return request<{ files: CloudDriveEntry[]; cursor: string | null; total: number | null }>(`/api/clouddrive/search?${search.toString()}`)
   },
-  recent: (kind: 'viewed' | 'uploaded') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
+  recent: (kind: 'viewed' | 'uploaded' | 'starred') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
   album: (params: { cursor?: string | null; kind?: 'images' | 'videos' | 'all' } = {}) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams({
     ...(params.cursor ? { cursor: params.cursor } : {}),
     ...(params.kind && params.kind !== 'images' ? { kind: params.kind } : {}),

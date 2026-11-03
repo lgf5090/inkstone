@@ -48,6 +48,7 @@ import {
   folderSize,
   getFileById,
   listFolder,
+  markViewed,
   listTagAssignments,
   listTrash,
   moveEntries,
@@ -754,10 +755,25 @@ cloudDriveFilesRoutes.get('/search', async (c) => {
   })
 })
 
+/**
+ * One line of write on purpose: the recent-view page has nothing to show until a read says it happened.
+ * It is not a mutation of the file, so it takes the same read permission and no write grant.
+ */
+cloudDriveFilesRoutes.post('/files/:id/view', async (c) => {
+  const userId = userIdOf(c)
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.notFound('File not found')
+  const row = await getFileById(c.env.DB, userId, id)
+  if (!row || row.kind !== 'file') throw ApiError.notFound('File not found')
+  await assertMetaAccess(c, userId, row.mount_id, parentPathOf(row.path))
+  await markViewed(c.env.DB, userId, id, Date.now())
+  return c.json({ ok: true })
+})
+
 cloudDriveFilesRoutes.get('/recent', async (c) => {
   const userId = userIdOf(c)
   const kind = c.req.query('kind') ?? 'viewed'
-  if (kind !== 'viewed' && kind !== 'uploaded') throw ApiError.badRequest('kind must be viewed or uploaded')
+  if (kind !== 'viewed' && kind !== 'uploaded' && kind !== 'starred') throw ApiError.badRequest('kind must be viewed, uploaded or starred')
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
   const result = await recentEntries(c.env.DB, userId, mount.id, kind, {
     cursor: c.req.query('cursor') || undefined,

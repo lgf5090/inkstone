@@ -16,7 +16,7 @@ export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
     setLoading(true)
     const work = mode === 'recent'
       ? clouddriveApi.recent('viewed').then((result) => result.files)
-      : clouddriveApi.list({ mountId: 'primary', path: '/', starred: true }).then((result) => result.files)
+      : clouddriveApi.recent('starred').then((result) => result.files)
     void work.then((result) => { if (!cancelled) setFiles(result) }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [mode, refreshKey])

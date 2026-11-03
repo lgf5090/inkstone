@@ -467,6 +467,42 @@ describe('clouddrive file API', () => {
     expect(empty.body.tags).toEqual([])
   })
 
+  it('stars a file for the starred page and records a view for the recent page', async () => {
+    const id = await insertEntry({ path: '/starred.txt', name: 'starred.txt' })
+    const before = await call(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((before.body.files as { name: string }[]).map((file) => file.name)).not.toContain('starred.txt')
+
+    const starred = await call<{ entry: { starredAt: number | null } }>(USER, 'PATCH', `/api/clouddrive/files/${id}`, { starred: true })
+    expect(starred.status).toBe(200)
+    expect(starred.body.entry.starredAt).toBeTypeOf('number')
+    const listed = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((listed.body.files || []).map((file) => file.name)).toContain('starred.txt')
+
+    const unstarred = await call<{ entry: { starredAt: number | null } }>(USER, 'PATCH', `/api/clouddrive/files/${id}`, { starred: false })
+    expect(unstarred.body.entry.starredAt).toBe(null)
+
+    // The recent page has no rows until a read says one happened.
+    const empty = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=viewed')
+    expect((empty.body.files || []).map((file) => file.id)).not.toContain(id)
+    // A star outside the root still has to reach the starred page, which is why it is a global query.
+    const nested = await insertEntry({ path: '/Pics', name: 'Pics', kind: 'folder' })
+    const nestedId = await insertEntry({ path: '/Pics/nested.txt', name: 'nested.txt', parentId: nested })
+    await call(USER, 'PATCH', `/api/clouddrive/files/${nestedId}`, { starred: true })
+    const rootScoped = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((rootScoped.body.files || []).map((file) => file.name)).not.toContain('nested.txt')
+    const starredFeed = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=starred')
+    expect((starredFeed.body.files || []).map((file) => file.id)).toContain(nestedId)
+
+    const viewed = await call(USER, 'POST', `/api/clouddrive/files/${id}/view`, {})
+    expect(viewed.status).toBe(200)
+    const recent = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=viewed')
+    expect((recent.body.files || []).map((file) => file.id)).toContain(id)
+
+    const folder = await insertEntry({ path: '/folder', name: 'folder', kind: 'folder' })
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${folder}/view`, {})).status).toBe(404)
+    expect((await call(USER, 'POST', '/api/clouddrive/files/not-an-id/view', {})).status).toBe(404)
+  })
+
   it('searches by filename and by pinyin initials, hiding .keep', async () => {
     await insertEntry({ path: '/报告.pdf', name: '报告.pdf', category: 'documents' })
     await insertEntry({ path: '/.keep', name: '.keep' })

@@ -624,6 +624,16 @@ export interface EntryFlags {
   metadata?: Record<string, unknown>
 }
 
+/**
+ * Record that a file was just opened. The recent-view page is ordered by this column, so a writer
+ * it stays empty forever; only the read route knows a view actually happened.
+ */
+export async function markViewed(db: D1Database, userId: string, id: string, now: number): Promise<void> {
+  await db.prepare(
+    'UPDATE CloudDrive_files SET last_viewed_at = ?1 WHERE user_id = ?2 AND id = ?3 AND kind = ?4 AND deleted_at IS NULL',
+  ).bind(now, userId, id, 'file').run()
+}
+
 export async function setEntryFlags(
   db: D1Database,
   userId: string,
@@ -1321,10 +1331,10 @@ export async function recentEntries(
   db: D1Database,
   userId: string,
   mountId: string,
-  kind: 'viewed' | 'uploaded',
+  kind: 'viewed' | 'uploaded' | 'starred',
   options: { cursor?: string; limit: number },
 ): Promise<{ files: CloudDriveFileRow[]; cursor: string | null }> {
-  const column = kind === 'viewed' ? 'last_viewed_at' : 'uploaded_at'
+  const column = kind === 'viewed' ? 'last_viewed_at' : kind === 'starred' ? 'starred_at' : 'uploaded_at'
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
@@ -1348,7 +1358,7 @@ export async function recentEntries(
   const files = results ?? []
   const last = files[files.length - 1]
   const cursor = last && files.length === options.limit
-    ? encodeCursor('uploaded', kind === 'viewed' ? last.last_viewed_at ?? 0 : last.uploaded_at, last.id)
+    ? encodeCursor('uploaded', kind === 'viewed' ? last.last_viewed_at ?? 0 : kind === 'starred' ? last.starred_at ?? 0 : last.uploaded_at, last.id)
     : null
   return { files, cursor }
 }

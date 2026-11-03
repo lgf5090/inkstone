@@ -35,6 +35,8 @@ export interface FileActions {
   rename: (entry: CloudDriveEntry, name: string) => Promise<boolean>
   renameBatch: (items: { id: string; name: string }[]) => Promise<boolean>
   setColor: (entry: CloudDriveEntry, color: string | null) => Promise<boolean>
+  setStarred: (entries: CloudDriveEntry[], starred: boolean) => Promise<boolean>
+  noteView: (entry: CloudDriveEntry) => void
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
@@ -126,6 +128,22 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     onLocalChange?.({ type: 'replace', entry: result.entry })
     showSuccess(t('clouddrive.toast.color_saved'))
   }), [execute, onLocalChange])
+
+  const setStarred = useCallback((entries: CloudDriveEntry[], starred: boolean) => execute(async () => {
+    const results = await Promise.allSettled(entries.map((entry) => clouddriveApi.patch(entry.id, { starred })))
+    for (const result of results) {
+      if (result.status === 'fulfilled') onLocalChange?.({ type: 'replace', entry: result.value.entry })
+    }
+    const failed = results.filter((result) => result.status === 'rejected').length
+    if (failed > 0) throw new Error(`${failed}`)
+  }), [execute, onLocalChange])
+
+  const noteView = useCallback((entry: CloudDriveEntry) => {
+    // A view is not something the reader cares about failing, but a silent catch is not allowed either.
+    clouddriveApi.view(entry.id).catch((error) => {
+      console.warn('[inkstone] CloudDrive could not record a view of', entry.name, error)
+    })
+  }, [])
 
   const setFolderMeta = useCallback((entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => execute(async () => {
     const result = await clouddriveApi.patch(entry.id, { note, hidePatterns: hiddenPatterns })
@@ -297,6 +315,8 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     rename,
     renameBatch,
     setColor,
+    setStarred,
+    noteView,
     setFolderMeta,
     addTag,
     removeTag,

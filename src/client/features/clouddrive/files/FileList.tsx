@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import { ArrowDown, ArrowUp, Star } from 'lucide-react'
 import type { CloudDriveEntry, CloudDriveSortDirection, CloudDriveSortKey } from '@shared/clouddrive/model'
 import { parentPathOf } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
@@ -179,6 +179,7 @@ export function FileList({
               <td>
                 <span className="flex min-w-0 items-center gap-2">
                   <FileIcon entry={entry} size={18} />
+                  {entry.starredAt && <Star size={13} role="img" aria-label={t('clouddrive.action.starred')} className="shrink-0 fill-current text-[var(--accent)]" />}
                   <span className="truncate text-[var(--text-primary)]">{entry.name}</span>
                 </span>
               </td>

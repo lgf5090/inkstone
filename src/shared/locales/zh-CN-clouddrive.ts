@@ -113,6 +113,8 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.action.download_zip': '下载为 ZIP',
   'clouddrive.action.new_folder_here': '新建文件夹',
   'clouddrive.action.star': '收藏',
+  'clouddrive.action.unstar': '取消收藏',
+  'clouddrive.action.starred': '已收藏',
 
   'clouddrive.selection.count': '已选 {count} 项',
   'clouddrive.selection.none': '未选择',
@@ -480,6 +482,7 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.offline.remove_failed': '删除离线副本失败',
   'clouddrive.offline.saved': '已离线保存 {name}',
   'clouddrive.offline.save_failed': '无法离线保存此文件',
+  'clouddrive.offline.open_failed': '这份离线副本已不在当前浏览器里',
   'clouddrive.offline.offline_too_large': '文件超过 200 MB 的离线上限',
   'clouddrive.offline.offline_quota': '离线缓存已满（500 MB）',
   'clouddrive.offline.unavailable': '此浏览器不支持离线存储',

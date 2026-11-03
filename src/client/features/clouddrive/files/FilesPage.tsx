@@ -397,15 +397,24 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       : entry.name
     return count > 1 ? `${name} +${count - 1}` : name
   }, [])
+  /** The browser still delivers a click after a handled tap; that click would select instead of open. */
+  const swallowTapClick = useRef(false)
+
   const { ghost: touchGhost, onPointerDownEntry } = useTouchDrag({
     entryOf: entryOfId,
     payloadFor,
     accepts,
     onDrop: completeMove,
+    onTap: (entry) => {
+      swallowTapClick.current = true
+      window.setTimeout(() => { swallowTapClick.current = false }, 600)
+      previewEntry(entry)
+    },
     labelFor: labelOfDrag,
   })
 
   const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
+    if (swallowTapClick.current) return
     setSelected((current) => {
       if (mode === 'toggle') {
         const next = new Set(current)
@@ -457,6 +466,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       onNavigate(entry.path)
       return
     }
+    actions.noteView(entry)
     if (onPreview) {
       const siblings = entries.filter((candidate) => candidate.kind === 'file')
       const index = siblings.findIndex((candidate) => candidate.id === entry.id)
@@ -464,7 +474,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
       return
     }
     window.open(clouddriveApi.contentUrl(entry.id), '_blank', 'noopener,noreferrer')
-  }, [entries, onNavigate, onPreview])
+  }, [actions, entries, onNavigate, onPreview])
 
   const openEntry = useCallback((entry: CloudDriveEntry) => {
     if (entry.kind === 'folder') onNavigate(entry.path)
@@ -1053,6 +1063,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onCut={() => rememberClipboard('cut', selectedEntries.map((entry) => entry.id))}
         onMove={() => setDialog({ kind: 'move', ids: selectedEntries.map((entry) => entry.id), initialPath: path, entries: selectedEntries })}
         onRenameBatch={() => setDialog({ kind: 'renameBatch' })}
+        onStar={() => void actions.setStarred(selectedEntries, !selectedEntries.every((entry) => Boolean(entry.starredAt)))}
         onDelete={() => requestDelete(selectedEntries)}
         onClear={() => {
           clearSelection()
@@ -1085,6 +1096,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
         onPreview={previewEntry}
         onDownload={actions.download}
         onOffline={(entry) => void actions.offline(entry)}
+        onStar={(targets, starred) => void actions.setStarred(targets, starred)}
         onShare={requestShare}
         onVersions={(entry) => setDialog({ kind: 'versions', entry })}
         onCopy={(targets) => rememberClipboard('copy', targets.map((entry) => entry.id))}
