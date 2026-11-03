@@ -409,19 +409,26 @@ export class ReaderLibraryStore {
    * place they will put the next book.
    */
   async deleteBook(bookId: string): Promise<void> {
-    await this.db.batch([
+    // The knowledge index table is owned by the assistant schema; a reader-only database (or a test
+    // fixture built from the reader statements) does not have it, and a missing cleanup must not block
+    // deleting the book itself.
+    const hasKnowledgeIndex = await this.db.prepare(
+      `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chat_reader_embeddings'`,
+    ).first()
+    const statements = [
       this.db.prepare('DELETE FROM reader_books WHERE user_id = ?1 AND id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_progress WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_highlights WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_marks WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_stats WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare('DELETE FROM reader_notes WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
-      this.db.prepare('DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId),
       this.db.prepare(
         `UPDATE reader_groups SET book_ids = (SELECT COALESCE(json_group_array(value), '[]')
                                                FROM json_each(reader_groups.book_ids) WHERE value != ?2)
                                          WHERE user_id = ?1`,
       ).bind(this.userId, bookId),
-    ])
+    ]
+    if (hasKnowledgeIndex) statements.push(this.db.prepare('DELETE FROM chat_reader_embeddings WHERE user_id = ?1 AND book_id = ?2').bind(this.userId, bookId))
+    await this.db.batch(statements)
   }
 }

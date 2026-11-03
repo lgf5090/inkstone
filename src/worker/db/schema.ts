@@ -3365,7 +3365,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 244,
     statements: [
-      `CREATE TABLE IF NOT EXISTS ai_reader_embeddings (
+      `CREATE TABLE IF NOT EXISTS chat_reader_embeddings (
         user_id TEXT NOT NULL,
         book_id TEXT NOT NULL,
         page INTEGER NOT NULL,
@@ -3377,8 +3377,8 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
         indexed_at INTEGER NOT NULL,
         PRIMARY KEY (user_id, book_id, page, chunk)
       )`,
-      `CREATE INDEX IF NOT EXISTS idx_ai_reader_embeddings_user
-         ON ai_reader_embeddings(user_id, indexed_at DESC)`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_reader_embeddings_user
+         ON chat_reader_embeddings(user_id, indexed_at DESC)`,
     ],
   },
 ]

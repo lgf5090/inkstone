@@ -37850,6 +37850,9 @@ const allowed = new Map([
     "/** The cover object's key, which is the only thing a cover read needs. */",
     "/** The two objects a deletion has to release, or nothing when the account never had this book. */",
     "/**\n   * Take the book and everything read from it, in one batch.\n   *\n   * A group keeps its name when it loses a member: the reader made the group, and an empty one is a\n   * place they will put the next book.\n   */",
+    "// The knowledge index table is owned by the assistant schema; a reader-only database (or a test",
+    "// fixture built from the reader statements) does not have it, and a missing cleanup must not block",
+    "// deleting the book itself.",
   ]],
   ["src/worker/realtime/sync-hub.ts", [
     "// Best-effort release of the server side of a socket the far end already hung up on:",

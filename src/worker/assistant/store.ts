@@ -2358,10 +2358,10 @@ export class AssistantStore {
     const at = Date.now()
     let written = 0
     for (const entry of pages) {
-      await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2 AND page = ?3`, bookId, entry.page)
+      await this.write(`DELETE FROM chat_reader_embeddings WHERE user_id = ?1 AND book_id = ?2 AND page = ?3`, bookId, entry.page)
       for (const [chunk, piece] of entry.chunks.entries()) {
         await this.write(
-          `INSERT INTO ai_reader_embeddings (user_id, book_id, page, chunk, title, text, vector, norm, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+          `INSERT INTO chat_reader_embeddings (user_id, book_id, page, chunk, title, text, vector, norm, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
           bookId, entry.page, chunk, title, piece.text, piece.vector, piece.norm, at,
         )
         written += 1
@@ -2372,13 +2372,13 @@ export class AssistantStore {
 
   async searchReaderChunks(vector: Float32Array, norm: number, limit = 5): Promise<Array<{ bookId: string, title: string, page: number, text: string, score: number }>> {
     const rows = await this.rows<{ book_id: string, title: string, page: number, text: string, vector: ArrayBuffer, norm: number }>(
-      `SELECT book_id, title, page, text, vector, norm FROM ai_reader_embeddings WHERE user_id = ?1 ORDER BY indexed_at DESC LIMIT 2000`, this.userId)
+      `SELECT book_id, title, page, text, vector, norm FROM chat_reader_embeddings WHERE user_id = ?1 ORDER BY indexed_at DESC LIMIT 2000`, this.userId)
     return rows.map((row) => ({ bookId: row.book_id, title: row.title, page: row.page, text: row.text, score: cosineSimilarityPrecomputed(vector, norm, decodeVector(row.vector), row.norm) }))
       .sort((a, b) => b.score - a.score).slice(0, limit)
   }
 
   async deleteReaderChunks(bookId: string): Promise<void> {
-    await this.write(`DELETE FROM ai_reader_embeddings WHERE user_id = ?1 AND book_id = ?2`, bookId)
+    await this.write(`DELETE FROM chat_reader_embeddings WHERE user_id = ?1 AND book_id = ?2`, bookId)
   }
 
   // ----------------------------------------------------------- conversations
