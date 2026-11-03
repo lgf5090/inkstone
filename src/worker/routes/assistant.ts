@@ -3525,10 +3525,17 @@ assistantRoutes.delete('/providers/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getProvider(id))) throw ApiError.notFound('Provider not found')
-  await s.deleteProvider(id)
   const settings = await s.getSettings()
-  // The active model may have belonged to the provider that just went away.
-  await s.saveSettings({ ...settings, activeModelId: await suggestActiveModel(s, { ...settings, activeModelId: null }) })
+  // Which model the reader answers with, read before the provider's rows go: the models are deleted
+  // with it, so the question "did this provider carry the active one" can only be asked now.
+  const active = settings.activeModelId ? await s.getModel(settings.activeModelId) : null
+  await s.deleteProvider(id)
+  // Only a provider that carried the active model takes the default down with it. Recomputing for
+  // every deletion replaced a default the reader had chosen with the first suggestion, which made
+  // removing an unrelated provider an edit of a setting nobody asked to change.
+  if (active?.providerId === id) {
+    await s.saveSettings({ ...settings, activeModelId: await suggestActiveModel(s, { ...settings, activeModelId: null }) })
+  }
   return c.json({ deleted: true })
 })
 

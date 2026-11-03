@@ -85,6 +85,25 @@ function specialMark(model: AssistantModel): { key: MessageKey, icon: React.Reac
 const providerLabelId = (providerId: string): string => `assistant-provider-${providerId}`
 
 /**
+ * The extra addresses a saved provider carries, minus the one for the wire it is called on.
+ *
+ * The form draws boxes for the *other* protocols only, so an entry for the provider's own protocol is
+ * one it can neither show nor clear. Left in the draft, such a value was still judged and sent: an
+ * invalid one disabled the save over a box that was not on screen, and a stored one could be refused
+ * by the route under a field the reader had no way to reach.
+ */
+function otherEndpoints(
+  endpoints: Partial<Record<AssistantProtocol, string>>,
+  protocol: AssistantProtocol,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [entry, url] of Object.entries(endpoints)) {
+    if (entry !== protocol && typeof url === 'string') out[entry] = url
+  }
+  return out
+}
+
+/**
  * One provider's models, as the choice between them that it is.
  *
  * Activating a model picks exactly one of the row, and every row already says so with `role="radio"`. What
@@ -590,6 +609,11 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
   const chosen = PROVIDER_PRESETS.find((entry) => entry.id === preset) ?? PROVIDER_PRESETS[0]!
   const dialectChoices = dialectsForProtocol(protocol)
   const pinned = dialect && dialectChoices.includes(dialect) ? dialect : ''
+  // The addresses drawn under the primary one are the *other* wires'. An entry for the wire the form is
+  // on is never a field the reader can see, so it is neither checked nor sent: a value no box shows is one
+  // the reader cannot correct, and letting it block the save left a disabled button with no reason on
+  // screen.
+  const extraProtocols = useMemo(() => ASSISTANT_PROTOCOLS.filter((entry) => entry !== protocol), [protocol])
 
   // Which box says what, and why the save would be refused. The optional addresses are checked here for
   // the same reason the route checks them: a browser can autocomplete a username into a text box sitting
@@ -598,15 +622,40 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
     const out: Record<string, string> = {}
     const primary = endpointFieldState(baseUrl)
     if (primary !== 'ok') out.base_url = primary === 'empty' ? t('assistant.settings.address_missing') : t('assistant.settings.address_invalid')
-    for (const [entry, url] of Object.entries(extra)) {
-      if (endpointFieldState(url) === 'invalid') out[entry] = t('assistant.settings.address_invalid')
+    for (const entry of extraProtocols) {
+      if (endpointFieldState(extra[entry] ?? '') === 'invalid') out[entry] = t('assistant.settings.address_invalid')
     }
     return out
-  }, [baseUrl, extra])
-  const sendable = Object.fromEntries(Object.entries(extra).filter(([, url]) => endpointFieldState(url) === 'ok'))
+  }, [baseUrl, extra, extraProtocols])
+  const sendable = Object.fromEntries(
+    extraProtocols
+      .map((entry) => [entry, extra[entry]] as const)
+      .filter(([, url]) => endpointFieldState(url ?? '') === 'ok'),
+  )
   // Listing needs both halves to be worth sending; the button says which one is missing instead of
   // opening a dialog that can only fail.
   const canList = Boolean(apiKey.trim()) && endpointFieldState(baseUrl) === 'ok'
+
+  /**
+   * Switching the wire a provider is called on, and taking its address with it.
+   *
+   * The boxes under the primary address are the *other* wires' addresses, so the one just chosen stops
+   * being drawn the moment it becomes the primary wire. Its text moves into the address box rather than
+   * staying behind: a value no field shows is still a value the form would have judged and sent, and a
+   * reader facing a disabled save or a refusal naming a box they cannot see has no way to fix either.
+   */
+  const switchProtocol = (next: AssistantProtocol) => {
+    const moved = (extra[next] ?? '').trim()
+    setProtocol(next)
+    // A bare scheme is "nothing was entered", so it must not overwrite a usable address.
+    if (moved && endpointFieldState(moved) !== 'empty') setBaseUrl(moved)
+    setExtra((current) => {
+      if (!(next in current)) return current
+      const rest = { ...current }
+      delete rest[next]
+      return rest
+    })
+  }
 
   useEffect(() => {
     if (!open) return
@@ -618,7 +667,9 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
       setIcon(editing.icon)
       setBaseUrl(editing.baseUrl)
       setProtocol(editing.protocol)
-      setExtra(editing.endpoints as Record<string, string>)
+      // A stored entry for the provider's own wire is dropped here: the address box above already
+      // carries that wire, and a second copy this form cannot show is what used to disable the save.
+      setExtra(otherEndpoints(editing.endpoints, editing.protocol))
       setDialect(editing.reasoningDialect ?? '')
       setModels('')
       setApiKey('')
@@ -728,7 +779,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
           onChange={setIcon}
         />
         <Field label={t('assistant.settings.protocol')}>
-          <Select value={protocol} onChange={(event) => setProtocol(event.target.value as AssistantProtocol)}>
+          <Select value={protocol} onChange={(event) => switchProtocol(event.target.value as AssistantProtocol)}>
             {ASSISTANT_PROTOCOLS.map((entry) => <option key={entry} value={entry}>{PROTOCOL_LABELS[entry]?.()}</option>)}
           </Select>
         </Field>
@@ -750,7 +801,7 @@ export function ProviderForm({ open, provider, onClose, onCreated }: {
             className="font-mono text-[length:var(--text-12)]"
           />
         </Field>
-        {ASSISTANT_PROTOCOLS.filter((entry) => entry !== protocol).map((entry) => (
+        {extraProtocols.map((entry) => (
           <Field
             key={entry}
             label={`${t('assistant.settings.endpoint_other')} · ${PROTOCOL_LABELS[entry]?.()}`}
