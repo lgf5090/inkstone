@@ -33000,6 +33000,15 @@ const allowed = new Map([
     "// The browser's own reading of a document's text is clamped here as well as there: a client is not a",
     "// trust boundary, and an unbounded string would ride into every later turn's prompt.",
   ]],
+  ["src/worker/assistant/clouddrive-tools.ts", [
+    "/**\n * Cloud Drive tools for the assistant.\n *\n * Every tool here speaks the same vocabulary the drive's own routes do: the mount is resolved with\n * `resolveMount`, a mutation asks `assertWritable`, and every path or id is looked up inside the\n * session's own account. A folder carrying a password is refused rather than read: the dock has no\n * unlock cookie, and a model that could enter a locked folder would make that password decorative.\n *\n * Deletion is the trash, never the erasure. `drive_trash` and `drive_empty_trash` are destructive tools,\n * so the executor runs `prepare` during the turn (which resolves exactly what would go and writes the\n * pending card) and `commit` only after the reader presses Approve.\n */",
+    "/** The drive's own D1 rows are the primary mount; a driver-backed mount has no rows to answer with. */",
+    "/**\n * A password-protected folder is not entered at all.\n *\n * The reader unlocks it in the app, and the unlock lives in an httpOnly cookie the assistant request\n * does not carry. Treating an absent cookie as \"unlocked\" would be the one bypass that makes the\n * folder's password meaningless, so the honest answer is that the assistant cannot go in.\n */",
+    "/** The live row a path names, with the password lock its containing folder carries checked first. */",
+    "/** A `YYYY-MM-DD` or ISO date-time, read in the reader's own timezone. */",
+    "/** The `drive_list` statement: one folder or its whole subtree, narrowed by every filter at once. */",
+    "// Only still-live rows: a file the reader already trashed in the meantime needs no second move.",
+  ]],
   ["src/worker/assistant/code-sandbox.ts", [
     "/** How much of a program's chatter is worth keeping. A loop that logs is a program that hangs anyway. */",
     "/** What one answer may weigh. A tool result is fed back to the model, and a message row is not a file store. */",
@@ -41654,6 +41663,11 @@ const allowed = new Map([
   ]],
   ["tests/assistant-calendar-tools.test.ts", [
     "/**\n * The calendar tools the assistant reaches through the executor.\n *\n * The real `CalendarStore` runs against an in-memory D1 double, because the point of these tools is\n * that a sentence becomes a stored row: a fake calendar would pass while nothing was written. The\n * cases pin the defaults the model depends on — the default calendar, the account's zone, one hour\n * for an unspecified meeting — and the two safety rules: a range filters real rows, and a delete is a\n * pending action rather than a write.\n */",
+  ]],
+  ["tests/assistant-clouddrive-tools.test.ts", [
+    "/**\n * The Cloud Drive tools, driven the way the assistant drives them.\n *\n * `assistant-rules.test.ts` proves these names are registered, permissioned and labelled. This file\n * drives the executor against a real database, because what matters here is not the catalogue: a\n * search that misses a file whose name is actually there, a move that lands in the wrong folder, a\n * share link no browser can open, a delete that erases instead of trashing, or a path another account\n * owns that the model could reach by naming it.\n */",
+    "// A real file has an object behind it, and the usage report counts objects; a fixture without a key",
+    "// would make the storage figure read zero and hide the very thing the tool reports.",
   ]],
   ["tests/assistant-code-tool.test.ts", [
     "// Past this the model is searching rather than computing, and every request costs the reader.",
