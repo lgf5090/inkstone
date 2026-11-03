@@ -65,6 +65,7 @@ export const ZH_CN_CLOUDDRIVE = {
   'clouddrive.toolbar.view_gallery': '画廊视图',
   'clouddrive.toolbar.sort': '排序',
   'clouddrive.toolbar.inspector': '检查器',
+  'clouddrive.toolbar.assistant': '助手',
 
   'clouddrive.sort.name': '名称',
   'clouddrive.sort.size': '大小',

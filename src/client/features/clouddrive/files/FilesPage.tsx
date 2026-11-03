@@ -31,10 +31,12 @@ import {
   PanelRight,
   Replace,
   Search,
+  Sparkles,
   Upload,
   X,
 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
+import type { AssistantPageContext } from '@shared/assistant'
 import {
   CLOUDDRIVE_SORT_KEYS,
   CLOUDDRIVE_UPLOAD_CONFLICTS,
@@ -48,7 +50,9 @@ import {
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { isImeComposing } from '../../../lib/ime'
+import { IS_DEMO_MODE } from '../../../lib/runtime'
 import { useUi } from '../../../store/ui'
+import { AssistantDock } from '../../chat/AssistantDock'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { Field, Input, Segmented } from '../../../components/form'
 import { Menu, Modal, type MenuItem } from '../../../components/overlay'
@@ -163,6 +167,33 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
 
   const writable = !readOnly
   const viewMode: ViewMode = prefs.viewMode === 'column' ? 'icon' : prefs.viewMode
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
+  const toggleAssistantDock = useUi((state) => state.toggleAssistantDock)
+
+  /**
+   * What the dock is told about this screen: which drive, which folder, and how much is in it.
+   *
+   * The facts are the page's own words rather than a summary of the listing, so "move these into
+   * Archive" can name the folder the reader is actually looking at. A search narrows the listing, and
+   * saying so keeps the model from reporting the whole drive's contents as the screen's.
+   */
+  const pageContext = useMemo<AssistantPageContext>(() => {
+    const folders = listing?.folders.length ?? 0
+    const files = listing?.files.length ?? 0
+    return {
+      surface: 'clouddrive',
+      label: `${mountName ?? t('clouddrive.sidebar.primary')} · ${path}`,
+      facts: [
+        `mount: ${mountName ?? mountId}`,
+        `path: ${path}`,
+        `items on screen: ${folders + files} (${folders} folders, ${files} files)`,
+        ...(listing?.total !== null && listing?.total !== undefined ? [`total in folder: ${listing.total}`] : []),
+        ...(query ? [`search: ${query}`] : []),
+        ...(readOnly ? ['this folder is read-only'] : []),
+        ...(external ? ['this is an external mount'] : []),
+      ],
+    }
+  }, [external, listing, mountId, mountName, path, query, readOnly])
 
   useEffect(() => {
     listingRef.current = listing
@@ -818,6 +849,13 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           >
             <PanelRight size={15} />
           </IconButton>
+          <IconButton
+            label={t('clouddrive.toolbar.assistant')}
+            active={assistantDockOpen}
+            onClick={() => toggleAssistantDock()}
+          >
+            <Sparkles size={15} />
+          </IconButton>
           <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void handleUploadPicked(event)} />
           {!external && (
             <>
@@ -1048,6 +1086,9 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           onRemoveTag={(entry, tag) => void actions.removeTag(entry, tag)}
           onSaveMeta={(entry, note, patterns) => void actions.setFolderMeta(entry, note, patterns)}
         />
+        {assistantDockOpen && !IS_DEMO_MODE && (
+          <AssistantDock surface="clouddrive" pageContext={pageContext} />
+        )}
       </div>
 
       <SelectionBar

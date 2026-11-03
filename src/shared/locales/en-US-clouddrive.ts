@@ -65,6 +65,7 @@ export const EN_US_CLOUDDRIVE = {
   'clouddrive.toolbar.view_gallery': 'Gallery view',
   'clouddrive.toolbar.sort': 'Sort',
   'clouddrive.toolbar.inspector': 'Inspector',
+  'clouddrive.toolbar.assistant': 'Assistant',
 
   'clouddrive.sort.name': 'Name',
   'clouddrive.sort.size': 'Size',
