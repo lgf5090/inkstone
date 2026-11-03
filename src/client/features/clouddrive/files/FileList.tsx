@@ -34,6 +34,7 @@ export function FileList({
   onContextMenu,
   onKeyCommand,
   onDragStartEntry,
+  onPointerDownEntry,
   onDragOverTarget,
   onDropTarget,
   sortKey,
@@ -145,6 +146,7 @@ export function FileList({
               onContextMenu={(event) => onContextMenu(entry, event)}
               onKeyDown={(event) => handleKeyDown(event, entry, index)}
               onDragStart={(event) => onDragStartEntry?.(entry, event)}
+              onPointerDown={(event) => onPointerDownEntry?.(entry, event)}
               onDragEnd={() => setDropId(null)}
               onDragOver={entry.kind === 'folder' && onDragOverTarget
                 ? (event) => setDropId(onDragOverTarget(entry, event) ? entry.id : null)

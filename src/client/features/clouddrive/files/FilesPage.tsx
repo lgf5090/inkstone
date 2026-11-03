@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import {
   Fragment,
   Suspense,
@@ -66,6 +67,7 @@ import { SelectionBar } from './SelectionBar'
 import { ShareDialog } from './ShareDialog'
 import { VersionsDialog } from './VersionsDialog'
 import { useFileActions, type FileListChange, type ShareOptions } from './useFileActions'
+import { useTouchDrag } from './useTouchDrag'
 import type { FileClipboard, SelectMode } from './types'
 import { totalEntryBytes } from './format'
 import './files.css'
@@ -82,6 +84,8 @@ const PAGE_SIZE = 200
 
 /** The private `dataTransfer` type that marks an in-app move, as opposed to a file dropped from the OS. */
 const DRAG_MIME = 'application/x-inkstone-clouddrive'
+/** The chip a long-press drag carries: a name that fits, and how many more rows ride with it. */
+const DRAG_LABEL_MAX = 28
 
 function appendListing(current: CloudDriveListing, next: CloudDriveListing): CloudDriveListing {
   const seen = new Set([...current.folders, ...current.files].map((entry) => entry.id))
@@ -339,16 +343,21 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
    * page records what is in flight itself and every drop target consults that; the keyboard and
    * context-menu route to the same `actions.move` stays the way to do it without a pointer.
    */
-  const startDrag = useCallback((entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => {
-    if (!writable || external) return
+  const payloadFor = useCallback((entry: CloudDriveEntry): { ids: string[]; paths: string[] } | null => {
+    if (!writable || external) return null
     const ids = selected.has(entry.id)
       ? entries.filter((one) => selected.has(one.id)).map((one) => one.id)
       : [entry.id]
-    const paths = entries.filter((one) => ids.includes(one.id)).map((one) => one.path)
-    dragRef.current = { ids, paths }
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData(DRAG_MIME, ids.join(','))
+    return { ids, paths: entries.filter((one) => ids.includes(one.id)).map((one) => one.path) }
   }, [entries, external, selected, writable])
+
+  const startDrag = useCallback((entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => {
+    const payload = payloadFor(entry)
+    if (!payload) return
+    dragRef.current = payload
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(DRAG_MIME, payload.ids.join(','))
+  }, [payloadFor])
 
   /** A folder accepts the drag unless it is where the rows already are, or is one of them, or is inside one. */
   const accepts = useCallback((payload: { ids: string[]; paths: string[] } | null, targetPath: string): boolean => {
@@ -364,16 +373,37 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
     return true
   }, [accepts])
 
+  /** Both pointer routes agree on this: the rows leave the selection and one move is asked for. */
+  const completeMove = useCallback((payload: { ids: string[]; paths: string[] }, targetPath: string) => {
+    if (!accepts(payload, targetPath)) return
+    const moved = entries.filter((one) => payload.ids.includes(one.id))
+    setSelected(new Set())
+    void actions.move(payload.ids, targetPath, moved)
+  }, [accepts, actions, entries])
+
   const dropOnTarget = useCallback((targetPath: string, event: ReactDragEvent<HTMLElement>) => {
     if (!event.dataTransfer.types.includes(DRAG_MIME)) return
     event.preventDefault()
     const payload = dragRef.current
     dragRef.current = null
-    if (!payload || !accepts(payload, targetPath)) return
-    const moved = entries.filter((one) => payload.ids.includes(one.id))
-    setSelected(new Set())
-    void actions.move(payload.ids, targetPath, moved)
-  }, [accepts, actions, entries])
+    if (!payload) return
+    completeMove(payload, targetPath)
+  }, [completeMove])
+
+  const entryOfId = useCallback((id: string) => entries.find((one) => one.id === id), [entries])
+  const labelOfDrag = useCallback((entry: CloudDriveEntry, count: number) => {
+    const name = entry.name.length > DRAG_LABEL_MAX
+      ? `${entry.name.slice(0, DRAG_LABEL_MAX - 1)}\u2026`
+      : entry.name
+    return count > 1 ? `${name} +${count - 1}` : name
+  }, [])
+  const { ghost: touchGhost, onPointerDownEntry } = useTouchDrag({
+    entryOf: entryOfId,
+    payloadFor,
+    accepts,
+    onDrop: completeMove,
+    labelFor: labelOfDrag,
+  })
 
   const selectEntry = useCallback((entry: CloudDriveEntry, mode: SelectMode) => {
     setSelected((current) => {
@@ -812,6 +842,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           type="button"
           aria-current={path === '/' ? 'page' : undefined}
           onClick={() => onNavigate('/')}
+          data-cd-crumb='/'
           className={`shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]${crumbDrop === '/' ? ' cd-drop-target' : ''}`}
           onDragOver={(event) => setCrumbDrop(dragOverTarget('/', event) ? '/' : null)}
           onDragLeave={() => setCrumbDrop((current) => (current === '/' ? null : current))}
@@ -832,6 +863,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                 type="button"
                 aria-current={last ? 'page' : undefined}
                 onClick={() => onNavigate(target)}
+                data-cd-crumb={target}
                 className={`max-w-[220px] shrink-0 truncate rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] aria-[current=page]:font-medium aria-[current=page]:text-[var(--text-primary)]${crumbDrop === target ? ' cd-drop-target' : ''}`}
                 onDragOver={(event) => setCrumbDrop(dragOverTarget(target, event) ? target : null)}
                 onDragLeave={() => setCrumbDrop((current) => (current === target ? null : current))}
@@ -929,6 +961,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   onContextMenu={handleContextMenu}
                   onKeyCommand={handleKeyCommand}
                   onDragStartEntry={startDrag}
+                  onPointerDownEntry={onPointerDownEntry}
                   onDragOverTarget={(entry, event) => dragOverTarget(entry.path, event)}
                   onDropTarget={(entry, event) => dropOnTarget(entry.path, event)}
                 />
@@ -949,6 +982,7 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
                   onContextMenu={handleContextMenu}
                   onKeyCommand={handleKeyCommand}
                   onDragStartEntry={startDrag}
+                  onPointerDownEntry={onPointerDownEntry}
                   onDragOverTarget={(entry, event) => dragOverTarget(entry.path, event)}
                   onDropTarget={(entry, event) => dropOnTarget(entry.path, event)}
                 />
@@ -1147,6 +1181,18 @@ export function FilesPage({ mountId, mountName, path, onNavigate, readOnly = fal
           <Input type="password" value={lockPassword} autoFocus onChange={(event) => setLockPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !isImeComposing(event)) void unlockFolder() }} />
         </Field>
       </Modal>
+
+      {/* The chip rides the finger. It leaves the page's own stacking contexts by going to the body.
+      */}
+      {touchGhost && createPortal(
+        <div
+          className='cd-drag-ghost'
+          style={{ left: touchGhost.x, top: touchGhost.y }}
+        >
+          {touchGhost.label}
+        </div>,
+        document.body,
+      )}
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
     </div>

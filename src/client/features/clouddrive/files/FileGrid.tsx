@@ -18,6 +18,7 @@ export function FileGrid({
   onContextMenu,
   onKeyCommand,
   onDragStartEntry,
+  onPointerDownEntry,
   onDragOverTarget,
   onDropTarget,
 }: FileViewProps) {
@@ -85,6 +86,7 @@ export function FileGrid({
               onKeyDown={(event) => handleKeyDown(event, entry, index)}
               onFocus={() => onFocusEntry(entry.id)}
               onDragStart={(event) => onDragStartEntry?.(entry, event)}
+              onPointerDown={(event) => onPointerDownEntry?.(entry, event)}
               onDragEnd={() => setDropId(null)}
               onDragOver={entry.kind === 'folder' && onDragOverTarget
                 ? (event) => setDropId(onDragOverTarget(entry, event) ? entry.id : null)

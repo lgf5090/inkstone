@@ -5636,6 +5636,9 @@ const allowed = new Map([
     "/** A folder accepts the drag unless it is where the rows already are, or is one of them, or is inside one. */",
     "/**\n   * A picked directory arrives as a flat list whose relative paths hold the shape. The folders are\n   * created first — reusing the ones that already exist — and only then are the files queued into\n   * the folder each one came from.\n   */",
     "// The directory attribute is non-standard but universal; TS does not name it.",
+    "/** The chip a long-press drag carries: a name that fits, and how many more rows ride with it. */",
+    "/** Both pointer routes agree on this: the rows leave the selection and one move is asked for. */",
+    "/* The chip rides the finger. It leaves the page's own stacking contexts by going to the body.\n      */",
   ]],
   ["src/client/features/clouddrive/files/Inspector.tsx", [
     "// Whether an item is already shared is only answerable from the share list, so the panel reads",
@@ -5656,6 +5659,8 @@ const allowed = new Map([
     "/* Drive-wide search rows keep the folder: on a narrow screen the place matters more than\n     the kind, which the icon already says. */",
     "/* Tiles are the other long list in this app: hundreds of them in one folder means hundreds of layout\n   boxes off screen. `auto` in front of the size remembers each box, so the scrollbar does not jump.\n   The list view is deliberately absent — a `<tr>` takes no containment from the browser. */",
     "/* The folder a dragged row is hovering: a list row, a grid tile or one breadcrumb step. An inset\n   ring rather than an outline, because `.cd-list-row` already answers `outline: none` and the focus\n   ring has to stay readable on a row that is both focused and a target. */",
+    "/* The chip a touch drag carries. It is portal'd to the body so nothing on the page can clip or\n   restack it, which is why this rule is deliberately not scoped to the files surface. It must never\n   answer a hit test either: the folder under the finger is the drop target, not the label. */",
+    "/* A held finger must not raise the browser's copy/callout menu over a drag that has already begun.\n   Only the two surfaces that start a long-press drag opt out of it. */",
   ]],
   ["src/client/features/clouddrive/files/format.ts", [
     "/** One formatter per locale; the list can draw hundreds of dates in one render. */",
@@ -5667,10 +5672,21 @@ const allowed = new Map([
     "/**\n   * Enter/Space/F2/Delete/Ctrl+A/Esc/Shift+F10, answered by the page because each one opens\n   * a surface the layout does not own. Returns true when the key was consumed.\n   */",
     "/**\n   * Pointer drag. A row is always a source and a folder is always a target, but the page decides:\n   * it holds the payload in flight, refuses a folder that is the row itself or one of its descendants\n   * and runs the same move the context menu runs. Absent means the surface cannot move anything.\n   */",
     "/** True when this folder accepts what is in flight; the layout lights the row on that answer. */",
+    "/** Touch and pen pick up where HTML5 drag stops working; a mouse pointer is ignored here. */",
   ]],
   ["src/client/features/clouddrive/files/useFileActions.ts", [
     "/** Local list updates applied before the refresh confirms them. */",
     "/**\n   * One rename after another, in listing order: the dialog has already ruled out the collisions the\n   * folder can see, and a row the drive still refuses stops the run with its own error rather than\n   * sending two hundred writes that race each other for the same name.\n   */",
+  ]],
+  ["src/client/features/clouddrive/files/useTouchDrag.ts", [
+    "/**\n * Long-press drag for touch and pen, which HTML5 drag-and-drop never delivers.\n *\n * The desktop gesture in `FilesPage` stays the authority on what a drop means: this hook only turns\n * a pointer into the same payload and the same target, so both routes end in one `actions.move`.\n * A press becomes a drag only after it is held still, because a finger that moves first is scrolling.\n */",
+    "/** Resolve the id a hit element carries back to the row it belongs to. */",
+    "/** What would move if this row were picked up, or null when the row cannot be dragged. */",
+    "/** The text the floating chip shows while the rows are in the air. */",
+    "// The gesture lives longer than the render that started it, so it reads the caller through a ref",
+    "// that tracks the callbacks it actually uses.",
+    "// A hoisted handler cannot rely on a narrowing made outside it, so the payload is named once here.",
+    "/** A finger that keeps moving is scrolling; the page must not jump while the rows are held. */",
   ]],
   ["src/client/features/clouddrive/media-i18n.ts", [
     "/**\n * Translation lookup for the CloudDrive media/settings shards.\n *\n * The core catalog and the new shards are merged by the locale loader; until that import lands the\n * keys are outside `MessageKey`, so this helper widens the type once instead of every call site\n * casting. Runtime lookup is the ordinary `t()`.\n */",
@@ -35330,6 +35346,17 @@ const allowed = new Map([
   ["src/worker/calendar/vendor/dayflow-outlook-sync.d.ts", [
     "/** Worker-side type shim; see dayflow-caldav.d.ts. */",
   ]],
+  ["src/worker/clouddrive/content-response.ts", [
+    "/**\n * One answer for \"give me these bytes\".\n *\n * Four routes hand out the same objects — the live file, a distributed file, an old version, and a\n * file shared into another account — and each used to assemble its own status line, entity tag,\n * disposition and range headers. That is how they drifted: one route advertised `Accept-Ranges`\n * while another served ranges without saying so, and only two of them honoured `If-None-Match`.\n */",
+    "/** The row-shaped facts a content response is built from, whatever table the row came out of. */",
+    "/** Used for the fallback entity tag when the row stores none. */",
+    "/** A reply that needs no bytes: 304, 416, or a HEAD whose caller has nothing to verify. */",
+    "/** A HEAD: the caller may still confirm the object exists, then answer with these headers. */",
+    "/** Bytes to fetch at `offset` for `length`, then answer with these headers. */",
+    "/** Content-addressed rows pass a long-lived cache; anything else stays `private, no-store`. */",
+    "// Nothing is being handed over, so the disposition goes and only the shape of the file stays.",
+    "/** The HEAD a caller answers after it has confirmed the object is really there. */",
+  ]],
   ["src/worker/clouddrive/dav-locks.ts", [
     "/**\n * WebDAV write locks (RFC 4918 §6.4).\n *\n * A lock is a claim on one path: the holder says it intends to write there, and every mutating\n * DAV method has to honour that claim. Rows carry their own expiry and are compared against the\n * clock on read, so a client that disappears mid-edit stops blocking the drive once its timeout\n * runs out rather than leaving a permanent door held shut.\n */",
     "/** Whether a lock written against `lock.root` reaches `path`. */",
@@ -35591,6 +35618,7 @@ const allowed = new Map([
     "// listing and the download but left the history panel wide open.",
     "// A version is read the same way the live file is — ranges, disposition, no-store — because the",
     "// alternative the ledger replaced was restoring an old revision just to look at what it held.",
+    "// A version has no row id of its own; the pair names its entity tag fallback.",
   ]],
   ["src/worker/clouddrive/routes.ts", [
     "/**\n * A share link is meant for the one person the owner sent it to, so its document must never become a\n * search result. `robots.txt` already disallows the whole app; this is the header that survives a\n * crawler that ignores it, and it is set on the two page routes rather than on the API, whose JSON a\n * browser never renders.\n */",

@@ -3,7 +3,6 @@ import { autoSuffixName, childPath, foldedName } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
 import { readJson } from '../lib/request'
 import {
   assertWritable,
@@ -19,6 +18,7 @@ import {
 import { distributedStream, fileParts } from './distributed'
 import { hiddenByPatterns } from './meta'
 import { cloudDriveUsage } from './store'
+import { planContentResponse, headResponse } from './content-response'
 import { assertMetaAccess } from './routes-meta'
 
 export const clouddriveAclRoutes = new Hono<AppBindings>()
@@ -333,35 +333,34 @@ clouddriveAclRoutes.on(['GET', 'HEAD'], '/acl/shared/:ownerId/:fileId/content', 
   const fileId = c.req.param('fileId')
   const file = await aclAllows(c, ownerId, fileId, userIdOf(c))
   if (!file || file.kind !== 'file') throw ApiError.notFound('File not found')
-  const rangeHeader = c.req.header('range') ?? null
-  const range = rangeHeader ? parseByteRange(rangeHeader, file.size) : null
-  if (range === 'invalid') return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${file.size}` } })
-  const download = c.req.query('download') === '1'
-  const headers = new Headers({
-    'Content-Type': file.mime || 'application/octet-stream',
-    'ETag': `"${file.etag ?? `${file.id}-${file.size}`}"`,
-    'Accept-Ranges': 'bytes',
-    'Cache-Control': 'private, no-store',
-    'X-Content-Type-Options': 'nosniff',
-    'Content-Disposition': contentDisposition(file.mime, file.name),
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: c.req.header('if-none-match'),
+    download: c.req.query('download') === '1',
+    file: {
+      id: file.id,
+      size: file.size,
+      mime: file.mime,
+      name: file.name,
+      etag: file.etag,
+      lastModified: file.modified_at,
+    },
   })
-  if (download) headers.set('Content-Disposition', headers.get('Content-Disposition')!.replace(/^inline/, 'attachment'))
-  const start = range ? range.start : 0
-  const length = range ? range.end - range.start + 1 : file.size
-  headers.set('Content-Length', String(length))
-  if (range) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
-  if (c.req.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') return headResponse(planned)
   if (file.storage_kind === 'distributed') {
     const parts = await fileParts(c.env.DB, ownerId, file.id)
     const total = parts.reduce((sum, part) => sum + part.size, 0)
     if (parts.length === 0 || total !== file.size) throw ApiError.notFound('File not found')
-    const body = await distributedStream(c.env, c.env.DB, ownerId, parts, start, length)
-    return new Response(body, { status: range ? 206 : 200, headers })
+    const body = await distributedStream(c.env, c.env.DB, ownerId, parts, planned.offset, planned.length)
+    return new Response(body, { status: planned.status, headers: planned.headers })
   }
   if (!file.storage_key || !c.env.FILES) throw ApiError.notFound('File not found')
-  const object = range
-    ? await c.env.FILES.get(file.storage_key, { range: { offset: range.start, length } })
-    : await c.env.FILES.get(file.storage_key)
+  const object = await c.env.FILES.get(
+    file.storage_key,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
+  )
   if (!object) throw ApiError.notFound('File not found')
-  return new Response(object.body, { status: range ? 206 : 200, headers })
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })

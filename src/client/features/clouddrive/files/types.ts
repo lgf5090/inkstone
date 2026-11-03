@@ -1,4 +1,4 @@
-import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 
 /** How a click changes the selection: plain click, Ctrl/Cmd toggle, Shift range. */
@@ -40,6 +40,8 @@ export interface FileViewProps {
    * and runs the same move the context menu runs. Absent means the surface cannot move anything.
    */
   onDragStartEntry?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => void
+  /** Touch and pen pick up where HTML5 drag stops working; a mouse pointer is ignored here. */
+  onPointerDownEntry?: (entry: CloudDriveEntry, event: ReactPointerEvent<HTMLElement>) => void
   /** True when this folder accepts what is in flight; the layout lights the row on that answer. */
   onDragOverTarget?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => boolean
   onDropTarget?: (entry: CloudDriveEntry, event: ReactDragEvent<HTMLElement>) => void

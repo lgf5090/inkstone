@@ -12,7 +12,8 @@ import { Hono, type Context } from 'hono'
 import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { contentDisposition } from '../lib/http-range'
+import { entityTagOf, headResponse, planContentResponse } from './content-response'
 import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
@@ -67,43 +68,6 @@ async function findLiveFile(c: Context<AppBindings>, userId: string, id: string)
   return row
 }
 
-function entityTagOf(file: FileRow): string {
-  const raw = (file.etag ?? `${file.id}-${file.size}`).replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return `"${raw}"`
-}
-
-function matchesEntityTag(header: string, etag: string): boolean {
-  const target = etag.replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return header.split(',').some((item) => {
-    const trimmed = item.trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
-    return trimmed === '*' || trimmed === target
-  })
-}
-
-function dispositionOf(mime: string, name: string, download: boolean): string {
-  const value = contentDisposition(mime, name)
-  return download ? value.replace(/^inline;/, 'attachment;') : value
-}
-
-function baseHeaders(file: FileRow, download: boolean): Headers {
-  const headers = new Headers({
-    'Content-Type': file.mime || 'application/octet-stream',
-    'Content-Disposition': dispositionOf(file.mime, file.name, download),
-    'Accept-Ranges': 'bytes',
-    'ETag': entityTagOf(file),
-    'Last-Modified': new Date(file.uploaded_at).toUTCString(),
-    'Cache-Control': AUTHENTICATED_CACHE,
-    'X-Content-Type-Options': 'nosniff',
-  })
-  return headers
-}
-
-function notSatisfiable(file: FileRow): Response {
-  const headers = baseHeaders(file, true)
-  headers.set('Content-Range', `bytes */${file.size}`)
-  headers.delete('Content-Disposition')
-  return new Response(null, { status: 416, headers })
-}
 
 clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const userId = requireUserId(c)
@@ -131,72 +95,42 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const file = await findLiveFile(c, userId, c.req.param('id'))
   await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))
   const download = c.req.query('download') === '1'
-  const etag = entityTagOf(file)
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: c.req.header('if-none-match'),
+    download,
+    cacheControl: AUTHENTICATED_CACHE,
+    file: {
+      id: file.id, size: file.size, mime: file.mime, name: file.name, etag: file.etag, lastModified: file.uploaded_at,
+    },
+  })
   if (file.storage_kind === 'distributed') {
     const parts = await fileParts(c.env.DB, userId, file.id)
     const total = parts.reduce((sum, part) => sum + part.size, 0)
     if (parts.length === 0 || total !== file.size) {
       throw new ApiError(503, 'clouddrive_mount_unavailable', 'The distributed parts are incomplete')
     }
-    const ifNoneMatchDistributed = c.req.header('if-none-match')
-    if (ifNoneMatchDistributed && matchesEntityTag(ifNoneMatchDistributed, etag)) {
-      return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': AUTHENTICATED_CACHE } })
-    }
-    const rangeHeaderDistributed = c.req.header('range')
-    const distributedRange = rangeHeaderDistributed ? parseByteRange(rangeHeaderDistributed, file.size) : null
-    if (distributedRange === 'invalid') return notSatisfiable(file)
-    const headers = baseHeaders(file, download)
-    const start = distributedRange ? distributedRange.start : 0
-    const length = distributedRange ? distributedRange.end - distributedRange.start + 1 : file.size
-    headers.set('Content-Length', String(length))
-    if (distributedRange) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
-    if (c.req.method === 'HEAD') return new Response(null, { status: distributedRange ? 206 : 200, headers })
-    const body = await distributedStream(c.env, c.env.DB, userId, parts, start, length)
-    return new Response(body, { status: distributedRange ? 206 : 200, headers })
+    if (planned.kind === 'respond') return planned.response
+    if (planned.kind === 'head') return headResponse(planned)
+    const body = await distributedStream(c.env, c.env.DB, userId, parts, planned.offset, planned.length)
+    return new Response(body, { status: planned.status, headers: planned.headers })
   }
   if (file.storage_kind !== 'r2' || !file.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
   }
   const bucket = await requireBucket(c)
-
-  const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && matchesEntityTag(ifNoneMatch, etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { 'ETag': etag, 'Cache-Control': AUTHENTICATED_CACHE },
-    })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') {
+    if (!await bucket.head(file.storage_key)) throw ApiError.notFound('File data is missing')
+    return headResponse(planned)
   }
-
-  const rangeHeader = c.req.header('range')
-  const range = rangeHeader ? parseByteRange(rangeHeader, file.size) : null
-  if (range === 'invalid') return notSatisfiable(file)
-  const headers = baseHeaders(file, download)
-
-  if (c.req.method === 'HEAD') {
-    const object = await bucket.head(file.storage_key)
-    if (!object) throw ApiError.notFound('File data is missing')
-    if (range) {
-      headers.set('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`)
-      headers.set('Content-Length', String(range.end - range.start + 1))
-      return new Response(null, { status: 206, headers })
-    }
-    headers.set('Content-Length', String(file.size))
-    return new Response(null, { status: 200, headers })
-  }
-
   const object = await bucket.get(
     file.storage_key,
-    range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
   )
   if (!object) throw ApiError.notFound('File data is missing')
-
-  if (range) {
-    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`)
-    headers.set('Content-Length', String(range.end - range.start + 1))
-    return new Response(object.body, { status: 206, headers })
-  }
-  headers.set('Content-Length', String(file.size))
-  return new Response(object.body, { status: 200, headers })
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })
 
 clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {

@@ -17,7 +17,7 @@ import type { CloudDriveSettings } from '@shared/clouddrive/settings'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { fromBase64 } from '../lib/encoding'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { contentDisposition } from '../lib/http-range'
 import { newId } from '../lib/id'
 import { verifyPassword } from '../lib/password'
 import {
@@ -36,6 +36,7 @@ import {
   type CloudDriveMountInfo,
 } from './lib'
 import { cloudDriveUsage, ensurePrimaryMount, readCloudDriveSettings } from './store'
+import { entityTagOf, headResponse, planContentResponse } from './content-response'
 import { assertUnlockedMeta } from './routes-meta'
 import { effectiveMeta, hiddenByPatterns, type EffectiveCloudDriveMeta } from './meta'
 import { authenticateApiKey, pathWithinPrefix } from './store-keys'
@@ -390,19 +391,6 @@ function hrefOf(path: string, collection: boolean): string {
   return collection && !href.endsWith('/') ? `${href}/` : href
 }
 
-function entityTagOf(row: CloudDriveFileRow): string {
-  const raw = (row.etag ?? `${row.id}-${row.size}`).replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return `"${raw}"`
-}
-
-function matchesEntityTag(header: string, etag: string): boolean {
-  const target = etag.replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return header.split(',').some((item) => {
-    const value = item.trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
-    return value === '*' || value === target
-  })
-}
-
 /**
  * The locks a client can see on one resource. Answering with an empty element while a write is
  * being held elsewhere is what made the old stateless LOCK a lie, so the rows are reported here.
@@ -707,53 +695,31 @@ clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
   }
   const bucket = requireBucket(c)
-  const etag = entityTagOf(row)
-  const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && matchesEntityTag(ifNoneMatch, etag)) {
-    return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'private, no-store' } })
-  }
-
-  const rangeHeader = c.req.header('range')
-  const range = rangeHeader ? parseByteRange(rangeHeader, row.size) : null
-  const headers = new Headers({
-    'Content-Type': row.mime || 'application/octet-stream',
-    'Content-Disposition': contentDisposition(row.mime, row.name),
-    'Accept-Ranges': 'bytes',
-    ETag: etag,
-    'Last-Modified': new Date(row.modified_at || row.uploaded_at).toUTCString(),
-    'Cache-Control': 'private, no-store',
-    'X-Content-Type-Options': 'nosniff',
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: c.req.header('if-none-match'),
+    download: false,
+    file: {
+      id: row.id,
+      size: row.size,
+      mime: row.mime,
+      name: row.name,
+      etag: row.etag,
+      lastModified: row.modified_at || row.uploaded_at,
+    },
   })
-  if (range === 'invalid') {
-    headers.set('Content-Range', `bytes */${row.size}`)
-    headers.delete('Content-Disposition')
-    return new Response(null, { status: 416, headers })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') {
+    if (!await bucket.head(row.storage_key)) throw ApiError.notFound('File data is missing')
+    return headResponse(planned)
   }
-
-  if (c.req.method === 'HEAD') {
-    const object = await bucket.head(row.storage_key)
-    if (!object) throw ApiError.notFound('File data is missing')
-    if (range) {
-      headers.set('Content-Range', `bytes ${range.start}-${range.end}/${row.size}`)
-      headers.set('Content-Length', String(range.end - range.start + 1))
-      return new Response(null, { status: 206, headers })
-    }
-    headers.set('Content-Length', String(row.size))
-    return new Response(null, { status: 200, headers })
-  }
-
   const object = await bucket.get(
     row.storage_key,
-    range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
   )
   if (!object) throw ApiError.notFound('File data is missing')
-  if (range) {
-    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${row.size}`)
-    headers.set('Content-Length', String(range.end - range.start + 1))
-    return new Response(object.body, { status: 206, headers })
-  }
-  headers.set('Content-Length', String(row.size))
-  return new Response(object.body, { status: 200, headers })
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })
 
 clouddriveDavRoutes.put('*', async (c) => {
