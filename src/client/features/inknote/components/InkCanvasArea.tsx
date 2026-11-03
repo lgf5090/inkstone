@@ -104,6 +104,12 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
     contentWidth: note.contentWidth,
     contentHeight: note.contentHeight,
   }), [note.pageWidth, note.pageHeight, note.contentWidth, note.contentHeight])
+  // The paper is read from primitives, not from the object: a server refresh rebuilds the note's paper
+  // object even when it says the same thing, and an object dependency re-ran setPage/fitView on every
+  // save, interrupting a stroke and snapping the zoom back to the default.
+  const paperStyle = note.paper.style
+  const paperColor = note.paper.color
+  const paperSpacing = note.paper.spacing
 
   const openTextEditor = useCallback((world: { x: number; y: number }) => {
     const engine = engineRef.current
@@ -213,7 +219,7 @@ export function InkCanvasArea({ note, page, pageIndex, pageCount, previousPage, 
     engine.setFont(cssFont(settings))
     engine.setTool(tool)
     engine.fitView()
-  }, [note.id, page.id, note.paper, metrics, settings.fontFamily])
+  }, [note.id, page.id, paperStyle, paperColor, paperSpacing, metrics, settings.fontFamily])
 
   useEffect(() => {
     const handler = (event: Event) => setTtsCue((event as CustomEvent<{ pageId: string; textId: string } | null>).detail ?? null)

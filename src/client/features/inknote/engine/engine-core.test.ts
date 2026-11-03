@@ -452,6 +452,25 @@ describe('engine lifecycle and viewport', () => {
     expect(pageA.strokes).toHaveLength(2)
   })
 
+  it('keeps the stroke, selection and zoom when setPage is handed the same page again', () => {
+    const pageA = blankPage({ strokes: [testStroke('s1', [[100, 100], [300, 200]])] })
+    const { engine, canvas } = setup({ page: pageA })
+    engine.zoomAt(400, 500, 1.7)
+    flushFrames()
+    const scale = engine.getScale()
+    drawStroke(canvas, engine, [{ x: 400, y: 400 }, { x: 500, y: 500 }])
+    expect(engine.canUndo()).toBe(true)
+    engine.selectAll()
+
+    // An autosave's row coming back, or a refresh that returns the same revision: same page object and
+    // same paper values. setPage must not cancel the stroke in flight or reset the viewport.
+    engine.setPage(pageA, { ...PAPER }, { ...METRICS })
+    expect(engine.getScale()).toBeCloseTo(scale)
+    expect(engine.canUndo()).toBe(true)
+    expect(engine.selectionIds()).toHaveLength(2)
+    expect(pageA.strokes).toHaveLength(2)
+  })
+
   it('refits when setPage changes the page dimensions', () => {
     const { engine } = setup()
     const before = engine.getScale()

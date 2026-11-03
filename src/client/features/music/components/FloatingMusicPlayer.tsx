@@ -55,6 +55,7 @@ import { selectCurrentTrack, useMusicPlayer } from '../store/player'
 import { useMusicLibrary } from '../store/library'
 import { useMusicSettings } from '../store/settings'
 import { useMusicUi } from '../store/ui'
+import { useMusicToolEffects } from '../use-tool-effects'
 import { musicText } from './labels'
 
 const STORAGE_KEY = 'inkstone.music.floating'
@@ -128,6 +129,10 @@ function clampPosition(point: Point, width: number, height: number): Point {
 }
 
 export function FloatingMusicPlayer(): ReactElement | null {
+  // The player is every app's transport, so it is also where an assistant turn's playback effect is
+  // carried out. Mounted here rather than in MusicApp: a turn that asks for music while the reader is
+  // reading a note has to be heard, and that frame never mounted MusicApp at all.
+  useMusicToolEffects()
   const pathname = usePathname()
   const hidden = pathname.startsWith('/music') || pathname.startsWith('/m/')
   const current = useMusicPlayer(selectCurrentTrack)

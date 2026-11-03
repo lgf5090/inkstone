@@ -302,6 +302,26 @@ export const useRss = create<RssState>((set, get) => {
     return run
   }
 
+  /**
+   * The debounce is a promise about a few seconds, not about the tab never closing.
+   *
+   * `pagehide` is what still fires when the browser throws the document away (the app forbids
+   * `beforeunload`'s dialog), and a hidden tab may never come back. Both send the pending change set
+   * now, the same way the reading library's own leave handler does; `flushSave` is idempotent, so a
+   * page that was already clean costs nothing.
+   */
+  const flushOnLeave = (): void => {
+    if (saveTimer) window.clearTimeout(saveTimer)
+    saveTimer = 0
+    void flushSave()
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flushOnLeave)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushOnLeave()
+    })
+  }
+
   function writeIndex(): void {
     void localDb.saveRssCacheIndex(index)
   }

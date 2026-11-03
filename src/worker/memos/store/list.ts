@@ -1,9 +1,9 @@
 import {
-  MEMO_FILTER_SCAN_LIMIT,
   MEMO_MAX_PAGE_SIZE,
   MEMO_PAGE_SIZE,
 } from '@shared/memos/constants'
-import { compileMemoFilter, type MemoFilterRecord } from '@shared/memos/filter'
+import { compileMemoFilter, prepareMemoFilter, type MemoFilterRecord } from '@shared/memos/filter'
+import { planMemoFilterSql } from './filter-sql'
 import type {
   MemoListResponse,
   MemoOrderDirection,
@@ -17,6 +17,9 @@ import { ApiError } from '../../lib/errors'
 import { MEMO_COLUMNS, hydrateMemos, type MemoRow } from './hydrate'
 
 const TAG_SEPARATOR = '\u001f'
+
+/** Rows one scan reads before asking the evaluator, so an untranslatable filter stays bounded. */
+const FILTER_SCAN_CHUNK = 2_000
 
 const TAGS_PROJECTION = `(SELECT GROUP_CONCAT(t.tag, char(31))
   FROM memos_tags t WHERE t.memo_id = i.id) AS tags_text`
@@ -98,6 +101,14 @@ function toFilterRecord(row: MemoFilterRow): MemoFilterRecord {
   }
 }
 
+/**
+ * The filter query, answered by SQL where SQL can answer it.
+ *
+ * A filter the compiler translated exactly is one query with the page's own LIMIT/OFFSET. Anything
+ * else is narrowed by whatever part did translate and scanned in chunks, so the evaluator still sees
+ * every candidate but the account's whole body is never loaded for one page. The previous ceiling
+ * refused such a filter outright; scanning in order with the same cursor keeps a large account readable.
+ */
 async function listFiltered(
   db: D1Database,
   userId: string,
@@ -111,39 +122,83 @@ async function listFiltered(
     tz: string | undefined
   },
 ): Promise<MemoListResponse> {
+  const prepared = prepareMemoFilter(options.filter)
+  if (!prepared.ok) {
+    throw ApiError.badRequest(
+      `Invalid filter: ${prepared.error.message} (position ${prepared.error.position})`,
+    )
+  }
   const compiled = compileMemoFilter(options.filter)
   if (!compiled.ok) {
     throw ApiError.badRequest(
       `Invalid filter: ${compiled.error.message} (position ${compiled.error.position})`,
     )
   }
-  const { results } = await db
-    .prepare(
-      `SELECT ${MEMO_COLUMNS}, ${TAGS_PROJECTION}
-         FROM memos_items i
-        WHERE ${options.where}
-        ORDER BY ${options.orderBySql}
-        LIMIT ?${options.params.length + 1}`,
-    )
-    .bind(...options.params, MEMO_FILTER_SCAN_LIMIT + 1)
-    .all<MemoFilterRow>()
-
-  if (results.length > MEMO_FILTER_SCAN_LIMIT) {
-    throw ApiError.badRequest(
-      'The filter is too large to evaluate; add a tag, date, or text condition',
-    )
-  }
-
   const context = {
     viewerId: userId,
     now: nowSeconds(),
     timeZone: resolveTimeZone(options.tz),
   }
-  const matched = results.filter((row) => compiled.filter.matches(toFilterRecord(row), context))
-  const rows = matched.slice(options.offset, options.offset + options.limit)
+  const plan = planMemoFilterSql(prepared.ast, userId, context.now)
+  const sql = plan.complete ?? plan.pushdown
+  const where = sql ? `${options.where} AND ${sql.sql}` : options.where
+  const params = [...options.params, ...(sql?.params ?? [])]
+
+  if (plan.complete) {
+    const { results } = await db
+      .prepare(
+        `SELECT ${MEMO_COLUMNS}
+           FROM memos_items i
+          WHERE ${where}
+          ORDER BY ${options.orderBySql}
+          LIMIT ? OFFSET ?`,
+      )
+      .bind(...params, options.limit + 1, options.offset)
+      .all<MemoRow>()
+    const rows = results.slice(0, options.limit)
+    return {
+      items: await hydrateMemos(db, userId, rows),
+      nextCursor: results.length > options.limit
+        ? encodeMemoCursor(options.offset + rows.length)
+        : null,
+    }
+  }
+
+  // A partial (or absent) translation: walk the candidates in order, let the evaluator decide, and
+  // keep the order's own notion of the page. `offset` counts matched rows, the same unit the cursor
+  // encodes on the way out.
+  const matched: MemoRow[] = []
+  let scanned = 0
+  let skipped = 0
+  for (;;) {
+    const { results } = await db
+      .prepare(
+        `SELECT ${MEMO_COLUMNS}, ${TAGS_PROJECTION}
+           FROM memos_items i
+          WHERE ${where}
+          ORDER BY ${options.orderBySql}
+          LIMIT ? OFFSET ?`,
+      )
+      .bind(...params, FILTER_SCAN_CHUNK, scanned)
+      .all<MemoFilterRow>()
+    if (!results.length) break
+    for (const row of results) {
+      if (!compiled.filter.matches(toFilterRecord(row), context)) continue
+      if (skipped < options.offset) {
+        skipped += 1
+        continue
+      }
+      matched.push(row)
+      if (matched.length > options.limit) break
+    }
+    scanned += results.length
+    if (matched.length > options.limit || results.length < FILTER_SCAN_CHUNK) break
+  }
+
+  const rows = matched.slice(0, options.limit)
   return {
     items: await hydrateMemos(db, userId, rows),
-    nextCursor: options.offset + rows.length < matched.length
+    nextCursor: matched.length > options.limit
       ? encodeMemoCursor(options.offset + rows.length)
       : null,
   }
@@ -162,19 +217,20 @@ export async function listMemos(
   const offset = decodeMemoCursor(options.cursor)
   const limit = normalizeLimit(options.limit, MEMO_PAGE_SIZE)
 
-  const where = ['i.user_id = ?1', 'i.state = ?2']
+  // Anonymous placeholders so a compiled filter can append its own parameters in order.
+  const where = ['i.user_id = ?', 'i.state = ?']
   const params: unknown[] = [userId, state]
   if (options.spaceId === null) {
     where.push('i.space_id IS NULL')
   } else if (options.spaceId !== undefined) {
     params.push(options.spaceId)
-    where.push(`i.space_id = ?${params.length}`)
+    where.push('i.space_id = ?')
   }
   if (options.parentId === undefined) {
     where.push('i.parent_id IS NULL')
   } else {
     params.push(options.parentId)
-    where.push(`i.parent_id = ?${params.length}`)
+    where.push('i.parent_id = ?')
   }
 
   const filter = options.filter?.trim()
@@ -196,7 +252,7 @@ export async function listMemos(
          FROM memos_items i
         WHERE ${where.join(' AND ')}
         ORDER BY ${orderBySql}
-        LIMIT ?${params.length + 1} OFFSET ?${params.length + 2}`,
+        LIMIT ? OFFSET ?`,
     )
     .bind(...params, limit + 1, offset)
     .all<MemoRow>()

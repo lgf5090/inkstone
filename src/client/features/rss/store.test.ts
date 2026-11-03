@@ -662,3 +662,18 @@ describe('what a model answered', () => {
     expect(useRss.getState().view().version).toBe('translation')
   })
 })
+
+describe('leaving the page', () => {
+  it('sends the library the debounce was still holding', async () => {
+    await boot()
+    calls.length = 0
+    useRss.getState().setPinned('f1', true)
+    // The tab is being thrown away before the debounce has elapsed; `pagehide` is the event that still
+    // fires then, and without this the pin was lost until the reader happened to change something else.
+    window.dispatchEvent(new Event('pagehide'))
+    await vi.waitFor(
+      () => expect(calls.filter((call) => call.path === 'patch' || call.path === 'save')).toHaveLength(1),
+      { timeout: 2_000 },
+    )
+  })
+})

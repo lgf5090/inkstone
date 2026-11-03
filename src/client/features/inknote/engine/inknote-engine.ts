@@ -417,13 +417,24 @@ export class InknoteEngineImpl implements InknoteEngineApi {
 
   setPage(page: InknotePageContent, paper: InknotePaper, metrics: InknotePageMetrics): void {
     if (this.destroyed) return
-    if (this.selectionScale) this.finishSelectionScale()
     const previous = this.page
     const sizeChanged = !previous
       || metrics.width !== this.metrics.width
       || metrics.height !== this.metrics.height
       || metrics.contentWidth !== this.metrics.contentWidth
       || metrics.contentHeight !== this.metrics.contentHeight
+    // The same document and the same paper are not a new page. `setPage` cancels the stroke in flight
+    // and clears the selection by design, so re-running it on a render that changed nothing (a saved
+    // row coming back, a refresh returning the same revision) cut the reader's stroke and reset the
+    // zoom. The early return keeps the reader's interaction; a real change still goes through below.
+    const samePaper = paper.style === this.paper.style
+      && paper.color === this.paper.color
+      && paper.spacing === this.paper.spacing
+    if (previous === page && samePaper && !sizeChanged && this.fitted) {
+      this.requestRender()
+      return
+    }
+    if (this.selectionScale) this.finishSelectionScale()
     this.page = page
     this.paper = paper
     this.metrics = {

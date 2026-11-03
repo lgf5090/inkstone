@@ -33,7 +33,7 @@ import { api, ApiError } from '../../lib/api'
 import { copyText } from '../../lib/clipboard'
 import { Button, IconButton, Spinner } from '../../components/primitives'
 import { Input } from '../../components/form'
-import { Drawer, Menu, confirm, type MenuItem } from '../../components/overlay'
+import { Drawer, Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
 import { DeferredCodeEditor } from '../../editor/CodeEditor'
 import { useNotes } from '../../store/notes'
 import { useSession } from '../../store/session'
@@ -49,7 +49,8 @@ import { EDITOR_AI_LABELS, editorAiAnchor, quotePassage, type AnswerResult, type
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { saveReplyAsNote } from './save-to-note'
-import { loadLinkedNote, pullFromNote, pushToNote } from './canvas-sync'
+import { loadLinkedNote, openNoteContent, pullFromNote, pushToNote } from './canvas-sync'
+import { buildWriteDiff, WriteDiffView } from './editor-ai-diff'
 
 /**
  * How many notes and tags the editor's completions may offer.
@@ -343,12 +344,52 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
   const [noteReadFailed, setNoteReadFailed] = useState<string | null>(null)
   // Bumped by the retry: the read below is the effect's own work, so asking again is asking the effect.
   const [readAttempt, setReadAttempt] = useState(0)
+  // An open note that moved while the panel was typing. The write is refused until the reader has seen
+  // both bodies and chosen; the draft they typed is never replaced by this dialog.
+  const [noteConflict, setNoteConflict] = useState<{ note: string, draft: string } | null>(null)
+  const noteDiff = useMemo(
+    () => (noteConflict ? buildWriteDiff(noteConflict.note, noteConflict.draft) : null),
+    [noteConflict],
+  )
   const pending = useMemo(() => ({ title, content }), [title, content])
   const settled = useDebounced(pending, DEBOUNCE.persist)
   // What the reader last typed, read after a save settles: the save in flight used an older snapshot,
   // and if the text moved again while it was away the new snapshot is what has to go out next.
   const latest = useRef(settled)
   latest.current = settled
+
+  /**
+   * A refused note write, shown as the two bodies and one choice.
+   *
+   * Only an open note can be compared this way: the notebook's own copy is in the store, and a closed
+   * note would need another read before there was anything to draw. A closed note keeps the existing
+   * warning, which sends the reader to Load first.
+   */
+  const showNoteConflict = (draft: string): boolean => {
+    if (!linkedNoteId) return false
+    const note = openNoteContent(linkedNoteId)
+    if (note === null) return false
+    setNoteConflict({ note, draft })
+    return true
+  }
+
+  /** Write the draft over the open note after the reader has seen the difference. */
+  const overwriteLinkedNote = async () => {
+    const request = noteConflict
+    if (!request || !linkedNoteId) return
+    setNoteConflict(null)
+    setSyncState('syncing')
+    const result = await pushToNote(artifact.id, linkedNoteId, request.draft, { force: true })
+    setSyncState(result === 'ok' ? 'synced' : 'failed')
+    if (result === 'ok') {
+      useUi.getState().toast({ title: t('assistant.canvas.synced'), tone: 'success' })
+      return
+    }
+    useUi.getState().toast({
+      title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
+      tone: 'warning',
+    })
+  }
 
   // A linked draft no longer opens on the note. The draft may be an assistant edit written while the panel
   // was closed, and the note may have moved in the notebook: copying either over the other would silently
@@ -447,6 +488,9 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           return
         }
         setSyncState('failed')
+        // An open note has a second body to show; a closed one keeps the sentence that sends the reader
+        // to Load, because there is nothing here to compare it against.
+        if (result === 'conflict' && showNoteConflict(snapshot.content)) return
         useUi.getState().toast({
           title: t(result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
           tone: 'warning',
@@ -494,6 +538,7 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
         setSyncState('syncing')
         const result = await pushToNote(artifact.id, linkedNoteId, content)
         setSyncState(result === 'ok' ? 'synced' : 'failed')
+        if (result === 'conflict') showNoteConflict(content)
       }
     } catch (error) {
       setSaveState('error')
@@ -784,6 +829,9 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
     setSyncState('syncing')
     const result = await pushToNote(artifact.id, linkedNoteId, content)
     setSyncState(result === 'ok' ? 'synced' : 'failed')
+    // The explicit Sync press is already a choice about the draft, so an open note's refusal is shown
+    // as its diff rather than as a sentence the reader can only read.
+    if (result === 'conflict' && showNoteConflict(content)) return
     useUi.getState().toast({
       title: t(result === 'ok' ? 'assistant.canvas.synced' : result === 'conflict' ? 'assistant.canvas.sync_conflict' : 'assistant.canvas.note_missing'),
       tone: result === 'ok' ? 'success' : 'warning',
@@ -1040,6 +1088,34 @@ function ArtifactEditor({ artifact, onSave, onRemove }: {
           onApply={(next) => void applyAiResult(next, aiResult.messageId)}
         />
       )}
+      <Modal
+        open={noteConflict !== null && noteDiff !== null}
+        onClose={() => setNoteConflict(null)}
+        title={t('assistant.canvas.sync_conflict_title')}
+        description={t('assistant.canvas.sync_conflict_hint')}
+        width={620}
+        footer={(
+          <>
+            <Button size="sm" variant="ghost" onClick={() => setNoteConflict(null)}>
+              {t('assistant.canvas.sync_conflict_keep')}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => void overwriteLinkedNote()}>
+              {t('assistant.canvas.sync_conflict_overwrite')}
+            </Button>
+          </>
+        )}
+      >
+        {noteDiff && (
+          <div className="space-y-2">
+            <p className="text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-secondary)]">
+              {t('assistant.canvas.sync_conflict_scope')}
+            </p>
+            {/* The note is the "before" side: the diff reads as what this draft would change in the
+                notebook, which is the decision the buttons below make. */}
+            <WriteDiffView diff={noteDiff} />
+          </div>
+        )}
+      </Modal>
       {historyOpen && <ArtifactHistory artifact={artifact} onClose={() => setHistoryOpen(false)} />}
     </>
   )

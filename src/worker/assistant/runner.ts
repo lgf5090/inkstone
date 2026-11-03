@@ -373,6 +373,36 @@ function estimateTurnUsage(system: string, turns: ModelTurn[], answer: string): 
   return { inputTokens, outputTokens: estimateTokens(answer) }
 }
 
+/**
+ * What the thread may spend once the prompt has paid for itself.
+ *
+ * The tool block is part of the request on every protocol that takes one, and a disclosure catalog is
+ * text on the turn message; both were omitted here, so a tool-heavy turn could budget a window for
+ * words that the tools then pushed over the model's ceiling. The floor stays: a history with nothing
+ * left is still shown a little, because an empty window is a worse answer than a slightly over-budget
+ * prompt.
+ */
+export function historyBudgetFor(input: {
+  contextTokens: number
+  system: string
+  turnContext: string
+  tools: readonly ToolSchema[]
+  catalog: string
+  outputCap: number
+}): number {
+  const toolTokens = input.tools.reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0)
+    + estimateTokens(input.catalog)
+  return Math.max(
+    500,
+    input.contextTokens
+      - estimateTokens(input.system)
+      - estimateTokens(input.turnContext)
+      - toolTokens
+      - input.outputCap
+      - TOOL_RESULT_RESERVE_TOKENS,
+  )
+}
+
 export class AssistantRunner {
   private readonly memoryHistory: MemoryHistoryService
   private readonly automations: AutomationService
@@ -906,9 +936,33 @@ export class AssistantRunner {
       const turnContext = [prompt.turnContext, this.contextPage ? renderAssistantPageContext(this.contextPage) : '']
         .filter(Boolean)
         .join('\n\n')
+      // Built here rather than after the window so the schemas can be paid for before the history is
+      // budgeted: on the wire they are a block of the request like the system prompt, and a window that
+      // measured only the words left the provider refusing a prompt that was over its own ceiling.
+      const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
+      // Recomputed per step: a turn that loaded a schema has to see that tool in its very next request.
+      const toolSchemas = (): ToolSchema[] => executor.available()
+        // On a protocol that sends the vendor's own search tool, that one already carries this name, and a
+        // request with two entries called `web_search` is a request the provider refuses outright. The
+        // vendor's search is the better of the two wherever it exists, so the built-in one steps aside.
+        .filter((definition) => !(this.webSearchNative && definition.name === WEB_SEARCH_TOOL_NAME))
+        .map((definition) => ({
+          name: definition.name,
+          description: definition.description,
+          // A remote tool's own JSON Schema, because this file has no FieldSpec list for it.
+          parameters: external.schemas[definition.name] ?? parametersSchema(definition.fields),
+        }))
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
-      // answer the turn is going to write, and the results the steps after this one read back into it.
-      const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - estimateTokens(turnContext) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
+      // tools and their catalog, the answer the turn is going to write, and the results the steps after
+      // this one read back into it.
+      const historyBudget = historyBudgetFor({
+        contextTokens,
+        system,
+        turnContext,
+        tools: toolSchemas(),
+        catalog: executor.catalogText(),
+        outputCap,
+      })
       let window = buildContextWindow(recentHistory, historyBudget, promptSummaryUpto)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
@@ -929,19 +983,6 @@ export class AssistantRunner {
       }
 
       yield { type: 'stage', stage: 'generating' }
-      const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
-      // Recomputed per step: a turn that loaded a schema has to see that tool in its very next request.
-      const toolSchemas = (): ToolSchema[] => executor.available()
-        // On a protocol that sends the vendor's own search tool, that one already carries this name, and a
-        // request with two entries called `web_search` is a request the provider refuses outright. The
-        // vendor's search is the better of the two wherever it exists, so the built-in one steps aside.
-        .filter((definition) => !(this.webSearchNative && definition.name === WEB_SEARCH_TOOL_NAME))
-        .map((definition) => ({
-          name: definition.name,
-          description: definition.description,
-          // A remote tool's own JSON Schema, because this file has no FieldSpec list for it.
-          parameters: external.schemas[definition.name] ?? parametersSchema(definition.fields),
-        }))
       // A server the reader added that will not answer is their business, not a silent absence: without
       // this the tool list just looks shorter than it should be.
       for (const problem of external.problems) {
@@ -2578,8 +2619,17 @@ export class AssistantRunner {
    * The reader is not watching, so nothing here may write. That is enforced by the executor's mode
    * rather than by the prompt, because a routine that has drifted is exactly the case where a model
    * reaches for a write tool.
+   *
+   * `options.tools` narrows that further for a run whose prompt is built from untrusted text. `'none'`
+   * leaves the request with an empty tool list, and a list is the only set this run may reach — both
+   * are enforced where tools are offered, so a prompt asking the model to fetch something cannot turn
+   * into a call.
    */
-  async runScheduledPrompt(prompt: string, signal: AbortSignal): Promise<string> {
+  async runScheduledPrompt(
+    prompt: string,
+    signal: AbortSignal,
+    options: { tools?: readonly string[] | 'none' } = {},
+  ): Promise<string> {
     this.turnSignal = signal
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) throw ApiError.badRequest('No model is configured for the assistant.')
@@ -2602,7 +2652,19 @@ export class AssistantRunner {
     // The same split a live turn uses: the standing instructions are the cached head, and the clock and
     // memories ride on the run's own message.
     const system = parts.system
-    const executor = new ToolExecutor(await this.toolContext(), { maxToolCalls: Math.min(limits.maxToolCalls, 4) })
+    const context = await this.toolContext()
+    // `'none'` is expressed as both an empty allowance and an empty whitelist: the first keeps the
+    // request's tool array empty, the second stops a tool looked up by name from being run anyway.
+    const toolsDisabled = options.tools === 'none'
+    const allowedTools: readonly string[] | undefined = toolsDisabled
+      ? []
+      : options.tools === 'none'
+        ? undefined
+        : options.tools
+    const executor = new ToolExecutor(
+      allowedTools ? { ...context, allowedTools } : context,
+      { maxToolCalls: toolsDisabled ? 0 : Math.min(limits.maxToolCalls, 4) },
+    )
     const schemas = executor.available().map((definition) => ({
       name: definition.name,
       description: definition.description,

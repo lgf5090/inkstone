@@ -175,11 +175,22 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
       const content = serializePageContent(page.content)
       const saved = await inknoteApi.savePage(note.id, pageId, content, page.rev)
       try { localStorage.removeItem(`inknote-draft:${note.id}:${pageId}`) } catch { /* storage may be unavailable */ }
-      set((state) => ({
-        pages: state.pages.map((entry) => entry.id === pageId ? { ...entry, rev: saved.rev, updatedAt: saved.updatedAt } : entry),
-        note: state.note ? { ...state.note, updatedAt: saved.updatedAt, contentBytes: state.note.contentBytes } : null,
-        saveState: 'saved',
-      }))
+      // Only the rows that moved are rebuilt. A save that changed nothing used to hand every page and
+      // the note a fresh object, and the canvas read that as a new document: its effects ran setPage and
+      // fitView mid-stroke, which is how a stroke was cut or a zoom snapped back while autosave ran.
+      set((state) => {
+        const current = state.pages.find((entry) => entry.id === pageId)
+        const pageMoved = current !== undefined && (current.rev !== saved.rev || current.updatedAt !== saved.updatedAt)
+        const noteMoved = state.note !== null && state.note.updatedAt !== saved.updatedAt
+        if (!pageMoved && !noteMoved) return { saveState: 'saved' }
+        return {
+          pages: pageMoved
+            ? state.pages.map((entry) => entry.id === pageId ? { ...entry, rev: saved.rev, updatedAt: saved.updatedAt } : entry)
+            : state.pages,
+          note: noteMoved && state.note ? { ...state.note, updatedAt: saved.updatedAt } : state.note,
+          saveState: 'saved',
+        }
+      })
       syncChannel?.postMessage({ type: 'page-saved', noteId: note.id, pageId, rev: saved.rev })
       if (page.position === 0) void uploadFirstPageCover(note.id, get().note ?? note, page)
       get().refreshLibrary().catch(() => {})
@@ -346,16 +357,25 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
     async refreshLibrary() {
       try {
         const library = await inknoteApi.library()
-        set((state) => ({
-          library: {
-            subjects: library.subjects,
-            notebooks: library.notebooks,
-            notes: library.notes,
-            settings: state.library?.settings ?? sanitizeInknoteSettings(library.settings),
-            templates: state.library?.templates ?? library.templates,
-          },
-          note: state.note ? library.notes.find((entry) => entry.id === state.note!.id) ?? state.note : null,
-        }))
+        set((state) => {
+          const server = state.note ? library.notes.find((entry) => entry.id === state.note!.id) : undefined
+          // A refresh that returned the same revision is not a change to the open note. Keeping the
+          // object is what keeps its paper's identity stable, so the canvas's paper effect does not
+          // re-fit the zoom every time a background refresh lands.
+          const same = state.note !== null && server !== undefined
+            && server.rev === state.note.rev
+            && server.updatedAt === state.note.updatedAt
+          return {
+            library: {
+              subjects: library.subjects,
+              notebooks: library.notebooks,
+              notes: library.notes,
+              settings: state.library?.settings ?? sanitizeInknoteSettings(library.settings),
+              templates: state.library?.templates ?? library.templates,
+            },
+            note: state.note ? (same ? state.note : server ?? state.note) : null,
+          }
+        })
       } catch {
         // A background refresh is allowed to miss; the next save or focus retries it.
       }
@@ -694,6 +714,18 @@ export const useInknoteStore = create<InknoteState>((set, get) => {
         const saved = await inknoteApi.saveSettings(next, get().settingsUpdatedAt || undefined)
         set({ settingsUpdatedAt: saved.updatedAt })
       } catch (error) {
+        // A 409 means this tab's token was from before another device's write. Keeping the stale token
+        // made every later save fail the same way, silently, until the page was reloaded — so the
+        // server's timestamp is read back here and the next save carries it.
+        if (error instanceof ApiError && error.status === 409) {
+          try {
+            const latest = await inknoteApi.settings()
+            set({ settingsUpdatedAt: latest.updatedAt })
+          } catch {
+            // The conflict itself is still reported below; a read that also failed changes nothing
+            // about what the reader has to do.
+          }
+        }
         set({ error: message(error) })
       }
     },
