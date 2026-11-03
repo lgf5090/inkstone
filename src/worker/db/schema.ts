@@ -3381,6 +3381,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON chat_reader_embeddings(user_id, indexed_at DESC)`,
     ],
   },
+  {
+    version: 245,
+    skipIfColumnExists: { table: 'chat_projects', column: 'group_name' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 246,
+    skipIfColumnExists: { table: 'chat_projects', column: 'settings_json' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 247,
+    skipIfColumnExists: { table: 'chat_projects', column: 'knowledge_base_ids' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN knowledge_base_ids TEXT NOT NULL DEFAULT '[]'`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

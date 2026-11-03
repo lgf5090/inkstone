@@ -3055,6 +3055,9 @@ export interface Task {
   completedAt: number | null
 }
 
+export const PROJECT_MCP_MODES = ['off', 'auto', 'manual'] as const
+export type ProjectMcpMode = (typeof PROJECT_MCP_MODES)[number]
+
 export interface Project {
   id: string
   name: string
@@ -3106,6 +3109,32 @@ export interface Project {
   toolOverrides: Record<string, AssistantToolMode>
   /** The reader's saved skills this Agent injects or may load. */
   skillIds: string[]
+  /** How the assistant list groups this Agent; empty is the ungrouped section. */
+  group: string
+  /** One assistant's own sampling, when it has said anything. Null follows the model. */
+  temperature: number | null
+  topP: number | null
+  /** A ceiling for one answer; null keeps the model's own. */
+  maxOutputTokens: number | null
+  /** Whether a turn with no tools may answer in one request instead of streaming. */
+  stream: boolean
+  /** The most model requests one turn may make; null is the account's own bound. */
+  maxToolRounds: number | null
+  /** How many recent turns the assistant keeps; null keeps the whole thread. */
+  keepRecentMessages: number | null
+  /** Whether this assistant overrides the account's automatic-compaction thresholds. */
+  contextCustom: boolean
+  autoCompactMode: 'off' | 'absolute' | 'ratio'
+  autoCompactTokens: number
+  autoCompactRatio: number
+  /** Extra request-body fields this assistant adds, beyond its model's. */
+  customParams: AssistantCustomParam[]
+  /** Whether MCP tools are off, follow the reader's per-tool modes, or wait for a press on every call. */
+  mcpMode: ProjectMcpMode
+  /** The servers this assistant may use; empty means every enabled server. */
+  mcpServerIds: string[]
+  /** The knowledge bases this assistant answers from; empty means the whole notebook. */
+  knowledgeBaseIds: string[]
   /** Whether the note on screen rides in the prompt. */
   focusSync: boolean
   /** Whether the current time rides in the prompt. */

@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -39,6 +39,7 @@ import type {
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantCustomParam,
+  ProjectMcpMode,
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
@@ -6382,6 +6383,21 @@ export class AssistantStore {
     toolsLimited?: boolean
     toolOverrides?: Record<string, AssistantToolMode>
     skillIds?: string[]
+    group?: string
+    temperature?: number | null
+    topP?: number | null
+    maxOutputTokens?: number | null
+    stream?: boolean
+    maxToolRounds?: number | null
+    keepRecentMessages?: number | null
+    contextCustom?: boolean
+    autoCompactMode?: Project['autoCompactMode']
+    autoCompactTokens?: number
+    autoCompactRatio?: number
+    customParams?: AssistantCustomParam[]
+    mcpMode?: ProjectMcpMode
+    mcpServerIds?: string[]
+    knowledgeBaseIds?: string[]
     focusSync?: boolean
     timeAware?: boolean
     readProjectInstructions?: boolean
@@ -6401,6 +6417,23 @@ export class AssistantStore {
     const toolsLimited = input.toolsLimited === true
     const toolOverrides = input.toolOverrides ?? {}
     const skillIds = input.skillIds ?? []
+    const group = input.group ?? ''
+    const settings: ProjectAssistantSettings = {
+      temperature: input.temperature ?? null,
+      topP: input.topP ?? null,
+      maxOutputTokens: input.maxOutputTokens ?? null,
+      stream: input.stream !== false,
+      maxToolRounds: input.maxToolRounds ?? null,
+      keepRecentMessages: input.keepRecentMessages ?? null,
+      contextCustom: input.contextCustom === true,
+      autoCompactMode: input.autoCompactMode ?? 'off',
+      autoCompactTokens: input.autoCompactTokens ?? 100_000,
+      autoCompactRatio: input.autoCompactRatio ?? 0.8,
+      customParams: input.customParams ?? [],
+      mcpMode: input.mcpMode ?? 'auto',
+      mcpServerIds: input.mcpServerIds ?? [],
+    }
+    const knowledgeBaseIds = input.knowledgeBaseIds ?? []
     const focusSync = input.focusSync !== false
     const timeAware = input.timeAware !== false
     const readProjectInstructions = input.readProjectInstructions === true
@@ -6408,17 +6441,19 @@ export class AssistantStore {
     await this.write(
       `INSERT INTO chat_projects
          (id, user_id, name, description, icon, instructions, note_scope, exclude_scope, note_ids, model_id,
-          tools, tools_limited, tool_overrides, skill_ids, focus_sync, time_aware, read_project_instructions,
-          position, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
+          tools, tools_limited, tool_overrides, skill_ids, group_name, settings_json, knowledge_base_ids,
+          focus_sync, time_aware, read_project_instructions, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
       id, name, description, icon, instructions, JSON.stringify(noteScope), JSON.stringify(excludeScope),
       JSON.stringify(noteIds), modelId, JSON.stringify(tools), toolsLimited ? 1 : 0, JSON.stringify(toolOverrides),
-      JSON.stringify(skillIds), focusSync ? 1 : 0, timeAware ? 1 : 0, readProjectInstructions ? 1 : 0,
+      JSON.stringify(skillIds), group, JSON.stringify(settings), JSON.stringify(knowledgeBaseIds),
+      focusSync ? 1 : 0, timeAware ? 1 : 0, readProjectInstructions ? 1 : 0,
       position, at, at,
     )
     return {
       id, name, description, icon, instructions, noteScope, excludeScope, noteIds, modelId,
-      tools, toolsLimited, toolOverrides, skillIds, focusSync, timeAware, readProjectInstructions,
+      tools, toolsLimited, toolOverrides, skillIds, group, ...settings, knowledgeBaseIds,
+      focusSync, timeAware, readProjectInstructions,
       position, createdAt: at, updatedAt: at,
     }
   }
@@ -6436,6 +6471,21 @@ export class AssistantStore {
     toolsLimited?: boolean
     toolOverrides?: Record<string, AssistantToolMode>
     skillIds?: string[]
+    group?: string
+    temperature?: number | null
+    topP?: number | null
+    maxOutputTokens?: number | null
+    stream?: boolean
+    maxToolRounds?: number | null
+    keepRecentMessages?: number | null
+    contextCustom?: boolean
+    autoCompactMode?: Project['autoCompactMode']
+    autoCompactTokens?: number
+    autoCompactRatio?: number
+    customParams?: AssistantCustomParam[]
+    mcpMode?: ProjectMcpMode
+    mcpServerIds?: string[]
+    knowledgeBaseIds?: string[]
     focusSync?: boolean
     timeAware?: boolean
     readProjectInstructions?: boolean
@@ -6458,6 +6508,36 @@ export class AssistantStore {
     if (patch.toolsLimited !== undefined) set('tools_limited', patch.toolsLimited ? 1 : 0)
     if (patch.toolOverrides !== undefined) set('tool_overrides', JSON.stringify(patch.toolOverrides))
     if (patch.skillIds !== undefined) set('skill_ids', JSON.stringify(patch.skillIds))
+    if (patch.group !== undefined) set('group_name', patch.group)
+    // The assistant's own knobs are one stored document. A patch that names one of them reads the row and
+    // writes the merged document, because a partial write here would silently reset every other knob.
+    const touchesSettings = patch.temperature !== undefined || patch.topP !== undefined || patch.maxOutputTokens !== undefined
+      || patch.stream !== undefined || patch.maxToolRounds !== undefined || patch.keepRecentMessages !== undefined
+      || patch.contextCustom !== undefined || patch.autoCompactMode !== undefined || patch.autoCompactTokens !== undefined
+      || patch.autoCompactRatio !== undefined || patch.customParams !== undefined || patch.mcpMode !== undefined
+      || patch.mcpServerIds !== undefined
+    if (touchesSettings) {
+      const current = await this.getProject(id)
+      if (!current) return null
+      const merged = projectAssistantSettings({
+        ...projectAssistantSettings(current),
+        ...(patch.temperature !== undefined ? { temperature: patch.temperature } : {}),
+        ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
+        ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens } : {}),
+        ...(patch.stream !== undefined ? { stream: patch.stream } : {}),
+        ...(patch.maxToolRounds !== undefined ? { maxToolRounds: patch.maxToolRounds } : {}),
+        ...(patch.keepRecentMessages !== undefined ? { keepRecentMessages: patch.keepRecentMessages } : {}),
+        ...(patch.contextCustom !== undefined ? { contextCustom: patch.contextCustom } : {}),
+        ...(patch.autoCompactMode !== undefined ? { autoCompactMode: patch.autoCompactMode } : {}),
+        ...(patch.autoCompactTokens !== undefined ? { autoCompactTokens: patch.autoCompactTokens } : {}),
+        ...(patch.autoCompactRatio !== undefined ? { autoCompactRatio: patch.autoCompactRatio } : {}),
+        ...(patch.customParams !== undefined ? { customParams: patch.customParams } : {}),
+        ...(patch.mcpMode !== undefined ? { mcpMode: patch.mcpMode } : {}),
+        ...(patch.mcpServerIds !== undefined ? { mcpServerIds: patch.mcpServerIds } : {}),
+      })
+      set('settings_json', JSON.stringify(merged))
+    }
+    if (patch.knowledgeBaseIds !== undefined) set('knowledge_base_ids', JSON.stringify(patch.knowledgeBaseIds))
     if (patch.focusSync !== undefined) set('focus_sync', patch.focusSync ? 1 : 0)
     if (patch.timeAware !== undefined) set('time_aware', patch.timeAware ? 1 : 0)
     if (patch.readProjectInstructions !== undefined) set('read_project_instructions', patch.readProjectInstructions ? 1 : 0)
@@ -9403,12 +9483,91 @@ interface ProjectRow {
   tools_limited: number | null
   tool_overrides: string | null
   skill_ids: string | null
+  group_name: string | null
+  settings_json: string | null
+  knowledge_base_ids: string | null
   focus_sync: number | null
   time_aware: number | null
   read_project_instructions: number | null
   position: number | null
   created_at: number
   updated_at: number
+}
+
+const DEFAULT_PROJECT_ASSISTANT_SETTINGS = {
+  temperature: null as number | null,
+  topP: null as number | null,
+  maxOutputTokens: null as number | null,
+  stream: true,
+  maxToolRounds: null as number | null,
+  keepRecentMessages: null as number | null,
+  contextCustom: false,
+  autoCompactMode: 'off' as AssistantSettings['autoCompactMode'],
+  autoCompactTokens: 100_000,
+  autoCompactRatio: 0.8,
+  customParams: [] as AssistantCustomParam[],
+  mcpMode: 'auto' as ProjectMcpMode,
+  mcpServerIds: [] as string[],
+}
+
+type ProjectAssistantSettings = typeof DEFAULT_PROJECT_ASSISTANT_SETTINGS
+
+function boundedNumber(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.min(max, Math.max(min, value))
+}
+
+function decodeProjectAssistantSettings(value: string | null): ProjectAssistantSettings {
+  const parsed = parseJson(value)
+  const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {}
+  return {
+    temperature: boundedNumber(record.temperature, 0, 1.5),
+    topP: boundedNumber(record.topP, 0, 1),
+    maxOutputTokens: record.maxOutputTokens === null || record.maxOutputTokens === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.maxOutputTokens, 64, 200_000) ?? 0) || null,
+    stream: record.stream !== false,
+    maxToolRounds: record.maxToolRounds === null || record.maxToolRounds === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.maxToolRounds, 1, 50) ?? 0) || null,
+    keepRecentMessages: record.keepRecentMessages === null || record.keepRecentMessages === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.keepRecentMessages, 1, 200) ?? 0) || null,
+    contextCustom: record.contextCustom === true,
+    autoCompactMode: record.autoCompactMode === 'absolute' || record.autoCompactMode === 'ratio'
+      ? record.autoCompactMode
+      : 'off',
+    autoCompactTokens: Math.trunc(boundedNumber(record.autoCompactTokens, 10_000, 2_000_000) ?? 100_000),
+    autoCompactRatio: boundedNumber(record.autoCompactRatio, 0.3, 0.95) ?? 0.8,
+    customParams: parseCustomParams(record.customParams),
+    mcpMode: PROJECT_MCP_MODES.includes(record.mcpMode as ProjectMcpMode)
+      ? record.mcpMode as ProjectMcpMode
+      : 'auto',
+    mcpServerIds: decodeStringList(typeof record.mcpServerIds === 'string' ? record.mcpServerIds : JSON.stringify(record.mcpServerIds ?? [])),
+  }
+}
+
+function projectAssistantSettings(project: Pick<Project,
+  'temperature' | 'topP' | 'maxOutputTokens' | 'stream' | 'maxToolRounds' | 'keepRecentMessages'
+  | 'contextCustom' | 'autoCompactMode' | 'autoCompactTokens' | 'autoCompactRatio'
+  | 'customParams' | 'mcpMode' | 'mcpServerIds'>): ProjectAssistantSettings {
+  return {
+    temperature: project.temperature,
+    topP: project.topP,
+    maxOutputTokens: project.maxOutputTokens,
+    stream: project.stream,
+    maxToolRounds: project.maxToolRounds,
+    keepRecentMessages: project.keepRecentMessages,
+    contextCustom: project.contextCustom,
+    autoCompactMode: project.autoCompactMode,
+    autoCompactTokens: project.autoCompactTokens,
+    autoCompactRatio: project.autoCompactRatio,
+    customParams: project.customParams,
+    mcpMode: project.mcpMode,
+    mcpServerIds: project.mcpServerIds,
+  }
 }
 
 function decodeToolOverrides(value: string | null): Record<string, AssistantToolMode> {
@@ -9424,6 +9583,7 @@ function decodeToolOverrides(value: string | null): Record<string, AssistantTool
 }
 
 function toProject(r: ProjectRow): Project {
+  const assistant = decodeProjectAssistantSettings(r.settings_json)
   return {
     id: r.id,
     name: r.name,
@@ -9438,6 +9598,9 @@ function toProject(r: ProjectRow): Project {
     toolsLimited: Number(r.tools_limited ?? 0) === 1,
     toolOverrides: decodeToolOverrides(r.tool_overrides),
     skillIds: decodeStringList(r.skill_ids),
+    group: r.group_name ?? '',
+    ...assistant,
+    knowledgeBaseIds: decodeStringList(r.knowledge_base_ids),
     focusSync: Number(r.focus_sync ?? 1) === 1,
     timeAware: Number(r.time_aware ?? 1) === 1,
     readProjectInstructions: Number(r.read_project_instructions ?? 0) === 1,

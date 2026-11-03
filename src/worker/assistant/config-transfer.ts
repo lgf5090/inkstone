@@ -4,6 +4,7 @@ import {
   ASSISTANT_PROTOCOLS,
   normalizeAssistantSettings,
   parseCustomParams,
+  MAX_CUSTOM_PARAMS,
   type AssistantModel,
   type AssistantModelKind,
   type AssistantModelModality,
@@ -63,7 +64,7 @@ export interface AssistantConfigBundle {
   providers: AssistantConfigProvider[]
   models: AssistantConfigModel[]
   skills: Array<Pick<AssistantSkill, 'title' | 'content' | 'group' | 'icon' | 'tools' | 'scopes' | 'modelId' | 'kind' | 'description' | 'loadMode' | 'enabled' | 'source'>>
-  projects: Array<Pick<Project, 'name' | 'description' | 'icon' | 'instructions' | 'noteScope' | 'excludeScope' | 'noteIds' | 'modelId' | 'tools' | 'toolsLimited' | 'toolOverrides' | 'skillIds' | 'focusSync' | 'timeAware' | 'readProjectInstructions' | 'position'>>
+  projects: Array<Pick<Project, 'name' | 'description' | 'icon' | 'instructions' | 'noteScope' | 'excludeScope' | 'noteIds' | 'modelId' | 'tools' | 'toolsLimited' | 'toolOverrides' | 'skillIds' | 'group' | 'temperature' | 'topP' | 'maxOutputTokens' | 'stream' | 'maxToolRounds' | 'keepRecentMessages' | 'contextCustom' | 'autoCompactMode' | 'autoCompactTokens' | 'autoCompactRatio' | 'customParams' | 'mcpMode' | 'mcpServerIds' | 'knowledgeBaseIds' | 'focusSync' | 'timeAware' | 'readProjectInstructions' | 'position'>>
 }
 
 export interface ConfigImportSummary {
@@ -156,6 +157,21 @@ export async function exportAssistantConfig(store: AssistantStore): Promise<Assi
       toolsLimited: project.toolsLimited === true,
       toolOverrides: project.toolOverrides ?? {},
       skillIds: project.skillIds ?? [],
+      group: project.group ?? '',
+      temperature: project.temperature ?? null,
+      topP: project.topP ?? null,
+      maxOutputTokens: project.maxOutputTokens ?? null,
+      stream: project.stream !== false,
+      maxToolRounds: project.maxToolRounds ?? null,
+      keepRecentMessages: project.keepRecentMessages ?? null,
+      contextCustom: project.contextCustom === true,
+      autoCompactMode: project.autoCompactMode ?? 'off',
+      autoCompactTokens: project.autoCompactTokens ?? 100_000,
+      autoCompactRatio: project.autoCompactRatio ?? 0.8,
+      customParams: project.customParams ?? [],
+      mcpMode: project.mcpMode ?? 'auto',
+      mcpServerIds: project.mcpServerIds ?? [],
+      knowledgeBaseIds: [],
       focusSync: project.focusSync !== false,
       timeAware: project.timeAware !== false,
       readProjectInstructions: project.readProjectInstructions === true,
@@ -341,6 +357,23 @@ export async function importAssistantConfig(store: AssistantStore, raw: Record<s
       toolsLimited: entry.toolsLimited === true,
       toolOverrides,
       skillIds: stringList(entry.skillIds, 100).map((id) => skillIds.get(id) ?? '').filter(Boolean),
+      group: text(entry.group, 60),
+      temperature: numberOrNull(entry.temperature, 0, 1.5),
+      topP: numberOrNull(entry.topP, 0, 1),
+      maxOutputTokens: numberOrNull(entry.maxOutputTokens, 64, 200_000),
+      stream: entry.stream !== false,
+      maxToolRounds: numberOrNull(entry.maxToolRounds, 1, 50),
+      keepRecentMessages: numberOrNull(entry.keepRecentMessages, 1, 200),
+      contextCustom: entry.contextCustom === true,
+      autoCompactMode: entry.autoCompactMode === 'absolute' || entry.autoCompactMode === 'ratio' ? entry.autoCompactMode : 'off',
+      autoCompactTokens: numberOrNull(entry.autoCompactTokens, 10_000, 2_000_000) ?? 100_000,
+      autoCompactRatio: numberOrNull(entry.autoCompactRatio, 0.3, 0.95) ?? 0.8,
+      customParams: parseCustomParams(entry.customParams).slice(0, MAX_CUSTOM_PARAMS),
+      mcpMode: entry.mcpMode === 'off' || entry.mcpMode === 'manual' ? entry.mcpMode : 'auto',
+      mcpServerIds: stringList(entry.mcpServerIds, 40, 64),
+      // A knowledge base id is this account's row, not the exporter's; a bundle cannot carry one that
+      // would mean anything here, so a restored Agent starts with none and the editor says so.
+      knowledgeBaseIds: [],
       focusSync: entry.focusSync !== false,
       timeAware: entry.timeAware !== false,
       readProjectInstructions: entry.readProjectInstructions === true,

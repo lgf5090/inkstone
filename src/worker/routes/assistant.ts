@@ -40,6 +40,10 @@ import {
   ASSISTANT_TOOL_BY_NAME,
   ASSISTANT_TOOL_MODES,
   parseCustomParams,
+  MAX_CUSTOM_PARAMS,
+  PROJECT_MCP_MODES,
+  type Project,
+  type ProjectMcpMode,
   MAX_PRICE_PERIODS,
   MAX_PROJECT_NOTES,
   MAX_TURN_SCOPES,
@@ -2283,12 +2287,72 @@ function projectIcon(value: unknown): string {
   return parseAssistantIcon(text) ?? ''
 }
 
+function projectGroup(value: unknown): string {
+  return optionalText(value, 60) ?? ''
+}
+
+/** The base ids an Agent answers from. Refused rather than dropped when one is not this account's. */
+async function projectKnowledgeBaseIds(s: AssistantStore, value: unknown): Promise<string[]> {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const entry of value) {
+    if (ids.length >= 12) throw ApiError.badRequest('An Agent can link at most 12 knowledge bases.')
+    if (!isValidId(entry) || !(await s.getKnowledgeBase(entry))) {
+      throw ApiError.badRequest('That Agent links a knowledge base you do not have.')
+    }
+    if (!ids.includes(entry)) ids.push(entry)
+  }
+  return ids
+}
+
+function boundedProjectNumber(value: unknown, min: number, max: number): number | null {
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw ApiError.badRequest('That setting must be a number.')
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * The assistant's own knobs, validated as one object.
+ *
+ * Every field is optional in the request so the model/settings panels can save only what they own; the
+ * store merges the named ones over the row's current document.
+ */
+function projectAssistantSettings(body: Record<string, unknown>): Partial<Project> {
+  const out: Partial<Project> = {}
+  if (body.temperature !== undefined) out.temperature = boundedProjectNumber(body.temperature, 0, 1.5)
+  if (body.topP !== undefined) out.topP = boundedProjectNumber(body.topP, 0, 1)
+  if (body.maxOutputTokens !== undefined) out.maxOutputTokens = boundedProjectNumber(body.maxOutputTokens, 64, 200_000)
+  if (body.stream !== undefined) out.stream = body.stream !== false
+  if (body.maxToolRounds !== undefined) out.maxToolRounds = boundedProjectNumber(body.maxToolRounds, 1, 50)
+  if (body.keepRecentMessages !== undefined) out.keepRecentMessages = boundedProjectNumber(body.keepRecentMessages, 1, 200)
+  if (body.contextCustom !== undefined) out.contextCustom = body.contextCustom === true
+  if (body.autoCompactMode !== undefined) {
+    if (!['off', 'absolute', 'ratio'].includes(String(body.autoCompactMode))) throw ApiError.badRequest('Unknown compaction mode.')
+    out.autoCompactMode = body.autoCompactMode as Project['autoCompactMode']
+  }
+  if (body.autoCompactTokens !== undefined) out.autoCompactTokens = boundedProjectNumber(body.autoCompactTokens, 10_000, 2_000_000) ?? 100_000
+  if (body.autoCompactRatio !== undefined) out.autoCompactRatio = boundedProjectNumber(body.autoCompactRatio, 0.3, 0.95) ?? 0.8
+  if (body.customParams !== undefined) out.customParams = parseCustomParams(body.customParams).slice(0, MAX_CUSTOM_PARAMS)
+  if (body.mcpMode !== undefined) {
+    if (!PROJECT_MCP_MODES.includes(body.mcpMode as ProjectMcpMode)) throw ApiError.badRequest('Unknown MCP mode.')
+    out.mcpMode = body.mcpMode as ProjectMcpMode
+  }
+  if (body.mcpServerIds !== undefined) {
+    if (!Array.isArray(body.mcpServerIds)) throw ApiError.badRequest('MCP servers are named by id.')
+    out.mcpServerIds = body.mcpServerIds
+      .filter((id): id is string => typeof id === 'string' && isValidId(id))
+      .slice(0, 40)
+  }
+  return out
+}
+
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)
   const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const name = text(body.name, 200)
   const noteIds = await projectNoteIds(s, body.noteIds)
   const skillIds = await projectSkillIds(s, body.skillIds)
+  const knowledgeBaseIds = await projectKnowledgeBaseIds(s, body.knowledgeBaseIds)
   const existing = await s.findProjectByName(name)
   if (existing) return c.json({ project: existing })
   const project = await s.createProject({
@@ -2309,6 +2373,9 @@ assistantRoutes.post('/projects', async (c) => {
     toolsLimited: body.toolsLimited === true,
     toolOverrides: projectToolOverrides(body.toolOverrides),
     skillIds,
+    group: projectGroup(body.group),
+    ...projectAssistantSettings(body),
+    knowledgeBaseIds,
     focusSync: body.focusSync !== false,
     timeAware: body.timeAware !== false,
     readProjectInstructions: body.readProjectInstructions === true,
@@ -2325,6 +2392,7 @@ assistantRoutes.patch('/projects/:id', async (c) => {
   // exactly as it was rather than half-saved.
   const noteIds = body.noteIds !== undefined ? await projectNoteIds(s, body.noteIds) : undefined
   const skillIds = body.skillIds !== undefined ? await projectSkillIds(s, body.skillIds) : undefined
+  const knowledgeBaseIds = body.knowledgeBaseIds !== undefined ? await projectKnowledgeBaseIds(s, body.knowledgeBaseIds) : undefined
   const project = await s.updateProject(id, {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
@@ -2341,6 +2409,9 @@ assistantRoutes.patch('/projects/:id', async (c) => {
     ...(body.toolsLimited !== undefined ? { toolsLimited: body.toolsLimited === true } : {}),
     ...(body.toolOverrides !== undefined ? { toolOverrides: projectToolOverrides(body.toolOverrides) } : {}),
     ...(skillIds !== undefined ? { skillIds } : {}),
+    ...(body.group !== undefined ? { group: projectGroup(body.group) } : {}),
+    ...projectAssistantSettings(body),
+    ...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}),
     ...(body.focusSync !== undefined ? { focusSync: body.focusSync !== false } : {}),
     ...(body.timeAware !== undefined ? { timeAware: body.timeAware !== false } : {}),
     ...(body.readProjectInstructions !== undefined ? { readProjectInstructions: body.readProjectInstructions === true } : {}),

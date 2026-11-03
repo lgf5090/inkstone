@@ -107,6 +107,7 @@ import type {
   AssistantArtifactVersion,
   AssistantConversation,
   AssistantConversationSettings,
+  AssistantCustomParam,
   AssistantQuestionAnswers,
   AssistantQuestionRow,
   AssistantCursorCommand,
@@ -134,6 +135,7 @@ import type {
   MemoryReview,
   PendingAction,
   Project as AssistantProject,
+  ProjectMcpMode,
   SavedMessage,
 } from '@shared/assistant'
 import type {
@@ -2195,7 +2197,23 @@ export const api = {
       modelId?: string | null
       tools?: string[]
       toolsLimited?: boolean
+      toolOverrides?: Record<string, string>
       skillIds?: string[]
+      group?: string
+      temperature?: number | null
+      topP?: number | null
+      maxOutputTokens?: number | null
+      stream?: boolean
+      maxToolRounds?: number | null
+      keepRecentMessages?: number | null
+      contextCustom?: boolean
+      autoCompactMode?: 'off' | 'absolute' | 'ratio'
+      autoCompactTokens?: number
+      autoCompactRatio?: number
+      customParams?: AssistantCustomParam[]
+      mcpMode?: ProjectMcpMode
+      mcpServerIds?: string[]
+      knowledgeBaseIds?: string[]
       focusSync?: boolean
       timeAware?: boolean
       readProjectInstructions?: boolean
@@ -2212,7 +2230,23 @@ export const api = {
       modelId?: string | null
       tools?: string[]
       toolsLimited?: boolean
+      toolOverrides?: Record<string, string>
       skillIds?: string[]
+      group?: string
+      temperature?: number | null
+      topP?: number | null
+      maxOutputTokens?: number | null
+      stream?: boolean
+      maxToolRounds?: number | null
+      keepRecentMessages?: number | null
+      contextCustom?: boolean
+      autoCompactMode?: 'off' | 'absolute' | 'ratio'
+      autoCompactTokens?: number
+      autoCompactRatio?: number
+      customParams?: AssistantCustomParam[]
+      mcpMode?: ProjectMcpMode
+      mcpServerIds?: string[]
+      knowledgeBaseIds?: string[]
       focusSync?: boolean
       timeAware?: boolean
       readProjectInstructions?: boolean

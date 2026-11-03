@@ -467,6 +467,9 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     tools_limited INTEGER NOT NULL DEFAULT 0,
     tool_overrides TEXT NOT NULL DEFAULT '{}',
     skill_ids TEXT NOT NULL DEFAULT '[]',
+    group_name TEXT NOT NULL DEFAULT '',
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    knowledge_base_ids TEXT NOT NULL DEFAULT '[]',
     focus_sync INTEGER NOT NULL DEFAULT 1,
     time_aware INTEGER NOT NULL DEFAULT 1,
     read_project_instructions INTEGER NOT NULL DEFAULT 0,
@@ -911,7 +914,7 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
-  chat_projects: ['user_id', 'id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'model_id', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'model_id', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'group_name', 'settings_json', 'knowledge_base_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
   chat_knowledge_bases: ['user_id', 'id', 'name', 'description', 'include_scope', 'exclude_scope', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],

@@ -217,6 +217,8 @@ export interface ToolContext {
   runSubagentAsync?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ taskId: string, status: 'running' }>
   /** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */
   allowedTools?: readonly string[]
+  /** The knowledge bases the Agent linked; empty means every base the reader has. */
+  knowledgeBaseIds?: readonly string[]
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
   /** The saved database connection the reader is looking at, so the tools can default to it. */
@@ -1760,11 +1762,16 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     async run(args, ctx) {
       const query = String(args.query)
       const ref = String(args.knowledge_base).trim()
+      const linked = ctx.knowledgeBaseIds ?? []
       const knowledgeBase = (await ctx.store.getKnowledgeBase(ref)) ?? (await ctx.store.findKnowledgeBaseByName(ref))
-      if (!knowledgeBase) {
+      const allowed = async (entry: { id: string }) => !linked.length || linked.includes(entry.id)
+      if (!knowledgeBase || !(await allowed(knowledgeBase))) {
+        // A base outside the Agent's own list is answered the same way as one that does not exist: the
+        // Agent cannot reach it, and naming the real list is what lets the model choose correctly.
+        const available = (await ctx.store.listKnowledgeBases()).filter((entry) => !linked.length || linked.includes(entry.id))
         return {
-          error: `There is no knowledge base named "${ref}".`,
-          knowledge_bases: (await ctx.store.listKnowledgeBases()).map((entry) => ({ name: entry.name, description: entry.description })),
+          error: `There is no knowledge base named "${ref}" available to this assistant.`,
+          knowledge_bases: available.map((entry) => ({ name: entry.name, description: entry.description })),
         }
       }
       const turnScope = await ctx.noteScope()

@@ -14,7 +14,7 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, Project, ToolActivity } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -740,6 +740,9 @@ export class AssistantRunner {
       // answers the first step is the one that answers the whole turn: a reply that changed voice after a
       // tool call would be two answers sold as one.
       const chain = await this.modelChain(primary)
+      // The conversation's Agent, read once before the request is shaped: its sampling, streams, tool
+      // limits and MCP filter are facts about this turn, not about the account.
+      const project = await this.project()
       // Which of the chain is answering right now. Mutated by the failover step rather than returned from
       // it, because a generator's value is not reachable through `for await`.
       const served = { current: primary }
@@ -757,7 +760,10 @@ export class AssistantRunner {
       // the history is budgeted, because the answer a turn means to write is part of what the prompt has
       // to leave room for, and kept in a name because a turn cut off at it has to say the number that cut
       // it.
-      const capFor = (entry: ResolvedCall) => entry.model.maxOutputTokens ?? limits.maxOutputTokens
+      const capFor = (entry: ResolvedCall) => {
+        const modelCap = entry.model.maxOutputTokens ?? limits.maxOutputTokens
+        return project?.maxOutputTokens ? Math.min(modelCap, project.maxOutputTokens) : modelCap
+      }
       let outputCap = capFor(primary)
       if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
@@ -768,7 +774,13 @@ export class AssistantRunner {
       // the web-search switch works on a protocol with no vendor search by naming one of these tools to
       // the model, which only lands if the prompt has not been built yet. A server that is slow or down is
       // reported to the settings screen rather than failing the answer.
-      const external: ExternalToolsResult = await loadExternalTools(this.store)
+      const external: ExternalToolsResult = await loadExternalTools(this.store, project
+        ? {
+            serverIds: project.mcpServerIds,
+            forceApproval: project.mcpMode === 'manual',
+            off: project.mcpMode === 'off',
+          }
+        : undefined)
       // A turn that may call nothing gets no vendor search either: on the wire that one is a tool, and an
       // answer that quietly cites pages the reader never let this turn look up is the failure the flag
       // exists to prevent.
@@ -802,6 +814,11 @@ export class AssistantRunner {
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
       const history = await this.contextHistory(conversationId)
+      // An Agent that keeps only a window of turns says so once here, before the context budget walks the
+      // whole thread: the model then sees exactly the recent part its editor promised.
+      const recentHistory = project?.keepRecentMessages
+        ? history.slice(-project.keepRecentMessages)
+        : history
       // The row being resumed was taken out of the table so it can be written back whole; its words are
       // still what the model needs to go on from, so they are put back as the newest turn.
       if (this.continueFrom) {
@@ -817,18 +834,24 @@ export class AssistantRunner {
       // would spend the very tokens the setting exists to save.
       let promptSummary: string | null = conversation.summary ?? null
       let promptSummaryUpto = conversation.summaryUpto ?? null
-      const autoLimit = this.settings.autoCompactMode === 'absolute'
-        ? this.settings.autoCompactTokens
-        : this.settings.autoCompactMode === 'ratio'
-          ? Math.floor(contextTokens * this.settings.autoCompactRatio)
-          : null
+      const autoLimit = project?.contextCustom
+        ? project.autoCompactMode === 'absolute'
+          ? project.autoCompactTokens
+          : project.autoCompactMode === 'ratio'
+            ? Math.floor(contextTokens * project.autoCompactRatio)
+            : null
+        : this.settings.autoCompactMode === 'absolute'
+          ? this.settings.autoCompactTokens
+          : this.settings.autoCompactMode === 'ratio'
+            ? Math.floor(contextTokens * this.settings.autoCompactRatio)
+            : null
       if (autoLimit !== null) {
-        const historyTokens = history.reduce(
+        const historyTokens = recentHistory.reduce(
           (total, entry) => total + estimateTokens(entry.content) + (entry.calls ?? []).reduce((sum, call) => sum + estimateTokens(call.result), 0),
           0,
         )
-        if (historyTokens > autoLimit && history.length > 6) {
-          const rolled = await this.summarize(conversationId, promptSummary, history.slice(0, -6))
+        if (historyTokens > autoLimit && recentHistory.length > 6) {
+          const rolled = await this.summarize(conversationId, promptSummary, recentHistory.slice(0, -6))
           if (rolled) {
             promptSummary = rolled.summary
             promptSummaryUpto = rolled.upto
@@ -836,7 +859,6 @@ export class AssistantRunner {
         }
       }
       const context = await this.contextLabels()
-      const project = await this.project()
       const projectSkills = await this.projectSkills()
       const projectInstructionsFile = await this.projectInstructionsFile()
       const projectInstructions = [project?.instructions, projectInstructionsFile].filter(Boolean).join('\n\n')
@@ -865,7 +887,7 @@ export class AssistantRunner {
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
       // answer the turn is going to write, and the results the steps after this one read back into it.
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
-      let window = buildContextWindow(history, historyBudget, promptSummaryUpto)
+      let window = buildContextWindow(recentHistory, historyBudget, promptSummaryUpto)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
 
@@ -875,7 +897,7 @@ export class AssistantRunner {
           // The mark is the row the roll-up ends on, named rather than timed: the newest rows of this turn
           // can share its millisecond, and a cutoff that compares times alone would drop them — including
           // the question being answered.
-          window = buildContextWindow(history, historyBudget, rolled.upto, rolled.uptoId)
+          window = buildContextWindow(recentHistory, historyBudget, rolled.upto, rolled.uptoId)
           window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
         } else {
           // The roll-up did not happen and nothing else about the turn says so: the answer arrives as
@@ -915,9 +937,14 @@ export class AssistantRunner {
       // things for the reader to act on.
       let ceiling: string | null = null
       let steps = 0
+      // A step is one request; an Agent that allows N tool rounds therefore allows N + 1 requests (the
+      // final answer). Zero/absent is the account's own bound, which is a tool-call budget rather than a
+      // request count.
+      const maxSteps = project?.maxToolRounds ? project.maxToolRounds + 1 : Number.POSITIVE_INFINITY
 
       for (;;) {
         steps++
+        if (steps > maxSteps) break
         // A turn that walks several steps outlives the lease it was claimed with, and the row is also how
         // a stop reaches this generator: the reader's tab closing only fails a write on some platforms,
         // and a turn nobody is watching must not keep spending their budget.
@@ -959,14 +986,14 @@ export class AssistantRunner {
           tools: entry.model.supportsTools && !this.toolsRefused(entry) ? schemas : [],
           webSearch: this.webSearchNative,
           maxOutputTokens: capFor(entry),
-          temperature: this.conversationSettings.temperature ?? entry.model.temperature,
-          topP: this.conversationSettings.topP ?? entry.model.topP,
-          extraBody: customParamBody(entry.model.customParams),
+          temperature: this.conversationSettings.temperature ?? project?.temperature ?? entry.model.temperature,
+          topP: this.conversationSettings.topP ?? project?.topP ?? entry.model.topP,
+          extraBody: { ...customParamBody(entry.model.customParams), ...(project ? customParamBody(project.customParams) : {}) },
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
           retry: this.retryFor(entry.provider),
           signal,
-        }), calls, usage)) {
+        }), calls, usage, project?.stream === false && schemas.length === 0)) {
           if (event.type === 'text') {
             text += event.delta ?? ''
             // Everything the reader on this wire has been shown, filed steps and the step in hand. Carried
@@ -1253,6 +1280,7 @@ export class AssistantRunner {
     requestFor: (entry: ResolvedCall, apiKey: string, signal: AbortSignal) => UpstreamRequest,
     calls: ToolCallRecord[],
     usage: { inputTokens: number, outputTokens: number, cachedInputTokens: number },
+    preferOnce = false,
   ): AsyncGenerator<ChatStreamEvent> {
     let failure: unknown = null
     for (const entry of candidates) {
@@ -1272,6 +1300,22 @@ export class AssistantRunner {
         const timed = this.attemptSignal()
         try {
           const apiKey = await this.signKey(entry.provider)
+          // An Agent that turned streaming off answers a tool-less step in one request. A step with tools
+          // stays streamed: the non-streaming door returns words, not the calls the loop exists to run.
+          if (preferOnce) {
+            const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, timed.signal))
+            if (once.text.trim()) {
+              usage.inputTokens += once.inputTokens
+              usage.outputTokens += once.outputTokens
+              usage.cachedInputTokens += once.cachedInputTokens ?? 0
+              served.current = entry
+              yield { type: 'text', delta: once.text }
+              if (once.inputTokens || once.outputTokens) {
+                yield { type: 'usage', usage: once.cachedInputTokens ? { inputTokens: once.inputTokens, outputTokens: once.outputTokens, cachedInputTokens: once.cachedInputTokens } : { inputTokens: once.inputTokens, outputTokens: once.outputTokens } }
+              }
+              return
+            }
+          }
           for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey, timed.signal), attemptCalls, attemptUsage)) {
             spoke = true
             yield event
@@ -1981,6 +2025,20 @@ export class AssistantRunner {
     toolsLimited: boolean
     toolOverrides: Record<string, AssistantToolMode>
     skillIds: string[]
+    temperature: number | null
+    topP: number | null
+    maxOutputTokens: number | null
+    stream: boolean
+    maxToolRounds: number | null
+    keepRecentMessages: number | null
+    contextCustom: boolean
+    autoCompactMode: AssistantSettings['autoCompactMode']
+    autoCompactTokens: number
+    autoCompactRatio: number
+    customParams: Project['customParams']
+    mcpMode: Project['mcpMode']
+    mcpServerIds: string[]
+    knowledgeBaseIds: string[]
     focusSync: boolean
     timeAware: boolean
     readProjectInstructions: boolean
@@ -1998,6 +2056,10 @@ export class AssistantRunner {
         if (
           !brief && !project.noteScope.length && !project.excludeScope.length && !project.noteIds.length
           && !project.modelId && !project.tools.length && !project.skillIds.length
+          && !project.knowledgeBaseIds.length && project.temperature === null && project.topP === null
+          && project.maxOutputTokens === null && project.stream && project.maxToolRounds === null
+          && project.keepRecentMessages === null && !project.contextCustom && !project.customParams.length
+          && project.mcpMode === 'auto' && !project.mcpServerIds.length
           && project.focusSync && project.timeAware && !project.readProjectInstructions
         ) return null
         return {
@@ -2011,6 +2073,20 @@ export class AssistantRunner {
           toolsLimited: project.toolsLimited,
           toolOverrides: project.toolOverrides,
           skillIds: project.skillIds,
+          temperature: project.temperature,
+          topP: project.topP,
+          maxOutputTokens: project.maxOutputTokens,
+          stream: project.stream,
+          maxToolRounds: project.maxToolRounds,
+          keepRecentMessages: project.keepRecentMessages,
+          contextCustom: project.contextCustom,
+          autoCompactMode: project.autoCompactMode,
+          autoCompactTokens: project.autoCompactTokens,
+          autoCompactRatio: project.autoCompactRatio,
+          customParams: project.customParams,
+          mcpMode: project.mcpMode,
+          mcpServerIds: project.mcpServerIds,
+          knowledgeBaseIds: project.knowledgeBaseIds,
           focusSync: project.focusSync,
           timeAware: project.timeAware,
           readProjectInstructions: project.readProjectInstructions,
@@ -2359,6 +2435,7 @@ export class AssistantRunner {
             projectTools: project.tools,
             projectToolsLimited: project.toolsLimited,
             projectToolOverrides: project.toolOverrides,
+            ...(project.knowledgeBaseIds.length ? { knowledgeBaseIds: project.knowledgeBaseIds } : {}),
           }
         : {}),
       memoryHistory: this.memoryHistory,
