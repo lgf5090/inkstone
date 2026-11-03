@@ -12,11 +12,12 @@ import { Button } from '../../components/primitives'
 import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
 import { ToolManagerSection } from './ToolManagerSection'
-import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
+import { Group, modelOptionLabel, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   // A key arriving or leaving changes what the composer is allowed to promise about search, and the chip
   // reads that from the settings response rather than guessing: so the settings are re-read here.
   const loadSettings = useAssistant((state) => state.loadSettings)
@@ -320,7 +321,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             >
               <option value="">{t('assistant.conversation.settings.inherit')}</option>
               {chatModels.map((model) => (
-                <option key={model.id} value={model.id}>{model.label || model.model}</option>
+                <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>
               ))}
             </Select>
           </SettingRow>

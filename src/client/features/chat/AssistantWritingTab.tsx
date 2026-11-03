@@ -5,11 +5,12 @@ import { Button } from '../../components/primitives'
 import { Input, Select, SettingRow, Slider, Switch } from '../../components/form'
 import { useAssistant } from './assistant-store'
 import { CursorCommandsSection } from './CursorCommandsSection'
-import { Group } from './assistant-settings-shared'
+import { Group, modelOptionLabel } from './assistant-settings-shared'
 
 export function WritingTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   const [completionConstraint, setCompletionConstraint] = useState(settings.tabCompletionConstraint)
   useEffect(() => setCompletionConstraint(settings.tabCompletionConstraint), [settings.tabCompletionConstraint])
@@ -33,7 +34,7 @@ export function WritingTab({ settings }: { settings: AssistantSettings }) {
             onChange={(event) => void saveSettings({ tabCompletionModelId: event.target.value || null })}
           >
             <option value="">{t('assistant.settings.naming_model_follow')}</option>
-            {chatModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.model}</option>)}
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>)}
           </Select>
         </SettingRow>
         <SettingRow title={t('assistant.settings.completion_constraint')} description={t('assistant.settings.completion_constraint_hint')}>

@@ -19,7 +19,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { dayKey, formatDay, formatInZone } from './time-format'
-import { LoadFailure } from './assistant-settings-shared'
+import { LoadFailure, modelOptionLabel } from './assistant-settings-shared'
 import { isImeComposing } from '../../lib/ime'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft, useMediaQuery } from '../../lib/hooks'
@@ -330,11 +330,14 @@ export function ChatView() {
 
   // The reader is following the thread, so every part of a turn that is still arriving keeps it pinned to
   // the bottom — the reasoning trace included. Left out of the deps, a long think grew off-screen and the
-  // reader had to scroll to find the answer.
+  // reader had to scroll to find the answer. An approval card grows the same turn without adding a tool,
+  // so its arrival is counted separately: otherwise its buttons render under the composer, out of reach
+  // until the reader scrolls for a control they were already looking at.
+  const approvalCount = (turnHere?.tools ?? []).filter((tool) => tool.approval).length
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [messages.length, turnHere?.text, turnHere?.reasoning, turnHere?.tools.length, turnHere?.error])
+  }, [messages.length, turnHere?.text, turnHere?.reasoning, turnHere?.tools.length, turnHere?.error, approvalCount])
 
   // Older turns are a page away rather than part of the transcript, so the control that fetches them
   // belongs at the top of the list and the scroll position is kept where the reader left it: the new
@@ -2065,6 +2068,8 @@ export function ChatComposer({
 }) {
   const [value, setValue] = useState('')
   const seed = useAssistant((state) => state.composerSeed)
+  const seedId = useAssistant((state) => state.composerSeedId)
+  const consumedSeed = useRef(0)
   const ref = useRef<HTMLTextAreaElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   // Only the disabled "no model" chip needs an anchor of its own: the menu variant brings its own.
@@ -2072,16 +2077,19 @@ export function ChatComposer({
   const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
   // A quote from a message menu lands at the top of whatever the reader was already writing, and the
-  // handover is spent on arrival: leaving it in the store would re-insert it on the next render.
+  // handover is spent on arrival: leaving it in the store would re-insert it on the next render. Each
+  // hand-over carries an id, because `StrictMode` runs this effect twice for one seed and the same words
+  // may be sent again later — without it the first run duplicated the quote in the box.
   useEffect(() => {
-    if (seed === null) return
+    if (seed === null || consumedSeed.current === seedId) return
+    consumedSeed.current = seedId
     setValue((current) => (current.trim() ? `${seed}
 
 ${current}` : seed))
     useAssistant.getState().clearComposerSeed()
     const box = ref.current
     if (box) box.focus()
-  }, [seed])
+  }, [seed, seedId])
   const pending = useAssistant((state) => state.pending)
   const attachFiles = useAssistant((state) => state.attachFiles)
   const attachUrl = useAssistant((state) => state.attachUrl)
@@ -2317,10 +2325,12 @@ ${current}` : seed))
           .filter((agent) => !needle || agent.name.toLocaleLowerCase().includes(needle))
           .slice(0, 4)
           .map((agent) => ({ id: agent.id, label: agent.name, hint: t('assistant.trigger.agent'), kind: 'agent' as const }))
-        const modelRows = chatModels(useAssistant.getState().models)
-          .filter((model) => !needle || (model.label || model.model).toLocaleLowerCase().includes(needle))
+        const listedModels = chatModels(useAssistant.getState().models)
+        const providers = useAssistant.getState().providers
+        const modelRows = listedModels
+          .filter((model) => !needle || modelOptionLabel(model, listedModels, providers).toLocaleLowerCase().includes(needle))
           .slice(0, 4)
-          .map((model) => ({ id: model.id, label: model.label || model.model, hint: t('assistant.trigger.model'), kind: 'model' as const }))
+          .map((model) => ({ id: model.id, label: modelOptionLabel(model, listedModels, providers), hint: t('assistant.trigger.model'), kind: 'model' as const }))
         const notes = found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') }))
         // The note search has already matched the words; only the three local lists need the same filter,
         // or a row the server found would be dropped because its title does not repeat the query.

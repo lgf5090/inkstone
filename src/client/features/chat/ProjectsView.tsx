@@ -28,6 +28,7 @@ import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { t } from '../../lib/i18n'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 
 const MAX_INSTRUCTIONS = 4000
 
@@ -466,6 +467,7 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
   const [binding, setBinding] = useState(false)
   const bindRef = useRef<HTMLButtonElement>(null)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const projects = useAssistant((state) => state.projects)
   const skills = useAssistant((state) => state.skills)
   const knowledgeBases = useAssistant((state) => state.knowledgeBases)
@@ -550,7 +552,7 @@ function ProjectEditor({ draft, busy, onChange, onSave, onClose }: {
                   onChange={(event) => patch({ modelId: event.target.value || null })}
                 >
                   <option value="">{t('assistant.projects.model_default')}</option>
-                  {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+                  {models.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, models, providers)}</option>)}
                 </Select>
               </Field>
               <Field label={t('assistant.projects.group')}>

@@ -44,6 +44,7 @@ import { Menu, Modal, Tooltip, submenuFor, type MenuItem } from '../../component
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 import { AssistantIcon } from './AssistantIcon'
 import { speechRecognitionCtor, voiceBlocker, voiceBlockerReason, voiceRefusal, type SpeechEngine } from './voice-engine'
 
@@ -146,16 +147,19 @@ export function ModelMenu({
   const active = models.find((model) => model.id === activeId)
   const providers = useAssistant((state) => state.providers)
   const providerFor = (model: AssistantModel) => providers.find((entry) => entry.id === model.providerId) ?? null
+  // Two providers may offer the same vendor model id; a menu of bare names then presents two rows the
+  // reader cannot tell apart. `modelOptionLabel` names the provider only where the name repeats.
+  const displayName = (model: AssistantModel): string => modelOptionLabel(model, models, providers)
   // Automatic routing is decided by the worker, per turn, out of this same catalogue: while it is on, the
   // standing pick is the fallback and not the answer. Naming the standing pick anyway would credit one model
   // with every turn in the thread — the reader would have no way to notice that a different one answered,
   // which is the whole fact a turn's cost and a turn's quality turn on.
   const autoRoute = useAssistant((state) => state.settings?.autoRoute === true)
-  const standing = active ? active.label || active.model : t('assistant.composer.model_none')
+  const standing = active ? displayName(active) : t('assistant.composer.model_none')
   const activeIcon = active ? iconForModel(active, providerFor(active)) : ''
   const items: MenuItem[] = [
     ...models.map((model) => {
-      const name = model.label || model.model
+      const name = displayName(model)
       return {
         id: model.id,
         // The tick marks the row this menu moves, and under routing what it moves is the standing default,

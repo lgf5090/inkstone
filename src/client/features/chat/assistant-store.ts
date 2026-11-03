@@ -330,6 +330,14 @@ interface AssistantState {
    * nothing else reads it.
    */
   composerSeed: string | null
+  /**
+   * Counts every hand-over.
+   *
+   * The text alone cannot tell a composer that it already took this seed from one that is being asked
+   * again with the same words, and `StrictMode` runs a mount's effects twice — so the hand-over carried
+   * an identity and each composer consumes it once.
+   */
+  composerSeedId: number
   seedComposer: (text: string) => void
   clearComposerSeed: () => void
   /** The composer's queue: files uploaded for a turn that has not been sent yet. */
@@ -1526,6 +1534,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   inknoteContext: null,
   inknoteContextOn: true,
   composerSeed: null,
+  composerSeedId: 0,
   pending: [],
   skills: [],
   cursorCommands: [],
@@ -2627,7 +2636,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setCanvasContext: (on) => set({ canvasContextOn: on }),
 
-  seedComposer: (text) => set({ composerSeed: text }),
+  seedComposer: (text) => set((state) => ({ composerSeed: text, composerSeedId: state.composerSeedId + 1 })),
 
   clearComposerSeed: () => set({ composerSeed: null }),
 

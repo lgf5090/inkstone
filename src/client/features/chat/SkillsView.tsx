@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Download, FileText, Folder, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wrench } from 'lucide-react'
-import type { AssistantModel, AssistantTurnScope, AssistantSkill, SkillImportSkip } from '@shared/assistant'
+import type { AssistantModel, AssistantProvider, AssistantTurnScope, AssistantSkill, SkillImportSkip } from '@shared/assistant'
 import { MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { t } from '../../lib/i18n'
@@ -25,6 +25,7 @@ import { Field, Input, Select, Switch, Textarea } from '../../components/form'
 import { Menu, Modal, confirm, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 import { NoteScopePicker, useVaultFolders } from './NoteScopePicker'
 import { readSkillBundleFile } from './skill-bundle'
 import { exampleSkills } from './skill-examples'
@@ -74,9 +75,10 @@ function bindingHint(skill: AssistantSkill, models: AssistantModel[]): string {
   return parts.join(' · ')
 }
 
-function SkillEditor({ draft, models, busy, onChange, onSubmit, onClose }: {
+function SkillEditor({ draft, models, providers, busy, onChange, onSubmit, onClose }: {
   draft: Draft
   models: AssistantModel[]
+  providers: AssistantProvider[]
   busy: boolean
   onChange: (draft: Draft) => void
   onSubmit: (draft: Draft) => void
@@ -210,7 +212,7 @@ function SkillEditor({ draft, models, busy, onChange, onSubmit, onClose }: {
         >
           <option value="">{t('assistant.skills.model_follow')}</option>
           {models.map((model) => (
-            <option key={model.id} value={model.id}>{model.label || model.model}</option>
+            <option key={model.id} value={model.id}>{modelOptionLabel(model, models, providers)}</option>
           ))}
         </Select>
       </Field>
@@ -225,6 +227,7 @@ export function SkillsView() {
   const saveSkill = useAssistant((state) => state.saveSkill)
   const removeSkill = useAssistant((state) => state.removeSkill)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const loadSettings = useAssistant((state) => state.loadSettings)
   const exportSkills = useAssistant((state) => state.exportSkills)
   const importSkills = useAssistant((state) => state.importSkills)
@@ -431,6 +434,7 @@ export function SkillsView() {
         <SkillEditor
           draft={draft}
           models={chatModels}
+          providers={providers}
           busy={busy}
           onChange={setDraft}
           onSubmit={(next) => void submit(next)}

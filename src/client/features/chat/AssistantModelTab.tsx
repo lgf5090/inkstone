@@ -24,7 +24,7 @@ import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } fr
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
-import { DIALECT_LABELS, Group, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
+import { DIALECT_LABELS, Group, modelOptionLabel, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
 
 /**
  * One capability, drawn as the switch that sets it.
@@ -366,7 +366,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
             onChange={(event) => void saveSettings({ activeModelId: event.target.value || null })}
           >
             <option value="">{t('assistant.settings.model_none_selected')}</option>
-            {chatModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.model}</option>)}
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>)}
           </Select>
         </SettingRow>
         <SettingRow title={t('assistant.settings.naming_model')} description={t('assistant.settings.naming_model_hint')}>
@@ -376,7 +376,7 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
             onChange={(event) => void saveSettings({ namingModelId: event.target.value || null })}
           >
             <option value="">{t('assistant.settings.naming_model_follow')}</option>
-            {chatModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.model}</option>)}
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>)}
           </Select>
         </SettingRow>
         <SettingRow title={t('assistant.settings.auto_recover')} description={t('assistant.settings.auto_recover_hint')}>

@@ -5,6 +5,7 @@ import { Button } from '../../components/primitives'
 import { Input, Segmented, Select } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { chatModels, useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 
 /**
  * One thread's own overrides.
@@ -23,6 +24,7 @@ export function ConversationSettingsDialog({
   onClose: () => void
 }) {
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const save = useAssistant((state) => state.setConversationSettings)
   const [modelId, setModelId] = useState('')
   const [webSearch, setWebSearch] = useState<'inherit' | 'on' | 'off'>('inherit')
@@ -92,7 +94,7 @@ export function ConversationSettingsDialog({
           <Select value={modelId} onChange={(event) => setModelId(event.target.value)} aria-label={t('assistant.conversation.settings.model')}>
             <option value="">{t('assistant.conversation.settings.inherit')}</option>
             {chat.map((model) => (
-              <option key={model.id} value={model.id}>{model.label || model.model}</option>
+              <option key={model.id} value={model.id}>{modelOptionLabel(model, chat, providers)}</option>
             ))}
           </Select>
         </label>
