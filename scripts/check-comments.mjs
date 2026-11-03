@@ -44304,19 +44304,17 @@ const allowed = new Map([
   ["tests/doubles/users-table.ts", [
     "/**\n * The account table `src/worker/db/schema.ts` owns.\n *\n * CloudDrive reads the owner's policy (quota, upload ceilings, WebDAV, the member switches) out of\n * that account's settings row, so a test database that exercises any of those routes needs the table\n * to exist even when nobody signs in: the same missing-table failure a throttle row causes, one layer\n * up. `role` is the only column the policy lookup looks at.\n */",
   ]],
-<<<<<<< HEAD
-  ["tests/email/client-compose-send.test.ts", [
-    "// The undo window is a queued server send; these cases measure the panel, not the route.",
-    "// The window lives on the server: a queued job whose send time is nine seconds out.",
-    "// The tab closed inside the window, so this panel cannot send — and must not cancel either: the",
-    "// queued job is the delivery that survives the page.",
-=======
   ["tests/email/auto-draft-tools.test.ts", [
     "/**\n * A reply drafted from a stranger's mail is drafted with no tools.\n *\n * The body of an incoming message is data, but a model reading it also reads it as instructions. The\n * scanner in front of the run catches the obvious attempts, and this test starts from the case where it\n * lets the message through: the draft round must still reach the provider with an empty tool list, so an\n * instruction hidden in the body has nothing to call.\n */",
     "// The injection scan answers \"not an injection\", which is the state this case is about.",
     "// The wire is what matters: an instruction in the body can only become a call if a schema is there.",
     "// An empty list is omitted by the protocol writer, so the absence is the same statement.",
->>>>>>> e79783bd (chore(comments): 登记本批修复新增的架构注释)
+  ]],
+  ["tests/email/client-compose-send.test.ts", [
+    "// The undo window is a queued server send; these cases measure the panel, not the route.",
+    "// The window lives on the server: a queued job whose send time is nine seconds out.",
+    "// The tab closed inside the window, so this panel cannot send — and must not cancel either: the",
+    "// queued job is the delivery that survives the page.",
   ]],
   ["tests/email/client-contact-tabs.test.ts", [
     "// The avatar style bundle is a large ESM package whose import resolves late enough to land after this",
