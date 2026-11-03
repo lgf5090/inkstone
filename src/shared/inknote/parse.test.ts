@@ -73,6 +73,17 @@ describe('legacy note2 pages', () => {
     expect(legacy!.content.bg?.alpha).toBe(0.5)
   })
 
+  it('reads a page exported with the older url field as well as src', () => {
+    const legacy = normalizeLegacyPage({
+      strokes: [],
+      texts: [],
+      images: [{ id: 'i', x: 0, y: 0, w: 0.2, h: 0.2, url: 'data:image/png;base64,AAAA' }],
+      bg: { url: 'data:image/jpeg;base64,BBBB' },
+    })
+    expect(legacy).not.toBeNull()
+    expect(legacy!.pendingAssets.map((entry) => entry.path)).toEqual(['images.0.src', 'bg.src'])
+  })
+
   it('recognises both note2 export envelopes', () => {
     expect(parseNote2Envelope({ format: 'note2', version: 1, type: 'note', note: { id: 'n' } })?.notes).toHaveLength(1)
     expect(parseNote2Envelope({ format: 'note2', version: 1, type: 'library', library: { notes: { a: {}, b: {} } } })?.notes).toHaveLength(2)

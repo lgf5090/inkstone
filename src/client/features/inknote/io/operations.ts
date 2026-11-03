@@ -383,9 +383,15 @@ export async function exportNoteFile(note: InknoteNoteMeta, pages: InknotePage[]
   const exportedPages = []
   for (const page of pages) {
     const content = JSON.parse(serializePageContent(page.content)) as InknotePageContent
-    for (const image of content.images) image.url = await assetDataUrl(image.url)
-    if (content.bg) content.bg.url = await assetDataUrl(content.bg.url)
-    exportedPages.push({ ...content, id: page.id, strokes: content.strokes, texts: content.texts, images: content.images, bg: content.bg })
+    // note2's v4 importer reads `src`, which is the field the file format has always used for a
+    // carried image. The runtime model calls it `url`; writing only that field exported a file the
+    // importer read back with no pictures.
+    const images = await Promise.all(content.images.map(async (image) => ({
+      ...image,
+      src: await assetDataUrl(image.url),
+    })))
+    const bg = content.bg ? { ...content.bg, src: await assetDataUrl(content.bg.url) } : null
+    exportedPages.push({ ...content, id: page.id, strokes: content.strokes, texts: content.texts, images, bg })
   }
   const payload = {
     format: 'note2',

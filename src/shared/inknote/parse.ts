@@ -394,7 +394,9 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
   for (const [index, entry] of array(own(row, 'images')).entries()) {
     const item = record(entry)
     if (!item) continue
-    const ref = legacyAsset(own(item, 'src'), `images.${index}.src`, pending)
+    // Older exports wrote the carried image as `url`; the current file format writes `src`. Reading
+    // both keeps a file from either build importable.
+    const ref = legacyAsset(own(item, 'src') ?? own(item, 'url'), `images.${index}.src`, pending)
     if (!ref) continue
     const rot = own(item, 'rot')
     images.push({
@@ -411,7 +413,7 @@ export function normalizeLegacyPage(raw: unknown): LegacyPage | null {
   const bgRow = record(own(row, 'bg'))
   let bg: InknotePageBackground | null = null
   if (bgRow) {
-    const ref = legacyAsset(own(bgRow, 'src'), 'bg.src', pending)
+    const ref = legacyAsset(own(bgRow, 'src') ?? own(bgRow, 'url'), 'bg.src', pending)
     if (ref) {
       bg = {
         kind: own(bgRow, 'kind') === 'pdf' ? 'pdf' : 'image',
