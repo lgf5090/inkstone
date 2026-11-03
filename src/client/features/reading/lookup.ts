@@ -2,12 +2,14 @@
  * Looking a word or a passage up without leaving the page.
  *
  * Two engines, in the order the reader asked for them: the deployment's own translation route, which
- * needs no setup and answers in a few hundred milliseconds; and the AI service the reader already
- * configured, which is slower but reads the sentence and the book title and so can pick the sense that
- * actually fits. When the AI is not configured, or fails, the request falls through to the first one —
- * a translation button that does nothing because a key was never entered is worse than a plain one.
+ * needs no setup and answers in a few hundred milliseconds; and the assistant's account model, which is
+ * slower but reads the sentence and the book title and so can pick the sense that actually fits. The
+ * account model is the one configured in Assistant settings, called through the same one-shot route the
+ * rest of the app uses — the reader's key never enters this page. When no model is configured, or the
+ * call fails, the request falls through to the translation route: a button that does nothing because
+ * nothing was set up is worse than a plain translation.
  */
-import { streamChatCompletion } from '../../lib/ai/stream-client'
+import { api } from '../../lib/api'
 import { useExcalidrawSettingsStore } from '../excalidraw/excalidraw-settings-store'
 import { t } from '../../lib/i18n'
 
@@ -68,17 +70,16 @@ export async function translateViaDeployment(text: string, to: string, signal?: 
 }
 
 /**
- * The reader's configured AI service, if there is one.
+ * Whether this browser still holds an AI key for the drawing engine.
  *
- * This is the app's existing provider configuration rather than a second copy of it: a key stored twice
- * is a key that can be revoked in one place and still live in the other.
+ * The reader's lookups stopped reading that key; the key itself is left where it is, because deleting
+ * somebody's credential on their behalf is not a migration. The reader is told once, and Assistant
+ * settings is where the same key belongs now.
  */
-function aiModel(): string | null {
+export function hasLegacyLocalAiKey(): boolean {
   const settings = useExcalidrawSettingsStore.getState()
-  if (!settings.aiEnabled) return null
-  const config = settings.aiDefaultProvider ? settings.aiProviders[settings.aiDefaultProvider] : undefined
-  if (!config?.apiKey) return null
-  return settings.aiDefaultTextModel || 'deepseek-flash'
+  if (!settings.aiEnabled) return false
+  return Object.values(settings.aiProviders ?? {}).some((config) => Boolean(config?.apiKey))
 }
 
 export async function lookupSelection(
@@ -86,46 +87,36 @@ export async function lookupSelection(
   options: { to: string; engine: 'google' | 'ai'; bookTitle: string; sentence?: string; signal?: AbortSignal },
 ): Promise<LookupOutcome> {
   const kind = classifySelection(text)
-  const model = options.engine === 'ai' ? aiModel() : null
-  if (model) {
-    const settings = useExcalidrawSettingsStore.getState()
-    const providerConfig = settings.aiDefaultProvider ? settings.aiProviders[settings.aiDefaultProvider] : undefined
-    if (providerConfig) {
-      const system = kind === 'word'
-        ? 'You are a dictionary for a reader. Given one word or phrase, answer in at most five short lines: '
-          + 'the pronunciation if it is not the reader\'s language, the meaning in this sentence, the common '
-          + 'meanings, one usage note, and one example. Reply in the language code '
-          + `${options.to}. No markdown headings, no preamble.`
-        : `Translate the reader's text into ${options.to}. Reply with the translation only.`
-      const context = kind === 'word' && options.sentence
-        ? `Book: ${options.bookTitle}\nSentence: ${options.sentence}\nWord: ${text}`
-        : text
-      try {
-        const result = await streamChatCompletion(
-          [{ id: 'lookup', role: 'user', content: context }],
-          providerConfig,
-          {
-            systemPrompt: system,
-            model,
-            maxTokens: 512,
-            temperature: 0.2,
-            signal: options.signal,
-          },
-        )
-        const answer = result.content.trim()
-        if (answer) {
-          const [first, ...rest] = answer.split('\n')
-          return {
-            kind,
-            source: text,
-            target: first ?? '',
-            notes: rest.join('\n').trim() || undefined,
-            engine: 'ai',
-          }
+  if (options.engine === 'ai') {
+    const system = kind === 'word'
+      ? 'You are a dictionary for a reader. Given one word or phrase, answer in at most five short lines: '
+        + 'the pronunciation if it is not the reader\'s language, the meaning in this sentence, the common '
+        + 'meanings, one usage note, and one example. Reply in the language code '
+        + `${options.to}. No markdown headings, no preamble.`
+      : `Translate the reader's text into ${options.to}. Reply with the translation only.`
+    const context = kind === 'word' && options.sentence
+      ? `Book: ${options.bookTitle}\nSentence: ${options.sentence}\nWord: ${text}`
+      : text
+    try {
+      const result = await api.assistant.oneShot({
+        system,
+        user: context,
+        maxOutputTokens: 400,
+        timeoutMs: 30_000,
+      })
+      const answer = result.text.trim()
+      if (answer) {
+        const [first, ...rest] = answer.split('\n')
+        return {
+          kind,
+          source: text,
+          target: first ?? '',
+          notes: rest.join('\n').trim() || undefined,
+          engine: 'ai',
         }
-      } catch {
-        // Fall through to the deployment's own route rather than failing the button.
       }
+    } catch {
+      // Fall through to the deployment's own route rather than failing the button.
     }
   }
   const translated = await translateViaDeployment(text, options.to, options.signal)

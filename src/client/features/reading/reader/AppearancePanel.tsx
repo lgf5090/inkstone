@@ -236,6 +236,11 @@ export function AppearancePanel() {
               { value: 'ai', label: t('reading.engine_ai') },
             ]}
           />
+          {settings.translateEngine === 'ai' ? (
+            <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
+              {t('reading.engine_ai_hint')}
+            </p>
+          ) : null}
           <div className="mt-2 flex items-center gap-2">
             <span className="text-[length:var(--text-12)]">{t('reading.translate_to')}</span>
             <Select

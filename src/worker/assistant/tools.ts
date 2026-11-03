@@ -64,6 +64,7 @@ import { CLOUDDRIVE_TOOLS } from './clouddrive-tools'
 import { IMGBED_TOOLS } from './imgbed-tools'
 import { MEMOS_TOOLS } from './memos-tools'
 import { BLOG_TOOLS } from './blog-tools'
+import { READING_TOOLS } from './reading-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
@@ -4976,6 +4977,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...IMGBED_TOOLS,
   ...MEMOS_TOOLS,
   ...BLOG_TOOLS,
+  ...READING_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

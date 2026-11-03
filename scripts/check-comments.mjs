@@ -12335,15 +12335,17 @@ const allowed = new Map([
     "/** The menu's own new-group flow: name it, then put this book straight into it. */",
     "/**\n   * A book the reader found on Project Gutenberg, by its number or the page's address.\n   *\n   * The bytes come from this deployment rather than the mirror directly, because the app's content\n   * policy lets the page talk only to its own origin; the number is checked here only so a pasted URL\n   * works, and the route checks it again before it becomes a path.\n   */",
     "/** The sample the app ships with, so an empty shelf is not a dead end. */",
+    "// The filter the shelf is showing is also what the assistant's page context reports, so it lives in",
+    "// the shared reading page state rather than in this component's own `useState`.",
   ]],
   ["src/client/features/reading/ProgressRing.tsx", [
     "/**\n * How far into a book a reader is, as a ring.\n *\n * The grid card carries progress on the cover's own edge, but a list row has no cover big enough to\n * read a 3-pixel bar off, so the same number is drawn as a ring there. It is decorative: the row's own\n * label says the percentage in words.\n */",
   ]],
   ["src/client/features/reading/ReadingApp.tsx", [
-    "/**\n * The reading app: a shelf, and one book at a time.\n *\n * The tab rail gives this container its own address, so a book gets a child of it. That is what makes\n * a `↩` in a reading note a normal link the app already knows how to follow, rather than a custom\n * scheme the note renderer would have to learn about.\n */",
     "/** The book a path names, or null for the shelf itself. */",
     "// A path may name a book this device does not have — a link opened on another machine, or a book",
     "// deleted since. The shelf is the only honest answer, and the address goes back with it.",
+    "/**\n * The reading app: a shelf, and one book at a time.\n *\n * The tab rail gives this container its own address, so a book gets a child of it. That is what makes\n * a `↩` in a reading note a normal link the app already knows how to follow, rather than a custom\n * scheme the note renderer would have to learn about.\n *\n * The assistant's column sits beside the shelf or the page, the way it does in the calendar: the reader\n * asks \"what am I reading\" or \"what did I mark here\" without leaving the book. What the dock is told is\n * the screen's own facts — the open filter on the shelf, the book, chapter, page and progress while\n * reading — because a dock that only knew it was \"reading\" would answer about the wrong book after a\n * tab switch.\n */",
   ]],
   ["src/client/features/reading/ShelfCard.tsx", [
     "/**\n * One book on the shelf.\n *\n * The cover carries the progress: a reader scanning a shelf is asking \"where was I?\", and a bar drawn\n * on the cover's own edge answers it in the same glance that finds the book. The caption holds only\n * what the cover cannot say, and the count of marked passages is what makes a book look worth opening\n * again rather than merely unread.\n */",
@@ -12563,17 +12565,24 @@ const allowed = new Map([
     "/** Day key a reading log is filed under, in the reader's own calendar rather than UTC. */",
   ]],
   ["src/client/features/reading/lookup.ts", [
-    "/**\n * Looking a word or a passage up without leaving the page.\n *\n * Two engines, in the order the reader asked for them: the deployment's own translation route, which\n * needs no setup and answers in a few hundred milliseconds; and the AI service the reader already\n * configured, which is slower but reads the sentence and the book title and so can pick the sense that\n * actually fits. When the AI is not configured, or fails, the request falls through to the first one —\n * a translation button that does nothing because a key was never entered is worse than a plain one.\n */",
     "/** A word card has more than one line; a passage is just the translation. */",
     "/** A single word or short phrase, which is what a dictionary answer is for. */",
     "// Full-width stop and sentence punctuation is written as an escape rather than a literal so the",
     "// language gate, which forbids Han copy in components, still lets this classifier see it.",
     "// A non-JSON failure still means \"no translation\", which is what the card shows.",
-    "/**\n * The reader's configured AI service, if there is one.\n *\n * This is the app's existing provider configuration rather than a second copy of it: a key stored twice\n * is a key that can be revoked in one place and still live in the other.\n */",
     "// Fall through to the deployment's own route rather than failing the button.",
     "/**\n * One entry in the reader's word list.\n *\n * Written as a definition-list style block so a spaced-repetition tool can read it later without this\n * app having to own a reviewer.\n */",
     "/** The note title the vocabulary list is filed under. */",
     "/** How long the card waits for the relay before it says so. The worker's own upstream has no deadline. */",
+    "/**\n * Looking a word or a passage up without leaving the page.\n *\n * Two engines, in the order the reader asked for them: the deployment's own translation route, which\n * needs no setup and answers in a few hundred milliseconds; and the assistant's account model, which is\n * slower but reads the sentence and the book title and so can pick the sense that actually fits. The\n * account model is the one configured in Assistant settings, called through the same one-shot route the\n * rest of the app uses — the reader's key never enters this page. When no model is configured, or the\n * call fails, the request falls through to the translation route: a button that does nothing because\n * nothing was set up is worse than a plain translation.\n */",
+    "/**\n * Whether this browser still holds an AI key for the drawing engine.\n *\n * The reader's lookups stopped reading that key; the key itself is left where it is, because deleting\n * somebody's credential on their behalf is not a migration. The reader is told once, and Assistant\n * settings is where the same key belongs now.\n */",
+  ]],
+  ["src/client/features/reading/page-context.ts", [
+    "/**\n * What the reading app is showing, for the assistant's page context.\n *\n * The dock needs two things this app already knows but keeps in two components: the shelf's open filter\n * and the reader's place in a book. They live here rather than being lifted into props, because the\n * shelf and the open book are different screens of one tab and both would otherwise have to thread a\n * callback up through `ReadingApp`. Nothing here is a source of truth for the UI: the shelf writes its\n * filter here, the reader writes its position, and `ReadingApp` reads both to describe the page.\n */",
+    "/** Where the reader is, in the reader's terms rather than the position codec's. */",
+    "/** Zero-based spine index, the same number the reader's own marks carry. */",
+    "/** The page inside the chapter, and its count, which is what the bottom bar reports. */",
+    "/** 0…1 across the whole book. */",
   ]],
   ["src/client/features/reading/position.ts", [
     "/**\n * Where a reader is in a book, in a form that survives a resize, a font change and a restart.\n *\n * A screen page number is the obvious representation and the wrong one: it changes with the window,\n * the type size and the column count, so a position written on a phone would land in the middle of a\n * paragraph on a desktop. What does not change is the prose itself, so an EPUB position is a chapter\n * plus a character offset into that chapter's text, and a fixed-layout book's is a page.\n *\n * The codec is deliberately compact and printable (`e:12:340`) because it also appears in the\n * address bar of a `↩` link from the reading note, where a reader may paste it.\n */",
@@ -12741,6 +12750,8 @@ const allowed = new Map([
     "// branch below — is the one that can genuinely be refused, and that one says so out loud.",
     "// The route's own sentence says which half of the indexing is missing (no embedding",
     "// model, a page it could not read); the transport headline alone is a dead end.",
+    "/** Once per session: the migration is news, not a modal that follows the reader around. */",
+    "/**\n   * What this screen is, for the assistant's page context.\n   *\n   * Published on every move rather than read from the store by the dock: the chapter, the page and the\n   * progress are this component's own state, and the dock is told only what the reader is actually\n   * looking at. It is cleared when the book closes so a page that is no longer open is not described.\n   */",
   ]],
   ["src/client/features/reading/reader/SearchPanel.tsx", [
     "/**\n * Searching inside the book.\n *\n * A search that moves the reader away from where they were is a search that costs them their place, so\n * the panel remembers it and offers it back. Enter walks the results and Shift+Enter walks them\n * backwards — the same keys the browser's own find bar uses, which is the only reason to learn them.\n *\n * The panel is told how to search rather than how to read: a flowing book answers with a chapter and an\n * offset, a fixed one with a page, and both arrive as the same hit shape.\n */",
@@ -33475,6 +33486,14 @@ const allowed = new Map([
     "/**\n * One subscription rendered for the surface that manages it: the push service's origin and a digest.\n *\n * A reader needs to tell two devices apart, not to read a credential off the screen. This form deliberately\n * ignores the shape of the path, because the previous one did not: it took the first path segment as a\n * \"head\", and a short-path service such as Apple puts the whole token in that first segment, so its head\n * was a replayable credential printed on a settings screen. Origin plus digest holds for every service —\n * nothing of the path survives, and two rows of one service never look alike by accident.\n *\n * Which row is the reader's own device is therefore not answered here: the write route hands back the row's\n * id, and that id — not any text derived from the endpoint — is what the screen matches on.\n */",
     "// A row whose endpoint stopped parsing keeps its digest, so it still tells apart from another broken row.",
   ]],
+  ["src/worker/assistant/reading-tools.ts", [
+    "/**\n * The reading tools the assistant can call.\n *\n * The shelf is the account's, not the browser's: the reader app keeps the files and the working copy on\n * the device and pushes the reading state to `reader_*` under the same account, which is the only copy a\n * worker can read. So these tools go through `ReaderLibraryStore`, which binds every statement to the\n * authenticated user; nothing here builds SQL or trusts an id the model made up, and a book that is on\n * somebody else's shelf is simply not in this account's rows.\n *\n * What the shelf holds is metadata: the title, the author, the contents the import cached, where the\n * reader stopped, and the passages they marked. It does not hold the prose of a chapter. A tool that\n * promised to quote a chapter would be inventing it, so `reading_chapter_info` answers the table of\n * contents and the reader's place in it, and says in its own answer that the body text is not available.\n * Reading a chapter would need the EPUB extracted and paginated — a service this app does not have and\n * that this module deliberately does not pretend to offer.\n */",
+    "/** What one book's rows say, gathered once per call so the listing and the detail agree. */",
+    "/** A position is stored as JSON by the shelf route, and a hand-edited row is not worth trusting. */",
+    "// A contents entry names the chapter's start, so an omitted offset is that start rather than a bad row.",
+    "/** The chapter's own title, which is the label a reader recognises, or nothing for an unnamed spine item. */",
+    "/** Where the reader stopped, in the book's own words: a chapter label, or \"page 7 of 120\". */",
+  ]],
   ["src/worker/assistant/realtime.ts", [
     "/**\n * Minting a short-lived credential for a realtime voice session.\n *\n * The reader's provider key never reaches the browser: this Worker uses it once to ask the provider\n * for a client secret that expires in about a minute, and the browser speaks to the provider directly\n * with that secret. That keeps the privacy shape the rest of the assistant already has — audio and\n * answers travel between the reader and the vendor, not through this deployment — without putting a\n * long-lived key in a page.\n *\n * Only the OpenAI realtime shape is understood. The session endpoint changed during the API's\n * preview period, so the newer `client_secrets` call is tried first and the older `sessions` call is\n * the fallback for a provider that has not caught up.\n */",
     "/** The short-lived credential the WebRTC handshake is signed with. Never the provider's own key. */",
@@ -42118,6 +42137,11 @@ const allowed = new Map([
     "// The whole of what a browser may learn about a stored key: that it exists, and its last four.",
     "// A disabled row is not asked, and so is not shown as a failure either: the reader switched it off, and",
     "// the ring is not using it. `on.id` is the only row left standing.",
+  ]],
+  ["tests/assistant-reading-tools.test.ts", [
+    "/**\n * The reading tools, and the reader's lookups.\n *\n * The tools read the account's synced shelf through the real `ReaderLibraryStore` over an in-memory\n * D1, because what is being pinned is that a question about \"my books\" is answered from stored rows —\n * a stub shelf would pass while the account scoping was missing. The second half pins the lookup path:\n * a selection's explanation now goes through the assistant's account model, and the drawing engine's\n * browser-local key is not read at all.\n */",
+    "/** One shelf, in the shape `PUT /library` validates into. */",
+    "// The drawing engine's key is present on this device, and it must not travel with the call.",
   ]],
   ["tests/assistant-routes.test.ts", [
     "/** Reads the SSE body of a chat turn into its events. */",
