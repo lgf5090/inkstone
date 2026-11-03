@@ -418,15 +418,17 @@ describe('memo filters', () => {
     expect(second.nextCursor).toBeNull()
   })
 
-  it('refuses a filter that would scan past the limit', async () => {
+  it('pages a filter over a large account instead of refusing it', async () => {
     sqlite.prepare(
       `WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 20001)
        INSERT INTO memos_items (id, user_id, content, created_at, updated_at)
        SELECT 'x' || printf('%025d', n), ?, '', 1000, 1000 FROM seq`,
     ).run(OWNER_ID)
     const response = await call('GET', `/api/memos?filter=${encodeURIComponent('pinned == false')}`)
-    expect(response.status).toBe(400)
-    expect((await json<{ error: { message: string } }>(response)).error.message).toMatch(/too large/)
+    expect(response.status).toBe(200)
+    const page = await json<{ items: unknown[], nextCursor: string | null }>(response)
+    expect(page.items).toHaveLength(16)
+    expect(page.nextCursor).not.toBeNull()
   })
 })
 

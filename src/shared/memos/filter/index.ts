@@ -1,4 +1,4 @@
-export type { MemoFilterError } from './ast'
+export type { MemoFilterBinaryOperator, MemoFilterCallNode, MemoFilterError, MemoFilterFieldNode, MemoFilterNode } from './ast'
 export {
   compileMemoFilter,
   type MemoFilter,
@@ -6,4 +6,4 @@ export {
   type MemoFilterContext,
   type MemoFilterRecord,
 } from './evaluate'
-export { validateMemoFilter, type MemoFilterValidation } from './validate'
+export { prepareMemoFilter, validateMemoFilter, type MemoFilterPreparation, type MemoFilterValidation } from './validate'

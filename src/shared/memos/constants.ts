@@ -26,7 +26,6 @@ export const MEMO_ATTACHMENT_UPLOADS_PER_HOUR = LIMITS.attachmentUploadsPerHour
 export const MEMO_FILTER_MAX_BYTES = 8 * 1024
 export const MEMO_FILTER_MAX_DEPTH = 32
 export const MEMO_FILTER_REGEX_MAX_LENGTH = 256
-export const MEMO_FILTER_SCAN_LIMIT = 20_000
 
 export const MEMO_DRAFT_VERSION = 1
 export const MEMO_DRAFT_DEBOUNCE_MS = 500
