@@ -1618,6 +1618,9 @@ const allowed = new Map([
     "// A refusal this entry can never pass (gone, forbidden, stale) is dropped rather than",
     "// replayed forever; the range reload shows the server's version.",
   ]],
+  ["src/client/features/calendar/persistence.test.ts", [
+    "// The app echoes the repaint it was handed; the skip entries eat those two, not the reader's edit.",
+  ]],
   ["src/client/features/calendar/persistence.ts", [
     "/**\n * The event write queue.\n *\n * DayFlow announces every mutation through `subscribeEventChanges`; this is the only place those\n * announcements become API calls. Changes for the same event coalesce over a short debounce and are\n * then written one at a time, so a fast sequence of edits lands as its final state instead of a race\n * of PATCHes. A rejected write refreshes the affected range (the server is authoritative) or is\n * retried once and then reported — never dropped silently. A write refused for staleness parks the\n * edit and asks the reader which parts of it survive; see `resolveConflict`.\n */",
     "/** A vanished event or a schema refusal means \"reload; do not keep retrying\". */",
@@ -1643,6 +1646,10 @@ const allowed = new Map([
     "/** The write met a dead network; keeping it is the caller's call. */",
     "/** Keep the optimistic row and hand the write to the account's durable queue. */",
     "// The row never reached the server, so there is nothing for the queue to delete.",
+    "// A shared calendar rewrites the id to its synthetic `shared:owner:row` form. Adopting that id",
+    "// here is what lets the first edit or delete after a create address the row the server owns;",
+    "// keeping the local id makes every later write a 404.",
+    "/**\n   * Adopt the id the server answered for a freshly created row.\n   *\n   * A shared calendar prefixes every id with `shared:owner:`, so the id a create was typed under is not\n   * the id the row will answer to afterwards. Moving the revision, the draft and any edit that queued\n   * during the request keeps the next PATCH or DELETE addressing the row that exists; repainting the\n   * app's copy under the new id keeps the reader's own edit pointing at the same event.\n   */",
   ]],
   ["src/client/features/calendar/print.ts", [
     "/**\n * The paper version of the calendar.\n *\n * Printing the live grid produces nothing usable: the columns are a fixed pixel height, the day bodies\n * scroll, and colour is the point of the screen rather than of the page. So the print surface is a\n * second document — one section per day, all-day items first, then the timed ones in order — built\n * from a range read of the server, which is why it does not depend on which view is showing.\n */",
@@ -6718,6 +6725,24 @@ const allowed = new Map([
     "/**\n * Socket sessions outlive the panel that shows them.\n *\n * A tab switch unmounts the panel but must not drop the connection or the transcript: the node id\n * owns both, so coming back shows the same conversation and the socket is closed only on an explicit\n * disconnect, a deleted node, or leaving the module.\n */",
     "// The peer may already be gone; the session state below is what the user sees either way.",
     "/** A deleted request takes its conversation with it. */",
+  ]],
+  ["src/client/features/email/ComposePanel.tsx", [
+    "/** The other device's copy of this draft, as a save refused it. */",
+    "/** The draft write this save is typed on; a mismatch means another device saved after it. */",
+    "/** True while the conflict dialog is up: auto-save stays still until the reader chooses. */",
+    "/** Keep the text in front of the reader, accepting the other device's newer timestamp as the base. */",
+    "/** Take the other device's copy into this form and drop what was typed here. */",
+    "// The send itself was handed to the server as a queued job; undo is its cancel, not a timer in",
+    "// this tab. A job the sweep already claimed answers 404, which means the mail is on its way and",
+    "// there is nothing left to take back.",
+    "// Cancel the queued job first: if the sweep already claimed it, this answers 404 and the server",
+    "// sends the one copy that exists. Only a successful cancel means this tab must send it now, so",
+    "// the two paths can never both deliver.",
+    "// The undo window is a server-side queued send, not a timer that dies with the tab: closing the",
+    "// page inside nine seconds must still deliver, and undo is a cancel of that job. A deployment",
+    "// where the schedule call fails keeps the old in-tab timer as the fallback.",
+    "// A deployment without the schedule route keeps the in-tab timer; an offline client is the",
+    "// ordinary case of that, not something to log on every send.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -16070,6 +16095,9 @@ const allowed = new Map([
     "/**\n   * The row this one sits under, as the id the task carries and the words the panel can show for it.\n   *\n   * Only the id travels on the row, so the title is read from the rows the app already holds and asked\n   * for once when the parent is not among them. An answer that could not be read is said as such rather\n   * than shown as a bare id, which no reader recognises.\n   */",
     "/**\n   * Name the parent the panel cannot read off its own rows.\n   *\n   * A parent picked in this panel brings its own title; a panel opened on a row that already sat under\n   * something carries only an id. The cached listing is asked first, because a parent in the same view is\n   * already in hand, and the row's own read second — and an answer that could not be read is said as\n   * unreadable rather than shown as a bare id no reader recognises.\n   */",
     "/* Where this row sits in a tree. A parent gathers rows on screen and says nothing about their\n            status: a child keeps its own list, dates, hours and counts, so the panel writes an id rather\n            than a kind. Clearing it puts the row back at the top, which is an answer and not an absence. */",
+    "// The panel closes on a save, not on a press: both writes answer null when the row could not be",
+    "// written (the store has already toasted the reason), and closing then would throw away the fields",
+    "// the reader still has in front of them.",
   ]],
   ["src/client/features/todos/TaskFinder.tsx", [
     "/**\n * Find one of the account's own tasks by title, for a field that names it.\n *\n * The editor asks this question twice — which task should this one wait on, and which task should this\n * one sit under — so the finder lives in one place rather than being drawn twice with two slightly\n * different failure lines. The store's own search is the door: it already knows the server's shape and\n * the debounce the rest of the app pays for, and the task worth naming is usually not one currently on\n * screen. Three answers are owed and all three are said: a search in flight, one that found nothing, and\n * one that was refused — an empty list would otherwise read as \"no such task exists\".\n */",
@@ -17474,6 +17502,10 @@ const allowed = new Map([
     "// The prose still renders: a region that dropped everything would pass every assertion above.",
     "// jsdom has no `isContentEditable`, so \"not editable\" is read from the absence of every editable",
     "// surface the region could carry.",
+  ]],
+  ["src/client/features/todos/task-editor-preserve-input.test.tsx", [
+    "/**\n * The task editor's form belongs to the reader until they save it.\n *\n * Two writes happen beside the form's own fields: adding or ticking a step refreshes the row list, and\n * saving can be refused. The first must not re-seed the panel (a step press used to wipe a half-typed\n * title), and the second must not close it (a failed save used to look like a successful one).\n */",
+    "// What addStep()/updateStep() does: the store answers with a fresh row array.",
   ]],
   ["src/client/features/todos/task-editor-repeat-series.test.tsx", [
     "/**\n * The series half of the repeat field: what the panel does with a rule beyond its rhythm.\n *\n * The rhythm was already editable here, and the server has always copied it onto the next occurrence.\n * What the reader could not say was *how long* the series runs — when it stops, how many times it\n * comes back, whether this week is being let go of. R2-3 put those on the rule, and every one of them\n * reaches the row through this panel's single PATCH.\n *\n * Two properties the cases below are built around:\n *\n * - The save writes the rule **whole**. The server replaces the stored JSON with exactly what the\n *   panel sends, so a field the panel forgot is not left alone, it is deleted. `produced` is the sharp\n *   case: no control shows it, yet losing it restarts a bounded series from its first occurrence, and\n *   a row that has already run four times would run four again.\n * - Reading a rule back has to show what the row carries, because the panel is the only place a reader\n *   can see whether the series they bounded is actually bounded. A field that opens empty and then\n *   saves empty would undo the ceiling on the first unrelated title edit.\n */",
@@ -29384,6 +29416,9 @@ const allowed = new Map([
   ["src/client/store/notes.test.ts", [
     "// One write for the 500 optimistic patches, one for the folder removal itself.",
     "/**\n * The link tests write to a note of their own. `dirty` is module state and outlives the\n * per-test `setState`, so a note an earlier test typed into is still unsaved here, and the\n * guard under test would trip for that reason instead of the one being measured.\n */",
+    "// The old branch completed the row; the write must still be queued so the body is not lost.",
+    "// Last in this file on purpose: it leaves a 1.9 MB dirty body in the module's write-ahead state,",
+    "// which is the thing it is asserting about and would distort any case that runs after it.",
   ]],
   ["src/client/store/notes.ts", [
     "/** Coordinates the note cache, offline write-ahead log, optimistic updates, and server synchronization. */",
@@ -29468,6 +29503,21 @@ const allowed = new Map([
     "// A listener is a feature watching an event, not a step of the create. Its failure must not",
     "// unmake the note the reader just got, so it is logged and the rest still hear about it.",
     "// An unresolvable name stays out of the way: a folder id the folder list has never",
+    "// A body is saved through the offline journal, not this metadata helper. If a patch does",
+    "// carry one, the refusal below applies to it too, and the conflict branch must not resend",
+    "// it over another device's revision.",
+    "/**\n * Notes whose oversized body has already been announced.\n *\n * The replay pass runs on every edit, blur and poll, and each attempt re-sends the same rejected\n * body. One toast per note (cleared by the next successful save) tells the reader the write is\n * kept locally and not lost, without turning the failure into a message every few seconds.\n */",
+    "// A byte count can never exceed a character count, so an ordinary body is refused by this cheap",
+    "// comparison alone; only a body already past the ceiling pays for the exact UTF-8 count.",
+    "// A refusal that leaves the text on one device is not a transient notice; keep it long enough",
+    "// to be read (and hovered, which pauses it) rather than for the usual error flash.",
+    "// A body over the route's byte ceiling is refused before it is sent: the server would answer",
+    "// 413 for the same reason, and sending a 2 MB payload on every replay only to discard it is",
+    "// pure cost. The queue keeps the edit (the reader's text is still in the editor and the",
+    "// local cache) and the toast says why it is not reaching the server.",
+    "// A 413 is a refusal, not a save: the old branch completed the queue row and the",
+    "// editor then believed the body had landed. Keep the write queued with its failure,",
+    "// so it is not silently dropped, and tell the reader once what the limit is.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
@@ -30634,6 +30684,10 @@ const allowed = new Map([
     "/** Where cron sends the reminder copy; independent of the organizer address. */",
     "/** Offer a one-click switch to the browser's zone when it differs from the calendar's. */",
   ]],
+  ["src/shared/clouddrive/model.test.ts", [
+    "// The transport decoded the value once: `%25` in a URL is `%` here. Decoding again would either",
+    "// throw on a lone percent or turn an encoded slash into a real separator.",
+  ]],
   ["src/shared/clouddrive/model.ts", [
     "/** Shared vocabulary for the CloudDrive app: paths, names, categories, listing and preferences. */",
     "/** `report (1).pdf`, `report (2).pdf`; the extension stays at the end. */",
@@ -30643,6 +30697,10 @@ const allowed = new Map([
     "/** What an upload does when the destination already holds that name. */",
     "/** What the album can show: stills, moving pictures, or both. Animated files fall under stills. */",
     "/** The capture time an image's EXIF carried, stamped at upload; the album groups by it when present. */",
+    "// Callers hand this an already-decoded value: `URLSearchParams` and JSON bodies decode once at the",
+    "// transport boundary, and a user typing a path decodes nothing. Decoding here too would throw on a",
+    "// literal `%` (`100%.txt`) and would turn an encoded slash (`a%2Fb`) into a real directory separator.",
+    "// Raw URL pathnames are the one encoded source; `parseEncodedPath()` in the worker decodes those once.",
   ]],
   ["src/shared/clouddrive/settings.ts", [
     "/** Defaults and validation for the CloudDrive settings stored as `CloudDrive_settings` rows. */",
@@ -30772,6 +30830,10 @@ const allowed = new Map([
   ]],
   ["src/shared/development/database/assistant-context.ts", [
     "/** Absent for a local SQLite file, which only exists in the browser. */",
+  ]],
+  ["src/shared/email/model.ts", [
+    "/** The row's write time, the token a draft save compares before it overwrites another device. */",
+    "/**\n   * The `updatedAt` this save was written against.\n   *\n   * Present, the save refuses to overwrite a draft another device wrote since; absent, it is the\n   * unconditional write the agent and import paths have always made.\n   */",
   ]],
   ["src/shared/inknote/api.ts", [
     "/** The JSON shapes crossing /api/inknote; DTOs stay free of worker and DOM types. */",
@@ -35248,6 +35310,7 @@ const allowed = new Map([
     "// A hand-edited or half-written row falls back to \"inherit everything\", which is the behaviour the",
     "// conversation had before this column existed.",
     "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
+    "/**\n   * Include rows filed in a list the reader put away, which the shelf predicate normally hides.\n   *\n   * Only a document that hands the account back wholesale asks for this (`todos/export-tasks.ts`):\n   * a listing still means \"what the reader can find on screen\", and an export that skipped a shelved\n   * list would silently arrive without work the reader still owns.\n   */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -36277,6 +36340,7 @@ const allowed = new Map([
     "/**\n * Best-effort cleanup for the object a failed write has already orphaned. The caller is reporting a\n * bigger failure, and a bucket that will not delete is not worth replacing that message with.\n */",
     "/** The object bucket every primary-mount write goes through, or the 503 that says it is not bound. */",
     "/**\n * The capture time an image row carries in its `metadata`. Only media reads it: a folder's metadata\n * holds notes and hiding rules, and a stray number there must not become a photo date.\n */",
+    "/**\n * A percent-encoded URL pathname, decoded exactly once and then validated.\n *\n * `c.req.path` keeps the escapes a WebDAV client sent (`%2e%2e`, `%20`); every other source already\n * arrives decoded. Decoding here rather than inside the shared model keeps that single decode at the\n * one boundary that has an encoded value, so a literal `%2F` in a name cannot alias another folder.\n */",
   ]],
   ["src/worker/clouddrive/meta.ts", [
     "/**\n * A hidden rule is a glob — `*.tmp`, `Thumbs.db`, `._?` — which is exactly what the inspector hints\n * at. Treating it as a regular expression let a typo hide nothing at all and let `(a+)+$` turn a\n * folder listing into a backtracking exercise, so no pattern is ever compiled here.\n */",
@@ -36322,7 +36386,6 @@ const allowed = new Map([
     "/** Is any account advertising WebDAV? Only used to pick 503 over 401 for an unauthenticated probe. */",
     "/**\n * Settings are per user and a DAV request only carries a username, so the username lookup is the\n * one pre-authentication query in this module; every query after the owner is known binds `user_id`.\n */",
     "// An empty configuration answers 503; a wrong password against a configured account is a 401.",
-    "/** `c.req.path` is still percent-encoded; `parsePath` decodes it exactly once. */",
     "/** Create every missing folder on the way to `path`, the way a DAV PUT is allowed to. */",
     "// Another request may have created the same folder between the lookup and the insert.",
     "// The upload never became a row; R2 owns whatever bytes a failed put may have left.",
@@ -36354,6 +36417,7 @@ const allowed = new Map([
     "// One read of the lock table per mount touched by this listing, not one per row.",
     "/**\n * Write locks: stored, enforced by every mutating method until they expire, and reported by\n * PROPFIND. A body carrying `<D:lockinfo>` takes a lock; an empty body refreshes one the caller\n * already holds. `Depth: 0` locks a single resource, anything else the whole subtree under it.\n */",
     "// A token that names no lock on this resource is a conflict, not a success that changed nothing.",
+    "/** `c.req.path` is still percent-encoded; `parseEncodedPath` decodes it exactly once. */",
   ]],
   ["src/worker/clouddrive/routes-files.ts", [
     "/**\n * The authenticated CloudDrive file API.\n *\n * Every route resolves the mount and the entry through `lib.ts`, validates its inputs, and asks\n * `store-files.ts` for rows. Errors are `ApiError`s, so the app-level handler answers with the same\n * envelope as the rest of the product.\n */",
@@ -37661,6 +37725,10 @@ const allowed = new Map([
     "/** Base64 to bytes; malformed input yields nothing rather than the decoder's exception. */",
     "/** Quoted-printable to bytes, with soft line breaks removed before the `=XX` escapes are read. */",
   ]],
+  ["src/worker/email/mailbox-store.ts", [
+    "/** What one draft save did: the row it wrote, or why it wrote nothing. */",
+    "/**\n   * Save a draft, optionally refusing to overwrite a newer write.\n   *\n   * The comparison happens inside the mailbox's own synchronous store, so there is no window between\n   * reading `updated_at` and the write it guards: two tabs editing the same draft cannot both pass the\n   * check. Without `expectedUpdatedAt` the save is the unconditional one the agent and import paths use.\n   */",
+  ]],
   ["src/worker/env.ts", [
     "/** Workers AI binding for semantic search; optional so AI search degrades gracefully. */",
     "/** The per-account download queue; optional so a deployment without R2 can omit it. */",
@@ -37717,6 +37785,17 @@ const allowed = new Map([
     "/**\n   * Delete one folder and everything below it, trashing the notes it held.\n   *\n   * The `subtree` walk is guarded on the timestamp the route read, so a folder that was moved or edited\n   * underneath deletes nothing at all. Every statement repeats that walk rather than passing ids\n   * through JavaScript: a subtree can be far bigger than a bind list, and the walk is index-bound. The\n   * change records, the AI and full-text queue rows and the link cleanup ride in the same batch as the\n   * folder and note updates, because a half-deleted subtree would leave notes searchable that no reader\n   * can reach. The final folder delete is what the caller reads as \"the subtree was really gone\".\n   */",
     "/** The recursive subtree walk every cascade statement in a subtree delete repeats, guarded on `updated_at`. */",
     "/**\n * The order a promoted folder's children take when the parent is filed away.\n *\n * It belongs next to `promotionRows` because it is that read's arithmetic: siblings and children are\n * ordered by the same comparator the listing uses, and the result is either a gap-free insert between\n * two neighbours or a full renumber of the row. `ApiError.conflict` is what a caller answers when the\n * hierarchy moved under it — the same shape every store here already throws.\n */",
+  ]],
+  ["src/worker/imgbed/dav.ts", [
+    "// The new object is written and the row is switched to it before the old object goes: an upload that",
+    "// fails leaves the previous file whole, which is what an overwrite must promise a client that is",
+    "// replacing the only copy it has.",
+  ]],
+  ["src/worker/imgbed/upload-service.ts", [
+    "/**\n   * Store the row under this id, replacing the row already there.\n   *\n   * WebDAV PUT is an overwrite: its path is the row id, so the new bytes have to land under a key of\n   * their own and the row can only point at them once the upload succeeded. Callers that do not\n   * overwrite leave this out and get the usual generated id.\n   */",
+    "// An overwrite writes the new bytes under a key of their own; the old object keeps serving until the",
+    "// row is switched to the new one. Sharing the key would replace the original before the upload is",
+    "// known to have succeeded, which is the failure this exists to prevent.",
   ]],
   ["src/worker/index.ts", [
     "// Codex CLI drops the `iss` callback parameter while its rmcp",
@@ -38775,7 +38854,6 @@ const allowed = new Map([
     "/**\n   * Bring a trashed note back, rebuilding the derived rows the trash dropped.\n   *\n   * The restore re-derives tags, links and index rows from the body as if the title had changed, so a\n   * note that comes back is searchable again without the client having to save it once more.\n   */",
     "/**\n   * Delete a trashed note for good, along with everything that pointed at it.\n   *\n   * Every statement is guarded on the same `id`/`user_id`/`rev`/`deleted_at` shape and the note delete\n   * rides in the same batch, so a note that came back to life mid-request loses nothing. The orphaned\n   * tags are pruned last: they can only be judged once this note's rows are gone.\n   */",
     "/** Whether two tag listings hold the same names, ignoring order. */",
-    "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page (the note_tags delete has no account\n * column to filter, so it takes the id page as `?1`), `?3` = timestamp.\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
     "/**\n * The notes whose `[[wikilinks]]` the link table already points at this one, each with\n * the text around the link.\n *\n * The window is cut from `hit`, so the column has to survive the outer projection: it\n * did not, and every context came back empty until a test read the row keys.\n */",
     "/**\n * The sentence around a mention, or `null` when the row does not actually carry one.\n *\n * Two reasons not to trust the index pass: SQLite's `lower()` folds ASCII characters only,\n * so a mention written with an accented or Cyrillic capital gives `hit` 0 and leaves the\n * window parked at the top of the note; and the full-text index matches token neighbours,\n * not characters, so it can offer a note where the words only happen to sit next to each\n * other. `foldIndexOf` is exact and length-preserving, so one check answers both.\n */",
     "// `trimFrontMatterLead` only ever removes a prefix, so the difference in length is how",
@@ -38810,6 +38888,7 @@ const allowed = new Map([
     "// nulled and why `chat_note_writes` is deleted instead.",
     "// The run row is the account's history of what a schedule did, so it stays while the pointer to the",
     "// note that no longer exists goes.",
+    "/**\n * The dependent-table cleanup for one page of trashed note ids, in the order the cascade\n * needs: link retargeting before the notes go, share sessions before their shares.\n * Statements bind `?1` = account, `?2` = JSON id page, `?3` = timestamp.\n *\n * Every child-table write re-checks that the note is *still* trashed. The page is read before the\n * batch runs, so another device can restore one of its notes in between; without the guard that\n * batch would strip the tags, versions, shares and links of a note whose row itself survives (the\n * final delete already carries the same `deleted_at IS NOT NULL` predicate).\n *\n * A free function rather than a method because the bulk purge builds it per page and the batch test\n * builds it directly: neither wants a store that exists only to hold a connection.\n */",
   ]],
   ["src/worker/quickadd/store.ts", [
     "/**\n * Every read and write the QuickAdd HTTP routes make against D1.\n *\n * The shape follows `share/store.ts`: a store built per request from the account it serves, methods\n * that hand back rows, the boolean a guarded write matched, or the answers the route prints, and no\n * `Response` in between. Two kinds of read live here:\n *  - the library envelope on the account's own `users` row. `WHERE id = ?1` binds `c.get('userId')`,\n *    and `users.id` *is* the account, so one device can neither read nor overwrite another's library.\n *    The envelope text is the route's to build and to parse; the store only moves the column;\n *  - the property scans behind `{{FIELD:}}`. Their `user_id` predicate is not a literal in the\n *    template but the first clause `fieldScopeWhere()` always splices — `n.user_id = ?1` bound to the\n *    account the store was built with — because the optional folder/tag scopes are named by the\n *    caller and have to be numbered after it.\n *\n * The scan's three bounds (`FIELD_SCAN_LIMIT`, `FIELD_VALUE_LIMIT`, `FIELD_VALUE_MAX_LENGTH`) are part\n * of the answer rather than configuration: a value list is a convenience, and a slow one is worse than\n * the author typing the word.\n */",
@@ -39418,6 +39497,8 @@ const allowed = new Map([
     "/**\n * Busy blocks across the calendars this account can read.\n *\n * Titles and descriptions never leave the store here: a shared calendar reveals that its owner is\n * busy, not what they are doing. The client turns these blocks into free windows itself.\n */",
     "// A month view that only needs exception masters asks for exactly those; expanding every series",
     "// there would send the whole month back a second time.",
+    "// A recurrence write is a PATCH of the master in disguise: its patch can name calendars, and those",
+    "// have to be rewritten to the owner's raw ids before validation, exactly as the PATCH route does.",
   ]],
   ["src/worker/routes/cloudflare/accounts.ts", [
     "/**\n * `/api/cloudflare/accounts` — the account list, its credential bundle, and the batch operations the\n * screen's buttons call.\n *\n * Hono answers in registration order, so every fixed path (`/test-batch`, `/import-csv`, `/batch/*`)\n * is registered before the `/:id` arms. Every query carries the reader's id; another reader's account\n * is answered as missing rather than forbidden, so an id cannot be used to prove it exists.\n *\n * Every write is paired with an audit row. The route owns those for edits and deletes because the\n * store functions are also called by other screens and should not guess a reader's intent; CSV rows\n * are audited one by one because each creates an account of its own.\n */",
@@ -39538,6 +39619,10 @@ const allowed = new Map([
     "/**\n * Publishing counts against a per-account hourly budget so one account cannot\n * flood the shared directory. Updating your own template spends the same\n * budget, which is the point: an edit is another write.\n */",
     "/**\n * Resolves the row an update targets and enforces both ceilings. A supplied id\n * is only honoured when it is new or already belongs to this account, so one\n * author can neither overwrite nor squat another author's id.\n */",
     "/**\n * One account adopting a template into its own library is the only signal worth\n * counting, so the author's own copy never adds to it. The budget is per account\n * and generous: it stops a script, not a person browsing the directory.\n */",
+  ]],
+  ["src/worker/routes/email.ts", [
+    "// The reader's other tab (or another device) wrote this draft after the copy this save was",
+    "// typed on. Answer with that copy so the surface can ask which text survives.",
   ]],
   ["src/worker/routes/excalidraw-library.ts", [
     "/**\n * Only `libraries.excalidraw.com` may be fetched, and only for a `.excalidrawlib` path. The catalog and\n * the download endpoints both run with this app's credentials from Cloudflare's edge, so an unchecked URL\n * would turn them into a general-purpose proxy for whatever host a note or a hash fragment names.\n */",
@@ -41191,6 +41276,12 @@ const allowed = new Map([
     "/**\n * The interchange document: a header line and one row per task, in the importer's own vocabulary.\n *\n * `notes` keeps the task's Markdown verbatim — the importer stores that column as the description, so the\n * note survives the round trip. `due` is the account-zone wall clock, because a due date in a file the\n * reader opens in a spreadsheet has to read as the day they filed the task for, not as a UTC instant.\n * Nothing else goes in the file: the reader's language, the account's zone and the export instant are\n * already in the JSON document and in the file name, and a comment line here would be imported as a task.\n */",
     "// `;` is the separator the importer splits this column on; a comma would arrive as one tag.",
     "/**\n * The account is bigger than one CSV can honestly carry.\n *\n * Thrown rather than answered with a short file: a partial export that reads as a complete one is the\n * wrong fact this module exists to avoid, and the CSV has no place to say it is partial.\n */",
+    "// `includeShelvedLists` is what makes this the whole account: the shelf predicate every listing uses",
+    "// hides rows filed in a list the reader put away, and a document about what they owe must still carry",
+    "// that work. Archived *rows* were already included by `archived: 'any'`.",
+    "// The walk stopped at the ceiling. An account holding exactly the ceiling is complete, so one probe",
+    "// row past it decides whether `truncated` is a fact or an assumption — and a file must not claim to be",
+    "// partial when it is not (nor complete when it is).",
   ]],
   ["src/worker/todos/feeds.ts", [
     "/** The feed a published slug names, whether or not it is still alive — the caller decides what a dead one says. */",
@@ -43436,6 +43527,9 @@ const allowed = new Map([
     "// Only a provider sync may write into a read-only calendar, and it goes through the batch route.",
     "// The app keeps one calendar per account, so a deletion needs another place for the account to live.",
   ]],
+  ["tests/calendar-collab.test.ts", [
+    "// The response speaks the guest's id space, because that is the id their next write will use.",
+  ]],
   ["tests/calendar-ics-export.test.ts", [
     "/** Rows written straight to the table: the API caps one description well below a whole file. */",
     "// DTSTAMP is stamped per request, so the two documents are compared without it.",
@@ -43672,6 +43766,9 @@ const allowed = new Map([
     "// A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.",
     "// The recent page has no rows until a read says one happened.",
     "// A star outside the root still has to reach the starred page, which is why it is a global query.",
+  ]],
+  ["tests/clouddrive-lib.test.ts", [
+    "// `%252F` is a name that literally contains `%2F`; one decode leaves the text, not a separator.",
   ]],
   ["tests/clouddrive-maintenance.test.ts", [
     "// A key nobody references any more: an object a failed purge left behind. Attaching it would",
@@ -44110,10 +44207,20 @@ const allowed = new Map([
   ["tests/doubles/users-table.ts", [
     "/**\n * The account table `src/worker/db/schema.ts` owns.\n *\n * CloudDrive reads the owner's policy (quota, upload ceilings, WebDAV, the member switches) out of\n * that account's settings row, so a test database that exercises any of those routes needs the table\n * to exist even when nobody signs in: the same missing-table failure a throttle row causes, one layer\n * up. `role` is the only column the policy lookup looks at.\n */",
   ]],
+  ["tests/email/client-compose-send.test.ts", [
+    "// The undo window is a queued server send; these cases measure the panel, not the route.",
+    "// The window lives on the server: a queued job whose send time is nine seconds out.",
+    "// The tab closed inside the window, so this panel cannot send — and must not cancel either: the",
+    "// queued job is the delivery that survives the page.",
+  ]],
   ["tests/email/client-contact-tabs.test.ts", [
     "// The avatar style bundle is a large ESM package whose import resolves late enough to land after this",
     "// environment has been torn down, which vitest reports as an unhandled rejection for a test that never",
     "// draws an avatar. Nothing here renders one, so the chain can stop at the mock.",
+  ]],
+  ["tests/email/routes-email.test.ts", [
+    "// Another device wrote this draft after the copy the save above was typed on.",
+    "// The other device's text was not overwritten by the refused write.",
   ]],
   ["tests/excalidraw-interaction-gate.test.ts", [
     "// That api arrives from onExcalidrawAPI, which may not have run yet when the reader first touches",
@@ -44299,6 +44406,10 @@ const allowed = new Map([
     "// the reader opens their own thread.",
     "// The bytes go into the reader's storage and then into an `<img>`; the vendor's claim about them is",
     "// not evidence, so the signature is what decides.",
+  ]],
+  ["tests/imgbed-route-integration.test.ts", [
+    "// The row still answers to the WebDAV path, and the old object is gone rather than left orphaned.",
+    "// No upload channel is available on this deployment, which is a failed PUT rather than a slow one.",
   ]],
   ["tests/inknote-hot-path.test.ts", [
     "/**\n * The pointer handlers are the hot path: they run for every sample of a stroke. A serialisation, an\n * await or a React write inside one turns a 120 Hz pen into a slideshow, and no timing assertion in\n * jsdom would notice because jsdom draws nothing. This scans the source instead, and fails loudly if\n * the handlers are renamed so the region it reads cannot silently become empty.\n */",
@@ -46213,6 +46324,7 @@ const allowed = new Map([
     "// The order the tag rows come back in is the store's, not the reader's; the set is what has to hold.",
     "// The paging stops on a short page, so an account holding exactly one page must not be cut short",
     "// by the loop that walks it.",
+    "// The listing hides it, which is why the export needs a rule of its own rather than reusing one.",
   ]],
   ["tests/todo-face-report.test.ts", [
     "/**\n * The store's face door says what it dropped.\n *\n * A task's icon and colour are judged by one accept set — `taskIconOrNull` and `taskColorOrNull` in\n * `shared/todos/model.ts` — but the two doors that use it fail differently: the HTTP route answers an\n * unusable value with a 400, while the store answers it with null so that one bad field cannot undo\n * the rest of the write (defect A17 of `reports/super-productivity-port-plan.md`, whose scope was\n * narrowed once both doors were measured against the same rule). A null is the same value a *clear*\n * writes, so a tool or agent that called the store directly could report \"the icon is set\" over a row\n * that carries none — a silent failure `AGENTS.md` rule 2 forbids.\n *\n * The cases below write through the store the way the MCP and assistant surfaces do, and pin that the\n * returned row names the field that did not land. A value that lands is answered without the field at\n * all: the report is about what is missing, and a write that lost nothing has nothing to report.\n */",
@@ -47346,6 +47458,7 @@ const allowed = new Map([
     "// view; node:sqlite rejects a bare ArrayBuffer outright.",
     "// node:sqlite's `get()` takes SQLInputValue, not unknown: the helper keeps the same accepted set so",
     "// a caller that passes an unsupported value fails here instead of at run time.",
+    "// The page was read a moment ago; a restore lands before the batch does.",
   ]],
   ["tests/week-start-policy.test.ts", [
     "/**\n * Which weekday opens a calendar is derived once, from `Intl` locale data, in `src/client/lib/time.ts`.\n *\n * Before that, the answer was written out per component — and it was the same wrong sentence each\n * time: `locale === 'zh-CN' ? 1 : 0` names the two languages this app ships, so a German or Arabic\n * reader would have gotten Sunday, and the grid, its header and the picker each carried their own\n * copy of the labels. A fix that only changes one of those copies leaves the reader with a month\n * grid whose columns disagree with the row above it, which is exactly what happened inside the\n * kanban module (K2-04b fixed the picker, K2-04g1 the view). These cases keep the next calendar\n * from re-deriving the week on its own.\n */",
