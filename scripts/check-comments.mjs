@@ -7361,6 +7361,11 @@ const allowed = new Map([
     "// `calendar-activity.test.ts` can hold the fast answer against this slow oracle.",
     "/** The newest edit the note list could actually show (archived and deleted are out); null when nothing qualifies. */",
   ]],
+  ["src/client/features/memos/MemosApp.tsx", [
+    "// The dock's facts follow the same state the feed reads: moving to another space, typing a search, or",
+    "// opening a memo changes what \"this page\" means, so the chip below the composer must move with it.",
+    "/* The same dock the notebook mounts, under the same conditions: one conversation, and the\n            page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */",
+  ]],
   ["src/client/features/memos/ai-client.test.ts", [
     "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
   ]],
@@ -7371,6 +7376,17 @@ const allowed = new Map([
     "/** The enabled text models that may answer the transcription call, in the reader's own order. */",
     "/** The provider and model one recording is sent to. */",
     "/**\n * The provider and model a recording is sent to, or null when the account has none.\n *\n * A configured provider wins when the listing still holds it; otherwise the first usable one does, so\n * a deleted provider or model falls back instead of failing the recording. Anthropic has no audio\n * endpoint this app can call, so a listing that only holds one is the same answer as an empty listing.\n */",
+  ]],
+  ["src/client/features/memos/assistant-context.test.ts", [
+    "/**\n * The page facts the Memos dock sends.\n *\n * The assistant is asked \"these three\" while the reader looks at a filtered feed, so the tests pin that the\n * space, the filters, the visible count and the first titles are what travel — and that a page with no\n * filter says so rather than sending an empty line the model has to interpret.\n */",
+  ]],
+  ["src/client/features/memos/assistant-context.ts", [
+    "/**\n * What the Memos page tells the assistant about itself.\n *\n * The page already knows the space it is showing, the filters narrowing it, how many memos are on screen,\n * and the first few titles. None of that is a secret, and all of it is what \"this memo\" or \"these three\"\n * means in a sentence typed beside the page — so it is handed over as bounded facts, the same shape every\n * other page uses, rather than given a context type of its own.\n */",
+    "/** The space the feed is restricted to, when it is one. */",
+    "/** The memos currently on screen, newest first. */",
+    "/** The memo open in the detail panel, when one is. */",
+    "/** The filters as one human-readable line, or `all` when nothing narrows the feed. */",
+    "/** The section as the sidebar names it: home, a space, the archive. */",
   ]],
   ["src/client/features/memos/components/MemoBody.tsx", [
     "/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { Menu as MenuIcon, Paperclip, Plus, RefreshCw, StickyNote } from 'lucide-react'
+import { Menu as MenuIcon, Paperclip, Plus, RefreshCw, Sparkles, StickyNote } from 'lucide-react'
 import { DEFAULT_LAYOUT, PANEL_WIDTHS, useUi } from '../../store/ui'
 import { Resizer } from '../shell/Resizer'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
@@ -11,6 +11,8 @@ import { useBreakpoint } from '../../lib/hooks'
 import { navigateToPath, usePathname } from '../../lib/app-history'
 import { t, type MessageKey } from '../../lib/i18n'
 import { MemoDetail } from './components/MemoDetail'
+import { AssistantDock } from '../chat/AssistantDock'
+import { buildMemoPageContext } from './assistant-context'
 import { useRevision } from './events'
 import { MemoFeedPage } from './pages/MemoFeedPage'
 import { MemoAttachmentsPage } from './pages/MemoAttachmentsPage'
@@ -101,6 +103,8 @@ export function MemosApp(): ReactElement {
   const spaces = useMemoSpaces()
   const listRevision = useRevision('list')
   const detail = useMemos((state) => state.detail)
+  const items = useMemos((state) => state.items)
+  const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const detailReturnRef = useRef<{ pathname: string; search: string } | null>(null)
   const revisionRef = useRef(listRevision)
   const spaceTitles = useMemo(
@@ -212,6 +216,37 @@ export function MemosApp(): ReactElement {
       ? t(sectionKey)
       : null
 
+  // The dock's facts follow the same state the feed reads: moving to another space, typing a search, or
+  // opening a memo changes what "this page" means, so the chip below the composer must move with it.
+  const assistantPageContext = useMemo(() => {
+    const querySpaceId = routeSpaceId ?? urlState.spaceId
+    const openMemo = route.kind === 'memo' && detail?.id === route.id ? detail : null
+    return buildMemoPageContext({
+      sectionLabel: openMemo?.title || sectionLabel || t('memos.nav.home'),
+      spaceId: querySpaceId,
+      spaceName: querySpaceId ? spaceTitles.get(querySpaceId) ?? null : null,
+      state: feedState,
+      search: urlState.q,
+      tag: urlState.tag,
+      filterExpression: desiredQuery.filter,
+      quick: urlState.quick,
+      visible: items.length,
+      memos: items,
+      openMemo,
+    })
+  }, [
+    route.kind,
+    route.kind === 'memo' ? route.id : null,
+    detail,
+    sectionLabel,
+    routeSpaceId,
+    urlState,
+    spaceTitles,
+    feedState,
+    desiredQuery.filter,
+    items,
+  ])
+
   const sidebar = (
     <MemoSidebar
       pathname={pathname}
@@ -305,6 +340,16 @@ export function MemosApp(): ReactElement {
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          {desktop ? (
+            <IconButton
+              label={t('assistant.dock.toggle')}
+              size="sm"
+              active={assistantDockOpen}
+              onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
+            >
+              <Sparkles size={14} />
+            </IconButton>
+          ) : null}
           <IconButton
             label={t('attachments.manage')}
             size="sm"
@@ -385,6 +430,11 @@ export function MemosApp(): ReactElement {
             />
           </aside>
           </>
+        ) : null}
+        {/* The same dock the notebook mounts, under the same conditions: one conversation, and the
+            page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */}
+        {assistantDockOpen && desktop ? (
+          <AssistantDock surface="memos" pageContext={assistantPageContext} />
         ) : null}
       </div>
       {!desktop ? (
