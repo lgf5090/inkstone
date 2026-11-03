@@ -7,6 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import { CLOUDDRIVE_POLICY_KEYS } from '@shared/clouddrive/settings'
 import { publicCloudDriveSettings, normalizeCloudDriveSettingsPatch, type CloudDriveSettingsPatch } from '@shared/clouddrive/settings'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
@@ -35,6 +36,7 @@ cloudDriveSettingsRoutes.get('/settings', async (c) => {
 
 cloudDriveSettingsRoutes.patch('/settings', async (c) => {
   const userId = userIdOf(c)
+  const isOwner = c.get('user')?.role === 'owner'
   const body = await readJson<CloudDriveSettingsPatch & { webdavPassword?: unknown }>(
     c,
     SETTINGS_BODY_LIMIT,
@@ -45,11 +47,19 @@ cloudDriveSettingsRoutes.patch('/settings', async (c) => {
   const rows = normalized.rows
 
   if (body.webdavPassword !== undefined) {
+    if (!isOwner) throw new ApiError(403, 'clouddrive_policy_readonly', 'Only the owner can change CloudDrive policy')
     if (typeof body.webdavPassword !== 'string') throw ApiError.badRequest('webdavPassword must be a string')
     if (body.webdavPassword.length > PASSWORD_MAX_LENGTH) throw ApiError.badRequest('The WebDAV password is too long')
     rows['webdav.passwordHash'] = body.webdavPassword.length > 0
       ? await hashPassword(body.webdavPassword)
       : ''
+  }
+
+  const policyKeys = Object.keys(rows).filter((key) => CLOUDDRIVE_POLICY_KEYS.has(key))
+  if (policyKeys.length > 0 && !isOwner) {
+    throw new ApiError(403, 'clouddrive_policy_readonly', 'Only the owner can change CloudDrive policy', {
+      keys: policyKeys,
+    })
   }
 
   const now = Date.now()

@@ -48,7 +48,8 @@ export interface CloudDriveAdminStorageUsage {
   id: string
   name: string
   type: string
-  usedBytes: number
+  /** `null` when the mount is external: its used bytes need a driver walk the dashboard will not pay for. */
+  usedBytes: number | null
   quotaBytes: number | null
   trashBytes?: number | null
 }
@@ -67,19 +68,9 @@ export interface CloudDriveAdminCapacity {
   types: CloudDriveAdminTypeUsage[]
 }
 
-export interface CloudDriveAdminCacheStats {
-  entries: number
-  hits: number
-  misses: number
-  bytes: number
-  snapshotAt: number
-  scope: 'isolate'
-}
-
 export interface CloudDriveAdminOverview {
   counts: CloudDriveAdminCounts
   capacity: CloudDriveAdminCapacity
-  cache?: CloudDriveAdminCacheStats
   version: string
   environment: string
   database: string
@@ -313,7 +304,6 @@ export interface CloudDriveImportResult {
 export const clouddriveAdminApi = {
   overview: () => request<CloudDriveAdminOverview>('/api/clouddrive/admin/overview'),
   activity: (days = 7) => request<CloudDriveAdminActivity>(`/api/clouddrive/admin/activity${query({ days })}`),
-  cache: () => request<CloudDriveAdminCacheStats>('/api/clouddrive/admin/cache'),
 
   files: (params: CloudDriveAdminFilesQuery = {}) => request<CloudDriveAdminFiles>(`/api/clouddrive/admin/files${query({
     q: params.q,

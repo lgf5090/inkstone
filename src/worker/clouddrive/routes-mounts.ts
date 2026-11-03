@@ -479,14 +479,14 @@ async function testStorage(c: Context<AppBindings>, row: StorageRow): Promise<{ 
         ...(quota ? { quota } : {}),
       }
     } catch (error) {
-      return { ok: false, message: testFailure(error, 'WebDAV test failed') }
+      return { ok: false, message: testFailure(error, 'WebDAV test failed', Object.values(credentials)) }
     }
   }
   const tokenType = row.type as string
   try {
     return await testTokenStorage(tokenType, config, credentials)
   } catch (error) {
-    return { ok: false, message: testFailure(error, 'Storage test failed') }
+    return { ok: false, message: testFailure(error, 'Storage test failed', Object.values(credentials)) }
   }
 }
 
@@ -498,11 +498,18 @@ async function discard(response: Response): Promise<void> {
   }
 }
 
-function testFailure(error: unknown, fallback: string): string {
-  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
-    return 'The storage did not answer within 15 seconds'
-  }
-  return error instanceof Error ? error.message : fallback
+function testFailure(error: unknown, fallback: string, secrets: readonly string[] = []): string {
+  const raw = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ? 'The storage did not answer within 15 seconds'
+    : error instanceof Error ? error.message : fallback
+  // A failed fetch quotes the URL and the headers it was given, and for these mounts either can carry
+  // the bot token, so every credential value — plain and percent-encoded — is struck out before the
+  // message reaches the response or a log line.
+  return secrets.reduce((text, secret) => {
+    if (!secret) return text
+    const encoded = encodeURIComponent(secret)
+    return text.split(secret).join('***').split(encoded).join('***')
+  }, raw)
 }
 
 function testFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -591,6 +598,18 @@ function httpUrl(value: string, label: string): void {
   }
 }
 
+/**
+ * An address the reader's own browser will be sent to. A storage endpoint may live on a private
+ * network — that is the point of a NAS — but a redirect handed to a visitor goes through the same
+ * guard as every other outbound call, so a share link cannot become a scan of somebody's LAN.
+ */
+function redirectUrl(value: string, label: string): void {
+  if (!value) return
+  const target = checkTarget(value)
+  if (target.url) return
+  throw ApiError.badRequest(`${label}: ${target.error}`)
+}
+
 function storageConfig(type: StorageType, value: unknown): Record<string, unknown> {
   const config = objectValue(value)
   if (JSON.stringify(config).length > 16 * 1024) throw ApiError.badRequest('The storage configuration is too large')
@@ -602,8 +621,14 @@ function storageConfig(type: StorageType, value: unknown): Record<string, unknow
     }
     config.capacityBytes = capacity
   }
-  if (text('urlProxy')) httpUrl(text('urlProxy'), 'The proxy URL')
-  if (text('customHost')) httpUrl(text('customHost'), 'The custom host')
+  if (text('urlProxy')) {
+    httpUrl(text('urlProxy'), 'The proxy URL')
+    redirectUrl(text('urlProxy'), 'The proxy URL is not a safe redirect target')
+  }
+  if (text('customHost')) {
+    httpUrl(text('customHost'), 'The custom host')
+    redirectUrl(text('customHost'), 'The custom host is not a safe redirect target')
+  }
   if (type === 's3') {
     httpUrl(text('endpoint'), 'S3 endpoint')
     if (!text('bucketName')) throw ApiError.badRequest('An S3 bucket name is required')

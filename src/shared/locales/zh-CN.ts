@@ -2345,6 +2345,7 @@ const ZH_CORE_MESSAGES = {
     "filepreview.loading": "正在加载预览…",
     "filepreview.retry": "重试",
     "filepreview.unsupported": "无法预览 {value0}。",
+    "filepreview.too_large": "{value0} 太大，无法在这里预览，请下载后打开。",
     "filepreview.failed": "无法打开 {value0}。",
     "preview.link_kind_web": "网址",
     "preview.link_kind_image": "图片",

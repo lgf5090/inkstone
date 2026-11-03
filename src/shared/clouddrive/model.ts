@@ -159,6 +159,13 @@ export function restoredName(name: string): string {
   return `${name.slice(0, dot)} (restored)${name.slice(dot)}`
 }
 
+/**
+ * The scopes an API key can carry. Only WebDAV consumes a key today, so the list names what works;
+ * a bearer/REST surface brings its own scopes when it exists.
+ */
+export const CLOUDDRIVE_KEY_SCOPES = ['webdav'] as const
+export type CloudDriveKeyScope = (typeof CLOUDDRIVE_KEY_SCOPES)[number]
+
 export const CLOUDDRIVE_SORT_KEYS = ['name', 'size', 'uploaded', 'modified', 'type'] as const
 export type CloudDriveSortKey = (typeof CLOUDDRIVE_SORT_KEYS)[number]
 export type CloudDriveSortDirection = 'asc' | 'desc'
@@ -166,8 +173,9 @@ export type CloudDriveSortDirection = 'asc' | 'desc'
 export const CLOUDDRIVE_VIEW_MODES = ['icon', 'list', 'gallery', 'column'] as const
 export type CloudDriveViewMode = (typeof CLOUDDRIVE_VIEW_MODES)[number]
 
-export const CLOUDDRIVE_FILENAME_DISPLAY = ['truncate', 'middle', 'wrap'] as const
-export type CloudDriveFilenameDisplay = (typeof CLOUDDRIVE_FILENAME_DISPLAY)[number]
+/** What an upload does when the destination already holds that name. */
+export const CLOUDDRIVE_UPLOAD_CONFLICTS = ['rename', 'overwrite', 'skip'] as const
+export type CloudDriveUploadConflict = (typeof CLOUDDRIVE_UPLOAD_CONFLICTS)[number]
 
 export interface CloudDrivePrefs {
   viewMode: CloudDriveViewMode
@@ -175,20 +183,13 @@ export interface CloudDrivePrefs {
   density: number
   gap: number
   showCheckboxes: boolean
-  showActions: boolean
-  animation: boolean
-  filenameDisplay: CloudDriveFilenameDisplay
   sortKey: CloudDriveSortKey
   sortDir: CloudDriveSortDirection
-  groupBy: 'none' | 'kind' | 'date' | 'size'
   foldersFirst: boolean
   sidebarVisible: boolean
-  sidebarWidth: number
   inspectorVisible: boolean
-  pathBarVisible: boolean
-  statusBarVisible: boolean
-  lastMountId: string
   uploadConcurrency: number
+  uploadConflict: CloudDriveUploadConflict
 }
 
 export function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
@@ -202,9 +203,6 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
   const viewMode = CLOUDDRIVE_VIEW_MODES.includes(record.viewMode as CloudDriveViewMode)
     ? record.viewMode as CloudDriveViewMode
     : 'list'
-  const filenameDisplay = CLOUDDRIVE_FILENAME_DISPLAY.includes(record.filenameDisplay as CloudDriveFilenameDisplay)
-    ? record.filenameDisplay as CloudDriveFilenameDisplay
-    : 'truncate'
   const sortKey = CLOUDDRIVE_SORT_KEYS.includes(record.sortKey as CloudDriveSortKey)
     ? record.sortKey as CloudDriveSortKey
     : 'name'
@@ -215,20 +213,15 @@ export function parseCloudDrivePrefs(value: unknown): CloudDrivePrefs {
     density: clampNumber(record.density, 0, 100, 50),
     gap: clampNumber(record.gap, 0, 24, 8),
     showCheckboxes: record.showCheckboxes !== false,
-    showActions: record.showActions !== false,
-    animation: record.animation !== false,
-    filenameDisplay,
     sortKey,
     sortDir,
-    groupBy: record.groupBy === 'kind' || record.groupBy === 'date' || record.groupBy === 'size' ? record.groupBy : 'none',
     foldersFirst: record.foldersFirst !== false,
     sidebarVisible: record.sidebarVisible !== false,
-    sidebarWidth: clampNumber(record.sidebarWidth, 168, 360, 220),
     inspectorVisible: record.inspectorVisible === true,
-    pathBarVisible: record.pathBarVisible !== false,
-    statusBarVisible: record.statusBarVisible !== false,
-    lastMountId: typeof record.lastMountId === 'string' ? record.lastMountId : 'primary',
     uploadConcurrency: clampNumber(record.uploadConcurrency, 1, 8, 3),
+    uploadConflict: CLOUDDRIVE_UPLOAD_CONFLICTS.includes(record.uploadConflict as CloudDriveUploadConflict)
+      ? record.uploadConflict as CloudDriveUploadConflict
+      : 'rename',
   }
 }
 
@@ -236,6 +229,10 @@ export interface CloudDriveTagView {
   name: string
   color: string
 }
+
+/** What the album can show: stills, moving pictures, or both. Animated files fall under stills. */
+export const CLOUDDRIVE_ALBUM_KINDS = ['images', 'videos', 'all'] as const
+export type AlbumKind = (typeof CLOUDDRIVE_ALBUM_KINDS)[number]
 
 export interface CloudDriveEntry {
   id: string
@@ -250,8 +247,13 @@ export interface CloudDriveEntry {
   uploadedAt: number
   modifiedAt: number
   starredAt: number | null
+  /** The capture time an image's EXIF carried, stamped at upload; the album groups by it when present. */
+  takenAt?: number | null
   readOnly: boolean
   hasThumbnail: boolean
+  /** Trash listings only: when the row went to the trash and whether its subtree came with it. */
+  deletedAt?: number | null
+  descendantsTrashed?: boolean
   storage: string
   storageKind: 'r2' | 'distributed' | 'external'
   color: string | null
@@ -298,7 +300,6 @@ export interface CloudDriveBootstrap {
   settings: Record<string, unknown>
   usage: CloudDriveUsage
   prefsVersion: 1
-  capabilities: { fsAccess: boolean; notifications: boolean }
 }
 
 export function encodeCloudDriveCursor(value: { v: string | number | null; id: string }): string {

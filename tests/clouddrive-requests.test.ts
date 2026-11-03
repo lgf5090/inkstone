@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { clouddrivePublicRequestRoutes } from '../src/worker/clouddrive/routes-requests'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings, Env } from '../src/worker/env'
 import { makeD1 } from './doubles/d1-sqlite'
+import { createLoginAttemptsTable } from './doubles/login-attempts'
 import { testBindings, testR2Bucket, type TestR2Bucket } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
@@ -21,6 +23,8 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
+  createLoginAttemptsTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -149,6 +153,53 @@ describe('CloudDrive file requests', () => {
     expect((await call(OTHER, 'GET', '/api/clouddrive/requests')).body.requests).toEqual([])
     expect((await call(USER, 'DELETE', `/api/clouddrive/requests/${slug}`)).status).toBe(200)
     expect((await publicCall('GET', `/api/public/clouddrive/requests/${slug}`)).status).toBe(404)
+  })
+
+  it('streams the public upload into object storage instead of buffering it', async () => {
+    await folder('inbox')
+    const created = await call(USER, 'POST', '/api/clouddrive/requests', {
+      name: 'Stream', targetPath: '/inbox', maxFiles: 5, maxBytes: 5_000, maxFileBytes: 64,
+    })
+    expect(created.status).toBe(201)
+    const slug = (created.body.request as { slug: string }).slug
+
+    // What the bucket receives is the contract: a stream keeps the isolate flat no matter how big the
+    // visitor's file is, a buffer is the memory DoS this route used to be.
+    const shapes: string[] = []
+    const put = r2.put.bind(r2)
+    r2.put = async (key, value, options) => {
+      shapes.push(value instanceof ReadableStream ? 'stream' : 'buffered')
+      return await put(key, value, options)
+    }
+
+    const accepted = await publicCall('POST', `/api/public/clouddrive/requests/${slug}/upload?name=note.txt`, {
+      headers: { 'content-type': 'text/plain' },
+      body: 'hello stream',
+    })
+    expect(accepted.status).toBe(200)
+    expect(shapes).toEqual(['stream'])
+    expect(accepted.body).toMatchObject({ ok: true, name: 'note.txt', size: 12 })
+    const stored = [...r2.objects.entries()]
+    expect(stored).toHaveLength(1)
+    expect(new TextDecoder().decode(stored[0]![1])).toBe('hello stream')
+
+    const oversized = await publicCall('POST', `/api/public/clouddrive/requests/${slug}/upload?name=big.txt`, {
+      headers: { 'content-type': 'text/plain' },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('x'.repeat(200)))
+          controller.close()
+        },
+      }),
+      duplex: 'half',
+    } as RequestInit)
+    expect(oversized.status).toBe(413)
+    expect(shapes.at(-1)).toBe('stream')
+    // The bytes that did not fit are taken back out of the bucket, so the rejection leaves no orphan.
+    expect(r2.objects.size).toBe(1)
+    const listed = await call(USER, 'GET', '/api/clouddrive/files?path=%2Finbox')
+    const rows = (listed.body.files as { name: string; size: number }[]).map((item) => [item.name, item.size])
+    expect(rows).toEqual([['note.txt', 12]])
   })
 
   it('rejects a target that is not an existing folder', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Share2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
@@ -209,7 +209,6 @@ export function Inspector({
   entries,
   readOnly,
   busy,
-  shared = false,
   folderSummary = false,
   onClose,
   onOpen,
@@ -223,8 +222,6 @@ export function Inspector({
   entries: CloudDriveEntry[]
   readOnly: boolean
   busy: boolean
-  /** Share existence is not part of the entry model; the shell may supply it later. */
-  shared?: boolean
   folderSummary?: boolean
   onClose: () => void
   onOpen: (entry: CloudDriveEntry) => void
@@ -234,6 +231,28 @@ export function Inspector({
   onRemoveTag: (entry: CloudDriveEntry, tag: string) => void
   onSaveMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => void
 }) {
+  // Whether an item is already shared is only answerable from the share list, so the panel reads
+  // it when it first opens instead of claiming "not shared" for files it never looked at.
+  const [sharedIds, setSharedIds] = useState<Set<string> | null>(null)
+  const sharesRequested = useRef(false)
+
+  useEffect(() => {
+    if (!open || sharesRequested.current) return
+    sharesRequested.current = true
+    let active = true
+    clouddriveApi.shares()
+      .then((result) => {
+        if (!active) return
+        const rows = result.shares as { fileId?: string | null }[]
+        setSharedIds(new Set(rows.map((row) => row.fileId ?? '').filter(Boolean)))
+      })
+      .catch((error) => {
+        // An unknown answer is not the same as "not shared": the row stays out of the panel.
+        console.warn('[inkstone] CloudDrive could not read the share list for the inspector', error)
+      })
+    return () => { active = false }
+  }, [open])
+
   if (!open) return null
   const single = entries.length === 1 ? entries[0] : null
   const metadataWritable = single !== null && !readOnly && !single.readOnly && single.storageKind !== 'external'
@@ -257,7 +276,7 @@ export function Inspector({
             <p className="text-[length:var(--text-12)] text-[var(--text-secondary)]">
               {t('clouddrive.inspector.total_size', { size: formatBytes(totalEntryBytes(entries)) })}
             </p>
-            <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={() => onShare(entries)} disabled={busy} className="mt-2 self-start">
+            <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={() => onShare(entries)} disabled={busy || entries.some((entry) => entry.storageKind === 'external')} className="mt-2 self-start">
               {t('clouddrive.action.share')}
             </Button>
           </div>
@@ -287,14 +306,16 @@ export function Inspector({
               <DetailRow label={t('clouddrive.inspector.path')}>
                 <code className="cd-path text-[length:var(--text-11)] text-[var(--text-secondary)]">{single.path}</code>
               </DetailRow>
+              {sharedIds !== null && (
               <DetailRow label={t('clouddrive.inspector.share')}>
                 <span className="flex flex-wrap items-center gap-1.5">
-                  <span>{shared ? t('clouddrive.inspector.shared') : t('clouddrive.inspector.not_shared')}</span>
-                  <Button size="sm" variant="ghost" icon={<Share2 size={12} />} onClick={() => onShare([single])} disabled={busy}>
+                  <span>{sharedIds.has(single.id) ? t('clouddrive.inspector.shared') : t('clouddrive.inspector.not_shared')}</span>
+                  <Button size="sm" variant="ghost" icon={<Share2 size={12} />} onClick={() => onShare([single])} disabled={busy || single.storageKind === 'external'}>
                     {t('clouddrive.action.share')}
                   </Button>
                 </span>
               </DetailRow>
+              )}
             </dl>
             {single.storageKind === 'distributed' && <DistributedParts entry={single} />}
             {single.storageKind !== 'external' && !readOnly && !single.readOnly && <AclEditor entry={single} />}

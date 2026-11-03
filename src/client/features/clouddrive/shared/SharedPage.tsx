@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Download, FolderOpen, RefreshCw, Users } from 'lucide-react'
+import { ArrowLeft, Download, FolderOpen, RefreshCw, Save, Users } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
+import { useUi } from '../../../store/ui'
 import { clouddriveApi, type CloudDriveSharedEntry, type CloudDriveSharedItem } from '../api'
+import { useCloudDriveStore } from '../store'
 
 interface BrowseState {
   item: CloudDriveSharedItem
@@ -12,10 +14,13 @@ interface BrowseState {
 }
 
 export function SharedPage() {
+  const toast = useUi((state) => state.toast)
+  const bumpRefresh = useCloudDriveStore((state) => state.bumpRefresh)
   const [items, setItems] = useState<CloudDriveSharedItem[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [browse, setBrowse] = useState<BrowseState | null>(null)
   const [busy, setBusy] = useState(false)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -26,7 +31,7 @@ export function SharedPage() {
       setStatus('error')
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, refreshKey])
 
   const openFolder = async (item: CloudDriveSharedItem, path: string) => {
     setBusy(true)
@@ -46,6 +51,24 @@ export function SharedPage() {
 
   const downloadFile = (ownerId: string, fileId: string) => {
     window.open(clouddriveApi.sharedContentUrl(ownerId, fileId, true), '_blank', 'noopener,noreferrer')
+  }
+
+  /**
+   * A saved copy is a row of its own that points at the same object, so the reader can move, rename
+   * or delete it without touching what the owner shared. It lands in the drive root, which is where
+   * a transfer goes in every drive that has this button.
+   */
+  const save = async (ownerId: string, fileId: string) => {
+    setBusy(true)
+    try {
+      const result = await clouddriveApi.saveShared({ ownerId, fileId, toPath: '/' })
+      toast({ title: t('clouddrive.shared.saved', { value0: result.entry.name }), description: t('clouddrive.shared.saved_hint') })
+      bumpRefresh()
+    } catch (caught) {
+      toast({ title: t('clouddrive.toast.failed'), description: caught instanceof Error ? caught.message : String(caught), tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -83,6 +106,7 @@ export function SharedPage() {
                 {item.name}
               </button>
               <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{item.ownerName} · {formatBytes(item.size)}</span>
+              <IconButton label={t('clouddrive.shared.save')} disabled={busy} onClick={() => void save(item.ownerId, item.fileId)}><Save size={13} /></IconButton>
               {item.kind === 'file' && (
                 <IconButton label={t('clouddrive.action.download')} onClick={() => downloadFile(item.ownerId, item.fileId)}><Download size={13} /></IconButton>
               )}
@@ -112,6 +136,7 @@ export function SharedPage() {
                     {entry.name}
                   </button>
                   <span className="shrink-0 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{formatBytes(entry.size)}</span>
+                  <IconButton label={t('clouddrive.shared.save')} disabled={busy} onClick={() => void save(entry.ownerId, entry.fileId)}><Save size={13} /></IconButton>
                   {entry.kind === 'file' && (
                     <IconButton label={t('clouddrive.action.download')} onClick={() => downloadFile(entry.ownerId, entry.fileId)}><Download size={13} /></IconButton>
                   )}

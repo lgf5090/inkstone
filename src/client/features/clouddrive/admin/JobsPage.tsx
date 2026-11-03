@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
-import { Field, Input, Select, Switch } from '../../../components/form'
+import { Field, Input, Segmented, Select, Switch } from '../../../components/form'
 import { confirm, Modal } from '../../../components/overlay'
 import { useUi } from '../../../store/ui'
 import { AdminCard, AdminEmpty, AdminError, AdminForbidden, AdminLoading, AdminPage, adminT, formatAdminDateTime, useAdminOwner } from './shared'
@@ -15,6 +15,10 @@ export function JobsPage() {
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ handler: CLOUDDRIVE_JOB_HANDLERS[0] as string, name: '', scheduleType: 'interval', intervalSec: '3600', cron: '' })
+  const cronFields = form.cron.trim().split(/\s+/).filter(Boolean).length
+  const scheduleReady = form.scheduleType === 'interval'
+    ? Number(form.intervalSec) >= 1
+    : cronFields === 5
 
   const load = async () => {
     setStatus('loading'); setError(null)
@@ -50,11 +54,33 @@ export function JobsPage() {
           ))}
         </div>
       ))}
-      <Modal open={open} onClose={() => setOpen(false)} title={adminT('clouddrive.admin.jobs.new')} width={480} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{adminT('clouddrive.dialog.cancel')}</Button><Button variant="primary" disabled={!form.name.trim()} onClick={() => void create()}>{adminT('clouddrive.admin.jobs.save')}</Button></>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={adminT('clouddrive.admin.jobs.new')} width={480} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>{adminT('clouddrive.dialog.cancel')}</Button><Button variant="primary" disabled={!form.name.trim() || !scheduleReady} onClick={() => void create()}>{adminT('clouddrive.admin.jobs.save')}</Button></>}>
         <div className="grid gap-2">
           <Field label={adminT('clouddrive.admin.jobs.name')}><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
           <Field label={adminT('clouddrive.admin.jobs.handler')}><Select value={form.handler} onChange={(event) => setForm({ ...form, handler: event.target.value })}>{CLOUDDRIVE_JOB_HANDLERS.map((handler) => <option key={handler} value={handler}>{handler}</option>)}</Select></Field>
-          <Field label={adminT('clouddrive.admin.jobs.schedule_interval')}><Input type="number" value={form.intervalSec} onChange={(event) => setForm({ ...form, intervalSec: event.target.value })} /></Field>
+          <Field label={adminT('clouddrive.admin.jobs.schedule_type')}>
+            <Segmented<'interval' | 'cron'>
+              value={form.scheduleType as 'interval' | 'cron'}
+              label={adminT('clouddrive.admin.jobs.schedule_type')}
+              options={[
+                { value: 'interval', label: adminT('clouddrive.admin.jobs.schedule_interval') },
+                { value: 'cron', label: adminT('clouddrive.admin.jobs.schedule_cron') },
+              ]}
+              onChange={(scheduleType) => setForm({ ...form, scheduleType })}
+            />
+          </Field>
+          {form.scheduleType === 'interval' ? (
+            <Field label={adminT('clouddrive.admin.jobs.schedule_interval')} hint={adminT('clouddrive.admin.jobs.interval_hint')}>
+              <Input type="number" min={1} value={form.intervalSec} onChange={(event) => setForm({ ...form, intervalSec: event.target.value })} />
+            </Field>
+          ) : (
+            <Field
+              label={adminT('clouddrive.admin.jobs.cron')}
+              hint={cronFields === 5 ? adminT('clouddrive.admin.jobs.cron_hint') : adminT('clouddrive.admin.jobs.cron_fields', { count: cronFields })}
+            >
+              <Input value={form.cron} onChange={(event) => setForm({ ...form, cron: event.target.value })} invalid={form.cron.trim().length > 0 && cronFields !== 5} />
+            </Field>
+          )}
         </div>
       </Modal>
     </AdminPage>

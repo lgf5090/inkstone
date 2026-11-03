@@ -56,29 +56,37 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
 
   if (!settings) return <div className="p-4 text-[var(--text-tertiary)]">{ct('clouddrive.loading')}</div>
   const number = (value: unknown) => typeof value === 'number' ? value : 0
+  // Every field below the title is a deployment policy: the server answers a member's PATCH with 403,
+  // so the form shows the owner's values without pretending they can be edited here.
+  const locked = !owner
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4">
       <h1 className="text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{ct('clouddrive.settings.title')}</h1>
+      {locked && (
+        <p role="note" className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3 py-2 text-[length:var(--text-11)] text-[var(--text-secondary)]">
+          {ct('clouddrive.settings.policy_locked')}
+        </p>
+      )}
       <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
         <h2 className="mb-2 text-[length:var(--text-13)] font-medium">{ct('clouddrive.settings.upload_section')}</h2>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Field label={ct('clouddrive.settings.max_file_size')}><Input type="number" value={number(draft.uploadMaxFileBytes)} onChange={(event) => setDraft({ ...draft, uploadMaxFileBytes: Number(event.target.value) })} /></Field>
-          <Field label={ct('clouddrive.settings.part_size')}><Input type="number" value={number(draft.uploadPartSizeBytes)} onChange={(event) => setDraft({ ...draft, uploadPartSizeBytes: Number(event.target.value) })} /></Field>
-          <Field label={ct('clouddrive.settings.concurrency')}><Input type="number" value={number(draft.uploadConcurrentParts)} onChange={(event) => setDraft({ ...draft, uploadConcurrentParts: Number(event.target.value) })} /></Field>
-          <Field label={ct('clouddrive.settings.distributed_threshold')}><Input type="number" value={number(draft.uploadDistributedMinBytes)} onChange={(event) => setDraft({ ...draft, uploadDistributedMinBytes: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.max_file_size')}><Input type="number" readOnly={locked} value={number(draft.uploadMaxFileBytes)} onChange={(event) => setDraft({ ...draft, uploadMaxFileBytes: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.part_size')}><Input type="number" readOnly={locked} value={number(draft.uploadPartSizeBytes)} onChange={(event) => setDraft({ ...draft, uploadPartSizeBytes: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.concurrency')}><Input type="number" readOnly={locked} value={number(draft.uploadConcurrentParts)} onChange={(event) => setDraft({ ...draft, uploadConcurrentParts: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.distributed_threshold')}><Input type="number" readOnly={locked} value={number(draft.uploadDistributedMinBytes)} onChange={(event) => setDraft({ ...draft, uploadDistributedMinBytes: Number(event.target.value) })} /></Field>
         </div>
       </section>
       <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
         <h2 className="mb-2 text-[length:var(--text-13)] font-medium">{ct('clouddrive.settings.share_section')}</h2>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Field label={ct('clouddrive.settings.default_expiry')}><Input type="number" value={number(draft.shareDefaultExpiryDays)} onChange={(event) => setDraft({ ...draft, shareDefaultExpiryDays: Number(event.target.value) })} /></Field>
-          <Field label={ct('clouddrive.settings.max_expiry')}><Input type="number" value={number(draft.shareMaxExpiryDays)} onChange={(event) => setDraft({ ...draft, shareMaxExpiryDays: Number(event.target.value) })} /></Field>
-          <label className="flex items-center gap-2 text-[length:var(--text-12)]"><Switch checked={draft.shareAllowMemberShares === true} onChange={(value) => setDraft({ ...draft, shareAllowMemberShares: value })} label={ct('clouddrive.settings.member_shares')} />{ct('clouddrive.settings.member_shares')}</label>
+          <Field label={ct('clouddrive.settings.default_expiry')}><Input type="number" readOnly={locked} value={number(draft.shareDefaultExpiryDays)} onChange={(event) => setDraft({ ...draft, shareDefaultExpiryDays: Number(event.target.value) })} /></Field>
+          <Field label={ct('clouddrive.settings.max_expiry')}><Input type="number" readOnly={locked} value={number(draft.shareMaxExpiryDays)} onChange={(event) => setDraft({ ...draft, shareMaxExpiryDays: Number(event.target.value) })} /></Field>
+          <label className="flex items-center gap-2 text-[length:var(--text-12)]"><Switch checked={draft.shareAllowMemberShares === true} disabled={locked} onChange={(value) => setDraft({ ...draft, shareAllowMemberShares: value })} label={ct('clouddrive.settings.member_shares')} />{ct('clouddrive.settings.member_shares')}</label>
         </div>
       </section>
       <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
         <h2 className="mb-2 text-[length:var(--text-13)] font-medium">{ct('clouddrive.settings.trash_retention')}</h2>
-        <Field label={ct('clouddrive.settings.trash_retention')}><Input type="number" value={number(draft.trashRetentionDays)} onChange={(event) => setDraft({ ...draft, trashRetentionDays: Number(event.target.value) })} /></Field>
+        <Field label={ct('clouddrive.settings.trash_retention')}><Input type="number" readOnly={locked} value={number(draft.trashRetentionDays)} onChange={(event) => setDraft({ ...draft, trashRetentionDays: Number(event.target.value) })} /></Field>
       </section>
       {owner && (
         <section className="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
@@ -91,7 +99,7 @@ export function CloudDriveSettingsPage({ owner }: { owner: boolean }) {
         </section>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" loading={saving} onClick={() => void save()}><Save size={13} /> {ct('clouddrive.dialog.save')}</Button>
+        {owner && <Button variant="primary" loading={saving} onClick={() => void save()}><Save size={13} /> {ct('clouddrive.dialog.save')}</Button>}
         {owner && <Button variant="danger" onClick={async () => { if (await confirm({ title: ct('clouddrive.settings.empty_trash'), tone: 'danger' })) { await clouddriveApi.purge({ all: true }); toast({ title: ct('clouddrive.settings.empty_trash_done') }); await load() } }}><Trash2 size={13} /> {ct('clouddrive.settings.empty_trash')}</Button>}
       </div>
     </div>

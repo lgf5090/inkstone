@@ -6,9 +6,10 @@
  * configured WebDAV username/password or `apikey` plus a `cdk_` key; there is no anonymous access.
  * When no account has enabled WebDAV the endpoint answers 503 instead of pretending to be a share.
  *
- * The implementation is deliberately a small, honest DAV server: Depth is limited to 0/1, LOCK is
- * stateless (tokens are handed out but not enforced), and a folder MOVE/COPY either completes or
- * answers a clear error rather than silently copying only part of a subtree.
+ * The implementation is deliberately a small, honest DAV server: Depth is limited to 0/1, LOCK is a
+ * class-2 write lock kept in `CloudDrive_dav_locks` and enforced by every mutating method until it
+ * expires, and a folder MOVE/COPY either completes or answers a clear error rather than silently
+ * copying only part of a subtree.
  */
 import { Hono, type Context } from 'hono'
 import { categoryFor, filenameOf, foldedName, parentPathOf } from '@shared/clouddrive/model'
@@ -16,27 +17,50 @@ import type { CloudDriveSettings } from '@shared/clouddrive/settings'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { fromBase64 } from '../lib/encoding'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { contentDisposition } from '../lib/http-range'
 import { newId } from '../lib/id'
 import { verifyPassword } from '../lib/password'
 import {
   assertWritable,
+  deleteObjectQuietly,
   initialsOf,
   parseName,
   parsePath,
   resolveEntry,
   resolveMount,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
   type CloudDriveFileRow,
   type CloudDriveMountInfo,
 } from './lib'
 import { cloudDriveUsage, ensurePrimaryMount, readCloudDriveSettings } from './store'
+import { entityTagOf, headResponse, planContentResponse } from './content-response'
+import { assertUnlockedMeta } from './routes-meta'
+import { effectiveMeta, hiddenByPatterns, type EffectiveCloudDriveMeta } from './meta'
 import { authenticateApiKey, pathWithinPrefix } from './store-keys'
 import { createFolder, trashEntries } from './store-files'
+import {
+  activeLocks,
+  blockingLock,
+  createLock,
+  isLockRequest,
+  parseLockDepth,
+  parseLockOwner,
+  parseLockScope,
+  parseLockTimeoutSeconds,
+  presentedLockTokens,
+  refreshLock,
+  releaseLock,
+  sweepExpiredLocks,
+  lockCovers,
+  type DavLock,
+} from './dav-locks'
 import {
   deleteExternalPath,
   externalCapacityBytes,
   externalDirectUrl,
-  externalFolderSize,
   externalProxyLocation,
   listExternal,
   mkdirExternal,
@@ -51,6 +75,7 @@ const DAV_PREFIX = '/clouddrive/dav'
 const ALLOW = 'OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, MOVE, COPY, LOCK, UNLOCK'
 const MAX_COPY_ROWS = 5000
 const MAX_PROPFIND_CHILDREN = 5000
+const MAX_BUFFERED_EXTERNAL_WRITE = 64 * 1024 * 1024
 const AUTH_REALM = 'Basic realm="CloudDrive"'
 
 interface DavActor {
@@ -123,11 +148,42 @@ async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
   const credentials = parseBasic(header)
   if (!credentials) return { response: unauthorized('Malformed authorization') }
 
+  // Every branch below can spend a scrypt derivation, so one client gets one attempt budget for this
+  // endpoint; a successful check clears it, and the lock answers 429 the way the rest of the app does.
+  const throttleKey = passcodeThrottleKey('dav', credentials.username, c.req.raw)
+  try {
+    await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 429) {
+      const retryAfter = (error.details as { retryAfter?: number } | undefined)?.retryAfter ?? 60
+      return { response: new Response('Too many attempts', {
+        status: 429,
+        headers: { 'Retry-After': String(retryAfter), 'Content-Type': 'text/plain; charset=utf-8' },
+      }) }
+    }
+    throw error
+  }
+  let verified = false
+  try {
+    const answer = await davCredentials(c, credentials, throttleKey)
+    verified = !('response' in answer)
+    return answer
+  } finally {
+    if (!verified) await notePasscodeFailure(c.env.DB, throttleKey)
+  }
+}
+
+async function davCredentials(
+  c: Context<AppBindings>,
+  credentials: { username: string; password: string },
+  throttleKey: string,
+): Promise<DavAuth> {
   if (credentials.username === 'apikey') {
     const actor = await authenticateApiKey(c.env.DB, credentials.password, 'webdav')
     if (!actor) return { response: unauthorized('Invalid credentials') }
     const settings = await readCloudDriveSettings(c.env.DB, actor.userId)
     if (!settings.webdavEnabled) return { response: unavailable() }
+    await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId: actor.userId, pathPrefix: actor.pathPrefix, keyId: actor.keyId },
       settings,
@@ -139,6 +195,7 @@ async function authenticateDav(c: Context<AppBindings>): Promise<DavAuth> {
     if (!settings.webdavEnabled || !settings.webdavPasswordHash) continue
     if (settings.webdavUsername !== credentials.username) continue
     if (!(await verifyPassword(credentials.password, settings.webdavPasswordHash))) continue
+    await notePasscodeSuccess(c.env.DB, throttleKey)
     return {
       actor: { userId, pathPrefix: '/', keyId: null },
       settings,
@@ -233,6 +290,44 @@ function requireBucket(c: Context<AppBindings>): R2Bucket {
   return c.env.FILES
 }
 
+/**
+ * The folder lock and the hidden rules are one control, not a browser-only one: a directory the web
+ * declines to list must not stay readable to a DAV client, and a name hidden from it must not
+ * reappear here. The caller passes the directory that governs the path — the folder itself when a
+ * collection is addressed, its parent when a file is.
+ */
+async function davFolderMeta(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  path: string,
+  cached?: Map<string, EffectiveCloudDriveMeta>,
+): Promise<EffectiveCloudDriveMeta> {
+  const found = cached?.get(path)
+  if (found) {
+    await assertUnlockedMeta(c, userId, mountId, found)
+    return found
+  }
+  const meta = await effectiveMeta(c.env.DB, userId, mountId, path)
+  await assertUnlockedMeta(c, userId, mountId, meta)
+  cached?.set(path, meta)
+  return meta
+}
+
+/**
+ * One scan of the mount's metadata rows for the whole request. `effectiveMeta` reads every rule of
+ * that mount to resolve a single path, so a PROPFIND that governs the addressed directory and its
+ * children would otherwise pay for the same table twice or three times.
+ */
+function metaCache(): Map<string, EffectiveCloudDriveMeta> {
+  return new Map()
+}
+
+/** Where a path lives, which is whose rules hide and lock it. */
+function davContainer(path: string): string {
+  return parentPathOf(path)
+}
+
 async function optionalEntry(
   db: D1Database,
   userId: string,
@@ -296,20 +391,31 @@ function hrefOf(path: string, collection: boolean): string {
   return collection && !href.endsWith('/') ? `${href}/` : href
 }
 
-function entityTagOf(row: CloudDriveFileRow): string {
-  const raw = (row.etag ?? `${row.id}-${row.size}`).replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return `"${raw}"`
+/**
+ * The locks a client can see on one resource. Answering with an empty element while a write is
+ * being held elsewhere is what made the old stateless LOCK a lie, so the rows are reported here.
+ */
+function lockDiscoveryXml(locks: DavLock[], path: string, now: number): string {
+  const held = locks.filter((lock) => lockCovers(lock, path))
+  if (held.length === 0) return '<D:lockdiscovery/>'
+  const items = held.map((lock) => {
+    const seconds = Math.max(0, Math.round((lock.expiresAt - now) / 1000))
+    return [
+      '<D:activelock>',
+      '<D:locktype><D:write/></D:locktype>',
+      `<D:lockscope><D:${lock.scope}/></D:lockscope>`,
+      `<D:depth>${lock.depth}</D:depth>`,
+      lock.owner ? `<D:owner>${escapeXml(lock.owner)}</D:owner>` : '',
+      `<D:timeout>Second-${seconds}</D:timeout>`,
+      `<D:locktoken><D:href>${escapeXml(lock.token)}</D:href></D:locktoken>`,
+      `<D:lockroot><D:href>${escapeXml(hrefOf(lock.root, false))}</D:href></D:lockroot>`,
+      '</D:activelock>',
+    ].join('')
+  }).join('')
+  return `<D:lockdiscovery>${items}</D:lockdiscovery>`
 }
 
-function matchesEntityTag(header: string, etag: string): boolean {
-  const target = etag.replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return header.split(',').some((item) => {
-    const value = item.trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
-    return value === '*' || value === target
-  })
-}
-
-function propertyResponse(row: CloudDriveFileRow, now: number): string {
+function propertyResponse(row: CloudDriveFileRow, now: number, locks: DavLock[]): string {
   const collection = row.kind === 'folder'
   const href = hrefOf(row.path, collection)
   const displayName = row.path === '/' ? '/' : row.name
@@ -322,7 +428,7 @@ function propertyResponse(row: CloudDriveFileRow, now: number): string {
     collection ? '' : `<D:getetag>${escapeXml(entityTagOf(row))}</D:getetag>`,
     `<D:getlastmodified>${new Date(modified).toUTCString()}</D:getlastmodified>`,
     '<D:supportedlock/>',
-    '<D:lockdiscovery/>',
+    lockDiscoveryXml(locks, row.path, now),
   ].join('')
   return `<D:response><D:href>${escapeXml(href)}</D:href><D:propstat><D:prop>${properties}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`
 }
@@ -337,6 +443,50 @@ function xmlResponse(body: string): Response {
   })
 }
 
+/** A DAV error body, because a client parses this XML rather than reading the status alone. */
+function davError(status: number, inner: string): Response {
+  return new Response(
+    `<?xml version="1.0" encoding="utf-8"?><D:error xmlns:D="DAV:">${inner}</D:error>`,
+    {
+      status,
+      headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'no-store' },
+    },
+  )
+}
+
+/** The `LOCK` answer: the lock in the body, and the token header the client has to keep. */
+function lockResponse(lock: DavLock, issued: boolean): Response {
+  const body = `<D:prop xmlns:D="DAV:">${lockDiscoveryXml([lock], lock.root, Date.now())}</D:prop>`
+  const headers = new Headers({
+    'Content-Type': 'application/xml; charset=utf-8',
+    'Cache-Control': 'no-store',
+  })
+  // A refresh hands back the lock the caller already named, so it gets no new token.
+  if (issued) headers.set('Lock-Token', `<${lock.token}>`)
+  return new Response(`<?xml version="1.0" encoding="utf-8"?>${body}`, { status: 200, headers })
+}
+
+/** Tokens the client says it holds, from `If` and `Lock-Token`. */
+function davTokens(c: Context<AppBindings>): string[] {
+  return presentedLockTokens(c.req.header('if'), c.req.header('lock-token'))
+}
+
+/**
+ * The 423 a mutating method must answer with when a lock covers the path, or null to let it run.
+ * Checked on both ends of a MOVE and at the destination of a COPY, which is where a lock earns it.
+ */
+async function davLockBlocked(c: Context<AppBindings>, userId: string, mountId: string, path: string): Promise<Response | null> {
+  const blocked = await blockingLock({
+    db: c.env.DB,
+    userId,
+    mountId,
+    path,
+    tokens: davTokens(c),
+    now: Date.now(),
+  })
+  return blocked ? davError(423, '<D:locked/>') : null
+}
+
 function externalProperty(
   path: string,
   name: string,
@@ -344,6 +494,8 @@ function externalProperty(
   size: number,
   mime: string,
   modifiedAt: number,
+  locks: DavLock[],
+  lockPath: string,
 ): string {
   const collection = kind === 'folder'
   const href = hrefOf(path, collection)
@@ -355,13 +507,14 @@ function externalProperty(
     collection ? '' : `<D:getetag>${escapeXml(`"${size}-${modifiedAt}"`)}</D:getetag>`,
     `<D:getlastmodified>${new Date(modifiedAt || Date.now()).toUTCString()}</D:getlastmodified>`,
     '<D:supportedlock/>',
-    '<D:lockdiscovery/>',
+    // A PROPFIND reports the virtual path, while locks are claimed inside the mount that owns them.
+    lockDiscoveryXml(locks, lockPath, Date.now()),
   ].join('')
   return `<D:response><D:href>${escapeXml(href)}</D:href><D:propstat><D:prop>${properties}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`
 }
 
-function externalMountProperty(mount: CloudDriveMountInfo): string {
-  return externalProperty(mount.mountPath, mount.name, 'folder', 0, '', Date.now())
+function externalMountProperty(mount: CloudDriveMountInfo, locks: DavLock[]): string {
+  return externalProperty(mount.mountPath, mount.name, 'folder', 0, '', Date.now(), locks, '/')
 }
 
 async function externalEntry(
@@ -402,7 +555,8 @@ clouddriveDavRoutes.on(['OPTIONS'], '*', () => new Response(null, {
   status: 200,
   headers: {
     Allow: ALLOW,
-    DAV: '1',
+    // Class 2 because a write lock is now real: it is stored, honoured, and reported.
+    DAV: '1, 2',
     'MS-Author-Via': 'DAV',
     'Accept-Ranges': 'bytes',
     'Content-Length': '0',
@@ -423,12 +577,28 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
   }
 
   const target = await davTarget(c, auth.actor, path)
+  const metas = metaCache()
   const now = Date.now()
+  // One read of the lock table per mount touched by this listing, not one per row.
+  const lockCache = new Map<string, DavLock[]>()
+  const locksOf = async (mountId: string): Promise<DavLock[]> => {
+    const hit = lockCache.get(mountId)
+    if (hit) return hit
+    const loaded = await activeLocks(c.env.DB, auth.actor.userId, mountId, now)
+    lockCache.set(mountId, loaded)
+    return loaded
+  }
   if (target.external) {
     const entry = target.path === '/' ? null : await externalEntry(c, target.mount, target.path)
     if (target.path !== '/' && !entry) throw ApiError.notFound('File not found')
+    const addressed = entry === null || entry.kind === 'folder' ? target.path : davContainer(target.path)
+    const meta = await davFolderMeta(c, auth.actor.userId, target.mount.id, addressed, metas)
+    if (entry && entry.kind === 'file' && hiddenByPatterns(filenameOf(target.path), meta.hidePatterns)) {
+      throw ApiError.notFound('File not found')
+    }
+    const locks = await locksOf(target.mount.id)
     const responses = [target.path === '/'
-      ? externalMountProperty(target.mount)
+      ? externalMountProperty(target.mount, locks)
       : externalProperty(
         virtualPath(target.mount, target.path),
         filenameOf(target.path),
@@ -436,10 +606,13 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
         entry!.size,
         entry!.mime,
         entry!.modifiedAt,
+        locks,
+        target.path,
       )]
     if (depth === '1') {
       const listing = await listExternal(c.env, c.env.DB, target.mount, target.path)
       for (const listed of [...listing.folders, ...listing.files]) {
+        if (hiddenByPatterns(listed.name, meta.hidePatterns)) continue
         responses.push(externalProperty(
           virtualPath(target.mount, listed.path),
           listed.name,
@@ -447,6 +620,8 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
           listed.size,
           listed.mime,
           listed.modifiedAt,
+          locks,
+          listed.path,
         ))
       }
     }
@@ -454,17 +629,27 @@ clouddriveDavRoutes.on(['PROPFIND'], '*', async (c) => {
   }
 
   const row = await resolveEntry(c.env.DB, auth.actor.userId, target.mount.id, target.path)
-  const responses = [propertyResponse(row, now)]
+  const meta = await davFolderMeta(
+    c, auth.actor.userId, target.mount.id, row.kind === 'folder' ? row.path : davContainer(row.path), metas,
+  )
+  if (row.kind === 'file' && hiddenByPatterns(row.name, meta.hidePatterns)) {
+    throw ApiError.notFound('File not found')
+  }
+  const locks = await locksOf(target.mount.id)
+  const responses = [propertyResponse(row, now, locks)]
   if (depth === '1' && row.kind === 'folder') {
-    const children = await childRows(c.env.DB, auth.actor.userId, target.mount.id, row.id)
+    const children = (await childRows(c.env.DB, auth.actor.userId, target.mount.id, row.id))
+      .filter((child) => !hiddenByPatterns(child.name, meta.hidePatterns))
     const mounts = target.path === '/'
       ? (await davExternalMounts(c.env.DB, auth.actor.userId)).filter((mount) => !auth.actor.keyId || mount.apiKeyVisible)
       : []
     const mountPaths = new Set(mounts.map((mount) => mount.mountPath))
     for (const child of children) {
-      if (!mountPaths.has(child.path)) responses.push(propertyResponse(child, now))
+      if (!mountPaths.has(child.path)) responses.push(propertyResponse(child, now, locks))
     }
-    for (const mount of mounts) responses.push(externalProperty(mount.mountPath, mount.name, 'folder', 0, '', now))
+    for (const mount of mounts) {
+      responses.push(externalProperty(mount.mountPath, mount.name, 'folder', 0, '', now, await locksOf(mount.id), '/'))
+    }
   }
   return xmlResponse(`<D:multistatus xmlns:D="DAV:">${responses.join('')}</D:multistatus>`)
 })
@@ -475,6 +660,7 @@ clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
   const path = davPathOf(c)
   assertPrefix(auth.actor, path)
   const target = await davTarget(c, auth.actor, path)
+  await davFolderMeta(c, auth.actor.userId, target.mount.id, davContainer(target.path))
   if (target.external) {
     if (target.path === '/') return new Response('A collection cannot be downloaded', { status: 405 })
     if (!target.mount.webProxy) {
@@ -509,53 +695,31 @@ clouddriveDavRoutes.on(['GET', 'HEAD'], '*', async (c) => {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
   }
   const bucket = requireBucket(c)
-  const etag = entityTagOf(row)
-  const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && matchesEntityTag(ifNoneMatch, etag)) {
-    return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'private, no-store' } })
-  }
-
-  const rangeHeader = c.req.header('range')
-  const range = rangeHeader ? parseByteRange(rangeHeader, row.size) : null
-  const headers = new Headers({
-    'Content-Type': row.mime || 'application/octet-stream',
-    'Content-Disposition': contentDisposition(row.mime, row.name),
-    'Accept-Ranges': 'bytes',
-    ETag: etag,
-    'Last-Modified': new Date(row.modified_at || row.uploaded_at).toUTCString(),
-    'Cache-Control': 'private, no-store',
-    'X-Content-Type-Options': 'nosniff',
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: c.req.header('if-none-match'),
+    download: false,
+    file: {
+      id: row.id,
+      size: row.size,
+      mime: row.mime,
+      name: row.name,
+      etag: row.etag,
+      lastModified: row.modified_at || row.uploaded_at,
+    },
   })
-  if (range === 'invalid') {
-    headers.set('Content-Range', `bytes */${row.size}`)
-    headers.delete('Content-Disposition')
-    return new Response(null, { status: 416, headers })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') {
+    if (!await bucket.head(row.storage_key)) throw ApiError.notFound('File data is missing')
+    return headResponse(planned)
   }
-
-  if (c.req.method === 'HEAD') {
-    const object = await bucket.head(row.storage_key)
-    if (!object) throw ApiError.notFound('File data is missing')
-    if (range) {
-      headers.set('Content-Range', `bytes ${range.start}-${range.end}/${row.size}`)
-      headers.set('Content-Length', String(range.end - range.start + 1))
-      return new Response(null, { status: 206, headers })
-    }
-    headers.set('Content-Length', String(row.size))
-    return new Response(null, { status: 200, headers })
-  }
-
   const object = await bucket.get(
     row.storage_key,
-    range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
   )
   if (!object) throw ApiError.notFound('File data is missing')
-  if (range) {
-    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${row.size}`)
-    headers.set('Content-Length', String(range.end - range.start + 1))
-    return new Response(object.body, { status: 206, headers })
-  }
-  headers.set('Content-Length', String(row.size))
-  return new Response(object.body, { status: 200, headers })
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })
 
 clouddriveDavRoutes.put('*', async (c) => {
@@ -565,21 +729,27 @@ clouddriveDavRoutes.put('*', async (c) => {
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('A file name is required', { status: 400 })
   const target = await davTarget(c, auth.actor, path)
+  const blocked = await davLockBlocked(c, auth.actor.userId, target.mount.id, target.path)
+  if (blocked) return blocked
+  await davFolderMeta(c, auth.actor.userId, target.mount.id, davContainer(target.path))
   if (target.external) {
     if (target.path === '/') return new Response('A file name is required', { status: 400 })
     if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
     const declared = Number(c.req.header('content-length'))
-    const maxBytes = auth.settings.uploadMaxFileBytes
-    if (Number.isFinite(declared) && declared > maxBytes) throw ApiError.tooLarge('The file exceeds the configured maximum size')
+    // A write to an external driver is buffered whole: the S3 signature and the WebDAV PUT both need
+    // the body in hand, so it is the isolate's memory that bounds this path, not the owner's upload
+    // ceiling. Anything larger belongs to the chunked upload session, which streams part by part.
+    const buffered = Math.max(0, Math.min(auth.settings.uploadMaxFileBytes, MAX_BUFFERED_EXTERNAL_WRITE))
+    if (Number.isFinite(declared) && declared > buffered) {
+      throw ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`)
+    }
     const bytes = new Uint8Array(await c.req.arrayBuffer())
-    if (bytes.byteLength > maxBytes) throw ApiError.tooLarge('The file exceeds the configured maximum size')
+    if (bytes.byteLength > buffered) throw ApiError.tooLarge(`A WebDAV write to an external mount holds at most ${buffered} bytes`)
     const capacity = await externalCapacityBytes(c.env.DB, target.mount)
-    if (capacity !== null) {
-      const usage = await externalFolderSize(c.env, c.env.DB, target.mount, '/')
-      if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
-      if (usage.bytes + bytes.byteLength > capacity) {
-        throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit')
-      }
+    // Same rule as the web upload: the whole-mount walk happens in the folder-size view and the
+    // background job, not in front of every write.
+    if (capacity !== null && bytes.byteLength > capacity) {
+      throw new ApiError(403, 'clouddrive_quota_exceeded', 'This file is larger than the storage capacity limit')
     }
     const parent = parentPathOf(target.path)
     if (parent !== '/') await mkdirExternal(c.env, c.env.DB, target.mount, parent)
@@ -675,15 +845,6 @@ clouddriveDavRoutes.put('*', async (c) => {
   return new Response(null, { status: existing ? 204 : 201, headers: { ETag: `"${object.etag}"` } })
 })
 
-/** Best-effort cleanup where the primary failure is already being reported. */
-async function deleteObjectQuietly(bucket: R2Bucket, key: string): Promise<void> {
-  try {
-    await bucket.delete(key)
-  } catch (error) {
-    console.warn('[clouddrive] WebDAV cleanup could not delete an object:', key, error)
-  }
-}
-
 clouddriveDavRoutes.delete('*', async (c) => {
   const auth = await authenticateDav(c)
   if ('response' in auth) return auth.response
@@ -691,6 +852,9 @@ clouddriveDavRoutes.delete('*', async (c) => {
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('The root cannot be deleted', { status: 403 })
   const target = await davTarget(c, auth.actor, path)
+  const blocked = await davLockBlocked(c, auth.actor.userId, target.mount.id, target.path)
+  if (blocked) return blocked
+  await davFolderMeta(c, auth.actor.userId, target.mount.id, davContainer(target.path))
   if (target.external) {
     if (target.path === '/') return new Response('A mount cannot be deleted', { status: 403 })
     if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
@@ -710,6 +874,9 @@ clouddriveDavRoutes.on(['MKCOL'], '*', async (c) => {
   assertPrefix(auth.actor, path)
   if (path === '/') return new Response('The root already exists', { status: 405 })
   const target = await davTarget(c, auth.actor, path)
+  const blocked = await davLockBlocked(c, auth.actor.userId, target.mount.id, target.path)
+  if (blocked) return blocked
+  await davFolderMeta(c, auth.actor.userId, target.mount.id, davContainer(target.path))
   if (target.external) {
     if (target.path === '/') return new Response('The mount already exists', { status: 405 })
     if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
@@ -787,6 +954,11 @@ clouddriveDavRoutes.on(['MOVE'], '*', async (c) => {
   }
   const sourceTarget = await davTarget(c, auth.actor, sourcePath)
   const destinationTarget = await davTarget(c, auth.actor, destination)
+  const blocked = await davLockBlocked(c, auth.actor.userId, sourceTarget.mount.id, sourceTarget.path)
+    ?? await davLockBlocked(c, auth.actor.userId, destinationTarget.mount.id, destinationTarget.path)
+  if (blocked) return blocked
+  await davFolderMeta(c, auth.actor.userId, sourceTarget.mount.id, davContainer(sourceTarget.path))
+  await davFolderMeta(c, auth.actor.userId, destinationTarget.mount.id, davContainer(destinationTarget.path))
   if (sourceTarget.external || destinationTarget.external) {
     if (!sourceTarget.external || !destinationTarget.external || sourceTarget.mount.id !== destinationTarget.mount.id) {
       return new Response('Cross-mount WebDAV moves are not supported', { status: 502 })
@@ -863,6 +1035,10 @@ clouddriveDavRoutes.on(['COPY'], '*', async (c) => {
   }
   const sourceTarget = await davTarget(c, auth.actor, sourcePath)
   const destinationTarget = await davTarget(c, auth.actor, destination)
+  const blocked = await davLockBlocked(c, auth.actor.userId, destinationTarget.mount.id, destinationTarget.path)
+  if (blocked) return blocked
+  await davFolderMeta(c, auth.actor.userId, sourceTarget.mount.id, davContainer(sourceTarget.path))
+  await davFolderMeta(c, auth.actor.userId, destinationTarget.mount.id, davContainer(destinationTarget.path))
   if (sourceTarget.external || destinationTarget.external) {
     return new Response('COPY on external mounts is not supported', { status: 501 })
   }
@@ -959,27 +1135,72 @@ function copyStatement(
 }
 
 /**
- * The stateless lock Windows and macOS probe for. No token is enforced: this server has no
- * multi-writer guarantee to protect, and pretending otherwise would be worse than saying so here.
+ * Write locks: stored, enforced by every mutating method until they expire, and reported by
+ * PROPFIND. A body carrying `<D:lockinfo>` takes a lock; an empty body refreshes one the caller
+ * already holds. `Depth: 0` locks a single resource, anything else the whole subtree under it.
  */
 clouddriveDavRoutes.on(['LOCK'], '*', async (c) => {
   const auth = await authenticateDav(c)
   if ('response' in auth) return auth.response
-  const token = `opaquelocktoken:${crypto.randomUUID()}`
-  const body = `<?xml version="1.0" encoding="utf-8"?><D:prop xmlns:D="DAV:"><D:lockdiscovery><D:activelock><D:locktype><D:write/></D:locktype><D:lockscope><D:exclusive/></D:lockscope><D:depth>infinity</D:depth><D:timeout>Second-3600</D:timeout><D:locktoken><D:href>${token}</D:href></D:locktoken></D:activelock></D:lockdiscovery></D:prop>`
-  return new Response(body, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/xml; charset=utf-8',
-      'Lock-Token': `<${token}>`,
-    },
+  const path = davPathOf(c)
+  assertPrefix(auth.actor, path)
+  const target = await davTarget(c, auth.actor, path)
+  if (target.mount.readOnly) throw new ApiError(403, 'clouddrive_read_only', 'This mount is read-only')
+  const now = Date.now()
+  const tokens = davTokens(c)
+  const xml = await c.req.text()
+  const seconds = parseLockTimeoutSeconds(c.req.header('timeout'))
+  await sweepExpiredLocks(c.env.DB, auth.actor.userId, target.mount.id, now)
+
+  if (!isLockRequest(xml)) {
+    const refreshed = await refreshLock({
+      db: c.env.DB,
+      userId: auth.actor.userId,
+      mountId: target.mount.id,
+      root: target.path,
+      token: tokens[0] ?? '',
+      seconds,
+      now,
+    })
+    return refreshed ? lockResponse(refreshed, false) : davError(423, '<D:no-lock/>')
+  }
+
+  const outcome = await createLock({
+    db: c.env.DB,
+    userId: auth.actor.userId,
+    mountId: target.mount.id,
+    root: target.path,
+    scope: parseLockScope(xml),
+    depth: parseLockDepth(c.req.header('depth')),
+    owner: parseLockOwner(xml),
+    seconds,
+    now,
+    tokens,
   })
+  if (outcome.status === 'conflict') return davError(423, '<D:no-lock/>')
+  if (outcome.status === 'limit') {
+    return davError(429, '<error>This mount already holds as many locks as it allows.</error>')
+  }
+  return lockResponse(outcome.lock, true)
 })
 
 clouddriveDavRoutes.on(['UNLOCK'], '*', async (c) => {
   const auth = await authenticateDav(c)
   if ('response' in auth) return auth.response
-  return new Response(null, { status: 204 })
+  const path = davPathOf(c)
+  assertPrefix(auth.actor, path)
+  const target = await davTarget(c, auth.actor, path)
+  const tokens = davTokens(c)
+  const released = tokens.length > 0 && await releaseLock({
+    db: c.env.DB,
+    userId: auth.actor.userId,
+    mountId: target.mount.id,
+    root: target.path,
+    token: tokens[0],
+    now: Date.now(),
+  })
+  // A token that names no lock on this resource is a conflict, not a success that changed nothing.
+  return released ? new Response(null, { status: 204 }) : davError(409, '<D:no-lock/>')
 })
 
 clouddriveDavRoutes.all('*', () => new Response('Method not allowed', {

@@ -1,4 +1,4 @@
-import { parseCloudDriveSettings, type CloudDriveSettings } from '@shared/clouddrive/settings'
+import { CLOUDDRIVE_POLICY_KEYS, parseCloudDriveSettings, type CloudDriveSettings } from '@shared/clouddrive/settings'
 import type { CloudDriveMountSummary, CloudDriveUsage } from '@shared/clouddrive/model'
 import type { Env } from '../env'
 
@@ -49,31 +49,62 @@ async function storageTypeMap(db: D1Database, userId: string): Promise<Map<strin
   return new Map((results ?? []).map((row) => [row.id, row.type]))
 }
 
+/**
+ * Whose row the policy settings come from. The owner reads their own, a member reads the owner's, and
+ * a deployment without a `users` row for either falls back to the caller so a single-user install
+ * behaves exactly as it did when every setting was personal.
+ */
+export async function cloudDrivePolicyOwnerId(db: D1Database, userId: string): Promise<string> {
+  const row = await db.prepare(
+    `SELECT (SELECT id FROM users WHERE role = 'owner' ORDER BY created_at, id LIMIT 1) AS owner_id,
+            (SELECT role FROM users WHERE id = ?1) AS role`,
+  ).bind(userId).first<{ owner_id: string | null; role: string | null }>()
+  return row?.role === 'owner' || !row?.owner_id ? userId : row.owner_id
+}
+
 export async function readCloudDriveSettings(db: D1Database, userId: string): Promise<CloudDriveSettings> {
+  const ownerId = await cloudDrivePolicyOwnerId(db, userId)
   const { results } = await db.prepare(
-    `SELECT key, value FROM CloudDrive_settings WHERE user_id = ?1`,
-  ).bind(userId).all<{ key: string; value: string }>()
+    `SELECT key, value, user_id FROM CloudDrive_settings WHERE user_id IN (?1, ?2)`,
+  ).bind(userId, ownerId).all<{ key: string; value: string; user_id: string }>()
   const rows: Record<string, string> = {}
-  for (const row of results ?? []) rows[row.key] = row.value
+  for (const row of results ?? []) {
+    const ownerRow = row.user_id === ownerId
+    if (CLOUDDRIVE_POLICY_KEYS.has(row.key) ? ownerRow : row.user_id === userId) rows[row.key] = row.value
+  }
   return parseCloudDriveSettings(rows)
 }
 
 export async function cloudDriveUsage(db: D1Database, userId: string, env: Env): Promise<CloudDriveUsage> {
-  const live = await db.prepare(
-    `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
-       SELECT storage_key, MAX(size) AS size FROM CloudDrive_files
-        WHERE user_id = ?1 AND storage_key IS NOT NULL AND deleted_at IS NULL
-        GROUP BY storage_key
-     )`,
-  ).bind(userId).first<{ bytes: number }>()
-  const trash = await db.prepare(
-    `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
-       SELECT storage_key, MAX(size) AS size FROM CloudDrive_files
-        WHERE user_id = ?1 AND storage_key IS NOT NULL AND deleted_at IS NOT NULL
-        GROUP BY storage_key
-     )`,
-  ).bind(userId).first<{ bytes: number }>()
-  const [liveParts, trashParts] = await Promise.all([
+  // A stored version is bytes in the bucket just like the file it came from, so each side of the card
+  // counts its file's versions too — otherwise a quota looks half empty while ten revisions sit in it.
+  const [live, trash, liveParts, trashParts] = await Promise.all([
+    db.prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
+         SELECT storage_key, MAX(size) AS size FROM (
+           SELECT storage_key, size FROM CloudDrive_files
+            WHERE user_id = ?1 AND storage_key IS NOT NULL AND deleted_at IS NULL
+           UNION ALL
+           SELECT v.storage_key, v.size FROM CloudDrive_file_versions v
+             JOIN CloudDrive_files f ON f.user_id = v.user_id AND f.id = v.file_id
+            WHERE v.user_id = ?1 AND v.storage_key IS NOT NULL AND f.deleted_at IS NULL
+         )
+         GROUP BY storage_key
+       )`,
+    ).bind(userId).first<{ bytes: number }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes FROM (
+         SELECT storage_key, MAX(size) AS size FROM (
+           SELECT storage_key, size FROM CloudDrive_files
+            WHERE user_id = ?1 AND storage_key IS NOT NULL AND deleted_at IS NOT NULL
+           UNION ALL
+           SELECT v.storage_key, v.size FROM CloudDrive_file_versions v
+             JOIN CloudDrive_files f ON f.user_id = v.user_id AND f.id = v.file_id
+            WHERE v.user_id = ?1 AND v.storage_key IS NOT NULL AND f.deleted_at IS NOT NULL
+         )
+         GROUP BY storage_key
+       )`,
+    ).bind(userId).first<{ bytes: number }>(),
     db.prepare(
       `SELECT COALESCE(SUM(p.size), 0) AS bytes FROM CloudDrive_file_parts p
         JOIN CloudDrive_files f ON f.user_id = p.user_id AND f.id = p.file_id

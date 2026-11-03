@@ -11,7 +11,10 @@ import type { FilePreviewModalProps, FilePreviewTarget } from './types'
 
 type ReactViewerModule = typeof import('@file-viewer/react')
 
-type PreviewPhase = 'loading' | 'ready' | 'error' | 'unsupported'
+type PreviewPhase = 'loading' | 'ready' | 'error' | 'unsupported' | 'too-large'
+
+/** What every renderer in the current `@file-viewer` build has to hold in memory to draw a frame. */
+const MAX_BUFFERED_PREVIEW_BYTES = 64 * 1024 * 1024
 
 interface LoadedPreview {
   module: ReactViewerModule
@@ -19,7 +22,7 @@ interface LoadedPreview {
   native: File
 }
 
-export default function FilePreviewModal({ open, onClose, file }: FilePreviewModalProps) {
+export default function FilePreviewModal({ open, onClose, file, policy }: FilePreviewModalProps) {
   const { url, filename, mime, size } = file
   const toast = useUi((state) => state.toast)
 
@@ -45,9 +48,15 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
     setViewerLoading(true)
     setViewerFailed(false)
 
-    const loader = resolveFilePreviewLoader(target)
+    const loader = resolveFilePreviewLoader(target, policy)
     if (!loader) {
       setPhase('unsupported')
+      return
+    }
+    // Every renderer the viewer ships reads the whole document before it draws, so past this
+    // ceiling the tab would hold the file in memory for nothing; send the reader to the download.
+    if (size !== undefined && size > MAX_BUFFERED_PREVIEW_BYTES) {
+      setPhase('too-large')
       return
     }
 
@@ -79,7 +88,8 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
     }
     // `attempt` re-runs the same load on retry; `target` is rebuilt from primitives each render, so the
     // effect keys on the fields that actually identify a preview rather than on a fresh object identity.
-  }, [open, url, filename, mime, size, attempt, reportFailure])
+    // A host builds its `policy` once per settings read, so the object itself is a stable key here.
+  }, [open, url, filename, mime, size, attempt, policy, reportFailure])
 
   const handleStateChange = useCallback((state: ViewerState) => {
     setViewerLoading(state.loading)
@@ -108,6 +118,14 @@ export default function FilePreviewModal({ open, onClose, file }: FilePreviewMod
           <Empty
             art='archive'
             title={t('filepreview.unsupported', { value0: filename })}
+            action={<DownloadLink file={target} />}
+          />
+        )}
+
+        {phase === 'too-large' && (
+          <Empty
+            art='archive'
+            title={t('filepreview.too_large', { value0: filename })}
             action={<DownloadLink file={target} />}
           />
         )}

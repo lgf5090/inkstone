@@ -26,7 +26,6 @@ export function writeCloudDrivePrefs(userId: string, prefs: CloudDrivePrefs): vo
 
 export function cloudDriveCssVars(prefs: CloudDrivePrefs): Record<string, string> {
   return {
-    '--cd-density': String(prefs.density),
     '--cd-gap': `${prefs.gap}px`,
     '--cd-icon-size': `${prefs.iconSize}px`,
     '--cd-row-height': `${Math.round(36 + (prefs.density / 100) * 28)}px`,

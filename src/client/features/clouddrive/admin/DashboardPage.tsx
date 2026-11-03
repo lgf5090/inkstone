@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ChartConfiguration } from 'chart.js'
 import { Files, HardDrive, KeyRound, LineChart, BarChart3, RefreshCw, Share2 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
-import { Badge, Button } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
 import { Segmented, Select } from '../../../components/form'
 import { ChartCanvas, type ChartColors } from '../../../components/chart-canvas'
 import { t } from '../../../lib/i18n'
@@ -24,7 +24,6 @@ import {
 import {
   clouddriveAdminApi,
   type CloudDriveAdminActivityDay,
-  type CloudDriveAdminCacheStats,
   type CloudDriveAdminOverview,
 } from './api-admin'
 
@@ -35,7 +34,6 @@ export function DashboardPage() {
   const owner = useAdminOwner()
   const [overview, setOverview] = useState<CloudDriveAdminOverview | null>(null)
   const [days, setDays] = useState<CloudDriveAdminActivityDay[]>([])
-  const [cache, setCache] = useState<CloudDriveAdminCacheStats | null>(null)
   const [state, setState] = useState<LoadState>('loading')
   const [error, setError] = useState<string | null>(null)
   const [storageId, setStorageId] = useState('all')
@@ -45,14 +43,12 @@ export function DashboardPage() {
     setState('loading')
     setError(null)
     try {
-      const [nextOverview, nextActivity, nextCache] = await Promise.all([
+      const [nextOverview, nextActivity] = await Promise.all([
         clouddriveAdminApi.overview(),
         clouddriveAdminApi.activity(7),
-        clouddriveAdminApi.cache(),
       ])
       setOverview(nextOverview)
       setDays(nextActivity.days)
-      setCache(nextCache)
       setState('ready')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
@@ -190,7 +186,9 @@ export function DashboardPage() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <div>
                 <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{adminT('clouddrive.admin.dashboard.used')}</div>
-                <div className="mt-0.5 text-[length:var(--text-14)] font-semibold tabular text-[var(--text-primary)]">{formatBytes(usedBytes)}</div>
+                <div className="mt-0.5 text-[length:var(--text-14)] font-semibold tabular text-[var(--text-primary)]">
+                  {usedBytes == null ? adminT('clouddrive.admin.dashboard.used_unknown') : formatBytes(usedBytes)}
+                </div>
               </div>
               <div>
                 <div className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{adminT('clouddrive.admin.dashboard.quota')}</div>
@@ -205,7 +203,7 @@ export function DashboardPage() {
                 </div>
               </div>
             </div>
-            {quotaBytes != null && quotaBytes > 0 && (
+            {usedBytes != null && quotaBytes != null && quotaBytes > 0 && (
               <div className="mt-3">
                 <AdminMeter
                   ratio={usedBytes / quotaBytes}
@@ -245,31 +243,6 @@ export function DashboardPage() {
             )}
           </AdminCard>
         </div>
-
-        <AdminCard
-          title={adminT('clouddrive.admin.dashboard.cache')}
-          actions={<Badge tone="neutral">{adminT('clouddrive.admin.cache.isolate')}</Badge>}
-          hint={adminT('clouddrive.admin.cache.isolate_hint')}
-        >
-          {cache ? (
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { key: 'entries', label: adminT('clouddrive.admin.cache.entries'), value: formatAdminNumber(cache.entries), hint: formatBytes(cache.bytes) },
-                { key: 'hits', label: adminT('clouddrive.admin.cache.hits'), value: formatAdminNumber(cache.hits) },
-                { key: 'misses', label: adminT('clouddrive.admin.cache.misses'), value: formatAdminNumber(cache.misses) },
-                { key: 'snapshot', label: adminT('clouddrive.admin.cache.snapshot'), value: formatAdminDateTime(cache.snapshotAt) },
-              ].map((item) => (
-                <div key={item.key}>
-                  <dt className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{item.label}</dt>
-                  <dd className="mt-0.5 text-[length:var(--text-13)] font-semibold tabular text-[var(--text-primary)]">{item.value}</dd>
-                  {item.hint && <dd className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{item.hint}</dd>}
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <AdminEmpty title={adminT('clouddrive.admin.no_data')} />
-          )}
-        </AdminCard>
 
         <AdminCard
           title={adminT('clouddrive.admin.dashboard.weekly_activity')}

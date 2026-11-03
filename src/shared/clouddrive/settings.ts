@@ -13,7 +13,8 @@ export interface CloudDrivePreviewRule {
   extensions: string[]
 }
 
-export const DEFAULT_PREVIEW_EXTENSIONS = {
+/** The extension sets the shipped rules start from; only the rules themselves are configurable. */
+const DEFAULT_PREVIEW_EXTENSIONS = {
   text: [
     'txt', 'md', 'markdown', 'log', 'json', 'json5', 'jsonc', 'ndjson', 'js', 'mjs', 'cjs',
     'jsx', 'ts', 'tsx', 'css', 'scss', 'sass', 'less', 'styl', 'html', 'htm', 'xhtml', 'xml',
@@ -27,7 +28,6 @@ export const DEFAULT_PREVIEW_EXTENSIONS = {
   video: ['mp4', 'webm', 'm4v', 'm3u8', 'mov', 'mkv', 'avi', 'wmv', 'flv'],
   audio: ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'weba', 'mid', 'midi'],
 } as const
-
 export const DEFAULT_PREVIEW_RULES: readonly CloudDrivePreviewRule[] = [
   { id: 'image', priority: 90, type: 'image', extensions: [...DEFAULT_PREVIEW_EXTENSIONS.image] },
   { id: 'video', priority: 90, type: 'video', extensions: [...DEFAULT_PREVIEW_EXTENSIONS.video] },
@@ -55,10 +55,6 @@ export interface CloudDriveSettings {
   storageDisplayQuotaBytes: number | null
   syncAllowMemberSync: boolean
   adminOwnerCanViewMemberFiles: boolean
-  previewTextExtensions: string[]
-  previewImageExtensions: string[]
-  previewVideoExtensions: string[]
-  previewAudioExtensions: string[]
   previewRules: CloudDrivePreviewRule[]
 }
 
@@ -82,10 +78,6 @@ export const DEFAULT_CLOUDDRIVE_SETTINGS: CloudDriveSettings = {
   storageDisplayQuotaBytes: null,
   syncAllowMemberSync: true,
   adminOwnerCanViewMemberFiles: false,
-  previewTextExtensions: [...DEFAULT_PREVIEW_EXTENSIONS.text],
-  previewImageExtensions: [...DEFAULT_PREVIEW_EXTENSIONS.image],
-  previewVideoExtensions: [...DEFAULT_PREVIEW_EXTENSIONS.video],
-  previewAudioExtensions: [...DEFAULT_PREVIEW_EXTENSIONS.audio],
   previewRules: DEFAULT_PREVIEW_RULES.map((rule) => ({ ...rule, extensions: [...rule.extensions] })),
 }
 
@@ -105,16 +97,42 @@ const SETTING_KEYS: Record<keyof CloudDriveSettings, string> = {
   storageDisplayQuotaBytes: 'storage.displayQuotaBytes',
   syncAllowMemberSync: 'sync.allowMemberSync',
   adminOwnerCanViewMemberFiles: 'admin.ownerCanViewMemberFiles',
-  previewTextExtensions: 'preview.textExtensions',
-  previewImageExtensions: 'preview.imageExtensions',
-  previewVideoExtensions: 'preview.videoExtensions',
-  previewAudioExtensions: 'preview.audioExtensions',
   previewRules: 'preview.rules',
 }
 
 export function cloudDriveSettingKey(key: keyof CloudDriveSettings): string {
   return SETTING_KEYS[key]
 }
+
+/**
+ * The settings that describe the deployment rather than the person: quota, upload ceilings, WebDAV,
+ * trash retention and the member switches. They are read from the owner's row and only the owner may
+ * write them, so a member cannot lift their own limits from the settings page.
+ */
+export const CLOUDDRIVE_POLICY_SETTINGS = [
+  'quotaDefaultBytes',
+  'uploadMaxFileBytes',
+  'uploadPartSizeBytes',
+  'uploadDistributedMinBytes',
+  'uploadConcurrentParts',
+  'shareAllowMemberShares',
+  'shareDefaultExpiryDays',
+  'shareMaxExpiryDays',
+  'trashRetentionDays',
+  'webdavEnabled',
+  'webdavUsername',
+  'webdavPasswordHash',
+  'syncAllowMemberSync',
+  'adminOwnerCanViewMemberFiles',
+  'previewRules',
+] as const satisfies readonly (keyof CloudDriveSettings)[]
+
+export type CloudDrivePolicySetting = (typeof CLOUDDRIVE_POLICY_SETTINGS)[number]
+
+/** The storage-row names of the policy settings; anything else belongs to the person. */
+export const CLOUDDRIVE_POLICY_KEYS: ReadonlySet<string> = new Set(
+  CLOUDDRIVE_POLICY_SETTINGS.map((key) => SETTING_KEYS[key]),
+)
 
 function numberOrNull(value: unknown, min: number, max: number): number | null | undefined {
   if (value === null || value === '') return null
@@ -177,10 +195,6 @@ export function parseCloudDriveSettings(rows: Record<string, string>): CloudDriv
     storageDisplayQuotaBytes: numberOrNull(get('storageDisplayQuotaBytes'), 0, 10 * 1024 ** 4) ?? null,
     syncAllowMemberSync: bool(get('syncAllowMemberSync'), DEFAULT_CLOUDDRIVE_SETTINGS.syncAllowMemberSync),
     adminOwnerCanViewMemberFiles: bool(get('adminOwnerCanViewMemberFiles'), false),
-    previewTextExtensions: stringList(get('previewTextExtensions'), DEFAULT_PREVIEW_EXTENSIONS.text, CLOUDDRIVE_LIMITS.previewExtensionsMax),
-    previewImageExtensions: stringList(get('previewImageExtensions'), DEFAULT_PREVIEW_EXTENSIONS.image, CLOUDDRIVE_LIMITS.previewExtensionsMax),
-    previewVideoExtensions: stringList(get('previewVideoExtensions'), DEFAULT_PREVIEW_EXTENSIONS.video, CLOUDDRIVE_LIMITS.previewExtensionsMax),
-    previewAudioExtensions: stringList(get('previewAudioExtensions'), DEFAULT_PREVIEW_EXTENSIONS.audio, CLOUDDRIVE_LIMITS.previewExtensionsMax),
     previewRules: parsePreviewRules(safeJson(get('previewRules'))) || [],
   }
   if (result.previewRules.length === 0) {
@@ -219,10 +233,6 @@ export interface CloudDriveSettingsPatch {
   storageDisplayQuotaBytes?: number | null
   syncAllowMemberSync?: boolean
   adminOwnerCanViewMemberFiles?: boolean
-  previewTextExtensions?: string[]
-  previewImageExtensions?: string[]
-  previewVideoExtensions?: string[]
-  previewAudioExtensions?: string[]
   previewRules?: CloudDrivePreviewRule[]
 }
 
@@ -282,14 +292,6 @@ export function normalizeCloudDriveSettingsPatch(patch: CloudDriveSettingsPatch)
   }
   if (patch.syncAllowMemberSync !== undefined) put('syncAllowMemberSync', patch.syncAllowMemberSync)
   if (patch.adminOwnerCanViewMemberFiles !== undefined) put('adminOwnerCanViewMemberFiles', patch.adminOwnerCanViewMemberFiles)
-  for (const key of ['previewTextExtensions', 'previewImageExtensions', 'previewVideoExtensions', 'previewAudioExtensions'] as const) {
-    if (patch[key] === undefined) continue
-    const fallback = key === 'previewTextExtensions' ? DEFAULT_PREVIEW_EXTENSIONS.text
-      : key === 'previewImageExtensions' ? DEFAULT_PREVIEW_EXTENSIONS.image
-        : key === 'previewVideoExtensions' ? DEFAULT_PREVIEW_EXTENSIONS.video
-          : DEFAULT_PREVIEW_EXTENSIONS.audio
-    put(key, stringList(patch[key], fallback, CLOUDDRIVE_LIMITS.previewExtensionsMax))
-  }
   if (patch.previewRules !== undefined) {
     if (patch.previewRules.length > CLOUDDRIVE_LIMITS.previewRulesMax) return { error: 'Too many preview rules' }
     const rules = parsePreviewRules(patch.previewRules)

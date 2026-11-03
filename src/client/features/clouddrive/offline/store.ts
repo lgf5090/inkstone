@@ -71,12 +71,29 @@ export async function getOffline(id: string): Promise<OfflineRecord | null> {
   return row ?? null
 }
 
+/**
+ * Which ceiling a save of `incoming` bytes would break, given the rows already kept. A re-save of the
+ * same entry replaces its own copy, so that copy is not counted against it.
+ */
+export function offlineRefusal(
+  existing: readonly OfflineMeta[],
+  entryId: string,
+  incoming: number,
+  limits: { file: number; total: number } = { file: MAX_FILE_BYTES, total: MAX_TOTAL_BYTES },
+): 'offline_too_large' | 'offline_quota' | null {
+  if (incoming > limits.file) return 'offline_too_large'
+  const total = existing.reduce((sum, record) => (record.id === entryId ? sum : sum + record.size), 0)
+  return total + incoming > limits.total ? 'offline_quota' : null
+}
+
+/** The two ceilings the offline cache honours, checked against the size a save is about to take. */
+async function assertOfflineRoom(entry: CloudDriveEntry, incoming: number): Promise<void> {
+  const refusal = offlineRefusal(await listOffline(), entry.id, incoming)
+  if (refusal) throw new Error(refusal)
+}
+
 export async function putOffline(entry: CloudDriveEntry, blob: Blob): Promise<void> {
-  if (blob.size > MAX_FILE_BYTES) throw new Error('offline_too_large')
-  const existing = await listOffline()
-  const others = existing.filter((record) => record.id !== entry.id)
-  const total = others.reduce((sum, record) => sum + record.size, 0)
-  if (total + blob.size > MAX_TOTAL_BYTES) throw new Error('offline_quota')
+  await assertOfflineRoom(entry, blob.size)
   const record: OfflineRecord = {
     id: entry.id,
     name: entry.name,
@@ -94,11 +111,45 @@ export async function removeOffline(id: string): Promise<void> {
   await withStore<undefined>('readwrite', (store) => store.delete(id) as IDBRequest<undefined>)
 }
 
+/**
+ * Reads the response while it arrives so an over-ceiling file is refused mid-stream instead of being
+ * buffered whole. `assertRoom` is passed in because the ceiling check needs the rows in IndexedDB,
+ * and the streaming limit itself must not wait for them.
+ */
+export async function readOfflineResponse(
+  response: Response,
+  mime: string,
+  assertRoom: (bytes: number) => Promise<void>,
+  maxBytes: number = MAX_FILE_BYTES,
+): Promise<Blob> {
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isSafeInteger(declared) && declared > 0) await assertRoom(declared)
+  if (!response.body) return response.blob()
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let seen = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    seen += value.byteLength
+    if (seen > maxBytes) {
+      await reader.cancel()
+      throw new Error('offline_too_large')
+    }
+    chunks.push(value)
+  }
+  return new Blob(chunks as BlobPart[], { type: mime || response.headers.get('content-type') || '' })
+}
+
 export async function fetchAndSaveOffline(entry: CloudDriveEntry): Promise<void> {
+  // `entry.size` is known before the request: a 2 GB save used to be streamed into memory in full and
+  // only then refused, which on a phone kills the tab instead of showing a message.
+  await assertOfflineRoom(entry, entry.size)
   const response = await fetch(`/api/clouddrive/files/${encodeURIComponent(entry.id)}/content`, {
     credentials: 'same-origin',
   })
   if (!response.ok) throw new Error(`offline_fetch_${response.status}`)
-  const blob = await response.blob()
+  const blob = await readOfflineResponse(response, entry.mime, (bytes) => assertOfflineRoom(entry, bytes))
   await putOffline(entry, blob)
 }

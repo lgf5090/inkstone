@@ -5,18 +5,22 @@
  * handling and the thumbnail all use that answer instead of their own SQL. The body of a live file
  * is immutable (an id is never reused), so the authenticated cache policy can be a long one.
  *
- * `GET /download/zip` is deliberately a 501 for now: a streaming archive needs its own size/item
- * limits and testing, and answering with a fake empty zip would hide that it is not implemented.
+ * `GET /download/zip` packs a folder by streaming one ZIP: the bytes of the tree never collect in this
+ * isolate, and the shared `zipMaxItems`/`zipMaxBytes` ceilings refuse with 413 rather than truncating.
  */
 import { Hono, type Context } from 'hono'
+import { getCookie } from 'hono/cookie'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { contentDisposition } from '../lib/http-range'
+import { entityTagOf, headResponse, planContentResponse } from './content-response'
 import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import { parseExternalEntryId, externalDirectUrl, externalProxyLocation, readExternal } from './external'
 import { distributedStream, fileParts } from './distributed'
-import { resolveMount } from './lib'
+import { PRIMARY_MOUNT, parseFolderMeta, parsePath, requireBucket, resolveEntry, resolveMount } from './lib'
+import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
 import { assertMetaAccess } from './routes-meta'
+import { buildFolderZip, zipDisposition } from './zip'
 
 export const clouddriveContentRoutes = new Hono<AppBindings>()
 
@@ -64,49 +68,6 @@ async function findLiveFile(c: Context<AppBindings>, userId: string, id: string)
   return row
 }
 
-function entityTagOf(file: FileRow): string {
-  const raw = (file.etag ?? `${file.id}-${file.size}`).replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return `"${raw}"`
-}
-
-function matchesEntityTag(header: string, etag: string): boolean {
-  const target = etag.replace(/^W\//i, '').replace(/^"|"$/g, '')
-  return header.split(',').some((item) => {
-    const trimmed = item.trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
-    return trimmed === '*' || trimmed === target
-  })
-}
-
-function dispositionOf(mime: string, name: string, download: boolean): string {
-  const value = contentDisposition(mime, name)
-  return download ? value.replace(/^inline;/, 'attachment;') : value
-}
-
-function baseHeaders(file: FileRow, download: boolean): Headers {
-  const headers = new Headers({
-    'Content-Type': file.mime || 'application/octet-stream',
-    'Content-Disposition': dispositionOf(file.mime, file.name, download),
-    'Accept-Ranges': 'bytes',
-    'ETag': entityTagOf(file),
-    'Last-Modified': new Date(file.uploaded_at).toUTCString(),
-    'Cache-Control': AUTHENTICATED_CACHE,
-    'X-Content-Type-Options': 'nosniff',
-  })
-  return headers
-}
-
-function notSatisfiable(file: FileRow): Response {
-  const headers = baseHeaders(file, true)
-  headers.set('Content-Range', `bytes */${file.size}`)
-  headers.delete('Content-Disposition')
-  return new Response(null, { status: 416, headers })
-}
-
-async function requireBucket(c: Context<AppBindings>): Promise<R2Bucket> {
-  const bucket = c.env.FILES
-  if (!bucket) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
-  return bucket
-}
 
 clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const userId = requireUserId(c)
@@ -134,72 +95,42 @@ clouddriveContentRoutes.on(['GET', 'HEAD'], '/files/:id/content', async (c) => {
   const file = await findLiveFile(c, userId, c.req.param('id'))
   await assertMetaAccess(c, userId, file.mount_id, parentPathOf(file.path))
   const download = c.req.query('download') === '1'
-  const etag = entityTagOf(file)
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: c.req.header('if-none-match'),
+    download,
+    cacheControl: AUTHENTICATED_CACHE,
+    file: {
+      id: file.id, size: file.size, mime: file.mime, name: file.name, etag: file.etag, lastModified: file.uploaded_at,
+    },
+  })
   if (file.storage_kind === 'distributed') {
     const parts = await fileParts(c.env.DB, userId, file.id)
     const total = parts.reduce((sum, part) => sum + part.size, 0)
     if (parts.length === 0 || total !== file.size) {
       throw new ApiError(503, 'clouddrive_mount_unavailable', 'The distributed parts are incomplete')
     }
-    const ifNoneMatchDistributed = c.req.header('if-none-match')
-    if (ifNoneMatchDistributed && matchesEntityTag(ifNoneMatchDistributed, etag)) {
-      return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': AUTHENTICATED_CACHE } })
-    }
-    const rangeHeaderDistributed = c.req.header('range')
-    const distributedRange = rangeHeaderDistributed ? parseByteRange(rangeHeaderDistributed, file.size) : null
-    if (distributedRange === 'invalid') return notSatisfiable(file)
-    const headers = baseHeaders(file, download)
-    const start = distributedRange ? distributedRange.start : 0
-    const length = distributedRange ? distributedRange.end - distributedRange.start + 1 : file.size
-    headers.set('Content-Length', String(length))
-    if (distributedRange) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
-    if (c.req.method === 'HEAD') return new Response(null, { status: distributedRange ? 206 : 200, headers })
-    const body = await distributedStream(c.env, c.env.DB, userId, parts, start, length)
-    return new Response(body, { status: distributedRange ? 206 : 200, headers })
+    if (planned.kind === 'respond') return planned.response
+    if (planned.kind === 'head') return headResponse(planned)
+    const body = await distributedStream(c.env, c.env.DB, userId, parts, planned.offset, planned.length)
+    return new Response(body, { status: planned.status, headers: planned.headers })
   }
   if (file.storage_kind !== 'r2' || !file.storage_key) {
     throw new ApiError(503, 'clouddrive_mount_unavailable', 'This file is not on the primary mount')
   }
   const bucket = await requireBucket(c)
-
-  const ifNoneMatch = c.req.header('if-none-match')
-  if (ifNoneMatch && matchesEntityTag(ifNoneMatch, etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { 'ETag': etag, 'Cache-Control': AUTHENTICATED_CACHE },
-    })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') {
+    if (!await bucket.head(file.storage_key)) throw ApiError.notFound('File data is missing')
+    return headResponse(planned)
   }
-
-  const rangeHeader = c.req.header('range')
-  const range = rangeHeader ? parseByteRange(rangeHeader, file.size) : null
-  if (range === 'invalid') return notSatisfiable(file)
-  const headers = baseHeaders(file, download)
-
-  if (c.req.method === 'HEAD') {
-    const object = await bucket.head(file.storage_key)
-    if (!object) throw ApiError.notFound('File data is missing')
-    if (range) {
-      headers.set('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`)
-      headers.set('Content-Length', String(range.end - range.start + 1))
-      return new Response(null, { status: 206, headers })
-    }
-    headers.set('Content-Length', String(file.size))
-    return new Response(null, { status: 200, headers })
-  }
-
   const object = await bucket.get(
     file.storage_key,
-    range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : undefined,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
   )
   if (!object) throw ApiError.notFound('File data is missing')
-
-  if (range) {
-    headers.set('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`)
-    headers.set('Content-Length', String(range.end - range.start + 1))
-    return new Response(object.body, { status: 206, headers })
-  }
-  headers.set('Content-Length', String(file.size))
-  return new Response(object.body, { status: 200, headers })
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })
 
 clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
@@ -265,10 +196,62 @@ clouddriveContentRoutes.get('/files/:id/thumbnail', async (c) => {
   }
 })
 
-clouddriveContentRoutes.on(['GET', 'POST'], '/download/zip', () => new Response(
-  JSON.stringify({ error: { code: 'not_implemented', message: 'Streaming zip downloads are not available yet' } }),
-  {
-    status: 501,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-  },
-))
+/**
+ * `GET /download/zip` packs a folder as a stream, so a reader can take a whole directory in one
+ * request. The ceilings are the shared `zipMaxItems`/`zipMaxBytes`, and they refuse with 413 rather
+ * than answering with a truncated archive nobody asked for. External mounts are not walked here: their
+ * drivers have no recursive listing primitive that is cheap enough to promise.
+ */
+clouddriveContentRoutes.get('/download/zip', async (c) => {
+  const userId = requireUserId(c)
+  const mount = await resolveMount(c.env.DB, userId, c.req.query('mount') ?? PRIMARY_MOUNT)
+  if (mount.storageId !== PRIMARY_MOUNT) {
+    throw new ApiError(400, 'clouddrive_mount_unavailable', 'Only the primary mount can be archived')
+  }
+  const path = parsePath(c.req.query('path') ?? '/')
+  if (path !== '/') {
+    const entry = await resolveEntry(c.env.DB, userId, mount.id, path)
+    if (entry.kind !== 'folder') throw ApiError.badRequest('Only folders can be archived')
+  }
+  await assertMetaAccess(c, userId, mount.id, path)
+
+  // A folder can hide its children two ways — its own `metadata.hidePatterns` and the mount-level meta
+  // row with its inherit flags — and an archive that ignored either would hand out what the listing
+  // refuses to show. Both are resolved once per directory, not once per entry.
+  const directoryCache = new Map<string, Promise<{ patterns: string[]; locked: boolean }>>()
+  const directoryState = (parent: string): Promise<{ patterns: string[]; locked: boolean }> => {
+    const cached = directoryCache.get(parent)
+    if (cached) return cached
+    const next = (async () => {
+      const meta = await effectiveMeta(c.env.DB, userId, mount.id, parent)
+      const patterns = [...meta.hidePatterns]
+      if (parent !== '/') {
+        const row = await resolveEntry(c.env.DB, userId, mount.id, parent)
+        patterns.push(...parseFolderMeta(row.metadata).hiddenPatterns)
+      }
+      let locked = false
+      if (meta.passwordHash && meta.passwordPath) {
+        const cookie = getCookie(c, await metaCookieName(mount.id, meta.passwordPath))
+        locked = !await isMetaUnlocked(c.env.DB, userId, mount.id, meta.passwordPath, cookie)
+      }
+      return { patterns, locked }
+    })()
+    directoryCache.set(parent, next)
+    return next
+  }
+  const skip = async (row: { path: string; name: string }): Promise<boolean> => {
+    const state = await directoryState(parentPathOf(row.path))
+    if (state.locked) return true
+    return hiddenByPatterns(row.name, state.patterns)
+  }
+
+  const archive = await buildFolderZip(c.env, c.env.DB, userId, mount, path, skip)
+  const headers = new Headers({
+    'Content-Type': 'application/zip',
+    'Content-Disposition': zipDisposition(archive.filename),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'X-CloudDrive-Zip-Items': String(archive.items),
+  })
+  return new Response(c.req.method === 'HEAD' ? null : archive.stream, { status: 200, headers })
+})

@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { Download, Server, Upload, X } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { useSession } from '../../../store/session'
+import { useUi } from '../../../store/ui'
 import { Button, IconButton } from '../../../components/primitives'
 import { clouddriveApi } from '../api'
 import { ct } from '../media-i18n'
 import { useTransferStore, type TransferItem } from './useTransferStore'
+
+/** A queue that is moving answers in five seconds; an idle one is checked twice a minute. */
+const TASK_POLL_ACTIVE_MS = 5_000
+const TASK_POLL_IDLE_MS = 30_000
 
 interface ServerTask {
   id: string
@@ -15,6 +20,21 @@ interface ServerTask {
   error: string | null
   createdAt: number
   finishedAt: number | null
+}
+
+interface UploadSession {
+  id: string
+  mountId: string
+  entryPath: string
+  name: string
+  mime: string
+  size: number
+  strategy: string
+  partSize: number
+  totalParts: number
+  partsUploaded: number
+  bytesUploaded: number
+  expiresAt: number
 }
 
 function statusKey(item: TransferItem): Parameters<typeof ct>[0] {
@@ -39,6 +59,15 @@ export function TransfersPage() {
 
   const [tasks, setTasks] = useState<ServerTask[]>([])
   const [tasksFailed, setTasksFailed] = useState(false)
+  const [sessions, setSessions] = useState<UploadSession[]>([])
+  const enqueueResume = useTransferStore((state) => state.enqueueResume)
+  const loadSessions = useCallback(async () => {
+    try {
+      setSessions((await clouddriveApi.uploadSessions()).sessions)
+    } catch {
+      setSessions([])
+    }
+  }, [])
   const loadTasks = useCallback(async () => {
     try {
       const result = await clouddriveApi.tasks()
@@ -48,11 +77,37 @@ export function TransfersPage() {
       setTasksFailed(true)
     }
   }, [])
+  const pollMs = tasks.some((task) => task.status === 'queued' || task.status === 'running')
+    ? TASK_POLL_ACTIVE_MS
+    : TASK_POLL_IDLE_MS
+
   useEffect(() => {
     void loadTasks()
-    const timer = window.setInterval(() => { void loadTasks() }, 5000)
-    return () => { window.clearInterval(timer) }
-  }, [loadTasks])
+    void loadSessions()
+    // A tab nobody is looking at has nothing to watch: the poll runs only while the page is visible,
+    // and becomes visible again it reads the queue straight away instead of waiting out the interval.
+    let timer = 0
+    const start = () => {
+      if (window.document.visibilityState !== 'visible' || timer !== 0) return
+      timer = window.setInterval(() => { void loadTasks() }, pollMs)
+    }
+    const stop = () => {
+      if (timer === 0) return
+      window.clearInterval(timer)
+      timer = 0
+    }
+    const onVisibility = () => {
+      stop()
+      if (window.document.visibilityState === 'visible') void loadTasks()
+      start()
+    }
+    start()
+    window.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
+  }, [loadSessions, loadTasks, pollMs])
 
   const taskStatusKey = (status: string): Parameters<typeof ct>[0] => {
     if (status === 'queued') return 'clouddrive.transfers.status_queued'
@@ -122,6 +177,50 @@ export function TransfersPage() {
                 </li>
               )
             })}
+          </ul>
+        )}
+      </section>
+      <section>
+        <h2 className="mb-1 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">{ct('clouddrive.transfers.unfinished')}</h2>
+        <p className="mb-2 text-[length:var(--text-10)] text-[var(--text-tertiary)]">{ct('clouddrive.transfers.unfinished_hint')}</p>
+        {sessions.length === 0 && <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{ct('clouddrive.transfers.unfinished_empty')}</p>}
+        {sessions.length > 0 && (
+          <ul className="flex flex-col gap-1">
+            {sessions.map((session) => (
+              <li key={session.id} className="flex min-w-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-primary)]">{session.name}</span>
+                <span className="shrink-0 text-[length:var(--text-10)] tabular-nums text-[var(--text-tertiary)]">
+                  {session.strategy === 'direct'
+                    ? formatBytes(session.size)
+                    : ct('clouddrive.transfers.progress', { done: session.partsUploaded, total: session.totalParts })}
+                </span>
+                <label className="shrink-0">
+                  <span className="sr-only">{session.name} · {ct('clouddrive.transfers.resume')}</span>
+                  <input
+                    type="file"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (!file) return
+                      enqueueResume(session.id, file, session.mountId)
+                      void loadSessions()
+                    }}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    await clouddriveApi.abortUpload(session.id)
+                    useUi.getState().toast({ title: ct('clouddrive.transfers.dropped') })
+                    void loadSessions()
+                  }}
+                >
+                  {ct('clouddrive.transfers.drop_session')}
+                </Button>
+              </li>
+            ))}
           </ul>
         )}
       </section>

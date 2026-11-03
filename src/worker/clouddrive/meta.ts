@@ -1,4 +1,4 @@
-import { parentPathOf } from '@shared/clouddrive/model'
+import { foldedName, parentPathOf } from '@shared/clouddrive/model'
 import { sha256Hex, toBase64Url } from '../lib/encoding'
 import { hashPassword, verifyPassword } from '../lib/password'
 
@@ -29,33 +29,79 @@ export interface EffectiveCloudDriveMeta {
 const META_TEXT_MAX = 20_000
 const META_PATTERN_MAX = 100
 const META_PATTERNS_MAX = 20
+const MAX_PATTERN_STARS = 8
 
 export function normalizeMetaText(value: unknown): string {
   if (typeof value !== 'string') return ''
   return value.slice(0, META_TEXT_MAX)
 }
 
+/**
+ * A hidden rule is a glob — `*.tmp`, `Thumbs.db`, `._?` — which is exactly what the inspector hints
+ * at. Treating it as a regular expression let a typo hide nothing at all and let `(a+)+$` turn a
+ * folder listing into a backtracking exercise, so no pattern is ever compiled here.
+ */
+export function hidePatternProblem(pattern: string): string | null {
+  if (!pattern) return 'A hidden pattern cannot be empty'
+  if (pattern.length > META_PATTERN_MAX) return `A hidden pattern holds at most ${META_PATTERN_MAX} characters`
+  if (/[\u0000-\u001f\u007f]/.test(pattern)) return 'A hidden pattern cannot contain control characters'
+  if (pattern.includes('/')) return 'A hidden pattern matches a name, not a path'
+  // `^` and `$` mean nothing here, but a reader who types them means a regular expression and would
+  // otherwise get a rule that silently hides one file fewer than they expected.
+  if (pattern.startsWith('^') || pattern.endsWith('$')) {
+    return 'A hidden pattern is a wildcard rule: drop the ^ and $ and use * or ?'
+  }
+  const stars = pattern.split('*').length - 1
+  if (stars > MAX_PATTERN_STARS) return `A hidden pattern holds at most ${MAX_PATTERN_STARS} wildcards`
+  return null
+}
+
+/** A rule the reader can be told about: the message is the reason, and it reaches the form. */
+export class MetaPatternError extends Error {}
+
 export function normalizeMetaPatterns(value: unknown): string[] {
   if (!Array.isArray(value)) return []
+  if (value.length > META_PATTERNS_MAX) throw new MetaPatternError(`A folder holds at most ${META_PATTERNS_MAX} hidden patterns`)
   const patterns: string[] = []
-  for (const item of value.slice(0, META_PATTERNS_MAX)) {
-    if (typeof item !== 'string') continue
-    const pattern = item.trim().slice(0, META_PATTERN_MAX)
-    if (!pattern) continue
-    try {
-      new RegExp(pattern)
-    } catch {
-      throw new Error('invalid_pattern')
-    }
+  for (const item of value) {
+    if (typeof item !== 'string') throw new MetaPatternError('hidePatterns must contain strings')
+    const pattern = item.trim()
+    const problem = hidePatternProblem(pattern)
+    if (problem) throw new MetaPatternError(problem)
     patterns.push(pattern)
   }
   return [...new Set(patterns)]
 }
 
+function globMatches(name: string, pattern: string): boolean {
+  let nameIndex = 0
+  let patternIndex = 0
+  let starIndex = -1
+  let matchIndex = 0
+  while (nameIndex < name.length) {
+    const token = pattern[patternIndex]
+    if (token === '?' || (token !== undefined && token === name[nameIndex])) {
+      nameIndex++
+      patternIndex++
+    } else if (token === '*') {
+      starIndex = patternIndex
+      patternIndex++
+      matchIndex = nameIndex
+    } else if (starIndex >= 0) {
+      patternIndex = starIndex + 1
+      matchIndex++
+      nameIndex = matchIndex
+    } else {
+      return false
+    }
+  }
+  while (pattern[patternIndex] === '*') patternIndex++
+  return patternIndex === pattern.length
+}
+
 export function hiddenByPatterns(name: string, patterns: readonly string[]): boolean {
-  return patterns.some((pattern) => {
-    try { return new RegExp(pattern).test(name) } catch { return false }
-  })
+  const folded = foldedName(name)
+  return patterns.some((pattern) => globMatches(folded, foldedName(pattern)))
 }
 
 function parsePatterns(value: string): string[] {
@@ -133,16 +179,37 @@ export async function deleteMetaRow(db: D1Database, userId: string, mountId: str
   return Number((result.meta as { changes?: number } | undefined)?.changes ?? 0) > 0
 }
 
-export async function effectiveMeta(
+/** Above this many paths, one ancestor predicate per path costs more SQL than reading the table. */
+const META_BATCH_LIMIT = 40
+
+async function metaRows(
   db: D1Database,
   userId: string,
   mountId: string,
-  path: string,
-): Promise<EffectiveCloudDriveMeta> {
+  paths: readonly string[],
+): Promise<CloudDriveMetaRow[]> {
+  if (paths.length > META_BATCH_LIMIT) {
+    const { results } = await db.prepare(
+      `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2`,
+    ).bind(userId, mountId).all<CloudDriveMetaRow>()
+    return results ?? []
+  }
+  const clauses: string[] = []
+  const params: unknown[] = [userId, mountId]
+  paths.forEach((path, index) => {
+    const marker = index + 3
+    clauses.push(`(path = ?${marker} OR substr(?${marker}, 1, length(path) + 1) = path || '/')`)
+    params.push(path)
+  })
+  const scope = clauses.length > 0 ? ` AND (${clauses.join(' OR ')})` : ''
   const { results } = await db.prepare(
-    `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2`,
-  ).bind(userId, mountId).all<CloudDriveMetaRow>()
-  const byPath = new Map((results ?? []).map((row) => [row.path, row]))
+    `SELECT * FROM CloudDrive_meta WHERE user_id = ?1 AND mount_id = ?2${scope}`,
+  ).bind(...params).all<CloudDriveMetaRow>()
+  return results ?? []
+}
+
+function resolveMeta(rows: readonly CloudDriveMetaRow[], path: string): EffectiveCloudDriveMeta {
+  const byPath = new Map(rows.map((row) => [row.path, row]))
   const chain: string[] = []
   let current = path
   for (;;) {
@@ -195,6 +262,32 @@ export async function effectiveMeta(
     passwordHash,
     passwordPath,
   }
+}
+
+export async function effectiveMeta(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  path: string,
+): Promise<EffectiveCloudDriveMeta> {
+  return resolveMeta(await metaRows(db, userId, mountId, [path]), path)
+}
+
+/**
+ * The rules for many paths in one read. A drive-wide search lands in dozens of folders, and the
+ * single-path version used to fetch the mount's whole metadata table once per folder — including
+ * every header and footer body.
+ */
+export async function effectiveMetas(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<Map<string, EffectiveCloudDriveMeta>> {
+  const unique = [...new Set(paths)]
+  if (unique.length === 0) return new Map()
+  const rows = await metaRows(db, userId, mountId, unique)
+  return new Map(unique.map((path) => [path, resolveMeta(rows, path)]))
 }
 
 export function metaCookieName(mountId: string, path: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { Copy, Download, FolderInput, Scissors, Share2, Trash2, X } from 'lucide-react'
+import { Copy, Download, FolderInput, ListOrdered, Scissors, Share2, Star, Trash2, X } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton } from '../../../components/primitives'
@@ -15,6 +15,8 @@ export interface SelectionBarProps {
   onCopy: () => void
   onCut: () => void
   onMove: () => void
+  onRenameBatch: () => void
+  onStar: () => void
   onDelete: () => void
   onClear: () => void
 }
@@ -31,6 +33,8 @@ export function SelectionBar({
   onCopy,
   onCut,
   onMove,
+  onRenameBatch,
+  onStar,
   onDelete,
   onClear,
 }: SelectionBarProps) {
@@ -44,7 +48,7 @@ export function SelectionBar({
       <Button size="sm" variant="secondary" icon={<Download size={13} />} onClick={onDownload} disabled={!canDownload || busy}>
         {t('clouddrive.action.download')}
       </Button>
-      <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={onShare} disabled={busy}>
+      <Button size="sm" variant="secondary" icon={<Share2 size={13} />} onClick={onShare} disabled={busy || external}>
         {t('clouddrive.action.share')}
       </Button>
       <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={onCopy} disabled={!writable || external || busy}>
@@ -55,6 +59,12 @@ export function SelectionBar({
       </Button>
       <Button size="sm" variant="secondary" icon={<FolderInput size={13} />} onClick={onMove} disabled={!writable || busy}>
         {t('clouddrive.action.move')}
+      </Button>
+      <Button size="sm" variant="secondary" icon={<Star size={13} />} onClick={onStar} disabled={!writable || external || busy}>
+        {t('clouddrive.action.star')}
+      </Button>
+      <Button size="sm" variant="secondary" icon={<ListOrdered size={13} />} onClick={onRenameBatch} disabled={!writable || external || busy}>
+        {t('clouddrive.action.rename_batch')}
       </Button>
       <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={onDelete} disabled={!writable || busy} className="text-[var(--danger)]">
         {t('clouddrive.action.delete')}

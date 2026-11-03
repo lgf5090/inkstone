@@ -7,16 +7,17 @@
  */
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { parentPathOf, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
+import { CLOUDDRIVE_LIMITS, categoryFor, foldedName, parentPathOf, type CloudDriveCategory, type CloudDriveEntry, type CloudDriveListing } from '@shared/clouddrive/model'
 import { organizerColorOrNull } from '@shared/organizer-colors'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { deleteExternalPath, externalCapacityBytes, externalFolderSize, listExternal, mkdirExternal, moveExternalPath, parseExternalEntryId, writeExternalFile } from './external'
-import { isValidId } from '../lib/id'
+import { isValidId, newId } from '../lib/id'
 import { readJson } from '../lib/request'
 import {
   assertWritable,
   buildEntry,
+  deleteObjectQuietly,
   parseDir,
   parseFlag,
   parseLimit,
@@ -25,6 +26,8 @@ import {
   parsePath,
   parseSort,
   parseTimestamp,
+  queryExternalEntries,
+  requireBucket,
   resolveEntry,
   resolveMount,
   tagsForFiles,
@@ -32,17 +35,21 @@ import {
   type CloudDriveMountInfo,
 } from './lib'
 import { fileParts } from './distributed'
-import { effectiveMeta, hiddenByPatterns, isMetaUnlocked, metaCookieName } from './meta'
+import { effectiveMeta, effectiveMetas, hiddenByPatterns, isMetaUnlocked, metaCookieName, normalizeMetaPatterns, type EffectiveCloudDriveMeta } from './meta'
 import { getCookie } from 'hono/cookie'
 import { assertMetaAccess } from './routes-meta'
 import {
   albumEntries,
   copyEntries,
+  countVisibleTags,
+  createFile,
   createFolder,
+  folderHiddenPatterns,
   folderSize,
   getFileById,
   listFolder,
-  listTags,
+  markViewed,
+  listTagAssignments,
   listTrash,
   moveEntries,
   purgeAllTrash,
@@ -51,6 +58,9 @@ import {
   removeTag,
   renameEntry,
   restoreEntries,
+  type AlbumKind,
+  rowsByIds,
+  rowsByPaths,
   searchEntries,
   setEntryFlags,
   tagsOf,
@@ -68,6 +78,10 @@ cloudDriveFilesRoutes.use('*', async (c, next) => {
 
 const BODY_LIMIT = 64 * 1024
 const MAX_BATCH = 200
+/** The reading of a folder nobody has annotated: no rules, no header, no password. */
+const NO_META: EffectiveCloudDriveMeta = {
+  header: '', footer: '', hidePatterns: [], passwordHash: '', passwordPath: null,
+}
 const EXTERNAL_UPLOAD_MAX_BYTES = 90 * 1024 * 1024
 const EXTERNAL_WRITE_TYPES: ReadonlySet<string> = new Set(['s3', 'webdav'])
 
@@ -132,11 +146,15 @@ async function resolveIdList(
   if (body.paths === undefined) throw ApiError.badRequest('ids or paths is required')
   if (!Array.isArray(body.paths)) throw ApiError.badRequest('paths must be an array of paths')
   if (body.paths.length > MAX_BATCH) throw ApiError.badRequest(`paths holds at most ${MAX_BATCH} paths`)
+  const paths = body.paths.map((item) => parsePath(item))
+  const live = new Map((await rowsByPaths(db, userId, mountId, paths))
+    .filter((row) => row.deleted_at === null)
+    .map((row) => [row.path, row.id]))
   const ids: string[] = []
-  for (const item of body.paths) {
-    const path = parsePath(item)
-    const row = await resolveEntry(db, userId, mountId, path)
-    ids.push(row.id)
+  for (const path of paths) {
+    // One query resolved every path that names a live row; `resolveEntry` still answers the root and
+    // the unknown paths, which is where the same 404 this loop used to raise comes from.
+    ids.push(live.get(path) ?? (await resolveEntry(db, userId, mountId, path)).id)
   }
   if (ids.length === 0) throw ApiError.badRequest('paths must name at least one entry')
   return [...new Set(ids)]
@@ -162,27 +180,49 @@ function transferResponse(c: { json: (body: unknown, status?: number) => Respons
   return c.json({ results }, partial ? 207 : 200)
 }
 
+/**
+ * Whether this reader may see inside a directory that carries a password. `cache` holds the answer per
+ * locked path for the request, because a hundred rows can sit under the same lock and each check is a
+ * D1 read plus a hash comparison.
+ */
+async function isMetaOpen(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  meta: EffectiveCloudDriveMeta,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  if (!meta.passwordHash || !meta.passwordPath) return true
+  const known = cache.get(meta.passwordPath)
+  if (known !== undefined) return known
+  const cookie = getCookie(c, await metaCookieName(mountId, meta.passwordPath))
+  const open = await isMetaUnlocked(c.env.DB, userId, mountId, meta.passwordPath, cookie)
+  cache.set(meta.passwordPath, open)
+  return open
+}
+
 async function filterMetaVisible<T extends { name: string; path: string }>(
   c: Context<AppBindings>,
   userId: string,
   mountId: string,
   rows: readonly T[],
 ): Promise<T[]> {
-  const cache = new Map<string, Awaited<ReturnType<typeof effectiveMeta>>>()
+  if (rows.length === 0) return []
+  const parents = rows.map((row) => parentPathOf(row.path))
+  const [metas, folderRules] = await Promise.all([
+    effectiveMetas(c.env.DB, userId, mountId, parents),
+    folderHiddenPatterns(c.env.DB, userId, mountId, parents),
+  ])
+  // A folder's rules live in two places — the metadata table the mount-path view writes and the row's
+  // own JSON the inspector writes — and the directory listing honours both, so anything that shows a
+  // list has to as well or the same file hides in one view and not another.
+  const unlocked = new Map<string, boolean>()
   const visible: T[] = []
   for (const row of rows) {
     const parent = parentPathOf(row.path)
-    let meta = cache.get(parent)
-    if (!meta) {
-      meta = await effectiveMeta(c.env.DB, userId, mountId, parent)
-      cache.set(parent, meta)
-    }
-    if (hiddenByPatterns(row.name, meta.hidePatterns)) continue
-    if (meta.passwordHash && meta.passwordPath) {
-      const cookie = getCookie(c, await metaCookieName(mountId, meta.passwordPath))
-      if (!await isMetaUnlocked(c.env.DB, userId, mountId, meta.passwordPath, cookie)) continue
-    }
-    visible.push(row)
+    const meta = metas.get(parent) ?? NO_META
+    if (hiddenByPatterns(row.name, [...meta.hidePatterns, ...(folderRules.get(parent) ?? [])])) continue
+    if (await isMetaOpen(c, userId, mountId, meta, unlocked)) visible.push(row)
   }
   return visible
 }
@@ -195,9 +235,31 @@ cloudDriveFilesRoutes.get('/files', async (c) => {
   if (meta.passwordHash) await assertMetaAccess(c, userId, mount.id, path)
   if (mount.storageId !== 'primary') {
     const listing = await listExternal(c.env, c.env.DB, mount, path)
-    const folders = listing.folders.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
-    const files = listing.files.filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
-    return c.json({ ...listing, folders, files, note: meta.header || null, footer: meta.footer || null })
+    // Search and sort run here rather than in SQL: an external mount has no rows. The driver's own
+    // order is only the default, not an excuse for the toolbar to do nothing.
+    const visible = (entries: CloudDriveEntry[]): CloudDriveEntry[] => entries
+      .filter((entry) => !hiddenByPatterns(entry.name, meta.hidePatterns))
+    const query = {
+      q: c.req.query('q') || undefined,
+      type: c.req.query('type') || undefined,
+      sort: parseSort(c.req.query('sort')),
+      dir: parseDir(c.req.query('dir')),
+    }
+    const externalFolders = queryExternalEntries(visible(listing.folders), query)
+    const externalFiles = queryExternalEntries(visible(listing.files), query)
+    const limit = parseLimit(c.req.query('limit'))
+    const body: CloudDriveListing = {
+      mountId: mount.id,
+      path,
+      folders: externalFolders.slice(0, CLOUDDRIVE_LIMITS.folderListMax),
+      files: externalFiles.slice(0, limit),
+      cursor: null,
+      total: externalFiles.length,
+      foldersTruncated: externalFolders.length > CLOUDDRIVE_LIMITS.folderListMax,
+      note: meta.header || null,
+      footer: meta.footer || null,
+    }
+    return c.json(body)
   }
   const parent = await resolveEntry(c.env.DB, userId, mount.id, path)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The path is not a folder')
@@ -254,15 +316,14 @@ cloudDriveFilesRoutes.post('/external/:mountId/upload', async (c) => {
   const bytes = new Uint8Array(await c.req.arrayBuffer())
   if (bytes.byteLength > EXTERNAL_UPLOAD_MAX_BYTES) throw ApiError.tooLarge('The file is larger than the external upload limit')
   const capacity = await externalCapacityBytes(c.env.DB, mount)
-  if (capacity !== null) {
-    const usage = await externalFolderSize(c.env, c.env.DB, mount, '/')
-    if (usage.truncated) throw new ApiError(413, 'clouddrive_folder_too_large', 'The storage is too large to verify its capacity limit')
-    if (usage.bytes + bytes.byteLength > capacity) {
-      throw new ApiError(403, 'clouddrive_quota_exceeded', 'This upload would exceed the storage capacity limit', {
-        usedBytes: usage.bytes,
-        quotaBytes: capacity,
-      })
-    }
+  // Adding the mount up folder by folder is a background job's work: in front of every write it costs
+  // a hundred driver round trips and times a large store out. What one upload can overshoot is the
+  // per-file ceiling, so that is what is checked here; the total stays on the folder-size view.
+  if (capacity !== null && bytes.byteLength > capacity) {
+    throw new ApiError(403, 'clouddrive_quota_exceeded', 'This file is larger than the storage capacity limit', {
+      fileSizeBytes: bytes.byteLength,
+      quotaBytes: capacity,
+    })
   }
   const mime = (c.req.header('content-type') ?? 'application/octet-stream').split(';')[0]!.trim().slice(0, 120) || 'application/octet-stream'
   await writeExternalFile(c.env, c.env.DB, mount, path, bytes, mime)
@@ -359,7 +420,56 @@ cloudDriveFilesRoutes.get('/files/:id', async (c) => {
   return c.json({ entry })
 })
 
+/** The live child row with this name, used by a directory upload that re-enters a path it made. */
+async function resolveChild(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  parent: CloudDriveFileRow,
+  name: string,
+): Promise<CloudDriveFileRow | null> {
+  return await db.prepare(
+    `SELECT * FROM CloudDrive_files
+      WHERE user_id = ? AND mount_id = ? AND parent_id = ? AND name_folded = ? AND deleted_at IS NULL`,
+  ).bind(userId, mountId, parent.id, foldedName(name)).first<CloudDriveFileRow>()
+}
+
 cloudDriveFilesRoutes.post('/folders', async (c) => {
+  const userId = userIdOf(c)
+  const body = await readJson<{ mountId?: unknown; parentPath?: unknown; name?: unknown; conflict?: unknown }>(c, BODY_LIMIT)
+  const mount = await mountFor(c, userId, mountIdOf(body.mountId))
+  assertWritable(mount)
+  const parentPath = parsePath(body.parentPath ?? '/')
+  await assertMetaAccess(c, userId, mount.id, parentPath)
+  const parent = await resolveEntry(c.env.DB, userId, mount.id, parentPath)
+  if (parent.kind !== 'folder') throw ApiError.badRequest('The parent path is not a folder')
+  const name = parseName(body.name)
+
+  // A directory upload walks the same path for every file inside it, so it asks for the folder it
+  // already made instead of taking a 409 and inventing `docs (1)`.
+  if (body.conflict === 'reuse') {
+    const existing = await resolveChild(c.env.DB, userId, mount.id, parent, name)
+    if (existing && existing.kind === 'folder') {
+      return c.json({ entry: await entryOf(c.env.DB, userId, mount, existing), reused: true })
+    }
+  }
+
+  const created = await createFolder(c.env.DB, userId, mount.id, parent, name, Date.now())
+  if (!created.entry) {
+    throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
+  }
+  return c.json({ entry: await entryOf(c.env.DB, userId, mount, created.entry) }, 201)
+})
+
+/**
+ * The mime a file the drive created itself carries. An empty `.html` deliberately lands as plain
+ * text: the extension is the reader's choice, not a promise that the bytes are safe to inline.
+ */
+function createdFileMime(category: CloudDriveCategory): string {
+  return category === 'txt' || category === 'code' ? 'text/plain' : 'application/octet-stream'
+}
+
+cloudDriveFilesRoutes.post('/files', async (c) => {
   const userId = userIdOf(c)
   const body = await readJson<{ mountId?: unknown; parentPath?: unknown; name?: unknown }>(c, BODY_LIMIT)
   const mount = await mountFor(c, userId, mountIdOf(body.mountId))
@@ -369,9 +479,21 @@ cloudDriveFilesRoutes.post('/folders', async (c) => {
   const parent = await resolveEntry(c.env.DB, userId, mount.id, parentPath)
   if (parent.kind !== 'folder') throw ApiError.badRequest('The parent path is not a folder')
   const name = parseName(body.name)
+  const category = categoryFor(name)
+  const mime = createdFileMime(category)
 
-  const created = await createFolder(c.env.DB, userId, mount.id, parent, name, Date.now())
+  const bucket = await requireBucket(c)
+  const fileId = newId()
+  const storageKey = `CloudDrive/${category}/${fileId}`
+  const object = await bucket.put(storageKey, new Uint8Array(0), {
+    httpMetadata: { contentType: mime },
+    customMetadata: { fileId, category },
+  })
+  const now = Date.now()
+  const created = await createFile(c.env.DB, userId, mount.id, parent, name, { id: fileId, category, mime, storageKey, etag: object.etag }, now)
   if (!created.entry) {
+    // The name was taken between the pre-check and the row, so the placeholder goes back the way it came.
+    await deleteObjectQuietly(bucket, storageKey)
     throw ApiError.conflict('A file with this name already exists', { suggestedName: created.conflict })
   }
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, created.entry) }, 201)
@@ -383,9 +505,15 @@ async function assertIdsMetaAccess(
   mountId: string,
   ids: readonly string[],
 ): Promise<void> {
-  for (const id of ids) {
-    const row = await getFileById(c.env.DB, userId, id)
-    if (row) await assertMetaAccess(c, userId, mountId, parentPathOf(row.path))
+  // A batch move of two hundred items used to cost two hundred row reads and two hundred scans of the
+  // metadata table; one read of each answers the same question for the whole set.
+  const rows = await rowsByIds(c.env.DB, userId, mountId, ids)
+  const metas = await effectiveMetas(c.env.DB, userId, mountId, rows.map((row) => parentPathOf(row.path)))
+  const unlocked = new Map<string, boolean>()
+  for (const row of rows) {
+    const meta = metas.get(parentPathOf(row.path)) ?? NO_META
+    if (await isMetaOpen(c, userId, mountId, meta, unlocked)) continue
+    throw new ApiError(403, 'clouddrive_meta_locked', 'This folder is password protected')
   }
 }
 
@@ -441,19 +569,11 @@ cloudDriveFilesRoutes.patch('/files/:id', async (c) => {
         else delete metadata.note
       }
       if (body.hidePatterns !== undefined) {
-        if (!Array.isArray(body.hidePatterns) || body.hidePatterns.length > 20) {
-          throw ApiError.badRequest('hidePatterns holds at most 20 patterns')
+        try {
+          metadata.hidePatterns = normalizeMetaPatterns(body.hidePatterns)
+        } catch (error) {
+          throw ApiError.badRequest(error instanceof Error ? error.message : 'hidePatterns holds * and ? wildcards')
         }
-        const patterns: string[] = []
-        for (const pattern of body.hidePatterns) {
-          if (typeof pattern !== 'string') throw ApiError.badRequest('hidePatterns must contain strings')
-          const trimmed = pattern.trim()
-          if (!trimmed || trimmed.length > 100 || /[\u0000-\u001f]/.test(trimmed)) {
-            throw ApiError.badRequest('A hidden pattern must be 1-100 printable characters')
-          }
-          patterns.push(trimmed)
-        }
-        metadata.hidePatterns = [...new Set(patterns)]
       }
     }
     current = await setEntryFlags(c.env.DB, userId, mount.id, current, {
@@ -517,11 +637,19 @@ cloudDriveFilesRoutes.get('/trash', async (c) => {
     entriesOf(c.env.DB, userId, mount, result.folders),
     entriesOf(c.env.DB, userId, mount, result.files),
   ])
+  const roots = [...result.folders, ...result.files]
+  const trashedWith = new Map(roots.map((row) => [row.id, row.descendantsTrashed]))
+  const deletedWhen = new Map(roots.map((row) => [row.id, row.deleted_at]))
+  const inTrash = (entry: CloudDriveEntry): CloudDriveEntry => ({
+    ...entry,
+    deletedAt: deletedWhen.get(entry.id) ?? null,
+    descendantsTrashed: trashedWith.get(entry.id) ?? false,
+  })
   const body: CloudDriveListing = {
     mountId: mount.id,
     path: '/',
-    folders,
-    files,
+    folders: folders.map(inTrash),
+    files: files.map(inTrash),
     cursor: result.cursor,
     total: result.total,
     foldersTruncated: false,
@@ -565,7 +693,8 @@ cloudDriveFilesRoutes.delete('/files/purge', async (c) => {
 cloudDriveFilesRoutes.get('/tags', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
-  return c.json({ tags: await listTags(c.env.DB, userId, mount.id) })
+  const visible = await filterMetaVisible(c, userId, mount.id, await listTagAssignments(c.env.DB, userId, mount.id))
+  return c.json({ tags: countVisibleTags(visible) })
 })
 
 cloudDriveFilesRoutes.post('/files/:id/tags', async (c) => {
@@ -584,6 +713,7 @@ cloudDriveFilesRoutes.post('/files/:id/tags', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
   assertWritable(mount)
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(row.path))
   await upsertTag(c.env.DB, userId, id, body.tag, color, Date.now())
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, row) })
 })
@@ -596,6 +726,7 @@ cloudDriveFilesRoutes.delete('/files/:id/tags/:tag', async (c) => {
   if (!row) throw ApiError.notFound('File not found')
   const mount = await mountFor(c, userId, row.mount_id)
   assertWritable(mount)
+  await assertMetaAccess(c, userId, mount.id, parentPathOf(row.path))
   await removeTag(c.env.DB, userId, id, c.req.param('tag'))
   return c.json({ entry: await entryOf(c.env.DB, userId, mount, row) })
 })
@@ -624,10 +755,25 @@ cloudDriveFilesRoutes.get('/search', async (c) => {
   })
 })
 
+/**
+ * One line of write on purpose: the recent-view page has nothing to show until a read says it happened.
+ * It is not a mutation of the file, so it takes the same read permission and no write grant.
+ */
+cloudDriveFilesRoutes.post('/files/:id/view', async (c) => {
+  const userId = userIdOf(c)
+  const id = c.req.param('id')
+  if (!isValidId(id)) throw ApiError.notFound('File not found')
+  const row = await getFileById(c.env.DB, userId, id)
+  if (!row || row.kind !== 'file') throw ApiError.notFound('File not found')
+  await assertMetaAccess(c, userId, row.mount_id, parentPathOf(row.path))
+  await markViewed(c.env.DB, userId, id, Date.now())
+  return c.json({ ok: true })
+})
+
 cloudDriveFilesRoutes.get('/recent', async (c) => {
   const userId = userIdOf(c)
   const kind = c.req.query('kind') ?? 'viewed'
-  if (kind !== 'viewed' && kind !== 'uploaded') throw ApiError.badRequest('kind must be viewed or uploaded')
+  if (kind !== 'viewed' && kind !== 'uploaded' && kind !== 'starred') throw ApiError.badRequest('kind must be viewed, uploaded or starred')
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
   const result = await recentEntries(c.env.DB, userId, mount.id, kind, {
     cursor: c.req.query('cursor') || undefined,
@@ -637,6 +783,11 @@ cloudDriveFilesRoutes.get('/recent', async (c) => {
   return c.json({ files: await entriesOf(c.env.DB, userId, mount, files), cursor: result.cursor })
 })
 
+/** An unknown value falls back to stills, which is what the album showed before the filter existed. */
+function albumKindOf(value: string | undefined): AlbumKind {
+  return value === 'videos' || value === 'all' ? value : 'images'
+}
+
 cloudDriveFilesRoutes.get('/album', async (c) => {
   const userId = userIdOf(c)
   const mount = await mountFor(c, userId, mountIdOf(c.req.query('mount')))
@@ -645,6 +796,7 @@ cloudDriveFilesRoutes.get('/album', async (c) => {
     to: parseTimestamp(c.req.query('to')),
     cursor: c.req.query('cursor') || undefined,
     limit: parseLimit(c.req.query('limit'), 60),
+    kind: albumKindOf(c.req.query('kind')),
   })
   const tags = await tagsForFiles(c.env.DB, userId, result.groups.flatMap((group) => group.files.map((file) => file.id)))
   const groups = await Promise.all(result.groups.map(async (group) => ({

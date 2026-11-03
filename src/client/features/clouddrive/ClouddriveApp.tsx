@@ -1,68 +1,108 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
-import { HardDrive, HardDriveDownload, LayoutGrid, Link2, List, PanelLeft, RefreshCw, Trash2, Users } from 'lucide-react'
+import {
+  Clock,
+  Database,
+  Eye,
+  Files,
+  Gauge,
+  HardDrive,
+  HardDriveDownload,
+  Inbox,
+  KeyRound,
+  LayoutGrid,
+  Link2,
+  List,
+  ListChecks,
+  PanelLeft,
+  RefreshCw,
+  Search,
+  Settings,
+  Share2,
+  Star,
+  Tag,
+  Timer,
+  Trash2,
+  Users,
+  Wrench,
+} from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { navigateToPath } from '../../lib/app-history'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
 import { Button, IconButton, Spinner } from '../../components/primitives'
+import { Empty } from '../../components/feedback'
 import { Drawer } from '../../components/overlay'
 import { FilePreviewModal } from '../file-preview'
+import { formatBytes } from '@shared/byte-format'
 import { cloudDrivePath, useCloudDriveAddress, type CloudDrivePage } from './address'
+import { parsePreviewRules } from '@shared/clouddrive/settings'
+import { cloudDrivePreviewPolicy } from './preview-policy'
+import type { FilePreviewTarget } from '../file-preview/types'
 import { cloudDriveCssVars } from './prefs'
 import { useCloudDriveStore } from './store'
 import { FilesPage } from './files/FilesPage'
-import { MountsPage } from './mounts/MountsPage'
-import { StoragePage } from './mounts/StoragePage'
-import { MetaPage } from './admin/MetaPage'
-import { SharesPage } from './shares/SharesPage'
-import { DashboardPage } from './admin/DashboardPage'
-import { AdminFilesPage } from './admin/AdminFilesPage'
-import { IndexPage } from './admin/IndexPage'
-import { PreviewSettingsPage } from './admin/PreviewSettingsPage'
-import { JobsPage } from './admin/JobsPage'
-import { MaintenancePage } from './admin/MaintenancePage'
-import { QuickFilesPage } from './quick/QuickFilesPage'
-import { AlbumPage } from './album/AlbumPage'
-import { TransfersPage } from './transfers/TransfersPage'
-import { SyncPage } from './sync/SyncPage'
-import { OfflinePage } from './offline/OfflinePage'
-import { RequestsPage } from './requests/RequestsPage'
-import { TrashPage } from './trash/TrashPage'
-import { SharedPage } from './shared/SharedPage'
-import { CloudDriveSettingsPage } from './settings/CloudDriveSettingsPage'
-import { ApiKeysPage } from './keys/ApiKeysPage'
 import './clouddrive.css'
+
+/**
+ * The drive opens on the file browser, so that page is loaded with the shell and every other one is
+ * fetched when its tab is chosen: the admin console, the album, the sync planner and the share tables
+ * are megabytes of code a member may never ask for.
+ */
+const MountsPage = lazy(() => import('./mounts/MountsPage').then((module) => ({ default: module.MountsPage })))
+const StoragePage = lazy(() => import('./mounts/StoragePage').then((module) => ({ default: module.StoragePage })))
+const MetaPage = lazy(() => import('./admin/MetaPage').then((module) => ({ default: module.MetaPage })))
+const SharesPage = lazy(() => import('./shares/SharesPage').then((module) => ({ default: module.SharesPage })))
+const DashboardPage = lazy(() => import('./admin/DashboardPage').then((module) => ({ default: module.DashboardPage })))
+const AdminFilesPage = lazy(() => import('./admin/AdminFilesPage').then((module) => ({ default: module.AdminFilesPage })))
+const IndexPage = lazy(() => import('./admin/IndexPage').then((module) => ({ default: module.IndexPage })))
+const PreviewSettingsPage = lazy(() => import('./admin/PreviewSettingsPage').then((module) => ({ default: module.PreviewSettingsPage })))
+const JobsPage = lazy(() => import('./admin/JobsPage').then((module) => ({ default: module.JobsPage })))
+const MaintenancePage = lazy(() => import('./admin/MaintenancePage').then((module) => ({ default: module.MaintenancePage })))
+const QuickFilesPage = lazy(() => import('./quick/QuickFilesPage').then((module) => ({ default: module.QuickFilesPage })))
+const AlbumPage = lazy(() => import('./album/AlbumPage').then((module) => ({ default: module.AlbumPage })))
+const TransfersPage = lazy(() => import('./transfers/TransfersPage').then((module) => ({ default: module.TransfersPage })))
+const SyncPage = lazy(() => import('./sync/SyncPage').then((module) => ({ default: module.SyncPage })))
+const OfflinePage = lazy(() => import('./offline/OfflinePage').then((module) => ({ default: module.OfflinePage })))
+const RequestsPage = lazy(() => import('./requests/RequestsPage').then((module) => ({ default: module.RequestsPage })))
+const TrashPage = lazy(() => import('./trash/TrashPage').then((module) => ({ default: module.TrashPage })))
+const SharedPage = lazy(() => import('./shared/SharedPage').then((module) => ({ default: module.SharedPage })))
+const CloudDriveSettingsPage = lazy(() => import('./settings/CloudDriveSettingsPage').then((module) => ({ default: module.CloudDriveSettingsPage })))
+const ApiKeysPage = lazy(() => import('./keys/ApiKeysPage').then((module) => ({ default: module.ApiKeysPage })))
 
 const FAVORITES: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive }[] = [
   { page: 'files', labelKey: 'clouddrive.nav.files', icon: HardDrive },
   { page: 'album', labelKey: 'clouddrive.nav.album', icon: LayoutGrid },
-  { page: 'recent', labelKey: 'clouddrive.nav.recent', icon: RefreshCw },
-  { page: 'starred', labelKey: 'clouddrive.nav.starred', icon: HardDrive },
+  { page: 'recent', labelKey: 'clouddrive.nav.recent', icon: Clock },
+  { page: 'starred', labelKey: 'clouddrive.nav.starred', icon: Star },
   { page: 'offline', labelKey: 'clouddrive.nav.offline', icon: HardDriveDownload },
   { page: 'trash', labelKey: 'clouddrive.nav.trash', icon: Trash2 },
-  { page: 'shares', labelKey: 'clouddrive.nav.shares', icon: HardDrive },
-  { page: 'requests', labelKey: 'clouddrive.nav.requests', icon: Link2 },
+  { page: 'shares', labelKey: 'clouddrive.nav.shares', icon: Share2 },
+  { page: 'requests', labelKey: 'clouddrive.nav.requests', icon: Inbox },
   { page: 'shared', labelKey: 'clouddrive.nav.shared', icon: Users },
 ]
 
-const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; ownerOnly?: boolean }[] = [
-  { page: 'mounts', labelKey: 'clouddrive.nav.mounts', ownerOnly: true },
-  { page: 'storage', labelKey: 'clouddrive.nav.storage', ownerOnly: true },
-  { page: 'meta', labelKey: 'clouddrive.nav.meta', ownerOnly: true },
-  { page: 'dashboard', labelKey: 'clouddrive.nav.dashboard', ownerOnly: true },
-  { page: 'files-admin', labelKey: 'clouddrive.nav.admin_files', ownerOnly: true },
-  { page: 'index', labelKey: 'clouddrive.nav.index', ownerOnly: true },
-  { page: 'preview-settings', labelKey: 'clouddrive.nav.preview', ownerOnly: true },
-  { page: 'jobs', labelKey: 'clouddrive.nav.jobs', ownerOnly: true },
-  { page: 'tasks', labelKey: 'clouddrive.nav.tasks' },
-  { page: 'sync', labelKey: 'clouddrive.nav.sync' },
-  { page: 'keys', labelKey: 'clouddrive.nav.keys' },
-  { page: 'maintenance', labelKey: 'clouddrive.nav.maintenance', ownerOnly: true },
-  { page: 'settings', labelKey: 'clouddrive.nav.settings' },
+const MANAGE: readonly { page: CloudDrivePage; labelKey: MessageKey; icon: typeof HardDrive; ownerOnly?: boolean }[] = [
+  { page: 'mounts', labelKey: 'clouddrive.nav.mounts', icon: Link2, ownerOnly: true },
+  { page: 'storage', labelKey: 'clouddrive.nav.storage', icon: Database, ownerOnly: true },
+  { page: 'meta', labelKey: 'clouddrive.nav.meta', icon: Tag, ownerOnly: true },
+  { page: 'dashboard', labelKey: 'clouddrive.nav.dashboard', icon: Gauge, ownerOnly: true },
+  { page: 'files-admin', labelKey: 'clouddrive.nav.admin_files', icon: Files, ownerOnly: true },
+  { page: 'index', labelKey: 'clouddrive.nav.index', icon: Search, ownerOnly: true },
+  { page: 'preview-settings', labelKey: 'clouddrive.nav.preview', icon: Eye, ownerOnly: true },
+  { page: 'jobs', labelKey: 'clouddrive.nav.jobs', icon: Timer, ownerOnly: true },
+  { page: 'tasks', labelKey: 'clouddrive.nav.tasks', icon: ListChecks },
+  { page: 'sync', labelKey: 'clouddrive.nav.sync', icon: RefreshCw },
+  { page: 'keys', labelKey: 'clouddrive.nav.keys', icon: KeyRound },
+  { page: 'maintenance', labelKey: 'clouddrive.nav.maintenance', icon: Wrench, ownerOnly: true },
+  { page: 'settings', labelKey: 'clouddrive.nav.settings', icon: Settings },
 ]
+
+/** One page name per URL, so the top bar and the drawer agree with the sidebar. */
+const PAGE_LABELS = new Map<string, MessageKey>([...FAVORITES, ...MANAGE].map((item) => [item.page, item.labelKey]))
 
 export function ClouddriveApp() {
   const address = useCloudDriveAddress()
@@ -78,8 +118,33 @@ export function ClouddriveApp() {
   useEffect(() => { void load() }, [load])
 
   const vars = useMemo(() => cloudDriveCssVars(prefs), [prefs])
-  const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number } | null>(null)
+  const previewPolicy = useMemo(
+    () => cloudDrivePreviewPolicy(parsePreviewRules(bootstrap?.settings.previewRules)),
+    [bootstrap],
+  )
+  const [preview, setPreview] = useState<{ entries: CloudDriveEntry[]; index: number; target?: FilePreviewTarget } | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  /**
+   * One button, every page: `refreshKey` is the list pages' signal and the bootstrap call covers the
+   * capacity and mount cards that have no list of their own.
+   */
+  const refreshEverything = useCallback(async () => {
+    setRefreshing(true)
+    bumpRefresh()
+    try {
+      await useCloudDriveStore.getState().refresh()
+    } catch (caught) {
+      useUi.getState().toast({
+        title: t('clouddrive.failed'),
+        description: caught instanceof Error ? caught.message : String(caught),
+        tone: 'danger',
+      })
+    } finally {
+      setRefreshing(false)
+    }
+  }, [bumpRefresh])
 
   useEffect(() => {
     if (!preview) return
@@ -101,7 +166,22 @@ export function ClouddriveApp() {
   }, [preview])
 
   if (IS_DEMO_MODE) {
-    return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('clouddrive.demo_unavailable')}</div>
+    // The demo instance has no database or bucket to put a drive on. The rail already hides the tab;
+    // a direct URL still has to say why and hand the reader back to something that works.
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <Empty
+          art='archive'
+          title={t('clouddrive.demo_unavailable')}
+          description={t('clouddrive.demo_unavailable_hint')}
+          action={(
+            <Button variant='secondary' onClick={() => navigateToPath('/notes')}>
+              {t('clouddrive.demo_back_to_notes')}
+            </Button>
+          )}
+        />
+      </div>
+    )
   }
 
   if (status === 'loading' || status === 'idle') {
@@ -141,7 +221,7 @@ export function ClouddriveApp() {
           </SidebarSection>
           <SidebarSection label={t('clouddrive.sidebar.manage')}>
             {MANAGE.filter((item) => !item.ownerOnly || owner).map((item) => (
-              <SidebarLink key={item.page} page={item.page} active={address.page === item.page} label={t(item.labelKey)} icon={HardDrive} mountId={address.mountId} onNavigate={navigate} />
+              <SidebarLink key={item.page} page={item.page} active={address.page === item.page} label={t(item.labelKey)} icon={item.icon} mountId={address.mountId} onNavigate={navigate} />
             ))}
           </SidebarSection>
           <div className="mt-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2">
@@ -157,17 +237,19 @@ export function ClouddriveApp() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
           <IconButton className="md:hidden" label={t('clouddrive.toolbar.menu')} onClick={() => setMobileNav(true)}><PanelLeft size={15} /></IconButton>
-          <IconButton label={t('clouddrive.toolbar.refresh')} onClick={bumpRefresh}><RefreshCw size={15} /></IconButton>
-          <nav aria-label={t('clouddrive.title')} className="flex min-w-0 items-center gap-1 text-[length:var(--text-12)] text-[var(--text-secondary)]">
-            <span className="truncate">{mounts.find((mount) => mount.id === address.mountId)?.name ?? t('clouddrive.sidebar.primary')}</span>
-            {address.path !== '/' && <><span aria-hidden>/</span><span className="truncate">{address.path}</span></>}
-          </nav>
+          <IconButton label={t('clouddrive.toolbar.refresh')} onClick={() => void refreshEverything()}>
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : undefined} />
+          </IconButton>
+          <h1 className="truncate text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+            {t(PAGE_LABELS.get(address.page) ?? 'clouddrive.nav.files')}
+          </h1>
           <div className="ml-auto flex items-center gap-1">
             <IconButton label={t('clouddrive.toolbar.view_list')} active={prefs.viewMode === 'list'} onClick={() => setPrefs({ viewMode: 'list' })}><List size={15} /></IconButton>
             <IconButton label={t('clouddrive.toolbar.view_icon')} active={prefs.viewMode === 'icon'} onClick={() => setPrefs({ viewMode: 'icon' })}><LayoutGrid size={15} /></IconButton>
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto">
+          <Suspense fallback={<PageLoading />}>
           {address.page === 'files'
             ? (
                 <FilesPage
@@ -188,7 +270,7 @@ export function ClouddriveApp() {
                 : address.page === 'trash'
                   ? <TrashPage mountId={address.mountId} />
                   : address.page === 'offline'
-                  ? <OfflinePage />
+                  ? <OfflinePage onOpen={(target) => setPreview({ entries: [], index: 0, target })} />
                 : address.page === 'album'
               ? <AlbumPage onOpenFiles={() => navigate(cloudDrivePath('files', address.mountId, '/'))} />
               : address.page === 'dashboard'
@@ -224,29 +306,35 @@ export function ClouddriveApp() {
                           : address.page === 'meta'
                             ? <MetaPage />
                           : <PagePlaceholder page={address.page} />}
+          </Suspense>
         </main>
       </div>
       <Drawer open={mobileNav} onClose={() => setMobileNav(false)} side="left" width={278} title={t('clouddrive.title')}>
         <div className="flex flex-col gap-1 p-2">
           {[...FAVORITES, ...MANAGE.filter((item) => !item.ownerOnly || owner)].map((item) => (
             <a key={item.page} href={cloudDrivePath(item.page, address.mountId, '/')} onClick={(event) => { event.preventDefault(); setMobileNav(false); navigate(cloudDrivePath(item.page, address.mountId, '/')) }} className="flex h-9 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
-              {t(item.labelKey)}
+              <item.icon size={14} aria-hidden /> {t(item.labelKey)}
             </a>
           ))}
           {mounts.map((mount) => (
             <a key={mount.id} href={cloudDrivePath('files', mount.id, '/')} onClick={(event) => { event.preventDefault(); setMobileNav(false); navigate(cloudDrivePath('files', mount.id, '/')) }} className="flex h-9 items-center gap-2 rounded-[var(--r-md)] px-2 text-[length:var(--text-12)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
-              {mount.name}
+              <HardDrive size={14} aria-hidden /> {mount.name}
             </a>
           ))}
         </div>
       </Drawer>
-      {preview && preview.entries[preview.index] && (
+      {preview && (preview.target || preview.entries[preview.index]) && (
         <>
           <FilePreviewModal
-            key={preview.entries[preview.index]!.id}
+            key={preview.target?.filename ?? preview.entries[preview.index]!.id}
             open
-            onClose={() => setPreview(null)}
-            file={{
+            onClose={() => {
+              // The offline copy arrives as a blob URL the viewer fetches; it is ours to release.
+              if (preview.target?.url.startsWith('blob:')) URL.revokeObjectURL(preview.target.url)
+              setPreview(null)
+            }}
+            policy={previewPolicy}
+            file={preview.target ?? {
               url: `/api/clouddrive/files/${encodeURIComponent(preview.entries[preview.index]!.id)}/content`,
               filename: preview.entries[preview.index]!.name,
               mime: preview.entries[preview.index]!.mime,
@@ -291,6 +379,16 @@ function SidebarLink({ page, label, icon: Icon, active, mountId, onNavigate }: {
   )
 }
 
+/** The chosen page's module is on its way; the shell keeps its shape while it arrives. */
+function PageLoading() {
+  return (
+    <div role="status" aria-live="polite" className="flex h-full items-center justify-center">
+      <span className="sr-only">{t('clouddrive.loading')}</span>
+      <Spinner />
+    </div>
+  )
+}
+
 function PagePlaceholder({ page }: { page: CloudDrivePage }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-[var(--text-tertiary)]">
@@ -299,13 +397,4 @@ function PagePlaceholder({ page }: { page: CloudDrivePage }) {
       <p className="text-[length:var(--text-11)]">{t('clouddrive.empty.folder')}</p>
     </div>
   )
-}
-
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1 }
-  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }

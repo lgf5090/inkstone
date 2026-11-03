@@ -322,6 +322,13 @@ clouddriveMaintenanceRoutes.post('/admin/maintenance/import', async (c) => {
       if (parentId === null) { pushError(path, 'missing_parent'); continue }
       const storageKey = kind === 'file' ? validStorageKey(entry.storageKey) : null
       if (storageKey && await storageKeyTaken(c.env.DB, storageKey)) { pushError(path, 'storage_key_taken'); continue }
+      // A row may only point at bytes that are actually there. An object nobody references is a
+      // leftover of a failed purge, and importing a list over it would resurrect a file whose content
+      // nobody can account for — so the object is checked, and a missing one is reported instead.
+      if (storageKey && c.env.FILES && !(await c.env.FILES.head(storageKey))) {
+        pushError(path, 'storage_key_missing')
+        continue
+      }
       const id = newId()
       const createdAt = timestampOrNow(entry.createdAt, now)
       const updatedAt = timestampOrNow(entry.updatedAt, createdAt)

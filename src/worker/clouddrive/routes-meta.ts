@@ -4,7 +4,14 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { readJson } from '../lib/request'
 import { requireOwner } from '../middleware/auth'
-import { parsePath, resolveMount } from './lib'
+import {
+  parsePath,
+  resolveMount,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
+} from './lib'
 import {
   deleteMetaRow,
   effectiveMeta,
@@ -18,6 +25,7 @@ import {
   unlockMeta,
   upsertMetaRow,
   type CloudDriveMetaRow,
+  type EffectiveCloudDriveMeta,
 } from './meta'
 
 export const clouddriveMetaRoutes = new Hono<AppBindings>()
@@ -81,8 +89,8 @@ clouddriveMetaRoutes.put('/meta', requireOwner, async (c) => {
   let hidePatterns: string[]
   try {
     hidePatterns = normalizeMetaPatterns(body.hidePatterns)
-  } catch {
-    throw ApiError.badRequest('hidePatterns contains an invalid regular expression')
+  } catch (error) {
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'hidePatterns holds * and ? wildcards')
   }
   let password: { hash: string | null } | null = null
   if (body.clearPassword === true) password = { hash: '' }
@@ -113,8 +121,16 @@ clouddriveMetaRoutes.post('/meta/unlock', async (c) => {
   const mount = await mountFor(c, body.mountId)
   const path = parsePath(body.path ?? '/')
   const password = typeof body.password === 'string' ? body.password : ''
+  // The lock answers with a scrypt derivation, so an unlocked browser on a shared device must not be
+  // able to spend the worker guessing: the budget is per client and per folder.
+  const throttleKey = passcodeThrottleKey('meta', `${mount.id}:${path}`, c.req.raw)
+  await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
   const result = await unlockMeta(c.env.DB, c.get('userId'), mount.id, path, password)
-  if (!result.ok) throw new ApiError(403, 'clouddrive_meta_locked', 'The folder password is incorrect')
+  if (!result.ok) {
+    await notePasscodeFailure(c.env.DB, throttleKey)
+    throw new ApiError(403, 'clouddrive_meta_locked', 'The folder password is incorrect')
+  }
+  await notePasscodeSuccess(c.env.DB, throttleKey)
   if (result.token) {
     setCookie(c, result.cookieName, result.token, {
       httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 3600, secure: new URL(c.req.url).protocol === 'https:',
@@ -129,7 +145,19 @@ export async function assertMetaAccess(
   mountId: string,
   path: string,
 ): Promise<void> {
-  const meta = await effectiveMeta(c.env.DB, userId, mountId, path)
+  await assertUnlockedMeta(c, userId, mountId, await effectiveMeta(c.env.DB, userId, mountId, path))
+}
+
+/**
+ * The same check for a caller that already resolved the effective metadata, so one request pays for
+ * one scan of the meta table instead of two.
+ */
+export async function assertUnlockedMeta(
+  c: Context<AppBindings>,
+  userId: string,
+  mountId: string,
+  meta: EffectiveCloudDriveMeta,
+): Promise<void> {
   if (!meta.passwordHash || !meta.passwordPath) return
   const cookieName = await metaCookieName(mountId, meta.passwordPath)
   const token = getCookie(c, cookieName)

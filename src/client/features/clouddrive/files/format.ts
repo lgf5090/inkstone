@@ -49,3 +49,15 @@ export function totalEntryBytes(entries: readonly CloudDriveEntry[]): number {
   }
   return total
 }
+
+const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/
+
+/**
+ * Where a wrapping file name may break: everything before a short, plain extension. Clamping two
+ * lines with `overflow-wrap: anywhere` used to split `backup.json` into `backup.js` / `on`.
+ */
+export function splitExtension(name: string): [string, string] {
+  const match = EXTENSION_RE.exec(name)
+  if (!match || match.index === 0) return [name, '']
+  return [name.slice(0, match.index), match[0]]
+}

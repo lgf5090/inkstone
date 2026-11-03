@@ -3,7 +3,6 @@ import type {
   CloudDriveBootstrap,
   CloudDriveEntry,
   CloudDriveListing,
-  CloudDrivePrefs,
   CloudDriveSortDirection,
   CloudDriveSortKey,
 } from '@shared/clouddrive/model'
@@ -125,7 +124,6 @@ export interface CloudDriveListParams {
   path?: string
   sort?: CloudDriveSortKey
   dir?: CloudDriveSortDirection
-  foldersFirst?: boolean
   cursor?: string | null
   limit?: number
   q?: string
@@ -143,7 +141,6 @@ export const clouddriveApi = {
     if (params.path) search.set('path', params.path)
     if (params.sort) search.set('sort', params.sort)
     if (params.dir) search.set('dir', params.dir)
-    if (params.foldersFirst !== undefined) search.set('foldersFirst', params.foldersFirst ? '1' : '0')
     if (params.cursor) search.set('cursor', params.cursor)
     if (params.limit) search.set('limit', String(params.limit))
     if (params.q) search.set('q', params.q)
@@ -157,24 +154,59 @@ export const clouddriveApi = {
     entry: CloudDriveEntry
     parts?: { partNumber: number; mountId: string; size: number; etag: string | null }[]
   }>(`/api/clouddrive/files/${encodeURIComponent(id)}`),
-  mkdir: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
+  mkdir: (body: { mountId: string; parentPath: string; name: string; conflict?: 'reuse' }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/folders', json(body)),
+  createFile: (body: { mountId: string; parentPath: string; name: string }) => request<{ entry: CloudDriveEntry }>('/api/clouddrive/files', json(body)),
   patch: (id: string, body: { name?: string; starred?: boolean; color?: string | null; note?: string; hidePatterns?: string[] }) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/files/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  view: (id: string) => request<{ ok: true }>(`/api/clouddrive/files/${encodeURIComponent(id)}/view`, { method: 'POST', body: '{}' }),
   move: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/move', json(body)),
   copy: (body: { ids: string[]; toPath: string; conflict?: 'rename' | 'overwrite' | 'skip' }) => request<{ results: unknown[]; taskId?: string }>('/api/clouddrive/files/copy', json(body)),
   remove: (ids: string[]) => request<{ deleted: number; taskId?: string }>('/api/clouddrive/files', { method: 'DELETE', body: JSON.stringify({ ids }) }),
   trash: (mountId: string, cursor?: string | null) => request<CloudDriveListing>(`/api/clouddrive/trash?${new URLSearchParams({ mount: mountId, ...(cursor ? { cursor } : {}) }).toString()}`),
   restore: (ids: string[], mountId: string) => request<{ results: unknown[] }>('/api/clouddrive/files/restore', json({ ids, mountId })),
   purge: (body: { ids?: string[]; all?: boolean; mountId?: string }) => request<{ deleted: number; failed: number; taskId?: string }>('/api/clouddrive/files/purge', { method: 'DELETE', body: JSON.stringify(body) }),
-  search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null }) => {
+  search: (params: { q: string; mountId?: string; type?: string; starred?: boolean; cursor?: string | null; limit?: number }) => {
     const search = new URLSearchParams({ q: params.q })
     if (params.mountId) search.set('mount', params.mountId)
     if (params.type) search.set('type', params.type)
     if (params.starred) search.set('starred', '1')
     if (params.cursor) search.set('cursor', params.cursor)
+    if (params.limit) search.set('limit', String(params.limit))
     return request<{ files: CloudDriveEntry[]; cursor: string | null; total: number | null }>(`/api/clouddrive/search?${search.toString()}`)
   },
-  recent: (kind: 'viewed' | 'uploaded') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
-  album: (cursor?: string | null) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams(cursor ? { cursor } : {}).toString()}`),
+  recent: (kind: 'viewed' | 'uploaded' | 'starred') => request<{ files: CloudDriveEntry[]; cursor: string | null }>(`/api/clouddrive/recent?kind=${kind}`),
+  album: (params: { cursor?: string | null; kind?: 'images' | 'videos' | 'all' } = {}) => request<{ groups: { month: string; files: CloudDriveEntry[] }[]; cursor: string | null }>(`/api/clouddrive/album?${new URLSearchParams({
+    ...(params.cursor ? { cursor: params.cursor } : {}),
+    ...(params.kind && params.kind !== 'images' ? { kind: params.kind } : {}),
+  }).toString()}`),
+
+  uploadSession: (id: string) => request<{ session: {
+    id: string
+    mountId: string
+    path: string
+    name: string
+    mime: string
+    size: number
+    strategy: string
+    partSize: number
+    totalParts: number
+    uploadedParts: number[]
+    expiresAt: number
+  } }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}`),
+
+  uploadSessions: () => request<{ sessions: {
+    id: string
+    mountId: string
+    entryPath: string
+    name: string
+    mime: string
+    size: number
+    strategy: string
+    partSize: number
+    totalParts: number
+    partsUploaded: number
+    bytesUploaded: number
+    expiresAt: number
+  }[] }>(`/api/clouddrive/uploads`),
 
   initUpload: (body: { mountId: string; parentPath: string; name: string; size: number; mime: string; conflict?: string }) => request<{
     session: { id: string; strategy: string; partSize: number; totalParts: number; uploadedParts?: number }
@@ -183,9 +215,9 @@ export const clouddriveApi = {
   }>('/api/clouddrive/uploads', json(body)),
   completeUpload: (id: string) => request<{ entry: CloudDriveEntry }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/complete`, json({})),
   abortUpload: (id: string) => request<{ ok: true }>(`/api/clouddrive/uploads/${encodeURIComponent(id)}/abort`, json({})),
-  uploadSessions: () => request<{ sessions: unknown[] }>('/api/clouddrive/uploads?status=active'),
 
   contentUrl: (id: string, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/content${download ? '?download=1' : ''}`,
+  versionContentUrl: (id: string, version: number, download = false) => `/api/clouddrive/files/${encodeURIComponent(id)}/versions/${version}/content${download ? '?download=1' : ''}`,
   folderSize: (id: string) => request<{ bytes: number; truncated: boolean }>(`/api/clouddrive/files/${encodeURIComponent(id)}/folder-size`),
   externalUpload: async (mountId: string, path: string, file: File): Promise<void> => {
     const headers = new Headers({ [CLIENT_HEADER]: '1', 'Content-Type': file.type || 'application/octet-stream' })
@@ -201,7 +233,7 @@ export const clouddriveApi = {
   externalMove: (mountId: string, from: string, to: string) => request<{ ok: true }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/move`, json({ from, to })),
   externalDelete: (mountId: string, paths: string[]) => request<{ deleted: number; failed: number }>(`/api/clouddrive/external/${encodeURIComponent(mountId)}/files`, { method: 'DELETE', body: JSON.stringify({ paths }) }),
   thumbnailUrl: (id: string, width = 320) => `/api/clouddrive/files/${encodeURIComponent(id)}/thumbnail?w=${width}`,
-  zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams(params).toString()}`,
+  zipUrl: (params: { mountId: string; path: string }) => `/api/clouddrive/download/zip?${new URLSearchParams({ mount: params.mountId, path: params.path }).toString()}`,
 
   tasks: () => request<{ tasks: { id: string; type: string; status: string; payload: Record<string, unknown>; progress: Record<string, unknown>; error: string | null; createdAt: number; startedAt: number | null; finishedAt: number | null }[] }>('/api/clouddrive/tasks'),
   cancelTask: (id: string) => request<{ ok: true }>(`/api/clouddrive/tasks/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
@@ -216,6 +248,7 @@ export const clouddriveApi = {
   removeAclGrant: (fileId: string, granteeId: string) => request<{ ok: true }>('/api/clouddrive/acl/grants', { method: 'DELETE', body: JSON.stringify({ fileId, granteeId }) }),
   sharedWithMe: () => request<{ shared: CloudDriveSharedItem[] }>('/api/clouddrive/acl/shared'),
   sharedList: (ownerId: string, fileId: string, path: string) => request<{ ownerId: string; path: string; entries: CloudDriveSharedEntry[] }>(`/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/list?${new URLSearchParams({ path }).toString()}`),
+  saveShared: (body: { ownerId: string; fileId: string; toPath?: string }) => request<{ saved: number; entry: CloudDriveEntry }>('/api/clouddrive/acl/save', json(body)),
   sharedContentUrl: (ownerId: string, fileId: string, download = false) => `/api/clouddrive/acl/shared/${encodeURIComponent(ownerId)}/${encodeURIComponent(fileId)}/content${download ? '?download=1' : ''}`,
   createRequest: (body: { name: string; targetPath: string; password?: string; expiresAt?: number | null; maxFiles?: number; maxBytes?: number; maxFileBytes?: number }) => request<{ request: CloudDriveFileRequest }>('/api/clouddrive/requests', json(body)),
   patchRequest: (slug: string, body: { password?: string; expiresAt?: number | null; isEnabled?: boolean }) => request<{ request: CloudDriveFileRequest }>(`/api/clouddrive/requests/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -264,8 +297,7 @@ export const clouddriveApi = {
   createShare: (body: unknown) => request<{ share: { slug: string; url: string } }>('/api/clouddrive/shares', json(body)),
   patchShare: (slug: string, body: unknown) => request<{ share: unknown }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   revokeShare: (slug: string) => request<{ ok: true }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
-
-  savePrefs: (_prefs: CloudDrivePrefs) => Promise.resolve(),
+  shareStats: (slug: string) => request<{ days: { date: string; views: number; downloads: number; bytes: number }[]; visitors: number }>(`/api/clouddrive/shares/${encodeURIComponent(slug)}/stats`),
 }
 
 export function cloudDriveErrorKey(error: unknown): string {

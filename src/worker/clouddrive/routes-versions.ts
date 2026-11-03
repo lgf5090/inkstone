@@ -1,8 +1,11 @@
 import { Hono, type Context } from 'hono'
+import { filenameOf, parentPathOf } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { buildEntry, resolveMount, tagsForFiles, type CloudDriveFileRow } from './lib'
+import { headResponse, planContentResponse } from './content-response'
+import { assertMetaAccess } from './routes-meta'
 import { storageKeyReferenced } from './store-files'
 
 export const clouddriveVersionRoutes = new Hono<AppBindings>()
@@ -34,6 +37,9 @@ async function liveFile(c: Context<AppBindings>, id: string): Promise<CloudDrive
     `SELECT * FROM CloudDrive_files WHERE user_id = ? AND id = ? AND kind = 'file' AND deleted_at IS NULL`,
   ).bind(userIdOf(c), id).first<CloudDriveFileRow>()
   if (!row) throw ApiError.notFound('File not found')
+  // A version is the file's content under another name: without this the folder lock guarded the
+  // listing and the download but left the history panel wide open.
+  await assertMetaAccess(c, userIdOf(c), row.mount_id, parentPathOf(row.path))
   return row
 }
 
@@ -70,7 +76,7 @@ async function prune(c: Context<AppBindings>, fileId: string): Promise<void> {
   ).bind(userIdOf(c), fileId, row.version)))
   if (!c.env.FILES) return
   for (const key of new Set(extra.map((row) => row.storage_key))) {
-    if (await storageKeyReferenced(c.env.DB, userIdOf(c), key)) continue
+    if (await storageKeyReferenced(c.env.DB, key)) continue
     try {
       await c.env.FILES.delete(key)
     } catch (error) {
@@ -93,6 +99,42 @@ clouddriveVersionRoutes.get('/files/:id/versions', async (c) => {
       createdAt: row.created_at,
     })),
   })
+})
+
+clouddriveVersionRoutes.on(['GET', 'HEAD'], '/files/:id/versions/:version/content', async (c) => {
+  const file = await liveFile(c, c.req.param('id'))
+  const versionNumber = Number(c.req.param('version'))
+  if (!Number.isSafeInteger(versionNumber) || versionNumber < 1) throw ApiError.badRequest('version is invalid')
+  const version = await versionOf(c, file.id, versionNumber)
+  if (!version) throw ApiError.notFound('Version not found')
+  if (!c.env.FILES) {
+    throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
+  }
+  // A version is read the same way the live file is — ranges, disposition, no-store — because the
+  // alternative the ledger replaced was restoring an old revision just to look at what it held.
+  const planned = planContentResponse({
+    method: c.req.method,
+    rangeHeader: c.req.header('range'),
+    ifNoneMatch: null,
+    download: c.req.query('download') === '1',
+    file: {
+      // A version has no row id of its own; the pair names its entity tag fallback.
+      id: `${file.id}@${version.version}`,
+      size: version.size,
+      mime: version.mime,
+      name: filenameOf(file.path),
+      etag: version.etag,
+      lastModified: version.created_at,
+    },
+  })
+  if (planned.kind === 'respond') return planned.response
+  if (planned.kind === 'head') return headResponse(planned)
+  const object = await c.env.FILES.get(
+    version.storage_key,
+    planned.status === 206 ? { range: { offset: planned.offset, length: planned.length } } : undefined,
+  )
+  if (!object) throw ApiError.notFound('Version data is missing')
+  return new Response(object.body, { status: planned.status, headers: planned.headers })
 })
 
 clouddriveVersionRoutes.post('/files/:id/versions/:version/restore', async (c) => {
@@ -138,7 +180,7 @@ clouddriveVersionRoutes.delete('/files/:id/versions/:version', async (c) => {
   await c.env.DB.prepare(
     `DELETE FROM CloudDrive_file_versions WHERE user_id = ? AND file_id = ? AND version = ?`,
   ).bind(userIdOf(c), file.id, versionNumber).run()
-  if (c.env.FILES && !(await storageKeyReferenced(c.env.DB, userIdOf(c), version.storage_key))) {
+  if (c.env.FILES && !(await storageKeyReferenced(c.env.DB, version.storage_key))) {
     try {
       await c.env.FILES.delete(version.storage_key)
     } catch (error) {

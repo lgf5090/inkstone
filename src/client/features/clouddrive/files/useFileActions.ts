@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react'
-import type { CloudDriveEntry } from '@shared/clouddrive/model'
+import { childPath, parentPathOf, type CloudDriveEntry } from '@shared/clouddrive/model'
 import type { MessageKey } from '@shared/locales/en-US'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
 import { CloudDriveApiError, clouddriveApi, cloudDriveErrorKey } from '../api'
 import { useTransferStore } from '../transfers/useTransferStore'
+import { useCloudDriveStore } from '../store'
 import { fetchAndSaveOffline } from '../offline/store'
 
 export type FileListChange =
@@ -30,8 +31,12 @@ export interface ShareOptions {
 export interface FileActions {
   busy: boolean
   mkdir: (parentPath: string, name: string) => Promise<boolean>
+  createFile: (parentPath: string, name: string) => Promise<boolean>
   rename: (entry: CloudDriveEntry, name: string) => Promise<boolean>
+  renameBatch: (items: { id: string; name: string }[]) => Promise<boolean>
   setColor: (entry: CloudDriveEntry, color: string | null) => Promise<boolean>
+  setStarred: (entries: CloudDriveEntry[], starred: boolean) => Promise<boolean>
+  noteView: (entry: CloudDriveEntry) => void
   setFolderMeta: (entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => Promise<boolean>
   addTag: (entry: CloudDriveEntry, tag: string, color: string) => Promise<boolean>
   removeTag: (entry: CloudDriveEntry, tag: string) => Promise<boolean>
@@ -61,17 +66,9 @@ function failedResults(results: unknown[]): number {
   }).length
 }
 
-function childPath(parent: string, name: string): string {
-  return parent === '/' ? `/${name}` : `${parent}/${name}`
-}
-
-function parentPath(path: string): string {
-  const index = path.lastIndexOf('/')
-  return index <= 0 ? '/' : path.slice(0, index)
-}
-
 export function useFileActions({ mountId, refresh, external = false, onLocalChange }: FileActionsOptions): FileActions {
   const [pending, setPending] = useState(0)
+  const uploadConflict = useCloudDriveStore((state) => state.prefs.uploadConflict)
 
   const execute = useCallback(async (work: () => Promise<void>): Promise<boolean> => {
     setPending((count) => count + 1)
@@ -97,9 +94,15 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     showSuccess(t('clouddrive.toast.created'))
   }), [execute, external, mountId])
 
+  const createFile = useCallback((parentPathValue: string, name: string) => execute(async () => {
+    if (external) await clouddriveApi.externalUpload(mountId, childPath(parentPathValue, name), new File([], name))
+    else await clouddriveApi.createFile({ mountId, parentPath: parentPathValue, name })
+    showSuccess(t('clouddrive.toast.created'))
+  }), [execute, external, mountId])
+
   const rename = useCallback((entry: CloudDriveEntry, name: string) => execute(async () => {
     if (external) {
-      await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPath(entry.path), name))
+      await clouddriveApi.externalMove(mountId, entry.path, childPath(parentPathOf(entry.path), name))
     } else {
       const result = await clouddriveApi.patch(entry.id, { name })
       onLocalChange?.({ type: 'replace', entry: result.entry })
@@ -107,11 +110,40 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
     showSuccess(t('clouddrive.toast.renamed'))
   }), [execute, external, mountId, onLocalChange])
 
+  /**
+   * One rename after another, in listing order: the dialog has already ruled out the collisions the
+   * folder can see, and a row the drive still refuses stops the run with its own error rather than
+   * sending two hundred writes that race each other for the same name.
+   */
+  const renameBatch = useCallback((items: { id: string; name: string }[]) => execute(async () => {
+    for (const item of items) {
+      const result = await clouddriveApi.patch(item.id, { name: item.name })
+      onLocalChange?.({ type: 'replace', entry: result.entry })
+    }
+    showSuccess(t('clouddrive.toast.batch_renamed', { count: items.length }))
+  }), [execute, onLocalChange])
+
   const setColor = useCallback((entry: CloudDriveEntry, color: string | null) => execute(async () => {
     const result = await clouddriveApi.patch(entry.id, { color })
     onLocalChange?.({ type: 'replace', entry: result.entry })
     showSuccess(t('clouddrive.toast.color_saved'))
   }), [execute, onLocalChange])
+
+  const setStarred = useCallback((entries: CloudDriveEntry[], starred: boolean) => execute(async () => {
+    const results = await Promise.allSettled(entries.map((entry) => clouddriveApi.patch(entry.id, { starred })))
+    for (const result of results) {
+      if (result.status === 'fulfilled') onLocalChange?.({ type: 'replace', entry: result.value.entry })
+    }
+    const failed = results.filter((result) => result.status === 'rejected').length
+    if (failed > 0) throw new Error(`${failed}`)
+  }), [execute, onLocalChange])
+
+  const noteView = useCallback((entry: CloudDriveEntry) => {
+    // A view is not something the reader cares about failing, but a silent catch is not allowed either.
+    clouddriveApi.view(entry.id).catch((error) => {
+      console.warn('[inkstone] CloudDrive could not record a view of', entry.name, error)
+    })
+  }, [])
 
   const setFolderMeta = useCallback((entry: CloudDriveEntry, note: string, hiddenPatterns: string[]) => execute(async () => {
     const result = await clouddriveApi.patch(entry.id, { note, hidePatterns: hiddenPatterns })
@@ -200,10 +232,12 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
         setPending((count) => Math.max(0, count - 1))
       }
     }
-    useTransferStore.getState().enqueueUpload(files, { mountId, parentPath: parentPathValue })
+    useTransferStore.getState().enqueueUpload(files, {
+      mountId, parentPath: parentPathValue, conflict: uploadConflict,
+    })
     showSuccess(t('clouddrive.upload.queued', { count: files.length }))
     return true
-  }, [external, mountId, refresh])
+  }, [external, mountId, refresh, uploadConflict])
 
   const offline = useCallback(async (entry: CloudDriveEntry): Promise<boolean> => {
     setPending((count) => count + 1)
@@ -277,8 +311,12 @@ export function useFileActions({ mountId, refresh, external = false, onLocalChan
   return {
     busy: pending > 0,
     mkdir,
+    createFile,
     rename,
+    renameBatch,
     setColor,
+    setStarred,
+    noteView,
     setFolderMeta,
     addTag,
     removeTag,

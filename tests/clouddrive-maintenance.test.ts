@@ -2,7 +2,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { Hono } from 'hono'
+import { APP_VERSION } from '../src/shared/constants'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { initialsOf } from '../src/worker/clouddrive/lib'
 import { foldedName } from '../src/shared/clouddrive/model'
@@ -23,6 +25,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -55,11 +58,12 @@ async function call<T = Record<string, unknown>>(
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: T }> {
+  // Every real request carries an ExecutionContext; the routes that start background work need one.
   const response = await appFor(userId).fetch(new Request(`http://localhost${path}`, {
     method,
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-  }), env)
+  }), env, { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext)
   const text = await response.text()
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T }
 }
@@ -99,6 +103,74 @@ async function insertEntry(options: InsertOptions): Promise<string> {
 }
 
 describe('CloudDrive maintenance', () => {
+  it('reports an overview with no invented numbers', async () => {
+    await insertEntry({ path: '/kept.txt', storageKey: `CloudDrive/txt/${newId()}` })
+    const res = await call<Record<string, any>>(USER, 'GET', '/api/clouddrive/admin/overview')
+    expect(res.status).toBe(200)
+    // The isolate cache never existed as a real counter, so the field is gone rather than zeroed.
+    expect('cache' in res.body).toBe(false)
+    expect(res.body.version).toBe(APP_VERSION)
+    // `insertEntry` writes a 4-byte row, so the storage row must show that and not a made-up zero.
+    expect(res.body.capacity.usedBytes).toBe(4)
+    const primary = res.body.capacity.storages.find((one: { id: string }) => one.id === 'primary')
+    expect(primary.usedBytes).toBe(res.body.capacity.usedBytes)
+    // The member-file switch is read from the owner's settings instead of being hardcoded off.
+    expect(res.body.admin.ownerCanViewMemberFiles).toBe(false)
+    await call(USER, 'PATCH', '/api/clouddrive/settings', { adminOwnerCanViewMemberFiles: true })
+    const widened = await call<Record<string, any>>(USER, 'GET', '/api/clouddrive/admin/overview')
+    expect(widened.body.admin.ownerCanViewMemberFiles).toBe(true)
+  })
+
+  it('runs an index rebuild as a resumable background task', async () => {
+    await insertEntry({ path: '/a.txt' })
+    await insertEntry({ path: '/b.txt' })
+
+    const started = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    expect(started.status).toBe(202)
+    const taskId = started.body.taskId as string
+    expect(taskId).toBeTruthy()
+
+    const row = sqlite.prepare(
+      `SELECT status, progress, locked_until FROM CloudDrive_tasks WHERE user_id = ? AND id = ?`,
+    ).get(USER, taskId) as { status: string; progress: string; locked_until: number | null }
+    expect(row.status).toBe('completed')
+    expect((JSON.parse(row.progress) as { done: number }).done).toBe(2)
+    // A finished task holds no lock, so the next one can start immediately.
+    expect(row.locked_until).toBe(null)
+    const state = sqlite.prepare(
+      `SELECT status FROM CloudDrive_index_state WHERE user_id = ? AND mount_id = 'primary'`,
+    ).get(USER) as { status: string }
+    expect(state.status).toBe('idle')
+
+    // A task that is still running refuses a second one instead of racing it.
+    sqlite.prepare(`UPDATE CloudDrive_tasks SET status = 'running', locked_until = ? WHERE id = ?`)
+      .run(Date.now() + 60_000, taskId)
+    const clash = await call(USER, 'POST', '/api/clouddrive/admin/index/incremental', {})
+    expect(clash.status).toBe(409)
+  })
+
+  it('releases the index lock when a running task is cancelled', async () => {
+    await insertEntry({ path: '/c.txt' })
+    const started = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    const taskId = started.body.taskId as string
+
+    // Put the finished row back into the state the Stop button is offered in: running, locked.
+    sqlite.prepare(`UPDATE CloudDrive_tasks SET status = 'running', locked_until = ? WHERE id = ?`)
+      .run(Date.now() + 60_000, taskId)
+    const cancelled = await call<Record<string, any>>(USER, 'POST', `/api/clouddrive/tasks/${taskId}/cancel`, {})
+    expect(cancelled.status).toBe(200)
+    const row = sqlite.prepare(`SELECT status, locked_until FROM CloudDrive_tasks WHERE id = ?`).get(taskId) as
+      { status: string; locked_until: number | null }
+    expect(row.status).toBe('cancelled')
+
+    // The dead lock must not hold the account out of ever rebuilding again.
+    const again = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    expect(again.status).toBe(202)
+    expect(again.body.taskId).not.toBe(taskId)
+    const revived = sqlite.prepare(`SELECT status FROM CloudDrive_tasks WHERE id = ?`).get(taskId) as { status: string }
+    expect(revived.status).toBe('cancelled')
+  })
+
   it('lists only objects no row references and deletes only those', async () => {
     const key = `CloudDrive/txt/${newId()}`
     await insertEntry({ path: '/kept.txt', storageKey: key })
@@ -203,9 +275,12 @@ describe('CloudDrive maintenance', () => {
       .toMatchObject([{ id, status: 'cancelled' }])
   })
 
-  it('skips a child whose parent is absent and a key another row owns', async () => {
+  it('skips a child whose parent is absent, a key another row owns and a key with no object', async () => {
     const taken = `CloudDrive/txt/${newId()}`
+    const free = `CloudDrive/txt/${newId()}`
+    const kept = `CloudDrive/txt/${newId()}`
     await insertEntry({ userId: OTHER, path: '/owned.txt', storageKey: taken })
+    await r2.put(kept, 'kept bytes')
     const manifest = {
       format: 'inkstone-clouddrive',
       version: 1,
@@ -214,14 +289,22 @@ describe('CloudDrive maintenance', () => {
       entries: [
         { path: '/missing/child.txt', name: 'child.txt', kind: 'file' },
         { path: '/claimed.txt', name: 'claimed.txt', kind: 'file', storageKey: taken },
+        // A key nobody references any more: an object a failed purge left behind. Attaching it would
+        // create a file whose bytes cannot be accounted for.
+        { path: '/ghost.txt', name: 'ghost.txt', kind: 'file', storageKey: free },
+        { path: '/kept.txt', name: 'kept.txt', kind: 'file', storageKey: kept, size: 10 },
       ],
     }
     const result = await call<{ imported: number; skipped: number; errors: { reason: string }[] }>(
       USER, 'POST', '/api/clouddrive/admin/maintenance/import', manifest,
     )
     expect(result.status).toBe(200)
-    expect(result.body.imported).toBe(0)
-    expect(result.body.skipped).toBe(2)
-    expect(result.body.errors.map((error) => error.reason).sort()).toEqual(['missing_parent', 'storage_key_taken'])
+    expect(result.body.imported).toBe(1)
+    expect(result.body.skipped).toBe(3)
+    expect(result.body.errors.map((error) => error.reason).sort()).toEqual([
+      'missing_parent', 'storage_key_missing', 'storage_key_taken',
+    ])
+    const listed = await call<{ files: { name: string; size: number }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2F')
+    expect(listed.body.files.map((file) => [file.name, file.size])).toEqual([['kept.txt', 10]])
   })
 })

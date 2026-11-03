@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, beforeEach } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
+import { unzipSync } from 'fflate'
 import { Hono } from 'hono'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import { clouddriveRoutes } from '../src/worker/clouddrive/routes'
 import { initialsOf } from '../src/worker/clouddrive/lib'
 import { foldedName, type CloudDriveEntry, type CloudDriveListing } from '../src/shared/clouddrive/model'
@@ -23,6 +25,7 @@ let env: Env
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   r2 = testR2Bucket()
   env = testBindings(db, { FILES: r2 })
@@ -80,6 +83,8 @@ async function insertEntry(options: {
   category?: string
   storageKey?: string | null
   uploadedAt?: number
+  metadata?: string
+  mime?: string
 }): Promise<string> {
   const id = newId()
   const now = options.uploadedAt ?? Date.now()
@@ -89,7 +94,7 @@ async function insertEntry(options: {
        (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
         category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
         starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'application/octet-stream', ?, NULL, NULL, 'r2', ?, '{}', '',
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'r2', ?, ?, '',
              NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
   ).bind(
     id,
@@ -102,8 +107,10 @@ async function insertEntry(options: {
     initialsOf(name),
     options.path,
     options.category ?? 'other',
+    options.mime ?? 'application/octet-stream',
     options.size ?? 0,
     options.storageKey ?? null,
+    options.metadata ?? '{}',
     now,
     now,
     now,
@@ -178,6 +185,104 @@ describe('clouddrive file API', () => {
     expect(second.body.error.details?.suggestedName).toBe('docs (1)')
   })
 
+  it('creates an empty file the drive owns, with a category and a stored object', async () => {
+    const created = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/files', {
+      parentPath: '/', name: 'notes.md',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.entry.kind).toBe('file')
+    expect(created.body.entry.path).toBe('/notes.md')
+    expect(created.body.entry.size).toBe(0)
+    expect(created.body.entry.mime).toBe('text/plain')
+    expect(created.body.entry.category).toBe('txt')
+    const key = `CloudDrive/${created.body.entry.category}/${created.body.entry.id}`
+    expect([...r2.objects.keys()]).toContain(key)
+    expect(r2.objects.get(key)?.byteLength).toBe(0)
+
+    const listing = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/')
+    expect(listing.body.files.map((entry) => entry.name)).toContain('notes.md')
+  })
+
+  it('refuses to create a file whose name the drive would not store', async () => {
+    const badName = await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'bad/name' })
+    expect(badName.status).toBe(400)
+    expect((badName.body as { error?: { code?: string } }).error?.code).toBe('clouddrive_path_invalid')
+    expect([...r2.objects.keys()]).toEqual([])
+  })
+
+  it('reports a name clash on a new file with the name it would accept', async () => {
+    const first = await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'a.txt' })
+    expect(first.status).toBe(201)
+    const second = await call<{ error: { code: string; details?: { suggestedName?: string } } }>(
+      USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'A.TXT' },
+    )
+    expect(second.status).toBe(409)
+    expect(second.body.error.details?.suggestedName).toBe('A (1).TXT')
+    // The placeholder written before the row was refused must not stay behind as an orphan.
+    expect(r2.objects.size).toBe(1)
+  })
+
+  it('creates an html name as plain text, never as a type the browser would run', async () => {
+    const created = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/files', {
+      parentPath: '/', name: 'page.html',
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.entry.mime).not.toBe('text/html')
+    expect(created.body.entry.mime).toBe('text/plain')
+  })
+
+  it('groups the album by the capture time an image carries, not by the import date', async () => {
+    const taken = Date.UTC(2020, 4, 1, 9, 0, 0)
+    const imported = Date.UTC(2026, 10, 2, 9, 0, 0)
+    await insertEntry({ path: '/shot.jpg', name: 'shot.jpg', category: 'images', uploadedAt: imported, metadata: JSON.stringify({ takenAt: taken }) })
+    await insertEntry({ path: '/plain.jpg', name: 'plain.jpg', category: 'images', uploadedAt: imported })
+
+    const album = await call<{ groups: { month: string; files: { name: string; takenAt: number | null }[] }[]; cursor: string | null }>(
+      USER, 'GET', '/api/clouddrive/album',
+    )
+    expect(album.status).toBe(200)
+    expect(album.body.groups.map((group) => group.month)).toEqual(['2026-11', '2020-05'])
+    const stamped = album.body.groups[1]!.files[0]!
+    expect(stamped.name).toBe('shot.jpg')
+    expect(stamped.takenAt).toBe(taken)
+    expect(album.body.groups[0]!.files[0]!.takenAt).toBeNull()
+  })
+
+  it('filters the album to videos and to both kinds without breaking on a corrupt stamp', async () => {
+    await insertEntry({ path: '/clip.mp4', name: 'clip.mp4', category: 'videos', mime: 'video/mp4' })
+    await insertEntry({ path: '/pic.png', name: 'pic.png', category: 'images' })
+    await insertEntry({ path: '/broken.jpg', name: 'broken.jpg', category: 'images', metadata: 'not json' })
+
+    const videos = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album?kind=videos')
+    expect(videos.body.groups.flatMap((group) => group.files).map((file) => file.name)).toEqual(['clip.mp4'])
+    const all = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album?kind=all')
+    expect(all.body.groups.flatMap((group) => group.files).map((file) => file.name).sort()).toEqual(['broken.jpg', 'clip.mp4', 'pic.png'])
+    // A row whose metadata is not JSON still lists, grouped by its upload time.
+    const images = await call<{ groups: { files: { name: string }[] }[] }>(USER, 'GET', '/api/clouddrive/album')
+    expect(images.body.groups.flatMap((group) => group.files).map((file) => file.name).sort()).toEqual(['broken.jpg', 'pic.png'])
+  })
+
+  it('reuses the folder a directory upload walks again instead of duplicating it', async () => {
+    const first = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'Shots', conflict: 'reuse' })
+    expect(first.status).toBe(201)
+    const again = await call<{ entry: { id: string; path: string }; reused?: boolean }>(
+      USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shots', conflict: 'reuse' },
+    )
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+    expect(again.body.entry.id).toBe((first.body as { entry: { id: string } }).entry.id)
+    expect(again.body.entry.path).toBe('/Shots')
+
+    // Without the flag the clash is still a conflict with a suggestion, as it has always been.
+    const clash = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shots' })
+    expect(clash.status).toBe(409)
+
+    // A file of the same name is not a folder to reuse.
+    await call(USER, 'POST', '/api/clouddrive/files', { parentPath: '/', name: 'note.txt' })
+    const notFolder = await call(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'note.txt', conflict: 'reuse' })
+    expect(notFolder.status).toBe(409)
+  })
+
   it('renames a folder and its whole subtree', async () => {
     const docs = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
       parentPath: '/', name: 'Docs',
@@ -193,6 +298,31 @@ describe('clouddrive file API', () => {
     const child = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Notes')
     expect(child.status).toBe(200)
     expect(child.body.files.map((entry) => entry.path)).toEqual(['/Notes/a.txt'])
+  })
+
+  it('refuses tags, versions and the tag panel inside a locked folder', async () => {
+    const vault = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Vault',
+    })
+    const inner = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Vault', name: 'notes',
+    })
+    const fileId = await insertEntry({ path: '/Vault/todo.txt', name: 'todo.txt', parentId: vault.body.entry.id })
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${inner.body.entry.id}/tags`, { tag: 'internal' })).status).toBe(200)
+
+    const locked = await call(USER, 'PUT', '/api/clouddrive/meta', { mountId: 'primary', path: '/Vault', password: 'hunter2' })
+    expect(locked.status).toBe(200)
+
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${fileId}/tags`, { tag: 'leak' })).status).toBe(403)
+    expect((await call(USER, 'DELETE', `/api/clouddrive/files/${fileId}/tags/leak`)).status).toBe(403)
+    expect((await call(USER, 'GET', `/api/clouddrive/files/${fileId}/versions`)).status).toBe(403)
+    const panel = await call<{ tags: { name: string }[] }>(USER, 'GET', '/api/clouddrive/tags')
+    expect(panel.body.tags.map((tag) => tag.name)).not.toContain('internal')
+
+    // The locked folder is still listed in its parent, so its own tag stays in the panel.
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${vault.body.entry.id}/tags`, { tag: 'on-vault' })).status).toBe(200)
+    const after = await call<{ tags: { name: string }[] }>(USER, 'GET', '/api/clouddrive/tags')
+    expect(after.body.tags.map((tag) => tag.name)).toContain('on-vault')
   })
 
   it('trashes, restores and purges while keeping a shared object alive', async () => {
@@ -220,8 +350,12 @@ describe('clouddrive file API', () => {
     expect(deleted.status).toBe(200)
     expect(deleted.body.deleted).toBe(2)
     const trashed = await call<{ folders: CloudDriveEntry[]; files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
-    expect(trashed.body.folders.map((entry) => entry.name)).toContain('Keep')
-    expect(trashed.body.files.map((entry) => entry.name)).toContain('a.txt')
+    // Trash lists the deleted root, not every row under it: the child rides with its folder and the
+    // flag says so, so one restore click brings the whole subtree back.
+    expect(trashed.body.folders.map((entry) => entry.name)).toEqual(['Keep'])
+    expect(trashed.body.folders[0]!.descendantsTrashed).toBe(true)
+    expect(trashed.body.folders[0]!.deletedAt).toBeTypeOf('number')
+    expect(trashed.body.files).toEqual([])
 
     // Restoring the child alone must first bring its trashed folder ancestor back.
     const restored = await call<{ results: { ok: boolean; entry?: CloudDriveEntry }[] }>(
@@ -247,6 +381,30 @@ describe('clouddrive file API', () => {
     expect(r2.objects.has(key)).toBe(false)
   })
 
+  it('restores a trashed folder together with the subtree inside it', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Deep',
+    })
+    const inner = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Deep', name: 'inner',
+    })
+    await insertEntry({ path: '/Deep/inner/note.txt', name: 'note.txt', parentId: inner.body.entry.id })
+
+    const deleted = await call<{ deleted: number }>(USER, 'DELETE', '/api/clouddrive/files', { ids: [folder.body.entry.id] })
+    expect(deleted.body.deleted).toBe(3)
+    const trashed = await call<{ folders: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
+    expect(trashed.body.folders.map((entry) => entry.path)).toEqual(['/Deep'])
+
+    const restored = await call<{ results: { ok: boolean }[] }>(
+      USER, 'POST', '/api/clouddrive/files/restore', { ids: [folder.body.entry.id] },
+    )
+    expect(restored.body.results[0]!.ok).toBe(true)
+    const back = await call<{ folders: CloudDriveEntry[]; files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/Deep/inner')
+    expect(back.body.files.map((entry) => entry.name)).toEqual(['note.txt'])
+    const stillGone = await call<{ folders: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
+    expect(stillGone.body.folders).toEqual([])
+  })
+
   it('restores under a free name when the original path was taken', async () => {
     const original = await insertEntry({ path: '/x.txt', name: 'x.txt' })
     await call(USER, 'DELETE', '/api/clouddrive/files', { ids: [original] })
@@ -258,6 +416,25 @@ describe('clouddrive file API', () => {
     expect(restored.body.results[0]!.ok).toBe(true)
     expect(restored.body.results[0]!.entry?.name).toBe('x (restored).txt')
     expect(restored.body.results[0]!.entry?.path).toBe('/x (restored).txt')
+  })
+
+  it('applies each folder’s own hiding rules to a search that spans them', async () => {
+    const a = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'A' })
+    const b = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'B' })
+    await insertEntry({ path: '/A/keep.txt', name: 'keep.txt', parentId: a.body.entry.id })
+    await insertEntry({ path: '/A/skip.tmp', name: 'skip.tmp', parentId: a.body.entry.id })
+    await insertEntry({ path: '/B/keep.txt', name: 'keep.txt', parentId: b.body.entry.id })
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${a.body.entry.id}`, { hidePatterns: ['*.tmp'] })).status).toBe(200)
+    expect((await call(USER, 'PATCH', `/api/clouddrive/files/${b.body.entry.id}`, { hidePatterns: ['keep.txt'] })).status).toBe(200)
+
+    // Batched metadata has to stay per path: one answer reused across the two folders would either
+    // hide both files or show both.
+    const found = await call<{ files: { path: string }[] }>(USER, 'GET', '/api/clouddrive/search?q=keep')
+    expect(found.body.files.map((file) => file.path)).toEqual(['/A/keep.txt'])
+    const inA = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2FA')
+    expect(inA.body.files.map((file) => file.name)).toEqual(['keep.txt'])
+    const inB = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?path=%2FB')
+    expect(inB.body.files).toEqual([])
   })
 
   it('upserts, filters and removes tags case-insensitively', async () => {
@@ -290,6 +467,42 @@ describe('clouddrive file API', () => {
     expect(empty.body.tags).toEqual([])
   })
 
+  it('stars a file for the starred page and records a view for the recent page', async () => {
+    const id = await insertEntry({ path: '/starred.txt', name: 'starred.txt' })
+    const before = await call(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((before.body.files as { name: string }[]).map((file) => file.name)).not.toContain('starred.txt')
+
+    const starred = await call<{ entry: { starredAt: number | null } }>(USER, 'PATCH', `/api/clouddrive/files/${id}`, { starred: true })
+    expect(starred.status).toBe(200)
+    expect(starred.body.entry.starredAt).toBeTypeOf('number')
+    const listed = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((listed.body.files || []).map((file) => file.name)).toContain('starred.txt')
+
+    const unstarred = await call<{ entry: { starredAt: number | null } }>(USER, 'PATCH', `/api/clouddrive/files/${id}`, { starred: false })
+    expect(unstarred.body.entry.starredAt).toBe(null)
+
+    // The recent page has no rows until a read says one happened.
+    const empty = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=viewed')
+    expect((empty.body.files || []).map((file) => file.id)).not.toContain(id)
+    // A star outside the root still has to reach the starred page, which is why it is a global query.
+    const nested = await insertEntry({ path: '/Pics', name: 'Pics', kind: 'folder' })
+    const nestedId = await insertEntry({ path: '/Pics/nested.txt', name: 'nested.txt', parentId: nested })
+    await call(USER, 'PATCH', `/api/clouddrive/files/${nestedId}`, { starred: true })
+    const rootScoped = await call<{ files: { name: string }[] }>(USER, 'GET', '/api/clouddrive/files?starred=1&path=%2F')
+    expect((rootScoped.body.files || []).map((file) => file.name)).not.toContain('nested.txt')
+    const starredFeed = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=starred')
+    expect((starredFeed.body.files || []).map((file) => file.id)).toContain(nestedId)
+
+    const viewed = await call(USER, 'POST', `/api/clouddrive/files/${id}/view`, {})
+    expect(viewed.status).toBe(200)
+    const recent = await call<{ files: { id: string }[] }>(USER, 'GET', '/api/clouddrive/recent?kind=viewed')
+    expect((recent.body.files || []).map((file) => file.id)).toContain(id)
+
+    const folder = await insertEntry({ path: '/folder', name: 'folder', kind: 'folder' })
+    expect((await call(USER, 'POST', `/api/clouddrive/files/${folder}/view`, {})).status).toBe(404)
+    expect((await call(USER, 'POST', '/api/clouddrive/files/not-an-id/view', {})).status).toBe(404)
+  })
+
   it('searches by filename and by pinyin initials, hiding .keep', async () => {
     await insertEntry({ path: '/报告.pdf', name: '报告.pdf', category: 'documents' })
     await insertEntry({ path: '/.keep', name: '.keep' })
@@ -304,6 +517,34 @@ describe('clouddrive file API', () => {
     expect(hidden.body.files).toEqual([])
     const listing = await call<{ files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/files?path=/')
     expect(listing.body.files.map((entry) => entry.name)).not.toContain('.keep')
+  })
+
+  it('answers a search with prefix matches first and pages across both arms', async () => {
+    await insertEntry({ path: '/alpha-1.txt', name: 'alpha-1.txt' })
+    await insertEntry({ path: '/alpha-3.txt', name: 'alpha-3.txt' })
+    await insertEntry({ path: '/zz-alpha-2.txt', name: 'zz-alpha-2.txt' })
+    await insertEntry({ path: '/other.txt', name: 'other.txt' })
+
+    const first = await call<{ files: { name: string }[]; cursor: string | null; total: number | null }>(
+      USER, 'GET', '/api/clouddrive/search?q=alpha&limit=2',
+    )
+    expect(first.body.files.map((entry) => entry.name)).toEqual(['alpha-1.txt', 'alpha-3.txt'])
+    // A full page cannot claim a total; the reader is told the rest is unknown rather than a lie.
+    expect(first.body.total).toBeNull()
+    expect(first.body.cursor).toBeTruthy()
+
+    const second = await call<{ files: { name: string }[]; cursor: string | null; total: number | null }>(
+      USER, 'GET', `/api/clouddrive/search?q=alpha&limit=2&cursor=${encodeURIComponent(first.body.cursor!)}`,
+    )
+    expect(second.body.files.map((entry) => entry.name)).toEqual(['zz-alpha-2.txt'])
+    expect(second.body.total).toBe(1)
+    expect(second.body.cursor).toBeNull()
+
+    const whole = await call<{ files: { name: string }[]; total: number | null }>(
+      USER, 'GET', '/api/clouddrive/search?q=alpha&limit=10',
+    )
+    expect(whole.body.files.map((entry) => entry.name)).toEqual(['alpha-1.txt', 'alpha-3.txt', 'zz-alpha-2.txt'])
+    expect(whole.body.total).toBe(3)
   })
 
   it('hashes the WebDAV password and never returns it', async () => {
@@ -356,5 +597,69 @@ describe('clouddrive file API', () => {
 
     expect((await call(USER, 'PATCH', `/api/clouddrive/files/${secretId}`, { note: 'x' })).status).toBe(400)
     expect((await call(USER, 'PATCH', `/api/clouddrive/files/${folderId}`, { hidePatterns: ['x'.repeat(101)] })).status).toBe(400)
+  })
+
+  it('packs a folder into a zip the reader can unzip', async () => {
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Docs',
+    })
+    const deep = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/Docs', name: 'deep',
+    })
+    await r2.put('CloudDrive/txt/zip-a', new TextEncoder().encode('first file'))
+    await r2.put('CloudDrive/txt/zip-b', new TextEncoder().encode('nested file'))
+    await insertEntry({
+      path: '/Docs/a.txt', name: 'a.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-a', size: 10,
+    })
+    await insertEntry({
+      path: '/Docs/deep/b.txt', name: 'b.txt', parentId: deep.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-b', size: 11,
+    })
+
+    const response = await buildApp(USER).fetch(
+      new Request('http://localhost/api/clouddrive/download/zip?mount=primary&path=/Docs'),
+      env,
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('Docs.zip')
+    expect(response.headers.get('x-clouddrive-zip-items')).toBe('2')
+
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    // The archive carries the folder itself and each nested folder; `unzipSync` reports a directory
+    // member by its name without the trailing slash.
+    expect(Object.keys(unzipped).sort()).toEqual(['Docs', 'Docs/a.txt', 'Docs/deep', 'Docs/deep/b.txt'])
+    expect(new TextDecoder().decode(unzipped['Docs/a.txt'])).toBe('first file')
+    expect(new TextDecoder().decode(unzipped['Docs/deep/b.txt'])).toBe('nested file')
+  })
+
+  it('refuses to archive a single file, and hides what the folder hides', async () => {
+    await insertEntry({ path: '/solo.txt', name: 'solo.txt', size: 1 })
+    const solo = await call(USER, 'GET', '/api/clouddrive/download/zip?mount=primary&path=/solo.txt')
+    expect(solo.status).toBe(400)
+
+    const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
+      parentPath: '/', name: 'Mixed',
+    })
+    await r2.put('CloudDrive/txt/zip-keep', new TextEncoder().encode('kept'))
+    await r2.put('CloudDrive/txt/zip-hide', new TextEncoder().encode('hidden'))
+    await insertEntry({
+      path: '/Mixed/keep.txt', name: 'keep.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-keep', size: 4,
+    })
+    await insertEntry({
+      path: '/Mixed/secret.txt', name: 'secret.txt', parentId: folder.body.entry.id,
+      storageKey: 'CloudDrive/txt/zip-hide', size: 6,
+    })
+    await call(USER, 'PATCH', `/api/clouddrive/files/${folder.body.entry.id}`, { hidePatterns: ['secret*'] })
+
+    const response = await buildApp(USER).fetch(
+      new Request('http://localhost/api/clouddrive/download/zip?mount=primary&path=/Mixed'),
+      env,
+    )
+    expect(response.status).toBe(200)
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(unzipped)).toEqual(['Mixed', 'Mixed/keep.txt'])
   })
 })

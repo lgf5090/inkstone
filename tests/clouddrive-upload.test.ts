@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { unzipSync } from 'fflate'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../src/worker/app'
 import { hashToken } from '../src/worker/lib/session-store'
@@ -186,8 +187,65 @@ describe('clouddrive direct upload', () => {
     expect(skippedBody.session).toBeUndefined()
   })
 
-  it('moves the previous row to trash when overwriting', async () => {
+  it('charges the quota for the bytes a stored version still occupies', async () => {
+    const first = await uploadSmall(h, 'v.txt', 'aaaa')
+    const init = await initUpload(h, {
+      parentPath: '/', name: 'v.txt', size: 4, mime: 'text/plain', conflict: 'overwrite',
+    })
+    const session = await init.json() as UploadSessionResponse
+    await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'bbbb' })
+    const complete = await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    expect(complete.status).toBe(200)
+
+    // Four live bytes and four more behind them in version 1: the bucket holds eight, and the capacity
+    // card and the upload ceiling must agree about that.
+    const capacity = await request(h, 'GET', '/api/clouddrive/capacity')
+    expect(capacity.status).toBe(200)
+    expect((await capacity.json() as { used: number }).used).toBe(8)
+  })
+
+  it('serves a historical version without moving the live file back', async () => {
+    const first = await uploadSmall(h, 'v.txt', 'one')
+    const init = await initUpload(h, {
+      parentPath: '/', name: 'v.txt', size: 3, mime: 'text/plain', conflict: 'overwrite',
+    })
+    const session = await init.json() as UploadSessionResponse
+    await request(h, 'PUT', `/api/clouddrive/uploads/${session.session.id}/content`, { body: 'two' })
+    expect((await request(h, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })).status).toBe(200)
+
+    const versionUrl = `/api/clouddrive/files/${first.entry.id}/versions/1/content`
+    const old = await request(h, 'GET', versionUrl)
+    expect(old.status).toBe(200)
+    expect(await old.text()).toBe('one')
+    expect(old.headers.get('content-type')).toBe('text/plain')
+    expect(old.headers.get('content-disposition')).toContain("filename*=UTF-8''v.txt")
+    // Reading history must not be a restore: the file the reader sees is still the new bytes.
+    expect(await (await request(h, 'GET', `/api/clouddrive/files/${first.entry.id}/content`)).text()).toBe('two')
+
+    const ranged = await request(h, 'GET', versionUrl, { headers: { Range: 'bytes=0-1' } })
+    expect(ranged.status).toBe(206)
+    expect(ranged.headers.get('content-range')).toBe('bytes 0-1/3')
+    expect(await ranged.text()).toBe('on')
+
+    const download = await request(h, 'GET', `${versionUrl}?download=1`)
+    expect(download.headers.get('content-disposition')).toMatch(/^attachment/)
+
+    const missing = await request(h, 'GET', `/api/clouddrive/files/${first.entry.id}/versions/9/content`)
+    expect(missing.status).toBe(404)
+  })
+
+  it('keeps the row and versions the old bytes when overwriting', async () => {
     const first = await uploadSmall(h, 'over.txt', 'one')
+    const starred = await request(h, 'PATCH', `/api/clouddrive/files/${first.entry.id}`, {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ starred: true }),
+    })
+    expect(starred.status).toBe(200)
 
     const init = await initUpload(h, {
       parentPath: '/', name: 'over.txt', size: 3, mime: 'text/plain', conflict: 'overwrite',
@@ -207,19 +265,26 @@ describe('clouddrive direct upload', () => {
     expect(complete.status).toBe(200)
     const body = await complete.json() as CompleteResponse
 
-    const oldRow = h.sqlite.prepare(
-      'SELECT deleted_at, trash_batch FROM CloudDrive_files WHERE user_id = ? AND id = ?',
-    ).get(USER_A, first.entry.id) as { deleted_at: number | null; trash_batch: string | null }
-    expect(oldRow.deleted_at).not.toBeNull()
-    expect(oldRow.trash_batch).not.toBeNull()
-
+    // The same row, still live: its id is what the star, the tags and any share link point at.
+    expect(body.entry.id).toBe(first.entry.id)
     const live = h.sqlite.prepare(
-      `SELECT id, size FROM CloudDrive_files
-        WHERE user_id = ? AND path = ? AND deleted_at IS NULL`,
-    ).all(USER_A, '/over.txt') as { id: string; size: number }[]
-    expect(live).toHaveLength(1)
-    expect(live[0]!.id).toBe(body.entry.id)
-    expect(live[0]!.size).toBe(3)
+      `SELECT id, size, storage_key, deleted_at, starred_at FROM CloudDrive_files
+        WHERE user_id = ? AND path = ?`,
+    ).get(USER_A, '/over.txt') as { id: string; size: number; storage_key: string; deleted_at: number | null; starred_at: number | null }
+    expect(live.deleted_at).toBeNull()
+    expect(live.starred_at).not.toBeNull()
+    expect(live.size).toBe(3)
+    expect(live.storage_key).not.toBe(first.key)
+
+    // The bytes it replaced survive as version 1, under the key they were written to.
+    const versions = h.sqlite.prepare(
+      `SELECT version, storage_key, size FROM CloudDrive_file_versions
+        WHERE user_id = ? AND file_id = ? ORDER BY version`,
+    ).all(USER_A, first.entry.id) as { version: number; storage_key: string; size: number }[]
+    expect(versions).toHaveLength(1)
+    expect(versions[0]).toMatchObject({ version: 1, storage_key: first.key, size: 3 })
+    const superseded = h.bucket.objects.get(first.key)
+    expect(new TextDecoder().decode(superseded)).toBe('one')
   })
 })
 
@@ -388,10 +453,18 @@ describe('clouddrive content', () => {
     expect(response.status).toBe(400)
   })
 
-  it('answers the zip endpoint with an explicit 501', async () => {
-    const response = await request(h, 'GET', '/api/clouddrive/download/zip?mountId=primary&path=/')
-    expect(response.status).toBe(501)
-    expect((await response.json() as { error: { code: string } }).error.code).toBe('not_implemented')
+  it('streams a zip of the drive instead of answering 501', async () => {
+    await uploadSmall(h, 'note.txt', 'zip me')
+    const response = await request(h, 'GET', '/api/clouddrive/download/zip?mount=primary&path=/')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get('content-disposition')).toContain('attachment')
+    const unzipped = unzipSync(new Uint8Array(await response.arrayBuffer()))
+    expect(Object.keys(unzipped)).toEqual(['note.txt'])
+    expect(new TextDecoder().decode(unzipped['note.txt'])).toBe('zip me')
+
+    const external = await request(h, 'GET', '/api/clouddrive/download/zip?mount=missing&path=/')
+    expect(external.status).toBe(404)
   })
 })
 
@@ -518,4 +591,28 @@ describe('clouddrive file versions', () => {
       `SELECT id FROM CloudDrive_files WHERE user_id = ? AND name = ? AND deleted_at IS NULL`,
     ).get(USER_A, name) as { id: string }
   }
+
+  it('reports an unfinished session so the reader can continue it', async () => {
+    const init = await (await initUpload(h, { parentPath: '/', name: 'resume.txt', size: 6, mime: 'text/plain' })).json() as { session: { id: string; strategy: string } }
+    const put = await request(h, 'PUT', `/api/clouddrive/uploads/${init.session.id}/content`, { body: 'first ' })
+    expect(put.status).toBe(200)
+
+    const read = await (await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`)).json() as {
+      session: { id: string; name: string; size: number; strategy: string; uploadedParts: number[]; totalParts: number }
+    }
+    expect(read.session.id).toBe(init.session.id)
+    expect(read.session.name).toBe('resume.txt')
+    expect(read.session.size).toBe(6)
+    // A direct session holds no parts, which is the answer the resumer needs to not skip anything.
+    expect(read.session.uploadedParts).toEqual([])
+    expect(read.session.strategy).toBe('direct')
+    expect(read.session.totalParts).toBe(0)
+
+    const other = await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`, {}, USER_B)
+    expect(other.status).toBe(404)
+
+    expect((await request(h, 'POST', `/api/clouddrive/uploads/${init.session.id}/abort`)).status).toBe(200)
+    const gone = await request(h, 'GET', `/api/clouddrive/uploads/${init.session.id}`)
+    expect(gone.status).toBe(404)
+  })
 })

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { FilePreviewTarget } from '../../file-preview/types'
 import { Download, ExternalLink, RefreshCw, Trash2 } from 'lucide-react'
 import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Button, IconButton, Spinner } from '../../../components/primitives'
 import { useUi } from '../../../store/ui'
 import { getOffline, listOffline, removeOffline, type OfflineMeta } from './store'
+import { useCloudDriveStore } from '../store'
 
 function saveBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
@@ -18,11 +20,15 @@ function saveBlob(blob: Blob, name: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-export function OfflinePage() {
+export function OfflinePage({ onOpen }: {
+  /** Hand the local copy to the same preview layer the drive uses, rather than a bare browser tab. */
+  onOpen: (target: FilePreviewTarget) => void
+}) {
   const toast = useUi((state) => state.toast)
   const [items, setItems] = useState<OfflineMeta[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -33,14 +39,15 @@ export function OfflinePage() {
       setStatus('error')
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, refreshKey])
 
   const open = async (item: OfflineMeta) => {
     const record = await getOffline(item.id)
-    if (!record) return
-    const url = URL.createObjectURL(record.blob)
-    window.open(url, '_blank', 'noopener,noreferrer')
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    if (!record) {
+      toast({ title: t('clouddrive.offline.open_failed'), tone: 'danger' })
+      return
+    }
+    onOpen({ url: URL.createObjectURL(record.blob), filename: record.name, mime: record.mime, size: record.size })
   }
 
   const download = async (item: OfflineMeta) => {

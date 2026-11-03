@@ -6,6 +6,8 @@
  * store modules; this file owns the two lookups every request makes first (mount, then entry).
  */
 import { pinyin } from 'pinyin-pro'
+import type { Context } from 'hono'
+import type { AppBindings } from '../env'
 import {
   CLOUDDRIVE_CATEGORIES,
   CLOUDDRIVE_LIMITS,
@@ -21,8 +23,10 @@ import {
   type CloudDriveSortKey,
   type CloudDriveTagView,
 } from '@shared/clouddrive/model'
-import { clampInt } from '../lib/request'
+import { clampInt, requestClientIp } from '../lib/request'
 import { ApiError } from '../lib/errors'
+import { ThrottleError, assertNotLocked, clearLoginFailures, recordLoginFailure } from '../lib/throttle'
+import { readCloudDriveSettings } from './store'
 
 /** One `CloudDrive_files` row, by column name. */
 export interface CloudDriveFileRow {
@@ -319,6 +323,23 @@ function storageKindOf(value: string): CloudDriveEntry['storageKind'] {
   return value === 'distributed' || value === 'external' ? value : 'r2'
 }
 
+/**
+ * The capture time an image row carries in its `metadata`. Only media reads it: a folder's metadata
+ * holds notes and hiding rules, and a stray number there must not become a photo date.
+ */
+function takenAtOf(row: CloudDriveFileRow): number | null {
+  if (row.kind !== 'file' || (row.category !== 'images' && row.category !== 'videos')) return null
+  let value: unknown
+  try {
+    value = JSON.parse(row.metadata)
+  } catch {
+    return null
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const takenAt = (value as Record<string, unknown>).takenAt
+  return typeof takenAt === 'number' && Number.isSafeInteger(takenAt) && takenAt > 0 ? takenAt : null
+}
+
 /** The core row → entry conversion; mount-specific fields are empty until {@link buildEntry}. */
 export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = []): CloudDriveEntry {
   const folderMeta = row.kind === 'folder' ? parseFolderMeta(row.metadata) : null
@@ -335,6 +356,7 @@ export function rowToEntry(row: CloudDriveFileRow, tags: CloudDriveTagView[] = [
     uploadedAt: row.uploaded_at,
     modifiedAt: row.modified_at,
     starredAt: row.starred_at,
+    takenAt: takenAtOf(row),
     readOnly: false,
     hasThumbnail: row.kind === 'file' && row.category === 'images' && row.storage_kind === 'r2',
     storage: row.storage_kind === 'r2' ? 'primary' : row.storage_kind,
@@ -415,4 +437,141 @@ export async function tagsForFiles(
 /** `foldedName` in one place, so a caller does not repeat NFC + lowercase. */
 export function foldName(name: string): string {
   return foldedName(name)
+}
+
+/**
+ * Search and sort an external driver's listing.
+ *
+ * An external mount has no rows to filter in SQL, so the toolbar's search box and sort menu would
+ * quietly do nothing there unless the same vocabulary is applied to what the driver returned. Only the
+ * name is matched: a driver can hold tens of thousands of entries, and computing pinyin initials for
+ * every one of them on each request is work the primary mount pays once at write time instead.
+ */
+export function queryExternalEntries(
+  entries: readonly CloudDriveEntry[],
+  options: { q?: string; type?: string; sort: CloudDriveSortKey; dir: CloudDriveSortDirection },
+): CloudDriveEntry[] {
+  const needle = options.q ? foldedName(options.q.trim()) : ''
+  const type = options.type && (CLOUDDRIVE_CATEGORIES as readonly string[]).includes(options.type)
+    ? options.type
+    : ''
+  const direction = options.dir === 'desc' ? -1 : 1
+  return entries
+    .filter((entry) => (!needle || foldedName(entry.name).includes(needle))
+      && (!type || entry.category === type))
+    .sort((left, right) => direction * compareExternalEntries(left, right, options.sort))
+}
+
+function compareExternalEntries(
+  left: CloudDriveEntry,
+  right: CloudDriveEntry,
+  sort: CloudDriveSortKey,
+): number {
+  const byName = foldedName(left.name).localeCompare(foldedName(right.name))
+  switch (sort) {
+    case 'size':
+      return left.size - right.size || byName
+    case 'uploaded':
+      return left.uploadedAt - right.uploadedAt || byName
+    case 'modified':
+      return left.modifiedAt - right.modifiedAt || byName
+    case 'type':
+      return left.category.localeCompare(right.category) || byName
+    case 'name':
+    default:
+      return byName
+  }
+}
+
+/**
+ * The passcode budget shared by every CloudDrive secret a stranger can knock on: a share password, a
+ * file-request password, a folder lock and the WebDAV Basic credentials.
+ *
+ * Each of those answers a wrong secret with a scrypt derivation, so without a lock one anonymous
+ * visitor with a link can spend the worker's CPU indefinitely while guessing. The keys are scoped to
+ * the client IP plus the thing being unlocked, so guessing one link cannot lock out another.
+ */
+const PASSCODE_FREE_FAILS = 5
+
+export function passcodeThrottleKey(kind: string, target: string, request: Request): string {
+  return `clouddrive-${kind}:${requestClientIp(request)}:${target.slice(0, 96)}`
+}
+
+export async function assertPasscodeAttemptsLeft(db: D1Database, key: string): Promise<void> {
+  try {
+    await assertNotLocked(db, [{ key, freeFails: PASSCODE_FREE_FAILS }])
+  } catch (error) {
+    if (error instanceof ThrottleError) {
+      throw new ApiError(429, 'too_many_attempts', 'Too many attempts', { retryAfter: error.retryAfterSec })
+    }
+    throw error
+  }
+}
+
+export async function notePasscodeFailure(db: D1Database, key: string): Promise<void> {
+  // A throttle write must not replace the 401 the caller is about to answer with.
+  await recordLoginFailure(db, [{ key, freeFails: PASSCODE_FREE_FAILS }])
+    .catch((error: unknown) => console.warn('[clouddrive] could not record a failed passcode attempt:', error))
+}
+
+export async function notePasscodeSuccess(db: D1Database, key: string): Promise<void> {
+  await clearLoginFailures(db, [{ key }])
+    .catch((error: unknown) => console.warn('[clouddrive] could not clear the passcode throttle:', error))
+}
+
+/** How many statements one `db.batch` may carry before D1 stops answering. */
+export const D1_BATCH_CHUNK = 90
+
+/**
+ * Run a long statement list in D1-sized chunks.
+ *
+ * The WebDAV copy path learned the hard way that a batch of a few hundred statements is refused, so a
+ * folder copy or a 200-part upload cannot build one giant batch. Each chunk is its own transaction: a
+ * failure mid-list leaves earlier chunks applied, which is why the callers report per-entry results
+ * rather than assuming all-or-nothing.
+ */
+export async function chunkedBatch(
+  db: D1Database,
+  statements: readonly D1PreparedStatement[],
+  chunk: number = D1_BATCH_CHUNK,
+): Promise<void> {
+  for (let offset = 0; offset < statements.length; offset += chunk) {
+    await db.batch(statements.slice(offset, offset + chunk))
+  }
+}
+
+/**
+ * The owner's member switches, enforced at the doors a member can knock on. Reading them from the
+ * owner's row is what makes the setting on the page a policy instead of a personal preference.
+ */
+/**
+ * Best-effort cleanup for the object a failed write has already orphaned. The caller is reporting a
+ * bigger failure, and a bucket that will not delete is not worth replacing that message with.
+ */
+export async function deleteObjectQuietly(bucket: R2Bucket, key: string): Promise<void> {
+  try {
+    await bucket.delete(key)
+  } catch (error) {
+    console.warn('[clouddrive] cleanup could not delete an object:', key, error)
+  }
+}
+
+/** The object bucket every primary-mount write goes through, or the 503 that says it is not bound. */
+export async function requireBucket(c: Context<AppBindings>): Promise<R2Bucket> {
+  const bucket = c.env.FILES
+  if (!bucket) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound on this deployment')
+  return bucket
+}
+
+export async function assertMemberAllowed(
+  db: D1Database,
+  userId: string,
+  role: string | undefined,
+  setting: 'shareAllowMemberShares' | 'syncAllowMemberSync',
+): Promise<void> {
+  if (role === 'owner') return
+  const settings = await readCloudDriveSettings(db, userId)
+  if (settings[setting]) return
+  const code = setting === 'shareAllowMemberShares' ? 'clouddrive_member_shares_disabled' : 'clouddrive_member_sync_disabled'
+  throw new ApiError(403, code, 'The owner has disabled this feature for members')
 }

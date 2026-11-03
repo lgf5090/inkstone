@@ -1,7 +1,10 @@
-import { useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { Star } from 'lucide-react'
+import { t } from '../../../lib/i18n'
 import type { CloudDriveEntry } from '@shared/clouddrive/model'
 import { FileIcon } from './FileIcon'
 import { TagDots } from './ColorTagMenus'
+import { splitExtension } from './format'
 import { selectModeFor, type FileViewProps } from './types'
 
 export function FileGrid({
@@ -9,14 +12,20 @@ export function FileGrid({
   selected,
   focusedId,
   showCheckboxes,
+  readOnly,
   onFocusEntry,
   onSelect,
   onOpen,
   onPreview,
   onContextMenu,
   onKeyCommand,
+  onDragStartEntry,
+  onPointerDownEntry,
+  onDragOverTarget,
+  onDropTarget,
 }: FileViewProps) {
   const itemRefs = useRef(new Map<string, HTMLButtonElement>())
+  const [dropId, setDropId] = useState<string | null>(null)
 
   const focusAt = (index: number, event: ReactKeyboardEvent<HTMLElement>) => {
     const next = entries[index]
@@ -49,6 +58,7 @@ export function FileGrid({
       {entries.map((entry, index) => {
         const isSelected = selected.has(entry.id)
         const tabIndex = focusedId ? (focusedId === entry.id ? 0 : -1) : index === 0 ? 0 : -1
+        const [nameBase, nameExtension] = splitExtension(entry.name)
         return (
           <li key={entry.id} className="relative min-w-0">
             {showCheckboxes && (
@@ -70,15 +80,32 @@ export function FileGrid({
               tabIndex={tabIndex}
               aria-pressed={isSelected}
               data-cd-entry={entry.id}
-              className="cd-grid-item w-full"
+              draggable={!readOnly && Boolean(onDragStartEntry)}
+              className={`cd-grid-item w-full${dropId === entry.id ? ' cd-drop-target' : ''}`}
               onClick={(event) => handleClick(event, entry)}
               onDoubleClick={() => onOpen(entry)}
               onContextMenu={(event) => onContextMenu(entry, event)}
               onKeyDown={(event) => handleKeyDown(event, entry, index)}
               onFocus={() => onFocusEntry(entry.id)}
+              onDragStart={(event) => onDragStartEntry?.(entry, event)}
+              onPointerDown={(event) => onPointerDownEntry?.(entry, event)}
+              onDragEnd={() => setDropId(null)}
+              onDragOver={entry.kind === 'folder' && onDragOverTarget
+                ? (event) => setDropId(onDragOverTarget(entry, event) ? entry.id : null)
+                : undefined}
+              onDragLeave={entry.kind === 'folder' && onDragOverTarget
+                ? () => setDropId((current) => (current === entry.id ? null : current))
+                : undefined}
+              onDrop={entry.kind === 'folder' && onDropTarget
+                ? (event) => {
+                  setDropId(null)
+                  onDropTarget(entry, event)
+                }
+                : undefined}
             >
               <FileIcon entry={entry} fluid />
-              <span className="cd-grid-name">{entry.name}</span>
+              <span className="cd-grid-name">{nameBase}{nameExtension && <span className="cd-name-ext">{nameExtension}</span>}</span>
+              {entry.starredAt && <Star size={13} role="img" aria-label={t('clouddrive.action.starred')} className="absolute right-1 top-1 fill-current text-[var(--accent)]" />}
               {entry.tags.length > 0 && <TagDots tags={entry.tags} max={4} />}
             </button>
           </li>

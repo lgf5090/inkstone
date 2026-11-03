@@ -1,13 +1,22 @@
 import { Hono, type Context } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { sharePasscodeProblem } from '@shared/share-passcode'
-import { normalizeCloudDrivePath } from '@shared/clouddrive/model'
+import { decodeCloudDriveCursor, encodeCloudDriveCursor, normalizeCloudDrivePath } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
+import { sha256Hex } from '../lib/encoding'
 import { hashPassword, verifyPassword } from '../lib/password'
+import { requestClientIp } from '../lib/request'
 import { newId, newSlug } from '../lib/id'
-import { contentDisposition, parseByteRange } from '../lib/http-range'
+import { contentDisposition, isBrowserRenderable, parseByteRange } from '../lib/http-range'
 import { distributedStream, fileParts } from './distributed'
+import {
+  assertMemberAllowed,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
+} from './lib'
 
 interface ShareRow {
   slug: string
@@ -63,6 +72,7 @@ clouddriveShareRoutes.get('/shares', async (c) => {
 
 clouddriveShareRoutes.post('/shares', async (c) => {
   const userId = c.get('userId')
+  await assertMemberAllowed(c.env.DB, userId, c.get('user')?.role, 'shareAllowMemberShares')
   const body = await readJson(c)
   const targetKind = body.targetKind === 'folder' ? 'folder' : body.targetKind === 'file' ? 'file' : null
   if (!targetKind) throw ApiError.badRequest('Invalid share target')
@@ -139,6 +149,40 @@ clouddriveShareRoutes.patch('/shares/:slug', async (c) => {
   return c.json({ share: toShareView(updated!) })
 })
 
+clouddriveShareRoutes.get('/shares/:slug/stats', async (c) => {
+  const userId = c.get('userId')
+  const slug = c.req.param('slug')
+  const owned = await c.env.DB.prepare(
+    `SELECT 1 AS hit FROM CloudDrive_shares WHERE user_id = ?1 AND slug = ?2`,
+  ).bind(userId, slug).first<{ hit: number }>()
+  if (!owned) throw ApiError.notFound('Share not found')
+  const [days, visitors] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT strftime('%Y-%m-%d', at / 1000, 'unixepoch') AS day,
+              SUM(CASE WHEN kind = 'view' THEN 1 ELSE 0 END) AS views,
+              SUM(CASE WHEN kind = 'download' THEN 1 ELSE 0 END) AS downloads,
+              COALESCE(SUM(CASE WHEN kind = 'download' THEN bytes ELSE 0 END), 0) AS bytes
+         FROM CloudDrive_share_visits
+        WHERE user_id = ?1 AND slug = ?2
+        GROUP BY day ORDER BY day DESC LIMIT 90`,
+    ).bind(userId, slug).all<{ day: string; views: number; downloads: number; bytes: number }>(),
+    // A salted per-visitor digest, never an address: the count answers "how many people", the row
+    // cannot be reversed and the details themselves age out with the purge job.
+    c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT ip_hash) AS count FROM CloudDrive_share_visits WHERE user_id = ?1 AND slug = ?2 AND ip_hash IS NOT NULL`,
+    ).bind(userId, slug).first<{ count: number }>(),
+  ])
+  return c.json({
+    days: (days.results ?? []).map((row) => ({
+      date: row.day,
+      views: row.views ?? 0,
+      downloads: row.downloads ?? 0,
+      bytes: row.bytes ?? 0,
+    })),
+    visitors: visitors?.count ?? 0,
+  })
+})
+
 clouddriveShareRoutes.delete('/shares/:slug', async (c) => {
   const userId = c.get('userId')
   const result = await c.env.DB.prepare(
@@ -150,15 +194,33 @@ clouddriveShareRoutes.delete('/shares/:slug', async (c) => {
 
 clouddrivePublicShareRoutes.get('/shares/:slug', async (c) => {
   const share = await loadPublicShare(c, c.req.param('slug'))
-  await recordView(c, share)
   const unlocked = await shareUnlocked(c, share)
+  // A locked link is a name, a path and a size the owner never agreed to hand to whoever holds the URL,
+  // and counting the visit would let an anonymous visitor spend the link's `maxViews` for them.
+  if (share.password_hash && !unlocked) {
+    return c.json({
+      name: '',
+      path: '',
+      targetKind: share.target_kind,
+      size: null,
+      mime: null,
+      locked: true,
+      hasPassword: true,
+      expiresAt: share.expires_at,
+      allowDownload: share.allow_download === 1,
+      disabled: false,
+    })
+  }
+  await recordView(c, share)
   return c.json({
     name: share.name,
+    // The owner's absolute path is only ever needed to address the share root, and the browse/list
+    // endpoints already resolve it server-side; the recipient sees the share's own name instead.
     path: share.path,
     targetKind: share.target_kind,
     size: share.size,
     mime: share.mime,
-    locked: Boolean(share.password_hash) && !unlocked,
+    locked: false,
     hasPassword: Boolean(share.password_hash),
     expiresAt: share.expires_at,
     allowDownload: share.allow_download === 1,
@@ -167,11 +229,18 @@ clouddrivePublicShareRoutes.get('/shares/:slug', async (c) => {
 })
 
 clouddrivePublicShareRoutes.post('/shares/:slug/verify', async (c) => {
-  const share = await loadPublicShare(c, c.req.param('slug'))
+  const slug = c.req.param('slug')
+  const share = await loadPublicShare(c, slug)
   if (!share.password_hash) return c.json({ ok: true })
+  const throttleKey = passcodeThrottleKey('share', slug, c.req.raw)
+  await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
   const body = await readJson(c)
   const password = typeof body.password === 'string' ? body.password : ''
-  if (!(await verifyPassword(password, share.password_hash))) throw new ApiError(401, 'clouddrive_share_locked', 'A password is required')
+  if (!(await verifyPassword(password, share.password_hash))) {
+    await notePasscodeFailure(c.env.DB, throttleKey)
+    throw new ApiError(401, 'clouddrive_share_locked', 'A password is required')
+  }
+  await notePasscodeSuccess(c.env.DB, throttleKey)
   const id = newId()
   const now = Date.now()
   await c.env.DB.prepare(
@@ -185,46 +254,129 @@ clouddrivePublicShareRoutes.post('/shares/:slug/verify', async (c) => {
 clouddrivePublicShareRoutes.get('/shares/:slug/list', async (c) => {
   const share = await requireAccess(c, c.req.param('slug'))
   if (share.target_kind !== 'folder' || share.allow_list !== 1) throw ApiError.forbidden('Browsing is disabled for this link')
-  const requested = safePath(c.req.query('path') ?? share.path)
-  assertWithinShare(share, requested)
+  const requested = resolveSharePath(share, c.req.query('path'))
   const folder = await c.env.DB.prepare(
     `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND kind = 'folder' AND deleted_at IS NULL`,
   ).bind(share.user_id, share.mount_id, requested).first<FileRow>()
   if (!folder) throw ApiError.notFound('Folder not found')
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
-       FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
-       ORDER BY kind DESC, name_folded LIMIT 500`,
-  ).bind(share.user_id, share.mount_id, folder.id).all<FileRow>()
-  return c.json({ path: requested, entries: (results ?? []).map((row) => ({ name: row.name, path: row.path, kind: row.kind, size: row.size, mime: row.mime, modifiedAt: row.modified_at })) })
+  // A public folder is read by people with no reason to trust the whole tree, so it pages: the offset
+  // travels in an opaque cursor because a visitor must not be able to ask for an arbitrary slice.
+  const limit = SHARE_LIST_PAGE
+  const offset = shareListOffset(c.req.query('cursor'))
+  const [{ results }, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
+         FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL
+         ORDER BY kind DESC, name_folded, id LIMIT ?4 OFFSET ?5`,
+    ).bind(share.user_id, share.mount_id, folder.id, limit, offset).all<FileRow>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM CloudDrive_files
+        WHERE user_id = ?1 AND mount_id = ?2 AND parent_id = ?3 AND deleted_at IS NULL`,
+    ).bind(share.user_id, share.mount_id, folder.id).first<{ count: number }>(),
+  ])
+  const rows = results ?? []
+  const next = offset + rows.length
+  return c.json({
+    path: shareRelativePath(share, requested),
+    entries: rows.map((row) => ({
+      name: row.name,
+      path: shareRelativePath(share, row.path),
+      kind: row.kind,
+      size: row.size,
+      mime: row.mime,
+      modifiedAt: row.modified_at,
+    })),
+    total: total?.count ?? rows.length,
+    cursor: rows.length === limit ? encodeCloudDriveCursor({ v: next, id: '' }) : null,
+  })
 })
 
 clouddrivePublicShareRoutes.get('/shares/:slug/content', async (c) => {
   const share = await requireAccess(c, c.req.param('slug'))
-  return serveShareContent(c, share, c.req.query('path') ?? share.path, c.req.query('download') === '1')
+  return serveShareContent(c, share, c.req.query('path'), c.req.query('download') === '1')
 })
 
 clouddrivePublicShareRoutes.get('/shares/:slug/download', async (c) => {
   const share = await requireAccess(c, c.req.param('slug'))
   if (share.allow_download !== 1) throw ApiError.forbidden('Downloads are disabled for this link')
-  return serveShareContent(c, share, c.req.query('path') ?? share.path, true)
+  return serveShareContent(c, share, c.req.query('path'), true)
 })
 
 clouddriveRawRoutes.on(['GET', 'HEAD'], '/:slug/raw', async (c) => {
   const share = await requireAccess(c, c.req.param('slug'))
   if (share.allow_download !== 1) throw ApiError.forbidden('Downloads are disabled for this link')
-  return serveShareContent(c, share, c.req.query('path') ?? share.path, true)
+  return serveShareContent(c, share, c.req.query('path'), true)
 })
 
-async function serveShareContent(c: Context<AppBindings>, share: ShareRow, requestedRaw: string, forceDownload: boolean): Promise<Response> {
-  const requested = safePath(requestedRaw)
-  assertWithinShare(share, requested)
+/**
+ * The share's own address space: a recipient names a file relative to the link, never by the path it
+ * happens to occupy inside the owner's drive.
+ */
+function resolveSharePath(share: ShareRow, requested: string | undefined): string {
+  const relative = requested === undefined || requested === '' ? '/' : safePath(requested)
+  if (relative === '/') return assertWithinShare(share, share.path)
+  const root = share.path === '/' ? '' : share.path
+  let absolute: string
+  try {
+    absolute = normalizeCloudDrivePath(`${root}${relative}`)
+  } catch {
+    throw new ApiError(400, 'clouddrive_path_invalid', 'Invalid path')
+  }
+  return assertWithinShare(share, absolute)
+}
+
+function shareRelativePath(share: ShareRow, absolute: string): string {
+  if (share.path === '/') return absolute
+  const rest = absolute.slice(share.path.length)
+  return rest === '' ? '/' : rest
+}
+
+function assertWithinShare(share: ShareRow, path: string): string {
+  const root = share.path
+  if (path !== root && !path.startsWith(`${root}/`)) throw ApiError.badRequest('Path is outside the share')
+  return path
+}
+
+function safePath(value: string): string {
+  try {
+    return normalizeCloudDrivePath(value)
+  } catch {
+    throw new ApiError(400, 'clouddrive_path_invalid', 'Invalid path')
+  }
+}
+
+/**
+ * The share route's own answer to "may a visitor's browser draw this".
+ *
+ * The app-wide list keeps `application/pdf` on the download side because a stored attachment should
+ * not render inside the product's origin; a link the owner opened precisely for previewing is where
+ * the browser's built-in viewer is the point, so this route adds that one type and nothing else.
+ */
+function shareRenderable(mime: string): boolean {
+  return isBrowserRenderable(mime) || mime === 'application/pdf'
+}
+
+function shareDisposition(mime: string, name: string, forceDownload: boolean): string {
+  const base = contentDisposition(mime, name)
+  if (forceDownload) return base.replace(/^inline/, 'attachment')
+  // Only a type this route is willing to draw may switch to inline; `text/html` in particular keeps
+  // the attachment disposition the app-wide rule gave it.
+  return shareRenderable(mime) ? base.replace(/^attachment(?=;)/, 'inline') : base
+}
+
+async function serveShareContent(c: Context<AppBindings>, share: ShareRow, requestedRaw: string | undefined, forceDownload: boolean): Promise<Response> {
+  const requested = resolveSharePath(share, requestedRaw)
   const file = await c.env.DB.prepare(
     `SELECT id, name, path, category, mime, size, storage_key, storage_kind, modified_at, kind
        FROM CloudDrive_files WHERE user_id = ?1 AND mount_id = ?2 AND path = ?3 AND kind = 'file' AND deleted_at IS NULL`,
   ).bind(share.user_id, share.mount_id, requested).first<FileRow>()
   if (!file) throw ApiError.notFound('File not found')
+  // "No download" has to mean something: a link that forbids downloading still renders the types a
+  // browser can draw in place, and refuses to hand over the bytes of anything else.
+  if (!forceDownload && share.allow_download !== 1 && !shareRenderable(file.mime || 'application/octet-stream')) {
+    throw ApiError.forbidden('Downloads are disabled for this link')
+  }
   if (file.storage_kind !== 'distributed' && !file.storage_key) throw ApiError.notFound('File not found')
   if (file.storage_kind !== 'distributed' && !c.env.FILES) {
     throw new ApiError(503, 'storage_unavailable', 'R2 is not configured')
@@ -234,8 +386,8 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   if (parsed === 'invalid') {
     return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${file.size}` } })
   }
-  if (forceDownload && (!rangeHeader || rangeHeader.startsWith('bytes=0-'))) {
-    await countDownload(c, share, requested)
+  if (forceDownload && c.req.method !== 'HEAD' && (!rangeHeader || rangeHeader.startsWith('bytes=0-'))) {
+    await countDownload(c, share, shareRelativePath(share, requested), file.size)
   }
   if (file.storage_kind === 'distributed') {
     const parts = await fileParts(c.env.DB, share.user_id, file.id)
@@ -249,8 +401,7 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'private, no-store',
     })
-    const disposition = contentDisposition(file.mime, file.name)
-    headers.set('Content-Disposition', forceDownload ? disposition.replace(/^inline/, 'attachment') : disposition)
+    headers.set('Content-Disposition', shareDisposition(file.mime, file.name, forceDownload))
     headers.set('Content-Length', String(length))
     if (parsed) headers.set('Content-Range', `bytes ${start}-${start + length - 1}/${file.size}`)
     if (c.req.method === 'HEAD') return new Response(null, { status: parsed ? 206 : 200, headers })
@@ -269,8 +420,7 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   headers.set('ETag', object.httpEtag)
   headers.set('Accept-Ranges', 'bytes')
   headers.set('Cache-Control', 'private, no-store')
-  const disposition = contentDisposition(file.mime, file.name)
-  headers.set('Content-Disposition', forceDownload ? disposition.replace(/^inline/, 'attachment') : disposition)
+  headers.set('Content-Disposition', shareDisposition(file.mime, file.name, forceDownload))
   if (parsed && 'range' in object && object.range && 'offset' in object.range) {
     const offset = object.range.offset ?? parsed.start
     const length = object.range.length ?? parsed.end - parsed.start + 1
@@ -299,8 +449,45 @@ async function loadPublicShare(c: Context<AppBindings>, slug: string): Promise<S
   return row
 }
 
+/** The same visitor is counted once an hour per link; the row exists to make that judgement cheap. */
+const VISIT_DEDUPE_MS = 60 * 60 * 1000
+const SHARE_LIST_PAGE = 200
+
+/** The page a cursor asks for; anything that is not a sane offset starts the folder over. */
+function shareListOffset(cursor: string | undefined): number {
+  if (!cursor) return 0
+  try {
+    const decoded = decodeCloudDriveCursor(cursor)
+    return typeof decoded.v === 'number' && Number.isSafeInteger(decoded.v) && decoded.v >= 0 ? decoded.v : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * A visitor, not an address. The salt is per link, so two shares of the same file cannot be joined by
+ * their hashes and the raw IP never reaches the row.
+ */
+async function visitHash(c: Context<AppBindings>, slug: string): Promise<string> {
+  const digest = await sha256Hex(`${requestClientIp(c.req.raw)}|${slug}|clouddrive-share-visit`)
+  return digest.slice(0, 32)
+}
+
 async function recordView(c: Context<AppBindings>, share: ShareRow): Promise<void> {
   const now = Date.now()
+  const ipHash = await visitHash(c, share.slug)
+  const seen = await c.env.DB.prepare(
+    `SELECT 1 AS hit FROM CloudDrive_share_visits
+      WHERE user_id = ?1 AND slug = ?2 AND kind = 'view' AND ip_hash = ?3 AND at > ?4`,
+  ).bind(share.user_id, share.slug, ipHash, now - VISIT_DEDUPE_MS).first<{ hit: number }>()
+  if (seen) {
+    // The budget was already spent by this visitor's counted view; a link that has since run out must
+    // still refuse them, and the row this caller handed over already says whether it has.
+    if (share.max_views !== null && share.views >= share.max_views) {
+      throw new ApiError(403, 'clouddrive_share_expired', 'This link has reached its limit')
+    }
+    return
+  }
   const result = await c.env.DB.prepare(
     `UPDATE CloudDrive_shares SET views = views + 1, last_accessed_at = ?1
       WHERE slug = ?2 AND (max_views IS NULL OR views < max_views)`,
@@ -308,8 +495,8 @@ async function recordView(c: Context<AppBindings>, share: ShareRow): Promise<voi
   if (!result.meta.changes) throw new ApiError(403, 'clouddrive_share_expired', 'This link has reached its limit')
   await c.env.DB.prepare(
     `INSERT INTO CloudDrive_share_visits (id, user_id, slug, kind, path, bytes, ip_hash, at)
-     VALUES (?1,?2,?3,'view',NULL,NULL,NULL,?4)`,
-  ).bind(newId(), share.user_id, share.slug, now).run()
+     VALUES (?1,?2,?3,'view',NULL,NULL,?4,?5)`,
+  ).bind(newId(), share.user_id, share.slug, ipHash, now).run()
 }
 
 async function shareUnlocked(c: Context<AppBindings>, share: ShareRow): Promise<boolean> {
@@ -322,7 +509,7 @@ async function shareUnlocked(c: Context<AppBindings>, share: ShareRow): Promise<
   return Boolean(session && session.password_hash === share.password_hash)
 }
 
-async function countDownload(c: Context<AppBindings>, share: ShareRow, path: string): Promise<void> {
+async function countDownload(c: Context<AppBindings>, share: ShareRow, path: string, bytes: number): Promise<void> {
   const now = Date.now()
   const result = await c.env.DB.prepare(
     `UPDATE CloudDrive_shares SET downloads = downloads + 1
@@ -332,20 +519,7 @@ async function countDownload(c: Context<AppBindings>, share: ShareRow, path: str
   await c.env.DB.prepare(
     `INSERT INTO CloudDrive_share_visits (id, user_id, slug, kind, path, bytes, ip_hash, at)
      VALUES (?1,?2,?3,'download',?4,?5,?6,?7)`,
-  ).bind(newId(), share.user_id, share.slug, path, 0, null, now).run()
-}
-
-function assertWithinShare(share: ShareRow, path: string): void {
-  const root = share.target_kind === 'folder' ? share.path : share.path
-  if (path !== root && !path.startsWith(`${root}/`)) throw ApiError.badRequest('Path is outside the share')
-}
-
-function safePath(value: string): string {
-  try {
-    return normalizeCloudDrivePath(value)
-  } catch {
-    throw new ApiError(400, 'clouddrive_path_invalid', 'Invalid path')
-  }
+  ).bind(newId(), share.user_id, share.slug, path, bytes, await visitHash(c, share.slug), now).run()
 }
 
 async function shareBySlug(c: Context<AppBindings>, slug: string): Promise<ShareRow | null> {
@@ -357,6 +531,7 @@ function toShareView(row: ShareRow) {
     slug: row.slug,
     url: `/d/${row.slug}`,
     targetKind: row.target_kind,
+    fileId: row.file_id,
     name: row.name,
     size: row.size,
     mime: row.mime,

@@ -25,6 +25,12 @@ interface DriverEntry {
   ref?: string
 }
 
+/** One directory's worth of driver entries, plus whether the driver had more than the ceiling allows. */
+interface DriverList {
+  entries: DriverEntry[]
+  truncated: boolean
+}
+
 export interface ExternalListing {
   mountId: string
   path: string
@@ -32,11 +38,14 @@ export interface ExternalListing {
   files: CloudDriveEntry[]
   cursor: null
   total: null
-  foldersTruncated: false
+  /** True when the driver had more names than one listing may return. */
+  foldersTruncated: boolean
 }
 
 const EXTERNAL_PREFIX = 'x'
 const MAX_DRIVER_ENTRIES = 5000
+/** How many `list-type=2` pages one S3 folder may cost before the listing gives up. */
+const S3_LIST_PAGES = 20
 
 async function discard(response: Response): Promise<void> {
   try {
@@ -94,10 +103,10 @@ export async function listExternal(
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
   const listed = await listStorage(env, db, mount, storage, path)
-  const entries = listed.filter((entry) => safeSegment(entry.name))
+  const entries = listed.entries.filter((entry) => safeSegment(entry.name))
   const folders = entries.filter((entry) => entry.kind === 'folder').map((entry) => toEntry(mount, path, entry))
   const files = entries.filter((entry) => entry.kind === 'file').map((entry) => toEntry(mount, path, entry))
-  return { mountId: mount.id, path, folders, files, cursor: null, total: null, foldersTruncated: false }
+  return { mountId: mount.id, path, folders, files, cursor: null, total: null, foldersTruncated: listed.truncated }
 }
 
 export async function readExternal(
@@ -124,7 +133,14 @@ export async function externalDirectUrl(
   const config = configOf(storage)
   const key = joinPath(String(config.rootPath ?? ''), path)
   const customHost = stringValue(config.customHost)
-  if (customHost) return `${customHost.replace(/\/$/, '')}/${encodeKey(key)}`
+  if (customHost) {
+    // The browser is told to fetch this address, so it goes through the same guard as a request the
+    // worker would make itself: a stored 127.0.0.1 would otherwise turn a share link into a probe.
+    const redirect = checkTarget(customHost)
+    if (!redirect.url) return null
+    const base = `${redirect.url.origin}${redirect.url.pathname.replace(/\/$/, '')}`
+    return `${base}/${encodeKey(key)}`
+  }
   const target = checkTarget(String(config.endpoint ?? ''))
   if (!target.url) return null
   const credentials = await credentialsOf(env, storage)
@@ -152,8 +168,10 @@ export async function externalProxyLocation(
   const config = configOf(storage)
   const proxy = stringValue(config.urlProxy)
   if (!proxy) return null
+  const redirect = checkTarget(proxy)
+  if (!redirect.url) return null
   const direct = await externalDirectUrl(env, db, mount, path)
-  if (direct) return appendProxyTarget(proxy, direct)
+  if (direct) return appendProxyTarget(redirect.url.toString(), direct)
   if (storage.type !== 'webdav') return null
   const target = checkTarget(stringValue(config.baseUrl))
   if (!target.url) return null
@@ -161,7 +179,7 @@ export async function externalProxyLocation(
   const root = String(config.rootPath ?? '').replace(/^\/+|\/+$/g, '')
   const relative = path.replace(/^\/+/, '')
   const source = `${base}/${[root, relative].filter(Boolean).join('/')}`
-  return appendProxyTarget(proxy, source)
+  return appendProxyTarget(redirect.url.toString(), source)
 }
 
 export async function externalCapacityBytes(
@@ -179,7 +197,8 @@ export async function externalFolderSize(
   db: D1Database,
   mount: CloudDriveMountInfo,
   path: string,
-): Promise<{ bytes: number; truncated: boolean }> {  const storage = await storageFor(db, mount.id, mount.storageId)
+): Promise<{ bytes: number; truncated: boolean }> {
+  const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
   const queue = [path]
   const visited = new Set<string>()
@@ -190,9 +209,10 @@ export async function externalFolderSize(
     if (visited.has(current)) continue
     visited.add(current)
     const listed = await listStorage(env, db, mount, storage, current)
-    entries += listed.length
+    const found = listed.entries
+    entries += found.length
     if (entries > MAX_DRIVER_ENTRIES) return { bytes, truncated: true }
-    for (const entry of listed) {
+    for (const entry of found) {
       if (!safeSegment(entry.name)) continue
       const child = current === '/' ? `/${entry.name}` : `${current}/${entry.name}`
       if (entry.kind === 'folder') queue.push(child)
@@ -213,14 +233,15 @@ async function listStorage(
   mount: CloudDriveMountInfo,
   storage: StorageRow,
   path: string,
-): Promise<DriverEntry[]> {
+): Promise<DriverList> {
   if (storage.type === 's3') return await listS3(env, storage, mount, path)
   if (storage.type === 'webdav') return await listWebdav(env, storage, mount, path)
-  if (storage.type === 'github') return await listGithub(env, storage, path)
-  if (storage.type === 'huggingface') return await listHuggingFace(env, storage, path)
-  if (storage.type === 'discord') return await listDiscord(env, storage)
-  if (storage.type === 'onedrive') return await listOneDrive(env, db, storage, path)
-  if (storage.type === 'googledrive') return await listGoogleDrive(env, db, storage, path)
+  // The remaining drivers hand back a whole listing in one answer, so they cannot be truncated.
+  if (storage.type === 'github') return { entries: await listGithub(env, storage, path), truncated: false }
+  if (storage.type === 'huggingface') return { entries: await listHuggingFace(env, storage, path), truncated: false }
+  if (storage.type === 'discord') return { entries: await listDiscord(env, storage), truncated: false }
+  if (storage.type === 'onedrive') return { entries: await listOneDrive(env, db, storage, path), truncated: false }
+  if (storage.type === 'googledrive') return { entries: await listGoogleDrive(env, db, storage, path), truncated: false }
   if (storage.type === 'telegram') {
     throw new ApiError(502, 'clouddrive_mount_unavailable', 'Telegram bots cannot list chat history; this mount is connection-only')
   }
@@ -362,7 +383,7 @@ function webdavChild(href: string, requestUrl: string): WebdavChild | null {
   return { name }
 }
 
-async function listS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string): Promise<DriverEntry[]> {
+async function listS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string): Promise<DriverList> {
   const config = configOf(storage)
   const credentials = await credentialsOf(env, storage)
   const endpointRaw = String(config.endpoint ?? '')
@@ -372,27 +393,41 @@ async function listS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo
   const aws = new AwsClient({ accessKeyId: credentials.accessKeyId ?? '', secretAccessKey: credentials.secretAccessKey ?? '', region: String(config.region ?? 'auto'), service: 's3', retries: 1 })
   const root = String(config.rootPath ?? '')
   const prefix = joinPath(root, path)
-  const url = s3RequestUrl(target.url, config, null)
-  url.searchParams.set('list-type', '2')
-  url.searchParams.set('delimiter', '/')
-  url.searchParams.set('max-keys', '1000')
-  if (prefix) url.searchParams.set('prefix', `${prefix}/`)
-  const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual' })
-  const text = await response.text()
-  if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 list failed (${response.status})`)
+  const requestUrl = s3RequestUrl(target.url, config, null)
+  requestUrl.searchParams.set('list-type', '2')
+  requestUrl.searchParams.set('delimiter', '/')
+  requestUrl.searchParams.set('max-keys', '1000')
+  if (prefix) requestUrl.searchParams.set('prefix', `${prefix}/`)
+
+  // `list-type=2` answers one page at a time. Reading only the first page made a bucket with more
+  // than a thousand names look like it had lost files, so the token is followed until the listing is
+  // complete or the driver's own ceiling is reached — which is then reported instead of hidden.
   const entries: DriverEntry[] = []
-  for (const match of text.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([^<]+)<\/Prefix>/g)) {
-    const name = match[1]!.split('/').filter(Boolean).pop() ?? ''
-    if (name) entries.push({ name, kind: 'folder', size: 0, modifiedAt: 0 })
+  let token: string | null = null
+  for (let page = 0; page < S3_LIST_PAGES; page++) {
+    const url = new URL(requestUrl.toString())
+    if (token) url.searchParams.set('continuation-token', token)
+    const response = await aws.fetch(url.toString(), { method: 'GET', redirect: 'manual' })
+    const text = await response.text()
+    if (!response.ok) throw new ApiError(502, 'clouddrive_mount_unavailable', `S3 list failed (${response.status})`)
+    for (const match of text.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([^<]+)<\/Prefix>/g)) {
+      const name = match[1]!.split('/').filter(Boolean).pop() ?? ''
+      if (name) entries.push({ name, kind: 'folder', size: 0, modifiedAt: 0 })
+    }
+    for (const match of text.matchAll(/<Contents>[\s\S]*?<Key>([^<]+)<\/Key>[\s\S]*?<LastModified>([^<]+)<\/LastModified>[\s\S]*?<Size>(\d+)<\/Size>/g)) {
+      const key = match[1]!
+      const name = key.split('/').filter(Boolean).pop() ?? ''
+      const modified = Date.parse(match[2]!) || 0
+      const size = Number(match[3] ?? 0)
+      if (name && !key.endsWith('/')) entries.push({ name, kind: 'file', size, modifiedAt: modified })
+    }
+    token = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(text)?.[1] ?? null
+    if (!token) break
+    if (entries.length >= MAX_DRIVER_ENTRIES) break
   }
-  for (const match of text.matchAll(/<Contents>[\s\S]*?<Key>([^<]+)<\/Key>[\s\S]*?<LastModified>([^<]+)<\/LastModified>[\s\S]*?<Size>(\d+)<\/Size>/g)) {
-    const key = match[1]!
-    const name = key.split('/').filter(Boolean).pop() ?? ''
-    const modified = Date.parse(match[2]!) || 0
-    const size = Number(match[3] ?? 0)
-    if (name && !key.endsWith('/')) entries.push({ name, kind: 'file', size, modifiedAt: modified })
-  }
-  return entries
+  // A token still standing means either the entry ceiling or the page ceiling stopped the walk.
+  const truncated = token !== null || entries.length > MAX_DRIVER_ENTRIES
+  return { entries: entries.slice(0, MAX_DRIVER_ENTRIES), truncated }
 }
 
 async function readS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string, range: string | null): Promise<Response | null> {
@@ -413,7 +448,7 @@ async function readS3(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo
   return response
 }
 
-async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string): Promise<DriverEntry[]> {
+async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string): Promise<DriverList> {
   const config = configOf(storage)
   const credentials = await credentialsOf(env, storage)
   const baseRaw = String(config.baseUrl ?? '')
@@ -431,14 +466,20 @@ async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMount
   if (!response.ok && response.status !== 207) throw new ApiError(502, 'clouddrive_mount_unavailable', `WebDAV list failed (${response.status})`)
   const entries: DriverEntry[] = []
   const seen = new Set<string>()
+  let truncated = false
   for (const block of xml.matchAll(XML_RESPONSE)) {
-    if (entries.length >= MAX_DRIVER_ENTRIES) break
     const body = block[1]!
     const child = webdavChild(XML_HREF.exec(body)?.[1] ?? '', url)
     if (!child) continue
     const folder = XML_COLLECTION.test(body)
     const key = `${folder ? 'folder' : 'file'}:${child.name}`
     if (seen.has(key)) continue
+    // The ceiling is reported, not swallowed: a server with more names than this is telling the
+    // reader the folder is only partly shown rather than letting it look like files went missing.
+    if (entries.length >= MAX_DRIVER_ENTRIES) {
+      truncated = true
+      break
+    }
     seen.add(key)
     const modifiedText = XML_MODIFIED.exec(body)?.[1]
     entries.push({
@@ -448,7 +489,7 @@ async function listWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMount
       modifiedAt: modifiedText ? (Date.parse(modifiedText) || 0) : 0,
     })
   }
-  return entries
+  return { entries, truncated }
 }
 
 async function readWebdav(env: Env, storage: StorageRow, _mount: CloudDriveMountInfo, path: string, range: string | null): Promise<Response | null> {

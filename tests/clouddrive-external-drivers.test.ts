@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { CLOUDDRIVE_SCHEMA_STATEMENTS } from '../src/worker/clouddrive/schema'
+import { createUsersTable } from './doubles/users-table'
 import {
   deleteExternalPath,
   externalDirectUrl,
@@ -53,6 +54,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   sqlite = new DatabaseSync(':memory:')
   for (const statement of CLOUDDRIVE_SCHEMA_STATEMENTS) sqlite.exec(statement)
+  createUsersTable(sqlite)
   db = makeD1(sqlite)
   env = testBindings(db, { FILES: testR2Bucket(), CREDENTIAL_VAULT: makeVault() })
   fetchMock = vi.fn()
@@ -313,6 +315,29 @@ describe('S3 driver', () => {
     expect(listing.folders.map((entry) => entry.name)).toEqual(['docs'])
     expect(listing.files.map((entry) => entry.name)).toEqual(['readme.txt'])
     expect(callUrl()).toBe('https://s3.example.com/bucket?list-type=2&delimiter=%2F&max-keys=1000')
+  })
+
+  it('follows the continuation token, so a folder with more names than one page is complete', async () => {
+    const mount = await mountWith('s3', {
+      endpoint: 'https://s3.example.com', bucketName: 'bucket', region: 'auto', pathStyle: true,
+    }, { accessKeyId: 'key', secretAccessKey: 'secret' })
+    fetchMock
+      .mockResolvedValueOnce(new Response(`<?xml version="1.0"?><ListBucketResult>
+        <Contents><Key>root/a.txt</Key><LastModified>2026-10-01T10:00:00.000Z</LastModified><Size>1</Size></Contents>
+        <IsTruncated>true</IsTruncated><NextContinuationToken>page-2</NextContinuationToken>
+      </ListBucketResult>`, { status: 200 }))
+      .mockResolvedValueOnce(new Response(`<?xml version="1.0"?><ListBucketResult>
+        <Contents><Key>root/b.txt</Key><LastModified>2026-10-01T10:00:00.000Z</LastModified><Size>2</Size></Contents>
+        <CommonPrefixes><Prefix>root/docs/</Prefix></CommonPrefixes>
+        <IsTruncated>false</IsTruncated>
+      </ListBucketResult>`, { status: 200 }))
+    const listing = await listExternal(env, db, mount, '/')
+    // Only the first page used to be read, so the rest of the folder looked deleted.
+    expect(listing.files.map((entry) => entry.name)).toEqual(['a.txt', 'b.txt'])
+    expect(listing.folders.map((entry) => entry.name)).toEqual(['docs'])
+    expect(listing.foldersTruncated).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(callUrl(1)).toContain('continuation-token=page-2')
   })
 
   it('uses virtual-hosted requests when pathStyle is false', async () => {

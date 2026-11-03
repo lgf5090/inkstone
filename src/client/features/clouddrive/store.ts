@@ -27,7 +27,7 @@ export const useCloudDriveStore = create<CloudDriveState>((set, get) => ({
     set({ status: 'loading', error: null })
     try {
       const bootstrap = await clouddriveApi.bootstrap()
-      const prefs = { ...readCloudDrivePrefs(bootstrap.user.id), lastMountId: get().prefs.lastMountId || 'primary' }
+      const prefs = readCloudDrivePrefs(bootstrap.user.id)
       set({ bootstrap, status: 'ready', prefs })
     } catch (error) {
       set({ status: 'error', error: error instanceof Error ? error.message : String(error) })

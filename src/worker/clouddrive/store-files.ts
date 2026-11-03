@@ -11,6 +11,8 @@ import {
   autoSuffixName,
   foldedName,
   restoredName,
+  type AlbumKind,
+  type CloudDriveCategory,
   type CloudDriveSortDirection,
   type CloudDriveSortKey,
   type CloudDriveTagView,
@@ -21,10 +23,12 @@ import { deleteFileParts } from './distributed'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import {
+  chunkedBatch,
   decodeCursor,
   encodeCursor,
   foldName,
   initialsOf,
+  parseFolderMeta,
   type CloudDriveFileRow,
 } from './lib'
 
@@ -233,15 +237,6 @@ export async function listFolder(
   options: ListOptions,
 ): Promise<ListResult> {
   const folderWhere = buildWhere(userId, mountId, parentId, 'folder', options)
-  const { results: folderRows } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${folderWhere.sql}
-      ORDER BY ${orderBy(options.sort, options.dir)}
-      LIMIT ${CLOUDDRIVE_LIMITS.folderListMax + 1}`,
-  ).bind(...folderWhere.params).all<CloudDriveFileRow>()
-  const folders = (folderRows ?? []).slice(0, CLOUDDRIVE_LIMITS.folderListMax)
-  const foldersTruncated = (folderRows?.length ?? 0) > CLOUDDRIVE_LIMITS.folderListMax
-
   const fileWhere = buildWhere(userId, mountId, parentId, 'file', options)
   const conditions = [fileWhere.sql]
   const params = [...fileWhere.params]
@@ -251,19 +246,63 @@ export async function listFolder(
     conditions.push(condition.sql)
     params.push(...condition.params)
   }
-  const { results: fileRows } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY ${orderBy(options.sort, options.dir)}
-      LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
-  const files = fileRows ?? []
+
+  // One round trip for the two halves of the listing and the total: none of them reads the others'
+  // rows, and a folder open paid three sequential D1 trips for it.
+  const [folderQuery, fileQuery, total] = await Promise.all([
+    db.prepare(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${folderWhere.sql}
+        ORDER BY ${orderBy(options.sort, options.dir)}
+        LIMIT ${CLOUDDRIVE_LIMITS.folderListMax + 1}`,
+    ).bind(...folderWhere.params).all<CloudDriveFileRow>(),
+    db.prepare(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY ${orderBy(options.sort, options.dir)}
+        LIMIT ?`,
+    ).bind(...params, options.limit).all<CloudDriveFileRow>(),
+    countRows(db, fileWhere),
+  ])
+
+  const folderRows = folderQuery.results ?? []
+  const folders = folderRows.slice(0, CLOUDDRIVE_LIMITS.folderListMax)
+  const foldersTruncated = folderRows.length > CLOUDDRIVE_LIMITS.folderListMax
+  const files = fileQuery.results ?? []
   const last = files[files.length - 1]
   const cursor = last && files.length === options.limit
     ? encodeCursor(options.sort, cursorValue(options.sort, last), last.id)
     : null
-  const total = await countRows(db, fileWhere)
   return { folders, files, cursor, total, foldersTruncated }
+}
+
+/**
+ * The hiding rules each of these folders carries in its own `metadata` JSON. The metadata table keeps
+ * the rules a mount-path view sets, the folder row keeps the ones the inspector sets, and a caller
+ * that shows a list has to honour both — otherwise the same rule hides a file in one view and not
+ * another.
+ */
+export async function folderHiddenPatterns(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<Map<string, string[]>> {
+  const found = new Map<string, string[]>()
+  const unique = [...new Set(paths)]
+  for (let offset = 0; offset < unique.length; offset += CHUNK) {
+    const chunk = unique.slice(offset, offset + CHUNK)
+    const placeholders = chunk.map(() => '?').join(', ')
+    const { results } = await db.prepare(
+      `SELECT path, metadata FROM CloudDrive_files
+        WHERE user_id = ? AND mount_id = ? AND kind = 'folder' AND path IN (${placeholders})`,
+    ).bind(userId, mountId, ...chunk).all<{ path: string; metadata: string }>()
+    for (const row of results ?? []) {
+      const patterns = parseFolderMeta(row.metadata).hiddenPatterns
+      if (patterns.length > 0) found.set(row.path, patterns)
+    }
+  }
+  return found
 }
 
 export async function folderSize(db: D1Database, userId: string, mountId: string, folderId: string): Promise<number> {
@@ -283,17 +322,32 @@ export async function folderSize(db: D1Database, userId: string, mountId: string
   return Number(row?.bytes ?? 0)
 }
 
-/** Trash is one flat page; the route splits it into the folder and file groups it presents. */
-export async function listTrash(  db: D1Database,
+/**
+ * Trash is one page of *deleted roots*: a folder that went to the trash with its contents is listed
+ * once, with `descendant_trashed` saying there is more under it, because restoring the folder restores
+ * them too. A child whose own parent is still live — the reader deleted one file out of a live folder —
+ * is its own root and stays visible.
+ */
+export interface CloudDriveTrashRow extends CloudDriveFileRow {
+  /** True when the folder holds more trashed items than the row itself; restoring it restores them. */
+  descendantsTrashed: boolean
+}
+
+export async function listTrash(
+  db: D1Database,
   userId: string,
   mountId: string,
   options: { cursor?: string; limit: number },
-): Promise<{ folders: CloudDriveFileRow[]; files: CloudDriveFileRow[]; cursor: string | null; total: number | null }> {
+): Promise<{ folders: CloudDriveTrashRow[]; files: CloudDriveTrashRow[]; cursor: string | null; total: number | null }> {
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
     'f.deleted_at IS NOT NULL',
     "f.name_folded <> '.keep'",
+    `NOT EXISTS (
+       SELECT 1 FROM CloudDrive_files p
+        WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
+     )`,
   ]
   const params: unknown[] = [userId, mountId]
   if (options.cursor) {
@@ -303,22 +357,37 @@ export async function listTrash(  db: D1Database,
     params.push(deletedAt, deletedAt, decoded.id)
   }
   const where = clauses.join(' AND ')
-  const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${where}
-      ORDER BY f.deleted_at DESC, f.id DESC
-      LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
-  const rows = results ?? []
+  const [pageQuery, countQuery] = await Promise.all([
+    db.prepare(
+      `SELECT f.*, EXISTS (
+          SELECT 1 FROM CloudDrive_files d
+           WHERE d.user_id = f.user_id AND d.mount_id = f.mount_id AND d.deleted_at IS NOT NULL
+             AND f.kind = 'folder'
+             AND substr(d.path, 1, length(f.path) + 1) = f.path || '/'
+         ) AS descendant_trashed
+          FROM CloudDrive_files f
+         WHERE ${where}
+         ORDER BY f.deleted_at DESC, f.id DESC
+         LIMIT ?`,
+    ).bind(...params, options.limit).all<CloudDriveFileRow & { descendant_trashed: number | bigint }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM CloudDrive_files f
+        WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM CloudDrive_files p
+             WHERE p.user_id = f.user_id AND p.id = f.parent_id AND p.deleted_at IS NOT NULL
+          )`,
+    ).bind(userId, mountId).first<{ count: number }>(),
+  ])
+  const rows: CloudDriveTrashRow[] = (pageQuery.results ?? []).map((row) => ({
+    ...row,
+    descendantsTrashed: Number(row.descendant_trashed) === 1,
+  }))
   const last = rows[rows.length - 1]
   const cursor = last && rows.length === options.limit
     ? encodeCursor('uploaded', last.deleted_at ?? 0, last.id)
     : null
-  const count = await db.prepare(
-    `SELECT COUNT(*) AS count FROM CloudDrive_files f
-      WHERE f.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NOT NULL`,
-  ).bind(userId, mountId).first<{ count: number }>()
-  const total = (count?.count ?? 0) > LIST_TOTAL_CAP ? null : count?.count ?? 0
+  const total = (countQuery?.count ?? 0) > LIST_TOTAL_CAP ? null : countQuery?.count ?? 0
   return {
     folders: rows.filter((row) => row.kind === 'folder'),
     files: rows.filter((row) => row.kind === 'file'),
@@ -395,7 +464,7 @@ export async function getFileById(
   return await db.prepare(sql).bind(userId, id).first<CloudDriveFileRow>()
 }
 
-export interface CreateFolderResult {
+export interface CreateEntryResult {
   entry?: CloudDriveFileRow
   conflict?: string
 }
@@ -407,7 +476,7 @@ export async function createFolder(
   parent: CloudDriveFileRow,
   name: string,
   now: number,
-): Promise<CreateFolderResult> {
+): Promise<CreateEntryResult> {
   const nameFolded = foldName(name)
   if (await liveSibling(db, userId, mountId, parent.id, nameFolded)) {
     return { conflict: await availableName(db, userId, mountId, parent.id, name) }
@@ -430,6 +499,45 @@ export async function createFolder(
     throw error
   }
   return { entry: await getRowById(db, userId, mountId, id) ?? undefined }
+}
+
+/**
+ * The row for a file the drive created itself, once its (empty) object is already in the bucket. The
+ * caller mints the id and writes the object under it, because the storage key names that id; a
+ * rejected name reports a conflict instead of writing a second row, and `UNIQUE` does the same later.
+ */
+export async function createFile(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  parent: CloudDriveFileRow,
+  name: string,
+  data: { id: string; category: CloudDriveCategory; mime: string; storageKey: string; etag: string },
+  now: number,
+): Promise<CreateEntryResult> {
+  const nameFolded = foldName(name)
+  if (await liveSibling(db, userId, mountId, parent.id, nameFolded)) {
+    return { conflict: await availableName(db, userId, mountId, parent.id, name) }
+  }
+  const path = parent.path === '/' ? `/${name}` : `${parent.path}/${name}`
+  try {
+    await db.prepare(
+      `INSERT INTO CloudDrive_files
+         (id, user_id, mount_id, parent_id, kind, name, name_folded, name_initials, path,
+          category, mime, size, etag, checksum, storage_kind, storage_key, metadata, color,
+          starred_at, last_viewed_at, deleted_at, trash_batch, created_at, updated_at, uploaded_at, modified_at)
+       VALUES (?, ?, ?, ?, 'file', ?, ?, ?, ?, ?, ?, 0, ?, NULL, 'r2', ?, '{}', '', NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
+    ).bind(
+      data.id, userId, mountId, parent.id, name, nameFolded, initialsOf(name), path,
+      data.category, data.mime, data.etag, data.storageKey, now, now, now, now,
+    ).run()
+  } catch (error) {
+    if (String(error).includes('UNIQUE')) {
+      return { conflict: await availableName(db, userId, mountId, parent.id, name) }
+    }
+    throw error
+  }
+  return { entry: await getRowById(db, userId, mountId, data.id) ?? undefined }
 }
 
 async function getRowById(
@@ -516,6 +624,16 @@ export interface EntryFlags {
   metadata?: Record<string, unknown>
 }
 
+/**
+ * Record that a file was just opened. The recent-view page is ordered by this column, so a writer
+ * it stays empty forever; only the read route knows a view actually happened.
+ */
+export async function markViewed(db: D1Database, userId: string, id: string, now: number): Promise<void> {
+  await db.prepare(
+    'UPDATE CloudDrive_files SET last_viewed_at = ?1 WHERE user_id = ?2 AND id = ?3 AND kind = ?4 AND deleted_at IS NULL',
+  ).bind(now, userId, id, 'file').run()
+}
+
 export async function setEntryFlags(
   db: D1Database,
   userId: string,
@@ -564,20 +682,40 @@ async function liveIdsByPrefix(
   return (results ?? []).map((row) => row.id)
 }
 
-async function rowsByIds(
+export async function rowsByIds(
   db: D1Database,
   userId: string,
   mountId: string,
   ids: readonly string[],
 ): Promise<CloudDriveFileRow[]> {
+  return await rowsByColumn(db, userId, mountId, ids, 'id')
+}
+
+/** The same lookup by virtual path, so a batch call hands over one query per chunk. */
+export async function rowsByPaths(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  paths: readonly string[],
+): Promise<CloudDriveFileRow[]> {
+  return await rowsByColumn(db, userId, mountId, paths, 'path')
+}
+
+async function rowsByColumn(
+  db: D1Database,
+  userId: string,
+  mountId: string,
+  values: readonly string[],
+  column: 'id' | 'path',
+): Promise<CloudDriveFileRow[]> {
   const rows: CloudDriveFileRow[] = []
-  for (let offset = 0; offset < ids.length; offset += CHUNK) {
-    const chunk = ids.slice(offset, offset + CHUNK)
+  for (let offset = 0; offset < values.length; offset += CHUNK) {
+    const chunk = values.slice(offset, offset + CHUNK)
     if (chunk.length === 0) continue
     const placeholders = chunk.map(() => '?').join(', ')
     const { results } = await db.prepare(
       `SELECT * FROM CloudDrive_files
-        WHERE user_id = ? AND mount_id = ? AND id IN (${placeholders})`,
+        WHERE user_id = ? AND mount_id = ? AND ${column} IN (${placeholders})`,
     ).bind(userId, mountId, ...chunk).all<CloudDriveFileRow>()
     rows.push(...(results ?? []))
   }
@@ -681,6 +819,16 @@ async function restoreRow(
     chosen.name, foldName(chosen.name), initialsOf(chosen.name), chosen.path, now,
     userId, mountId, row.id,
   ))
+  if (row.kind === 'folder') {
+    // The trash lists one root for a whole subtree, so restoring that root brings its contents back
+    // with it. Paths have already been rewritten above, so the prefix is the restored one.
+    statements.push(db.prepare(
+      `UPDATE CloudDrive_files
+          SET deleted_at = NULL, trash_batch = NULL, updated_at = ?
+        WHERE user_id = ? AND mount_id = ? AND deleted_at IS NOT NULL AND id <> ?
+          AND substr(path, 1, length(?) + 1) = ? || '/'`,
+    ).bind(now, userId, mountId, row.id, chosen.path, chosen.path))
+  }
   await db.batch(statements)
   return await getRowById(db, userId, mountId, row.id) ?? row
 }
@@ -769,11 +917,17 @@ async function purgeTargets(
   return [...targets.values()]
 }
 
-export async function storageKeyReferenced(db: D1Database, userId: string, key: string): Promise<boolean> {
+/**
+ * Whether any live row or stored version still points at an object.
+ *
+ * Deliberately not scoped to one account: a saved shared item is another user's row over the same
+ * bytes, so a per-user check would let the owner's purge delete data the reader can still open.
+ */
+export async function storageKeyReferenced(db: D1Database, key: string): Promise<boolean> {
   const row = await db.prepare(
-    `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE user_id = ?1 AND storage_key = ?2)
-          + (SELECT COUNT(*) FROM CloudDrive_file_versions WHERE user_id = ?1 AND storage_key = ?2) AS count`,
-  ).bind(userId, key).first<{ count: number }>()
+    `SELECT (SELECT COUNT(*) FROM CloudDrive_files WHERE storage_key = ?1)
+          + (SELECT COUNT(*) FROM CloudDrive_file_versions WHERE storage_key = ?1) AS count`,
+  ).bind(key).first<{ count: number }>()
   return (row?.count ?? 0) > 0
 }
 
@@ -805,14 +959,25 @@ async function purgeRows(
   const rowStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
     `DELETE FROM CloudDrive_files WHERE user_id = ? AND id IN (${placeholders})`,
   ).bind(userId, ...chunk))
-  await db.batch([...tagStatements, ...versionStatements, ...rowStatements])
+  // A purged file must stop authorising: an ACL grant or a share link that outlives its row is a ghost
+  // that reads as a live permission to anything that joins on the id alone.
+  const now = Date.now()
+  const aclStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
+    `UPDATE CloudDrive_acl SET revoked_at = ?
+      WHERE owner_id = ? AND revoked_at IS NULL AND file_id IN (${placeholders})`,
+  ).bind(now, userId, ...chunk))
+  const shareStatements = chunkStatements(ids, (placeholders, chunk) => db.prepare(
+    `UPDATE CloudDrive_shares SET revoked_at = ?
+      WHERE user_id = ? AND revoked_at IS NULL AND file_id IN (${placeholders})`,
+  ).bind(now, userId, ...chunk))
+  await db.batch([...tagStatements, ...versionStatements, ...aclStatements, ...shareStatements, ...rowStatements])
 
   const keys = [...new Set([
     ...targets.map((target) => target.storage_key),
     ...versionKeys,
   ].filter((key): key is string => !!key))]
   for (const key of keys) {
-    if (await storageKeyReferenced(db, userId, key)) continue
+    if (await storageKeyReferenced(db, key)) continue
     if (!env.FILES) continue
     try {
       await env.FILES.delete(key)
@@ -845,12 +1010,12 @@ export async function purgeAllTrash(
   userId: string,
   env: Env,
 ): Promise<{ deleted: number; failed: number }> {
+  // Every trashed row is already a target, so one read of them beats expanding each root's subtree
+  // and de-duplicating the same folders back out again.
   const { results } = await db.prepare(
-    `SELECT * FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NOT NULL`,
-  ).bind(userId).all<CloudDriveFileRow>()
-  const roots = results ?? []
-  const targets = await purgeTargets(db, userId, null, roots)
-  return await purgeRows(db, userId, targets, env)
+    `SELECT id, storage_key FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NOT NULL`,
+  ).bind(userId).all<PurgeTarget>()
+  return await purgeRows(db, userId, results ?? [], env)
 }
 
 export interface TransferConflict {
@@ -1036,7 +1201,15 @@ export async function copyEntries(
       copy.source.storage_key, copy.source.metadata, copy.source.color,
       now, now, now, copy.source.modified_at,
     ))
-    await db.batch(statements)
+    try {
+      await chunkedBatch(db, statements)
+    } catch (error) {
+      // A chunk that failed leaves the earlier chunks applied, so report it against this root instead
+      // of failing the request and hiding which copy is half-done.
+      console.warn('[clouddrive] copying an entry failed:', id, error)
+      results.push({ id, ok: false, error: 'copy_failed' })
+      continue
+    }
     results.push({ id, ok: true, toPath: rootPath })
   }
   return results
@@ -1071,14 +1244,8 @@ export async function searchEntries(
     'f.mount_id = ?',
     'f.deleted_at IS NULL',
     "f.name_folded <> '.keep'",
-    "(f.name_folded LIKE ? ESCAPE '\\' OR f.name_initials LIKE ? ESCAPE '\\')",
   ]
-  const params: unknown[] = [
-    userId,
-    mountId,
-    `%${escapeLike(query)}%`,
-    `${escapeLike(query)}%`,
-  ]
+  const params: unknown[] = [userId, mountId]
   const type = typeFilter(options.type)
   if (type) {
     clauses.push('f.category = ?')
@@ -1094,43 +1261,69 @@ export async function searchEntries(
     params.push(options.to)
   }
   const baseSql = clauses.join(' AND ')
+  const prefixSql = `${escapeLike(query)}%`
+  const containsSql = `%${escapeLike(query)}%`
 
-  let cursorClause = ''
-  const cursorParams: unknown[] = []
+  // The cursor says which of the two arms it stopped in: rank 0 is the prefix arm, rank 1 the
+  // contains arm. That is what lets a second page resume mid-list without a second full scan.
+  let arm = 0
+  let afterName = ''
+  let afterId = ''
   if (options.cursor) {
     const decoded = decodeCursor(options.cursor, 'name')
     const encoded = requireString(decoded.v)
     const separator = encoded.indexOf('\u0000')
     if (separator < 0) throw ApiError.badRequest('The cursor is invalid')
     const rank = Number(encoded.slice(0, separator))
-    const name = encoded.slice(separator + 1)
     if (!Number.isFinite(rank)) throw ApiError.badRequest('The cursor is invalid')
-    cursorClause = ` AND (
-      (CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) > ?
-      OR ((CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) = ?
-        AND (f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))))`
-    const prefix = `${escapeLike(query)}%`
-    cursorParams.push(prefix, rank, prefix, rank, name, name, decoded.id)
+    arm = rank === 0 ? 0 : 1
+    afterName = encoded.slice(separator + 1)
+    afterId = decoded.id
   }
 
-  const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
-      WHERE ${baseSql}${cursorClause}
-      ORDER BY (CASE WHEN f.name_folded LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END) ASC,
-               f.name_folded ASC, f.id ASC
-      LIMIT ?`,
-  ).bind(...params, ...cursorParams, `${escapeLike(query)}%`, options.limit).all<CloudDriveFileRow>()
-  const files = results ?? []
+  const files: CloudDriveFileRow[] = []
+  const runArm = (sql: string, params: unknown[]) => db.prepare(sql).bind(...params).all<CloudDriveFileRow>()
+
+  if (arm === 0) {
+    // The prefix arm is a range scan over the search index, so the common query - the reader typed
+    // the beginning of a name - never touches the rest of the table.
+    const { results } = await runArm(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${baseSql} AND f.name_folded LIKE ? ESCAPE '\\'
+          AND (? = '' OR f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))
+        ORDER BY f.name_folded ASC, f.id ASC
+        LIMIT ?`,
+      [...params, prefixSql, afterName, afterName, afterName, afterId, options.limit],
+    )
+    files.push(...(results ?? []))
+  }
+  if (files.length < options.limit) {
+    const { results } = await runArm(
+      `SELECT f.* FROM CloudDrive_files f
+        WHERE ${baseSql}
+          AND f.name_folded NOT LIKE ? ESCAPE '\\'
+          AND (f.name_folded LIKE ? ESCAPE '\\' OR f.name_initials LIKE ? ESCAPE '\\')
+          AND (? = '' OR f.name_folded > ? OR (f.name_folded = ? AND f.id > ?))
+        ORDER BY f.name_folded ASC, f.id ASC
+        LIMIT ?`,
+      [
+        ...params, prefixSql, containsSql, containsSql,
+        arm === 1 ? afterName : '', arm === 1 ? afterName : '', arm === 1 ? afterName : '', arm === 1 ? afterId : '',
+        options.limit - files.length,
+      ],
+    )
+    files.push(...(results ?? []))
+  }
+
   const last = files[files.length - 1]
   let cursor: string | null = null
   if (last && files.length === options.limit) {
-    const prefix = last.name_folded.startsWith(query) ? 0 : 1
-    cursor = encodeCursor('name', `${prefix}\u0000${last.name_folded}`, last.id)
+    const rank = last.name_folded.startsWith(query) ? 0 : 1
+    cursor = encodeCursor('name', `${rank}\u0000${last.name_folded}`, last.id)
   }
-  const count = await db.prepare(
-    `SELECT COUNT(*) AS count FROM CloudDrive_files f WHERE ${baseSql}`,
-  ).bind(...params).first<{ count: number }>()
-  const total = (count?.count ?? 0) > LIST_TOTAL_CAP ? null : count?.count ?? 0
+  // No second full scan for a headline number: a page that came back short is the whole answer, and
+  // a full page honestly reports that the total is unknown.
+  const total = files.length < options.limit ? files.length : null
   return { files, cursor, total }
 }
 
@@ -1138,10 +1331,10 @@ export async function recentEntries(
   db: D1Database,
   userId: string,
   mountId: string,
-  kind: 'viewed' | 'uploaded',
+  kind: 'viewed' | 'uploaded' | 'starred',
   options: { cursor?: string; limit: number },
 ): Promise<{ files: CloudDriveFileRow[]; cursor: string | null }> {
-  const column = kind === 'viewed' ? 'last_viewed_at' : 'uploaded_at'
+  const column = kind === 'viewed' ? 'last_viewed_at' : kind === 'starred' ? 'starred_at' : 'uploaded_at'
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
@@ -1165,7 +1358,7 @@ export async function recentEntries(
   const files = results ?? []
   const last = files[files.length - 1]
   const cursor = last && files.length === options.limit
-    ? encodeCursor('uploaded', kind === 'viewed' ? last.last_viewed_at ?? 0 : last.uploaded_at, last.id)
+    ? encodeCursor('uploaded', kind === 'viewed' ? last.last_viewed_at ?? 0 : kind === 'starred' ? last.starred_at ?? 0 : last.uploaded_at, last.id)
     : null
   return { files, cursor }
 }
@@ -1175,70 +1368,135 @@ export interface AlbumGroup {
   files: CloudDriveFileRow[]
 }
 
+/** What the album can show: stills, moving pictures, or both together. */
+export type { AlbumKind } from '@shared/clouddrive/model'
+
+const ALBUM_CATEGORIES: Record<AlbumKind, string> = {
+  images: "'images'",
+  videos: "'videos'",
+  all: "'images', 'videos'",
+}
+
+/**
+ * The moment a media row is filed under: the capture time the upload stamped into `metadata`, or the
+ * upload time when the file carried no EXIF. `json_valid` guards a hand-edited row, which would
+ * otherwise make the whole album query fail instead of one row fall back.
+ */
+const MEDIA_AT = `CASE
+  WHEN json_valid(f.metadata) AND json_extract(f.metadata, '$.takenAt') IS NOT NULL
+    THEN CAST(json_extract(f.metadata, '$.takenAt') AS INTEGER)
+  ELSE f.uploaded_at END`
+
 export async function albumEntries(
   db: D1Database,
   userId: string,
   mountId: string,
-  options: { from?: number | null; to?: number | null; cursor?: string; limit: number },
+  options: {
+    from?: number | null
+    to?: number | null
+    cursor?: string
+    limit: number
+    kind?: AlbumKind
+  },
 ): Promise<{ groups: AlbumGroup[]; cursor: string | null }> {
+  const kind = options.kind ?? 'images'
   const clauses = [
     'f.user_id = ?',
     'f.mount_id = ?',
     "f.kind = 'file'",
-    "f.category = 'images'",
+    `f.category IN (${ALBUM_CATEGORIES[kind] ?? ALBUM_CATEGORIES.images})`,
     'f.deleted_at IS NULL',
     "f.name_folded <> '.keep'",
   ]
   const params: unknown[] = [userId, mountId]
   if (options.from !== null && options.from !== undefined) {
-    clauses.push('f.uploaded_at >= ?')
+    clauses.push(`${MEDIA_AT} >= ?`)
     params.push(options.from)
   }
   if (options.to !== null && options.to !== undefined) {
-    clauses.push('f.uploaded_at <= ?')
+    clauses.push(`${MEDIA_AT} <= ?`)
     params.push(options.to)
   }
   if (options.cursor) {
     const decoded = decodeCursor(options.cursor, 'uploaded')
     const value = requireNumber(decoded.v)
-    clauses.push('(f.uploaded_at < ? OR (f.uploaded_at = ? AND f.id < ?))')
+    clauses.push(`(${MEDIA_AT} < ? OR (${MEDIA_AT} = ? AND f.id < ?))`)
     params.push(value, value, decoded.id)
   }
   const { results } = await db.prepare(
-    `SELECT f.* FROM CloudDrive_files f
+    `SELECT f.*, ${MEDIA_AT} AS media_at FROM CloudDrive_files f
       WHERE ${clauses.join(' AND ')}
-      ORDER BY f.uploaded_at DESC, f.id DESC
+      ORDER BY media_at DESC, f.id DESC
       LIMIT ?`,
-  ).bind(...params, options.limit).all<CloudDriveFileRow>()
+  ).bind(...params, options.limit).all<CloudDriveFileRow & { media_at: number }>()
   const files = results ?? []
   const groups: AlbumGroup[] = []
   for (const file of files) {
-    const month = new Date(file.uploaded_at).toISOString().slice(0, 7)
+    const month = new Date(file.media_at).toISOString().slice(0, 7)
     const last = groups[groups.length - 1]
     if (last && last.month === month) last.files.push(file)
     else groups.push({ month, files: [file] })
   }
   const lastFile = files[files.length - 1]
   const cursor = lastFile && files.length === options.limit
-    ? encodeCursor('uploaded', lastFile.uploaded_at, lastFile.id)
+    ? encodeCursor('uploaded', lastFile.media_at, lastFile.id)
     : null
   return { groups, cursor }
 }
 
-export async function listTags(
+export interface CloudDriveTagAssignment {
+  tag: string
+  tagFolded: string
+  color: string
+  fileId: string
+  name: string
+  path: string
+}
+
+/**
+ * Every tag assignment with the folder it hangs on, so the caller can drop the rows a locked or
+ * hidden directory took off the listing before it counts them. The aggregate has to happen after that
+ * filter, or a tag panel would leak how many files sit behind a passcode.
+ */
+export async function listTagAssignments(
   db: D1Database,
   userId: string,
   mountId: string,
-): Promise<{ name: string; color: string; count: number }[]> {
+): Promise<CloudDriveTagAssignment[]> {
   const { results } = await db.prepare(
-    `SELECT MAX(t.tag) AS name, MAX(t.color) AS color, COUNT(DISTINCT t.file_id) AS count
+    `SELECT t.tag AS tag, t.tag_folded AS tagFolded, t.color AS color, t.file_id AS fileId,
+            f.name AS name, f.path AS path
        FROM CloudDrive_file_tags t
        JOIN CloudDrive_files f ON f.user_id = t.user_id AND f.id = t.file_id
       WHERE t.user_id = ? AND f.mount_id = ? AND f.deleted_at IS NULL
-      GROUP BY t.tag_folded
-      ORDER BY count DESC, t.tag_folded ASC`,
-  ).bind(userId, mountId).all<{ name: string; color: string; count: number }>()
-  return (results ?? []).map((row) => ({ name: row.name, color: row.color, count: row.count }))
+      ORDER BY t.tag_folded, t.tag`,
+  ).bind(userId, mountId).all<CloudDriveTagAssignment>()
+  return (results ?? []).map((row) => ({
+    tag: row.tag,
+    tagFolded: row.tagFolded,
+    color: row.color ?? '',
+    fileId: row.fileId,
+    name: row.name,
+    path: row.path,
+  }))
+}
+
+export function countVisibleTags(assignments: readonly CloudDriveTagAssignment[]): { name: string; color: string; count: number }[] {
+  const groups = new Map<string, { name: string; color: string; ids: Set<string> }>()
+  for (const row of assignments) {
+    const group = groups.get(row.tagFolded)
+    if (group) {
+      group.ids.add(row.fileId)
+      if (row.tag > group.name) group.name = row.tag
+      if (row.color > group.color) group.color = row.color
+    } else {
+      groups.set(row.tagFolded, { name: row.tag, color: row.color, ids: new Set([row.fileId]) })
+    }
+  }
+  return [...groups.entries()]
+    .map(([tagFolded, group]) => ({ name: group.name, color: group.color, count: group.ids.size, tagFolded }))
+    .sort((left, right) => right.count - left.count || left.tagFolded.localeCompare(right.tagFolded))
+    .map(({ name, color, count }) => ({ name, color, count }))
 }
 
 function normalizeTag(tag: string): { tag: string; tagFolded: string } {

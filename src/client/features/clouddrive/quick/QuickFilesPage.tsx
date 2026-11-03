@@ -5,19 +5,21 @@ import { formatBytes } from '@shared/byte-format'
 import { t } from '../../../lib/i18n'
 import { Spinner } from '../../../components/primitives'
 import { clouddriveApi } from '../api'
+import { useCloudDriveStore } from '../store'
 
 export function QuickFilesPage({ mode }: { mode: 'recent' | 'starred' }) {
   const [files, setFiles] = useState<CloudDriveEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const refreshKey = useCloudDriveStore((state) => state.refreshKey)
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     const work = mode === 'recent'
       ? clouddriveApi.recent('viewed').then((result) => result.files)
-      : clouddriveApi.list({ mountId: 'primary', path: '/', starred: true }).then((result) => result.files)
+      : clouddriveApi.recent('starred').then((result) => result.files)
     void work.then((result) => { if (!cancelled) setFiles(result) }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [mode])
+  }, [mode, refreshKey])
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <h1 className="mb-3 flex items-center gap-2 text-[length:var(--text-15)] font-semibold text-[var(--text-primary)]">{mode === 'recent' ? t('clouddrive.nav.recent') : t('clouddrive.nav.starred')}{mode === 'starred' && <Star size={14} className="text-[var(--accent)]" />}</h1>

@@ -10,13 +10,18 @@ import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { newId, newSlug } from '../lib/id'
 import { hashPassword, verifyPassword } from '../lib/password'
-import { readJson } from '../lib/request'
+import { readJson, requestClientIp } from '../lib/request'
+import { assertAttemptBudget, consumeAttemptBudget } from '../lib/throttle'
 import {
   initialsOf,
   parseName,
   parsePath,
   resolveEntry,
   resolveMount,
+  assertPasscodeAttemptsLeft,
+  notePasscodeFailure,
+  notePasscodeSuccess,
+  passcodeThrottleKey,
 } from './lib'
 import { cloudDriveUsage } from './store'
 
@@ -209,23 +214,44 @@ async function availableRequestName(
 }
 
 clouddrivePublicRequestRoutes.post('/requests/:slug/verify', async (c) => {
-  const row = await publicRequest(c, c.req.param('slug'))
+  const slug = c.req.param('slug')
+  const row = await publicRequest(c, slug)
   if (!row.password_hash) return c.json({ ok: true })
+  const throttleKey = passcodeThrottleKey('request', slug, c.req.raw)
+  await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
   const body = await readJson<{ password?: unknown }>(c, BODY_LIMIT)
   const password = typeof body.password === 'string' ? body.password : ''
   if (!(await verifyPassword(password, row.password_hash))) {
+    await notePasscodeFailure(c.env.DB, throttleKey)
     throw new ApiError(401, 'clouddrive_share_locked', 'This upload link needs a password')
   }
+  await notePasscodeSuccess(c.env.DB, throttleKey)
   return c.json({ ok: true })
 })
 
+/** How many files one visitor may hand to one request link inside the window. */
+const REQUEST_UPLOAD_BUDGET = { maxAttempts: 30, windowMs: 5 * 60 * 1000 }
+
 clouddrivePublicRequestRoutes.post('/requests/:slug/upload', async (c) => {
   const request = await publicRequest(c, c.req.param('slug'))
+  // The link's own `max_files`/`max_bytes` bound what a visitor can store, not how hard they can push:
+  // without a per-visitor budget one page reload loop spends the whole allowance in seconds.
+  await assertAttemptBudget(
+    () => consumeAttemptBudget(c.env.DB, [{
+      key: `clouddrive-request:${requestClientIp(c.req.raw)}:${request.slug}`.slice(0, 256),
+      ...REQUEST_UPLOAD_BUDGET,
+    }]),
+    'Too many uploads to this link',
+  )
   if (request.password_hash) {
     const password = c.req.header('x-clouddrive-request-password') ?? ''
+    const throttleKey = passcodeThrottleKey('request-upload', request.slug, c.req.raw)
+    await assertPasscodeAttemptsLeft(c.env.DB, throttleKey)
     if (!(await verifyPassword(password, request.password_hash))) {
+      await notePasscodeFailure(c.env.DB, throttleKey)
       throw new ApiError(401, 'clouddrive_share_locked', 'This upload link needs a password')
     }
+    await notePasscodeSuccess(c.env.DB, throttleKey)
   }
   const name = parseName(c.req.query('name') ?? '')
   const mimeRaw = (c.req.header('content-type') ?? '').split(';')[0]!.trim().toLowerCase() || 'application/octet-stream'
@@ -233,37 +259,42 @@ clouddrivePublicRequestRoutes.post('/requests/:slug/upload', async (c) => {
   if (BLOCKED_TYPES.has(mimeRaw)) throw ApiError.badRequest('This file type is not accepted')
   const declared = Number(c.req.header('content-length'))
   if (Number.isFinite(declared) && declared > request.max_file_bytes) throw ApiError.tooLarge('The file is larger than this request allows')
-  const bytes = new Uint8Array(await c.req.arrayBuffer())
-  if (bytes.byteLength > request.max_file_bytes) throw ApiError.tooLarge('The file is larger than this request allows')
   if (request.received_files + 1 > request.max_files) throw ApiError.badRequest('This request has received all its files')
-  if (request.received_bytes + bytes.byteLength > request.max_bytes) throw ApiError.badRequest('This request has received all its bytes')
+  if (request.received_bytes >= request.max_bytes) throw ApiError.badRequest('This request has received all its bytes')
   const target = await resolveEntry(c.env.DB, request.user_id, request.target_mount, request.target_path)
   if (target.kind !== 'folder') throw ApiError.conflict('The destination folder no longer exists')
-  const usage = await cloudDriveUsage(c.env.DB, request.user_id, c.env)
-  if (usage.quotaBytes && usage.usedBytes + bytes.byteLength > usage.quotaBytes) {
-    throw new ApiError(403, 'clouddrive_quota_exceeded', 'The drive does not have room for this upload')
-  }
   if (!c.env.FILES) throw new ApiError(503, 'clouddrive_mount_unavailable', 'Object storage is not bound')
 
   const now = Date.now()
-  const reserved = await c.env.DB.prepare(
-    `UPDATE CloudDrive_file_requests
-        SET received_files = received_files + 1, received_bytes = received_bytes + ?2,
-            last_upload_at = ?3
-      WHERE slug = ?1 AND is_enabled = 1 AND revoked_at IS NULL
-        AND (expires_at IS NULL OR expires_at > ?3)
-        AND received_files + 1 <= max_files
-        AND received_bytes + ?2 <= max_bytes`,
-  ).bind(request.slug, bytes.byteLength, now).run()
-  if ((reserved.meta.changes ?? 0) === 0) throw ApiError.conflict('This request is no longer accepting uploads')
-
   const finalName = await availableRequestName(c.env.DB, request.user_id, request.target_mount, target.id, name)
   const fileId = newId()
   const category = categoryFor(finalName)
   const key = `CloudDrive/${category}/${fileId}`
-  let inserted = false
+  // The bytes are handed to object storage as a stream: `max_file_bytes` can be a gigabyte on a
+  // request link and an isolate cannot hold that, so the size is only known once the put is done and
+  // every check below reads it from the object rather than from a buffer.
+  const object = await c.env.FILES.put(key, c.req.raw.body ?? new Uint8Array(0), {
+    httpMetadata: { contentType: mimeRaw },
+  })
+  let accepted = false
+  let reserved = false
   try {
-    const object = await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: mimeRaw } })
+    if (object.size > request.max_file_bytes) throw ApiError.tooLarge('The file is larger than this request allows')
+    const usage = await cloudDriveUsage(c.env.DB, request.user_id, c.env)
+    if (usage.quotaBytes && usage.usedBytes + object.size > usage.quotaBytes) {
+      throw new ApiError(403, 'clouddrive_quota_exceeded', 'The drive does not have room for this upload')
+    }
+    const taken = await c.env.DB.prepare(
+      `UPDATE CloudDrive_file_requests
+          SET received_files = received_files + 1, received_bytes = received_bytes + ?2,
+              last_upload_at = ?3
+        WHERE slug = ?1 AND is_enabled = 1 AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > ?3)
+          AND received_files + 1 <= max_files
+          AND received_bytes + ?2 <= max_bytes`,
+    ).bind(request.slug, object.size, now).run()
+    reserved = (taken.meta.changes ?? 0) > 0
+    if (!reserved) throw ApiError.conflict('This request is no longer accepting uploads')
     const path = childPath(target.path, finalName)
     await c.env.DB.prepare(
       `INSERT INTO CloudDrive_files
@@ -274,18 +305,20 @@ clouddrivePublicRequestRoutes.post('/requests/:slug/upload', async (c) => {
                NULL, NULL, NULL, NULL, ?14, ?14, ?14, ?14)`,
     ).bind(
       fileId, request.user_id, request.target_mount, target.id, finalName, foldedName(finalName),
-      initialsOf(finalName), path, category, mimeRaw, bytes.byteLength, object.etag, key, now,
+      initialsOf(finalName), path, category, mimeRaw, object.size, object.etag, key, now,
     ).run()
-    inserted = true
+    accepted = true
   } finally {
-    if (!inserted) {
-      await c.env.DB.prepare(
-        `UPDATE CloudDrive_file_requests
-            SET received_files = MAX(0, received_files - 1), received_bytes = MAX(0, received_bytes - ?2)
-          WHERE slug = ?1`,
-      ).bind(request.slug, bytes.byteLength).run().catch((error) => {
-        console.warn('[clouddrive] rolling back a public upload reservation failed', error)
-      })
+    if (!accepted) {
+      if (reserved) {
+        await c.env.DB.prepare(
+          `UPDATE CloudDrive_file_requests
+              SET received_files = MAX(0, received_files - 1), received_bytes = MAX(0, received_bytes - ?2)
+            WHERE slug = ?1`,
+        ).bind(request.slug, object.size).run().catch((error) => {
+          console.warn('[clouddrive] rolling back a public upload reservation failed', error)
+        })
+      }
       try {
         await c.env.FILES.delete(key)
       } catch (error) {
@@ -293,5 +326,5 @@ clouddrivePublicRequestRoutes.post('/requests/:slug/upload', async (c) => {
       }
     }
   }
-  return c.json({ ok: true, name: finalName, size: bytes.byteLength })
+  return c.json({ ok: true, name: finalName, size: object.size })
 })

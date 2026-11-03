@@ -452,6 +452,21 @@ export const CLOUDDRIVE_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_clouddrive_meta_unlocks_lookup
      ON CloudDrive_meta_unlocks(user_id, mount_id, path, expires_at)`,
+
+  `CREATE TABLE IF NOT EXISTS CloudDrive_dav_locks (
+    token TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    mount_id TEXT NOT NULL,
+    root TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'exclusive',
+    depth TEXT NOT NULL DEFAULT 'infinity',
+    owner TEXT NOT NULL DEFAULT '',
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, token)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_clouddrive_dav_locks_mount
+     ON CloudDrive_dav_locks(user_id, mount_id, expires_at)`,
 ]
 
 export const CLOUDDRIVE_REQUIRED_TABLES = [
@@ -479,6 +494,7 @@ export const CLOUDDRIVE_REQUIRED_TABLES = [
   'CloudDrive_job_runs',
   'CloudDrive_meta',
   'CloudDrive_meta_unlocks',
+  'CloudDrive_dav_locks',
 ] as const
 
 export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -551,6 +567,9 @@ export const CLOUDDRIVE_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   CloudDrive_meta_unlocks: [
     'token_hash', 'user_id', 'mount_id', 'path', 'expires_at', 'created_at',
   ],
+  CloudDrive_dav_locks: [
+    'token', 'user_id', 'mount_id', 'root', 'scope', 'depth', 'owner', 'expires_at', 'created_at',
+  ],
   CloudDrive_job_runs: [
     'id', 'user_id', 'job_id', 'status', 'result', 'error', 'started_at', 'finished_at', 'duration_ms',
   ],
@@ -596,4 +615,7 @@ export const CLOUDDRIVE_REQUIRED_INDEXES = [
   'idx_clouddrive_jobs_user',
   'idx_clouddrive_jobs_due',
   'idx_clouddrive_job_runs_job',
+  'idx_clouddrive_meta_mount',
+  'idx_clouddrive_meta_unlocks_lookup',
+  'idx_clouddrive_dav_locks_mount',
 ] as const

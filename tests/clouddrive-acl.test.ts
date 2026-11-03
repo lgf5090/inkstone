@@ -58,21 +58,32 @@ async function request(
   }), h.env)
 }
 
-async function upload(h: Harness, parentPath: string, name: string, content: string): Promise<{ id: string; path: string }> {
-  const init = await request(h, OWNER, 'POST', '/api/clouddrive/uploads', {
+async function uploadAs(
+  h: Harness,
+  userId: string,
+  parentPath: string,
+  name: string,
+  content: string,
+): Promise<{ id: string; path: string }> {
+  const token = userId === OWNER ? OWNER_TOKEN : MEMBER_TOKEN
+  const init = await request(h, userId, 'POST', '/api/clouddrive/uploads', {
     parentPath, name, size: content.length, mime: 'text/plain',
   })
   expect(init.status).toBe(200)
   const session = await init.json() as { session: { id: string } }
   const put = await h.app.fetch(new Request(`http://localhost/api/clouddrive/uploads/${session.session.id}/content`, {
     method: 'PUT',
-    headers: { Cookie: `inkstone_session=${OWNER_TOKEN}`, 'X-Inkstone-Client': '1' },
+    headers: { Cookie: `inkstone_session=${token}`, 'X-Inkstone-Client': '1' },
     body: content,
   }), h.env)
   expect(put.status).toBe(200)
-  const complete = await request(h, OWNER, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {})
+  const complete = await request(h, userId, 'POST', `/api/clouddrive/uploads/${session.session.id}/complete`, {})
   expect(complete.status).toBe(200)
   return (await complete.json() as { entry: { id: string; path: string } }).entry
+}
+
+async function upload(h: Harness, parentPath: string, name: string, content: string): Promise<{ id: string; path: string }> {
+  return await uploadAs(h, OWNER, parentPath, name, content)
 }
 
 let h: Harness
@@ -145,5 +156,148 @@ describe('CloudDrive account ACL', () => {
     const file = await upload(h, '/', 'self.txt', 'x')
     expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'owner' })).status).toBe(400)
     expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'ghost' })).status).toBe(404)
+  })
+
+  it('keeps the drive policy on the owner row and lets a member keep their own preferences', async () => {
+    const raised = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { uploadMaxFileBytes: 5 * 1024 ** 4 })
+    expect(raised.status).toBe(403)
+    expect(((await raised.json()) as { error: { code: string } }).error.code).toBe('clouddrive_policy_readonly')
+    const webdav = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { webdavEnabled: true })
+    expect(webdav.status).toBe(403)
+    const password = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { webdavPassword: 'hunter2' })
+    expect(password.status).toBe(403)
+
+    const rules = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', {
+      previewRules: [{ id: 'block', priority: 95, type: 'none', extensions: ['txt'] }],
+    })
+    expect(rules.status).toBe(403)
+
+    const personal = await request(h, MEMBER, 'PATCH', '/api/clouddrive/settings', { storageDisplayQuotaBytes: 1024 * 1024 })
+    expect(personal.status).toBe(200)
+
+    // The ceiling a member uploads against is the owner's, not the one in their own row.
+    await request(h, OWNER, 'PATCH', '/api/clouddrive/settings', { uploadMaxFileBytes: 1024 * 1024 })
+    const tooBig = await request(h, MEMBER, 'POST', '/api/clouddrive/uploads', {
+      parentPath: '/', name: 'm.txt', size: 4 * 1024 * 1024, mime: 'text/plain',
+    })
+    expect(tooBig.status).toBe(413)
+    const fits = await request(h, MEMBER, 'POST', '/api/clouddrive/uploads', {
+      parentPath: '/', name: 'm.txt', size: 8, mime: 'text/plain',
+    })
+    expect(fits.status).toBe(200)
+  })
+
+  it('obeys the owner switch that turns member shares off', async () => {
+    const mine = await uploadAs(h, MEMBER, '/', 'member.txt', 'written by the member')
+    expect((await request(h, MEMBER, 'POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: mine.id, path: mine.path,
+    })).status).toBe(200)
+
+    await request(h, OWNER, 'PATCH', '/api/clouddrive/settings', { shareAllowMemberShares: false })
+    const refused = await request(h, MEMBER, 'POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: mine.id, path: mine.path,
+    })
+    expect(refused.status).toBe(403)
+    // The owner is never gated by a switch that speaks about other people.
+    const theirs = await upload(h, '/', 'owner.txt', 'written by the owner')
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: theirs.id, path: theirs.path,
+    })).status).toBe(200)
+  })
+
+  it('stops a purged file from authorising anything', async () => {
+    const file = await upload(h, '/', 'purge-me.txt', 'content')
+    await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'member' })
+    const share = await request(h, OWNER, 'POST', '/api/clouddrive/shares', {
+      targetKind: 'file', fileId: file.id, path: file.path,
+    })
+    expect(share.status).toBe(200)
+    const slug = ((await share.json()) as { share: { slug: string } }).share.slug
+
+    await request(h, OWNER, 'DELETE', '/api/clouddrive/files', { ids: [file.id] })
+    const purged = await request(h, OWNER, 'DELETE', '/api/clouddrive/files/purge', { ids: [file.id] })
+    expect(purged.status).toBe(200)
+
+    const grant = h.sqlite.prepare('SELECT revoked_at FROM CloudDrive_acl WHERE file_id = ?').get(file.id) as { revoked_at: number | null }
+    expect(grant.revoked_at).not.toBeNull()
+    const shareRow = h.sqlite.prepare('SELECT revoked_at FROM CloudDrive_shares WHERE file_id = ?').get(file.id) as { revoked_at: number | null }
+    expect(shareRow.revoked_at).not.toBeNull()
+    const shared = await request(h, MEMBER, 'GET', '/api/clouddrive/acl/shared')
+    expect(((await shared.json()) as { shared: unknown[] }).shared).toHaveLength(0)
+    const download = await h.app.fetch(new Request(`http://localhost/api/public/clouddrive/shares/${slug}/download`, {
+      headers: { 'X-Inkstone-Client': '1' },
+    }), h.env)
+    expect(download.status).toBeGreaterThanOrEqual(400)
+  })
+
+  it('saves a granted file as the reader\'s own copy that outlives the owner\'s purge', async () => {
+    const file = await upload(h, '/', 'note.txt', 'hello from owner')
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'member' })).status).toBe(200)
+
+    const saved = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', { ownerId: OWNER, fileId: file.id, toPath: '/' })
+    expect(saved.status).toBe(201)
+    const copy = (await saved.json()) as { saved: number; entry: { id: string; path: string } }
+    expect(copy.entry.path).toBe('/note.txt')
+    expect(copy.saved).toBe(1)
+
+    // The copy points at the same bytes rather than a second copy of them.
+    const keys = h.sqlite.prepare(
+      `SELECT storage_key FROM CloudDrive_files WHERE deleted_at IS NULL`,
+    ).all() as { storage_key: string }[]
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys.map((row) => row.storage_key)).size).toBe(1)
+
+    const mine = (await (await request(h, MEMBER, 'GET', '/api/clouddrive/files?path=/')).json()) as { files: { name: string }[] }
+    expect(mine.files.map((entry) => entry.name)).toContain('note.txt')
+
+    // The owner purging their own row must not take the object the reader still references.
+    expect((await request(h, OWNER, 'DELETE', '/api/clouddrive/files', { ids: [file.id] })).status).toBe(200)
+    expect((await request(h, OWNER, 'DELETE', '/api/clouddrive/files/purge', { ids: [file.id] })).status).toBe(200)
+    const objects = [...(h.env.FILES as unknown as { objects: Map<string, unknown> }).objects.keys()]
+    expect(objects).toHaveLength(1)
+
+    const readable = await request(h, MEMBER, 'GET', `/api/clouddrive/files/${copy.entry.id}/content`)
+    expect(readable.status).toBe(200)
+    expect(await readable.text()).toBe('hello from owner')
+  })
+
+  it('saves a granted folder with the shape it was shared in', async () => {
+    const folder = (await (await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'docs' })).json()) as { entry: { id: string } }
+    await upload(h, '/docs', 'a.txt', 'a')
+    await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/docs', name: 'sub' })
+    await upload(h, '/docs/sub', 'b.txt', 'b')
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: folder.entry.id, username: 'member' })).status).toBe(200)
+
+    const saved = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', { ownerId: OWNER, fileId: folder.entry.id, toPath: '/' })
+    expect(saved.status).toBe(201)
+    expect(((await saved.json()) as { saved: number }).saved).toBe(4)
+
+    const top = (await (await request(h, MEMBER, 'GET', '/api/clouddrive/files?path=/')).json()) as { folders: { name: string }[] }
+    expect(top.folders.map((one) => one.name)).toEqual(['docs'])
+    const inside = (await (await request(h, MEMBER, 'GET', '/api/clouddrive/files?path=/docs')).json()) as { folders: { name: string }[]; files: { name: string }[] }
+    expect(inside.files.map((one) => one.name)).toEqual(['a.txt'])
+    expect(inside.folders.map((one) => one.name)).toEqual(['sub'])
+    const deep = (await (await request(h, MEMBER, 'GET', '/api/clouddrive/files?path=/docs/sub')).json()) as { files: { name: string }[] }
+    expect(deep.files.map((one) => one.name)).toEqual(['b.txt'])
+    const copies = h.sqlite.prepare(
+      `SELECT user_id, mount_id, storage_key FROM CloudDrive_files WHERE path = '/docs/sub/b.txt'`,
+    ).all() as { user_id: string; mount_id: string; storage_key: string }[]
+    // Two rows, one per account, over the same object.
+    expect(copies.map((row) => row.user_id).sort()).toEqual([MEMBER, OWNER].sort())
+    expect(new Set(copies.map((row) => row.storage_key)).size).toBe(1)
+    expect(copies.find((row) => row.user_id === MEMBER)?.mount_id).toBe('primary')
+  })
+
+  it('refuses to save what was never granted and what would break the reader quota', async () => {
+    const privateFile = await upload(h, '/', 'secret.txt', 'not shared')
+    const denied = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', { ownerId: OWNER, fileId: privateFile.id, toPath: '/' })
+    expect(denied.status).toBe(404)
+
+    const file = await upload(h, '/', 'shared.txt', 'shared body')
+    expect((await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: file.id, username: 'member' })).status).toBe(200)
+    expect((await request(h, OWNER, 'PATCH', '/api/clouddrive/settings', { quotaDefaultBytes: 1 })).status).toBe(200)
+    const overQuota = await request(h, MEMBER, 'POST', '/api/clouddrive/acl/save', { ownerId: OWNER, fileId: file.id, toPath: '/' })
+    expect(overQuota.status).toBe(403)
+    expect(((await overQuota.json()) as { error: { code: string } }).error.code).toBe('clouddrive_quota_exceeded')
   })
 })

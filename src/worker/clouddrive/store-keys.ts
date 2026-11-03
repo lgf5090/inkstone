@@ -10,8 +10,13 @@ import { newId } from '../lib/id'
 import { ApiError } from '../lib/errors'
 import { parsePath } from './lib'
 
-export const CLOUDDRIVE_KEY_SCOPES = ['read', 'write', 'webdav'] as const
-export type CloudDriveKeyScope = (typeof CLOUDDRIVE_KEY_SCOPES)[number]
+/**
+ * The scopes live in the shared model because the key-creation form is a client screen and the lookup
+ * is a worker one; a list defined twice is a list that drifts.
+ */
+import { CLOUDDRIVE_KEY_SCOPES, type CloudDriveKeyScope } from '@shared/clouddrive/model'
+
+export { CLOUDDRIVE_KEY_SCOPES, type CloudDriveKeyScope }
 
 const TOKEN_RE = /^cdk_[A-Za-z0-9_-]{43}$/
 /** `last_used_at` is a diagnostic, not a write amplifier: at most one update per five minutes. */
@@ -64,15 +69,13 @@ export function parseKeyScopes(value: unknown): CloudDriveKeyScope[] {
     if (!(CLOUDDRIVE_KEY_SCOPES as readonly string[]).includes(part)) continue
     found.add(part as CloudDriveKeyScope)
   }
-  // `write` necessarily reads, so a write key is stored with both and a caller never has to
-  // remember the implication.
-  if (found.has('write')) found.add('read')
+  // A row written while other scopes existed parses to whatever is still meaningful, which for a
+  // retired scope is nothing: the key then fails every lookup instead of half-authenticating.
   return CLOUDDRIVE_KEY_SCOPES.filter((scope) => found.has(scope))
 }
 
 export function apiKeyAllows(scopes: readonly CloudDriveKeyScope[], required: CloudDriveKeyScope): boolean {
-  if (scopes.includes(required)) return true
-  return required === 'read' && scopes.includes('write')
+  return scopes.includes(required)
 }
 
 /** A prefix of `/` is the whole drive; otherwise the path must be the prefix or live under it. */
