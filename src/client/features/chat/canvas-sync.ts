@@ -132,18 +132,34 @@ export type NoteWrite = 'ok' | 'conflict' | 'missing'
  * Write the panel's body into the note.
  *
  * An open note takes the write through the store, the same door the notebook's editor uses — the two
- * surfaces are looking at one document, and a store write is what re-renders both. A closed note is
- * written against the body the panel last saw: a note that changed in the meantime is a conflict, and the
- * reader keeps their text instead of losing the note's.
+ * surfaces are looking at one document, and a store write is what re-renders both. It is still checked
+ * against the body the panel last saw: the store's copy may have moved while the reader was typing in
+ * the panel, and an overwrite there would be as silent as one against a closed note.
+ *
+ * A closed note is written against the same baseline through the store's remote door. A note that
+ * changed in the meantime is a conflict, and the reader keeps their text instead of losing the note's.
+ * `force` is the reader's explicit answer to that diff: it writes this body and records it as the new
+ * baseline.
  */
-export async function pushToNote(artifactId: string, noteId: string, content: string): Promise<NoteWrite> {
+export async function pushToNote(
+  artifactId: string,
+  noteId: string,
+  content: string,
+  options: { force?: boolean } = {},
+): Promise<NoteWrite> {
   const store = useNotes.getState()
-  if (store.contents[noteId] !== undefined) {
+  const open = store.contents[noteId]
+  const baseline = baselineFor(artifactId, noteId)
+  if (open !== undefined) {
+    if (!options.force && baseline !== null && open !== baseline) return 'conflict'
+    // An open note a draft was linked to still needs one read before the first write; without it the
+    // store's copy is the only body either surface has seen, and overwriting the reader's editor with a
+    // panel that never read it is the same blind write a closed note refuses.
+    if (!options.force && baseline === null) return 'conflict'
     store.editContent(noteId, content)
     remember(artifactId, noteId, content)
     return 'ok'
   }
-  const baseline = baselineFor(artifactId, noteId)
   // No baseline means nothing has been read yet, and a write with nothing to compare against would be a
   // blind overwrite — so it is refused, and the caller reads the note first.
   if (baseline === null) return 'conflict'
@@ -153,6 +169,17 @@ export async function pushToNote(artifactId: string, noteId: string, content: st
     return 'ok'
   }
   return result
+}
+
+/**
+ * The open note's body at the moment a write was refused, or null when it is not open.
+ *
+ * The conflict dialog compares the draft against the copy the notebook holds, so it needs that body
+ * without a second request — an open note's store copy is what the write was just checked against.
+ */
+export function openNoteContent(noteId: string): string | null {
+  const content = useNotes.getState().contents[noteId]
+  return content === undefined ? null : content
 }
 
 /** Read the note back into the panel, which is the other direction of the same link. */

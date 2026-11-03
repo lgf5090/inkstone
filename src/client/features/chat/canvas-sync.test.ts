@@ -33,6 +33,10 @@ const OTHER_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz11'
 const THIRD_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz12'
 const FOURTH_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz13'
 const RELOADED_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz14'
+// The open-note conflict cases need ids of their own: the module's baseline map outlives a case, so
+// reusing one would hand the next test a record it never read.
+const OPEN_CONFLICT_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz16'
+const FORCE_ARTIFACT_ID = '01hzzzzzzzzzzzzzzzzzzzzz17'
 const notesOriginal = useNotes.getState()
 const editContent = vi.fn()
 const editRemoteContent = vi.fn()
@@ -58,6 +62,28 @@ describe('a note that is open in the notebook', () => {
     expect(await pushToNote(ARTIFACT_ID, NOTE_ID, 'new')).toBe('ok')
     expect(editContent).toHaveBeenCalledWith(NOTE_ID, 'new')
     expect(editRemoteContent).not.toHaveBeenCalled()
+  })
+
+  it('reports a conflict instead of overwriting text the notebook changed', async () => {
+    useNotes.setState({ contents: { [NOTE_ID]: 'old' } })
+    expect(await loadLinkedNote(OPEN_CONFLICT_ARTIFACT_ID, NOTE_ID)).toEqual({ status: 'ok', content: 'old' })
+    // The notebook's editor wrote in the meantime; the panel's copy is now a different document.
+    useNotes.setState({ contents: { [NOTE_ID]: 'edited in the notebook' } })
+    expect(await pushToNote(OPEN_CONFLICT_ARTIFACT_ID, NOTE_ID, 'panel text')).toBe('conflict')
+    expect(editContent).not.toHaveBeenCalled()
+  })
+
+  it('writes on the reader’s explicit choice, and makes that body the new baseline', async () => {
+    useNotes.setState({ contents: { [NOTE_ID]: 'old' } })
+    await loadLinkedNote(FORCE_ARTIFACT_ID, NOTE_ID)
+    useNotes.setState({ contents: { [NOTE_ID]: 'edited in the notebook' } })
+    expect(await pushToNote(FORCE_ARTIFACT_ID, NOTE_ID, 'panel text', { force: true })).toBe('ok')
+    expect(editContent).toHaveBeenCalledWith(NOTE_ID, 'panel text')
+    // The store's writer is what the real notebook also sees; the mock has to mirror it before the
+    // baseline can be compared again.
+    useNotes.setState({ contents: { [NOTE_ID]: 'panel text' } })
+    // The baseline moved with the write, so the next unchanged push is a plain write.
+    expect(await pushToNote(FORCE_ARTIFACT_ID, NOTE_ID, 'next')).toBe('ok')
   })
 })
 
