@@ -8,7 +8,7 @@
  */
 import { Z_INDEX } from '../../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -638,6 +638,21 @@ export function ReaderView({ book }: { book: BookRecord }) {
           <IconButton label={t('reading.open_note')} size="sm" onClick={() => void openNote()} className={narrow ? 'hidden' : undefined}>
             <FileText size={15} />
           </IconButton>
+          {isFixed ? (
+            <IconButton
+              label={t('reading.index_book')}
+              size="sm"
+              onClick={() => {
+                void fixedStage.current?.indexBook().then((result) => {
+                  useUi.getState().toast({ title: t('reading.index_book_done', { pages: result.pages, chunks: result.chunks }), tone: 'success' })
+                }).catch((error: unknown) => {
+                  useUi.getState().toast({ title: error instanceof Error ? error.message : t('reading.index_book_failed'), tone: 'danger' })
+                })
+              }}
+            >
+              <Database size={15} />
+            </IconButton>
+          ) : null}
           <span className={narrow ? 'hidden' : 'contents'}>
             <IconButton label={t('reading.search_book')} size="sm" active={panel === 'search'} onClick={() => setPanel(panel === 'search' ? null : 'search')}>
               <Search size={15} />

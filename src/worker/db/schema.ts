@@ -3362,6 +3362,25 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_messages', column: 'cached_input_tokens' },
     statements: [`ALTER TABLE chat_messages ADD COLUMN cached_input_tokens INTEGER`],
   },
+  {
+    version: 244,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ai_reader_embeddings (
+        user_id TEXT NOT NULL,
+        book_id TEXT NOT NULL,
+        page INTEGER NOT NULL,
+        chunk INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        text TEXT NOT NULL,
+        vector BLOB NOT NULL,
+        norm REAL NOT NULL,
+        indexed_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, book_id, page, chunk)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_reader_embeddings_user
+         ON ai_reader_embeddings(user_id, indexed_at DESC)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

@@ -2,7 +2,7 @@ import type { AssistantCursorCommand } from '@shared/assistant'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
 import { useQuickAsk } from './quick-ask-store'
-import { quotePassage } from './editor-ai'
+import { composeQuoted } from './editor-ai'
 
 /**
  * Runs one custom instruction against the passage the reader selected.
@@ -13,7 +13,7 @@ import { quotePassage } from './editor-ai'
  */
 export function runCursorCommand(command: AssistantCursorCommand, passage: string, note: { id: string | null, title: string }): void {
   const instruction = command.instruction.trim()
-  const quote = passage.trim() ? `\n\n${quotePassage(passage)}` : ''
+  const text = passage.trim() ? composeQuoted(passage, instruction) : instruction
   if (command.execution === 'quick-ask-ask' || command.execution === 'quick-ask-rewrite') {
     useQuickAsk.getState().openPanel({
       noteId: note.id,
@@ -28,8 +28,8 @@ export function runCursorCommand(command: AssistantCursorCommand, passage: strin
   }
   useUi.getState().setAssistantDock(true)
   if (command.execution === 'add-and-send') {
-    void useAssistant.getState().send(`${instruction}${quote}`)
+    void useAssistant.getState().send(text)
     return
   }
-  useAssistant.getState().seedComposer(`${instruction}${quote}`)
+  useAssistant.getState().seedComposer(text)
 }

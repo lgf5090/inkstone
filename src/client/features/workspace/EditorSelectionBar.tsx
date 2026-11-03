@@ -11,7 +11,7 @@ import type { EditorSelectionInfo } from '../../editor/CodeEditor'
 import { Button } from '../../components/primitives'
 import type { MessageKey } from '../../lib/i18n'
 import { t } from '../../lib/i18n'
-import { runEditorAi, quotePassage, type EditorAiAction } from '../chat/editor-ai'
+import { runEditorAi, composeQuoted, type EditorAiAction } from '../chat/editor-ai'
 import { useQuickAsk } from '../chat/quick-ask-store'
 import { useAssistant } from '../chat/assistant-store'
 import { runCursorCommand } from '../chat/cursor-commands'
@@ -78,7 +78,7 @@ export function EditorSelectionBar({ selection, onDone }: { selection: EditorSel
     if (!view || !noteId) return
     const range = view.state.selection.main
     if (range.empty) return
-    useAssistant.getState().seedComposer(quotePassage(view.state.doc.sliceString(range.from, range.to)))
+    useAssistant.getState().seedComposer(composeQuoted(view.state.doc.sliceString(range.from, range.to)))
     useUi.getState().setAssistantDock(true)
     if (useAssistant.getState().settings?.keepQuotedHighlight !== false) markQuotedRange(view, { from: range.from, to: range.to })
     onDone()

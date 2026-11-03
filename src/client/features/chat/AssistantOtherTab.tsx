@@ -44,6 +44,30 @@ export function OtherTab({ settings }: { settings: AssistantSettings }) {
         <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
           <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
         </SettingRow>
+        <SettingRow title={t('assistant.settings.quote_placement')} description={t('assistant.settings.quote_placement_hint')}>
+          <Segmented
+            size="sm"
+            label={t('assistant.settings.quote_placement')}
+            value={settings.quotePlacement}
+            onChange={(quotePlacement) => void saveSettings({ quotePlacement })}
+            options={[
+              { value: 'before', label: t('assistant.settings.quote_before') },
+              { value: 'after', label: t('assistant.settings.quote_after') },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.edit_apply_mode')} description={t('assistant.settings.edit_apply_mode_hint')}>
+          <Segmented
+            size="sm"
+            label={t('assistant.settings.edit_apply_mode')}
+            value={settings.editApplyMode}
+            onChange={(editApplyMode) => void saveSettings({ editApplyMode })}
+            options={[
+              { value: 'preview', label: t('assistant.settings.apply_preview') },
+              { value: 'direct', label: t('assistant.settings.apply_direct') },
+            ]}
+          />
+        </SettingRow>
         <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')} controlId={startViewId}>
           <Select id={startViewId} value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
             <option value="chat">{t('assistant.view.chat')}</option>

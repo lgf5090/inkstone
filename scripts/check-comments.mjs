@@ -12289,6 +12289,7 @@ const allowed = new Map([
     "// a desktop page. The aspect is kept and the letterboxing left to `object-fit`.",
     "/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on\n          the page itself. */",
     "/** Crop the painted page and hand the picture to the composer, never the whole page by accident. */",
+    "/** Read every page's text once and hand it to the account's knowledge base. */",
   ]],
   ["src/client/features/reading/reader/FootnotePopover.tsx", [
     "/**\n * The note a footnote reference points at, without leaving the page.\n *\n * A reader hovers a superscript to ask \"what is this?\" and the answer has to appear where their eyes\n * already are, so the card is placed against the reference's own box and kept inside the window by\n * clipping to its scrollable ancestor — the same rule the rest of the reader's floating parts follow.\n * The card is not a tooltip: it holds a paragraph, a reader may need to select from it, and it stays\n * until they say otherwise.\n */",
@@ -30095,6 +30096,8 @@ const allowed = new Map([
     "/** Optional override; the manager derives it from the name when absent. */",
     "/** The group a tool is shown under. Unknown names — including remote tools — land under Apps. */",
     "/** Fetch images linked from a text/Markdown attachment into the turn. Off by default. */",
+    "/** Where a quoted passage sits beside the instruction that uses it. */",
+    "/** Whether an editor AI write is applied at once or shown as a diff first. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33429,6 +33432,7 @@ const allowed = new Map([
     "// both are expressed by leaving the callbacks it would reach for out of its context.",
     "// Shape only: a debug line that carried the prompt would be the reader's note in a log.",
     "/** Starts a child that outlives the turn; the task row is what the reader can find afterwards. */",
+    "// The object could not be reached; the in-isolate fallback below still gives the task one run.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34628,6 +34632,9 @@ const allowed = new Map([
     "/** Only a pending question can be answered; a second submission returns null rather than overwriting. */",
     "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
     "/**\n   * Marks the tool results older than the newest `keepRecent` answers as pruned.\n   *\n   * The row keeps the payload — the reader may still want to read what a tool found — and only a flag\n   * changes, which is what the context builder reads. Nothing is deleted, so this is reversible by\n   * editing one JSON blob rather than by restoring a backup.\n   */",
+  ]],
+  ["src/worker/assistant/subagent-do.ts", [
+    "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
   ]],
   ["src/worker/assistant/subscription-mentions.ts", [
     "/**\n * `[[sub:…]]` mentions resolved into the subscription's own facts.\n *\n * A subscription id is the same 26-character shape as a note id, so letting both resolvers claim a bare\n * `[[<id>]]` would mean whichever ran first could report the other's target as missing. The `sub:` prefix\n * is what keeps the two apart, and `note-mentions` skips anything carrying it rather than reporting it\n * as a note that has been deleted.\n *\n * What is quoted is the row's own fields — price, cycle, dates, what has been paid — never the notes\n * field, which is free text a reader may have used for anything. A note is the thing a mention exists to\n * bring words from; a subscription is a row, and the row is what the question is about.\n */",

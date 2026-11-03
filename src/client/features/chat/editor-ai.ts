@@ -427,6 +427,12 @@ export function runEditorAi(input: EditorAiInput): boolean {
 }
 
 /** A passage as a Markdown block quote, which is how a question about it stays a question about it. */
+export function composeQuoted(quote: string, instruction = ''): string {
+  const block = quotePassage(quote)
+  if (!instruction) return block
+  return useAssistant.getState().settings?.quotePlacement === 'after' ? `${instruction}\n\n${block}` : `${block}\n\n${instruction}`
+}
+
 export function quotePassage(text: string): string {
   const body = text.length > QUOTE_CAP ? `${text.slice(0, QUOTE_CAP)}…` : text
   const quoted = body.split('\n').map((line) => `> ${line}`).join('\n')

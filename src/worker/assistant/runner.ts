@@ -2196,6 +2196,27 @@ export class AssistantRunner {
       prompt: input.prompt.slice(0, 8_000),
       modelId: input.modelId ?? this.settings.subagentModelId,
     })
+    if (this.deps.env.SUBAGENT) {
+      try {
+        const stub = this.deps.env.SUBAGENT.get(this.deps.env.SUBAGENT.idFromName(taskId))
+        await stub.fetch('https://subagent/start', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userId: this.store.userId,
+            taskId,
+            description: input.description,
+            prompt: input.prompt,
+            modelId: input.modelId ?? this.settings.subagentModelId,
+            parentConversationId,
+            origin: this.deps.origin,
+          }),
+        })
+        return { taskId, status: 'running' }
+      } catch {
+        // The object could not be reached; the in-isolate fallback below still gives the task one run.
+      }
+    }
     const work = (async () => {
       try {
         const result = await this.runSubagent(input, parentConversationId, taskId)

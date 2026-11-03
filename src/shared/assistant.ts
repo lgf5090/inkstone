@@ -797,6 +797,10 @@ export interface AssistantSettings {
   llmDebug: boolean
   /** Keep the passage that was quoted into the chat marked in the editor until the note is left. */
   keepQuotedHighlight: boolean
+  /** Where a quoted passage sits beside the instruction that uses it. */
+  quotePlacement: 'before' | 'after'
+  /** Whether an editor AI write is applied at once or shown as a diff first. */
+  editApplyMode: 'preview' | 'direct'
   /** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */
   subagentEnabled: boolean
   /** Whether a child may run after the parent turn has returned, reporting by notification. */
@@ -916,6 +920,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   autoCompactRatio: 0.8,
   llmDebug: false,
   keepQuotedHighlight: true,
+  quotePlacement: 'before',
+  editApplyMode: 'preview',
   subagentEnabled: false,
   subagentAsyncEnabled: false,
   subagentModelId: null,
@@ -1090,6 +1096,8 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     autoCompactRatio: numberInRange(raw.autoCompactRatio, 0.3, 0.95, DEFAULT_ASSISTANT_SETTINGS.autoCompactRatio),
     llmDebug: booleanValue(raw.llmDebug, DEFAULT_ASSISTANT_SETTINGS.llmDebug),
     keepQuotedHighlight: booleanValue(raw.keepQuotedHighlight, DEFAULT_ASSISTANT_SETTINGS.keepQuotedHighlight),
+    quotePlacement: enumValue(raw.quotePlacement, ['before', 'after'] as const, DEFAULT_ASSISTANT_SETTINGS.quotePlacement),
+    editApplyMode: enumValue(raw.editApplyMode, ['preview', 'direct'] as const, DEFAULT_ASSISTANT_SETTINGS.editApplyMode),
     subagentEnabled: booleanValue(raw.subagentEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentEnabled),
     subagentAsyncEnabled: booleanValue(raw.subagentAsyncEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentAsyncEnabled),
     subagentModelId: typeof raw.subagentModelId === 'string' && raw.subagentModelId ? raw.subagentModelId.slice(0, 26) : null,

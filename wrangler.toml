@@ -108,6 +108,10 @@ class_name = "MusicQueue"
 name = "MUSIC_SHARE_LIMITER"
 class_name = "MusicShareLimiter"
 
+[[durable_objects.bindings]]
+name = "SUBAGENT"
+class_name = "SubagentRunner"
+
 [exports.SyncHub]
 type = "durable-object"
 storage = "sqlite"
@@ -125,6 +129,10 @@ type = "durable-object"
 storage = "sqlite"
 
 [exports.MusicShareLimiter]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.SubagentRunner]
 type = "durable-object"
 storage = "sqlite"
 

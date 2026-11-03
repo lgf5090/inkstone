@@ -107,7 +107,7 @@ import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
-import { searchSemanticNotes } from '../mcp/ai-search'
+import { embedTexts, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
 import { OneShotError, runOneShot } from '../assistant/one-shot'
 import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
@@ -1678,8 +1678,6 @@ async function unstartableTurn(
  * so a dense page does not turn into an unbounded number of embedding calls.
  */
 
-async function pingHandler(c: Context<AppBindings>) { return c.json({ ok: true }) }
-assistantRoutes.post('/zzping', pingHandler)
 
 assistantRoutes.post('/chat', async (c) => {
   const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
@@ -2484,6 +2482,40 @@ assistantRoutes.post('/conversations/:id/compact', async (c) => {
     }
     throw error
   }
+})
+
+assistantRoutes.post('/reader-index', async (c) => {
+  const body = await readJson<{ bookId?: unknown, pages?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  const bookId = typeof body.bookId === 'string' ? body.bookId.trim().slice(0, 200) : ''
+  if (!bookId) throw ApiError.badRequest('A book id is required.')
+  const entries = Array.isArray(body.pages) ? body.pages.slice(0, 200) : []
+  const s = store(c)
+  const title = await s.readerBookTitle(bookId)
+  if (title === null) throw ApiError.notFound('Book not found')
+  if (!c.env.AI) throw new ApiError(503, 'internal', 'The embedding model is not configured.')
+  const pages: Array<{ page: number, texts: string[] }> = []
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const page = typeof row.page === 'number' ? Math.trunc(row.page) : 0
+    const text = typeof row.text === 'string' ? row.text.trim().slice(0, 8_000) : ''
+    if (page < 1 || page > 10_000 || !text) continue
+    const texts = Array.from({ length: Math.min(4, Math.ceil(text.length / 1_500)) }, (_, index) => text.slice(index * 1_500, (index + 1) * 1_500)).filter(Boolean)
+    if (texts.length) pages.push({ page, texts })
+  }
+  if (!pages.length) throw ApiError.badRequest('There is no page text to index.')
+  const vectors = await embedTexts(c.env.AI, pages.flatMap((entry) => entry.texts))
+  let offset = 0
+  let written = 0
+  const prepared = pages.map((entry) => {
+    const chunks = entry.texts.map((text) => {
+      const vector = vectors[offset++]!
+      return { text, vector: encodeVector(vector), norm: vectorNorm(vector) }
+    })
+    return { page: entry.page, chunks }
+  })
+  written = await s.replaceReaderPages(bookId, title, prepared)
+  return c.json({ indexed: written, pages: prepared.length })
 })
 
 assistantRoutes.post('/one-shot', async (c) => {

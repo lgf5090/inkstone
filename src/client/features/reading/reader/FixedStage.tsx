@@ -24,12 +24,15 @@ import type { PdfPageText } from '../engine/pdf'
 import { Button } from '../../../components/primitives'
 import { useAssistant } from '../../chat/assistant-store'
 import { useUi } from '../../../store/ui'
+import { api } from '../../../lib/api'
 
 export interface FixedStageHandle {
   next(): void
   prev(): void
   goTo(position: BookPosition): void
   current(): BookPosition | null
+  /** Read every page's text once and hand it to the account's knowledge base. */
+  indexBook(): Promise<{ pages: number, chunks: number }>
 }
 
 type PdfHandle = {
@@ -204,6 +207,31 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       setPage(spread === 2 ? Math.floor((position.page - 1) / 2) * 2 + 1 : position.page)
     },
     current: () => ({ kind: 'fixed', page }),
+    indexBook: async () => {
+      const document = docRef.current?.document
+      if (!document) return { pages: 0, chunks: 0 }
+      const { readPdfTextContent } = await import('../engine/pdf')
+      let pages = 0
+      let chunks = 0
+      let batch: Array<{ page: number, text: string }> = []
+      const flush = async () => {
+        if (!batch.length) return
+        const result = await api.assistant.indexReaderBook(book.id, batch)
+        chunks += result.indexed
+        batch = []
+      }
+      for (let number = 1; number <= Math.min(document.numPages, 200); number++) {
+        const source = await document.getPage(number).catch(() => null) as { getTextContent(): Promise<unknown> } | null
+        if (!source) continue
+        const text = readPdfTextContent(await source.getTextContent() as never).text.trim()
+        if (!text) continue
+        pages += 1
+        batch.push({ page: number, text })
+        if (batch.length >= 8) await flush()
+      }
+      await flush()
+      return { pages, chunks }
+    },
   }), [page, pages, spread])
 
   /** In scroll mode the visible page follows the scrollbar, so a turn is a scroll. */
