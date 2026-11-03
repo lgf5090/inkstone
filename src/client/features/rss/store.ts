@@ -42,7 +42,13 @@ import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
-import { sanitizeFeedHtml } from './sanitize'
+import { htmlToText, sanitizeFeedHtml } from './sanitize'
+
+/** How much article text the assistant gets: a whole post, not a whole archive. */
+const READING_CONTENT_CHARS = 6000
+const READING_SUMMARY_CHARS = 600
+/** A batch of feed refreshes should coalesce into one upload per feed, not one per article. */
+const READING_UPLOAD_DELAY_MS = 2000
 
 /** Which version of the article the reader is looking at: the author's, or an answer about it. */
 export type RssReadingVersion = 'original' | 'summary' | 'translation'
@@ -112,6 +118,14 @@ export interface RssState {
   saveError: string | null
   savedAt: number
   load: () => Promise<void>
+  /**
+   * Re-read the account's library without touching the articles.
+   *
+   * The assistant marks articles through the same server rows this device syncs, so after a turn
+   * beside this page the reader expects the unread badge to move. A device with unsaved changes
+   * keeps its own copy: overwriting them here is how a mark the reader just made disappears.
+   */
+  reloadFromServer: () => Promise<void>
   reset: () => void
   open: (channel: RssChannel) => Promise<void>
   setFilter: (filter: RssFilter) => void
@@ -210,6 +224,39 @@ export const useRss = create<RssState>((set, get) => {
    */
   let sent: RssLibrary | null = null
   const loading = new Map<string, Promise<void>>()
+  const readingUploads = new Map<string, number>()
+
+  /**
+   * Hand this feed's articles to the account, so the assistant can read them.
+   *
+   * Debounced per feed because a batch refresh finishes many feeds within a second and the account
+   * needs the newest list, not one write per article. A failed upload is not a failed refresh: the
+   * device keeps what it holds, and the next refresh or load tries again.
+   */
+  function scheduleReadingUpload(feedId: string): void {
+    const pending = readingUploads.get(feedId)
+    if (pending) window.clearTimeout(pending)
+    readingUploads.set(feedId, window.setTimeout(() => {
+      readingUploads.delete(feedId)
+      const entries = get().articles[feedId]
+      if (!entries?.length) return
+      const payload = entries.map(entry => ({
+        id: entry.id,
+        feedId,
+        title: entry.title,
+        link: entry.link,
+        author: entry.author,
+        content: htmlToText(entry.content || entry.summary, READING_CONTENT_CHARS),
+        summary: htmlToText(entry.summary, READING_SUMMARY_CHARS),
+        publishedTs: entry.publishedTs,
+        imageUrl: entry.imageUrl,
+        audioUrl: entry.audioUrl,
+      }))
+      void api.rss.saveReading(feedId, payload).catch((error: unknown) => {
+        console.warn('[inkstone] RSS reading snapshot was not uploaded', error)
+      })
+    }, READING_UPLOAD_DELAY_MS))
+  }
 
   function scheduleSave(): void {
     dirty = true
@@ -310,6 +357,7 @@ export const useRss = create<RssState>((set, get) => {
       articles: { ...state.articles, [feedId]: entries },
       fetchedAt: { ...state.fetchedAt, [feedId]: fetched },
     }))
+    scheduleReadingUpload(feedId)
     await trimCache()
   }
 
@@ -346,6 +394,7 @@ export const useRss = create<RssState>((set, get) => {
           fetchedAt: { ...state.fetchedAt, [feedId]: cached.fetchedAt },
         }
       })
+      scheduleReadingUpload(feedId)
     })().finally(() => loading.delete(feedId))
     loading.set(feedId, run)
     return run
@@ -507,9 +556,25 @@ export const useRss = create<RssState>((set, get) => {
       if (due.length) void get().refresh(due.map(feed => feed.id))
     },
 
+    async reloadFromServer() {
+      if (get().status !== 'ready' || dirty || saveInFlight) return
+      try {
+        const response = await api.rss.load()
+        const library = parseRssLibrary(response.library).data ?? emptyLibrary()
+        set({ library: { ...library, lastChannel: get().library.lastChannel }, savedAt: response.savedAt })
+        sent = structuredClone(get().library)
+      }
+      catch (error) {
+        set({ saveError: error instanceof Error && error.message ? error.message : t('rss.error.load_failed') })
+        console.warn('[inkstone] RSS library could not be reloaded', error)
+      }
+    },
+
     reset() {
       if (saveTimer) window.clearTimeout(saveTimer)
       saveTimer = 0
+      for (const timer of readingUploads.values()) window.clearTimeout(timer)
+      readingUploads.clear()
       dirty = false
       sent = null
       index = emptyIndex()

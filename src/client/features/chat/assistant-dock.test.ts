@@ -143,6 +143,20 @@ describe('the docked assistant', () => {
     expect(useAssistant.getState().navContextOn).toBe(false)
   })
 
+  it('takes its page context away when the dock leaves', async () => {
+    await show(
+      { loaded: true, activeId: null, messages: [], messagesReady: true },
+      { surface: 'rss', pageContext: { surface: 'rss', label: 'Unread', facts: ['unread in this channel: 3'] } },
+    )
+    expect(useAssistant.getState().dockSurface).toBe('rss')
+    expect(useAssistant.getState().pageContext).toMatchObject({ surface: 'rss', label: 'Unread' })
+
+    act(() => root.unmount())
+    expect(useAssistant.getState().dockSurface).toBe('notebook')
+    expect(useAssistant.getState().pageContext).toBeNull()
+    root = createRoot(host)
+  })
+
   it('carries the handwritten note, names it and lets the reader take it off', async () => {
     await show(
       { loaded: true, activeId: null, messages: [], messagesReady: true },

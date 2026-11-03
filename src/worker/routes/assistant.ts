@@ -2443,6 +2443,9 @@ const MAX_KNOWLEDGE_BASES = 40
 const MAX_KNOWLEDGE_NAME_CHARS = 120
 const MAX_KNOWLEDGE_DESCRIPTION_CHARS = 2_000
 
+/** The widest answer a one-shot call may ask for: a whole-article translation, not an essay. */
+const ONE_SHOT_MAX_OUTPUT_TOKENS = 4000
+
 /**
  * One page of a reader-owned PDF, indexed for the knowledge base.
  *
@@ -2604,8 +2607,10 @@ assistantRoutes.post('/one-shot', async (c) => {
   if (!user.trim()) throw ApiError.badRequest('A one-shot call needs text.')
   const system = typeof body.system === 'string' ? body.system.slice(0, 4_000) : ''
   const modelId = typeof body.modelId === 'string' && isValidId(body.modelId) ? body.modelId : undefined
+  // The default stays small because most callers are a naming pass; a caller that asks for more is
+  // capped here rather than trusted, and the RSS translation is the widest legitimate ask.
   const maxOutputTokens = typeof body.maxOutputTokens === 'number'
-    ? Math.max(1, Math.min(400, Math.trunc(body.maxOutputTokens)))
+    ? Math.max(1, Math.min(ONE_SHOT_MAX_OUTPUT_TOKENS, Math.trunc(body.maxOutputTokens)))
     : 160
   const timeoutMs = typeof body.timeoutMs === 'number'
     ? Math.max(1_000, Math.min(60_000, Math.trunc(body.timeoutMs)))

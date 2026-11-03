@@ -13,7 +13,7 @@
  * column is set to NULL the moment it has been split. A reader who deleted every subscription keeps
  * the state row and an empty table set, and never re-runs the split.
  */
-import { emptyLibrary, parseRssLibrary, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
+import { emptyLibrary, normaliseEntry, parseRssLibrary, type RssFeed, type RssGroup, type RssLibrary } from '@shared/rss/model'
 import { libraryMarkRows, marksIntoLibrary, RSS_LIST_MARK_KINDS, type RssMarkKind } from '@shared/rss/marks'
 
 /** D1 binds at most 100 variables per statement; stay under it the way `routes/tags.ts` does. */
@@ -454,4 +454,158 @@ export async function loadRssLibrary(db: D1Database, userId: string): Promise<Rs
 export async function accountExists(db: D1Database, userId: string): Promise<boolean> {
   const account = await db.prepare('SELECT id FROM users WHERE id = ?1').bind(userId).first()
   return account !== null
+}
+
+/**
+ * One article as the assistant reads it.
+ *
+ * The article list itself is rebuilt from the network and stays on the device that fetched it, so
+ * the Worker has no article to answer a question about. The device therefore hands over the newest
+ * articles it holds, already reduced to plain text, and this row is what the RSS tools read. It is a
+ * cache beside the library, never part of it: marks and subscriptions keep their own rows, and a
+ * device can stop uploading at any time without losing what the reader decided.
+ */
+export interface RssReadingEntry {
+  id: string
+  feedId: string
+  title: string
+  link: string
+  author: string
+  /** Plain text, not the feed's HTML: the assistant reads sentences, not markup. */
+  content: string
+  summary: string
+  publishedTs: number | null
+  imageUrl: string
+  audioUrl: string
+}
+
+interface RssReadingFeed {
+  capturedAt: number
+  entries: RssReadingEntry[]
+}
+
+export interface RssReadingSnapshot {
+  capturedAt: number
+  feeds: Record<string, RssReadingFeed>
+}
+
+/** What one article may contribute, so a single long post cannot fill the whole row. */
+const READING_CONTENT_CHARS = 6000
+const READING_SUMMARY_CHARS = 600
+/** How many articles one feed, and the whole account, may keep for the assistant. */
+const READING_ENTRIES_PER_FEED = 40
+const READING_ENTRIES_TOTAL = 180
+/** The row's size ceiling, well under what D1 will store for one value. */
+const READING_SNAPSHOT_CHARS = 600_000
+
+function readingEntry(value: unknown, feedId: string): RssReadingEntry | null {
+  const entry = normaliseEntry(value, feedId)
+  if (!entry) return null
+  return {
+    id: entry.id,
+    feedId,
+    title: entry.title,
+    link: entry.link,
+    author: entry.author,
+    content: entry.content.slice(0, READING_CONTENT_CHARS),
+    summary: entry.summary.slice(0, READING_SUMMARY_CHARS),
+    publishedTs: entry.publishedTs,
+    imageUrl: entry.imageUrl,
+    audioUrl: entry.audioUrl,
+  }
+}
+
+function readingFeed(value: unknown, feedId: string): RssReadingFeed | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as { capturedAt?: unknown; entries?: unknown }
+  if (!Array.isArray(row.entries)) return null
+  const capturedAt = typeof row.capturedAt === 'number' && Number.isFinite(row.capturedAt) ? Math.trunc(row.capturedAt) : 0
+  const entries: RssReadingEntry[] = []
+  for (const item of row.entries) {
+    const entry = readingEntry(item, feedId)
+    if (entry) entries.push(entry)
+    if (entries.length >= READING_ENTRIES_PER_FEED) break
+  }
+  return entries.length ? { capturedAt, entries } : null
+}
+
+function parseReadingSnapshot(raw: unknown): RssReadingSnapshot | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  }
+  catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const row = parsed as { capturedAt?: unknown; feeds?: unknown }
+  if (!row.feeds || typeof row.feeds !== 'object' || Array.isArray(row.feeds)) return null
+  const feeds: Record<string, RssReadingFeed> = {}
+  for (const [feedId, value] of Object.entries(row.feeds as Record<string, unknown>)) {
+    const feed = readingFeed(value, feedId)
+    if (feedId && feed) feeds[feedId] = feed
+  }
+  if (!Object.keys(feeds).length) return null
+  const capturedAt = typeof row.capturedAt === 'number' && Number.isFinite(row.capturedAt) ? Math.trunc(row.capturedAt) : 0
+  return { capturedAt, feeds }
+}
+
+export async function loadRssReading(db: D1Database, userId: string): Promise<RssReadingSnapshot | null> {
+  const row = await db.prepare('SELECT snapshot, captured_at FROM rss_reading WHERE user_id = ?1')
+    .bind(userId)
+    .first<{ snapshot: string; captured_at: number }>()
+  if (!row) return null
+  const snapshot = parseReadingSnapshot(row.snapshot)
+  return snapshot ? { ...snapshot, capturedAt: snapshot.capturedAt || row.captured_at || 0 } : null
+}
+
+function newestFirst(left: RssReadingEntry, right: RssReadingEntry): number {
+  return (right.publishedTs ?? 0) - (left.publishedTs ?? 0)
+}
+
+/**
+ * Replace one feed's slice of the snapshot, then trim the whole row to its ceilings.
+ *
+ * Per feed rather than per device is deliberate: a reader with forty subscriptions refreshes them a
+ * few at a time, and a full replace would erase the thirty-nine that just answered. The oldest
+ * articles lose their text first, because "what did I miss today" is the question this row exists
+ * for and an archive from last month is the part it can afford to forget.
+ */
+export async function saveRssReadingFeed(
+  db: D1Database,
+  userId: string,
+  feedId: string,
+  raw: readonly unknown[],
+  capturedAt = Date.now(),
+): Promise<{ capturedAt: number; entries: number }> {
+  const snapshot = (await loadRssReading(db, userId)) ?? { capturedAt, feeds: {} }
+  const entries: RssReadingEntry[] = []
+  for (const item of raw.slice(0, READING_ENTRIES_PER_FEED)) {
+    const entry = readingEntry(item, feedId)
+    if (entry) entries.push(entry)
+  }
+  entries.sort(newestFirst)
+  snapshot.feeds[feedId] = { capturedAt, entries }
+
+  const kept: Record<string, RssReadingFeed> = {}
+  let stored = 0
+  let chars = 0
+  for (const [id, feed] of Object.entries(snapshot.feeds)) {
+    const rows: RssReadingEntry[] = []
+    for (const entry of [...feed.entries].sort(newestFirst)) {
+      const cost = entry.content.length + entry.summary.length + entry.title.length
+      if (stored >= READING_ENTRIES_TOTAL || chars + cost > READING_SNAPSHOT_CHARS) break
+      rows.push(entry)
+      stored += 1
+      chars += cost
+    }
+    if (rows.length) kept[id] = { capturedAt: feed.capturedAt, entries: rows }
+  }
+  const next: RssReadingSnapshot = { capturedAt, feeds: kept }
+  await db.prepare(
+    `INSERT INTO rss_reading (user_id, snapshot, captured_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(user_id) DO UPDATE SET snapshot = excluded.snapshot, captured_at = excluded.captured_at`,
+  ).bind(userId, JSON.stringify(next), capturedAt).run()
+  return { capturedAt, entries: kept[feedId]?.entries.length ?? 0 }
 }

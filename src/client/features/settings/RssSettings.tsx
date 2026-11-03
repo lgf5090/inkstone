@@ -6,12 +6,13 @@
  * is not here on purpose. A list of feeds is data a reader edits where they read it, with the
  * article counts beside it, and a settings page cannot show counts it has not fetched.
  *
- * The AI key is the one credential in this panel, and it is not stored with the rest: it lives in
- * this browser only, so it cannot ride out in a backup or appear on a device the reader never typed
- * it into. The note under the field says that rather than leaving it to be inferred.
+ * The AI half of this panel no longer holds a credential. Summaries and translations run on the
+ * assistant's account model, so the panel names the model that will answer and, when this device
+ * still holds a key typed into an older build, says so rather than deleting it behind the reader's
+ * back: the local copy is cleared only from the button, and nothing about it leaves the browser.
  */
 import { useEffect, useState, type ReactElement } from 'react'
-import { Check, PlugZap, Trash2, X } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import {
   RSS_COLUMN_WIDTHS,
   RSS_FONT_SIZE_RANGE,
@@ -22,14 +23,14 @@ import {
 import type { RssListDensity, RssReadingFont, RssReadingTheme, RssSortOrder } from '@shared/types'
 import { RSS_LIMITS } from '@shared/rss/model'
 import { Button } from '../../components/primitives'
-import { Field, Input, Select, Segmented, SettingRow, Slider, Switch } from '../../components/form'
+import { Input, Select, Segmented, SettingRow, Slider, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { formatBytes } from '../../lib/time'
 import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
 import { useUi } from '../../store/ui'
-import { testAIConnection } from '../../lib/ai'
-import { aiReady, loadAiConfig, providerForBaseUrl, saveAiConfig, type RssAiConfig } from '../rss/ai'
+import { clearLegacyAiKey, loadLegacyAiKey, type LegacyRssAi } from '../rss/ai'
+import { useAssistant } from '../chat/assistant-store'
 import { useRss } from '../rss/store'
 import { SourceHealth } from '../rss/SourceHealth'
 
@@ -38,13 +39,16 @@ export function RssSettings(): ReactElement {
   const update = useSession(state => state.updateSettings)
   const patch = (next: Partial<typeof rss>): void => update({ rss: next })
   const library = useRss(state => state.library)
-  const [ai, setAi] = useState<RssAiConfig | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ ok: boolean, text: string } | null>(null)
+  const [legacy, setLegacy] = useState<LegacyRssAi | null>(null)
+  const assistantSettings = useAssistant(state => state.settings)
+  const assistantModels = useAssistant(state => state.models)
 
   useEffect(() => {
-    void loadAiConfig().then(setAi)
+    void loadLegacyAiKey().then(setLegacy)
+    void useAssistant.getState().bootstrap()
   }, [])
+
+  const activeModel = assistantModels.find(model => model.id === assistantSettings?.activeModelId) ?? null
 
   // The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds
   // and has opened two still has 40 feeds on disk, and the reader is asking about the disk.
@@ -75,16 +79,16 @@ export function RssSettings(): ReactElement {
     useUi.getState().toast({ title: t('rss.storage.bodies_cleared', { n: feeds }), tone: 'success' })
   }
 
-  const test = async (): Promise<void> => {
-    if (!ai) return
-    setTesting(true)
-    setTestResult(null)
-    const result = await testAIConnection({ provider: providerForBaseUrl(ai.baseURL), baseURL: ai.baseURL, apiKey: ai.apiKey }, ai.model)
-    setTesting(false)
-    setTestResult({
-      ok: result.ok,
-      text: result.ok ? t('rss.ai.test_ok', { ms: result.latencyMs }) : t('rss.ai.test_failed', { error: result.error ?? '' }),
-    })
+  const forgetLegacyKey = async (): Promise<void> => {
+    if (!(await confirm({
+      title: t('rss.ai.legacy_confirm'),
+      description: t('rss.ai.legacy_confirm_desc'),
+      tone: 'danger',
+      confirmLabel: t('rss.ai.legacy_forget'),
+    }))) return
+    await clearLegacyAiKey()
+    setLegacy(null)
+    useUi.getState().toast({ title: t('rss.ai.legacy_forgotten'), tone: 'success' })
   }
 
   const clearCache = async (): Promise<void> => {
@@ -279,59 +283,27 @@ export function RssSettings(): ReactElement {
         </SettingRow>
         {rss.aiEnabled && (
           <div className="mt-3 space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3">
-            <Field label={t('rss.ai.base_url')} hint={t('rss.ai.local_only')}>
-              <Input
-                value={ai?.baseURL ?? ''}
-                onChange={event => setAi(current => ({ ...(current ?? EMPTY_AI), baseURL: event.target.value }))}
-                placeholder="https://api.deepseek.com"
-              />
-            </Field>
-            <div className="flex flex-wrap gap-3">
-              <Field label={t('rss.ai.model')} className="min-w-[180px] flex-1">
-                <Input
-                  value={ai?.model ?? ''}
-                  onChange={event => setAi(current => ({ ...(current ?? EMPTY_AI), model: event.target.value }))}
-                  placeholder="deepseek-chat"
-                />
-              </Field>
-              <Field label={t('rss.ai.api_key')} className="min-w-[220px] flex-[2]">
-                <Input
-                  type="password"
-                  value={ai?.apiKey ?? ''}
-                  onChange={event => setAi(current => ({ ...(current ?? EMPTY_AI), apiKey: event.target.value }))}
-                  autoComplete="off"
-                />
-              </Field>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                icon={<PlugZap size={13} />}
-                loading={testing}
-                disabled={!ai || !aiReady(ai)}
-                onClick={() => void test()}
-              >
-                {t('rss.ai.test')}
-              </Button>
-              {testResult && (
-                <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
-                  {testResult.ok ? <Check size={12} /> : <X size={12} />}
-                  <span className="truncate">{testResult.text}</span>
-                </span>
-              )}
-              <Button
-                size="sm"
-                className="ml-auto"
-                disabled={!ai}
-                onClick={() => {
-                  if (!ai) return
-                  void saveAiConfig({ ...ai, provider: providerForBaseUrl(ai.baseURL) })
-                  useUi.getState().toast({ title: t('rss.ai.saved'), tone: 'success' })
-                }}
-              >
-                {t('common.save')}
-              </Button>
-            </div>
+            <SettingRow title={t('rss.ai.account_model')}>
+              <span className="text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+                {activeModel
+                  ? t('rss.ai.model_active', { name: activeModel.label || activeModel.model })
+                  : t('rss.ai.model_none')}
+              </span>
+            </SettingRow>
+            {legacy && (
+              <div className="rounded-[var(--r-md)] border border-[var(--warning)]/40 bg-[var(--bg-raised)] p-3">
+                <p className="text-[length:var(--text-12)] font-medium text-[var(--text-primary)]">{t('rss.ai.legacy_key')}</p>
+                <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">{t('rss.ai.legacy_key_hint')}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--text-11)] text-[var(--text-quaternary)]">
+                    {legacy.model || legacy.baseURL || '***'}
+                  </span>
+                  <Button size="sm" variant="danger" onClick={() => void forgetLegacyKey()}>
+                    {t('rss.ai.legacy_forget')}
+                  </Button>
+                </div>
+              </div>
+            )}
             <SettingRow title={t('rss.ai.language')}>
               <Segmented
                 size="sm"
@@ -374,6 +346,4 @@ export function RssSettings(): ReactElement {
     </div>
   )
 }
-
-const EMPTY_AI: RssAiConfig = { provider: 'deepseek', baseURL: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' }
 

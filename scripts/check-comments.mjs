@@ -12995,6 +12995,16 @@ const allowed = new Map([
     "// only ever the reading surface answering: leave focus mode.",
     "// A phone gets the rail as its one pane; a tablet gets it laid over the list it",
     "// is already showing, because 768px is wide enough for two and not for three.",
+    "// The dock needs a third column, not a three-pane rail: 768px is where this app already lets",
+    "// two panes share the screen, so it is where the assistant column stops taking a pane.",
+    "// What the dock sends with a question. The label is the screen the reader sees; the facts are the",
+    "// filter, the counts and the article under their eyes, so \"summarise this\" has an id to resolve",
+    "// and \"what is unread today\" does not need a second round trip to discover the channel.",
+    "// The assistant marks articles through the account rows this reader syncs. After a turn beside",
+    "// this page, re-read those rows once so the unread badge moves without a manual refresh. The",
+    "// store keeps its copy when this device still has an unsaved change, which is the honest answer",
+    "// rather than overwriting a mark the reader just made.",
+    "/* The assistant column is this page's, not the notebook's: it is mounted here so its page\n          context is the RSS screen and disappears with it. Below the tablet breakpoint the third\n          column would leave the article pane a sliver, so the dock is not offered there. */",
   ]],
   ["src/client/features/rss/RssArticleList.tsx", [
     "/**\n * The article list: the rows a reader scans before they decide to read.\n *\n * A row is one button and holds no other control. That is not the gate's rule but the reader's: a\n * row that also carries a star, a menu and a checkbox turns every sweep of the mouse into a coin\n * flip about which of the four things got hit. Everything a row can *do* beyond opening happens in\n * the reader or in the row's own right-click menu, and picking several rows at once is a modifier\n * click on the row itself — the same gesture the file list already uses.\n *\n * The list draws at most `PAGE` rows and offers the rest behind a click. A merged channel of 400\n * feeds is a few thousand nodes, and a reader who scrolls that far is rare enough that the extra\n * paint is not worth the first frame's cost.\n *\n * The right edge is a divider. A 320px list is right for scanning headlines and wrong for a wide\n * monitor with an article open beside it, and only the reader knows which they are doing.\n */",
@@ -13078,15 +13088,11 @@ const allowed = new Map([
     "/**\n * How long the pointer has to rest on a row before its preview card opens.\n *\n * Hover intent, not a delay for its own sake: a reader crossing the list to reach something else moves\n * through a dozen rows, and a card that answers each of them is a card that is never read and covers\n * the row it is passing. Long enough to be an aim, short enough not to feel like the list hesitating.\n */",
   ]],
   ["src/client/features/rss/RssReader.tsx", [
-    "/**\n * The reader: one article, and the things a reader does with it.\n *\n * The body is drawn with the notebook's own prose styles rather than a copy of them, so an article\n * and a note read as one library. The size, measure and spacing the reader picks are written as the\n * three prose custom properties on this container only — a change here is a change to how articles\n * look, not to how the editor looks.\n *\n * Every action in the toolbar is a question about one article, which is why they live here and not\n * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the\n * notes module, which is where the dedupe rules are; the two that ask a model go through the AI\n * module, which refuses to say anything until the reader has configured a key.\n */",
     "/** [id, paper, ink] — the sample a reader clicks is the colour the page will actually take. */",
     "// The channel list is a filter, and an open article can leave it: marking the only unread article",
     "// read, unstarring the only starred one, hiding it. That article is still the page the reader is",
     "// looking at, so it is resolved from what this device holds rather than from what still matches —",
     "// while previous/next keep stepping through the list the reader was actually browsing.",
-    "// Read the key when it is asked for, not when the pane mounted: a reader who has just typed it",
-    "// into the settings dialog expects this button to work, and a snapshot taken before they did",
-    "// would tell them to go configure it again.",
     "// Kept against the article that was asked about, not whichever one is on screen now: a",
     "// reader who moves on mid-stream should still find the answer where they left it.",
     "// The channel's rows are notes, and a note is read where it can be edited, linked and synced.",
@@ -13104,6 +13110,10 @@ const allowed = new Map([
     "/* The other two versions are answers *about* this article, so they take its place rather\n              than trailing below it: a reader on the summary tab is deciding whether to read the\n              thing, and scrolling past the whole article to get there defeats the question. */",
     "/** One of the two versions that are not the author's own text. */",
     "/* A span, not a heading: the prose sheet sizes every h2 in the article, and this label is\n            chrome beside the answer rather than one of the article's own headings. */",
+    "/**\n * The reader: one article, and the things a reader does with it.\n *\n * The body is drawn with the notebook's own prose styles rather than a copy of them, so an article\n * and a note read as one library. The size, measure and spacing the reader picks are written as the\n * three prose custom properties on this container only — a change here is a change to how articles\n * look, not to how the editor looks.\n *\n * Every action in the toolbar is a question about one article, which is why they live here and not\n * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the\n * notes module, which is where the dedupe rules are; the two that ask a model go through the AI\n * module, which answers on the assistant's account model and refuses to pretend otherwise when\n * none is configured.\n */",
+    "// The model is the account's, read when the button is pressed rather than when the pane mounted:",
+    "// a reader who configured one in the assistant a moment ago expects this button to work on the",
+    "// next click. The bootstrap is idempotent, so a dock already open makes this a no-op.",
   ]],
   ["src/client/features/rss/RssSearchPanel.tsx", [
     "/**\n * Search over every article this device holds, not just the channel on screen.\n *\n * The list's own box filters what is loaded; this answers the other question — \"where did I see\n * that?\" — which a reader asks across months of reading, not one feed. The index is built from the\n * local caches with the bodies dropped, because the search only ever reads a title, a summary and a\n * source name, and a hundred kilobytes of HTML per row would turn a lookup into a stall.\n */",
@@ -13124,13 +13134,15 @@ const allowed = new Map([
     "/**\n * What the reader's key is asked, in the reader's name.\n *\n * These two builders are the whole of what leaves the device for a model: the article as text a\n * sanitizer already stripped, the passage the reader marked, and the question they typed. Markup\n * would be more tokens and more ways for a feed to talk to the model than the reader meant, and an\n * uncapped passage would spend the reader's money on text nobody is asking about.\n */",
   ]],
   ["src/client/features/rss/ai.ts", [
-    "/**\n * Asking a model about an article, on the reader's own key.\n *\n * The reference reader this port follows got its Chinese rewrites from the service that publishes\n * the feeds, which is a reasonable design for a hosted product and an impossible one for a notebook\n * that must work without an account. Here the same two affordances — a summary, and a translation\n * into the reader's language — are offered against whatever endpoint the reader configures, so the\n * feature is off until they ask for it and costs nothing they did not choose.\n *\n * Two things are deliberate. The key is stored in this browser and never in the account row, so it\n * does not ride along in a backup or appear on another device the reader did not type it into; and\n * the article is sent as text a sanitizer already stripped, not as HTML, because a body full of\n * markup is both more tokens and more ways to say something to the model than the reader meant.\n */",
     "/** How much of an article a request carries. Beyond this the tail is dropped, not summarised badly. */",
-    "/** The provider a base URL belongs to, read from the address rather than asked for. */",
     "/** What the model is asked, in the language the reader's interface is in. */",
     "/**\n * A question about the passage the reader just marked.\n *\n * The passage comes first and the article around it second, because the reader selected the passage\n * for a reason and the rest of the article is only context. The instruction to say so when the\n * passage does not answer is the whole point: an ungrounded answer to a question about a text is how\n * a reader ends up believing something the author never wrote.\n */",
-    "/** One answer about a passage. Same relay, same key, same abort as the whole-article asks. */",
-    "/**\n * Stream one answer.\n *\n * `onChunk` is what keeps a twenty-second summary from reading as a hang, and the abort signal is\n * what lets the reader stop one they no longer want — both go through the same relay the editor's\n * AI features use, so the key never leaves for the provider by a second path.\n */",
+    "/**\n * Asking a model about an article, through the account's assistant.\n *\n * These two affordances — a summary, and a translation into the reader's language — used to be\n * answered by whatever endpoint the reader configured, with the key kept in this browser. That made\n * the reader pay for a second model and left \"summarise this article in the chat\" unable to use it.\n * They now run on the assistant's account model: the same `chat_providers` / `chat_models` rows\n * every chat turn resolves, the same key handling, the same daily ceiling and the same usage meter.\n *\n * Two things stay as they were. The article is sent as text a sanitizer already stripped, not as\n * HTML, because a body full of markup is both more tokens and more ways for a feed to say something\n * to the model than the reader meant; and a reader who typed a key into the old build is told so\n * rather than silently forgotten — the local copy is shown in settings and cleared only on request.\n */",
+    "/** What one answer may spend: a translation is longer than a five-bullet summary. */",
+    "/** The route's own ceiling is a minute, and a long translation has to fit inside it. */",
+    "/**\n * A key the reader typed into the old build, still on this device.\n *\n * Read only to tell them it exists. Nothing is taken from it, and nothing is deleted without the\n * reader pressing the button in settings.\n */",
+    "/** Forget the local copy of the old key, on the reader's explicit request. */",
+    "/**\n * One answer through the assistant's one-shot route.\n *\n * The route resolves the reader's active model on the Worker, so this device never holds a provider\n * key for RSS. `onChunk` is kept because every caller already shows a fixed-size pane: the answer\n * arrives in one piece and the pane is told once, which is still better than an unexplained wait.\n */",
   ]],
   ["src/client/features/rss/cacheLine.test.ts", [
     "/**\n * The cache line's own words, including the two cases where it has to admit what it does not know.\n *\n * A feed the ledger never measured gets a date and no count, and a channel where one feed answered\n * recently is not called stale by the other twelve — a notice that fires wrongly is a notice the\n * reader learns to ignore.\n */",
@@ -13337,6 +13349,10 @@ const allowed = new Map([
     "// An index an older build wrote measured neither, and a guessed split is worse than none:",
     "// the storage panel leaves those feeds out of the body line until the feed is read again.",
     "/** The library as the rest of the feature reads it: the same object, plus what this device holds. */",
+    "/** How much article text the assistant gets: a whole post, not a whole archive. */",
+    "/** A batch of feed refreshes should coalesce into one upload per feed, not one per article. */",
+    "/**\n   * Re-read the account's library without touching the articles.\n   *\n   * The assistant marks articles through the same server rows this device syncs, so after a turn\n   * beside this page the reader expects the unread badge to move. A device with unsaved changes\n   * keeps its own copy: overwriting them here is how a mark the reader just made disappears.\n   */",
+    "/**\n   * Hand this feed's articles to the account, so the assistant can read them.\n   *\n   * Debounced per feed because a batch refresh finishes many feeds within a second and the account\n   * needs the newest list, not one write per article. A failed upload is not a failed refresh: the\n   * device keeps what it holds, and the next refresh or load tries again.\n   */",
   ]],
   ["src/client/features/rss/vault.test.ts", [
     "/**\n * A note folder read as a subscription — the conversion, and the two ways it could lie.\n *\n * The rows must be the folder *and everything under it*, because that is what a folder means\n * everywhere else in the app; and a note in the trash or the archive must not appear, because the\n * channel offers no way out of either. The shapes are pinned too: no link, no body, the folder's own\n * id as the source, so nothing downstream mistakes a note for an article it can star or hide.\n */",
@@ -13435,9 +13451,9 @@ const allowed = new Map([
     "// without this, a reader who has never opened the tab this session would be told they own no books.",
   ]],
   ["src/client/features/settings/RssSettings.tsx", [
-    "/**\n * The RSS section of the settings panel.\n *\n * It edits `settings.rss`, which is the reading half of the feature: what a channel opens showing,\n * how an article is set, where a saved article goes. The other half — the subscriptions themselves —\n * is not here on purpose. A list of feeds is data a reader edits where they read it, with the\n * article counts beside it, and a settings page cannot show counts it has not fetched.\n *\n * The AI key is the one credential in this panel, and it is not stored with the rest: it lives in\n * this browser only, so it cannot ride out in a backup or appear on a device the reader never typed\n * it into. The note under the field says that rather than leaving it to be inferred.\n */",
     "// The durable per-feed ledger, not the articles currently in memory: a device that holds 40 feeds",
     "// and has opened two still has 40 feeds on disk, and the reader is asking about the disk.",
+    "/**\n * The RSS section of the settings panel.\n *\n * It edits `settings.rss`, which is the reading half of the feature: what a channel opens showing,\n * how an article is set, where a saved article goes. The other half — the subscriptions themselves —\n * is not here on purpose. A list of feeds is data a reader edits where they read it, with the\n * article counts beside it, and a settings page cannot show counts it has not fetched.\n *\n * The AI half of this panel no longer holds a credential. Summaries and translations run on the\n * assistant's account model, so the panel names the model that will answer and, when this device\n * still holds a key typed into an older build, says so rather than deleting it behind the reader's\n * back: the local copy is cleared only from the button, and nothing about it leaves the browser.\n */",
   ]],
   ["src/client/features/settings/SettingsPanel.tsx", [
     "/**\n * How long the row a search jumped to keeps its flash.\n *\n * This is the duration `ink-settings-target` and `ink-settings-outline` are given in `app.css`, not a\n * matter of taste: the attribute those selectors hang on has to outlive the animation that reads it, or\n * the row stops mid-fade and reads as a highlight that was interrupted.\n */",
@@ -19745,6 +19761,7 @@ const allowed = new Map([
     "/**\n     * The sidebar's numbers, without a task row attached.\n     *\n     * `counts`, `dayEnd` and `timezone` are the three fields a `TaskPage` carries beside `tasks` and\n     * `total`. A screen that only has to redraw its badges used to ask for a page of one task to get\n     * them, which read a whole row and re-ran the listing's filter for three scalars; this is the same\n     * aggregate the listing runs, on its own.\n     */",
     "/**\n     * The whole list, as the file the reader keeps.\n     *\n     * JSON is the lossless answer and comes back typed; CSV is the interchange one and comes back as the\n     * exact bytes the server wrote, because re-stringifying a spreadsheet's text would be a second chance\n     * to change what a cell says. Both are handed to `saveFile` by the caller.\n     */",
     "/** This thread's own overrides; the object replaces the stored one rather than merging into it. */",
+    "/**\n     * Hand one feed's articles to the account, so the assistant can read them.\n     *\n     * The entry list never travels with the library: it is rebuilt from the network, and only the\n     * device that fetched it holds the text. This is the one write that carries it, reduced to plain\n     * text and capped, and the route refuses a feed the account does not subscribe to.\n     */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -33511,6 +33528,14 @@ const allowed = new Map([
     "/**\n * The upstream realtime socket for a ModelBest provider.\n *\n * The SDK's rule for a base URL is followed exactly: a path already ending in `/v1` keeps it, and any\n * other base gets `/v1` appended before `/realtime`. Getting this wrong is a 404 that reads like a bad key.\n */",
     "/** The init frame the relay writes after the provider assigns a worker, before any audio is forwarded. */",
   ]],
+  ["src/worker/assistant/rss-tools.ts", [
+    "/**\n * The RSS tools the assistant can call.\n *\n * The subscription library lives beside the account, but the articles do not: they are rebuilt from\n * the network and stay in the device that fetched them. A tool running in the Worker therefore reads\n * two things it does not own — the library rows, through `loadRssLibrary`, and the bounded plain-text\n * snapshot the device uploaded, through `loadRssReading`. Every write goes back through the same\n * library store the RSS routes use, so a mark made here is a mark the reader's next load will see.\n *\n * Nothing here invents an article. When the account has no snapshot, the tool says so and the reader\n * is told to open the app once; a made-up summary of an article the model never received is the\n * failure this shape exists to prevent.\n */",
+    "/**\n * A local day or minute as an instant. A day covers the whole day, so \"today\" includes an article\n * published at 23:50 without the model having to write a second boundary.\n */",
+    "// A list carrying text is no longer a list: ten full articles is already a substantial prompt,",
+    "// and a hundred would spend the turn's context on the one question nobody asked.",
+    "// A snapshot outlives a subscription: the reader may have unsubscribed since the device",
+    "// uploaded it, and an article from a feed this account no longer follows is not \"unread\".",
+  ]],
   ["src/worker/assistant/runner.ts", [
     "/** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */",
     "// Drop the failed reply, then answer the reader's own last message again.",
@@ -37372,6 +37397,7 @@ const allowed = new Map([
     "// written on every link insert and read by nothing: the plan for every category query already walks",
     "// (user_id, category_id, …). The replacement is declared with the nav tables; this drops the old one",
     "// from databases that created it before the swap.",
+    "/**\n   * The bounded text the assistant reads.\n   *\n   * Article bodies are rebuilt from the network and stay on the device that fetched them, so a tool\n   * running in the Worker cannot see an article at all. This row is the device's answer: the newest\n   * articles it holds, already reduced to plain text, per feed, with a ceiling on both count and size.\n   * It is a cache rather than a library, so it is replaced feed by feed and never merged into the\n   * subscription rows.\n   */",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -37818,6 +37844,12 @@ const allowed = new Map([
     "/** Store a whole library. Every row it does not change is left alone. */",
     "/**\n * What the account has stored, reading the legacy column once and splitting it on the way out.\n *\n * The split is the whole migration: there is no cron over every account, and a reader who never\n * opens the app again never needs their marks moved. An account with neither rows nor a legacy\n * column has nothing, which is a different answer from an account that has empty rows.\n */",
     "/**\n * Whether the account the session names still has its row.\n *\n * The library writes in this module are addressed by account id, so an account deleted between the\n * session read and this request would otherwise have its rows written into a row that is already\n * gone. The route asks here rather than inlining the probe, because the same `users` row this module\n * already reads (the legacy `rss` column of `loadRssLibrary`) is what answers the question.\n */",
+    "/**\n * One article as the assistant reads it.\n *\n * The article list itself is rebuilt from the network and stays on the device that fetched it, so\n * the Worker has no article to answer a question about. The device therefore hands over the newest\n * articles it holds, already reduced to plain text, and this row is what the RSS tools read. It is a\n * cache beside the library, never part of it: marks and subscriptions keep their own rows, and a\n * device can stop uploading at any time without losing what the reader decided.\n */",
+    "/** Plain text, not the feed's HTML: the assistant reads sentences, not markup. */",
+    "/** What one article may contribute, so a single long post cannot fill the whole row. */",
+    "/** How many articles one feed, and the whole account, may keep for the assistant. */",
+    "/** The row's size ceiling, well under what D1 will store for one value. */",
+    "/**\n * Replace one feed's slice of the snapshot, then trim the whole row to its ceilings.\n *\n * Per feed rather than per device is deliberate: a reader with forty subscriptions refreshes them a\n * few at a time, and a full replace would erase the thirty-nine that just answered. The oldest\n * articles lose their text first, because \"what did I miss today\" is the question this row exists\n * for and an archive from last month is the part it can afford to forget.\n */",
   ]],
   ["src/worker/lib/security-headers.ts", [
     "// The OAuth provider and the MCP handler answer their own responses, so the app",
@@ -39177,6 +39209,9 @@ const allowed = new Map([
     "// The generic page. It is text the model reads rather than a resource it opens, so the only checks are",
     "// the bounds: an oversized label or too many facts is cut down to the limit, never refused. Unknown",
     "// fields are dropped here, so nothing outside the type can reach the prompt.",
+    "/** The widest answer a one-shot call may ask for: a whole-article translation, not an essay. */",
+    "// The default stays small because most callers are a naming pass; a caller that asks for more is",
+    "// capped here rather than trusted, and the RSS translation is the widest legitimate ask.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -39701,6 +39736,7 @@ const allowed = new Map([
     "// plays, and a timer that outlives this function would cut it off mid-episode.",
     "// The helper appends the real retry window, which is more useful than the \"shortly\" these two",
     "// budgets used to promise, so `message` is the prefix only.",
+    "/**\n * The articles this device can hand the assistant, one feed at a time.\n *\n * The subscription rows say what the reader follows, never what is in an article, and the articles\n * themselves never leave the device that fetched them. The assistant runs in the Worker, so the\n * device uploads the text it already holds — newest first, reduced to plain text, capped per feed and\n * in total — and the RSS tools read that. The write is accepted only for a feed this account really\n * subscribes to, so the row cannot become a place to park arbitrary text.\n */",
   ]],
   ["src/worker/routes/search.ts", [
     "/**\n * The bodies the client-side Omnisearch index is built from. Ids come from the client because it\n * already holds every summary and knows which ones moved; this route only supplies content.\n *\n * Two ceilings keep a page bounded: per note (the same one the FTS index uses, so local and server\n * search agree on what a long note contains) and per response, so a vault of 1.9 MB notes cannot\n * turn one indexing request into a hundred megabytes of JSON.\n */",
@@ -42519,6 +42555,9 @@ const allowed = new Map([
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",
     "// Four thousand tokens of question needs a window of at least eight thousand to answer in.",
   ]],
+  ["tests/assistant-rss-tools.test.ts", [
+    "/**\n * The RSS tools the assistant reaches through the executor.\n *\n * Two stores meet here: the subscription library the account owns, and the bounded reading snapshot\n * the device uploads. The cases pin what the model depends on — unread is derived from the library's\n * marks, a local day covers the whole day, one feed narrows the list, and a mark is a real row the\n * reader's next load will see — and the honesty rule: with no snapshot the tool refuses rather than\n * inventing an article.\n */",
+  ]],
   ["tests/assistant-rules.test.ts", [
     "/**\n * The rules the assistant is built on, tested where they are written.\n *\n * These are the parts a browser session cannot prove: what a Chinese sentence means to the conflict\n * rules, how a wall-clock schedule survives a daylight-saving change, how many tokens a Han vault\n * really costs. Each fixture is chosen so a plausible-but-wrong implementation would fail it — the\n * pair that differs only in a change word, a date the reader never stated, a schedule that crosses a\n * clock change — rather than so the function merely runs.\n */",
     "// A Chinese vault is charged per character, not per four of them: 100 characters is 100 tokens.",
@@ -45182,6 +45221,9 @@ const allowed = new Map([
   ["tests/rewrite-drain.test.ts", [
     "// Re-arm keeps the claim marker so one run cannot re-pick the row; clearing it",
     "// emulates the claim TTL expiring between cron rounds.",
+  ]],
+  ["tests/rss-ai-provider.test.ts", [
+    "/**\n * The RSS summary asks the account's assistant, not a key kept in this browser.\n *\n * The request is inspected rather than sent to a model: the point of the change is where the text\n * goes and what it carries, and a test that reached a provider would prove neither the route nor the\n * absence of a local credential.\n */",
   ]],
   ["tests/rss-route.test.ts", [
     "/** The upstream a test wants: what each address answers, and what it was asked with. */",

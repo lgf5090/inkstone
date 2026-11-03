@@ -20,7 +20,8 @@ import { prompt } from '../../components/overlay'
 import type { RssEntry } from '@shared/rss/model'
 import { findEntry } from '@shared/rss/reading'
 import { appendToDailyNote, saveArticleAsNote } from './notes'
-import { aiReady, loadAiConfig, runExcerptAi } from './ai'
+import { runExcerptAi } from './ai'
+import { useAssistant } from '../chat/assistant-store'
 import { useRss } from './store'
 
 interface Placed {
@@ -155,15 +156,15 @@ export function ExcerptPopup({ rootRef }: { rootRef: RefObject<HTMLElement | nul
     const state = useRss.getState()
     const entry = currentEntry(state)
     if (!entry) return
-    const live = await loadAiConfig()
-    if (!aiReady(live)) {
+    await useAssistant.getState().bootstrap()
+    if (!useAssistant.getState().settings?.activeModelId) {
       useUi.getState().toast({ title: t('rss.ai.not_configured'), tone: 'danger' })
       return
     }
     const feed = state.library.feeds.find(item => item.id === entry.feedId)
     abortRef.current?.()
     setAsk({ question: asked, text: '', running: true, error: '', top: from.top + 46, left: Math.min(from.left, Math.max(8, window.innerWidth - 440)) })
-    const run = runExcerptAi(entry, feed, asked, from.text, live, useSession.getState().settings.rss.aiLanguage, text => {
+    const run = runExcerptAi(entry, feed, asked, from.text, useSession.getState().settings.rss.aiLanguage, text => {
       setAsk(current => (current ? { ...current, text } : current))
     })
     abortRef.current = run.abort

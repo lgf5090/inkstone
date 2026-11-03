@@ -1288,6 +1288,15 @@ export const api = {
       request<{ savedAt: number; rows: number }>('/api/rss/patch', { method: 'POST', body: { patch } }),
     fetch: (requests: Array<{ url: string; etag?: string; lastModified?: string }>) =>
       request<{ results: RssFetchResult[] }>('/api/rss/fetch', { method: 'POST', body: { requests } }),
+    /**
+     * Hand one feed's articles to the account, so the assistant can read them.
+     *
+     * The entry list never travels with the library: it is rebuilt from the network, and only the
+     * device that fetched it holds the text. This is the one write that carries it, reduced to plain
+     * text and capped, and the route refuses a feed the account does not subscribe to.
+     */
+    saveReading: (feedId: string, entries: unknown[]) =>
+      request<{ capturedAt: number, entries: number }>('/api/rss/reading', { method: 'PUT', body: { feedId, entries } }),
     /** The same-origin address an article image or an episode enclosure loads from. */
     relayUrl: (url: string) => `/api/rss/relay?url=${encodeURIComponent(url)}`,
   },
@@ -2266,8 +2275,8 @@ export const api = {
       request<{ status: 'ok' | 'unavailable', hits: Array<{ id: string, title: string, excerpt: string, score: number }> }>(
         `/api/assistant/similar-notes?noteId=${encodeURIComponent(noteId)}`,
       ),
-    oneShot: (body: { user: string, system?: string, modelId?: string, maxOutputTokens?: number, timeoutMs?: number }) =>
-      request<{ text: string }>('/api/assistant/one-shot', { method: 'POST', body }),
+    oneShot: (body: { user: string, system?: string, modelId?: string, maxOutputTokens?: number, timeoutMs?: number }, options?: { signal?: AbortSignal }) =>
+      request<{ text: string }>('/api/assistant/one-shot', { method: 'POST', body, ...(options?.signal ? { signal: options.signal } : {}) }),
     compactConversation: (id: string) =>
       request<{ summary: string, upto: number }>(`/api/assistant/conversations/${id}/compact`, { method: 'POST', body: {} }),
     automations: () =>
