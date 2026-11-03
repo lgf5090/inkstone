@@ -509,6 +509,7 @@ export async function searchSemanticNotes(
   query: string,
   filters: SemanticFilters,
   scoreFloor = SEMANTIC_SCORE_FLOOR,
+  topK = SEMANTIC_TOP_K,
 ): Promise<SemanticSearchHit[] | null> {
   if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
   const queryVector = await embedQueryText(env.AI, query)
@@ -555,7 +556,7 @@ export async function searchSemanticNotes(
     b.row.updated_at - a.row.updated_at ||
     a.row.id.localeCompare(b.row.id),
   )
-  return best.slice(0, SEMANTIC_TOP_K)
+  return best.slice(0, topK)
     .filter(({ score }) => score >= scoreFloor)
     .map(({ row, score }) => ({
       id: row.id,

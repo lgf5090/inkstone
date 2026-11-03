@@ -2426,7 +2426,8 @@ assistantRoutes.get('/similar-notes', async (c) => {
   const s = store(c)
   const noteId = requiredId(c.req.query('noteId') ?? '')
   const note = await loadMcpNote(c.env.DB, s.userId, noteId)
-  const hits = await searchSemanticNotes(c.env, c.env.DB, s.userId, `${note.title}\n${note.content}`.slice(0, 4_000), {})
+  const settings = await s.getSettings()
+  const hits = await searchSemanticNotes(c.env, c.env.DB, s.userId, `${note.title}\n${note.content}`.slice(0, 4_000), {}, settings.semanticScoreFloor, settings.semanticTopK)
   if (!hits) return c.json({ status: 'unavailable' as const, hits: [] })
   return c.json({
     status: 'ok' as const,

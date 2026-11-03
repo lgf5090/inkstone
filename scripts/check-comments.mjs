@@ -30098,6 +30098,8 @@ const allowed = new Map([
     "/** Fetch images linked from a text/Markdown attachment into the turn. Off by default. */",
     "/** Where a quoted passage sits beside the instruction that uses it. */",
     "/** Whether an editor AI write is applied at once or shown as a diff first. */",
+    "/** How many semantic neighbours a meaning search may return. */",
+    "/** The cosine floor a neighbour must clear to be returned. */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33433,6 +33435,7 @@ const allowed = new Map([
     "// Shape only: a debug line that carried the prompt would be the reader's note in a log.",
     "/** Starts a child that outlives the turn; the task row is what the reader can find afterwards. */",
     "// The object could not be reached; the in-isolate fallback below still gives the task one run.",
+    "// The non-streaming door failed too; the model's own failure is reported below.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -35010,6 +35013,7 @@ const allowed = new Map([
     "/**\n * One recording the model is handed with this turn.\n *\n * `base64` is the encoded bytes with no `data:` prefix in front of them — the field wants the bare string —\n * and `format` is the container name the provider agrees to decode, decided by `audioFormatFor` in the\n * shared module rather than guessed here. Only the OpenAI-compatible builder reads this; the other two have\n * no field for it, which is what `protocolCarriesAudio` exists to keep the turn and the wire agreeing on.\n */",
     "/**\n   * Recordings the model is played with this turn.\n   *\n   * Set only for a wire that has the field, so a turn that carries audio never arrives on a protocol that\n   * would answer it with a refusal.\n   */",
     "/**\n * A user turn with a picture or a recording is a part list; one without is the plain string every server\n * accepts.\n *\n * `input_audio` is the field the OpenAI shape was built for and the one its imitators copy — DeepSeek and\n * friends refuse it as an unknown type, which is why a recording only reaches here when the reader ticked\n * audio for the model and `attachments.ts` read the bytes for that same model.\n */",
+    "/**\n * One non-streaming completion, for the recovery path after a stream timed out twice.\n *\n * Only the OpenAI-compatible shape is covered: it is the one every relay speaks, and the other two wires\n * have their own bodies. The answer is text plus usage; a tool call in the response is ignored, because a\n * recovery is the fallback for a reader waiting on words, not a second agent step.\n */",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -37095,6 +37099,7 @@ const allowed = new Map([
     "// a keyword page wearing it: the empty list came out of the vector half, so the vector half is what the",
     "// mode has to say.",
     "/**\n * The meaning half's answer, keeping the two ways it can be missing apart.\n *\n * `hits: null` on its own says only \"no vector page\", which is true both of an index that declined to be\n * asked and of a call that went out and came back broken. The reader's next move differs — one is a setting\n * they hold, the other an outage they wait out — so the distinction is carried from the promise that made\n * it down to the sentence that reports it, instead of being rebuilt from a log line nobody reads.\n */",
+    "/** The reader's own semantic depth and floor, when the caller has settings to offer. */",
   ]],
   ["src/worker/mcp/server.ts", [
     "/**\n   * The tools the reader has switched off, by registration name.\n   *\n   * They are never registered, so they are absent from `tools/list` as well as from `tools/call`: a tool\n   * the model can see but never use is one it keeps choosing.\n   */",

@@ -302,6 +302,40 @@ const RETRY_AFTER_CAP_MS = 30_000
  * already streamed: `produced` is set by the first event yielded, and a failure after it is the turn's own
  * to report rather than something to paper over with a second answer.
  */
+/**
+ * One non-streaming completion, for the recovery path after a stream timed out twice.
+ *
+ * Only the OpenAI-compatible shape is covered: it is the one every relay speaks, and the other two wires
+ * have their own bodies. The answer is text plus usage; a tool call in the response is ignored, because a
+ * recovery is the fallback for a reader waiting on words, not a second agent step.
+ */
+export async function fetchOpenAiOnce(request: UpstreamRequest): Promise<{ text: string, inputTokens: number, outputTokens: number, cachedInputTokens?: number }> {
+  const url = vettedUrl(openAiEndpoint(request.baseUrl))
+  const body: Record<string, unknown> = { ...openAiBody(request), stream: false }
+  delete body.stream_options
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: jsonHeaders(request.apiKey),
+    body: JSON.stringify(body),
+    signal: request.signal,
+    redirect: NO_REDIRECT,
+  })
+  if (!response.ok) throw new Error(`The provider answered ${response.status}.`)
+  const parsed = await response.json() as Record<string, unknown>
+  const choice = Array.isArray(parsed.choices) ? parsed.choices[0] as Record<string, unknown> | undefined : undefined
+  const message = choice?.message as Record<string, unknown> | undefined
+  const text = typeof message?.content === 'string' ? message.content : ''
+  const usage = parsed.usage as Record<string, unknown> | undefined
+  const details = usage?.prompt_tokens_details as Record<string, unknown> | undefined
+  const cached = numberOr(details?.cached_tokens)
+  return {
+    text,
+    inputTokens: numberOr(usage?.prompt_tokens) ?? 0,
+    outputTokens: numberOr(usage?.completion_tokens) ?? 0,
+    ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+  }
+}
+
 export async function* streamUpstream(
   protocol: AssistantProtocol,
   request: UpstreamRequest,

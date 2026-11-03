@@ -79,6 +79,17 @@ export function OtherTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
       </Group>
 
+      <Group title={t('assistant.settings.semantic_search')}>
+        <SettingRow title={t('assistant.settings.semantic_search_top_k')} description={t('assistant.settings.semantic_search_top_k_hint')}>
+          <Slider label={t('assistant.settings.semantic_search_top_k')} value={settings.semanticTopK} min={5} max={100} step={5} onChange={(semanticTopK) => void saveSettings({ semanticTopK })} />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.semantic_search_floor')} description={t('assistant.settings.semantic_search_floor_hint')}>
+          <div className="flex items-center gap-2">
+            <Slider label={t('assistant.settings.semantic_search_floor')} value={Math.round(settings.semanticScoreFloor * 100)} min={0} max={100} step={1} suffix="%" onChange={(percent) => void saveSettings({ semanticScoreFloor: percent / 100 })} />
+          </div>
+        </SettingRow>
+      </Group>
+
       <Group title={t('assistant.settings.debug')}>
         <SettingRow title={t('assistant.settings.llm_debug')} description={t('assistant.settings.llm_debug_hint')}>
           <Switch checked={settings.llmDebug} onChange={(llmDebug) => void saveSettings({ llmDebug })} label={t('assistant.settings.llm_debug')} />

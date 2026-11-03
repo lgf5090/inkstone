@@ -1775,6 +1775,8 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         query,
         limit: 20,
         mode: 'hybrid',
+        semanticTopK: ctx.settings.semanticTopK,
+        semanticScoreFloor: ctx.settings.semanticScoreFloor,
       })
       const ids = found.results.map((hit) => hit.id)
       const turnAllowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, ids, turnScope)

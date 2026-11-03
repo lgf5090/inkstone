@@ -46,7 +46,7 @@ import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { ALL_TOOLS, parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
+import { AbortError, fetchOpenAiOnce, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { runOneShot, OneShotError } from './one-shot'
@@ -1286,6 +1286,26 @@ export class AssistantRunner {
           failure = error
           // A reader's stop is not a failure to retry; neither is a failure after words were shown.
           if (this.turnSignal?.aborted || spoke) throw error
+          if (attempt === 2 && timed.timedOut() && this.settings.autoRecover && entry.call.protocol === 'openai') {
+            this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+            try {
+              const apiKey = await this.signKey(entry.provider)
+              const once = await fetchOpenAiOnce(requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
+              if (once.text.trim()) {
+                usage.inputTokens += once.inputTokens
+                usage.outputTokens += once.outputTokens
+                usage.cachedInputTokens += once.cachedInputTokens ?? 0
+                served.current = entry
+                yield { type: 'text', delta: once.text }
+                if (once.inputTokens || once.outputTokens) {
+                  yield { type: 'usage', usage: once.cachedInputTokens ? { inputTokens: once.inputTokens, outputTokens: once.outputTokens, cachedInputTokens: once.cachedInputTokens } : { inputTokens: once.inputTokens, outputTokens: once.outputTokens } }
+                }
+                return
+              }
+            } catch {
+              // The non-streaming door failed too; the model's own failure is reported below.
+            }
+          }
           if (attempt === 1 && timed.timedOut() && this.settings.autoRecover) {
             // The recovery attempt is the next loop iteration; the rollback happens before it so a
             // trace or source list from the timed-out attempt cannot be attributed to the retry.
