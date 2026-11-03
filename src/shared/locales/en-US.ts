@@ -7793,6 +7793,7 @@ const CORE_MESSAGES_TAIL = {
     "assistant.dock.hint_email": "Ask about the mailbox on screen. The selected message and its thread are in context; the chip below the box names it.",
     "assistant.dock.hint_music": "Ask about the music you are looking at. The page and the track on screen are in context; the chip below the box names what this turn carries.",
     "assistant.dock.music_label": "Music page",
+    "assistant.dock.page_calendar": "Calendar {year}-{month}",
     "assistant.dock.suggest_todo_focus": "What should I do first today?",
     "assistant.dock.suggest_todo_plan": "Plan tomorrow for me",
     "assistant.dock.suggest_todo_review": "Review this week",

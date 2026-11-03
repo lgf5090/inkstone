@@ -7786,6 +7786,7 @@ console.log(\`Hello, \${name}!\`)
     "assistant.dock.hint_email": "就你正在看的邮箱提问。选中的邮件和它的线程已在上下文里，输入框下方的标签写着这一点。",
     "assistant.dock.hint_music": "就你正在看的音乐页提问。当前页面和屏幕上的歌曲已在上下文里，输入框下方的标签写着这一次带上了什么。",
     "assistant.dock.music_label": "音乐页",
+    "assistant.dock.page_calendar": "{year} 年 {month} 月日历",
     "assistant.dock.suggest_todo_focus": "今天先做哪几件？",
     "assistant.dock.suggest_todo_plan": "帮我把明天安排出来",
     "assistant.dock.suggest_todo_review": "总结一下这周的完成情况",
