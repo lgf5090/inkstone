@@ -546,6 +546,11 @@ const allowed = new Map([
     "// then pushed the whole control past the column it sits in (measured 606px inside 330px at 420px).",
     "// `max-w-full` caps it at the container so the existing `flex-wrap` can do its job.",
   ]],
+  ["src/client/components/overlay-dialog-focus.test.ts", [
+    "/**\n * The dialog's caret guard.\n *\n * `useDialogFocus` pulls the caret back when it falls out of a panel — a field that disappears, a\n * primary button that disables itself mid-save. The `focusout` that announces the change arrives\n * *before* the element taking the caret has it, so the restore runs while the document still reports\n * `body`: the guard read every mouse-driven move between fields as a loss and undid it. The page\n * outside a dialog kept focusing normally, which is why the defect looked like \"inputs cannot be\n * clicked\" once every settings form opened a dialog.\n */",
+    "// The browser's ordering, kept by faking the gap: the document reports `body` while the next",
+    "// field has not taken the caret yet. A restore here is the one that undid every click.",
+  ]],
   ["src/client/components/overlay-search.test.ts", [
     "/** What the user sees after typing: the field's own value plus whatever the list kept. */",
     "// The rows scroll; the head and the box do not, so a query stays visible while its list moves.",
@@ -662,6 +667,7 @@ const allowed = new Map([
     "// open dialog. Any caret that escapes to the document is pulled back, preferring the field the",
     "// reader was last in, because that is where a refused submit has to be corrected.",
     "/** Marks the panel itself, so a feature's own stylesheet can reach its header chrome — the close\n        button lives outside `bodyClassName`'s subtree. */",
+    "/**\n * Whether a `focusout` means the caret is leaving the panel rather than moving within it.\n *\n * A `focusout` is dispatched before the element that is about to take the caret has it, so the restore\n * scheduled from it runs while the document still reports `body`. Reading that gap as \"the caret fell\n * out\" made every mouse-driven focus change inside a dialog get undone — clicking a field did nothing\n * while Tab, which moves the caret itself, kept working. The next target is the one fact that tells a\n * transfer apart from a loss, so it decides here instead of after the fact.\n */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
