@@ -93,7 +93,11 @@ export function MemosApp(): ReactElement {
   const search = useMemoSearch()
   const urlState = useMemo(() => readMemoUrlState(search), [search])
   const route = parseMemoPath(pathname)
-  const desktop = useBreakpoint() === 'desktop'
+  const breakpoint = useBreakpoint()
+  const desktop = breakpoint === 'desktop'
+  // A tablet has the room for a 380px column beside the feed, which is the same rule the subscriptions
+  // app uses. Only a phone keeps the assistant in its own tab, because there is no honest room for both.
+  const dockAvailable = breakpoint !== 'mobile'
   const memoSidebarWidth = useUi((state) => state.memoSidebarWidth)
   const memoDetailWidth = useUi((state) => state.memoDetailWidth)
   const setLayout = useUi((state) => state.setLayout)
@@ -340,7 +344,7 @@ export function MemosApp(): ReactElement {
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          {desktop ? (
+          {dockAvailable ? (
             <IconButton
               label={t('assistant.dock.toggle')}
               size="sm"
@@ -433,7 +437,7 @@ export function MemosApp(): ReactElement {
         ) : null}
         {/* The same dock the notebook mounts, under the same conditions: one conversation, and the
             page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */}
-        {assistantDockOpen && desktop ? (
+        {assistantDockOpen && dockAvailable ? (
           <AssistantDock surface="memos" pageContext={assistantPageContext} />
         ) : null}
       </div>

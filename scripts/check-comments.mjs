@@ -7365,6 +7365,8 @@ const allowed = new Map([
     "// The dock's facts follow the same state the feed reads: moving to another space, typing a search, or",
     "// opening a memo changes what \"this page\" means, so the chip below the composer must move with it.",
     "/* The same dock the notebook mounts, under the same conditions: one conversation, and the\n            page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */",
+    "// A tablet has the room for a 380px column beside the feed, which is the same rule the subscriptions",
+    "// app uses. Only a phone keeps the assistant in its own tab, because there is no honest room for both.",
   ]],
   ["src/client/features/memos/ai-client.test.ts", [
     "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
