@@ -11,7 +11,7 @@ import { useActiveNote, useNotes } from '../../store/notes'
 import { Workspace } from '../workspace/Workspace'
 import { VersionsPanel } from '../workspace/VersionsPanel'
 import { PostPublishPanel } from './PostPublishPanel'
-import { AdminError, PostStatusBadge } from './shared'
+import { AdminError, PostStatusBadge, type BlogArticleContext } from './shared'
 
 function saveLabel(status: string): string {
   switch (status) {
@@ -23,7 +23,7 @@ function saveLabel(status: string): string {
   }
 }
 
-export function PostEditor({ noteId }: { noteId: string }) {
+export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArticleContext?: (context: BlogArticleContext | null) => void }) {
   const { note, loaded } = useActiveNote()
   const saveStatus = useNotes((state) => state.saveStatus)
   const [post, setPost] = useState<BlogPostAdminDetail | null>(null)
@@ -65,6 +65,16 @@ export function PostEditor({ noteId }: { noteId: string }) {
     void useNotes.getState().openNote(noteId, { revealOnMobile: false, activate: true })
     void loadPost()
   }, [noteId, loadPost])
+
+  useEffect(() => {
+    if (!onArticleContext) return
+    const title = (note?.title || post?.title || '').trim()
+    onArticleContext(title
+      ? { noteId, title, status: post?.status ?? null, series: post?.series ?? null, slug: post?.slug ?? null }
+      : null)
+  }, [onArticleContext, noteId, note?.title, post])
+
+  useEffect(() => () => onArticleContext?.(null), [onArticleContext])
 
   const publishQuick = async () => {
     if (!post || publishing) return

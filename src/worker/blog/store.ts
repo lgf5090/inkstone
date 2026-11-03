@@ -766,6 +766,9 @@ export interface AdminPostQuery {
   categoryId?: string
   tagId?: string
   seriesId?: string
+  /** Inclusive bounds on the post's own date: publication when it has one, the last update otherwise. */
+  fromMs?: number
+  toMs?: number
   page?: number
   limit?: number
   sort?: string
@@ -812,6 +815,8 @@ export async function listAdminPosts(
   }
   if (options.categoryId) where.push(`p.category_id = ${bind(options.categoryId)}`)
   if (options.seriesId) where.push(`p.series_id = ${bind(options.seriesId)}`)
+  if (options.fromMs !== undefined) where.push(`COALESCE(p.published_at, p.updated_at) >= ${bind(options.fromMs)}`)
+  if (options.toMs !== undefined) where.push(`COALESCE(p.published_at, p.updated_at) <= ${bind(options.toMs)}`)
   if (options.tagId) {
     where.push(`EXISTS (SELECT 1 FROM blog_post_tags pt WHERE pt.user_id = p.user_id AND pt.post_id = p.id AND pt.tag_id = ${bind(options.tagId)})`)
   }

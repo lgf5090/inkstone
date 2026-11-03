@@ -1330,8 +1330,17 @@ const allowed = new Map([
     "// can never send the browser somewhere else with an authenticated session.",
     "/**\n * The zone a brand-new account starts its day in.\n *\n * Every date the to-do app reasons about — a due label, a plan group, the close-out page — is cut in the\n * account's own scheduling zone, and an account with no zone written is read as UTC, so a reader east of\n * Greenwich spends the first eight hours of each day being shown yesterday. The server validates this\n * against its own zone table and refuses one nothing can resolve, so an unreadable value costs the\n * registration a 400 rather than silently landing an account on the wrong day.\n */",
   ]],
+  ["src/client/features/blog-admin/BlogAdminApp.tsx", [
+    "// What the assistant is told about this screen: the section, and the article the editor has open.",
+    "// Rebuilt only when one of those changes, so opening the dock does not re-attach a chip the reader",
+    "// already took off.",
+  ]],
   ["src/client/features/blog-admin/FriendsAdminPanel.tsx", [
     "/**\n * The friend-link manager is the nav app, scoped by selecting the reserved category. Applications\n * arrive in their own reserved category; moving an edited link into the friends category approves it.\n */",
+  ]],
+  ["src/client/features/blog-admin/shared.tsx", [
+    "/** The article the editor has open, as the assistant's page context needs it. */",
+    "/** Null until the note has a blog projection, which is the state the first draft is made in. */",
   ]],
   ["src/client/features/blog/publish.ts", [
     "/**\n * Set the note's isPublished property, save it, then publish the rendered snapshot (or withdraw the\n * projection). The note remains the source of truth; a snapshot failure leaves the property set and\n * the post pending rather than pretending the publish succeeded.\n */",
@@ -33006,6 +33015,12 @@ const allowed = new Map([
     "// An answer that carried no number is not a zero balance: the key was accepted and this endpoint did not",
     "// say what was left, which are different sentences and get shown as one of them.",
   ]],
+  ["src/worker/assistant/blog-tools.ts", [
+    "/**\n * The blog tools the assistant can call.\n *\n * The note is the article and `blog_posts` is a projection of it, exactly as the blog admin treats it: a\n * title, a body, a publish flag or a tag changes in the note and `syncBlogPostFromNote` carries it across.\n * Only the fields a post owns on its own — the excerpt, the meta description, the slug override and the\n * series — are written through `updateAdminPostMeta`, which is also the code that keeps slugs unique.\n * Nothing here builds SQL or invents a slug the admin screen would then refuse.\n *\n * The blog belongs to the owner account, so every tool stops with a tool error for anyone else: the\n * projection is site-wide, and a member's assistant must not reach it.\n */",
+    "/** Post store refusals arrive as plain error codes; the model reads a tool error instead. */",
+    "/** The body a reader reads: the front matter is metadata, not the article. */",
+    "/** Edit the note once, then let the projection follow; the note stays the source of truth. */",
+  ]],
   ["src/worker/assistant/calendar-tools.ts", [
     "/**\n * The calendar tools the assistant can call.\n *\n * Every tool here goes through `CalendarStore`, which owns the account scoping, the read-only rule and\n * the revision check; nothing in this file builds SQL or trusts a calendar id the model made up. Times\n * arrive as the reader's wall clock (\"2026-11-04T15:00\") and are placed on the timeline with the\n * account's calendar time zone, because a meeting typed in Shanghai must not land an hour off in a\n * browser set to another zone.\n *\n * A repeating event is listed as both its series and the occurrences inside the queried range. An\n * occurrence id carries its series and start (`<id>::repeat-<startMs>`), so moving or deleting one\n * answers through `applyRecurrenceChange` with the \"this occurrence\" scope instead of silently\n * rewriting the whole series.\n */",
     "/** A local date or local minute, as the model writes it. */",
@@ -35855,6 +35870,7 @@ const allowed = new Map([
     "/**\n * Replaces the media library's view of what one published article uses.\n *\n * The ids arrive from the owner's snapshot, but the table is still the trust boundary: every id is\n * checked against the owner's assets so a snapshot cannot make a post claim (and thereby pin) someone\n * else's file. An id that no longer exists is dropped; the body already carries a placeholder.\n */",
     "// A locked article's excerpt and description come from the note body; a listing, feed or search",
     "// result must not hand a reader the first lines the unlock page is protecting.",
+    "/** Inclusive bounds on the post's own date: publication when it has one, the last update otherwise. */",
   ]],
   ["src/worker/blog/unlock.ts", [
     "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
@@ -41722,6 +41738,9 @@ const allowed = new Map([
     "// is importable rather than leaving the reader to find out on the restore.",
     "// Rows go in as batches, so the round trips are counted in chunks and not in tasks: this is the",
     "// number that decides whether the restore finishes inside the Worker's budget at all.",
+  ]],
+  ["tests/assistant-blog-tools.test.ts", [
+    "/**\n * The blog tools the assistant reaches through the executor.\n *\n * The real blog store runs against an in-memory D1 double, because the point of these tools is that a\n * sentence becomes a stored row with the note still as its source: a fake projection would pass while\n * nothing was written. The cases pin the four steps the task asks for — note to draft, SEO fields that\n * the admin screen then shows, a publish that stays proposed until approved, and a member being refused\n * the site-wide blog — plus the slug uniqueness the admin already enforces.\n */",
   ]],
   ["tests/assistant-calendar-tools.test.ts", [
     "/**\n * The calendar tools the assistant reaches through the executor.\n *\n * The real `CalendarStore` runs against an in-memory D1 double, because the point of these tools is\n * that a sentence becomes a stored row: a fake calendar would pass while nothing was written. The\n * cases pin the defaults the model depends on — the default calendar, the account's zone, one hour\n * for an unspecified meeting — and the two safety rules: a range filters real rows, and a delete is a\n * pending action rather than a write.\n */",
