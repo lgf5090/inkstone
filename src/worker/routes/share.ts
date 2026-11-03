@@ -431,8 +431,12 @@ async function renderShareShell(
 
   const siteName = c.env.APP_NAME || 'Inkstone'
   const expired = row?.expires_at ? row.expires_at < Date.now() : false
-  const title = row && !expired && !row.password_hash ? publicShareTitle(row.title) : "Content unavailable"
-  const description = row && !expired && !row.password_hash ? row.excerpt : ''
+  // A paused link keeps its address but publishes nothing, exactly as an expired one: the preview must
+  // not be the one surface that still hands a stranger the title the owner switched off.
+  const paused = row ? row.is_enabled === 0 : false
+  const live = Boolean(row && !expired && !paused)
+  const title = row && live && !row.password_hash ? publicShareTitle(row.title) : "Content unavailable"
+  const description = row && live && !row.password_hash ? row.excerpt : ''
 
   const meta = [
     `<title>${escapeHtml(title)} · ${escapeHtml(siteName)}</title>`,

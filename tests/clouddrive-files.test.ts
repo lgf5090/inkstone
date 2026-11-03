@@ -381,6 +381,21 @@ describe('clouddrive file API', () => {
     expect(r2.objects.has(key)).toBe(false)
   })
 
+  it('keeps a trashed file from a locked folder out of the trash listing', async () => {
+    const folderId = await insertEntry({ path: '/Vault', name: 'Vault', kind: 'folder' })
+    const fileId = await insertEntry({ parentId: folderId, path: '/Vault/secret.txt', name: 'secret.txt' })
+    await db.prepare(
+      `INSERT INTO CloudDrive_meta
+         (user_id, mount_id, path, header_md, footer_md, hide_patterns, password_hash,
+          inherit_header, inherit_footer, inherit_hide, inherit_password, created_at, updated_at)
+       VALUES (?1, 'primary', '/Vault', '', '', '[]', 'stored-password-hash', 0, 0, 0, 0, 1, 1)`,
+    ).bind(USER).run()
+    await db.prepare('UPDATE CloudDrive_files SET deleted_at = ? WHERE id = ?').bind(Date.now(), fileId).run()
+
+    const trashed = await call<{ folders: CloudDriveEntry[]; files: CloudDriveEntry[] }>(USER, 'GET', '/api/clouddrive/trash')
+    expect(trashed.body.files.map((entry) => entry.name)).toEqual([])
+  })
+
   it('restores a trashed folder together with the subtree inside it', async () => {
     const folder = await call<{ entry: CloudDriveEntry }>(USER, 'POST', '/api/clouddrive/folders', {
       parentPath: '/', name: 'Deep',

@@ -1,5 +1,5 @@
 import { MEMO_PAT_BYTES, MEMO_PAT_PREFIX } from '@shared/memos/constants'
-import type { MemoToken, MemoTokenCreateInput, MemoTokenCreateResult } from '@shared/memos/types'
+import type { MemoToken, MemoTokenCreateInput, MemoTokenCreateResult, MemoTokenScope } from '@shared/memos/types'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
 import { createOpaqueToken, hashOpaqueToken, tokenPrefix } from './tokens'
@@ -8,12 +8,13 @@ export const MEMO_TOKEN_DESCRIPTION_MAX_LENGTH = 128
 
 const MAX_TOKEN_ID_ATTEMPTS = 5
 
-const TOKEN_COLUMNS = 'id, description, prefix, expires_at, created_at, last_used_at'
+const TOKEN_COLUMNS = 'id, description, prefix, scope, expires_at, created_at, last_used_at'
 
 interface TokenRow {
   id: string
   description: string
   prefix: string
+  scope: string
   expires_at: number | null
   created_at: number
   last_used_at: number | null
@@ -22,6 +23,7 @@ interface TokenRow {
 export interface MemoTokenOwner {
   id: string
   userId: string
+  scope: MemoTokenScope
 }
 
 function nowSeconds(): number {
@@ -33,6 +35,7 @@ function toToken(row: TokenRow): MemoToken {
     id: row.id,
     description: row.description,
     prefix: row.prefix,
+    scope: row.scope === 'owner' ? 'owner' : 'memos',
     expiresAt: row.expires_at,
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
@@ -60,12 +63,21 @@ function tokenExpiry(value: unknown): number | null {
   return value
 }
 
+/** A token's reach, named explicitly; anything else would silently become a session. */
+function tokenScope(value: unknown): MemoTokenScope {
+  if (value === undefined || value === null) return 'memos'
+  if (value !== 'memos' && value !== 'owner') throw ApiError.badRequest('scope must be memos or owner')
+  return value
+}
+
 export async function createToken(
   db: D1Database,
   userId: string,
   input: MemoTokenCreateInput,
+  parentTokenId?: string,
 ): Promise<MemoTokenCreateResult> {
   const description = tokenDescription(input.description)
+  const scope = tokenScope(input.scope)
   const expiresAt = tokenExpiry(input.expiresAt)
   const now = nowSeconds()
 
@@ -77,15 +89,15 @@ export async function createToken(
     const { meta } = await db
       .prepare(
         `INSERT OR IGNORE INTO memos_tokens
-           (id, user_id, token_hash, prefix, description, expires_at, created_at, last_used_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)`,
+           (id, user_id, token_hash, prefix, description, scope, parent_token_id, expires_at, created_at, last_used_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)`,
       )
-      .bind(id, userId, tokenHash, prefix, description, expiresAt, now)
+      .bind(id, userId, tokenHash, prefix, description, scope, parentTokenId ?? null, expiresAt, now)
       .run()
     if (meta.changes > 0) {
       return {
         token,
-        tokenInfo: { id, description, prefix, expiresAt, createdAt: now, lastUsedAt: null },
+        tokenInfo: { id, description, prefix, scope, expiresAt, createdAt: now, lastUsedAt: null },
       }
     }
   }
@@ -105,9 +117,24 @@ export async function listTokens(db: D1Database, userId: string): Promise<MemoTo
   return results.map(toToken)
 }
 
+/**
+ * Revokes one token and every token it minted.
+ *
+ * A token can create children (an owner-scope token does, when it manages the ledger), and a child
+ * outliving its parent would be exactly the "revoked but still works" hole the scope split exists to
+ * close. The recursive CTE walks that parent chain in one statement.
+ */
 export async function revokeToken(db: D1Database, userId: string, id: string): Promise<boolean> {
   const { meta } = await db
-    .prepare('DELETE FROM memos_tokens WHERE id = ?1 AND user_id = ?2')
+    .prepare(
+      `WITH RECURSIVE descendants(id) AS (
+         SELECT id FROM memos_tokens WHERE id = ?1 AND user_id = ?2
+         UNION ALL
+         SELECT t.id FROM memos_tokens t JOIN descendants d ON t.parent_token_id = d.id
+          WHERE t.user_id = ?2
+       )
+       DELETE FROM memos_tokens WHERE user_id = ?2 AND id IN (SELECT id FROM descendants)`,
+    )
     .bind(id, userId)
     .run()
   return meta.changes > 0
@@ -118,17 +145,17 @@ export async function findToken(db: D1Database, token: string): Promise<MemoToke
   const now = nowSeconds()
   const row = await db
     .prepare(
-      `SELECT id, user_id
+      `SELECT id, user_id, scope
          FROM memos_tokens
         WHERE token_hash = ?1 AND (expires_at IS NULL OR expires_at > ?2)
         LIMIT 1`,
     )
     .bind(await hashOpaqueToken(token), now)
-    .first<{ id: string; user_id: string }>()
+    .first<{ id: string; user_id: string; scope: string }>()
   if (!row) return null
   await db
     .prepare('UPDATE memos_tokens SET last_used_at = ?1 WHERE id = ?2')
     .bind(now, row.id)
     .run()
-  return { id: row.id, userId: row.user_id }
+  return { id: row.id, userId: row.user_id, scope: row.scope === 'owner' ? 'owner' : 'memos' }
 }

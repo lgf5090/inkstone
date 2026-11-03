@@ -130,6 +130,26 @@ describe('CloudDrive account ACL', () => {
     expect(((await (await request(h, MEMBER, 'GET', '/api/clouddrive/acl/shared')).json()) as { shared: unknown[] }).shared).toHaveLength(0)
   })
 
+  it('keeps a shared password folder closed to the grantee', async () => {
+    const folder = await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'vault' })
+    expect(folder.status).toBe(201)
+    const folderId = (await folder.json() as { entry: { id: string } }).entry.id
+    const child = await upload(h, '/vault', 'secret.txt', 'classified')
+    await request(h, OWNER, 'POST', '/api/clouddrive/acl/grants', { fileId: folderId, username: 'member' })
+
+    // The owner closes the folder after the grant; that lock is part of the folder's access policy.
+    expect((await request(h, OWNER, 'PUT', '/api/clouddrive/meta', {
+      mountId: 'primary', path: '/vault', password: 'a folder password',
+    })).status).toBe(200)
+
+    const listing = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared/${OWNER}/${folderId}/list`)
+    expect(listing.status).toBe(403)
+    expect(((await listing.json()) as { error: { code: string } }).error.code).toBe('clouddrive_meta_locked')
+
+    const content = await request(h, MEMBER, 'GET', `/api/clouddrive/acl/shared/${OWNER}/${child.id}/content`)
+    expect(content.status).toBe(403)
+  })
+
   it('grants a folder and lists descendants without escaping it', async () => {
     const folder = await request(h, OWNER, 'POST', '/api/clouddrive/folders', { parentPath: '/', name: 'shared' })
     expect(folder.status).toBe(201)

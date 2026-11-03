@@ -478,6 +478,19 @@ describe('memo attachment deletion', () => {
     )?.count).toBe(1)
 
     sqlite.prepare('UPDATE memos_items SET content = ? WHERE id = ?').run('', id(40))
+    const stillBound = await request(`/api/memos/attachments/${body.id}`, {
+      method: 'DELETE',
+      headers: { 'x-test-user': ALICE },
+    })
+    expect(stillBound.status).toBe(409)
+    expect(one<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM memos_attachments WHERE id = ?',
+      body.id,
+    )?.count).toBe(1)
+
+    // Only a row no memo owns is deletable: an attachment bound to a memo row is what a comment or a
+    // live photo keeps, and deleting it from the library would take bytes that memo still needs.
+    sqlite.prepare('UPDATE memos_attachments SET memo_id = NULL WHERE id = ?').run(body.id)
     const deleted = await request(`/api/memos/attachments/${body.id}`, {
       method: 'DELETE',
       headers: { 'x-test-user': ALICE },

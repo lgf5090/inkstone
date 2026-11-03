@@ -226,6 +226,36 @@ describe('reading the drive', () => {
     expect(answer.files[0]!.lastViewedAt).not.toBeNull()
   })
 
+  it('refuses a recursive walk that would enter a password folder', async () => {
+    const archive = (await rowByPath('/归档'))!
+    const secret = await insertEntry({ parentId: archive.id, path: '/归档/机密', name: '机密', kind: 'folder' })
+    await insertEntry({ parentId: secret, path: '/归档/机密/名单.xlsx', name: '名单.xlsx', category: 'documents', size: 4096 })
+    await env.DB.prepare(
+      `INSERT INTO CloudDrive_meta
+         (user_id, mount_id, path, header_md, footer_md, hide_patterns, password_hash,
+          inherit_header, inherit_footer, inherit_hide, inherit_password, created_at, updated_at)
+       VALUES (?1, 'primary', '/归档/机密', '', '', '[]', 'stored-password-hash', 0, 0, 0, 0, 1, 1)`,
+    ).bind(ALICE).run()
+
+    await expect(run('drive_list', { path: '/归档', recursive: true }))
+      .rejects.toThrow(/password protected/i)
+  })
+
+  it('applies the folder hidden patterns to a recursive walk', async () => {
+    await env.DB.prepare(
+      `INSERT INTO CloudDrive_meta
+         (user_id, mount_id, path, header_md, footer_md, hide_patterns, password_hash,
+          inherit_header, inherit_footer, inherit_hide, inherit_password, created_at, updated_at)
+       VALUES (?1, 'primary', '/归档', '', '', '["旧报告.pdf"]', '', 0, 0, 0, 0, 1, 1)`,
+    ).bind(ALICE).run()
+
+    const answer = await run('drive_list', { path: '/归档', recursive: true, sort: 'name' }) as {
+      files: Array<{ name: string }>
+    }
+    expect(answer.files.map((file) => file.name)).not.toContain('旧报告.pdf')
+    expect(answer.files.map((file) => file.name)).toContain('2024 财报.pdf')
+  })
+
   it('finds a file by part of its name, including a year', async () => {
     const answer = await run('drive_list', { q: '2024 财报', recursive: true }) as { files: Array<{ name: string; path: string }> }
     expect(answer.files.map((file) => file.name)).toEqual(['2024 财报.pdf'])

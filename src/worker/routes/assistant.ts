@@ -1994,6 +1994,20 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   // A tool that makes a file (an image) leaves it in this array, because the turn it belongs to was
   // written before the reader pressed Approve and there is no `addMessage` left to carry the id.
   const generated: string[] = []
+  // "Always allow this tool" is validated before the action runs, so a refused grant cannot be the
+  // side effect of an action that already happened. It is remembered as a grant for this one name:
+  // it cannot widen the account's class policy or an Agent's switch — those are checked before it —
+  // and it is stored in settings so a later tab asks once rather than on every call. External tools
+  // are never granted: their permission belongs to a third party, and the card stays every time.
+  if (body.always === true) {
+    const spec = ASSISTANT_TOOL_BY_NAME.get(stored.tool)
+    if (stored.tool.startsWith('mcp_') || !spec) {
+      throw ApiError.badRequest('An external tool cannot be allowed for every future call.')
+    }
+    if (spec.permission === 'destructive') {
+      throw ApiError.badRequest('A destructive tool cannot be allowed for every future call.')
+    }
+  }
   // The thread's project, re-read rather than remembered: an approved memory write must land in the
   // same scope the proposal was made in, and a thread moved between projects since then has moved.
   const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id, override)
@@ -2004,14 +2018,7 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
       if (generated.length) await s.appendMessageAttachments(located.messageId, generated)
     }
   }
-  // "Always allow this tool" is remembered as a grant for this one name. It cannot widen the account's
-  // class policy or an Agent's switch — those are checked before it — and it is stored in settings so a
-  // later tab asks once rather than on every call.
   if (body.always === true) {
-    const spec = ASSISTANT_TOOL_BY_NAME.get(stored.tool)
-    if (spec?.permission === 'destructive') {
-      throw ApiError.badRequest('A destructive tool cannot be allowed for every future call.')
-    }
     await s.saveSettings({
       ...settings,
       toolGrants: { ...settings.toolGrants, [stored.tool]: 'auto' },

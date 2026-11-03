@@ -193,6 +193,7 @@ export async function loadSharedNote(
 export interface SharePageMeta {
   password_hash: string | null
   expires_at: number | null
+  is_enabled: number
   title: string
   excerpt: string
 }
@@ -210,7 +211,7 @@ export async function loadSharePageMeta(
 ): Promise<SharePageMeta | null> {
   const row = await db
     .prepare(
-      `SELECT s.password_hash, s.expires_at, n.title, n.excerpt
+      `SELECT s.password_hash, s.expires_at, s.is_enabled, n.title, n.excerpt
          FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
         WHERE s.slug = ?1 AND n.deleted_at IS NULL`,
     )

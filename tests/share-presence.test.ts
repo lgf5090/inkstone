@@ -107,6 +107,16 @@ describe('starting a show', () => {
     expect(row.token_hash).toHaveLength(64)
   })
 
+  it('stops answering the audience the moment the link is paused', async () => {
+    const { token } = await start()
+    expect((await beat(token)).status).toBe(200)
+
+    sqlite.prepare('UPDATE shares SET is_enabled = 0 WHERE slug = ?').run(SLUG)
+    expect((await beat(token)).status).toBe(404)
+    // The dead room is taken with it, so the next beat answers the same way rather than waiting out the lease.
+    expect(sqlite.prepare('SELECT COUNT(*) AS count FROM share_presence').get()).toEqual({ count: 0 })
+  })
+
   it('keeps one show per share, and a second start replaces the first link', async () => {
     const first = await start()
     const second = await start()

@@ -3571,6 +3571,17 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_usage_daily_period', column: 'cached_input_tokens' },
     statements: [`ALTER TABLE chat_usage_daily_period ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
   },
+  {
+    // A Memos token is no longer a session: `scope` says what it may reach, and `parent_token_id`
+    // remembers which token minted it so revoking the parent takes its children with it. Both are
+    // additive and default to the safe side (`memos`, no parent) for rows written before this version.
+    version: 260,
+    skipIfColumnExists: { table: 'memos_tokens', column: 'scope' },
+    statements: [
+      `ALTER TABLE memos_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'memos'`,
+      `ALTER TABLE memos_tokens ADD COLUMN parent_token_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

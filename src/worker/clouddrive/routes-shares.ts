@@ -386,7 +386,10 @@ async function serveShareContent(c: Context<AppBindings>, share: ShareRow, reque
   if (parsed === 'invalid') {
     return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${file.size}` } })
   }
-  if (forceDownload && c.req.method !== 'HEAD' && (!rangeHeader || rangeHeader.startsWith('bytes=0-'))) {
+  // A download is a request, not a header shape: a visitor who asks for `bytes=1-` receives the
+  // same file as one who asks without a Range, so counting only the no-range/`bytes=0-` case let
+  // `max_downloads` be bypassed with one extra header. HEAD stays free because it returns no bytes.
+  if (forceDownload && c.req.method !== 'HEAD') {
     await countDownload(c, share, shareRelativePath(share, requested), file.size)
   }
   if (file.storage_kind === 'distributed') {

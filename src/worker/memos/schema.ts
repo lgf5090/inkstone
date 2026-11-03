@@ -113,6 +113,8 @@ export const MEMOS_SCHEMA_STATEMENTS: readonly string[] = [
     token_hash TEXT NOT NULL UNIQUE,
     prefix TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT 'memos' CHECK (scope IN ('memos','owner')),
+    parent_token_id TEXT,
     expires_at INTEGER,
     created_at INTEGER NOT NULL,
     last_used_at INTEGER
@@ -241,7 +243,7 @@ export const MEMOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   memos_shares: ['id', 'user_id', 'memo_id', 'token_hash', 'expires_at', 'created_at', 'revoked_at'],
   memos_views: ['id', 'user_id', 'title', 'filter', 'icon', 'created_at', 'updated_at'],
   memos_preferences: ['user_id', 'json', 'updated_at'],
-  memos_tokens: ['id', 'user_id', 'token_hash', 'prefix', 'description', 'expires_at', 'created_at', 'last_used_at'],
+  memos_tokens: ['id', 'user_id', 'token_hash', 'prefix', 'description', 'scope', 'parent_token_id', 'expires_at', 'created_at', 'last_used_at'],
   memos_webhooks: ['id', 'user_id', 'title', 'url', 'secret_ciphertext', 'created_at', 'updated_at'],
   memos_link_metadata: ['url_hash', 'url', 'title', 'description', 'image', 'fetched_at'],
   memos_changes: ['seq', 'user_id', 'kind', 'memo_id', 'at'],

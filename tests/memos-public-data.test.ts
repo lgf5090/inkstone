@@ -111,13 +111,19 @@ function insertTag(memoId: string, tag: string): void {
   sqlite.prepare('INSERT INTO memos_tags (memo_id, tag) VALUES (?, ?)').run(memoId, tag)
 }
 
-function insertAttachment(id: string, userId: string, memoId: string): void {
+function insertAttachment(id: string, userId: string, memoId: string, mediaMetadata: unknown = null): void {
   sqlite.prepare(
     `INSERT INTO memos_attachments (
        id, user_id, memo_id, filename, mime, size, storage, storage_key, width, height,
        thumbnail_key, media_metadata, motion_group_id, motion_role, created_at, updated_at
-     ) VALUES (?, ?, ?, 'note.png', 'image/png', 4, 'r2', ?, NULL, NULL, NULL, NULL, NULL, NULL, 100, 100)`,
-  ).run(id, userId, memoId, `key-${id}`)
+     ) VALUES (?, ?, ?, 'note.png', 'image/png', 4, 'r2', ?, NULL, NULL, NULL, ?, NULL, NULL, 100, 100)`,
+  ).run(
+    id,
+    userId,
+    memoId,
+    `key-${id}`,
+    mediaMetadata === null ? null : JSON.stringify(mediaMetadata),
+  )
 }
 
 function insertReaction(id: string, userId: string, memoId: string, type = 'like'): void {
@@ -380,6 +386,24 @@ describe('public memo detail', () => {
     expect(memo.commentCount).toBe(1)
     expect(memo.reactions).toEqual([])
     expect(memo.relations).toEqual([])
+  })
+
+  it('never hands a public reader the photo GPS coordinates', async () => {
+    insertAttachment('p'.repeat(26), ALICE, ALICE_PUBLIC, {
+      photo: {
+        width: 640,
+        height: 480,
+        captureTime: { local: '2026-11-04T09:30:00', offsetMinutes: 480 },
+        location: { latitude: 31.2304, longitude: 121.4737, altitude: 12 },
+        cameraMake: 'Canon',
+      },
+    })
+    const memo = await memoBody(`/users/${ALICE_USERNAME}/memos/${ALICE_PUBLIC}`)
+    const photo = memo.attachments.find((attachment) => attachment.id === 'p'.repeat(26))?.mediaMetadata?.photo
+    expect(photo).toMatchObject({ width: 640, height: 480, cameraMake: 'Canon' })
+    expect(photo?.location).toBeUndefined()
+    expect(JSON.stringify(memo)).not.toContain('31.2304')
+    expect(JSON.stringify(memo)).not.toContain('121.4737')
   })
 
   it('hides protected, private, archived and comment memos from anonymous readers', async () => {

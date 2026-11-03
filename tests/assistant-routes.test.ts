@@ -4210,6 +4210,40 @@ describe('external MCP servers', () => {
     void created
   })
 
+  it('refuses to remember always-allow for an external MCP tool, before running it', async () => {
+    await useExampleModel()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', fakeMcpServer(calls))
+    await addServer()
+    const resolveName = await offeredName('resolve-library-id')
+
+    const answerFrames = [
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'tool_calls', delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: resolveName, arguments: '{"query":"vite"}' } }] } }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop', delta: { content: 'I asked you first.' } }] })}\n\n`,
+    ]
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
+      const body = String(init?.body ?? '')
+      if (body.includes('"model":"example-model"')) return new Response(sse(answerFrames), { headers: { 'content-type': 'text/event-stream' } })
+      return fakeMcpServer(calls)(url, init)
+    }))
+    const events = await chatEvents({ message: '查 vite', tools: [resolveName] })
+    await settleTurns()
+    const proposed = events.filter((event) => event.type === 'tool').map((event) => event.tool)
+      .find((entry) => entry?.approval)
+    expect(proposed?.approval?.status).toBe('pending')
+
+    const refusedStatus = await status(
+      'POST',
+      `/api/assistant/actions/${proposed!.approval!.id}/approve`,
+      { always: true },
+    )
+    expect(refusedStatus).toBe(400)
+    expect(calls.some((entry) => entry.includes(':tools/call:'))).toBe(false)
+    const settings = await call<{ settings: { toolGrants: Record<string, string> } }>('GET', '/api/assistant/settings')
+    expect(settings.settings.toolGrants[resolveName]).toBeUndefined()
+    vi.unstubAllGlobals()
+  })
+
   it('runs an auto-mode server without a card, and never offers a disabled one', async () => {
     await useExampleModel()
     const calls: string[] = []

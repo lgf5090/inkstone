@@ -32,7 +32,7 @@ const OTHER = 'user-other'
 const SESSION_HEADER = 'X-Test-Session'
 const ID_SHAPE = /^[0-9a-hjkmnp-tv-z]{26}$/
 const TOKEN_SHAPE = /^memo_pat_[A-Za-z0-9_-]{43}$/
-const TOKEN_FIELDS = ['createdAt', 'description', 'expiresAt', 'id', 'lastUsedAt', 'prefix']
+const TOKEN_FIELDS = ['createdAt', 'description', 'expiresAt', 'id', 'lastUsedAt', 'prefix', 'scope']
 
 const app = new Hono<AppBindings>()
 
@@ -66,6 +66,8 @@ interface StoredToken {
   token_hash: string
   prefix: string
   description: string
+  scope: string
+  parent_token_id: string | null
   expires_at: number | null
   created_at: number
   last_used_at: number | null
@@ -129,6 +131,8 @@ function insertToken(
   id: string,
   userId: string,
   options: {
+    scope?: 'memos' | 'owner'
+    parentTokenId?: string | null
     expiresAt?: number | null
     createdAt?: number
     lastUsedAt?: number | null
@@ -137,14 +141,16 @@ function insertToken(
 ): void {
   sqlite.prepare(
     `INSERT INTO memos_tokens
-       (id, user_id, token_hash, prefix, description, expires_at, created_at, last_used_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, user_id, token_hash, prefix, description, scope, parent_token_id, expires_at, created_at, last_used_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     userId,
     `hash-${id}`,
     `memo_pat_${id.slice(0, 7)}`,
     options.description ?? '',
+    options.scope ?? 'memos',
+    options.parentTokenId ?? null,
     options.expiresAt ?? null,
     options.createdAt ?? 100,
     options.lastUsedAt ?? null,
@@ -183,6 +189,7 @@ describe('token store', () => {
     expect(tokenInfo.id).toMatch(ID_SHAPE)
     expect(tokenInfo.description).toBe('CLI')
     expect(tokenInfo.prefix).toBe(token.slice(0, 16))
+    expect(tokenInfo.scope).toBe('memos')
     expect(tokenInfo.expiresAt).toBe(expiresAt)
     expect(tokenInfo.createdAt).toBeGreaterThanOrEqual(before)
     expect(tokenInfo.createdAt).toBeLessThanOrEqual(nowSeconds())
@@ -197,7 +204,9 @@ describe('token store', () => {
       'expires_at',
       'id',
       'last_used_at',
+      'parent_token_id',
       'prefix',
+      'scope',
       'token_hash',
       'user_id',
     ])
@@ -207,6 +216,8 @@ describe('token store', () => {
       token_hash: await hashOpaqueToken(token),
       prefix: token.slice(0, 16),
       description: 'CLI',
+      scope: 'memos',
+      parent_token_id: null,
       expires_at: expiresAt,
       last_used_at: null,
     })
@@ -299,7 +310,7 @@ describe('token store', () => {
     const { token, tokenInfo } = await createToken(db, OWNER, {})
     const before = nowSeconds()
 
-    await expect(findToken(db, token)).resolves.toEqual({ id: tokenInfo.id, userId: OWNER })
+    await expect(findToken(db, token)).resolves.toEqual({ id: tokenInfo.id, userId: OWNER, scope: 'memos' })
 
     const row = storedToken(tokenInfo.id)!
     expect(row.last_used_at).not.toBeNull()
@@ -434,7 +445,7 @@ describe('token routes', () => {
     const list = await request('/api/memos/tokens', { headers: sessionHeaders(OWNER) })
     expect(await list.json()).toEqual({ tokens: [] })
 
-    const stillWorks = await request('/api/memos/tokens', { headers: bearerHeaders(theirs.token) })
+    const stillWorks = await request('/api/memos', { headers: bearerHeaders(theirs.token) })
     expect(stillWorks.status).toBe(200)
   })
 
@@ -455,15 +466,9 @@ describe('token routes', () => {
       { description: 'Second CLI' },
       bearerHeaders(token),
     )
-    expect(tokenCreated.status).toBe(201)
-    const body = await tokenCreated.json() as MemoTokenCreateResult
-    expect(body.token).toMatch(TOKEN_SHAPE)
-
-    const revoked = await request(`/api/memos/tokens/${body.tokenInfo.id}`, {
-      method: 'DELETE',
-      headers: bearerHeaders(token),
-    })
-    expect(revoked.status).toBe(200)
+    // A PAT reaches memo data and nothing beyond it: the ledger and the archive are session-only
+    // unless the token was explicitly minted with the owner scope.
+    expect(tokenCreated.status).toBe(403)
     expect(countTokens()).toBe(1)
   })
 
@@ -471,7 +476,7 @@ describe('token routes', () => {
     const { token, tokenInfo } = await createToken(db, OWNER, { description: 'CLI' })
     const before = nowSeconds()
 
-    const response = await request('/api/memos/tokens', { headers: bearerHeaders(token) })
+    const response = await request('/api/memos', { headers: bearerHeaders(token) })
     expect(response.status).toBe(200)
 
     const row = storedToken(tokenInfo.id)!

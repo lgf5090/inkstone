@@ -97,6 +97,32 @@ describe('what a turn is allowed to reach', () => {
 })
 
 describe('a tool held for the reader', () => {
+  it('ignores an always-allow grant on an external (MCP) tool', async () => {
+    const commit = vi.fn(async () => 'ran')
+    const prepare = vi.fn(async () => ({ targetId: 'remote:drop', targetLabel: 'drop everything' }))
+    const external = {
+      name: 'mcp_server_drop_everything',
+      description: 'Removes data',
+      permission: 'destructive' as const,
+      fields: {},
+      external: true,
+      prepare,
+      commit,
+    }
+    const s = store()
+    const executor = new ToolExecutor(
+      context({
+        store: s,
+        settings: { ...DEFAULT_ASSISTANT_SETTINGS, toolGrants: { [external.name]: 'auto' } },
+      }),
+      { maxToolCalls: 8 },
+      [external],
+    )
+    const result = await executor.execute(external.name, { q: 'x' }, 'call-1') as Record<string, unknown>
+    expect(result.status).toBe('awaiting_reader_approval')
+    expect(commit).not.toHaveBeenCalled()
+  })
+
   it('proposes a write instead of making it, and keeps the call it proposed', async () => {
     const s = store()
     const executor = new ToolExecutor(context({ store: s, settings: settings({ write: 'ask' }) }), { maxToolCalls: 8 })

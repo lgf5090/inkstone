@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono'
-import { autoSuffixName, childPath, foldedName } from '@shared/clouddrive/model'
+import { autoSuffixName, childPath, foldedName, parentPathOf } from '@shared/clouddrive/model'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId, newId } from '../lib/id'
@@ -16,7 +16,7 @@ import {
   type CloudDriveFileRow,
 } from './lib'
 import { distributedStream, fileParts } from './distributed'
-import { hiddenByPatterns } from './meta'
+import { effectiveMeta, hiddenByPatterns } from './meta'
 import { cloudDriveUsage } from './store'
 import { planContentResponse, headResponse } from './content-response'
 import { assertMetaAccess } from './routes-meta'
@@ -33,6 +33,7 @@ const BODY_LIMIT = 16 * 1024
 interface AclFileRow {
   id: string
   user_id: string
+  mount_id: string
   parent_id: string
   path: string
   kind: string
@@ -63,7 +64,7 @@ async function subtreeOf(c: Context<AppBindings>, ownerId: string, root: AclFile
   let frontier = [root.id]
   while (frontier.length > 0) {
     const { results } = await c.env.DB.prepare(
-      `SELECT id, user_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
+      `SELECT id, user_id, mount_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
               uploaded_at, modified_at
          FROM CloudDrive_files WHERE user_id = ? AND deleted_at IS NULL AND parent_id IN (${frontier.map(() => '?').join(',')})
         ORDER BY kind DESC, name_folded LIMIT ?`,
@@ -175,7 +176,7 @@ async function aclAllows(
 ): Promise<AclFileRow | null> {
   if (!isValidId(fileId)) return null
   const target = await c.env.DB.prepare(
-    `SELECT id, user_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
+    `SELECT id, user_id, mount_id, parent_id, path, kind, name, category, mime, size, etag, storage_kind, storage_key, metadata,
             uploaded_at, modified_at
        FROM CloudDrive_files WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
   ).bind(ownerId, fileId).first<AclFileRow>()
@@ -303,7 +304,12 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
       `SELECT * FROM CloudDrive_files WHERE user_id = ? AND path = ? AND kind = 'folder' AND deleted_at IS NULL`,
     ).bind(ownerId, requested).first<CloudDriveFileRow>()
   if (!folder) throw ApiError.notFound('Folder not found')
-  const meta = parseFolderMeta(folder.metadata)
+  // The drive's folder password is an access boundary here too: a grantee who was handed a folder
+  // cannot list what the owner later locked, and the same `hidePatterns` rule the owner's own
+  // listing applies decides which names the directory shows.
+  await assertMetaAccess(c, ownerId, folder.mount_id, requested)
+  const meta = await effectiveMeta(c.env.DB, ownerId, folder.mount_id, requested)
+  const folderMeta = parseFolderMeta(folder.metadata)
   const { results } = await c.env.DB.prepare(
     `SELECT id, user_id, path, kind, name, mime, size, etag, storage_kind, storage_key, metadata,
             uploaded_at, modified_at
@@ -314,7 +320,7 @@ clouddriveAclRoutes.get('/acl/shared/:ownerId/:fileId/list', async (c) => {
     ownerId,
     path: requested,
     entries: (results ?? [])
-      .filter((row) => !hiddenByPatterns(row.name, meta.hiddenPatterns))
+      .filter((row) => !hiddenByPatterns(row.name, [...meta.hidePatterns, ...folderMeta.hiddenPatterns]))
       .map((row) => ({
         ownerId,
         fileId: row.id,
@@ -333,6 +339,9 @@ clouddriveAclRoutes.on(['GET', 'HEAD'], '/acl/shared/:ownerId/:fileId/content', 
   const fileId = c.req.param('fileId')
   const file = await aclAllows(c, ownerId, fileId, userIdOf(c))
   if (!file || file.kind !== 'file') throw ApiError.notFound('File not found')
+  // A grant to a file under a password folder follows the folder's lock, exactly as the owner's own
+  // file route does (it checks the containing directory, not the file path).
+  await assertMetaAccess(c, ownerId, file.mount_id, parentPathOf(file.path))
   const planned = planContentResponse({
     method: c.req.method,
     rangeHeader: c.req.header('range'),

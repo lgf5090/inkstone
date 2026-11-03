@@ -1,5 +1,5 @@
 import { MEMO_PUBLIC_PAGE_SIZE } from '@shared/memos/constants'
-import type { Memo, MemoListResponse } from '@shared/memos/types'
+import type { Memo, MemoAttachment, MemoListResponse } from '@shared/memos/types'
 import type { PublicUser } from '@shared/types'
 import { fromBase64, fromUtf8, toBase64, utf8 } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
@@ -101,6 +101,24 @@ async function loadCreators(
   return creators
 }
 
+/**
+ * Drop the exact capture coordinates from a photo the public path hands out.
+ *
+ * A memo's own location is already nulled above, but an uploaded photo carries its EXIF copy in
+ * `mediaMetadata`, and that is the one that names the place the picture was taken. Every other field
+ * (size, capture time, camera) stays: the reader of a public memo is shown the photo, not where the
+ * photographer stood.
+ */
+function publicAttachment(attachment: MemoAttachment): MemoAttachment {
+  const photo = attachment.mediaMetadata?.photo
+  if (!photo?.location) return attachment
+  const { location: _location, ...rest } = photo
+  return {
+    ...attachment,
+    mediaMetadata: { ...attachment.mediaMetadata, photo: rest },
+  }
+}
+
 /** Build the public shape explicitly so fields added to `Memo` do not leak by default. */
 async function hydratePublicMemos(
   db: D1Database,
@@ -137,7 +155,7 @@ async function hydratePublicMemos(
       parentId: null,
       location: null,
       properties: emptyProperties(),
-      attachments: memo.attachments,
+      attachments: memo.attachments.map(publicAttachment),
       reactions: [],
       relations: [],
       commentCount: memo.commentCount,

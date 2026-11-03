@@ -183,6 +183,9 @@ export interface Variables {
 
   database: DatabaseState
   userId: string
+  /** Set only when the request authenticated with a Memos access token rather than a session. */
+  memoPatId?: string
+  memoPatScope?: 'memos' | 'owner'
 
   sessionId: string
 
