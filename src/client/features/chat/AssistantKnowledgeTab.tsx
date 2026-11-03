@@ -11,12 +11,16 @@ import { Database, FolderOpen, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 
 import type { KnowledgeBase } from '@shared/assistant'
 import { api } from '../../lib/api'
 import { Button, Spinner } from '../../components/primitives'
-import { Field, Input, Textarea } from '../../components/form'
+import { Field, Input, Select, SettingRow, Textarea } from '../../components/form'
 import { Modal, confirm } from '../../components/overlay'
 import { Empty } from '../../components/feedback'
 import { t } from '../../lib/i18n'
 import { useAssistant } from './assistant-store'
 import { NoteScopePicker } from './NoteScopePicker'
+import { Group } from './assistant-settings-shared'
+
+const CHUNK_CHOICES = [800, 1_200, 1_500, 2_000, 3_000]
+const CONCURRENCY_CHOICES = [1, 2, 3, 4]
 
 interface Draft {
   id: string | null
@@ -41,6 +45,8 @@ export function KnowledgeTab() {  const knowledgeBases = useAssistant((state) =>
   const createKnowledgeBase = useAssistant((state) => state.createKnowledgeBase)
   const updateKnowledgeBase = useAssistant((state) => state.updateKnowledgeBase)
   const deleteKnowledgeBase = useAssistant((state) => state.deleteKnowledgeBase)
+  const settings = useAssistant((state) => state.settings)
+  const saveSettings = useAssistant((state) => state.saveSettings)
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
@@ -136,6 +142,43 @@ export function KnowledgeTab() {  const knowledgeBases = useAssistant((state) =>
       {missingIndex && (
         <p className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('assistant.knowledge.index_off_hint')}</p>
       )}
+
+      {/* The two numbers a whole-book index is built from. They belong to the KB screen rather than the
+          notes index because a book is the only source long enough for either to matter. */}
+      <Group title={t('assistant.knowledge.index_settings')}>
+        <SettingRow
+          title={t('assistant.knowledge.chunk_chars')}
+          description={t('assistant.knowledge.index_settings_hint')}
+          controlId="kb-chunk-chars"
+        >
+          <Select
+            id="kb-chunk-chars"
+            value={String(settings?.kbChunkChars ?? 1_500)}
+            onChange={(event) => { void saveSettings({ kbChunkChars: Number(event.target.value) }) }}
+            className="h-8 w-36 text-[length:var(--text-12)]"
+          >
+            {CHUNK_CHOICES.map((count) => (
+              <option key={count} value={count}>{t('assistant.knowledge.chunk_chars_value', { count })}</option>
+            ))}
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title={t('assistant.knowledge.chunk_concurrency')}
+          description={t('assistant.knowledge.chunk_concurrency_hint')}
+          controlId="kb-chunk-concurrency"
+        >
+          <Select
+            id="kb-chunk-concurrency"
+            value={String(settings?.kbChunkConcurrency ?? 1)}
+            onChange={(event) => { void saveSettings({ kbChunkConcurrency: Number(event.target.value) }) }}
+            className="h-8 w-36 text-[length:var(--text-12)]"
+          >
+            {CONCURRENCY_CHOICES.map((count) => (
+              <option key={count} value={count}>{t('assistant.knowledge.chunk_concurrency_value', { count })}</option>
+            ))}
+          </Select>
+        </SettingRow>
+      </Group>
 
       {loading ? (
         <div className="flex justify-center py-8"><Spinner /></div>

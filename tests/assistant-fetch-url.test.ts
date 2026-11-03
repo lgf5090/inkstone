@@ -83,4 +83,18 @@ describe('fetch_url', () => {
       .execute('fetch_url', { url: 'https://example.com/blob' }, 'call-1'))
       .rejects.toThrow(/not a page/i)
   })
+
+  it('gives up on a page that accepts the connection and never answers', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_url: unknown, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+    })))
+    const pending = new ToolExecutor(context(), { maxToolCalls: 8 })
+      .execute('fetch_url', { url: 'https://example.com/slow' }, 'call-1')
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(15_000)
+    const settled = await pending
+    vi.useRealTimers()
+    expect(String(settled), 'a page with no answer held the turn open forever').toMatch(/too long/i)
+  })
 })

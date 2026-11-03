@@ -305,35 +305,140 @@ const RETRY_AFTER_CAP_MS = 30_000
 /**
  * One non-streaming completion, for the recovery path after a stream timed out twice.
  *
- * Only the OpenAI-compatible shape is covered: it is the one every relay speaks, and the other two wires
- * have their own bodies. The answer is text plus usage; a tool call in the response is ignored, because a
- * recovery is the fallback for a reader waiting on words, not a second agent step.
+ * The three wires speak three shapes. A recovery is the fallback for a reader waiting on words, not a
+ * second agent step, so a tool call in the answer is ignored rather than executed.
  */
-export async function fetchOpenAiOnce(request: UpstreamRequest): Promise<{ text: string, inputTokens: number, outputTokens: number, cachedInputTokens?: number }> {
-  const url = vettedUrl(openAiEndpoint(request.baseUrl))
-  const body: Record<string, unknown> = { ...openAiBody(request), stream: false }
-  delete body.stream_options
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: jsonHeaders(request.apiKey),
-    body: JSON.stringify(body),
-    signal: request.signal,
-    redirect: NO_REDIRECT,
-  })
-  if (!response.ok) throw new Error(`The provider answered ${response.status}.`)
-  const parsed = await response.json() as Record<string, unknown>
-  const choice = Array.isArray(parsed.choices) ? parsed.choices[0] as Record<string, unknown> | undefined : undefined
-  const message = choice?.message as Record<string, unknown> | undefined
-  const text = typeof message?.content === 'string' ? message.content : ''
-  const usage = parsed.usage as Record<string, unknown> | undefined
-  const details = usage?.prompt_tokens_details as Record<string, unknown> | undefined
-  const cached = numberOr(details?.cached_tokens)
+export interface OnceAnswer {
+  text: string
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens?: number
+}
+
+/**
+ * A clock for the one non-streaming call of an attempt.
+ *
+ * The recovery runs after both streaming attempts timed out, and the turn's own signal has no deadline:
+ * a provider that accepts the connection and never answers had nothing left to stop it, so the reader
+ * watched a spinner forever. The guard borrows the stream's first-chunk deadline and also follows the
+ * turn's own cancellation.
+ */
+function onceSignal(request: UpstreamRequest): { signal: AbortSignal, clear: () => void } {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error('The non-streaming recovery timed out.')), FIRST_CHUNK_TIMEOUT_MS)
+  const onAbort = () => controller.abort(request.signal.reason)
+  if (request.signal.aborted) onAbort()
+  else request.signal.addEventListener('abort', onAbort, { once: true })
   return {
-    text,
-    inputTokens: numberOr(usage?.prompt_tokens) ?? 0,
-    outputTokens: numberOr(usage?.completion_tokens) ?? 0,
-    ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+    signal: controller.signal,
+    clear: () => {
+      clearTimeout(timer)
+      request.signal.removeEventListener('abort', onAbort)
+    },
   }
+}
+
+export async function fetchOpenAiOnce(request: UpstreamRequest): Promise<OnceAnswer> {
+  const guard = onceSignal(request)
+  try {
+    const url = vettedUrl(openAiEndpoint(request.baseUrl))
+    const body: Record<string, unknown> = { ...openAiBody(request), stream: false }
+    delete body.stream_options
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: jsonHeaders(request.apiKey),
+      body: JSON.stringify(body),
+      signal: guard.signal,
+      redirect: NO_REDIRECT,
+    })
+    if (!response.ok) throw new Error(`The provider answered ${response.status}.`)
+    const parsed = await response.json() as Record<string, unknown>
+    const choice = Array.isArray(parsed.choices) ? parsed.choices[0] as Record<string, unknown> | undefined : undefined
+    const message = choice?.message as Record<string, unknown> | undefined
+    const text = typeof message?.content === 'string' ? message.content : ''
+    const usage = parsed.usage as Record<string, unknown> | undefined
+    const details = usage?.prompt_tokens_details as Record<string, unknown> | undefined
+    const cached = numberOr(details?.cached_tokens)
+    return {
+      text,
+      inputTokens: numberOr(usage?.prompt_tokens) ?? 0,
+      outputTokens: numberOr(usage?.completion_tokens) ?? 0,
+      ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+    }
+  } finally {
+    guard.clear()
+  }
+}
+
+export async function fetchAnthropicOnce(request: UpstreamRequest): Promise<OnceAnswer> {
+  const guard = onceSignal(request)
+  try {
+    const url = vettedUrl(anthropicEndpoint(request.baseUrl))
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...anthropicHeaders(request.apiKey), accept: 'application/json' },
+      body: JSON.stringify(anthropicBody(request, false)),
+      signal: guard.signal,
+      redirect: NO_REDIRECT,
+    })
+    if (!response.ok) throw new Error(`The provider answered ${response.status}.`)
+    const parsed = await response.json() as Record<string, unknown>
+    const blocks = Array.isArray(parsed.content) ? parsed.content as Record<string, unknown>[] : []
+    const text = blocks
+      .filter((block) => block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text as string)
+      .join('')
+    const usage = (parsed.usage ?? {}) as Record<string, unknown>
+    const cached = numberOr(usage.cache_read_input_tokens)
+    return {
+      text,
+      inputTokens: numberOr(usage.input_tokens) ?? 0,
+      outputTokens: numberOr(usage.output_tokens) ?? 0,
+      ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+    }
+  } finally {
+    guard.clear()
+  }
+}
+
+export async function fetchGeminiOnce(request: UpstreamRequest): Promise<OnceAnswer> {
+  const guard = onceSignal(request)
+  try {
+    const url = vettedUrl(geminiGenerateEndpoint(request.baseUrl, request.model))
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: geminiHeaders(request.apiKey),
+      body: JSON.stringify(geminiBody(request)),
+      signal: guard.signal,
+      redirect: NO_REDIRECT,
+    })
+    if (!response.ok) throw new Error(`The provider answered ${response.status}.`)
+    const parsed = await response.json() as Record<string, unknown>
+    const candidate = Array.isArray(parsed.candidates) ? parsed.candidates[0] as Record<string, unknown> | undefined : undefined
+    const parts = ((candidate?.content as Record<string, unknown> | undefined)?.parts ?? []) as Record<string, unknown>[]
+    // A thought part is not the answer, exactly as in the streamed shape.
+    const text = parts
+      .filter((part) => typeof part.text === 'string' && part.thought !== true)
+      .map((part) => part.text as string)
+      .join('')
+    const usage = (parsed.usageMetadata ?? parsed.usage_metadata) as Record<string, unknown> | undefined
+    const cached = numberOr(usage?.cachedContentTokenCount ?? usage?.cached_content_token_count)
+    return {
+      text,
+      inputTokens: numberOr(usage?.promptTokenCount ?? usage?.prompt_tokens) ?? 0,
+      outputTokens: numberOr(usage?.candidatesTokenCount ?? usage?.candidates_tokens) ?? 0,
+      ...(cached !== undefined ? { cachedInputTokens: cached } : {}),
+    }
+  } finally {
+    guard.clear()
+  }
+}
+
+/** The non-streaming door for whichever wire the entry was called on. */
+export function fetchOnce(protocol: AssistantProtocol, request: UpstreamRequest): Promise<OnceAnswer> {
+  if (protocol === 'anthropic') return fetchAnthropicOnce(request)
+  if (protocol === 'gemini') return fetchGeminiOnce(request)
+  return fetchOpenAiOnce(request)
 }
 
 export async function* streamUpstream(
@@ -835,8 +940,7 @@ function anthropicCacheBreakpoint(
   return prefix >= ANTHROPIC_MIN_CACHE_PREFIX_TOKENS ? { type: 'ephemeral' } : null
 }
 
-async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
-  const url = vettedUrl(anthropicEndpoint(request.baseUrl))
+function anthropicBody(request: UpstreamRequest, stream: boolean): Record<string, unknown> {
   const blocks: Record<string, unknown>[] = []
   for (const turn of request.turns) {
     if (turn.role === 'user') {
@@ -890,28 +994,33 @@ async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<Upstre
   const system = cache && request.system.trim()
     ? [{ type: 'text', text: request.system, cache_control: cache }]
     : request.system
+  return {
+    model: request.model,
+    system,
+    messages: blocks,
+    max_tokens: request.maxOutputTokens,
+    // Whether the reader's sampling settings may travel at all is the model's own rule, not this
+    // request's: see `anthropicReasoning` for which models refuse them and why.
+    ...(thinking.sampling && request.temperature !== null ? { temperature: request.temperature } : {}),
+    ...(thinking.sampling && request.topP != null ? { top_p: request.topP } : {}),
+    ...thinking.fields,
+    stream,
+    // `request.structured` sends nothing here, and that is the answer rather than a guess: this wire
+    // has no JSON-mode field to set — the vendor's documented route to a constrained shape is a tool
+    // definition, and inventing a `response_format` key here would be a 400 waiting for a reader.
+    ...request.extraBody,
+    ...(tools.length ? { tools } : {}),
+  }
+}
+
+async function* streamAnthropic(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
+  const url = vettedUrl(anthropicEndpoint(request.baseUrl))
   const response = await postStream({
     url: url.toString(),
     init: {
       method: 'POST',
       headers: anthropicHeaders(request.apiKey),
-      body: JSON.stringify({
-        model: request.model,
-        system,
-        messages: blocks,
-        max_tokens: request.maxOutputTokens,
-        // Whether the reader's sampling settings may travel at all is the model's own rule, not this
-        // request's: see `anthropicReasoning` for which models refuse them and why.
-        ...(thinking.sampling && request.temperature !== null ? { temperature: request.temperature } : {}),
-        ...(thinking.sampling && request.topP != null ? { top_p: request.topP } : {}),
-        ...thinking.fields,
-        stream: true,
-        // `request.structured` sends nothing here, and that is the answer rather than a guess: this wire
-        // has no JSON-mode field to set — the vendor's documented route to a constrained shape is a tool
-        // definition, and inventing a `response_format` key here would be a 400 waiting for a reader.
-        ...request.extraBody,
-        ...(tools.length ? { tools } : {}),
-      }),
+      body: JSON.stringify(anthropicBody(request, true)),
       redirect: NO_REDIRECT,
     },
   }, request.signal)
@@ -1000,8 +1109,7 @@ function anthropicHeaders(apiKey: string): Record<string, string> {
 
 // ------------------------------------------------------------------- Gemini
 
-async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
-  const url = vettedUrl(geminiEndpoint(request.baseUrl, request.model))
+function geminiBody(request: UpstreamRequest): Record<string, unknown> {
   const contents: Record<string, unknown>[] = []
   for (const turn of request.turns) {
     const parts: Record<string, unknown>[] = []
@@ -1018,40 +1126,45 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
     if (!parts.length) parts.push({ text: ' ' })
     contents.push({ role: turn.role === 'assistant' ? 'model' : 'user', parts })
   }
+  return {
+    systemInstruction: { parts: [{ text: request.system }] },
+    contents,
+    generationConfig: {
+      ...(request.temperature === null ? {} : { temperature: request.temperature }),
+      ...(request.topP == null ? {} : { topP: request.topP }),
+      maxOutputTokens: request.maxOutputTokens,
+      ...(request.structured ? { responseMimeType: 'application/json' } : {}),
+      ...geminiThinkingConfig(dialectOf('gemini', request), request.reasoning, request.model),
+    },
+    // One `tools` array: Google's grounding entry is a sibling of the function declarations, and a
+    // second `tools` key in this object would silently drop whichever came first.
+    ...(request.tools.length || request.webSearch
+      ? {
+          tools: [
+            ...(request.webSearch ? [{ googleSearch: {} }] : []),
+            ...(request.tools.length
+              ? [{
+                  functionDeclarations: request.tools.map((tool) => ({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parameters,
+                  })),
+                }]
+              : []),
+          ],
+        }
+      : {}),
+  }
+}
+
+async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
+  const url = vettedUrl(geminiEndpoint(request.baseUrl, request.model))
   const response = await postStream({
     url: url.toString(),
     init: {
       method: 'POST',
-      headers: jsonHeaders(request.apiKey),
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: request.system }] },
-        contents,
-        generationConfig: {
-          ...(request.temperature === null ? {} : { temperature: request.temperature }),
-          ...(request.topP == null ? {} : { topP: request.topP }),
-          maxOutputTokens: request.maxOutputTokens,
-          ...(request.structured ? { responseMimeType: 'application/json' } : {}),
-          ...geminiThinkingConfig(dialectOf('gemini', request), request.reasoning, request.model),
-        },
-        // One `tools` array: Google's grounding entry is a sibling of the function declarations, and a
-        // second `tools` key in this object would silently drop whichever came first.
-        ...(request.tools.length || request.webSearch
-          ? {
-              tools: [
-                ...(request.webSearch ? [{ googleSearch: {} }] : []),
-                ...(request.tools.length
-                  ? [{
-                      functionDeclarations: request.tools.map((tool) => ({
-                        name: tool.name,
-                        description: tool.description,
-                        parameters: tool.parameters,
-                      })),
-                    }]
-                  : []),
-              ],
-            }
-          : {}),
-      }),
+      headers: geminiHeaders(request.apiKey),
+      body: JSON.stringify(geminiBody(request)),
       redirect: NO_REDIRECT,
     },
   }, request.signal)
@@ -1103,10 +1216,35 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
  * is assembled rather than configured. `alt=sse` is what makes the response a stream of frames instead of
  * one JSON array.
  */
-export function geminiEndpoint(baseUrl: string, model: string): string {
+export function geminiEndpoint(baseUrl: string, model: string): string {  return geminiModelEndpoint(baseUrl, model, 'streamGenerateContent?alt=sse')
+}
+
+/** The non-streaming sibling of {@link geminiEndpoint}, for the recovery path. */
+export function geminiGenerateEndpoint(baseUrl: string, model: string): string {
+  return geminiModelEndpoint(baseUrl, model, 'generateContent')
+}
+
+function geminiModelEndpoint(baseUrl: string, model: string, action: string): string {
   const base = baseUrl.trim().replace(/\/+$/, '')
   const trimmed = base.replace(/\/v1beta$/, '').replace(/\/models$/, '')
-  return `${trimmed}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`
+  return `${trimmed}/v1beta/models/${encodeURIComponent(model)}:${action}`
+}
+
+/**
+ * Gemini's key rides in its own header rather than as a bearer token.
+ *
+ * An API key sent as `Authorization: Bearer` is read as an OAuth token and refused with 401, which is what
+ * every request to this wire did before this header existed. The gateway header list already carries the
+ * name, so the guard's allowlist is unchanged.
+ */
+function geminiHeaders(apiKey: string): Record<string, string> {
+  const merged = pickRelayHeaders({
+    'content-type': 'application/json',
+    accept: 'text/event-stream',
+    'x-goog-api-key': apiKey,
+  }) as Record<string, string>
+  if (!merged['x-goog-api-key']) throw new UpstreamError('auth', 'This provider needs an API key before it can be used.')
+  return merged
 }
 
 // -------------------------------------------------------------------- shared

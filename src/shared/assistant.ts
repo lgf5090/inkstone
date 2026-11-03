@@ -805,6 +805,10 @@ export interface AssistantSettings {
   semanticTopK: number
   /** The cosine floor a neighbour must clear to be returned. */
   semanticScoreFloor: number
+  /** How many characters one indexed PDF chunk holds when a book is added to the knowledge base. */
+  kbChunkChars: number
+  /** How many embedding batches the reader index keeps in flight at once (1 is sequential). */
+  kbChunkConcurrency: number
   /** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */
   subagentEnabled: boolean
   /** Whether a child may run after the parent turn has returned, reporting by notification. */
@@ -928,6 +932,8 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   editApplyMode: 'preview',
   semanticTopK: 40,
   semanticScoreFloor: 0.55,
+  kbChunkChars: 1_500,
+  kbChunkConcurrency: 1,
   subagentEnabled: false,
   subagentAsyncEnabled: false,
   subagentModelId: null,
@@ -1106,6 +1112,8 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     editApplyMode: enumValue(raw.editApplyMode, ['preview', 'direct'] as const, DEFAULT_ASSISTANT_SETTINGS.editApplyMode),
     semanticTopK: numberInRange(raw.semanticTopK, 5, 100, DEFAULT_ASSISTANT_SETTINGS.semanticTopK),
     semanticScoreFloor: numberInRange(raw.semanticScoreFloor, 0, 1, DEFAULT_ASSISTANT_SETTINGS.semanticScoreFloor),
+    kbChunkChars: numberInRange(raw.kbChunkChars, 300, 4_000, DEFAULT_ASSISTANT_SETTINGS.kbChunkChars),
+    kbChunkConcurrency: numberInRange(raw.kbChunkConcurrency, 1, 4, DEFAULT_ASSISTANT_SETTINGS.kbChunkConcurrency),
     subagentEnabled: booleanValue(raw.subagentEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentEnabled),
     subagentAsyncEnabled: booleanValue(raw.subagentAsyncEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentAsyncEnabled),
     subagentModelId: typeof raw.subagentModelId === 'string' && raw.subagentModelId ? raw.subagentModelId.slice(0, 26) : null,

@@ -107,7 +107,7 @@ import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
 import { loadMcpNote } from '../mcp/retrieval'
-import { embedTexts, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
+import { chunkPageText, embedTextsPooled, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
 import { OneShotError, runOneShot } from '../assistant/one-shot'
 import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
@@ -2494,6 +2494,7 @@ assistantRoutes.post('/reader-index', async (c) => {
   const title = await s.readerBookTitle(bookId)
   if (title === null) throw ApiError.notFound('Book not found')
   if (!c.env.AI) throw new ApiError(503, 'internal', 'The embedding model is not configured.')
+  const settings = await s.getSettings()
   const pages: Array<{ page: number, texts: string[] }> = []
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
@@ -2501,11 +2502,11 @@ assistantRoutes.post('/reader-index', async (c) => {
     const page = typeof row.page === 'number' ? Math.trunc(row.page) : 0
     const text = typeof row.text === 'string' ? row.text.trim().slice(0, 8_000) : ''
     if (page < 1 || page > 10_000 || !text) continue
-    const texts = Array.from({ length: Math.min(4, Math.ceil(text.length / 1_500)) }, (_, index) => text.slice(index * 1_500, (index + 1) * 1_500)).filter(Boolean)
+    const texts = chunkPageText(text, settings.kbChunkChars)
     if (texts.length) pages.push({ page, texts })
   }
   if (!pages.length) throw ApiError.badRequest('There is no page text to index.')
-  const vectors = await embedTexts(c.env.AI, pages.flatMap((entry) => entry.texts))
+  const vectors = await embedTextsPooled(c.env.AI, pages.flatMap((entry) => entry.texts), settings.kbChunkConcurrency)
   let offset = 0
   let written = 0
   const prepared = pages.map((entry) => {

@@ -657,6 +657,56 @@ export async function embedText(ai: NonNullable<Env['AI']>, text: string): Promi
   return vector!
 }
 
+/**
+ * Embeds a long list in bounded batches, with the reader's chosen number of batches in flight.
+ *
+ * A whole book's page chunks can be hundreds of strings, and one call that large is both a slow request
+ * and a rate-limit magnet. The batch size matches the note index's own, so the same isolate budget
+ * applies; the lane count is the reader's setting. Results keep the input order, which is what lets the
+ * caller zip vectors back onto chunks without a second key.
+ */
+export async function embedTextsPooled(
+  ai: NonNullable<Env['AI']>,
+  texts: readonly string[],
+  concurrency: number,
+  batchSize = EMBED_CHUNK,
+): Promise<Float32Array[]> {
+  if (!texts.length) return []
+  const batches: string[][] = []
+  for (let offset = 0; offset < texts.length; offset += batchSize) {
+    batches.push(texts.slice(offset, offset + batchSize))
+  }
+  const out: Float32Array[] = new Array(texts.length)
+  let next = 0
+  const lane = async (): Promise<void> => {
+    for (let index = next++; index < batches.length; index = next++) {
+      const vectors = await embedTexts(ai, batches[index]!)
+      const base = index * batchSize
+      for (let position = 0; position < vectors.length; position++) out[base + position] = vectors[position]!
+    }
+  }
+  const lanes = Math.max(1, Math.min(Math.trunc(concurrency), batches.length))
+  await Promise.all(Array.from({ length: lanes }, lane))
+  return out
+}
+
+/**
+ * Splits one page into the chunks the reader's setting asks for.
+ *
+ * The page budget is a fact about how much of a page is worth indexing, not a chunk count: choosing a
+ * smaller chunk buys a more precise hit and must not also shrink the part of the page that ever gets
+ * embedded. So the count follows the budget, and every chunk keeps the size the reader chose.
+ */
+export function chunkPageText(text: string, chunkChars: number, budget = 6_000): string[] {
+  if (!text) return []
+  const size = Math.max(1, Math.trunc(chunkChars))
+  const maxChunks = Math.max(1, Math.ceil(budget / size))
+  return Array.from(
+    { length: Math.min(maxChunks, Math.ceil(text.length / size)) },
+    (_unused, index) => text.slice(index * size, (index + 1) * size),
+  ).filter(Boolean)
+}
+
 const queryEmbedCache = new Map<string, { vector: Float32Array; expiresAt: number }>()
 const QUERY_EMBED_TTL_MS = 600_000
 const QUERY_EMBED_CACHE_MAX = 64

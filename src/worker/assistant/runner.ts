@@ -46,7 +46,7 @@ import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
 import { ALL_TOOLS, parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, fetchOpenAiOnce, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
+import { AbortError, fetchOnce, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { runOneShot, OneShotError } from './one-shot'
@@ -1262,7 +1262,8 @@ export class AssistantRunner {
       let spoke = false
       // One recovery attempt per entry, and only before a word has been streamed: a failed request that
       // already showed text cannot be taken back, so the reader is not shown two versions of the same
-      // answer. The retry is still a stream; the vendor's non-stream shape has no door in this runner.
+      // answer. The retry is still a stream; only a third failure after both streams timed out falls
+      // back to the wire's non-streaming shape, if the reader allowed recovery.
       for (let attempt = 1; attempt <= (this.settings.autoRecover ? 2 : 1); attempt++) {
         // Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt
         // had already collected before it failed.
@@ -1286,11 +1287,11 @@ export class AssistantRunner {
           failure = error
           // A reader's stop is not a failure to retry; neither is a failure after words were shown.
           if (this.turnSignal?.aborted || spoke) throw error
-          if (attempt === 2 && timed.timedOut() && this.settings.autoRecover && entry.call.protocol === 'openai') {
+          if (attempt === 2 && timed.timedOut() && this.settings.autoRecover) {
             this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
             try {
               const apiKey = await this.signKey(entry.provider)
-              const once = await fetchOpenAiOnce(requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
+              const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
               if (once.text.trim()) {
                 usage.inputTokens += once.inputTokens
                 usage.outputTokens += once.outputTokens

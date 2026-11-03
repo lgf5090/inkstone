@@ -11,6 +11,8 @@ import { estimateTokens, type AssistantProtocol } from '../src/shared/assistant'
 import { reasoningDialect, reasoningRungs } from '../src/shared/reasoning'
 import { parseVerdict } from '../src/worker/assistant/runner'
 import {
+  fetchAnthropicOnce,
+  fetchGeminiOnce,
   UpstreamError,
   readSse,
   sourcesFromAnthropicBlock,
@@ -159,6 +161,50 @@ describe('gemini wire', () => {
     expect(call.name).toBe('create_task')
     expect((call.args as Record<string, unknown>).title).toBe('x')
     expect(events).toContainEqual({ type: 'usage', inputTokens: 3, outputTokens: 4 })
+  })
+})
+
+describe('the non-streaming recovery door', () => {
+  it('asks Anthropic for a whole message and keeps the text and usage', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      content: [{ type: 'text', text: 'Hel' }, { type: 'text', text: 'lo' }, { type: 'tool_use', id: 'tu_1', name: 'x', input: {} }],
+      usage: { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 2 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const once = await fetchAnthropicOnce(request())
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.toString()).toContain('/v1/messages')
+    expect(JSON.parse(String(init.body))).toMatchObject({ stream: false, model: 'm' })
+    // A tool block in a recovery is ignored: this door is for words, not for a second agent step.
+    expect(once).toEqual({ text: 'Hello', inputTokens: 7, outputTokens: 3, cachedInputTokens: 2 })
+  })
+
+  it('gives the non-streaming recovery a deadline of its own', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn((_url: unknown, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+    })))
+    const pending = fetchGeminiOnce(request()).catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(60_000)
+    const settled = await pending
+    vi.useRealTimers()
+    expect(settled, 'a recovery call with no answer was left open forever').toBeInstanceOf(Error)
+  })
+
+  it('asks Gemini for one candidate and leaves the thought part out', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: 'thinking', thought: true }, { text: 'answer' }] } }],
+      usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4, cachedContentTokenCount: 1 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const once = await fetchGeminiOnce(request())
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(url.toString()).toContain(':generateContent')
+    expect(url.toString()).not.toContain('alt=sse')
+    // An API key in `Authorization` is read as an OAuth token and refused; this wire names its own header.
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('sk-test')
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined()
+    expect(once).toEqual({ text: 'answer', inputTokens: 3, outputTokens: 4, cachedInputTokens: 1 })
   })
 })
 

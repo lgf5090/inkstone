@@ -1746,6 +1746,7 @@ const allowed = new Map([
   ["src/client/features/chat/AssistantKnowledgeTab.tsx", [
     "/**\n * Knowledge bases: named slices of the notebook's AI index.\n *\n * A knowledge base owns no vectors. The account-wide embeddings answer every one of them; the scope is a\n * query-time filter, so editing a collection does not rebuild anything. The screen therefore has one\n * honesty rule: it never promises that an index exists — it says whether the notebook's AI index is on,\n * and names the count it can see.\n */",
     "// The knowledge bases still work without a status line; the line is an observation, not a gate.",
+    "/* The two numbers a whole-book index is built from. They belong to the KB screen rather than the\n          notes index because a book is the only source long enough for either to matter. */",
   ]],
   ["src/client/features/chat/AssistantMcpTab.tsx", [
     "// A Chinese name is matched through the dictionary, and a listing filtered before it lands is a",
@@ -30126,6 +30127,8 @@ const allowed = new Map([
     "/** Whether an editor AI write is applied at once or shown as a diff first. */",
     "/** How many semantic neighbours a meaning search may return. */",
     "/** The cosine floor a neighbour must clear to be returned. */",
+    "/** How many characters one indexed PDF chunk holds when a book is added to the knowledge base. */",
+    "/** How many embedding batches the reader index keeps in flight at once (1 is sequential). */",
   ]],
   ["src/shared/attachment-hub.ts", [
     "/**\n * The attachment hub's wire contract.\n *\n * One shape for all four applications: the scope travels as a path segment, and everything else —\n * filtering, organising, counting usage — is the same request in every application. What differs\n * per application is server-side only (which table, which object prefix, which content holds the\n * references), so a client that works for one works for all four.\n */",
@@ -33419,7 +33422,6 @@ const allowed = new Map([
     "/** The caller's cancellation, kept so each attempt can combine it with its own timeout. */",
     "// One recovery attempt per entry, and only before a word has been streamed: a failed request that",
     "// already showed text cannot be taken back, so the reader is not shown two versions of the same",
-    "// answer. The retry is still a stream; the vendor's non-stream shape has no door in this runner.",
     "// A reader's stop is not a failure to retry; neither is a failure after words were shown.",
     "// The recovery attempt is the next loop iteration; the rollback happens before it so a",
     "// trace or source list from the timed-out attempt cannot be attributed to the retry.",
@@ -33463,6 +33465,8 @@ const allowed = new Map([
     "// The note the reader had open and the chips they pinned are additions to this turn. The pages a",
     "// project names are a different channel: they are the project's own scope when it names no folder,",
     "// so they travel as pins rather than as another turn addition.",
+    "// answer. The retry is still a stream; only a third failure after both streams timed out falls",
+    "// back to the wire's non-streaming shape, if the reader allowed recovery.",
   ]],
   ["src/worker/assistant/scheduler.ts", [
     "/** How many automations one sweep will start, so a backlog cannot monopolise the cron invocation. */",
@@ -34945,6 +34949,8 @@ const allowed = new Map([
     "// `replace` is a passage swap and refuses without `old_text`; the whole body is `replace_all`.",
     "// Both body fields are optional in the schema, so a call that names neither would otherwise replace",
     "// the body with the empty string. A title by itself is not permission to erase what is under it.",
+    "// A page that accepts the connection and never answers would hold the turn open with no deadline:",
+    "// the attempt clock only covers the provider request, not the tool call the model is waiting on.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -35043,7 +35049,12 @@ const allowed = new Map([
     "/**\n * One recording the model is handed with this turn.\n *\n * `base64` is the encoded bytes with no `data:` prefix in front of them — the field wants the bare string —\n * and `format` is the container name the provider agrees to decode, decided by `audioFormatFor` in the\n * shared module rather than guessed here. Only the OpenAI-compatible builder reads this; the other two have\n * no field for it, which is what `protocolCarriesAudio` exists to keep the turn and the wire agreeing on.\n */",
     "/**\n   * Recordings the model is played with this turn.\n   *\n   * Set only for a wire that has the field, so a turn that carries audio never arrives on a protocol that\n   * would answer it with a refusal.\n   */",
     "/**\n * A user turn with a picture or a recording is a part list; one without is the plain string every server\n * accepts.\n *\n * `input_audio` is the field the OpenAI shape was built for and the one its imitators copy — DeepSeek and\n * friends refuse it as an unknown type, which is why a recording only reaches here when the reader ticked\n * audio for the model and `attachments.ts` read the bytes for that same model.\n */",
-    "/**\n * One non-streaming completion, for the recovery path after a stream timed out twice.\n *\n * Only the OpenAI-compatible shape is covered: it is the one every relay speaks, and the other two wires\n * have their own bodies. The answer is text plus usage; a tool call in the response is ignored, because a\n * recovery is the fallback for a reader waiting on words, not a second agent step.\n */",
+    "/**\n * One non-streaming completion, for the recovery path after a stream timed out twice.\n *\n * The three wires speak three shapes. A recovery is the fallback for a reader waiting on words, not a\n * second agent step, so a tool call in the answer is ignored rather than executed.\n */",
+    "/**\n * A clock for the one non-streaming call of an attempt.\n *\n * The recovery runs after both streaming attempts timed out, and the turn's own signal has no deadline:\n * a provider that accepts the connection and never answers had nothing left to stop it, so the reader\n * watched a spinner forever. The guard borrows the stream's first-chunk deadline and also follows the\n * turn's own cancellation.\n */",
+    "// A thought part is not the answer, exactly as in the streamed shape.",
+    "/** The non-streaming door for whichever wire the entry was called on. */",
+    "/** The non-streaming sibling of {@link geminiEndpoint}, for the recovery path. */",
+    "/**\n * Gemini's key rides in its own header rather than as a bearer token.\n *\n * An API key sent as `Authorization: Bearer` is read as an OAuth token and refused with 401, which is what\n * every request to this wire did before this header existed. The gateway header list already carries the\n * name, so the guard's allowlist is unchanged.\n */",
   ]],
   ["src/worker/assistant/vault.ts", [
     "/**\n * The vault as lists and counts, for the tools that answer \"what do I have\".\n *\n * `search_notes` answers a topic out of the notes; nothing answered the questions a reader asks about\n * the notebook itself — how many notes there are, which folders they sit in, which tags label them —\n * so the assistant had to guess or say it could not tell. The rows are already there, and the scope\n * every note tool obeys applies to a listing exactly as it applies to a search.\n *\n * The SQL lives here rather than in `mcp/retrieval.ts` because the shape is different: a listing pages\n * by recency rather than by relevance, and the scope is the assistant's own permission model, which the\n * MCP server does not have. What the two share is the notes schema, and that is shared through\n * `db/rows.ts`.\n */",
@@ -37074,6 +37085,8 @@ const allowed = new Map([
     "// Two binds per tag — the name itself and the `name/` subtree pattern — numbered against this",
     "// function's own bind list, exactly as `applyFilters()` numbers the keyword half's.",
     "/**\n * The clause for \"filed in the folder this account calls `?${nameBind}`, or in any folder under it\".\n *\n * `?1` is `semanticWhere()`'s user bind, the owner both the seed and the walk are restricted to — the same\n * guard that stops one account pinning `Project` from reading another account's folder of that name.\n *\n * The keyword half's `applyFilters()` (`../search/store.ts`) owns the rule this mirrors, and mirrors it\n * rather than calls it because that clause is written inline inside a module-private function, while the\n * shared spelling of a *tag* subtree does live in `../db/rows.ts` as `tagScopePredicate()`. So the folder\n * subtree is stated twice today, in two query builders, and what holds the two statements together is\n * `tests/mcp-search-folder-scope.test.ts`: it asks both halves for the same pinned folder over one vault and\n * fails on any change that makes them answer differently — including the two guards written here rather\n * than invented. `UNION`, not `UNION ALL`, because a `parent_id` cycle has to terminate instead of spinning\n * the scan, and no `deleted_at` check on `folders`, because the keyword half does not check it either: a\n * subtree delete files its notes away and drops the rows, so notes still pointing at a deleted folder are\n * not a state the two halves can disagree about, and adding the check here would narrow only this half.\n *\n * Extracting one clause out of `applyFilters()` into `../db/rows.ts` beside `tagScopePredicate()` is the\n * follow-up that removes the duplication; it needs both files this module may not edit.\n */",
+    "/**\n * Embeds a long list in bounded batches, with the reader's chosen number of batches in flight.\n *\n * A whole book's page chunks can be hundreds of strings, and one call that large is both a slow request\n * and a rate-limit magnet. The batch size matches the note index's own, so the same isolate budget\n * applies; the lane count is the reader's setting. Results keep the input order, which is what lets the\n * caller zip vectors back onto chunks without a second key.\n */",
+    "/**\n * Splits one page into the chunks the reader's setting asks for.\n *\n * The page budget is a fact about how much of a page is worth indexing, not a chunk count: choosing a\n * smaller chunk buys a more precise hit and must not also shrink the part of the page that ever gets\n * embedded. So the count follows the budget, and every chunk keeps the size the reader chose.\n */",
   ]],
   ["src/worker/mcp/api-keys.ts", [
     "/**\n * Static API keys for MCP access.\n *\n * Small or generic MCP clients (scripts, SDKs, unnamed agents) cannot run the\n * OAuth 2.1 dance, so they authenticate with a plain `Authorization: Bearer\n * <key>` header — the universal HTTP standard. The OAuth provider resolves\n * these tokens through its official `resolveExternalToken` hook; the key is\n * never stored or returned again, only its SHA-256 hash.\n */",
@@ -40933,6 +40946,11 @@ const allowed = new Map([
     "// window is known but whose ceiling is not must still be able to answer to the window, not to a",
     "// smaller figure nobody published.",
   ]],
+  ["tests/assistant-embedding-pool.test.ts", [
+    "/**\n * The pooled embedder behind a whole-book index.\n *\n * A book is hundreds of page chunks, and one Workers AI call for all of them is both slow and a\n * rate-limit target. These cases pin the two promises the caller relies on: the answer keeps the input\n * order so vectors can be zipped back onto chunks, and the reader's concurrency is the number of calls\n * actually in flight — not a value that is stored and ignored.\n */",
+    "// The budget is what a page is worth indexing, so the count follows it. A short text is covered by",
+    "// either size; a long one is covered up to the same number of characters.",
+  ]],
   ["tests/assistant-fetch-url.test.ts", [
     "/**\n * `fetch_url`: the one tool that reaches the open web on the reader's behalf.\n *\n * Three things are pinned, and each of them is a way the tool could be dangerous rather than merely\n * wrong. It must not read a private address, it must not follow a redirect (which is how a public\n * address becomes a private one), and it must not hand back a page whose type it cannot read. What it\n * does return is the words, with the markup and the scripts stripped, because that is what the model\n * can use and what a reader would recognise as the page.\n */",
     "// Neither the script nor the stylesheet leaks into the text the model reads.",
@@ -40950,6 +40968,9 @@ const allowed = new Map([
     "// The purpose is what marks the image model; the order the rows come back in is not a preference.",
     "// An unattended run has no business buying pictures with the reader's balance.",
     "// A picture costs real money at the vendor, and \"try a few variations\" is not the reader's decision.",
+  ]],
+  ["tests/assistant-linked-images.test.ts", [
+    "/**\n * Pictures a Markdown attachment links to.\n *\n * The reader attaches a file, and the file names a picture; whether that picture travels to the model is a\n * permission held by two switches (the reader's fetch setting and the model's vision tick) and by the\n * outbound guard. These cases pin the join: the URL is fetched, the bytes become an inline image, and a\n * switch that is off keeps the request from being made at all.\n */",
   ]],
   ["tests/assistant-mcp-client.test.ts", [
     "/**\n * The external MCP client and the rules around it.\n *\n * Two things are pinned that a browser probe cannot: the address check that keeps the worker from being\n * pointed at the network it runs inside, and the fact that a stored token never comes back out.\n */",
@@ -42067,6 +42088,8 @@ const allowed = new Map([
     "// field existed, and what a relay that drops unknown fields still answers with. Nothing about the",
     "// reader's turn changes between the two.",
     "// And an answer that is neither is still no opinion rather than a invented one.",
+    "// A tool block in a recovery is ignored: this door is for words, not for a second agent step.",
+    "// An API key in `Authorization` is read as an OAuth token and refused; this wire names its own header.",
   ]],
   ["tests/assistant-usage-attribution.test.ts", [
     "/**\n * Cost follows the model, not the word it answers to; a thread can be found by the note it started from;\n * and a downvote can say what was wrong.\n *\n * Three server fixes that share a shape: each stores or reads a fact the surface used to infer from a\n * label, an absent filter, or a single verdict letter. The tests below pin the consequence, not the SQL —\n * a renamed model keeps its price, a priced-with-no-currency model is not folded into dollars, a note's\n * threads exclude another account's, and a reason survives to the transcript.\n */",

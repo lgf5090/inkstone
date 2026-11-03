@@ -2645,13 +2645,24 @@ export const WEB_TOOLS: ToolDefinition[] = [
       // https only: a plain-http page can be rewritten in transit, and the model has no way to tell.
       if (target.protocol !== 'https:') throw new ToolError('Only an https URL can be read.')
       let response: Response
+      // A page that accepts the connection and never answers would hold the turn open with no deadline:
+      // the attempt clock only covers the provider request, not the tool call the model is waiting on.
+      const controller = new AbortController()
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, 15_000)
       try {
         response = await fetch(target.toString(), {
           redirect: NO_REDIRECT,
           headers: { 'user-agent': 'Inkstone-Chat/1.0', accept: 'text/html,text/plain,application/json' },
+          signal: controller.signal,
         })
       } catch {
-        throw new ToolError('That URL could not be reached.')
+        throw new ToolError(timedOut ? 'That URL took too long to answer.' : 'That URL could not be reached.')
+      } finally {
+        clearTimeout(timer)
       }
       // A redirect is how a public address becomes a private one; the fetch refuses to follow, and the
       // model is told so rather than handed the redirect target as if it had read it.
