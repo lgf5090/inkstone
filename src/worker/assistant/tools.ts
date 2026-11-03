@@ -59,6 +59,7 @@ import { createNeteaseProvider } from '../music/providers/netease/client'
 import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
+import { CALENDAR_TOOLS } from './calendar-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
@@ -4966,6 +4967,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...SUBSCRIPTION_TOOLS,
   ...MUSIC_TOOLS,
   ...DATABASE_TOOLS,
+  ...CALENDAR_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

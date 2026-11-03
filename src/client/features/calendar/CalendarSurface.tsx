@@ -43,11 +43,15 @@ import type {
 } from '@shared/calendar/model'
 import { CALENDAR_RANGE_MAX_MS, CALENDAR_VIEWS, MAX_EVENTS_PER_QUERY, isSharedCalendarId, temporalToEpochMs, type CalendarViewName } from '@shared/calendar/model'
 import type { AppLocale } from '@shared/types'
+import type { AssistantPageContext } from '@shared/assistant'
+import type { MessageKey } from '@shared/locales/en-US'
+import { localDate } from '@shared/assistant-time'
 import { t, useLocale, useLocaleRepaint } from '../../lib/i18n'
-import { useThemeDark } from '../../lib/hooks'
+import { useBreakpoint, useThemeDark } from '../../lib/hooks'
 import { useUi, toastWithUndo } from '../../store/ui'
 import { useSession } from '../../store/session'
 import { Button, IconButton } from '../../components/primitives'
+import { AssistantDock } from '../chat/AssistantDock'
 import { Drawer, confirm } from '../../components/overlay'
 import { CalendarSidebar } from './CalendarSidebar'
 import { CalendarSettings } from './CalendarSettings'
@@ -97,6 +101,15 @@ import {
 const COLLAPSED_STORAGE_KEY = 'inkstone:calendar:sidebar-collapsed'
 const HIDDEN_SHARED_KEY = 'inkstone:calendar:hidden-shared'
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/** The calendar's own view names, so the assistant reads the same word the toolbar shows. */
+const ASSISTANT_VIEW_KEYS: Record<string, MessageKey> = {
+  day: 'calendar.view.day',
+  week: 'calendar.view.week',
+  month: 'calendar.view.month',
+  year: 'calendar.view.year',
+  agenda: 'calendar.view.agenda',
+}
 
 function readHiddenShared(): Set<string> {
   try {
@@ -427,6 +440,15 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     initialDate: route.date,
   }))
   const { app } = useCalendarApp(config)
+
+  const assistantDockOpen = useUi(state => state.assistantDockOpen)
+  const isMobile = useBreakpoint() === 'mobile'
+  const [assistantChrome, setAssistantChrome] = useState(() => ({
+    view: String(app.getCurrentView().type).toLowerCase(),
+    date: app.getCurrentDate().getTime(),
+    from: initialRange.from,
+    to: initialRange.to,
+  }))
 
   const userId = useSession(state => state.user?.id)
   const connectionKey = meta.connections
@@ -1189,8 +1211,24 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   }), [app])
 
   useEffect(() => app.subscribeVisibleRangeChange(payload => {
-    loadRange(payload.start.getTime(), payload.end.getTime())
+    const from = payload.start.getTime()
+    const to = payload.end.getTime()
+    setAssistantChrome(current => (current.from === from && current.to === to ? current : { ...current, from, to }))
+    loadRange(from, to)
   }), [app, loadRange])
+
+  // The assistant's page chip follows the same state the toolbar draws: the view, the day in focus and
+  // the range DayFlow has loaded. Reading it on each app change keeps it current when the reader
+  // navigates or switches views without this component re-rendering for another reason.
+  useEffect(() => {
+    const sync = (): void => {
+      const view = String(app.getCurrentView().type).toLowerCase()
+      const date = app.getCurrentDate().getTime()
+      setAssistantChrome(current => (current.view === view && current.date === date ? current : { ...current, view, date }))
+    }
+    sync()
+    return app.subscribe(sync)
+  }, [app])
 
   useEffect(() => {
     if (!userId) return
@@ -1306,11 +1344,33 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
     })
   }
 
+  // What the assistant is told about this screen: the view, the loaded range and the calendars the
+  // reader can actually see. It is rebuilt only when one of those changes, so opening the dock does
+  // not re-attach a chip the reader already took off.
+  const assistantPageContext = useMemo<AssistantPageContext>(() => {
+    const viewKey = ASSISTANT_VIEW_KEYS[assistantChrome.view]
+    const viewLabel = viewKey ? t(viewKey) : assistantChrome.view
+    const visible = meta.calendars.filter(calendar => calendar.isVisible).map(calendar => calendar.name)
+    const names = visible.length > 6 ? `${visible.slice(0, 6).join(', ')}, +${visible.length - 6}` : visible.join(', ')
+    return {
+      surface: 'calendar',
+      label: `${viewLabel} · ${localDate(assistantChrome.date, meta.preferences.timeZone)}`,
+      facts: [
+        `view: ${assistantChrome.view}`,
+        `range: ${localDate(assistantChrome.from, meta.preferences.timeZone)}..${localDate(assistantChrome.to, meta.preferences.timeZone)}`,
+        `calendars: ${names || 'none'}`,
+        `time zone: ${meta.preferences.timeZone}`,
+      ],
+    }
+  }, [assistantChrome, meta.calendars, meta.preferences.timeZone])
+
   const sidebar = (
     <CalendarSidebar
       app={app}
       meta={meta}
       preferences={meta.preferences}
+      assistantOpen={assistantDockOpen && !isMobile}
+      onToggleAssistant={isMobile ? undefined : () => useUi.getState().toggleAssistantDock()}
       variant={wide ? 'inline' : 'drawer'}
       collapsed={collapsed}
       onToggleCollapsed={toggleCollapsed}
@@ -1431,6 +1491,10 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           <DayFlowCalendar calendar={app} search={search} sidebar={() => null} />
         </div>
       </div>
+
+      {assistantDockOpen && !isMobile && (
+        <AssistantDock surface="calendar" pageContext={assistantPageContext} />
+      )}
 
       {!wide && !drawerOpen && (
         <div className="pointer-events-none absolute bottom-3 right-3 z-[var(--z-pop)]">

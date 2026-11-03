@@ -2632,6 +2632,15 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'nav_sort_links', labelKey: 'assistant.tool.nav_sort_links', permission: 'write' },
   { name: 'nav_delete_links', labelKey: 'assistant.tool.nav_delete_links', approvalKey: 'assistant.approval.nav_delete_links', permission: 'destructive' },
   { name: 'nav_delete_category', labelKey: 'assistant.tool.nav_delete_category', approvalKey: 'assistant.approval.nav_delete_category', permission: 'destructive' },
+  { name: 'calendar_list_calendars', labelKey: 'assistant.tool.calendar_list_calendars', permission: 'read' },
+  { name: 'calendar_list_events', labelKey: 'assistant.tool.calendar_list_events', permission: 'read' },
+  { name: 'calendar_search', labelKey: 'assistant.tool.calendar_search', permission: 'read' },
+  { name: 'calendar_create_event', labelKey: 'assistant.tool.calendar_create_event', permission: 'write' },
+  { name: 'calendar_update_event', labelKey: 'assistant.tool.calendar_update_event', permission: 'write' },
+  { name: 'calendar_move_event', labelKey: 'assistant.tool.calendar_move_event', permission: 'write' },
+  { name: 'calendar_free_busy', labelKey: 'assistant.tool.calendar_free_busy', permission: 'read' },
+  { name: 'calendar_find_slot', labelKey: 'assistant.tool.calendar_find_slot', permission: 'read' },
+  { name: 'calendar_delete_event', labelKey: 'assistant.tool.calendar_delete_event', approvalKey: 'assistant.approval.calendar_delete_event', permission: 'destructive' },
 
 ]
 
