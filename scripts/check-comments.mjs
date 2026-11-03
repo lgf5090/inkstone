@@ -1845,6 +1845,15 @@ const allowed = new Map([
     "// the only thing that means the screen actually changed.",
     "// eslint-disable-next-line react-hooks/exhaustive-deps",
     "/* The generic page chip. Drawn only when the page supplied its own page context, so the built-in\n          surfaces keep their single bespoke chip and the notebook keeps its note chip: one visible\n          promise per screen rather than two saying the same thing. */",
+    "// What the notebook's chips were before this screen borrowed the store, so leaving can put them",
+    "// back rather than leaving the notebook silently contextless. Read before the two setters below.",
+    "// Leaving this screen must not leave the account believing the dock still sits beside it: the",
+    "// chat window has no dock of its own, and a surface left behind here silently turns the notebook's",
+    "// note pointer off for the next question asked there. Only the surface this instance set is reset,",
+    "// so a second dock that has already claimed a new surface is not undone by the first one's teardown.",
+    "// The page is cleared when this dock stops showing it, not only when another page takes its place:",
+    "// the chat window does not mount a dock, so a page left in the store there is one the next turn",
+    "// would attach while the reader is looking at something else entirely.",
   ]],
   ["src/client/features/chat/AssistantErrorCard.tsx", [
     "/**\n * A failure the reader can act on: what happened, what to do, and the provider's own line behind a\n * disclosure rather than in place of the explanation.\n */",
@@ -7023,6 +7032,16 @@ const allowed = new Map([
     "/** The same answer, with the threads in it. Every field but the nodes is the route's own. */",
     "/** Pressed on a thread: the panel decides what opening a conversation means, the canvas only names it. */",
     "/**\n * A node kind the graph feature knows about and the note schema does not.\n *\n * A conversation is not a note, so it has no `GraphNode.kind` of its own in the shared type: what the notes\n * app stores, what its graph route answers, and what its link index can point at are all note-shaped, and\n * widening that union would make the notebook's storage answer for a table it does not own. The threads are\n * merged in here, in the one module that draws them, from the assistant's own reads — so the extra kind\n * lives on this side of the boundary, and a `GraphNode` still flows into it unchanged.\n */",
+  ]],
+  ["src/client/features/imgbed/ImgbedApp.tsx", [
+    "// The library is the only page that can say what its filters are; every other page describes itself.",
+    "// Held here rather than in the library because the dock is mounted once for the whole app, so leaving",
+    "// the library must not leave its filter facts on screen.",
+  ]],
+  ["src/client/features/imgbed/library/LibraryPage.tsx", [
+    "/**\n   * What the assistant is told about this screen.\n   *\n   * The dock lives one level up, so the library reports rather than owns: the label is the folder the\n   * reader is actually looking at, and the facts are the filters currently applied and what they leave.\n   * The key is a string, so a new object with the same words does not re-attach a chip the reader took off.\n   */",
+    "// The key carries every value the effect reads; the object itself is rebuilt on every render.",
+    "// eslint-disable-next-line react-hooks/exhaustive-deps",
   ]],
   ["src/client/features/inknote/api.ts", [
     "/** Typed calls to /api/inknote. The worker is the only source of truth for every shape here. */",
@@ -33082,6 +33101,18 @@ const allowed = new Map([
     "// The address was vetted, the redirect target was not: a provider that answers with one is not",
     "// allowed to move the request to an address this app never checked.",
   ]],
+  ["src/worker/assistant/imgbed-tools.ts", [
+    "/**\n * The image bed, as the assistant's hands.\n *\n * The library screen could already be searched by hand, but asking about it in words had no path: the\n * only image-bed code the turn could reach was the upload pipeline. These tools are that path, and they\n * are deliberately built on the same store and the same access rules the screen uses — `listFiles` for\n * every listing, `getStats` for the totals, the tag writer for tags, `deleteWholeFile` for a removal —\n * so a number the model reports and a number the screen draws cannot disagree.\n *\n * Permissions follow the image bed's own scopes rather than the assistant's: reading the library is open\n * to a member, while tagging, statistics and deletion are the owner's, exactly as the HTTP routes ask\n * (`list` for a listing, `delete`/`manage` for everything that changes a file or reads the whole\n * deployment's usage).\n */",
+    "/** The same preview ceiling the AI-tagging route applies: a data URL is a prompt, not a download. */",
+    "/**\n * A local calendar day as the instant its day starts.\n *\n * The screen says \"2026-11-03\", and a file uploaded at 00:30 in Shanghai belongs to that day — which UTC\n * midnight does not express. `dayBounds` is the same helper the to-do tools use, so \"today\" means one\n * thing across the assistant.\n */",
+    "/** The last millisecond of a local calendar day, because the store's upper bound is inclusive. */",
+    "/** The URL the image-bed screen itself serves a file at, path segments encoded the same way. */",
+    "// Every listing is across folders, the way the library's global filters read: asking about \"the",
+    "// image bed\" must not silently mean one folder the reader happens to have open.",
+    "/** Size and orientation are the two filters the listing SQL does not carry, so they are applied here. */",
+    "/**\n * The owner check, reusing the rule the HTTP routes state.\n *\n * The assistant never runs as a token, so the one question left is the account's role: the image-bed\n * routes answer `403 Owner access required` for anything beyond `list`, and a tool refusing differently\n * from the screen would let the model describe an action the reader cannot perform.\n */",
+    "/**\n * The vision model's tags for one file, read through the image bed's own AI settings.\n *\n * The bytes come from the file's own storage channel rather than from a public URL: a library with\n * referer rules and a whitelist mode may legitimately refuse an anonymous fetch of a file its owner\n * can see. The ceiling is the same preview ceiling the tagging route applies, because that is the size\n * the prompt was written for; a larger original is reported rather than truncated into a different\n * picture.\n */",
+  ]],
   ["src/worker/assistant/index.ts", [
     "/** Assistant store entry point used by the memos module. */",
   ]],
@@ -41758,6 +41789,10 @@ const allowed = new Map([
     "// An unattended run has no business buying pictures with the reader's balance.",
     "// A picture costs real money at the vendor, and \"try a few variations\" is not the reader's decision.",
   ]],
+  ["tests/assistant-imgbed-tools.test.ts", [
+    "/**\n * The assistant's hands on the image bed.\n *\n * The image bed already had a store, a tag writer and a delete path; what it did not have was a way for\n * a turn to reach them. These cases run the tools the model actually calls, over a real D1 double, and\n * pin three things: the listing filters answer from the rows rather than from a guess, a tag write is\n * readable back, and the owner-only boundary is the one the HTTP routes draw — reading is open to a\n * member, tagging, statistics and deletion are not.\n *\n * The vision path is deliberately not exercised here: it needs a vision model and a configured key,\n * neither of which belongs in a unit fixture. Its refusal when the image bed has no vision settings is\n * covered, because that is the state a reader without the feature is in.\n */",
+    "// The other account exists too, so a permission case is refused for the role rather than for a missing row.",
+  ]],
   ["tests/assistant-linked-images.test.ts", [
     "/**\n * Pictures a Markdown attachment links to.\n *\n * The reader attaches a file, and the file names a picture; whether that picture travels to the model is a\n * permission held by two switches (the reader's fetch setting and the model's vision tick) and by the\n * outbound guard. These cases pin the join: the URL is fetched, the bytes become an inline image, and a\n * switch that is off keeps the request from being made at all.\n */",
   ]],
@@ -41950,6 +41985,8 @@ const allowed = new Map([
     "// The notebook's pointers are off on another surface, so a note the reader is not looking at cannot",
     "// be what \"this page\" means.",
     "// Even a stale page left in the store cannot leak into a notebook turn.",
+    "// The chat window mounts no dock of its own. Before this guard the page outlived the screen it",
+    "// described, and every later turn was answered as if the reader were still in the image bed.",
   ]],
   ["tests/assistant-parallel-tools.test.ts", [
     "/**\n * One step's tool calls, run together.\n *\n * A model that asks for three independent lookups in one step used to wait through all three in a row, so\n * the reader paid the sum of three waits for work none of them had to do in order. Starting them together\n * is the easy half. The two things that make it a correctness question are that the transcript the model\n * reads back is still in the order the model asked for — a reordered result list reads as a different set\n * of calls than the one it made — and that a call which fails, or a reader who stops halfway, takes\n * nothing down with it.\n *\n * What proves the overlap is three calls meeting at one barrier, not elapsed time: no assertion here reads\n * a duration. The barrier's fallback timer exists only so that a step run one call at a time finishes and\n * reports itself as such rather than hanging the suite, since such a step can never reach the rendezvous.\n */",

@@ -1,11 +1,15 @@
-import { useMemo, type ReactElement } from 'react'
-import { HardDrive, Images, LayoutGrid, Settings, Shield, Upload } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { Bot, HardDrive, Images, LayoutGrid, Settings, Shield, Upload } from 'lucide-react'
+import type { AssistantPageContext } from '@shared/assistant'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
+import { IconButton } from '../../components/primitives'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
 import { IS_DEMO_MODE } from '../../lib/runtime'
+import { AssistantDock } from '../chat/AssistantDock'
 import { UploadPage } from './upload/UploadPage'
 import { LibraryPage } from './library/LibraryPage'
 import { SettingsPage } from './settings/SettingsPage'
@@ -28,6 +32,13 @@ const NAV: readonly { page: ImgbedPage; path: string; labelKey: MessageKey; icon
   { page: 'customers', path: '/imgbed/customers', labelKey: 'imgbed.nav.customers', icon: Shield },
 ]
 
+const PAGE_LABEL_KEYS: Record<ImgbedPage, MessageKey> = {
+  upload: 'imgbed.nav.upload',
+  library: 'imgbed.nav.library',
+  settings: 'imgbed.nav.settings',
+  customers: 'imgbed.nav.customers',
+}
+
 export function ImgbedApp(): ReactElement {
   if (IS_DEMO_MODE) return <div className="flex h-full items-center justify-center p-8 text-center text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('imgbed.demo_unavailable' as never)}</div>
   const pathname = usePathname()
@@ -35,6 +46,20 @@ export function ImgbedApp(): ReactElement {
   const user = useSession((state) => state.user)
   const owner = user?.role === 'owner'
   const nav = useMemo(() => NAV.filter((item) => owner || (item.page !== 'settings' && item.page !== 'customers')), [owner])
+  const dockOpen = useUi((state) => state.assistantDockOpen)
+  const setAssistantDock = useUi((state) => state.setAssistantDock)
+  // The library is the only page that can say what its filters are; every other page describes itself.
+  // Held here rather than in the library because the dock is mounted once for the whole app, so leaving
+  // the library must not leave its filter facts on screen.
+  const [libraryContext, setLibraryContext] = useState<AssistantPageContext | null>(null)
+  useEffect(() => {
+    if (page !== 'library') setLibraryContext(null)
+  }, [page])
+  const pageContext = useMemo<AssistantPageContext>(() => libraryContext ?? {
+    surface: 'imgbed',
+    label: t(PAGE_LABEL_KEYS[page]),
+    facts: [`page: ${page}`],
+  }, [libraryContext, page])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-imgbed-app="">
@@ -71,6 +96,13 @@ export function ImgbedApp(): ReactElement {
             )
           })}
         </nav>
+        <IconButton
+          label={t('assistant.dock.title')}
+          active={dockOpen}
+          onClick={() => setAssistantDock(!dockOpen)}
+        >
+          <Bot size={15} />
+        </IconButton>
         <a
           href="/imgbed/browse"
           target="_blank"
@@ -81,12 +113,15 @@ export function ImgbedApp(): ReactElement {
           <span className="hidden sm:inline">{t('imgbed.nav.public')}</span>
         </a>
       </header>
-      <main className="min-h-0 flex-1 overflow-auto">
-        {page === 'upload' && <UploadPage owner={owner} />}
-        {page === 'library' && <LibraryPage />}
-        {page === 'settings' && (owner ? <SettingsPage /> : <OwnerOnly />)}
-        {page === 'customers' && (owner ? <CustomersPage /> : <OwnerOnly />)}
-      </main>
+      <div className="flex min-h-0 flex-1">
+        <main className="min-h-0 min-w-0 flex-1 overflow-auto">
+          {page === 'upload' && <UploadPage owner={owner} />}
+          {page === 'library' && <LibraryPage onContextChange={setLibraryContext} />}
+          {page === 'settings' && (owner ? <SettingsPage /> : <OwnerOnly />)}
+          {page === 'customers' && (owner ? <CustomersPage /> : <OwnerOnly />)}
+        </main>
+        {dockOpen && <AssistantDock surface="imgbed" pageContext={pageContext} />}
+      </div>
     </div>
   )
 }

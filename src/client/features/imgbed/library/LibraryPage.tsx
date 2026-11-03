@@ -3,6 +3,7 @@ import { downloadZip } from 'client-zip'
 import { ArrowLeft, Copy, Download, ExternalLink, Eye, FileText, Folder, FolderInput, ListFilter, MoreHorizontal, PanelLeft, Pencil, Pin, RefreshCw, Search, Star, Tag, Trash2, X } from 'lucide-react'
 import type { ImgbedFile, ImgbedListResult } from '@shared/imgbed/model'
 import { imgbedChannelDisplayName, imgbedChannelLabel } from '@shared/imgbed/model'
+import type { AssistantPageContext } from '@shared/assistant'
 import { Button, IconButton } from '../../../components/primitives'
 import { Checkbox, Input, Select } from '../../../components/form'
 import { Empty, LoadingBlock } from '../../../components/feedback'
@@ -65,7 +66,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export function LibraryPage(): ReactElement {
+export function LibraryPage({ onContextChange }: { onContextChange?: (context: AssistantPageContext | null) => void } = {}): ReactElement {
   const [data, setData] = useState<ImgbedListResult | null>(null)
   const [dir, setDir] = useState('')
   const [search, setSearch] = useState('')
@@ -232,6 +233,36 @@ export function LibraryPage(): ReactElement {
   }, [searchInput])
   useEffect(() => { void load(true) }, [dir, search, sort, typeFilter, accessFilter, channelFilter, quick, tagFilter])
   useEffect(() => { void loadSidebar() }, [loadSidebar])
+
+  /**
+   * What the assistant is told about this screen.
+   *
+   * The dock lives one level up, so the library reports rather than owns: the label is the folder the
+   * reader is actually looking at, and the facts are the filters currently applied and what they leave.
+   * The key is a string, so a new object with the same words does not re-attach a chip the reader took off.
+   */
+  const pageContextKey = JSON.stringify({
+    quick, typeFilter, accessFilter, channelFilter, tagFilter, search, dir,
+    files: data?.files.length ?? 0, total: data?.totalCount ?? 0, all: sidebar?.counts.all ?? 0,
+  })
+  useEffect(() => {
+    if (!onContextChange) return
+    const base = globalScope || !dir ? t('imgbed.library.all_files') : `/${dir}`
+    const label = tagFilter ? `${base} · #${tagFilter}` : base
+    const facts = [
+      `view: ${quick}`,
+      typeFilter ? `type: ${typeFilter}` : '',
+      tagFilter ? `tag: #${tagFilter}` : '',
+      channelFilter ? `channel: ${imgbedChannelDisplayName(channelFilter) || channelFilter}` : '',
+      accessFilter ? `access: ${accessFilter}` : '',
+      search ? `search: ${search}` : '',
+      `files on screen: ${data?.files.length ?? 0}`,
+      `matching files: ${data?.totalCount ?? 0}`,
+    ].filter(Boolean).slice(0, 8)
+    onContextChange({ surface: 'imgbed', label, facts })
+    // The key carries every value the effect reads; the object itself is rebuilt on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageContextKey, onContextChange])
 
   const ids = [...selected]
   const allSelected = Boolean(data?.files.length) && data!.files.every((file) => selected.has(file.id))

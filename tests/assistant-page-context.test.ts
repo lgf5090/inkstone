@@ -203,6 +203,29 @@ describe('the dock’s generic page chip', () => {
   })
 })
 
+describe('leaving the page behind', () => {
+  it('clears the page and the surface when its dock unmounts, so the next turn cannot inherit it', async () => {
+    const page = { surface: 'imgbed', label: '文件库 · #终端', facts: ['tag: #终端', 'matching files: 4'] }
+    useAssistant.setState({ ...useAssistant.getState(), loaded: true, activeId: null, messages: [], messagesReady: true, turn: null })
+    useUi.setState({ ...useUi.getState(), assistantDockOpen: true })
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    await act(async () => { root.render(createElement(AssistantDock, { surface: 'imgbed', pageContext: page })) })
+    expect(useAssistant.getState().pageContext).toMatchObject(page)
+    expect(useAssistant.getState().dockSurface).toBe('imgbed')
+
+    act(() => root.unmount())
+
+    // The chat window mounts no dock of its own. Before this guard the page outlived the screen it
+    // described, and every later turn was answered as if the reader were still in the image bed.
+    expect(useAssistant.getState().pageContext).toBeNull()
+    expect(useAssistant.getState().dockSurface).toBe('notebook')
+    await useAssistant.getState().send('这页是什么')
+    expect(sentInput()?.contextPage).toBeUndefined()
+    expect(sentInput()?.contextNoteId).toBe('note1')
+  })
+})
+
 describe('the wire shape the client posts', () => {
   it('puts contextPage in the request body', async () => {
     await streamAssistantTurn(
