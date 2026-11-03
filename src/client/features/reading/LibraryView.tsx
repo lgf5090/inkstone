@@ -9,7 +9,7 @@
 import { Z_INDEX } from '../../lib/z-index'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { BookOpen, Download, FolderInput, Globe, Images, Inbox, LayoutGrid, List, Maximize2, MessageSquareQuote, Pencil, Plus, Sparkles, Star, Trash2, Upload } from 'lucide-react'
-import { Button } from '../../components/primitives'
+import { Button, IconButton } from '../../components/primitives'
 import { Segmented } from '../../components/form'
 import { FilterInput } from '../../components/FilterInput'
 import { Menu, confirm, prompt, submenuFor, useContextMenu, type MenuItem } from '../../components/overlay'
@@ -18,6 +18,7 @@ import { navigateToPath } from '../../lib/app-history'
 import { useNotes } from '../../store/notes'
 import { useUi } from '../../store/ui'
 import { useLibrary } from './store/library'
+import { useReadingPage } from './page-context'
 import { hasBookExtension } from './engine/book-import'
 import { downloadAsBlob } from '../../lib/transfer'
 import { api } from '../../lib/api'
@@ -44,9 +45,6 @@ const FAILURE_KEYS = {
   duplicate: 'reading.error_duplicate',
   storage: 'reading.error_storage',
 } as const
-
-type ShelfFilter = 'all' | 'reading' | 'finished' | 'marked'
-type ShelfSort = 'recent' | 'added' | 'title' | 'author' | 'progress'
 
 const ACCEPT = '.epub,.pdf,.cbz,application/epub+zip,application/pdf'
 
@@ -75,15 +73,10 @@ export function LibraryView() {
   const groups = useLibrary((state) => state.groups)
   const moveBook = useLibrary((state) => state.moveBook)
   const addGroup = useLibrary((state) => state.addGroup)
-  const [groupFilter, setGroupFilter] = useState<string | null>(null)
   const coverFits = useReaderSettings((state) => state.coverFits)
   const setCoverFit = useReaderSettings((state) => state.update)
   const view = resolveShelfView(shelfView, narrow)
   const importLibrary = useLibrary((state) => state.importLibrary)
-
-  const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<ShelfFilter>('all')
-  const [sort, setSort] = useState<ShelfSort>('recent')
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [fetching, setFetching] = useState(false)
@@ -92,6 +85,18 @@ export function LibraryView() {
   const dataInput = useRef<HTMLInputElement>(null)
   const menu = useContextMenu()
   const toast = useUi((state) => state.toast)
+  const assistantOpen = useUi((state) => state.assistantDockOpen)
+  const toggleAssistant = useUi((state) => state.toggleAssistantDock)
+  // The filter the shelf is showing is also what the assistant's page context reports, so it lives in
+  // the shared reading page state rather than in this component's own `useState`.
+  const query = useReadingPage((state) => state.shelfQuery)
+  const setQuery = useReadingPage((state) => state.setShelfQuery)
+  const filter = useReadingPage((state) => state.shelfFilter)
+  const setFilter = useReadingPage((state) => state.setShelfFilter)
+  const sort = useReadingPage((state) => state.shelfSort)
+  const setSort = useReadingPage((state) => state.setShelfSort)
+  const groupFilter = useReadingPage((state) => state.shelfGroupId)
+  const setGroupFilter = useReadingPage((state) => state.setShelfGroupId)
 
   function openBookNote(noteId: string | undefined): void {
     if (!noteId) return
@@ -374,6 +379,14 @@ export function LibraryView() {
           {totalMarked ? <span className="hidden sm:inline">{t('reading.marked_count_value0', { value0: totalMarked })}</span> : ''}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <IconButton
+            label={t('assistant.dock.toggle')}
+            size="sm"
+            active={assistantOpen}
+            onClick={() => toggleAssistant()}
+          >
+            <Sparkles size={13} />
+          </IconButton>
           <Button
             size="sm"
             variant="secondary"

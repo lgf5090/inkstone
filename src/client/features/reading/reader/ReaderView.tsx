@@ -8,7 +8,7 @@
  */
 import { Z_INDEX } from '../../../lib/z-index'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, Clock, Database, FileText, List, Maximize2, MoreHorizontal, PenLine, Search, Settings2, Sparkles } from 'lucide-react'
 import { Button, IconButton } from '../../../components/primitives'
 import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -43,16 +43,22 @@ import { useReadingTimer } from './useReadingTimer'
 import { shortcutAllowedWhilePanelOpen, shortcutFor } from './shortcuts'
 import { ShortcutsPanel } from './ShortcutsPanel'
 import { StatsPanel } from './StatsPanel'
-import { lookupSelection, vocabularyEntry, type LookupOutcome } from '../lookup'
+import { lookupSelection, vocabularyEntry, hasLegacyLocalAiKey, type LookupOutcome } from '../lookup'
 import { ensureVocabularyNote } from '../vocabulary'
+import { useReadingPage } from '../page-context'
 
 type PanelName = 'toc' | 'search' | 'marks' | 'highlights' | 'appearance' | 'shortcuts' | 'stats' | null
+
+/** Once per session: the migration is news, not a modal that follows the reader around. */
+let legacyAiKeyNoticeShown = false
 
 export function ReaderView({ book }: { book: BookRecord }) {
   const settings = useReaderSettings()
   const appTheme = useUi((state) => state.theme)
   const accentless = useUi((state) => state.background)
   const toast = useUi((state) => state.toast)
+  const assistantOpen = useUi((state) => state.assistantDockOpen)
+  const toggleAssistant = useUi((state) => state.toggleAssistantDock)
   const { handle, error } = useEpubHandle(book)
   const stage = useRef<EpubStageHandle>(null)
   const fixedStage = useRef<FixedStageHandle>(null)
@@ -102,6 +108,34 @@ export function ReaderView({ book }: { book: BookRecord }) {
   const noteId = useLibrary((state) => state.notes.byBook[book.id])
   const linkNote = useLibrary((state) => state.linkNote)
   const list = highlights ?? []
+  const setOpenBook = useReadingPage((state) => state.setOpenBook)
+
+  /**
+   * What this screen is, for the assistant's page context.
+   *
+   * Published on every move rather than read from the store by the dock: the chapter, the page and the
+   * progress are this component's own state, and the dock is told only what the reader is actually
+   * looking at. It is cleared when the book closes so a page that is no longer open is not described.
+   */
+  const chapterLabel = useMemo(
+    () => book.toc.find((entry) => entry.position?.kind === 'epub' && entry.position.chapter === chapter)?.label ?? null,
+    [book.toc, chapter],
+  )
+  useEffect(() => {
+    setOpenBook({
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      format: book.format,
+      chapter: isFixed ? page.page - 1 : chapter,
+      chapterCount: book.unitCount,
+      chapterTitle: isFixed ? null : chapterLabel,
+      page: page.page,
+      pages: page.pages,
+      fraction: progress?.fraction ?? 0,
+    })
+    return () => setOpenBook(null)
+  }, [book.id, book.title, book.author, book.format, book.unitCount, isFixed, chapter, chapterLabel, page.page, page.pages, progress?.fraction, setOpenBook])
 
   const appDark = useMemo(() => {
     if (appTheme === 'dark') return true
@@ -434,6 +468,14 @@ export function ReaderView({ book }: { book: BookRecord }) {
     const sentence = selection.text.length > 60 ? selection.text : ''
     setSelection(null)
     setLookup({ rect, pending: true, outcome: null, error: null, collected: false })
+    if (!legacyAiKeyNoticeShown && hasLegacyLocalAiKey()) {
+      legacyAiKeyNoticeShown = true
+      toast({
+        title: t('reading.ai_key_migration_title'),
+        description: t('reading.ai_key_migration_body'),
+        tone: 'warning',
+      })
+    }
     try {
       const outcome = await lookupSelection(selection.text, {
         to: settings.translateTo,
@@ -445,7 +487,7 @@ export function ReaderView({ book }: { book: BookRecord }) {
     } catch (err) {
       setLookup({ rect, pending: false, outcome: null, error: err instanceof Error ? err.message : String(err), collected: false })
     }
-  }, [book.title, selection, settings.translateEngine, settings.translateTo])
+  }, [book.title, selection, settings.translateEngine, settings.translateTo, toast])
 
   const collectWord = useCallback(async (outcome: LookupOutcome) => {
     if (outcome.kind !== 'word') return
@@ -633,6 +675,9 @@ export function ReaderView({ book }: { book: BookRecord }) {
               </span>
             </Tooltip>
           ) : null}
+          <IconButton label={t('assistant.dock.toggle')} size="sm" active={assistantOpen} onClick={() => toggleAssistant()}>
+            <Sparkles size={15} />
+          </IconButton>
           <IconButton label={t('reading.highlights')} size="sm" active={panel === 'highlights'} onClick={() => setPanel(panel === 'highlights' ? null : 'highlights')} className={narrow ? 'hidden' : undefined}>
             <PenLine size={15} />
           </IconButton>
