@@ -7,8 +7,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { t } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
 import { Spinner } from '../../components/primitives'
-import { Segmented } from '../../components/form'
 import { useAssistant } from './assistant-store'
 import { LoadFailure } from './assistant-settings-shared'
 import { ModelTab } from './AssistantModelTab'
@@ -17,8 +17,11 @@ import { BehaviourTab } from './AssistantBehaviourTab'
 import { MemoryTab } from './AssistantMemoryTab'
 import { BudgetTab } from './AssistantBudgetTab'
 import { DataTab } from './AssistantDataTab'
+import { KnowledgeTab } from './AssistantKnowledgeTab'
+import { WritingTab } from './AssistantWritingTab'
+import { OtherTab } from './AssistantOtherTab'
 
-const TABS = ['model', 'mcp', 'behaviour', 'memory', 'budget', 'data'] as const
+const TABS = ['model', 'mcp', 'knowledge', 'writing', 'behaviour', 'memory', 'budget', 'data', 'other'] as const
 type Tab = (typeof TABS)[number]
 
 export function AssistantSettingsView() {
@@ -61,20 +64,41 @@ export function AssistantSettingsView() {
   return (
     <div className="no-scrollbar h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-4 py-4 md:px-8">
-        <Segmented
-          size="sm"
-          label={t('assistant.settings.title')}
-          value={tab}
-          onChange={setTab}
-          options={TABS.map((entry) => ({ value: entry, label: t(`assistant.settings.tab.${entry}`) }))}
-          className="self-start"
-        />
+        <div
+          role="tablist"
+          aria-label={t('assistant.settings.title')}
+          className="no-scrollbar flex max-w-full shrink-0 gap-0.5 self-start overflow-x-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-[3px]"
+        >
+          {TABS.map((entry) => {
+            const active = entry === tab
+            return (
+              <button
+                key={entry}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(entry)}
+                className={cn(
+                  'inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-[var(--r-sm)] px-2.5 text-[length:var(--text-11-5)] font-medium transition-[color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                  active
+                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(0,0,0,.10)]'
+                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+                )}
+              >
+                {t(`assistant.settings.tab.${entry}`)}
+              </button>
+            )
+          })}
+        </div>
         {tab === 'model' && <ModelTab settings={settings} />}
         {tab === 'mcp' && <McpTab />}
+        {tab === 'knowledge' && <KnowledgeTab />}
+        {tab === 'writing' && <WritingTab settings={settings} />}
         {tab === 'behaviour' && <BehaviourTab settings={settings} />}
         {tab === 'memory' && <MemoryTab settings={settings} />}
         {tab === 'budget' && <BudgetTab settings={settings} />}
         {tab === 'data' && <DataTab />}
+        {tab === 'other' && <OtherTab settings={settings} />}
       </div>
     </div>
   )

@@ -41,6 +41,7 @@ export { CredentialVault } from './durable/credential-vault'
 export { EmailMailbox } from './email/mailbox-do'
 export { MusicQueue } from './music/queue'
 export { MusicShareLimiter } from './music/share-limiter'
+export { SubagentRunner } from './assistant/subagent-do'
 
 // Codex CLI drops the `iss` callback parameter while its rmcp
 // dependency enforces it whenever the authorization server advertises

@@ -13,6 +13,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { AssistantAnswerVersion, AssistantMessage, ToolActivity } from '@shared/assistant'
 import { initI18n, t } from '../../lib/i18n'
+import { api } from '../../lib/api'
 import { installTestGlobals } from '../../lib/test-render'
 import type { MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
@@ -298,14 +299,35 @@ describe('what a pointer is told about the icon-only controls', () => {
 })
 
 describe('a press that did not land', () => {
+  it('previews a write approval against the note the call names', async () => {
+    // A write is held as the call itself, so `targetId` is empty and the note id lives in the arguments.
+    // Reading the empty one asked the route for no note at all, which is the card that said it could not
+    // preview the change and offered the reader nothing to approve hunk by hunk.
+    const get = vi.spyOn(api.notes, 'get').mockResolvedValue({ id: ROW_NOTE, content: 'First line\nMiddle line\nLast line' } as never)
+    const write = approvalTool()
+    write.name = 'update_note'
+    write.approval = {
+      ...write.approval!,
+      tool: 'update_note',
+      targetId: '',
+      targetLabel: '',
+      args: { id: ROW_NOTE, content: 'First line changed\nMiddle line\nLast line changed' },
+    }
+    mount(bubble({ tools: [write] }))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    expect(get, 'the preview asked for a note other than the one the call names').toHaveBeenCalledWith(ROW_NOTE)
+    const hunks = [...document.body.querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
+    expect(hunks, 'the two separated changes were not offered as two hunks').toHaveLength(2)
+  })
+
   it('leaves the reason on the approval card instead of a card waiting forever', async () => {
     useAssistant.setState({ decideAction: vi.fn(async () => { throw new Error('the action was refused') }) })
     mount(bubble({ tools: [approvalTool()] }))
-    await press(byName(t('assistant.approval.approve')))
+    await press(byName(t('assistant.approval.approve_once')))
     const alert = document.body.querySelector('[role="alert"]')
     expect(alert?.textContent, 'the failed approval said nothing').toContain('the action was refused')
     // The card is still there and its buttons are pressable again: the reader can try, or leave.
-    expect(byName(t('assistant.approval.approve'))?.disabled).toBe(false)
+    expect(byName(t('assistant.approval.approve_once'))?.disabled).toBe(false)
   })
 
   it('refuses to replay into a conversation that is not open', async () => {

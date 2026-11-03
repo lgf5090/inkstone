@@ -51,7 +51,7 @@ export interface DiffWord {
 
 export type DiffRow =
   | { kind: 'context'; text: string }
-  | { kind: 'change'; removed: string; added: string }
+  | { kind: 'change'; removed: string; added: string; hunk?: number }
   | { kind: 'collapsed'; words: number }
   | { kind: 'truncated'; words: number }
 
@@ -103,6 +103,7 @@ export function buildWriteDiff(before: string, after: string): WriteDiff {
   let context: string[] = []
   let taken: string[] = []
   let put: string[] = []
+  let hunk = 0
   const flushContext = () => {
     if (!context.length) return
     pushContext(rows, context)
@@ -114,7 +115,7 @@ export function buildWriteDiff(before: string, after: string): WriteDiff {
     const inText = put.join('')
     removed += countWords(outText)
     added += countWords(inText)
-    rows.push({ kind: 'change', removed: outText, added: inText })
+    rows.push({ kind: 'change', removed: outText, added: inText, hunk: hunk++ })
     taken = []
     put = []
   }
@@ -177,7 +178,62 @@ export function WriteDiffSummary({ diff, className }: { diff: WriteDiff; classNa
  * the ones that say "this text was taken out" to anything reading the page. The box is focusable because
  * it scrolls, and a keyboard reader needs it to be reachable to get to the end of it.
  */
-export function WriteDiffView({ diff }: { diff: WriteDiff }) {
+export interface DiffHunk {
+  removed: string
+  added: string
+}
+
+/** The change split into the pieces a reader can accept one at a time. */
+export function diffHunks(before: string, after: string): DiffHunk[] {
+  const hunks: DiffHunk[] = []
+  let current: DiffHunk | null = null
+  for (const [op, text] of differ.diff_main(before, after)) {
+    if (op === 0) {
+      current = null
+      continue
+    }
+    if (!current) {
+      current = { removed: '', added: '' }
+      hunks.push(current)
+    }
+    if (op === OP_DELETE) current.removed += text
+    else current.added += text
+  }
+  return hunks
+}
+
+/**
+ * The proposed text with only the accepted hunks applied.
+ *
+ * The same grouping as {@link diffHunks}: a deletion and the insertion beside it are one decision, so a
+ * reader can keep a replacement or refuse it, never half of each.
+ */
+export function applyAcceptedHunks(before: string, after: string, accepted: ReadonlySet<number>): string {
+  let out = ''
+  let hunk = -1
+  let inChange = false
+  for (const [op, text] of differ.diff_main(before, after)) {
+    if (op === 0) {
+      out += text
+      inChange = false
+      continue
+    }
+    if (!inChange) {
+      hunk++
+      inChange = true
+    }
+    const keep = accepted.has(hunk)
+    if (op === OP_DELETE && !keep) out += text
+    if (op === OP_INSERT && keep) out += text
+  }
+  return out
+}
+
+export function WriteDiffView({ diff, accepted, onToggle }: {
+  diff: WriteDiff
+  accepted?: ReadonlySet<number>
+  onToggle?: (hunk: number) => void
+}) {
   return (
     <div
       role="region"
@@ -185,20 +241,35 @@ export function WriteDiffView({ diff }: { diff: WriteDiff }) {
       tabIndex={0}
       className="max-h-[40vh] overflow-auto rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2 font-mono text-[length:var(--text-11-5)] leading-relaxed"
     >
-      {diff.rows.map((row, index) => <DiffRowView key={index} row={row} />)}
+      {diff.rows.map((row, index) => <DiffRowView key={index} row={row} accepted={accepted} onToggle={onToggle} />)}
     </div>
   )
 }
 
 const BASE_ROW = 'whitespace-pre-wrap break-words rounded-[2px] px-1'
 
-function DiffRowView({ row }: { row: DiffRow }) {
+function DiffRowView({ row, accepted, onToggle }: {
+  row: DiffRow
+  accepted?: ReadonlySet<number>
+  onToggle?: (hunk: number) => void
+}) {
   if (row.kind === 'context') {
     return <p className={cn(BASE_ROW, 'text-[var(--text-tertiary)]')}>{row.text}</p>
   }
   if (row.kind === 'change') {
+    const keep = row.hunk === undefined || !accepted || accepted.has(row.hunk)
     return (
-      <>
+      <div className={cn('rounded-[2px]', !keep && 'opacity-55')}>
+        {onToggle && row.hunk !== undefined && (
+          <label className="flex items-center gap-1 border-b border-[var(--border-subtle)] px-1 py-0.5 font-sans text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+            <input
+              type="checkbox"
+              checked={keep}
+              onChange={() => onToggle(row.hunk!)}
+            />
+            {t('assistant.approval.keep_hunk')}
+          </label>
+        )}
         {row.removed && (
           <p className={cn(BASE_ROW, 'bg-[var(--danger)]/10 text-[var(--danger)]')}>
             <span aria-hidden="true" className="select-none">- </span>
@@ -211,7 +282,7 @@ function DiffRowView({ row }: { row: DiffRow }) {
             <ins>{row.added}</ins>
           </p>
         )}
-      </>
+      </div>
     )
   }
   return (

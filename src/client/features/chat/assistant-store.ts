@@ -17,12 +17,19 @@ import type {
   AssistantArtifact,
   AssistantArtifactVersion,
   AssistantConversation,
+  AssistantConversationOrigin,
+  AssistantConversationSettings,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
+  AssistantCursorCommand,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
   AssistantMemory,
   AssistantMessage,
   AssistantAnswerVersion,
+  AssistantContextBreakdown,
+  KnowledgeBase,
   AssistantMcpCatalogEntry,
   AssistantMcpProblem,
   AssistantMcpServerDetail,
@@ -50,13 +57,16 @@ import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { DEBOUNCE } from '@shared/constants'
 import { formatBytes } from '@shared/byte-format'
-import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
+import { compressImageFile } from '../../lib/image-compress'
+import { MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_CHAT_ATTACHMENTS, AUDIO_SEND_MAX_BYTES, MAX_TURN_SCOPES, MAX_TURN_TOOLS, CONVERSATION_PAGE_SIZE, MESSAGE_PAGE_SIZE, CONVERSATION_ORIGINS, attachmentModality, audioFormatFor, modelWire, protocolCarriesAudio, type AssistantModelModality, type AttachmentSense, type AssistantTurnScope, type ChatAttachment, type AssistantSkillInput, type SkillImportResult, type AssistantMcpToolMode } from '@shared/assistant'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
+import { announceChat } from './chat-notify'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { streamAssistantTurn } from './stream'
 import { leadingProse } from './save-to-note'
 import { extractPdfText } from './pdf-text'
+import { extractOfficeText, isOfficeDocument } from './office-text'
 import { downloadSkillBundle } from './skill-bundle'
 import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
@@ -140,6 +150,8 @@ interface LiveTurn {
   tools: ToolActivity[]
   stage: ChatStreamEvent['stage']
   error: string | null
+  /** The worker's code for `error`, which the diagnosis card turns into a cause and an action. */
+  errorCode?: string | null
   /**
    * Whether the failure in `error` is the reading loop's own news that the bytes stopped arriving.
    *
@@ -154,6 +166,8 @@ interface LiveTurn {
   startedAt?: number
   /** What the model reported spending, once the `usage` frame landed. Null while it has not said. */
   usage?: { inputTokens: number, outputTokens: number } | null
+  /** Where this turn's prompt tokens went, once the worker estimated them. */
+  contextBreakdown?: AssistantContextBreakdown | null
   /**
    * The pages a web search consulted, copied from the row the worker filed at the end of the turn.
    *
@@ -163,6 +177,13 @@ interface LiveTurn {
   sources?: AssistantSource[]
   /** When the turn settled; absent while it is still arriving. */
   finishedAt?: number | null
+}
+
+/** A message the reader sent while a turn was still running, waiting for that turn to settle. */
+export interface QueuedTurn {
+  id: string
+  text: string
+  modelId?: string
 }
 
 /** The reader's own models that can answer a chat turn: enabled, and for conversation. */
@@ -224,6 +245,8 @@ interface AssistantState {
   /** 'all', 'none' (unfiled), or a folder id from the notebook's tree. */
   folderFilter: string
   tagFilter: string | null
+  /** 'all' or one source: the reader's own threads, a routine's, a sub-agent's, an import's. */
+  originFilter: 'all' | AssistantConversationOrigin
   folderNodes: ChatFolderNode[]
   /** Conversations with no folder; the tree counts the rest. */
   unfiledCount: number
@@ -307,6 +330,14 @@ interface AssistantState {
    * nothing else reads it.
    */
   composerSeed: string | null
+  /**
+   * Counts every hand-over.
+   *
+   * The text alone cannot tell a composer that it already took this seed from one that is being asked
+   * again with the same words, and `StrictMode` runs a mount's effects twice — so the hand-over carried
+   * an identity and each composer consumes it once.
+   */
+  composerSeedId: number
   seedComposer: (text: string) => void
   clearComposerSeed: () => void
   /** The composer's queue: files uploaded for a turn that has not been sent yet. */
@@ -360,6 +391,8 @@ interface AssistantState {
   /** Whether `remotePartial` filled the ceiling the lease can carry, so more was written than is shown. */
   remotePartialTruncated: boolean
   turn: LiveTurn | null
+  /** Messages sent while `turn` was still running; the first is sent when it settles. */
+  queued: QueuedTurn[]
 
   /**
    * The drafts the open conversation keeps, and which of them the side panel is showing.
@@ -395,6 +428,7 @@ interface AssistantState {
   reviews: MemoryReview[]
 
   projects: Project[]
+  knowledgeBases: KnowledgeBase[]
 
   automations: AssistantAutomation[]
   runs: AssistantAutomationRun[]
@@ -507,6 +541,8 @@ interface AssistantState {
   toggleMessageSaved: (messageId: string, report?: ReportFailure) => Promise<boolean>
   /** Starts a new conversation that carries this one up to the given message. */
   forkFrom: (messageId: string) => Promise<void>
+  /** Make an exchange that happened outside the thread into a real conversation. */
+  promoteConversation: (body: { title?: string, noteId?: string | null, messages: Array<{ role: 'user' | 'assistant', content: string }> }) => Promise<string | null>
   /** Deletes exactly the turns a reader selected. */
   removeMessages: (ids: readonly string[]) => Promise<void>
   setConversationQuery: (query: string) => Promise<void>
@@ -515,12 +551,15 @@ interface AssistantState {
   setFolderFilter: (value: string) => Promise<void>
   setProjectFilter: (value: string) => Promise<void>
   setTagFilter: (tagId: string | null) => Promise<void>
+  setOriginFilter: (origin: 'all' | AssistantConversationOrigin) => Promise<void>
   setListTab: (tab: ConversationListTab) => Promise<void>
   loadFlagged: () => Promise<void>
   starConversation: (id: string, starred: boolean) => Promise<void>
   moveConversation: (id: string, folderId: string | null) => Promise<void>
   setConversationProject: (id: string, projectId: string | null) => Promise<void>
   setConversationNote: (id: string, noteId: string | null) => Promise<void>
+  /** Replace this thread's model/temperature/search overrides. */
+  setConversationSettings: (id: string, settings: AssistantConversationSettings) => Promise<boolean>
   toggleConversationTag: (id: string, tagId: string, on: boolean) => Promise<void>
   /**
    * File a conversation under a tag `createTag` has only just asked the server for.
@@ -557,6 +596,8 @@ interface AssistantState {
     modelId?: string | null
     noTools?: boolean
   }) => Promise<boolean>
+  /** Drop one message that was queued while a turn was running. */
+  removeQueued: (id: string) => void
   /**
    * Queue files the reader picked, dragged or pasted, and send the ones a turn could read.
    *
@@ -571,6 +612,11 @@ interface AssistantState {
   /** Tools the reader pinned to this turn with `/`, and note scopes pinned with `#`. */
   turnTools: string[]
   turnScopes: AssistantTurnScope[]
+  /** The questions this thread's running turn is waiting on, oldest first. */
+  questions: AssistantQuestionRow[]
+  loadQuestions: (conversationId?: string) => Promise<void>
+  answerQuestion: (questionId: string, answers: AssistantQuestionAnswers) => Promise<boolean>
+  cancelQuestion: (questionId: string) => Promise<boolean>
   addTurnTool: (name: string) => void
   dropTurnTool: (name: string) => void
   addTurnScope: (scope: AssistantTurnScope) => void
@@ -580,8 +626,15 @@ interface AssistantState {
   skills: AssistantSkill[]
   loadSkills: (query?: string) => Promise<void>
   createSkill: (input: AssistantSkillInput) => Promise<AssistantSkill | null>
+  importGithubSkill: (url: string) => Promise<AssistantSkill | null>
   saveSkill: (id: string, input: AssistantSkillInput) => Promise<void>
   removeSkill: (id: string) => Promise<void>
+  /** The reader's reusable editor instructions, loaded once with the settings surface. */
+  cursorCommands: AssistantCursorCommand[]
+  loadCursorCommands: () => Promise<void>
+  createCursorCommand: (input: { label: string, instruction: string, execution: AssistantCursorCommand['execution'] }) => Promise<boolean>
+  updateCursorCommand: (id: string, patch: Partial<Pick<AssistantCursorCommand, 'label' | 'instruction' | 'execution' | 'enabled'>>) => Promise<boolean>
+  removeCursorCommand: (id: string) => Promise<void>
   /** Fetch the whole library and hand it to the reader as a file. */
   exportSkills: () => Promise<void>
   /**
@@ -647,7 +700,7 @@ interface AssistantState {
     options?: { baseVersion?: number, source?: 'user' | 'assistant', messageId?: string | null },
   ) => Promise<AssistantArtifact>
   removeArtifact: (id: string) => Promise<void>
-  decideAction: (actionId: string, approve: boolean) => Promise<void>
+  decideAction: (actionId: string, approve: boolean, always?: boolean, args?: Record<string, unknown>) => Promise<void>
 
   loadMemories: () => Promise<void>
   setMemoryFilter: (patch: { query?: string, status?: string, category?: string }) => Promise<void>
@@ -663,6 +716,11 @@ interface AssistantState {
   loadProjects: () => Promise<void>
   addProject: (name: string) => Promise<void>
   removeProject: (id: string) => Promise<void>
+
+  loadKnowledgeBases: () => Promise<void>
+  createKnowledgeBase: (body: { name: string, description?: string, includeScope?: string[], excludeScope?: string[] }) => Promise<KnowledgeBase | null>
+  updateKnowledgeBase: (id: string, body: { name?: string, description?: string, includeScope?: string[], excludeScope?: string[] }) => Promise<KnowledgeBase | null>
+  deleteKnowledgeBase: (id: string) => Promise<void>
 
   loadAutomations: () => Promise<void>
   addAutomation: (body: AutomationCreateInput) => Promise<boolean>
@@ -1158,7 +1216,7 @@ function watchRemoteStream(conversationId: string, turn: LiveTurn | null = null)
 /** Exported so a test can read and clear exactly the entry this store owns. */
 export const ASSISTANT_UI_STORAGE_KEY = IS_DEMO_MODE ? 'inkstone.demo.assistantUi' : 'inkstone.assistant.ui'
 
-const PERSISTED_KEYS = ['listTab', 'folderFilter', 'projectFilter', 'tagFilter'] as const
+const PERSISTED_KEYS = ['listTab', 'folderFilter', 'projectFilter', 'tagFilter', 'originFilter'] as const
 
 /** An id is 26 characters today; the ceiling is what stops a hand-edited entry from growing the store. */
 const MAX_FILTER_ID_CHARS = 128
@@ -1170,6 +1228,7 @@ const PERSISTED_DEFAULTS: Pick<AssistantState, PersistedKey> = {
   folderFilter: 'all',
   projectFilter: 'all',
   tagFilter: null,
+  originFilter: 'all',
 }
 
 function persistedSlice(state: AssistantState): string {
@@ -1204,6 +1263,9 @@ function loadPersisted(): Partial<AssistantState> {
     if (project) out.projectFilter = project
     const tag = readFilterId(value.tagFilter)
     if (tag) out.tagFilter = tag
+    if (typeof value.originFilter === 'string' && CONVERSATION_ORIGINS.includes(value.originFilter as AssistantConversationOrigin)) {
+      out.originFilter = value.originFilter as AssistantConversationOrigin
+    }
     return out
   }
   catch {
@@ -1385,7 +1447,11 @@ async function uploadAttachment(localId: string, file: File, set: AttachmentSett
   try {
     // A PDF's words are read here, in the browser, because the worker has no parser: the text rides
     // along with the bytes so the model is shown the contents on every later turn too.
-    const extractedText = isPdfFile(file) ? await extractPdfText(file) : ''
+    const extractedText = isPdfFile(file)
+      ? await extractPdfText(file)
+      : isOfficeDocument(file.type, file.name)
+        ? await extractOfficeText(file)
+        : ''
     const stored = await api.assistant.uploadChatFile(file, (sent, total) => {
       const progress = total > 0 ? sent / total : 0
       set((current) => ({
@@ -1468,10 +1534,13 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   inknoteContext: null,
   inknoteContextOn: true,
   composerSeed: null,
+  composerSeedId: 0,
   pending: [],
   skills: [],
+  cursorCommands: [],
   turnTools: [],
   turnScopes: [],
+  questions: [],
   fileIndex: {},
   flagged: { starred: [], pinned: [], archived: [] },
   activeId: null,
@@ -1488,6 +1557,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   remotePartial: null,
   remotePartialTruncated: false,
   turn: null,
+  queued: [],
   artifacts: [],
   artifactsReady: false,
   artifactVersions: {},
@@ -1505,6 +1575,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   tasks: [],
   projects: [],
+  knowledgeBases: [],
 
   automations: [],
   runs: [],
@@ -1551,6 +1622,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       // The composer’s / picker lists the reader’s own MCP tools, so they have to be known before the
       // first slash is typed — otherwise the picker shows only the built-ins until settings are opened.
       void get().loadMcp()
+      void get().loadCursorCommands()
     } catch (error) {
       set({ loading: false, error: failureLine(error) })
       toast(error)
@@ -1571,11 +1643,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       const state = get()
       const query = state.conversationQuery.trim()
-      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string } = {}
+      const params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, archived?: string, limit?: string } = {}
       if (query) params.q = query
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
+      if (state.originFilter !== 'all') params.origin = state.originFilter
       // Always sent, so no view of this list ever shows a conversation the reader has put away.
       params.archived = '0'
       params.limit = String(CONVERSATION_PAGE_SIZE)
@@ -1644,7 +1717,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const token = conversationRequest
     set({ conversationsLoadingMore: true })
     try {
-      const params: { q?: string, folder?: string, project?: string, tag?: string, archived?: string, limit?: string, cursor?: string } = {
+      const params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, archived?: string, limit?: string, cursor?: string } = {
         archived: '0',
         limit: String(CONVERSATION_PAGE_SIZE),
         cursor: state.conversationsCursor,
@@ -1654,6 +1727,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       if (state.folderFilter !== 'all') params.folder = state.folderFilter
       if (state.projectFilter !== 'all') params.project = state.projectFilter
       if (state.tagFilter) params.tag = state.tagFilter
+      if (state.originFilter !== 'all') params.origin = state.originFilter
       const result = await api.assistant.conversations(params)
       // A filter change or a fresh load happened while this page was in flight; its rows belong to the
       // list the reader has already left.
@@ -1951,6 +2025,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
+  promoteConversation: async (body) => {
+    try {
+      const { conversation } = await api.assistant.promoteConversation(body)
+      await get().loadConversations()
+      await get().openConversation(conversation.id)
+      return conversation.id
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
   removeMessages: async (ids) => {
     const conversationId = get().activeId
     if (!conversationId || !ids.length) return
@@ -2008,6 +2094,11 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setTagFilter: async (tagId) => {
     set({ tagFilter: tagId })
+    await get().loadConversations()
+  },
+
+  setOriginFilter: async (origin) => {
+    set({ originFilter: origin })
     await get().loadConversations()
   },
 
@@ -2069,6 +2160,62 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
+  setConversationSettings: async (id, settings) => {
+    try {
+      const { conversation } = await api.assistant.setConversationSettings(id, settings)
+      set((state) => ({ conversations: state.conversations.map((entry) => (entry.id === id ? conversation : entry)) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  loadQuestions: async (conversationId) => {
+    const id = conversationId ?? get().activeId
+    if (!id) {
+      set({ questions: [] })
+      return
+    }
+    try {
+      const { questions } = await api.assistant.pendingQuestions(id)
+      // The reader may have left the thread while this was in flight; another thread's question must not
+      // appear above the one they are reading now.
+      if (get().activeId !== id) return
+      set({ questions })
+    } catch {
+      // The panel is an addition to a turn that is already running. A refused listing leaves the card out
+      // rather than replacing the transcript with an error; the turn itself keeps running and can be
+      // stopped from the composer.
+    }
+  },
+
+  answerQuestion: async (questionId, answers) => {
+    const id = get().activeId
+    if (!id) return false
+    try {
+      await api.assistant.answerQuestion(id, questionId, answers)
+      set((state) => ({ questions: state.questions.filter((question) => question.id !== questionId) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  cancelQuestion: async (questionId) => {
+    const id = get().activeId
+    if (!id) return false
+    try {
+      await api.assistant.cancelQuestion(id, questionId)
+      set((state) => ({ questions: state.questions.filter((question) => question.id !== questionId) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
   toggleConversationTag: async (id, tagId, on) => {
     try {
       if (on) await api.assistant.addConversationTag(id, tagId)
@@ -2107,7 +2254,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const focus = options?.focusMessageId ?? null
     // A muted chip is this thread's correction, not a setting: the next thread starts from the pointer.
     // The panel starts closed on every thread and shows no draft until that thread's own read lands.
-    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
+    set({ activeId: id, messages: [], messagesReady: false, messagesError: null, questions: [], remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: false, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, messagesBefore: null, messagesHasMore: false, messagesLoadingMore: false, messagesHasNewer: false, focusMessageId: focus })
     if (!id) {
       set({ messagesReady: true, messagesError: null, artifactsReady: true })
       return
@@ -2222,28 +2369,32 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       useUi.getState().toast({ title: t('assistant.attach.dropped', { count: files.length - room, max: MAX_CHAT_ATTACHMENTS }), tone: 'warning' })
     }
     for (const file of files.slice(0, room)) {
+      const settings = get().settings
+      const prepared = file.type.startsWith('image/') && settings?.imageCompressEnabled
+        ? await compressImageFile(file, settings.imageCompressQuality)
+        : file
       const localId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-      const kind = file.type.startsWith('image/') ? 'image' : 'file'
-      const filename = file.name || 'file'
+      const kind = prepared.type.startsWith('image/') ? 'image' : 'file'
+      const filename = prepared.name || 'file'
       // Refused before the request, not explained after it: no door into this function respects the
       // pickers' `accept` filter — a drag and a paste both hand over whatever the reader had, and a file
       // dialog lets them widen the type themselves — so the question has to be asked here, where all three
       // arrive. Nothing is uploaded, and the row carries the reason instead of the bytes.
-      const refused = attachmentUploadRefusal(file.type, filename, file.size, attachmentTarget())
+      const refused = attachmentUploadRefusal(prepared.type, filename, prepared.size, attachmentTarget())
       if (refused) {
         set((current) => ({
           pending: [...current.pending, {
-            localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'error' as const, error: refused, sourceFile: file,
+            localId, id: '', filename, mime: prepared.type, size: prepared.size, kind, progress: 0, status: 'error' as const, error: refused, sourceFile: prepared,
           }],
         }))
         continue
       }
       set((current) => ({
         pending: [...current.pending, {
-          localId, id: '', filename, mime: file.type, size: file.size, kind, progress: 0, status: 'uploading', sourceFile: file,
+          localId, id: '', filename, mime: prepared.type, size: prepared.size, kind, progress: 0, status: 'uploading', sourceFile: prepared,
         }],
       }))
-      await uploadAttachment(localId, file, set)
+      await uploadAttachment(localId, prepared, set)
     }
   },
 
@@ -2353,8 +2504,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  saveSkill: async (id, input) => {
+  importGithubSkill: async (url) => {
     try {
+      const { skill } = await api.assistant.importGithubSkill(url)
+      set((state) => ({ skills: [skill, ...state.skills] }))
+      return skill
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  saveSkill: async (id, input) => {    try {
       const { skill } = await api.assistant.updateSkill(id, input)
       set((state) => ({ skills: state.skills.map((entry) => (entry.id === id ? skill : entry)) }))
     } catch (error) {
@@ -2366,6 +2527,46 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     set((state) => ({ skills: state.skills.filter((entry) => entry.id !== id) }))
     try {
       await api.assistant.removeSkill(id)
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadCursorCommands: async () => {
+    try {
+      const { commands } = await api.assistant.cursorCommands()
+      set({ cursorCommands: commands })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createCursorCommand: async (input) => {
+    try {
+      const { command } = await api.assistant.createCursorCommand(input)
+      set((state) => ({ cursorCommands: [...state.cursorCommands, command] }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  updateCursorCommand: async (id, patch) => {
+    try {
+      const { command } = await api.assistant.updateCursorCommand(id, patch)
+      set((state) => ({ cursorCommands: state.cursorCommands.map((entry) => (entry.id === id ? command : entry)) }))
+      return true
+    } catch (error) {
+      toast(error)
+      return false
+    }
+  },
+
+  removeCursorCommand: async (id) => {
+    set((state) => ({ cursorCommands: state.cursorCommands.filter((entry) => entry.id !== id) }))
+    try {
+      await api.assistant.removeCursorCommand(id)
     } catch (error) {
       toast(error)
     }
@@ -2435,13 +2636,29 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
 
   setCanvasContext: (on) => set({ canvasContextOn: on }),
 
-  seedComposer: (text) => set({ composerSeed: text }),
+  seedComposer: (text) => set((state) => ({ composerSeed: text, composerSeedId: state.composerSeedId + 1 })),
 
   clearComposerSeed: () => set({ composerSeed: null }),
 
   send: async (text, opts = {}) => {
     const state = get()
-    if (state.turn && !state.turn.done) return false
+    if (state.turn && !state.turn.done) {
+      if (opts.retry || opts.continue) return false
+      const queuedText = text.trim()
+      if (!queuedText) return false
+      if (state.queued.length >= 5) {
+        useUi.getState().toast({ title: t('assistant.chat.queue_full'), tone: 'warning' })
+        return false
+      }
+      set({
+        queued: [...state.queued, {
+          id: crypto.randomUUID(),
+          text: queuedText,
+          ...(opts.modelId ? { modelId: opts.modelId } : {}),
+        }],
+      })
+      return true
+    }
     const conversationId = state.activeId
     const retry = opts.retry === true
     // A continued answer has nothing to send: the question is already in the thread and the reader is
@@ -2477,6 +2694,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
         done: false,
         startedAt: Date.now(),
         usage: null,
+        contextBreakdown: null,
         finishedAt: null,
       },
       remoteStreaming: false,
@@ -2550,11 +2768,20 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           case 'usage':
             // Kept so the answer's column can say what this turn spent. A second `usage` frame from a
             // multi-step turn replaces the first, which is the number the worker last reported.
-            return { turn: { ...turn, usage: event.usage ?? turn.usage } }
+            return { turn: { ...turn, usage: event.usage ?? turn.usage, contextBreakdown: event.contextBreakdown ?? turn.contextBreakdown } }
           case 'tool': {
             const incoming = event.tool
             if (!incoming) return current
             const known = turn.tools.some((tool) => tool.id === incoming.id)
+            if (!known && incoming.approval) {
+              const settings = get().settings
+              if (settings) announceChat(
+                settings,
+                'approval',
+                t('assistant.notify.approval_title'),
+                t('assistant.notify.approval_body', { name: incoming.approval.targetLabel || incoming.name }),
+              )
+            }
             return {
               turn: {
                 ...turn,
@@ -2577,8 +2804,12 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             useUi.getState().toast({ title: t('assistant.mcp.problem', { server: event.server ?? '', error: event.error ?? '' }), tone: 'warning' })
             return current
           case 'error':
-            return { turn: { ...turn, error: event.message ?? null } }
-          case 'done':
+            return { turn: { ...turn, error: event.message ?? null, errorCode: event.code ?? null } }
+          case 'done': {
+            if (!turn.done && event.finalMessage?.status === 'complete') {
+              const settings = get().settings
+              if (settings) announceChat(settings, 'finish', t('assistant.notify.finish_title'), t('assistant.notify.finish_body'))
+            }
             return {
               turn: {
                 ...turn,
@@ -2595,6 +2826,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
                 sources: event.finalMessage?.sources ?? turn.sources,
               },
             }
+          }
           default:
             return current
         }
@@ -2691,6 +2923,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
             turn: {
               ...current.turn,
               error: turnFailureLine(error),
+              errorCode: interrupted ? 'stream' : 'internal',
               streamInterrupted: interrupted,
               done: true,
             },
@@ -2723,9 +2956,18 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
       }
       void get().loadConversations()
       void get().refreshAfterTurn()
+      // A message the reader sent while this turn was running goes next. It is taken off the queue
+      // before the send, so a refused request does not leave the same message queued forever.
+      const next = get().queued[0]
+      if (next) {
+        set({ queued: get().queued.slice(1) })
+        void get().send(next.text, next.modelId ? { modelId: next.modelId } : undefined)
+      }
     }
     return accepted
   },
+
+  removeQueued: (id) => set((state) => ({ queued: state.queued.filter((entry) => entry.id !== id) })),
 
   refreshAfterTurn: async () => {
     const state = get()
@@ -2741,6 +2983,17 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // not what this press is about, and aborting it from here would end an answer they are still owed.
     if (token !== undefined) inflight.get(token)?.abort()
     set((current) => (current.turn && current.turn.token === token ? { turn: { ...current.turn, done: true } } : current))
+    // A stopped turn hands the last queued message back to the box; the rest are dropped, which is the
+    // reference project's behaviour and the only one that cannot silently lose the message the reader
+    // was about to send if they expected the queue to continue.
+    const queued = get().queued
+    if (queued.length) {
+      const last = queued[queued.length - 1]!
+      set({ queued: [], composerSeed: last.text })
+      if (queued.length > 1) {
+        useUi.getState().toast({ title: t('assistant.chat.queue_restored', { count: queued.length - 1 }), tone: 'warning' })
+      }
+    }
     // A remote marker has no local handle; the cancel below is what ends the turn another device owns.
     const conversationId = turn?.conversationId ?? get().activeId
     // Best-effort notice to the worker. Stop is carried out here first — the request is aborted and the
@@ -2914,10 +3167,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     }
   },
 
-  decideAction: async (actionId, approve) => {
+  decideAction: async (actionId, approve, always = false, args) => {
     try {
       const action = approve
-        ? await api.assistant.approveAction(actionId)
+        ? await api.assistant.approveAction(actionId, always, args)
         : await api.assistant.declineAction(actionId)
       // An approved call may have answered with something: that answer is what the reader opens the row
       // to see, so it travels back with the card's own outcome. A cancelled call never ran and has none.
@@ -3092,6 +3345,46 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     try {
       await api.assistant.deleteProject(id)
       await get().loadProjects()
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  loadKnowledgeBases: async () => {
+    try {
+      const result = await api.assistant.knowledgeBases()
+      set({ knowledgeBases: result.knowledgeBases })
+    } catch (error) {
+      toast(error)
+    }
+  },
+
+  createKnowledgeBase: async (body) => {
+    try {
+      const result = await api.assistant.createKnowledgeBase(body)
+      await get().loadKnowledgeBases()
+      return result.knowledgeBase
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  updateKnowledgeBase: async (id, body) => {
+    try {
+      const result = await api.assistant.updateKnowledgeBase(id, body)
+      await get().loadKnowledgeBases()
+      return result.knowledgeBase
+    } catch (error) {
+      toast(error)
+      return null
+    }
+  },
+
+  deleteKnowledgeBase: async (id) => {
+    try {
+      await api.assistant.deleteKnowledgeBase(id)
+      await get().loadKnowledgeBases()
     } catch (error) {
       toast(error)
     }

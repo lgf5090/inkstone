@@ -25,7 +25,7 @@ import { t } from '../../lib/i18n'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
-import { EDITOR_AI_LABELS, quotePassage } from './editor-ai'
+import { EDITOR_AI_LABELS, composeQuoted, quotePassage } from './editor-ai'
 import { insertReplyIntoNote } from './save-to-note'
 
 /** The box the selection drew on screen, in the shape this file can do arithmetic on. */
@@ -135,7 +135,7 @@ function actionsFor(text: string): Array<{ id: string, Icon: LucideIcon, label: 
       id: 'translate',
       Icon: Languages,
       label: t(EDITOR_AI_LABELS.translate),
-      run: () => useAssistant.getState().seedComposer(`${quotePassage(text)}${t('assistant.chat.select_translate_ask')}`),
+      run: () => useAssistant.getState().seedComposer(composeQuoted(text, t('assistant.chat.select_translate_ask'))),
     },
     {
       id: 'copy',

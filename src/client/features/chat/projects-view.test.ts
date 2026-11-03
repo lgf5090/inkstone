@@ -45,10 +45,35 @@ function project(over: Partial<Project> = {}): Project {
     id: 'p1',
     name: 'Handbook',
     description: '',
+    icon: '',
     instructions: 'Be terse.',
     noteScope: [],
+    excludeScope: [],
     noteIds: [],
     modelId: null,
+    tools: [],
+    toolsLimited: false,
+    toolOverrides: {},
+    skillIds: [],
+    group: '',
+    temperature: null,
+    topP: null,
+    maxOutputTokens: null,
+    stream: true,
+    maxToolRounds: null,
+    keepRecentMessages: null,
+    contextCustom: false,
+    autoCompactMode: 'off',
+    autoCompactTokens: 100_000,
+    autoCompactRatio: 0.8,
+    customParams: [],
+    mcpMode: 'auto',
+    mcpServerIds: [],
+    knowledgeBaseIds: [],
+    focusSync: true,
+    timeAware: true,
+    readProjectInstructions: false,
+    position: 0,
     createdAt: 1,
     updatedAt: 1,
     ...over,
@@ -68,6 +93,8 @@ const click = (node: HTMLElement | undefined) => {
   expect(node, 'the control is not rendered').toBeTruthy()
   act(() => { node!.click() })
 }
+const openEditor = () => click(byLabel(t('assistant.projects.edit')))
+const openTab = (key: Parameters<typeof t>[0]) => click(byLabel(t(key)))
 
 async function open(over: Partial<Project> = {}) {
   mounted = true
@@ -109,7 +136,7 @@ afterEach(() => {
 describe('the project editor', () => {
   it('sends the preferred model along with the brief and the folders', async () => {
     await open()
-    click(byLabel(t('common.edit')))
+    openEditor()
     const select = document.body.querySelector<HTMLSelectElement>(`select[aria-label="${t('assistant.projects.model')}"]`)
     expect(select, 'the model picker is not rendered').toBeTruthy()
     await act(async () => {
@@ -123,24 +150,42 @@ describe('the project editor', () => {
 
   it('leaves the model alone when the reader keeps the account default', async () => {
     await open()
-    click(byLabel(t('common.edit')))
+    openEditor()
     click(byLabel(t('common.save')))
     await act(async () => { await Promise.resolve() })
     // Null, not undefined: the route reads null as "the project has no preferred model", and undefined as
     // "the client did not say" — the second would leave a stale choice in place after the reader cleared it.
     expect(mocks.updateProject).toHaveBeenCalledWith('p1', expect.objectContaining({ modelId: null }))
   })
+
+  it('saves the assistant knobs the model tab edits', async () => {
+    await open()
+    openEditor()
+    openTab('assistant.projects.tab_model')
+    // The switch named by the row turns the bound on; the number box then carries a real value.
+    click(byName(t('assistant.projects.max_tool_rounds')))
+    const rounds = document.body.querySelector<HTMLInputElement>(`input[aria-label="${t('assistant.projects.max_tool_rounds')}"]`)
+    expect(rounds, 'the tool-round box is not rendered').toBeTruthy()
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(rounds, '12')
+      rounds!.dispatchEvent(new Event('input', { bubbles: true }))
+      rounds!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    click(byLabel(t('common.save')))
+    await act(async () => { await Promise.resolve() })
+    expect(mocks.updateProject).toHaveBeenCalledWith('p1', expect.objectContaining({ maxToolRounds: 12 }))
+  })
 })
 
 describe('the project card', () => {
   it('names the model it answers with', async () => {
     await open({ modelId: 'm1' })
-    expect(document.body.textContent).toContain(t('assistant.projects.model_uses', { model: 'Fast model' }))
+    expect(document.body.textContent).toContain('Fast model')
   })
 
   it('hands the reader over to the conversations the brief governs', async () => {
     await open()
-    click(byLabel(t('assistant.projects.open_conversations')))
+    click(byName(t('assistant.projects.open_conversations')))
     await act(async () => { await Promise.resolve() })
     expect(useAssistant.getState().setProjectFilter).toHaveBeenCalledWith('p1')
     expect(useAssistant.getState().setView).toHaveBeenCalledWith('chat')
@@ -154,7 +199,8 @@ describe('the pages a project names by hand', () => {
 
   it('shows each named page by title and saves the list minus the one taken off', async () => {
     await open({ noteIds: ['n1', 'n2'] })
-    click(byLabel(t('common.edit')))
+    openEditor()
+    openTab('assistant.projects.tab_knowledge')
     expect(document.body.textContent).toContain('Quarterly plan')
     // A page the vault no longer holds keeps its id on the chip: the row names what the project reads, and
     // hiding one would show a selection that is not the one that saves.
@@ -169,14 +215,16 @@ describe('the pages a project names by hand', () => {
     // Without this the column would be saved and read by the server while no screen could fill it — the
     // shape of defect that has already bitten this module twice.
     await open()
-    click(byLabel(t('common.edit')))
+    openEditor()
+    openTab('assistant.projects.tab_knowledge')
     click(byLabel(t('assistant.projects.note_add')))
     expect(document.querySelector('[role="combobox"]'), 'the add button opens nothing').toBeTruthy()
   })
 
   it('says in text when the project has named all it may', async () => {
     await open({ noteIds: Array.from({ length: MAX_PROJECT_NOTES }, (_entry, index) => `n${index}`) })
-    click(byLabel(t('common.edit')))
+    openEditor()
+    openTab('assistant.projects.tab_knowledge')
     const add = byLabel(t('assistant.projects.note_add'))
     expect(add?.hasAttribute('disabled'), 'the button stayed pressable past the cap').toBe(true)
     expect(document.body.textContent).toContain(t('assistant.projects.notes_full', { count: MAX_PROJECT_NOTES }))

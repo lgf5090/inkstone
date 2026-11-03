@@ -288,7 +288,8 @@ export async function recallNotesByVector(
 ): Promise<NoteVectorRecall> {
   if (!env.AI) return { hits: [], failed: 'this deployment has no AI binding' }
   try {
-    const hits = await searchSemanticNotes(env, env.DB, store.userId, query, {})
+    const settings = typeof store.getSettings === 'function' ? await store.getSettings().catch(() => null) : null
+    const hits = await searchSemanticNotes(env, env.DB, store.userId, query, {}, settings?.semanticScoreFloor, settings?.semanticTopK)
     // `null` is the index's own refusal — the binding vanished or the reader switched the index off
     // between the gate above and this read. Nothing was embedded, so nothing is charged, and the caller
     // is told the meaning half is absent rather than handed an empty list that reads as "no note matched".

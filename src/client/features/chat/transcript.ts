@@ -69,22 +69,54 @@ function attachmentsMarkdown(message: AssistantMessage, index: TranscriptAttachm
   return `${t('assistant.chat.attachments')}:\n${lines.join('\n')}`
 }
 
+function extrasMarkdown(message: AssistantMessage, options: TranscriptOptions): string {
+  const parts: string[] = []
+  if (options.reasoning && message.reasoning?.trim()) {
+    parts.push(`**${t('assistant.chat.thinking')}**\n\n${message.reasoning.trim()}`)
+  }
+  if (options.toolCalls && message.tools?.length) {
+    const lines = message.tools.map((tool) => {
+      const args = tool.args?.trim()
+      const result = tool.result?.trim()
+      return [
+        `- \`${tool.name}\` · ${tool.status}`,
+        ...(args ? [`  - args: \`${args.replace(/\n/g, ' ').slice(0, 500)}\``] : []),
+        ...(result ? [`  - result: \`${result.replace(/\n/g, ' ').slice(0, 1_000)}\``] : []),
+      ].join('\n')
+    })
+    parts.push(`**${t('assistant.chat.tools_group')}**\n\n${lines.join('\n')}`)
+  }
+  return parts.join('\n\n')
+}
+
+/** Which parts of an answer travel beside its words. */
+export interface TranscriptOptions {
+  reasoning?: boolean
+  toolCalls?: boolean
+}
+
 export function transcriptMarkdown(
   messages: readonly AssistantMessage[],
   title: string,
   attachments?: TranscriptAttachments,
+  options: TranscriptOptions = {},
 ): string {
   const parts = messages.map((message) => {
     const text = turn(t(message.role === 'user' ? 'assistant.chat.you' : 'assistant.chat.assistant'), message)
+    const extras = message.role === 'assistant' ? extrasMarkdown(message, options) : ''
     const cited = message.role === 'assistant' ? sourcesMarkdown(message) : ''
     const files = attachments ? attachmentsMarkdown(message, attachments) : ''
-    return [text, cited, files].filter(Boolean).join('\n\n')
+    return [text, extras, cited, files].filter(Boolean).join('\n\n')
   })
   return [`# ${title}`, '', ...parts.flatMap((part) => [part, ''])].join('\n').trimEnd() + '\n'
 }
 
 /** Writes the selection to a file the reader can keep. */
-export function downloadTranscript(messages: readonly AssistantMessage[], title: string): void {
-  const body = transcriptMarkdown(messages, title)
+export function downloadTranscript(
+  messages: readonly AssistantMessage[],
+  title: string,
+  options: TranscriptOptions = {},
+): void {
+  const body = transcriptMarkdown(messages, title, undefined, options)
   downloadTextFile(`${safeFileName(title || t('assistant.chat.untitled'))}.md`, body, 'text/markdown;charset=utf-8')
 }

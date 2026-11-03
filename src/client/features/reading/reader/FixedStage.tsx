@@ -21,12 +21,18 @@ import type { ReaderSettings } from '../store/reader-settings'
 import { buildTextIndex, offsetForPoint, type TextIndex } from '../engine/text-index'
 import { paintHighlights, resolveAnchor } from '../engine/highlight-anchor'
 import type { PdfPageText } from '../engine/pdf'
+import { Button } from '../../../components/primitives'
+import { useAssistant } from '../../chat/assistant-store'
+import { useUi } from '../../../store/ui'
+import { api } from '../../../lib/api'
 
 export interface FixedStageHandle {
   next(): void
   prev(): void
   goTo(position: BookPosition): void
   current(): BookPosition | null
+  /** Read every page's text once and hand it to the account's knowledge base. */
+  indexBook(): Promise<{ pages: number, chunks: number }>
 }
 
 type PdfHandle = {
@@ -201,6 +207,31 @@ export const FixedStage = forwardRef<FixedStageHandle, FixedStageProps>(function
       setPage(spread === 2 ? Math.floor((position.page - 1) / 2) * 2 + 1 : position.page)
     },
     current: () => ({ kind: 'fixed', page }),
+    indexBook: async () => {
+      const document = docRef.current?.document
+      if (!document) return { pages: 0, chunks: 0 }
+      const { readPdfTextContent } = await import('../engine/pdf')
+      let pages = 0
+      let chunks = 0
+      let batch: Array<{ page: number, text: string }> = []
+      const flush = async () => {
+        if (!batch.length) return
+        const result = await api.assistant.indexReaderBook(book.id, batch)
+        chunks += result.indexed
+        batch = []
+      }
+      for (let number = 1; number <= Math.min(document.numPages, 200); number++) {
+        const source = await document.getPage(number).catch(() => null) as { getTextContent(): Promise<unknown> } | null
+        if (!source) continue
+        const text = readPdfTextContent(await source.getTextContent() as never).text.trim()
+        if (!text) continue
+        pages += 1
+        batch.push({ page: number, text })
+        if (batch.length >= 8) await flush()
+      }
+      await flush()
+      return { pages, chunks }
+    },
   }), [page, pages, spread])
 
   /** In scroll mode the visible page follows the scrollbar, so a turn is a scroll. */
@@ -391,6 +422,37 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
   const holder = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [state, setState] = useState<'pending' | 'text' | 'scan'>('pending')
+  const attachFiles = useAssistant((store) => store.attachFiles)
+  const [selecting, setSelecting] = useState(false)
+  const [drag, setDrag] = useState<{ x: number, y: number, x2: number, y2: number } | null>(null)
+  const [capturing, setCapturing] = useState(false)
+
+  /** Crop the painted page and hand the picture to the composer, never the whole page by accident. */
+  const capture = async (region: { x: number, y: number, width: number, height: number } | null): Promise<void> => {
+    const surface = canvas.current
+    if (!surface) return
+    setCapturing(true)
+    try {
+      const box = region ?? { x: 0, y: 0, width: surface.clientWidth, height: surface.clientHeight }
+      const scaleX = surface.width / Math.max(1, surface.clientWidth)
+      const scaleY = surface.height / Math.max(1, surface.clientHeight)
+      const output = document.createElement('canvas')
+      output.width = Math.max(1, Math.round(box.width * scaleX))
+      output.height = Math.max(1, Math.round(box.height * scaleY))
+      output.getContext('2d')?.drawImage(surface, box.x * scaleX, box.y * scaleY, box.width * scaleX, box.height * scaleY, 0, 0, output.width, output.height)
+      const blob = await new Promise<Blob | null>((resolve) => output.toBlob(resolve, 'image/png'))
+      if (!blob) throw new Error(t('reading.capture_failed'))
+      await attachFiles([new File([blob], `page-${index + 1}${region ? '-region' : ''}.png`, { type: 'image/png' })])
+      useUi.getState().setAssistantDock(true)
+      useUi.getState().toast({ title: t('reading.capture_added'), tone: 'success' })
+    } catch (error) {
+      useUi.getState().toast({ title: error instanceof Error ? error.message : t('reading.capture_failed'), tone: 'danger' })
+    } finally {
+      setCapturing(false)
+      setSelecting(false)
+      setDrag(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -501,6 +563,57 @@ function FixedPage({ index, bookId, getPage, image, marks, theme, zoom, targetWi
       style={{ '--reader-mark-default': theme.accent } as React.CSSProperties}
     >
       <canvas ref={canvas} />
+      <div className="absolute right-2 top-2 z-[var(--z-sticky)] flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [@media(pointer:coarse)]:opacity-100">
+        <Button size="sm" variant="secondary" disabled={capturing} onClick={() => { void capture(null) }}>
+          {t('reading.capture_page')}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={capturing} aria-pressed={selecting} onClick={() => setSelecting((on) => !on)}>
+          {t('reading.capture_region')}
+        </Button>
+      </div>
+      {selecting && (
+        <div
+          className="absolute inset-0 z-[var(--z-menu)] cursor-crosshair touch-none select-none bg-[color-mix(in_oklab,var(--accent)_8%,transparent)]"
+          onPointerDown={(event) => {
+            const box = holder.current?.getBoundingClientRect()
+            if (!box) return
+            const x = event.clientX - box.left
+            const y = event.clientY - box.top
+            event.currentTarget.setPointerCapture(event.pointerId)
+            setDrag({ x, y, x2: x, y2: y })
+          }}
+          onPointerMove={(event) => {
+            if (!drag) return
+            const box = holder.current?.getBoundingClientRect()
+            if (!box) return
+            setDrag({ ...drag, x2: event.clientX - box.left, y2: event.clientY - box.top })
+          }}
+          onPointerUp={() => {
+            if (!drag) return
+            const left = Math.min(drag.x, drag.x2)
+            const top = Math.min(drag.y, drag.y2)
+            const width = Math.abs(drag.x2 - drag.x)
+            const height = Math.abs(drag.y2 - drag.y)
+            if (width < 8 || height < 8) {
+              setSelecting(false)
+              setDrag(null)
+              return
+            }
+            void capture({ x: left, y: top, width, height })
+          }}
+          onPointerCancel={() => { setSelecting(false); setDrag(null) }}
+          aria-label={t('reading.capture_region')}
+          role="presentation"
+        >
+          {drag && (
+            <span
+              aria-hidden
+              className="absolute border border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_15%,transparent)]"
+              style={{ left: Math.min(drag.x, drag.x2), top: Math.min(drag.y, drag.y2), width: Math.abs(drag.x2 - drag.x), height: Math.abs(drag.y2 - drag.y) }}
+            />
+          )}
+        </div>
+      )}
       {/* A hover hint would never reach a reader on a tablet, so a page without a text layer says so on
           the page itself. */}
       {state === 'scan' ? <span className="reader-scan-hint">{t('reading.page_has_no_text')}</span> : null}

@@ -35,7 +35,7 @@ import {
   type EditorAiRequest,
   type EditorAiWriteMode,
 } from './editor-ai'
-import { buildWriteDiff, countWords, wordDiff } from './editor-ai-diff'
+import { applyAcceptedHunks, buildWriteDiff, countWords, diffHunks, wordDiff } from './editor-ai-diff'
 
 vi.mock('../../lib/api', () => ({
   ApiError: class ApiError extends Error {},
@@ -376,5 +376,26 @@ describe('the preview stays honest about the answer', () => {
     const diff = buildWriteDiff(whole, previewAfter(whole, request, 'the old words', 'replace'))
     expect(diff.changed).toBe(false)
     expect(diff.rows.every((row) => row.kind === 'context')).toBe(true)
+  })
+})
+
+describe('per-change decisions', () => {
+  it('keeps a rejected hunk as it was and applies an accepted one', () => {
+    const before = 'alpha beta gamma delta'
+    const after = 'alpha BETA gamma DELTA'
+    const hunks = diffHunks(before, after)
+    expect(hunks).toHaveLength(2)
+    expect(applyAcceptedHunks(before, after, new Set([0]))).toBe('alpha BETA gamma delta')
+    expect(applyAcceptedHunks(before, after, new Set([1]))).toBe('alpha beta gamma DELTA')
+    expect(applyAcceptedHunks(before, after, new Set([0, 1]))).toBe(after)
+    expect(applyAcceptedHunks(before, after, new Set())).toBe(before)
+  })
+
+  it('numbers the rows the preview draws the same way it applies them', () => {
+    const before = 'one two three four five six'
+    const after = 'one TWO three four FIVE six'
+    const diff = buildWriteDiff(before, after)
+    const rows = diff.rows.filter((row) => row.kind === 'change' && row.hunk !== undefined)
+    expect(rows).toHaveLength(diffHunks(before, after).length)
   })
 })

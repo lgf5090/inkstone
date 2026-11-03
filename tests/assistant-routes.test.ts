@@ -2500,6 +2500,51 @@ describe('projects', () => {
     expect(created.project.noteScope).toEqual([])
   })
 
+  it('keeps the assistant knobs and knowledge links a project is saved with', async () => {
+    const base = await call<{ knowledgeBase: { id: string } }>('POST', '/api/assistant/knowledge-bases', { name: '资料' })
+    const created = await call<{ project: Project }>('POST', '/api/assistant/projects', {
+      name: '带旋钮的助手',
+      group: '研究',
+      temperature: 0.4,
+      topP: 0.8,
+      maxOutputTokens: 2048,
+      stream: false,
+      maxToolRounds: 3,
+      keepRecentMessages: 9,
+      contextCustom: true,
+      autoCompactMode: 'ratio',
+      autoCompactRatio: 0.7,
+      customParams: [{ name: 'foo', type: 'string', value: 'bar' }],
+      mcpMode: 'manual',
+      knowledgeBaseIds: [base.knowledgeBase.id],
+    })
+    expect(created.project).toMatchObject({
+      group: '研究',
+      temperature: 0.4,
+      topP: 0.8,
+      maxOutputTokens: 2048,
+      stream: false,
+      maxToolRounds: 3,
+      keepRecentMessages: 9,
+      contextCustom: true,
+      autoCompactMode: 'ratio',
+      autoCompactRatio: 0.7,
+      mcpMode: 'manual',
+      knowledgeBaseIds: [base.knowledgeBase.id],
+    })
+    expect(created.project.customParams).toEqual([{ name: 'foo', type: 'string', value: 'bar' }])
+
+    // A panel that saves one knob must not reset the others: the whole document is stored as one value.
+    const patched = await call<{ project: Project }>('PATCH', `/api/assistant/projects/${created.project.id}`, {
+      temperature: 0.9,
+      stream: true,
+      mcpMode: 'off',
+    })
+    expect(patched.project).toMatchObject({ temperature: 0.9, stream: true, mcpMode: 'off', topP: 0.8, maxToolRounds: 3, keepRecentMessages: 9 })
+    const list = await call<{ projects: Project[] }>('GET', '/api/assistant/projects')
+    expect(list.projects.find((entry) => entry.id === created.project.id)?.knowledgeBaseIds).toEqual([base.knowledgeBase.id])
+  })
+
   /**
    * A brief emptied is a save, not a bad request.
    *
@@ -3490,6 +3535,10 @@ describe('skill library', () => {
       tools: ['search_notes'],
       scopes: [{ kind: 'folder', id: FOLDER_A, name: '工作' }],
       modelId: models.models[0]!.id,
+      kind: 'prompt',
+      description: '',
+      loadMode: 'full',
+      enabled: true,
     }])
     // Nothing the server assigns travels: the importing account would be naming a row it does not have.
     expect(exported.bundle.skills[0]).not.toHaveProperty('id')

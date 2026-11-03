@@ -10,6 +10,7 @@ import { Archive, ArchiveRestore, Bookmark, ChevronRight, FolderClosed, FolderKa
 import type { AssistantConversation, ChatFolderNode, ConversationTag } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { IconButton } from '../../components/primitives'
+import { Select } from '../../components/form'
 import { t, type MessageKey } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { treeIndent, treeItemProps, useTreeKeyboard, type MoveMenuFolder } from '../../lib/tree'
@@ -574,6 +575,10 @@ const EMPTY_FLAGGED: Record<'starred' | 'pinned' | 'archived', MessageKey> = {
 /** The panel the strip drives: one picker at a time, never two stacked lists. */
 export function ConversationTaxonomyPanel({ onOpen }: { onOpen?: () => void }) {
   const tab = useAssistant((state) => state.listTab)
+  const originFilter = useAssistant((state) => state.originFilter)
+  const setOriginFilter = useAssistant((state) => state.setOriginFilter)
+  const conversations = useAssistant((state) => state.conversations)
+  const hasOtherOrigins = conversations.some((conversation) => (conversation.origin ?? 'chat') !== 'chat')
   return (
     <div
       id={CHAT_TAXONOMY_PANEL_ID}
@@ -582,6 +587,22 @@ export function ConversationTaxonomyPanel({ onOpen }: { onOpen?: () => void }) {
       tabIndex={-1}
       className="no-scrollbar max-h-56 shrink-0 overflow-y-auto px-1.5 pb-1"
     >
+      {(hasOtherOrigins || originFilter !== 'all') && (
+        <div className="px-0.5 pb-1.5 pt-1">
+          <Select
+            value={originFilter}
+            aria-label={t('assistant.chat.origin_filter')}
+            className="h-8 text-[length:var(--text-11-5)] md:h-7"
+            onChange={(event) => { void setOriginFilter(event.target.value as 'all' | 'chat' | 'automation' | 'subagent' | 'import') }}
+          >
+            <option value="all">{t('assistant.chat.origin.all')}</option>
+            <option value="chat">{t('assistant.chat.origin.chat')}</option>
+            <option value="automation">{t('assistant.chat.origin.automation')}</option>
+            <option value="subagent">{t('assistant.chat.origin.subagent')}</option>
+            <option value="import">{t('assistant.chat.origin.import')}</option>
+          </Select>
+        </div>
+      )}
       {tab === 'folders' && <ConversationFolders />}
       {tab === 'projects' && <ConversationProjects />}
       {tab === 'tags' && <ConversationTags />}

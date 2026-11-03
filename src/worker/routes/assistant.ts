@@ -37,7 +37,13 @@ import {
   ASSISTANT_MODEL_PURPOSES,
   ASSISTANT_PROTOCOLS,
   ASSISTANT_TOOL_SPECS,
+  ASSISTANT_TOOL_BY_NAME,
+  ASSISTANT_TOOL_MODES,
   parseCustomParams,
+  MAX_CUSTOM_PARAMS,
+  PROJECT_MCP_MODES,
+  type Project,
+  type ProjectMcpMode,
   MAX_PRICE_PERIODS,
   MAX_PROJECT_NOTES,
   MAX_TURN_SCOPES,
@@ -47,6 +53,15 @@ import {
   MAX_AUTOMATION_TARGET_ID_CHARS,
   MAX_CONVERSATION_TITLE_CHARS,
   MAX_MESSAGE_CHARS,
+  CURSOR_COMMAND_EXECUTIONS,
+  MAX_CURSOR_COMMAND_INSTRUCTION_CHARS,
+  MAX_CURSOR_COMMAND_LABEL_CHARS,
+  MAX_CURSOR_COMMANDS,
+  CONVERSATION_ORIGINS,
+  normalizeConversationSettings,
+  normalizeQuestionAnswers,
+  unknownConversationSettingKeys,
+  type AssistantConversationOrigin,
   MAX_BACKUP_BYTES,
   CONVERSATION_PAGE_SIZE,
   MESSAGE_PAGE_SIZE,
@@ -73,6 +88,7 @@ import {
   type AssistantProtocol,
   type AssistantSettings,
   type AssistantPricePeriod,
+  type AssistantToolMode,
   type AssistantTurnScope,
   type MemoryReviewAction,
   type AssistantKeyUsage,
@@ -94,6 +110,10 @@ import { FORM_BODY_LIMITS, JSON_BODY_LIMITS, readFormDataWithinLimit, readJson, 
 import { fetchProviderBalance } from '../assistant/balance'
 import { McpError, mcpCallTool, mcpInitialize, mcpListTools, mcpProbe, mcpUrlProblem } from '../assistant/mcp-client'
 import { isExternalToolName, listMcpCatalog, loadExternalTools } from '../assistant/mcp-tools'
+import { loadMcpNote } from '../mcp/retrieval'
+import { chunkPageText, embedTextsPooled, encodeVector, searchSemanticNotes, vectorNorm } from '../mcp/ai-search'
+import { OneShotError, runOneShot } from '../assistant/one-shot'
+import { promptCatalog, summarizerPrompt } from '@shared/assistant-prompt'
 import { deleteMcpOAuthClient, finishMcpAuthorization, startMcpAuthorization, withMcpOAuthHeaders } from '../assistant/mcp-oauth'
 import { isValidId } from '../lib/id'
 import { isInlineSafe } from '../lib/image'
@@ -118,6 +138,7 @@ import { readMusicContext } from '../music/assistant-context'
 import { resolveInknoteContext } from '../inknote/context'
 import { cancelApprovedAction, runApprovedAction } from '../assistant/tools'
 import { exportAssistant, importAssistant } from '../assistant/backup'
+import { exportAssistantConfig, importAssistantConfig } from '../assistant/config-transfer'
 import { describeSubscription, pushConfigStatus, pushEndpointProblem, pushKeyProblem, vapidProblem, type PushSubscriptionView } from '../assistant/push'
 import { importSessionFile, MAX_SESSION_FILE_BYTES, SESSION_IMPORT_BODY_BYTES } from '../assistant/session-import'
 import { ChatShareStore, conversationSharePasswordHash, messageScope, MAX_SHARED_PICK, type ChatShareRow } from '../assistant/share'
@@ -166,6 +187,8 @@ function contextBudgetValue(value: unknown): number | null {
 import { resolveNoteScope } from '../assistant/note-scope'
 
 export const assistantRoutes = new Hono<AppBindings>()
+
+
 
 assistantRoutes.use('*', requireAuth)
 
@@ -338,7 +361,7 @@ assistantRoutes.get('/conversations', async (c) => {
   const project = c.req.query('project')
   const tag = c.req.query('tag')?.trim().slice(0, 26)
   const note = c.req.query('noteId')
-  const filter: { folderId?: string | null, projectId?: string | null, noteId?: string, tagId?: string, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
+  const filter: { folderId?: string | null, projectId?: string | null, noteId?: string, tagId?: string, origin?: AssistantConversationOrigin, starred?: boolean, pinned?: boolean, archived?: boolean } = {}
   // `folder=none` is the unfiled view; an absent parameter is the whole list.
   if (folder !== undefined) filter.folderId = folder === 'none' ? null : (isValidId(folder) ? folder : 'none')
   // `project=none` reads the conversations that answer under no brief, the same convention as the folder filter.
@@ -347,6 +370,13 @@ assistantRoutes.get('/conversations', async (c) => {
   // never the whole list, which would answer the reader's question with everything they asked to filter out.
   if (note !== undefined) filter.noteId = isValidId(note) ? note : ''
   if (tag) filter.tagId = tag
+  // A thread's source is one of four words; anything else is refused rather than silently returning the
+  // whole list, which would answer a filter with everything it asked to hide.
+  const origin = c.req.query('origin')
+  if (origin) {
+    if (!(CONVERSATION_ORIGINS as readonly string[]).includes(origin)) throw ApiError.badRequest('Unknown origin.')
+    filter.origin = origin as (typeof CONVERSATION_ORIGINS)[number]
+  }
   if (c.req.query('starred') === '1') filter.starred = true
   if (c.req.query('pinned') === '1') filter.pinned = true
   // Only `1` and `0` narrow this: an absent parameter is every conversation, archived ones included, which
@@ -1183,7 +1213,7 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
-  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown, noteId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<{ title?: unknown, pinned?: unknown, starred?: unknown, archived?: unknown, folderId?: unknown, projectId?: unknown, noteId?: unknown, settings?: unknown }>(c, JSON_BODY_LIMITS.small)
   if (typeof body.title === 'string') await s.renameConversation(id, text(body.title, MAX_CONVERSATION_TITLE_CHARS))
   if (typeof body.pinned === 'boolean') await s.setConversationPinned(id, body.pinned)
   if (typeof body.starred === 'boolean') await s.setConversationStarred(id, body.starred)
@@ -1211,13 +1241,102 @@ assistantRoutes.patch('/conversations/:id', async (c) => {
     if (!isValidId(body.projectId) || !(await s.getProject(body.projectId))) throw ApiError.badRequest('Unknown project.')
     await s.setConversationProject(id, body.projectId)
   }
+  // This thread's own overrides. An unknown key is refused by name rather than dropped: a client that
+  // sends `temprature` and is told "done" believes a setting it never changed.
+  if (body.settings !== undefined) {
+    if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) {
+      throw ApiError.badRequest('Conversation settings must be an object.')
+    }
+    const unknown = unknownConversationSettingKeys(body.settings)
+    if (unknown.length) throw ApiError.badRequest(`Unknown conversation setting: ${unknown[0]}`)
+    await s.setConversationSettings(id, normalizeConversationSettings(body.settings))
+  }
   const conversation = await s.getConversation(id)
   if (conversation) conversation.tags = (await s.tagsForConversations([id])).get(id) ?? []
   return c.json({ conversation })
 })
 
-assistantRoutes.post('/conversations/:id/tags', async (c) => {
+/**
+ * The questions a turn is waiting on.
+ *
+ * A pending question is a request the model made of the reader, so it is read from the row rather than
+ * held in memory: a refresh, another tab, or a reconnect while the turn is still parked all find the same
+ * question, and the answer route is the only thing that can move it.
+ */
+assistantRoutes.get('/conversations/:id/questions', async (c) => {
   const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
+  return c.json({ questions: await s.pendingQuestions(id) })
+})
+
+assistantRoutes.post('/conversations/:id/questions/:questionId/answer', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const questionId = requiredId(c.req.param('questionId'))
+  const question = await s.getQuestion(questionId)
+  // A question from another conversation is reported as missing, the same way a foreign id is everywhere
+  // else: saying "that belongs to another thread" would confirm the thread exists.
+  if (!question || question.conversationId !== id) throw ApiError.notFound('Question not found')
+  if (question.status !== 'pending') throw ApiError.conflict('That question is no longer waiting for an answer.')
+  const body = await readJson<{ answers?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const answers = normalizeQuestionAnswers(question.questions, body.answers)
+  const missing = question.questions.find((entry) => entry.required
+    && (answers[entry.id] === undefined || (Array.isArray(answers[entry.id]) && (answers[entry.id] as string[]).length === 0)))
+  if (missing) throw ApiError.badRequest(`An answer is required for "${missing.title.slice(0, 80)}".`)
+  const answered = await s.answerQuestion(questionId, answers)
+  if (!answered) throw ApiError.conflict('That question is no longer waiting for an answer.')
+  return c.json({ question: answered })
+})
+
+assistantRoutes.post('/conversations/:id/questions/:questionId/cancel', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const questionId = requiredId(c.req.param('questionId'))
+  const question = await s.getQuestion(questionId)
+  if (!question || question.conversationId !== id) throw ApiError.notFound('Question not found')
+  const cancelled = await s.cancelQuestion(questionId)
+  if (!cancelled) throw ApiError.conflict('That question is no longer waiting for an answer.')
+  return c.json({ question: cancelled })
+})
+
+/**
+ * A short exchange that happened outside the thread — a Quick Ask answer — made into a real conversation.
+ *
+ * The rows are written here rather than replayed through the turn runner: the answer already exists, and
+ * asking the model again would produce a different one and spend the reader's budget twice. `source` stays
+ * chat, so a promoted exchange can be retried and continued like any other.
+ */
+assistantRoutes.post('/conversations/promote', async (c) => {
+  const body = await readJson<{ title?: unknown, noteId?: unknown, messages?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  const entries = Array.isArray(body.messages) ? body.messages.slice(0, 40) : []
+  const parsed: Array<{ role: 'user' | 'assistant', content: string }> = []
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const role = row.role === 'assistant' ? 'assistant' : row.role === 'user' ? 'user' : null
+    const content = typeof row.content === 'string' ? row.content.trim().slice(0, MAX_MESSAGE_CHARS) : ''
+    if (!role || !content) continue
+    parsed.push({ role, content })
+  }
+  if (!parsed.length) throw ApiError.badRequest('There is nothing to promote yet.')
+  const s = store(c)
+  let noteId: string | null = null
+  if (typeof body.noteId === 'string' && body.noteId) {
+    if (!isValidId(body.noteId) || !(await s.knownNote(body.noteId))) throw ApiError.badRequest('Unknown note.')
+    noteId = body.noteId
+  }
+  const firstUser = parsed.find((entry) => entry.role === 'user')?.content ?? parsed[0]!.content
+  const title = text(typeof body.title === 'string' && body.title.trim() ? body.title : titleFromMessage(firstUser), MAX_CONVERSATION_TITLE_CHARS)
+  const conversation = await s.createConversation(title, null, false, null, noteId, 'chat')
+  const messages = []
+  for (const entry of parsed) {
+    messages.push(await s.addMessage({ conversationId: conversation.id, role: entry.role, content: entry.content, source: 'chat' }))
+  }
+  return c.json({ conversation, messages }, 201)
+})
+
+assistantRoutes.post('/conversations/:id/tags', async (c) => {  const s = store(c)
   const id = requiredId(c.req.param('id'))
   if (!(await s.getConversation(id))) throw ApiError.notFound('Conversation not found')
   const body = await readJson<{ tagId?: unknown }>(c, JSON_BODY_LIMITS.small)
@@ -1555,6 +1674,15 @@ async function unstartableTurn(
  * The reader's own disconnect is the abort signal: when the write fails the generator stops, so a
  * closed tab does not keep spending the account's AI budget on an answer nobody is reading.
  */
+/**
+ * One page of a reader-owned PDF, indexed for the knowledge base.
+ *
+ * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the
+ * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,
+ * so a dense page does not turn into an unbounded number of embedding calls.
+ */
+
+
 assistantRoutes.post('/chat', async (c) => {
   const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
@@ -1848,8 +1976,12 @@ function optionalRunToken(value: unknown): number | undefined {
 assistantRoutes.post('/actions/:id/approve', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
+  const body = await readJson<{ always?: unknown, args?: unknown }>(c, JSON_BODY_LIMITS.small).catch(() => ({}) as { always?: unknown, args?: unknown })
   const stored = await s.getPendingAction(id)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
+  const override = body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+    ? body.args as Record<string, unknown>
+    : undefined
   const conversation = await s.getConversation(stored.conversationId)
   if (!conversation) throw ApiError.notFound('This conversation no longer exists.')
   const settings = await s.getSettings()
@@ -1858,13 +1990,26 @@ assistantRoutes.post('/actions/:id/approve', async (c) => {
   const generated: string[] = []
   // The thread's project, re-read rather than remembered: an approved memory write must land in the
   // same scope the proposal was made in, and a thread moved between projects since then has moved.
-  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id)
+  const outcome = await runApprovedAction(s, await approvalContext(c, s, settings, generated, conversation.projectId ?? null), id, override)
   if (outcome.action) {
     const located = await s.messageForAction(id)
     if (located) {
       await s.attachActionToMessage(located.messageId, located.toolId, outcome.action, outcome.result)
       if (generated.length) await s.appendMessageAttachments(located.messageId, generated)
     }
+  }
+  // "Always allow this tool" is remembered as a grant for this one name. It cannot widen the account's
+  // class policy or an Agent's switch — those are checked before it — and it is stored in settings so a
+  // later tab asks once rather than on every call.
+  if (body.always === true) {
+    const spec = ASSISTANT_TOOL_BY_NAME.get(stored.tool)
+    if (spec?.permission === 'destructive') {
+      throw ApiError.badRequest('A destructive tool cannot be allowed for every future call.')
+    }
+    await s.saveSettings({
+      ...settings,
+      toolGrants: { ...settings.toolGrants, [stored.tool]: 'auto' },
+    })
   }
   return c.json(outcome)
 })
@@ -2086,29 +2231,155 @@ async function projectNoteIds(s: AssistantStore, value: unknown): Promise<string
   return ids
 }
 
+/** Folder ids an Agent may read or exclude. Shape only; the scope resolver owns ownership. */
+function projectFolderIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
+}
+
+/**
+ * The built-in tools an Agent may use.
+ *
+ * Unknown names are refused rather than dropped: a name that is not in this build's catalog is either a
+ * typo or a tool that was removed, and either way a silently shortened list would read as an Agent that
+ * can do less than its editor shows.
+ */
+function projectTools(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const names: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !ASSISTANT_TOOL_BY_NAME.has(entry)) {
+      throw ApiError.badRequest('An Agent can only name built-in tools this build knows.')
+    }
+    if (!names.includes(entry)) names.push(entry)
+  }
+  return names
+}
+
+function projectToolOverrides(value: unknown): Record<string, AssistantToolMode> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(value as Record<string, unknown>)) {
+    if (!ASSISTANT_TOOL_BY_NAME.has(name)) throw ApiError.badRequest(`Unknown tool override: ${name}`)
+    if (typeof mode !== 'string' || !ASSISTANT_TOOL_MODES.includes(mode as AssistantToolMode)) {
+      throw ApiError.badRequest(`Unknown approval mode for ${name}.`)
+    }
+    out[name] = mode as AssistantToolMode
+  }
+  return out
+}
+
+async function projectSkillIds(s: AssistantStore, value: unknown): Promise<string[]> {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const entry of value) {
+    if (!isValidId(entry) || !(await s.getSkill(entry))) {
+      throw ApiError.badRequest('That Agent names a skill you do not have.')
+    }
+    if (!ids.includes(entry)) ids.push(entry)
+  }
+  return ids
+}
+
+function projectIcon(value: unknown): string {
+  const text = optionalText(value, 4096)
+  if (!text) return ''
+  return parseAssistantIcon(text) ?? ''
+}
+
+function projectGroup(value: unknown): string {
+  return optionalText(value, 60) ?? ''
+}
+
+/** The base ids an Agent answers from. Refused rather than dropped when one is not this account's. */
+async function projectKnowledgeBaseIds(s: AssistantStore, value: unknown): Promise<string[]> {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const entry of value) {
+    if (ids.length >= 12) throw ApiError.badRequest('An Agent can link at most 12 knowledge bases.')
+    if (!isValidId(entry) || !(await s.getKnowledgeBase(entry))) {
+      throw ApiError.badRequest('That Agent links a knowledge base you do not have.')
+    }
+    if (!ids.includes(entry)) ids.push(entry)
+  }
+  return ids
+}
+
+function boundedProjectNumber(value: unknown, min: number, max: number): number | null {
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw ApiError.badRequest('That setting must be a number.')
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * The assistant's own knobs, validated as one object.
+ *
+ * Every field is optional in the request so the model/settings panels can save only what they own; the
+ * store merges the named ones over the row's current document.
+ */
+function projectAssistantSettings(body: Record<string, unknown>): Partial<Project> {
+  const out: Partial<Project> = {}
+  if (body.temperature !== undefined) out.temperature = boundedProjectNumber(body.temperature, 0, 1.5)
+  if (body.topP !== undefined) out.topP = boundedProjectNumber(body.topP, 0, 1)
+  if (body.maxOutputTokens !== undefined) out.maxOutputTokens = boundedProjectNumber(body.maxOutputTokens, 64, 200_000)
+  if (body.stream !== undefined) out.stream = body.stream !== false
+  if (body.maxToolRounds !== undefined) out.maxToolRounds = boundedProjectNumber(body.maxToolRounds, 1, 50)
+  if (body.keepRecentMessages !== undefined) out.keepRecentMessages = boundedProjectNumber(body.keepRecentMessages, 1, 200)
+  if (body.contextCustom !== undefined) out.contextCustom = body.contextCustom === true
+  if (body.autoCompactMode !== undefined) {
+    if (!['off', 'absolute', 'ratio'].includes(String(body.autoCompactMode))) throw ApiError.badRequest('Unknown compaction mode.')
+    out.autoCompactMode = body.autoCompactMode as Project['autoCompactMode']
+  }
+  if (body.autoCompactTokens !== undefined) out.autoCompactTokens = boundedProjectNumber(body.autoCompactTokens, 10_000, 2_000_000) ?? 100_000
+  if (body.autoCompactRatio !== undefined) out.autoCompactRatio = boundedProjectNumber(body.autoCompactRatio, 0.3, 0.95) ?? 0.8
+  if (body.customParams !== undefined) out.customParams = parseCustomParams(body.customParams).slice(0, MAX_CUSTOM_PARAMS)
+  if (body.mcpMode !== undefined) {
+    if (!PROJECT_MCP_MODES.includes(body.mcpMode as ProjectMcpMode)) throw ApiError.badRequest('Unknown MCP mode.')
+    out.mcpMode = body.mcpMode as ProjectMcpMode
+  }
+  if (body.mcpServerIds !== undefined) {
+    if (!Array.isArray(body.mcpServerIds)) throw ApiError.badRequest('MCP servers are named by id.')
+    out.mcpServerIds = body.mcpServerIds
+      .filter((id): id is string => typeof id === 'string' && isValidId(id))
+      .slice(0, 40)
+  }
+  return out
+}
+
 assistantRoutes.post('/projects', async (c) => {
   const s = store(c)
-  const body = await readJson<{
-    name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown,
-  }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   const name = text(body.name, 200)
   const noteIds = await projectNoteIds(s, body.noteIds)
+  const skillIds = await projectSkillIds(s, body.skillIds)
+  const knowledgeBaseIds = await projectKnowledgeBaseIds(s, body.knowledgeBaseIds)
   const existing = await s.findProjectByName(name)
   if (existing) return c.json({ project: existing })
   const project = await s.createProject({
     name,
     description: optionalText(body.description, 2000) ?? '',
+    icon: projectIcon(body.icon),
     // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
     instructions: optionalText(body.instructions, MAX_MESSAGE_CHARS) ?? '',
-    noteScope: Array.isArray(body.noteScope)
-      ? body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12)
-      : [],
+    noteScope: projectFolderIds(body.noteScope),
+    excludeScope: projectFolderIds(body.excludeScope),
     noteIds,
     modelId: body.modelId === null
       ? null
       : typeof body.modelId === 'string' && isValidId(body.modelId)
         ? body.modelId
         : null,
+    tools: projectTools(body.tools),
+    toolsLimited: body.toolsLimited === true,
+    toolOverrides: projectToolOverrides(body.toolOverrides),
+    skillIds,
+    group: projectGroup(body.group),
+    ...projectAssistantSettings(body),
+    knowledgeBaseIds,
+    focusSync: body.focusSync !== false,
+    timeAware: body.timeAware !== false,
+    readProjectInstructions: body.readProjectInstructions === true,
+    position: typeof body.position === 'number' && Number.isFinite(body.position) ? body.position : 0,
   })
   return c.json({ project }, 201)
 })
@@ -2116,21 +2387,36 @@ assistantRoutes.post('/projects', async (c) => {
 assistantRoutes.patch('/projects/:id', async (c) => {
   const s = store(c)
   const id = requiredId(c.req.param('id'))
-  const body = await readJson<{ name?: unknown, description?: unknown, instructions?: unknown, noteScope?: unknown, noteIds?: unknown, modelId?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
   // Checked before anything is written, so a list naming one page the account does not have leaves the row
   // exactly as it was rather than half-saved.
   const noteIds = body.noteIds !== undefined ? await projectNoteIds(s, body.noteIds) : undefined
+  const skillIds = body.skillIds !== undefined ? await projectSkillIds(s, body.skillIds) : undefined
+  const knowledgeBaseIds = body.knowledgeBaseIds !== undefined ? await projectKnowledgeBaseIds(s, body.knowledgeBaseIds) : undefined
   const project = await s.updateProject(id, {
     ...(body.name !== undefined ? { name: text(body.name, 200) } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, 2000) ?? '' } : {}),
+    ...(body.icon !== undefined ? { icon: projectIcon(body.icon) } : {}),
     // A standing brief is read every turn in the project, so it gets the same ceiling as a message.
     ...(body.instructions !== undefined ? { instructions: optionalTextAllowEmpty(body.instructions, MAX_MESSAGE_CHARS) } : {}),
-    ...(Array.isArray(body.noteScope)
-      ? { noteScope: body.noteScope.filter((id): id is string => typeof id === 'string' && isValidId(id)).slice(0, 12) }
-      : {}),
+    ...(body.noteScope !== undefined ? { noteScope: projectFolderIds(body.noteScope) } : {}),
+    ...(body.excludeScope !== undefined ? { excludeScope: projectFolderIds(body.excludeScope) } : {}),
     ...(noteIds !== undefined ? { noteIds } : {}),
     ...(body.modelId !== undefined
       ? { modelId: body.modelId === null ? null : isValidId(body.modelId) ? body.modelId : undefined }
+      : {}),
+    ...(body.tools !== undefined ? { tools: projectTools(body.tools) } : {}),
+    ...(body.toolsLimited !== undefined ? { toolsLimited: body.toolsLimited === true } : {}),
+    ...(body.toolOverrides !== undefined ? { toolOverrides: projectToolOverrides(body.toolOverrides) } : {}),
+    ...(skillIds !== undefined ? { skillIds } : {}),
+    ...(body.group !== undefined ? { group: projectGroup(body.group) } : {}),
+    ...projectAssistantSettings(body),
+    ...(knowledgeBaseIds !== undefined ? { knowledgeBaseIds } : {}),
+    ...(body.focusSync !== undefined ? { focusSync: body.focusSync !== false } : {}),
+    ...(body.timeAware !== undefined ? { timeAware: body.timeAware !== false } : {}),
+    ...(body.readProjectInstructions !== undefined ? { readProjectInstructions: body.readProjectInstructions === true } : {}),
+    ...(body.position !== undefined && typeof body.position === 'number' && Number.isFinite(body.position)
+      ? { position: body.position }
       : {}),
   })
   if (!project) throw ApiError.notFound('Project not found')
@@ -2143,6 +2429,200 @@ assistantRoutes.delete('/projects/:id', async (c) => {
   if (!(await s.getProject(id))) throw ApiError.notFound('Project not found')
   await s.deleteProject(id)
   return c.json({ deleted: true })
+})
+
+// ----------------------------------------------------------- knowledge bases
+
+const MAX_KNOWLEDGE_BASES = 40
+const MAX_KNOWLEDGE_NAME_CHARS = 120
+const MAX_KNOWLEDGE_DESCRIPTION_CHARS = 2_000
+
+/**
+ * One page of a reader-owned PDF, indexed for the knowledge base.
+ *
+ * The worker cannot read a PDF, so the browser extracts the page and sends its words. Ownership is the
+ * reader's own `reader_books` row; deleting the book deletes these chunks with it. Four chunks at most,
+ * so a dense page does not turn into an unbounded number of embedding calls.
+ */
+assistantRoutes.get('/knowledge-bases', async (c) => c.json({ knowledgeBases: await store(c).listKnowledgeBases() }))
+
+assistantRoutes.post('/knowledge-bases', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const name = text(body.name, MAX_KNOWLEDGE_NAME_CHARS)
+  const existing = await s.findKnowledgeBaseByName(name)
+  if (existing) return c.json({ knowledgeBase: existing })
+  if ((await s.listKnowledgeBases()).length >= MAX_KNOWLEDGE_BASES) {
+    throw ApiError.badRequest(`An account can keep at most ${MAX_KNOWLEDGE_BASES} knowledge bases.`)
+  }
+  const knowledgeBase = await s.createKnowledgeBase({
+    name,
+    description: optionalText(body.description, MAX_KNOWLEDGE_DESCRIPTION_CHARS) ?? '',
+    includeScope: projectFolderIds(body.includeScope),
+    excludeScope: projectFolderIds(body.excludeScope),
+  })
+  return c.json({ knowledgeBase }, 201)
+})
+
+assistantRoutes.patch('/knowledge-bases/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const knowledgeBase = await s.updateKnowledgeBase(id, {
+    ...(body.name !== undefined ? { name: text(body.name, MAX_KNOWLEDGE_NAME_CHARS) } : {}),
+    ...(body.description !== undefined ? { description: optionalTextAllowEmpty(body.description, MAX_KNOWLEDGE_DESCRIPTION_CHARS) } : {}),
+    ...(body.includeScope !== undefined ? { includeScope: projectFolderIds(body.includeScope) } : {}),
+    ...(body.excludeScope !== undefined ? { excludeScope: projectFolderIds(body.excludeScope) } : {}),
+  })
+  if (!knowledgeBase) throw ApiError.notFound('Knowledge base not found')
+  return c.json({ knowledgeBase })
+})
+
+assistantRoutes.delete('/knowledge-bases/:id', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  if (!(await s.getKnowledgeBase(id))) throw ApiError.notFound('Knowledge base not found')
+  await s.deleteKnowledgeBase(id)
+  return c.json({ deleted: true })
+})
+
+/**
+ * Notes whose meaning is close to one the reader has open.
+ *
+ * The index is the account's own and always has been; this route only asks it for neighbours and drops
+ * the note itself. A deployment without Workers AI, or one whose reader switched the index off, answers
+ * `unavailable` rather than an empty list, because those are different facts.
+ */
+assistantRoutes.get('/similar-notes', async (c) => {
+  const s = store(c)
+  const noteId = requiredId(c.req.query('noteId') ?? '')
+  const note = await loadMcpNote(c.env.DB, s.userId, noteId)
+  const settings = await s.getSettings()
+  const hits = await searchSemanticNotes(c.env, c.env.DB, s.userId, `${note.title}\n${note.content}`.slice(0, 4_000), {}, settings.semanticScoreFloor, settings.semanticTopK)
+  if (!hits) return c.json({ status: 'unavailable' as const, hits: [] })
+  return c.json({
+    status: 'ok' as const,
+    hits: hits.filter((hit) => hit.id !== noteId).slice(0, 8).map((hit) => ({
+      id: hit.id,
+      title: hit.title,
+      excerpt: hit.excerpt.slice(0, 240),
+      score: hit.score,
+    })),
+  })
+})
+
+/**
+ * One short, tool-less call: Tab completion today, and the same contract for any other low-latency
+ * editor aid. The caller names the prompt; the server keeps the model, key, budget and deadline.
+ */
+/**
+ * Compact a thread by hand: fold the turns it has into the running summary and keep going from there.
+ *
+ * The automatic path does the same thing when the window overflows; this one is the reader asking for it
+ * before that happens. It needs a model and one request from the day's budget, and it refuses rather than
+ * inventing a summary when either is absent.
+ */
+assistantRoutes.post('/conversations/:id/compact', async (c) => {
+  const s = store(c)
+  const id = requiredId(c.req.param('id'))
+  const conversation = await s.getConversation(id)
+  if (!conversation) throw ApiError.notFound('Conversation not found')
+  const messages = await s.messages(id, 80)
+  if (!messages.length) throw ApiError.badRequest('There is nothing to compact yet.')
+  const settings = await s.getSettings()
+  const transcript = messages
+    .map((message) => `${message.role === 'user' ? 'You' : 'Assistant'}: ${message.content.slice(0, 4_000)}`)
+    .join('\n\n')
+  try {
+    const answer = await runOneShot(s, settings, {
+      system: promptCatalog(settings.language).summarizer_system,
+      user: summarizerPrompt(settings.language, conversation.summary ?? null, transcript),
+      maxOutputTokens: 600,
+      temperature: 0,
+      timeoutMs: 30_000,
+      signal: c.req.raw.signal,
+    })
+    const summary = answer.text.trim().slice(0, 4_000)
+    if (!summary) throw new ApiError(502, 'internal', 'The model returned no summary.')
+    await s.setSummary(id, summary, messages[messages.length - 1]!.createdAt)
+    return c.json({ summary, upto: messages[messages.length - 1]!.createdAt })
+  } catch (error) {
+    if (error instanceof OneShotError) {
+      if (error.kind === 'no_model') throw ApiError.badRequest('No assistant model is configured.')
+      if (error.kind === 'quota') throw ApiError.conflict('The daily assistant request ceiling is spent.')
+      throw new ApiError(502, 'internal', 'The compaction call did not finish in time.')
+    }
+    throw error
+  }
+})
+
+assistantRoutes.post('/reader-index', async (c) => {
+  const body = await readJson<{ bookId?: unknown, pages?: unknown }>(c, JSON_BODY_LIMITS.settings)
+  const bookId = typeof body.bookId === 'string' ? body.bookId.trim().slice(0, 200) : ''
+  if (!bookId) throw ApiError.badRequest('A book id is required.')
+  const entries = Array.isArray(body.pages) ? body.pages.slice(0, 200) : []
+  const s = store(c)
+  const title = await s.readerBookTitle(bookId)
+  if (title === null) throw ApiError.notFound('Book not found')
+  if (!c.env.AI) throw new ApiError(503, 'internal', 'The embedding model is not configured.')
+  const settings = await s.getSettings()
+  const pages: Array<{ page: number, texts: string[] }> = []
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const row = entry as Record<string, unknown>
+    const page = typeof row.page === 'number' ? Math.trunc(row.page) : 0
+    const text = typeof row.text === 'string' ? row.text.trim().slice(0, 8_000) : ''
+    if (page < 1 || page > 10_000 || !text) continue
+    const texts = chunkPageText(text, settings.kbChunkChars)
+    if (texts.length) pages.push({ page, texts })
+  }
+  if (!pages.length) throw ApiError.badRequest('There is no page text to index.')
+  const vectors = await embedTextsPooled(c.env.AI, pages.flatMap((entry) => entry.texts), settings.kbChunkConcurrency)
+  let offset = 0
+  let written = 0
+  const prepared = pages.map((entry) => {
+    const chunks = entry.texts.map((text) => {
+      const vector = vectors[offset++]!
+      return { text, vector: encodeVector(vector), norm: vectorNorm(vector) }
+    })
+    return { page: entry.page, chunks }
+  })
+  written = await s.replaceReaderPages(bookId, title, prepared)
+  return c.json({ indexed: written, pages: prepared.length })
+})
+
+assistantRoutes.post('/one-shot', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const user = typeof body.user === 'string' ? body.user.slice(0, 20_000) : ''
+  if (!user.trim()) throw ApiError.badRequest('A one-shot call needs text.')
+  const system = typeof body.system === 'string' ? body.system.slice(0, 4_000) : ''
+  const modelId = typeof body.modelId === 'string' && isValidId(body.modelId) ? body.modelId : undefined
+  const maxOutputTokens = typeof body.maxOutputTokens === 'number'
+    ? Math.max(1, Math.min(400, Math.trunc(body.maxOutputTokens)))
+    : 160
+  const timeoutMs = typeof body.timeoutMs === 'number'
+    ? Math.max(1_000, Math.min(60_000, Math.trunc(body.timeoutMs)))
+    : 15_000
+  try {
+    const answer = await runOneShot(s, await s.getSettings(), {
+      system,
+      user,
+      ...(modelId ? { modelId } : {}),
+      maxOutputTokens,
+      temperature: 0.2,
+      timeoutMs,
+      signal: c.req.raw.signal,
+    })
+    return c.json({ text: answer.text })
+  } catch (error) {
+    if (error instanceof OneShotError) {
+      if (error.kind === 'no_model') throw ApiError.badRequest('No assistant model is configured.')
+      if (error.kind === 'quota') throw ApiError.conflict('The daily assistant request ceiling is spent.')
+      throw new ApiError(502, 'internal', 'The one-shot call did not finish in time.')
+    }
+    throw error
+  }
 })
 
 // --------------------------------------------------------------- automations
@@ -2566,7 +3046,8 @@ assistantRoutes.delete('/files/:id', async (c) => {
 assistantRoutes.get('/skills', async (c) => {
   const query = c.req.query('q')?.trim().slice(0, 200)
   const group = c.req.query('group')?.trim().slice(0, 60)
-  const skills = await store(c).listSkills({
+  const s = store(c)
+  const skills = await s.listSkills({
     ...(query ? { query } : {}),
     ...(group ? { group } : {}),
     limit: Math.min(500, Math.max(1, Number(c.req.query('limit')) || 200)),
@@ -2609,6 +3090,10 @@ assistantRoutes.post('/skills', async (c) => {
     tools: pinnedTools(body.tools),
     scopes: pinnedScopes(body.scopes),
     modelId: body.modelId === undefined ? null : await pinnedModel(s, body.modelId),
+    kind: body.kind === 'skill' ? 'skill' : 'prompt',
+    description: optionalSkillText(body.description, 500),
+    loadMode: body.loadMode === 'on_demand' ? 'on_demand' : 'full',
+    enabled: body.enabled !== false,
   })
   return c.json({ skill }, 201)
 })
@@ -2627,6 +3112,10 @@ assistantRoutes.patch('/skills/:id', async (c) => {
     ...(body.tools !== undefined ? { tools: pinnedTools(body.tools) } : {}),
     ...(body.scopes !== undefined ? { scopes: pinnedScopes(body.scopes) } : {}),
     ...(body.modelId !== undefined ? { modelId: await pinnedModel(s, body.modelId) } : {}),
+    ...(body.kind !== undefined ? { kind: body.kind === 'skill' ? 'skill' as const : 'prompt' as const } : {}),
+    ...(body.description !== undefined ? { description: optionalSkillText(body.description, 500) } : {}),
+    ...(body.loadMode !== undefined ? { loadMode: body.loadMode === 'on_demand' ? 'on_demand' as const : 'full' as const } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
   })
   if (!updated) throw ApiError.notFound('Skill not found')
   return c.json({ skill: updated })
@@ -2635,6 +3124,50 @@ assistantRoutes.patch('/skills/:id', async (c) => {
 assistantRoutes.delete('/skills/:id', async (c) => {
   const removed = await store(c).deleteSkill(requiredId(c.req.param('id')))
   return c.json({ deleted: removed })
+})
+
+function cursorExecution(value: unknown): (typeof CURSOR_COMMAND_EXECUTIONS)[number] {
+  if (typeof value !== 'string' || !(CURSOR_COMMAND_EXECUTIONS as readonly string[]).includes(value)) {
+    throw ApiError.badRequest('Unknown execution mode.')
+  }
+  return value as (typeof CURSOR_COMMAND_EXECUTIONS)[number]
+}
+
+assistantRoutes.get('/cursor-commands', async (c) => c.json({ commands: await store(c).listCursorCommands() }))
+
+assistantRoutes.post('/cursor-commands', async (c) => {
+  const s = store(c)
+  if ((await s.listCursorCommands()).length >= MAX_CURSOR_COMMANDS) throw ApiError.badRequest('There are too many custom commands.')
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const label = text(body.label, MAX_CURSOR_COMMAND_LABEL_CHARS)
+  const instruction = text(body.instruction, MAX_CURSOR_COMMAND_INSTRUCTION_CHARS)
+  if (!label || !instruction) throw ApiError.badRequest('A command needs a name and an instruction.')
+  const command = await s.createCursorCommand({
+    label,
+    instruction,
+    execution: body.execution === undefined ? 'quick-ask-ask' : cursorExecution(body.execution),
+    enabled: body.enabled !== false,
+  })
+  return c.json({ command }, 201)
+})
+
+assistantRoutes.patch('/cursor-commands/:id', async (c) => {
+  const s = store(c)
+  const body = await readJson<Record<string, unknown>>(c, JSON_BODY_LIMITS.settings)
+  const updated = await s.updateCursorCommand(requiredId(c.req.param('id')), {
+    ...(body.label !== undefined ? { label: text(body.label, MAX_CURSOR_COMMAND_LABEL_CHARS) } : {}),
+    ...(body.instruction !== undefined ? { instruction: text(body.instruction, MAX_CURSOR_COMMAND_INSTRUCTION_CHARS) } : {}),
+    ...(body.execution !== undefined ? { execution: cursorExecution(body.execution) } : {}),
+    ...(body.enabled !== undefined ? { enabled: body.enabled === true } : {}),
+  })
+  if (!updated) throw ApiError.notFound('Command not found')
+  return c.json({ command: updated })
+})
+
+assistantRoutes.delete('/cursor-commands/:id', async (c) => {
+  const removed = await store(c).deleteCursorCommand(requiredId(c.req.param('id')))
+  if (!removed) throw ApiError.notFound('Command not found')
+  return c.json({ deleted: true })
 })
 
 /**
@@ -2695,10 +3228,104 @@ assistantRoutes.post('/skills/import', async (c) => {
       tools: pinnedTools(record.tools),
       scopes: pinnedScopes(record.scopes),
       modelId: await importableModel(s, record.modelId),
+      kind: record.kind === 'skill' ? 'skill' : 'prompt',
+      description: optionalSkillText(record.description, 500),
+      loadMode: record.loadMode === 'on_demand' ? 'on_demand' : 'full',
+      enabled: record.enabled !== false,
+      source: record.source === 'github' ? 'github' : 'user',
     })
     imported++
   }
   return c.json({ imported, skipped })
+})
+
+/**
+ * A Skill written as `SKILL.md` in a public repository.
+ *
+ * Only two hosts are reachable, and a blob address is rewritten to its raw form before the request: the
+ * worker never fetches an address a file named, only one this route assembled from a repository, branch
+ * and path. Redirects are followed one hop and re-checked, so a redirect cannot carry the fetch off the
+ * allowlist. Nothing from the response is executed; it is text with an optional front matter block.
+ */
+async function fetchGithubSkill(rawUrl: string): Promise<{ title: string, description: string, content: string }> {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw ApiError.badRequest('That is not a URL.')
+  }
+  if (url.protocol !== 'https:') throw ApiError.badRequest('Only https addresses are accepted.')
+  if (url.hostname === 'github.com') {
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/)
+    if (!match) throw ApiError.badRequest('Use a link to a SKILL.md file, not a repository page.')
+    url = new URL(`https://raw.githubusercontent.com/${match[1]}/${match[2]}/${match[3]}/${match[4]}`)
+  }
+  if (url.hostname !== 'raw.githubusercontent.com') throw ApiError.badRequest('Only github.com and raw.githubusercontent.com are accepted.')
+  if (!/\.(md|markdown)$/i.test(url.pathname)) throw ApiError.badRequest('That file is not a Markdown skill.')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8_000)
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'manual', headers: { accept: 'text/plain' } })
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      let target: URL | null = null
+      try { target = location ? new URL(location) : null } catch { target = null }
+      if (!target || target.protocol !== 'https:' || target.hostname !== 'raw.githubusercontent.com') {
+        throw ApiError.badRequest('The download redirected somewhere this import does not follow.')
+      }
+      const followed = await fetch(target, { signal: controller.signal, redirect: 'error', headers: { accept: 'text/plain' } })
+      if (!followed.ok) throw ApiError.badRequest(`GitHub answered ${followed.status}.`)
+      return parseSkillMarkdown(await readTextWithin(followed, 256 * 1024))
+    }
+    if (!response.ok) throw ApiError.badRequest(`GitHub answered ${response.status}.`)
+    return parseSkillMarkdown(await readTextWithin(response, 256 * 1024))
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw ApiError.badRequest(error instanceof Error && error.name === 'AbortError' ? 'GitHub took too long to answer.' : 'The skill could not be downloaded.')
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function readTextWithin(response: Response, maxBytes: number): Promise<string> {
+  const text = await response.text()
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw ApiError.badRequest('That skill is too large.')
+  return text
+}
+
+/** One `---` block at the top, then the body. Anything unreadable is simply not front matter. */
+export function parseSkillMarkdown(source: string): { title: string, description: string, content: string } {
+  const text = source.replace(/^\uFEFF/, '')
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!match) return { title: '', description: '', content: text.trim() }
+  const fields: Record<string, string> = {}
+  for (const line of (match[1] ?? '').split(/\r?\n/)) {
+    const field = line.match(/^([A-Za-z_-]+)\s*:\s*(.*)$/)
+    if (field) fields[field[1]!.toLocaleLowerCase()] = field[2]!.replace(/^["']|["']$/g, '').trim()
+  }
+  return {
+    title: (fields.name || fields.title || '').slice(0, MAX_SKILL_TITLE_CHARS),
+    description: (fields.description || '').slice(0, 500),
+    content: (match[2] ?? '').trim(),
+  }
+}
+
+assistantRoutes.post('/skills/github', async (c) => {
+  const body = await readJson<{ url?: unknown }>(c, JSON_BODY_LIMITS.small)
+  const url = text(typeof body.url === 'string' ? body.url : '', 2_000)
+  if (!url) throw ApiError.badRequest('Paste the address of a SKILL.md file.')
+  const fetched = await fetchGithubSkill(url)
+  const title = fetched.title || fetched.content.split('\n')[0]?.replace(/^#+\s*/, '').slice(0, MAX_SKILL_TITLE_CHARS) || 'Imported skill'
+  if (!fetched.content) throw ApiError.badRequest('That file has no instructions in it.')
+  const skill = await store(c).insertSkill({
+    title,
+    content: fetched.content,
+    description: fetched.description,
+    kind: 'skill',
+    loadMode: 'on_demand',
+    source: 'github',
+  })
+  return c.json({ skill }, 201)
 })
 
 // ------------------------------------------------------------------- semantic
@@ -3715,8 +4342,38 @@ assistantRoutes.get('/export', async (c) => {
   return new Response(text, { headers })
 })
 
-assistantRoutes.post('/import', async (c) => {
+/**
+ * Configuration without data: settings, providers, models, Skills and Agents.
+ *
+ * Provider keys are absent by construction, so this is the file a reader can move between accounts or
+ * paste into a bug report without leaking the right to spend their balance. The restore says how many
+ * rows it merged and how many it left alone because the account already had them.
+ */
+assistantRoutes.get('/config/export', async (c) => {
+  const payload = await exportAssistantConfig(store(c))
+  const text = JSON.stringify(payload, null, 2)
+  return new Response(text, {
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': 'attachment; filename="inkstone-assistant-config.json"',
+    },
+  })
+})
+
+assistantRoutes.post('/config/import', async (c) => {
   const s = store(c)
+  const raw = await readJson<Record<string, unknown>>(c, MAX_BACKUP_BYTES)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw ApiError.badRequest('The config is not a JSON object.')
+  try {
+    const imported = await importAssistantConfig(s, raw)
+    await s.recordActivity('data.imported', `config imported (${imported.providers} provider(s), ${imported.projects} agent(s))`)
+    return c.json({ imported })
+  } catch (error) {
+    throw ApiError.badRequest(error instanceof Error ? error.message : 'That config could not be imported.')
+  }
+})
+
+assistantRoutes.post('/import', async (c) => {  const s = store(c)
   // A backup is a file the reader picked, so it is read under the same byte ceiling as the other
   // whole-store imports rather than handed to `req.json()` uncapped.
   let raw: Record<string, unknown>

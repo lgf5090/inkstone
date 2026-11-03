@@ -14,6 +14,8 @@ export interface NoteScope {
   /** True when the reader named folders or tags, so the note tools must filter. */
   restricted: boolean
   folderIds: Set<string>
+  /** Folders an Agent excluded; exclusion wins over inclusion, except for named notes. */
+  excludeFolderIds?: Set<string>
   /**
    * Tags pinned to one turn with `#`. A note has to carry at least one of them, which is how a reader
    * says "answer from my meeting notes" without moving files.
@@ -22,13 +24,20 @@ export interface NoteScope {
   /**
    * Notes this turn may read whatever the folder and tag scope say.
    *
-   * This is the note the reader had open when they asked. It is the one place a turn reaches past the
-   * standing scope, and it is deliberate: the reader pointing at a page and asking about it is a
-   * narrower act than the scope they set once, and answering "that folder is out of scope" to a
-   * question about the page in front of them would be correct and useless. It reaches a single named
-   * note, never a folder, and it is spent with the turn.
+   * This is the note the reader had open when they asked, and the chips they pinned by hand. Both are
+   * the same act — pointing at a page and asking about it — and both are an addition: naming a page does
+   * not narrow the vault, it reaches one page the folder scope might not include.
    */
   noteIds: Set<string>
+  /**
+   * The pages a project names as its own knowledge.
+   *
+   * Unlike a turn's named notes this *is* a restriction: a project that named one page and also read the
+   * rest of the vault would present itself as a knowledge base and behave as an open one. When the turn
+   * names no folder or tag, these ids are the whole readable set; beside a folder scope they are
+   * readable by identity in addition to it.
+   */
+  pinIds?: Set<string>
 }
 
 /**
@@ -65,21 +74,48 @@ export async function resolveNoteScope(
   db: D1Database,
   userId: string,
   scopeFolderIds: readonly string[],
-  extra: { folderIds?: readonly string[], tagIds?: readonly string[], noteIds?: readonly string[] } = {},
+  extra: { folderIds?: readonly string[], excludeFolderIds?: readonly string[], tagIds?: readonly string[], noteIds?: readonly string[], pinIds?: readonly string[] } = {},
 ): Promise<NoteScope> {
-  const wanted = [...new Set([...scopeFolderIds, ...(extra.folderIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))]
-  const tagIds = new Set([...(extra.tagIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
-  const noteIds = new Set([...(extra.noteIds ?? [])].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)))
-  if (!wanted.length) return { restricted: tagIds.size > 0 || noteIds.size > 0, folderIds: new Set(), tagIds, noteIds }
+  const shape = (id: string): boolean => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id)
+  const wanted = [...new Set([...scopeFolderIds, ...(extra.folderIds ?? [])].filter(shape))]
+  const excludedRoots = [...new Set([...(extra.excludeFolderIds ?? [])].filter(shape))]
+  const tagIds = new Set([...(extra.tagIds ?? [])].filter(shape))
+  const noteIds = new Set([...(extra.noteIds ?? [])].filter(shape))
+  const pinIds = new Set([...(extra.pinIds ?? [])].filter(shape))
+  const excluded = await expandFolderTree(db, userId, excludedRoots)
+  if (!wanted.length) {
+    return {
+      // A turn's named notes are an addition, so they never narrow the vault on their own. A project's
+      // named pages do: a project with pins and no folder scope reads its pages, not the account.
+      restricted: tagIds.size > 0 || excluded.size > 0 || pinIds.size > 0,
+      folderIds: new Set(),
+      excludeFolderIds: excluded,
+      tagIds,
+      noteIds,
+      pinIds,
+    }
+  }
+  const owned = await expandFolderTree(db, userId, wanted)
+  // Folders the reader no longer owns (deleted, or named by another account's backup) leave the set
+  // empty, which reads as "nothing is in scope" — not as "no scope was set", which would open the vault.
+  if (!owned.size) return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds, pinIds }
+  return { restricted: true, folderIds: owned, excludeFolderIds: excluded, tagIds, noteIds, pinIds }
+}
+
+/**
+ * A set of owned folders and everything under them.
+ *
+ * One walk for both the include and the exclude side, so a folder picked as "all of Research" means the
+ * same subtree whichever direction it is used in.
+ */
+async function expandFolderTree(db: D1Database, userId: string, roots: readonly string[]): Promise<Set<string>> {
   const owned = new Set<string>()
-  for (const id of wanted) {
+  for (const id of roots) {
     const row = await db.prepare(`SELECT id FROM folders WHERE user_id = ?1 AND id = ?2 AND deleted_at IS NULL`)
       .bind(userId, id).first<{ id: string }>()
     if (row) owned.add(row.id)
   }
-  // Folders the reader no longer owns (deleted, or named by another account's backup) leave the set
-  // empty, which reads as "nothing is in scope" — not as "no scope was set", which would open the vault.
-  if (!owned.size) return { restricted: true, folderIds: owned, tagIds, noteIds }
+  if (!owned.size) return owned
   const frontier = [...owned]
   for (let depth = 0; depth < 12 && frontier.length; depth++) {
     // One level of the walk at a time, and a wide level in chunks: D1 binds at most 100 parameters
@@ -99,7 +135,7 @@ export async function resolveNoteScope(
     frontier.length = 0
     frontier.push(...next)
   }
-  return { restricted: true, folderIds: owned, tagIds, noteIds }
+  return owned
 }
 
 /** The subset of these note ids the scope allows, in one query. */
@@ -112,18 +148,20 @@ export async function readableNoteIds(
   const ids = [...new Set(noteIds)].filter((id) => /^[0-9a-hjkmnp-tv-z]{26}$/.test(id))
   if (!ids.length) return new Set()
   if (!scope.restricted) return new Set(ids)
-  // The named notes are allowed by identity, so they are answered here rather than sent through the
-  // folder query — which is also what keeps this one query instead of two predicates to union.
-  const named = ids.filter((id) => scope.noteIds.has(id))
-  const asked = ids.filter((id) => !scope.noteIds.has(id))
+  // Named notes are allowed by identity, so they are answered here rather than sent through the folder
+  // query — which is also what keeps this one query instead of two predicates to union. That covers a
+  // turn's own additions and the pages a project named.
+  const named = ids.filter((id) => scope.noteIds.has(id) || scope.pinIds?.has(id))
+  const asked = ids.filter((id) => !scope.noteIds.has(id) && !scope.pinIds?.has(id))
   if (!asked.length) return new Set(named)
   const folders = [...scope.folderIds]
   const tags = [...scope.tagIds]
-  if (!folders.length && !tags.length) return new Set(named)
+  const excluded = [...(scope.excludeFolderIds ?? [])]
+  if (!folders.length && !tags.length && !excluded.length) return new Set(named)
   // The folder and tag predicates share the statement's bind budget with the asked ids, so the id
   // chunks shrink by whatever the scope named: D1 binds at most 100 parameters per statement, and a
   // search that hands back a hundred hits or more would otherwise fail the whole read.
-  const chunkSize = Math.max(1, ID_READ_BATCH - folders.length - tags.length)
+  const chunkSize = Math.max(1, ID_READ_BATCH - folders.length - tags.length - excluded.length)
   const allowed = new Set(named)
   for (const chunk of idChunks(asked, chunkSize)) {
     const binds: unknown[] = [userId, ...chunk]
@@ -142,6 +180,13 @@ export async function readableNoteIds(
         return `?${binds.length}`
       }).join(', ')
       where += ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = notes.id AND nt.tag_id IN (${tagPlaceholders}))`
+    }
+    if (excluded.length) {
+      const excludedPlaceholders = excluded.map((folder) => {
+        binds.push(folder)
+        return `?${binds.length}`
+      }).join(', ')
+      where += ` AND (folder_id IS NULL OR folder_id NOT IN (${excludedPlaceholders}))`
     }
     const { results } = await db.prepare(
       `SELECT id FROM notes WHERE ${where}`,

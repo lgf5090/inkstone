@@ -10,7 +10,7 @@ import { t } from '../../lib/i18n'
 import { api, ApiError, type SessionImportSummary } from '../../lib/api'
 import { downloadTextFile } from '../../lib/export-note'
 import { Button, IconButton, Spinner } from '../../components/primitives'
-import { SettingRow } from '../../components/form'
+import { SettingRow, Switch } from '../../components/form'
 import { confirm } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
@@ -305,10 +305,15 @@ export function SessionImportRow() {
 }
 
 export function DataTab() {
+  const settings = useAssistant((state) => state.settings)
+  const saveSettings = useAssistant((state) => state.saveSettings)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const configRef = useRef<HTMLInputElement>(null)
+  const [configFile, setConfigFile] = useState<File | null>(null)
+  const [configBusy, setConfigBusy] = useState(false)
 
   /**
    * The backup, downloaded by the page rather than followed as a link.
@@ -386,6 +391,83 @@ export function DataTab() {
           been costing, and the export and delete rows below are what they do about it. */}
       <UsagePanel />
 
+      <Group title={t('assistant.settings.config')}>
+        <SettingRow title={t('assistant.settings.config_export')} description={t('assistant.settings.config_export_hint')}>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={configBusy}
+            icon={<Download size={14} />}
+            onClick={() => {
+              setConfigBusy(true)
+              void api.assistant.exportAssistantConfig()
+                .then((payload) => downloadTextFile('inkstone-assistant-config.json', JSON.stringify(payload, null, 2), 'application/json'))
+                .catch((error: unknown) => {
+                  const detail = error instanceof ApiError ? error.serverMessage : undefined
+                  useUi.getState().toast({ title: t('assistant.toast.failed'), description: detail, tone: 'danger' })
+                })
+                .finally(() => setConfigBusy(false))
+            }}
+          >
+            {t('assistant.settings.config_export')}
+          </Button>
+        </SettingRow>
+        <SettingRow
+          title={t('assistant.settings.config_import')}
+          description={configFile ? configFile.name : t('assistant.settings.config_import_hint')}
+        >
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="secondary" onClick={() => configRef.current?.click()}>
+              {t('settings.select_file')}
+            </Button>
+            <Button
+              size="sm"
+              loading={configBusy}
+              icon={<Upload size={14} />}
+              disabled={!configFile}
+              onClick={() => {
+                if (!configFile) return
+                setConfigBusy(true)
+                void configFile.text()
+                  .then((text) => api.assistant.importAssistantConfig(JSON.parse(text) as unknown))
+                  .then(async ({ imported }) => {
+                    useUi.getState().toast({
+                      title: t('assistant.settings.config_imported', {
+                        providers: imported.providers,
+                        models: imported.models,
+                        skills: imported.skills,
+                        agents: imported.projects,
+                      }),
+                      description: t('assistant.settings.config_imported_hint', { skipped: imported.skipped }),
+                      tone: 'success',
+                      duration: 10_000,
+                    })
+                    await useAssistant.getState().bootstrap(true)
+                  })
+                  .catch((error: unknown) => {
+                    const detail = error instanceof ApiError ? error.serverMessage : error instanceof SyntaxError ? t('assistant.settings.import_bad_json') : undefined
+                    useUi.getState().toast({ title: t('assistant.toast.failed'), description: detail, tone: 'danger' })
+                  })
+                  .finally(() => { setConfigBusy(false); setConfigFile(null) })
+              }}
+            >
+              {t('assistant.settings.config_import')}
+            </Button>
+            <input
+              ref={configRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => {
+                const picked = event.target.files?.[0] ?? null
+                event.target.value = ''
+                setConfigFile(picked)
+              }}
+            />
+          </div>
+        </SettingRow>
+      </Group>
+
       <Group title={t('assistant.settings.data')}>
         <SettingRow title={t('assistant.settings.export')} description={t('assistant.settings.export_hint')}>
           <Button size="sm" variant="secondary" loading={exporting} icon={<Download size={14} />} onClick={() => void runExport()}>
@@ -423,6 +505,25 @@ export function DataTab() {
             block rather than a toast alone. */}
         <SessionImportRow />
       </Group>
+
+      {settings && (
+        <Group title={t('assistant.settings.export_options')}>
+          <SettingRow title={t('assistant.settings.export_reasoning')} description={t('assistant.settings.export_reasoning_hint')}>
+            <Switch
+              checked={settings.exportReasoning}
+              label={t('assistant.settings.export_reasoning')}
+              onChange={(exportReasoning) => void saveSettings({ exportReasoning })}
+            />
+          </SettingRow>
+          <SettingRow title={t('assistant.settings.export_tool_calls')} description={t('assistant.settings.export_tool_calls_hint')}>
+            <Switch
+              checked={settings.exportToolCalls}
+              label={t('assistant.settings.export_tool_calls')}
+              onChange={(exportToolCalls) => void saveSettings({ exportToolCalls })}
+            />
+          </SettingRow>
+        </Group>
+      )}
 
       <ChatFileSpace />
 

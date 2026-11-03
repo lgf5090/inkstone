@@ -45,8 +45,8 @@ export interface TriggerRow {
   hint?: string
   /** A destructive tool says so before the reader finds out from an approval card. */
   danger?: boolean
-  /** Which kind a `#` row is, so picking one does not have to guess from its words. */
-  kind?: 'tag' | 'folder'
+  /** Which kind a `#` or `@` row is, so picking one does not have to guess from its words. */
+  kind?: 'tag' | 'folder' | 'skill' | 'command' | 'agent' | 'model'
 }
 
 export const TOOL_TRIGGER_ROWS: TriggerRow[] = ASSISTANT_TOOL_SPECS.map((spec) => ({

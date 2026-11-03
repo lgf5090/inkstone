@@ -210,11 +210,17 @@ export function MarkdownBody({
     if (!seen) return
     const node = host.current
     if (!node) return
+    // The markup is repainted when the renderer's own inputs move — a locale arriving is the common one —
+    // and that replaces every node a draw was writing into. The pass above bumps the revision for that
+    // repaint, but a pass that only listened to `settled` was never asked again, which left a stored
+    // reply's diagram at "drawing…" for as long as the surface stayed open. Asking only once the text has
+    // settled keeps the repaint from turning into a redraw per token.
+    if (settled !== source) return
     const revision = revisionRef.current
     const isCurrent = () => revisionRef.current === revision && host.current === node
     if (mermaid) void renderPendingMermaid(node, { isCurrent })
     if (chart) void renderPendingCharts(node, dark)
-  }, [settled, dark, mermaid, chart])
+  }, [seen, settled, source, rendered, dark, mermaid, chart])
 
   useEffect(() => () => {
     revisionRef.current++

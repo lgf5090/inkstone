@@ -12,12 +12,14 @@
  * approval card is driven by the action's current status.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { AssistantErrorCard } from './AssistantErrorCard'
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CheckCheck,
   Copy,
   ExternalLink,
   FileText,
@@ -55,6 +57,7 @@ import { MarkdownBody } from '../preview/MarkdownBody'
 import { useAssistant } from './assistant-store'
 import { canSpeak, stopSpeaking } from './speech'
 import { useUi } from '../../store/ui'
+import { useNotes } from '../../store/notes'
 import { MessageAttachments } from './ChatAttachments'
 import { SourcePanel } from './SourcePanel'
 import { CHAT_NOTE_LINKS, openCitedNote } from './note-links'
@@ -125,6 +128,16 @@ export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], mess
   const [rows, setRows] = useState<Record<string, boolean>>({})
   const running = tools.some((tool) => tool.status === 'running')
   const expanded = open ?? running
+  const counts = tools.reduce<Record<string, number>>((total, tool) => {
+    const permission = ASSISTANT_TOOL_BY_NAME.get(tool.name)?.permission ?? 'read'
+    total[permission] = (total[permission] ?? 0) + 1
+    return total
+  }, {})
+  const summary = [
+    counts.read ? t('assistant.chat.tool_summary_read', { count: counts.read }) : '',
+    counts.write ? t('assistant.chat.tool_summary_write', { count: counts.write }) : '',
+    counts.destructive ? t('assistant.chat.tool_summary_destructive', { count: counts.destructive }) : '',
+  ].filter(Boolean).join(' · ')
   return (
     <div className="min-w-0 max-w-full" role="group" aria-label={t('assistant.chat.tools_group')}>
       <button
@@ -136,6 +149,7 @@ export function ToolCallList({ tools, messageId }: { tools: ToolActivity[], mess
         <Wrench size={11} className="shrink-0 text-[var(--text-quaternary)]" />
         <span className="min-w-0 truncate">{t('assistant.chat.tools_group')}</span>
         <span className="shrink-0 tabular-nums text-[var(--text-quaternary)]">{t('assistant.chat.tool_calls', { count: tools.length })}</span>
+        {summary && <span className="shrink-0 truncate text-[var(--text-quaternary)]">· {summary}</span>}
         <ChevronDown size={11} className={cn('shrink-0 transition-transform duration-[var(--dur-fast)]', expanded && 'rotate-180')} />
       </button>
       {expanded && (
@@ -211,6 +225,27 @@ function useToolLabel(name: string) {
  * third-party call also offers to run again: a reader looking at an answer built on a stale lookup has no
  * other way to ask whether it is still stale.
  */
+function todoProposal(tool: ToolActivity): { title: string, items: string[] } | null {
+  if (!tool.result || (tool.name !== 'decompose_task' && tool.name !== 'plan_today')) return null
+  try {
+    const parsed = JSON.parse(tool.result) as Record<string, unknown>
+    if (tool.name === 'decompose_task' && Array.isArray(parsed.steps)) {
+      const items = parsed.steps.filter((step): step is string => typeof step === 'string')
+      return items.length ? { title: t('assistant.chat.todo_proposal'), items } : null
+    }
+    if (tool.name === 'plan_today' && Array.isArray(parsed.suggestions)) {
+      const items = (parsed.suggestions as Array<Record<string, unknown>>)
+        .map((entry) => (typeof entry.title === 'string' ? entry.title : ''))
+        .filter(Boolean)
+      return items.length ? { title: t('assistant.chat.todo_proposal'), items } : null
+    }
+  } catch {
+    // A clipped or malformed result falls back to the raw fold below; the proposal is an extra view, not
+    // the only place the answer is kept.
+  }
+  return null
+}
+
 function ToolCallRow({ tool, messageId, open, onToggle }: {
   tool: ToolActivity
   messageId?: string
@@ -228,6 +263,7 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
   const [refused, setRefused] = useState<string | null>(null)
   const refs = useMemo(() => noteRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
   const taskRefs = useMemo(() => taskRefsFromToolResult(tool.name, tool.result), [tool.name, tool.result])
+  const proposal = useMemo(() => todoProposal(tool), [tool])
   const body = [
     tool.args ? { key: 'assistant.chat.tool_args' as const, text: tool.args } : null,
     tool.result ? { key: 'assistant.chat.tool_result' as const, text: tool.result } : null,
@@ -302,6 +338,16 @@ function ToolCallRow({ tool, messageId, open, onToggle }: {
       )}
       {open && (
         <div className="flex max-w-full min-w-0 flex-col gap-1.5 border-t border-[var(--border-subtle)] px-2 py-1.5">
+          {proposal && (
+            <ul aria-label={proposal.title} className="space-y-0.5 text-[length:var(--text-11-5)] text-[var(--text-secondary)]">
+              {proposal.items.map((item) => (
+                <li key={item} className="flex items-start gap-1.5"><SquareCheck size={11} className="mt-0.5 shrink-0 text-[var(--text-quaternary)]" aria-hidden />{item}</li>
+              ))}
+            </ul>
+          )}
+          {tool.pruned && (
+            <p className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_pruned')}</p>
+          )}
           {body.length === 0 && (
             <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.tool_no_data')}</p>
           )}
@@ -421,20 +467,120 @@ const OUTCOME_KEYS = {
   failed: 'assistant.approval.failed',
 } as const
 
+import { applyAcceptedHunks, buildWriteDiff, diffHunks, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
+import { api } from '../../lib/api'
+
+/**
+ * What an agent's note write would change, shown before the approval rather than after it.
+ *
+ * The write itself still happens through the ordinary approved-tool path; this preview is the reader's
+ * chance to see the words leaving and arriving first. A failed read leaves the card as it was.
+ */
+function ApprovalWritePreview({ action, onOverride }: { action: NonNullable<ToolActivity['approval']>, onOverride?: (args: Record<string, unknown> | null) => void }) {
+  const [state, setState] = useState<{ before: string, after: string } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [accepted, setAccepted] = useState<ReadonlySet<number>>(new Set())
+  // A write is held as the call itself, so the card has no resolved `targetId` (that lookup is the
+  // destructive path's). The note it would change is the one the call names.
+  const noteId = typeof action.args?.id === 'string' ? action.args.id : action.targetId
+  useEffect(() => {
+    if (action.tool !== 'update_note') return
+    const args = action.args ?? {}
+    const replacement = typeof args.content === 'string' ? args.content : null
+    const append = typeof args.append === 'string' ? args.append : null
+    if (replacement === null && append === null) return
+    let wanted = true
+    void api.notes.get(noteId)
+      .then((note) => {
+        if (!wanted) return
+        const next = {
+          before: note.content,
+          after: replacement !== null ? replacement : `${note.content}\n\n${append ?? ''}`,
+        }
+        setState(next)
+        setAccepted(new Set(diffHunks(next.before, next.after).map((_, index) => index)))
+      })
+      .catch(() => { if (wanted) setFailed(true) })
+    return () => { wanted = false }
+  }, [action, noteId])
+  const replacement = typeof action.args?.content === 'string' ? action.args.content : null
+  useEffect(() => {
+    if (!state || !onOverride || replacement === null) return
+    onOverride({ ...(action.args ?? {}), content: applyAcceptedHunks(state.before, state.after, accepted) })
+  }, [state, accepted, onOverride, action.args, replacement])
+  if (action.tool !== 'update_note') return null
+  if (failed) {
+    return <p className="mt-1.5 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.approval.diff_unreadable')}</p>
+  }
+  if (!state) return null
+  const diff = buildWriteDiff(state.before, state.after)
+  return (
+    <div className="mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-2">
+      <p className="text-[length:var(--text-11)] font-medium text-[var(--text-secondary)]">{t('assistant.approval.diff')}</p>
+      <p className="mt-0.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"><WriteDiffSummary diff={diff} /></p>
+      <div className="mt-1 max-h-52 overflow-y-auto">
+        {diff.changed
+          ? (
+            <WriteDiffView
+              diff={diff}
+              {...(replacement !== null && onOverride
+                ? {
+                    accepted,
+                    onToggle: (hunk: number) => setAccepted((current) => {
+                      const next = new Set(current)
+                      if (next.has(hunk)) next.delete(hunk)
+                      else next.add(hunk)
+                      return next
+                    }),
+                  }
+                : {})}
+            />
+          )
+          : <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">{t('assistant.edit.diff_none')}</p>}
+      </div>
+    </div>
+  )
+}
+
 export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
   const decide = useAssistant((state) => state.decideAction)
-  const [busy, setBusy] = useState<'approve' | 'cancel' | null>(null)
+  const [busy, setBusy] = useState<'approve' | 'always' | 'cancel' | null>(null)
+  const [override, setOverride] = useState<Record<string, unknown> | null>(null)
+  const [undoing, setUndoing] = useState(false)
   // A press that never landed. The store's own `decideAction` reports a refusal it can see — it toasts and
   // leaves the card pending — so this is not a second notice of the same fact: it is the half a toast
   // cannot leave behind, the words saying this card is still waiting because the request failed.
   const [failed, setFailed] = useState<string | null>(null)
   if (!action) return null
-  const settle = (approve: boolean) => {
-    setBusy(approve ? 'approve' : 'cancel')
+  const settle = (approve: boolean, always = false) => {
+    setBusy(always ? 'always' : approve ? 'approve' : 'cancel')
     setFailed(null)
-    void decide(action.id, approve)
+    void decide(action.id, approve, always, approve ? override ?? undefined : undefined)
       .catch((error: unknown) => setFailed(error instanceof Error ? error.message : String(error)))
       .finally(() => setBusy(null))
+  }
+  /**
+   * Takes an approved note write back out.
+   *
+   * The write went through the notebook's own store, so it filed a version first; restoring the newest
+   * one is the same undo the note's history panel offers, not a second copy kept by the chat.
+   */
+  const undoWrite = () => {
+    setUndoing(true)
+    // The write's own call names the note: a non-destructive approval keeps the call whole rather than a
+    // resolved target, so the id lives beside `content`, not in `targetId`.
+    const noteId = typeof action.args?.id === 'string' ? action.args.id : action.targetId
+    void api.notes.versions(noteId)
+      .then(async ({ versions }) => {
+        const latest = versions[0]
+        if (!latest) throw new Error(t('assistant.approval.undo_missing'))
+        const full = await api.notes.version(noteId, latest.id)
+        const restored = await useNotes.getState().restoreVersion(noteId, latest.id, full.content, full.title)
+        if (!restored) throw new Error(t('assistant.approval.undo_failed'))
+        useUi.getState().toast({ title: t('assistant.approval.undone'), tone: 'success' })
+      })
+      .catch((error: unknown) => useUi.getState().toast({ title: error instanceof Error ? error.message : t('assistant.approval.undo_failed'), tone: 'danger' }))
+      .finally(() => setUndoing(false))
   }
   const spec = action.tool ? ASSISTANT_TOOL_BY_NAME.get(action.tool) : undefined
   // A deletion has a sentence of its own, because what it would remove is the thing worth reading.
@@ -458,6 +604,11 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           {t(OUTCOME_KEYS[action.status] ?? OUTCOME_KEYS.expired)}
           {action.status === 'failed' && action.error ? `: ${action.error}` : ''}
         </span>
+        {action.status === 'approved' && action.tool === 'update_note' && (
+          <Button size="sm" variant="ghost" loading={undoing} onClick={undoWrite}>
+            {t('assistant.approval.undo_write')}
+          </Button>
+        )}
       </div>
     )
   }
@@ -479,6 +630,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
       {failed && (
         <p role="alert" className="mt-1.5 break-words text-[length:var(--text-11)] text-[var(--danger)]">{failed}</p>
       )}
+      <ApprovalWritePreview action={action} onOverride={setOverride} />
       <div className="mt-2 flex justify-end gap-1.5">
         <Button
           size="sm"
@@ -488,6 +640,18 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
         >
           {t('assistant.approval.decline')}
         </Button>
+        {spec?.permission !== 'destructive' && (
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<CheckCheck size={12} />}
+            loading={busy === 'always'}
+            disabled={busy !== null}
+            onClick={() => settle(true, true)}
+          >
+            {t('assistant.approval.always')}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="danger"
@@ -495,7 +659,7 @@ export function ApprovalCard({ action }: { action: ToolActivity['approval'] }) {
           disabled={busy !== null}
           onClick={() => settle(true)}
         >
-          {t('assistant.approval.approve')}
+          {t('assistant.approval.approve_once')}
         </Button>
       </div>
     </div>
@@ -571,7 +735,7 @@ export function answerStats(usage: { inputTokens: number, outputTokens: number }
  * alone took the name down with them, leaving the reader unable to say which model answered.
  */
 function AnswerFootline({ usage, durationMs, modelLabel }: {
-  usage?: { inputTokens: number, outputTokens: number } | null
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   durationMs: number
   modelLabel: string
 }) {
@@ -580,7 +744,7 @@ function AnswerFootline({ usage, durationMs, modelLabel }: {
   return (
     <span
       className="shrink-0 text-[length:var(--text-11)] text-[var(--text-quaternary)]"
-      {...(stats && usage ? { title: t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens }) } : {})}
+      {...(stats && usage ? { title: usage.cachedInputTokens ? t('assistant.chat.usage_cached', { input: usage.inputTokens, output: usage.outputTokens, cached: usage.cachedInputTokens }) : t('assistant.chat.usage', { input: usage.inputTokens, output: usage.outputTokens }) } : {})}
     >
       {stats}
       {modelLabel && (stats ? ` · ${modelLabel}` : modelLabel)}
@@ -829,6 +993,7 @@ export function AssistantBubble({
   reasoning,
   tools,
   error,
+  errorCode = null,
   streaming,
   cancelled,
   stage,
@@ -858,6 +1023,8 @@ export function AssistantBubble({
   reasoning: string
   tools: ToolActivity[]
   error: string | null
+  /** The worker's code for that error, so the card can name a cause instead of echoing the provider. */
+  errorCode?: string | null
   streaming: boolean
   cancelled?: boolean
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
@@ -1055,15 +1222,7 @@ export function AssistantBubble({
         {attachments.length > 0 && <MessageAttachments ids={attachments} index={fileIndex} />}
         {cancelled && <p className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.chat.stopped')}</p>}
         {error && (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_30%,transparent)] bg-[var(--danger-soft)] px-2.5 py-1.5 text-[length:var(--text-12)] text-[var(--danger)]">
-            <AlertTriangle size={13} className="shrink-0" />
-            <span className="min-w-0 flex-1">{error}</span>
-            {onRetry && (
-              <button type="button" onClick={onRetry} className="shrink-0 font-medium underline underline-offset-2">
-                {t(retryLabel)}
-              </button>
-            )}
-          </div>
+          <AssistantErrorCard error={error} code={errorCode} onRetry={onRetry} retryLabel={retryLabel} />
         )}
         {/* The history the pager could not read, said outside the hover row: a failure the reader has to
             hover into view is a failure they will only find by accident, and retry is the point. */}

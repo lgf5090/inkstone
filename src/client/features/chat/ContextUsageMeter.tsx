@@ -98,6 +98,7 @@ export function ContextUsageRing() {
   const hasMore = useAssistant((state) => state.messagesHasMore)
   const settings = useAssistant((state) => state.settings)
   const model = useAssistant((state) => state.models.find((entry) => entry.id === state.settings?.activeModelId) ?? null)
+  const breakdown = useAssistant((state) => state.turn?.contextBreakdown ?? null)
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const panelId = useId()
@@ -165,6 +166,16 @@ export function ContextUsageRing() {
               <p className="mt-1 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
                 {detail}
               </p>
+              {breakdown && (
+                <dl className="mt-2 space-y-1 border-t border-[var(--border-subtle)] pt-2" aria-label={t('assistant.context.breakdown')}>
+                  {(Object.entries(breakdown) as Array<[keyof typeof breakdown, number]>).map(([key, value]) => (
+                    <div key={key} className="flex items-center gap-2 text-[length:var(--text-11)]">
+                      <dt className="min-w-0 flex-1 text-[var(--text-tertiary)]">{t(`assistant.context.bucket.${key}` as 'assistant.context.bucket.system')}</dt>
+                      <dd className="shrink-0 tabular-nums text-[var(--text-secondary)]">{value.toLocaleString()}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               {/* Spoken as well as drawn, and kept in the same breath as the number: a warning only a press
                   could reach would be a warning most readers never get. */}
               {warning && (

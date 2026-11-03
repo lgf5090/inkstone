@@ -14,7 +14,7 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantArtifact, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, ChatStreamEvent, ToolActivity } from '@shared/assistant'
+import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, Project, ToolActivity } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -45,8 +45,8 @@ import { AutomationService } from './automations'
 import { resolveNoteScope, turnNoteIds, type NoteScope } from './note-scope'
 import { noteCitationsFromTool } from './note-citations'
 import { matchVaultFolders, noteTitleIfLive } from './vault'
-import { parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
-import { AbortError, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
+import { ALL_TOOLS, parametersSchema, ToolError, ToolExecutor, type ToolContext } from './tools'
+import { AbortError, fetchOnce, streamUpstream, UpstreamError, type ChatAudioPart, type ModelTurn, type ToolCallRecord, type ToolSchema, type UpstreamRequest, type UpstreamRetry, type UpstreamStopReason } from './upstream'
 import { webSearchSources } from './web-search'
 import { loadModelAndProvider, modelEndpoint, type ModelEndpoint } from './model-config'
 import { runOneShot, OneShotError } from './one-shot'
@@ -55,6 +55,14 @@ import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semanti
 
 /** Summarising costs a model call, so it only runs once enough history has piled up to be worth it. */
 export const SUMMARIZE_THRESHOLD = 8
+
+/**
+ * The longest Gemini tool signature kept on a stored call.
+ *
+ * The value is opaque and usually a few hundred characters; this bound exists so a provider that grows
+ * it cannot turn every chip in a long thread into an outsized row.
+ */
+const MAX_TOOL_SIGNATURE_CHARS = 8_000
 
 /**
  * The room a turn keeps in its prompt for what the prompt itself cannot know yet.
@@ -178,6 +186,10 @@ const MAX_FALLBACK_MODELS = 3
 const TOOL_CONCURRENCY = 4
 
 const MAX_RELEVANT_MEMORIES = 8
+/** How much of an Agent's saved skill text rides in the standing prompt. */
+const PROJECT_SKILLS_CHAR_CAP = 12_000
+/** How much of a root `AGENTS.md` / `CLAUDE.md` note rides in the standing prompt. */
+const PROJECT_INSTRUCTIONS_CHAR_CAP = 6_000
 const ALWAYS_INCLUDE_PREFERENCES = 4
 const VERDICT_RELATIONSHIPS = ['supersedes', 'refines', 'contradicts', 'complements', 'unrelated']
 
@@ -280,6 +292,12 @@ export interface TurnInput {
    * promise is about the whole thread.
    */
   ephemeral?: boolean
+  /** Where a conversation this turn creates came from; absent means the reader started it. */
+  origin?: AssistantConversationOrigin
+  /** A child turn: it may not ask the reader or delegate again, and its approval policy is read-only. */
+  subagent?: boolean
+  /** When present, only these tools exist for the turn. */
+  allowedTools?: readonly string[]
   retry?: boolean
   /**
    * Pick up the last answer where it stopped.
@@ -372,6 +390,10 @@ export class AssistantRunner {
   }
   /** The model named on this turn's request, or null when the account's own rules choose. */
   private turnModelId: string | null = null
+  /** This conversation's overrides; empty for a thread that has none, which is every old row. */
+  private conversationSettings: AssistantConversationSettings = {}
+  private turnAllowedTools: readonly string[] | null = null
+  private turnIsSubagent = false
   private webSearchRequested = false
   private webSearchNative = false
   /**
@@ -417,6 +439,8 @@ export class AssistantRunner {
   private signedKeyIds = new Map<string, string>()
   /** The answer this turn resumes, when the reader pressed "continue" on a cut-off reply. */
   private continueFrom: AssistantMessage | null = null
+  /** The caller's cancellation, kept so each attempt can combine it with its own timeout. */
+  private turnSignal: AbortSignal | null = null
   /** The note the reader had open when the thread began, recorded on the conversation it makes. */
   private originNoteId: string | null = null
   /** The lease this turn is running under: the caller's, or one this turn took for a new conversation. */
@@ -450,8 +474,11 @@ export class AssistantRunner {
 
   async *chat(input: TurnInput): AsyncGenerator<ChatStreamEvent> {
     const message = input.message.trim()
+    this.turnSignal = input.signal
     this.turnNoTools = input.noTools === true
     this.turnModelId = input.modelId ?? null
+    this.turnAllowedTools = input.allowedTools ?? null
+    this.turnIsSubagent = input.subagent === true
     // Read before the scope is resolved for the first time: `noteScope()` caches, so a scope pinned
     // for this turn has to be in place before anything asks for it.
     // A turn that may call nothing keeps no pins either: the prompt would otherwise promise the model tools
@@ -586,7 +613,7 @@ export class AssistantRunner {
       // A thread started beside a note remembers which one; a later turn does not re-label it.
       if (conversation && !conversation.noteId && this.originNoteId) await this.store.setConversationNote(conversation.id, this.originNoteId)
       if (!conversation) {
-        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId)
+        conversation = await this.store.createConversation(titleFromMessage(message), null, input.ephemeral === true, null, this.originNoteId, input.origin ?? 'chat')
         wasNewConversation = true
         // The route had no id to claim yet, so the lease is taken here: without it a second tab could
         // open a parallel turn on the conversation this one has just made.
@@ -611,6 +638,12 @@ export class AssistantRunner {
       })
     }
     const conversationId = conversation.id
+    // The thread's own overrides are read before the model resolves, so a model named here beats the
+    // Agent's standing choice and the account default. An explicit switch on this turn still wins.
+    this.conversationSettings = conversation.settings ?? {}
+    if (input.webSearch === undefined && this.conversationSettings.webSearch !== undefined) {
+      this.webSearchRequested = this.conversationSettings.webSearch
+    }
     if (this.contextArtifactId) {
       const artifact = await this.store.getArtifact(this.contextArtifactId)
       // The draft has to be this thread's own. A caller that names another conversation's draft is not
@@ -662,7 +695,7 @@ export class AssistantRunner {
     const generatedAttachments: string[] = []
     // Counted out here rather than in the `try`, because a turn that ends in `catch` still has to be
     // metered: the tokens a stopped or a failed turn produced were bought from the provider all the same.
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
     let system = ''
     let turns: ModelTurn[] = []
     // Which key the day's counters are filed against, and whether they have been written yet.
@@ -715,6 +748,9 @@ export class AssistantRunner {
       // answers the first step is the one that answers the whole turn: a reply that changed voice after a
       // tool call would be two answers sold as one.
       const chain = await this.modelChain(primary)
+      // The conversation's Agent, read once before the request is shaped: its sampling, streams, tool
+      // limits and MCP filter are facts about this turn, not about the account.
+      const project = await this.project()
       // Which of the chain is answering right now. Mutated by the failover step rather than returned from
       // it, because a generator's value is not reachable through `for await`.
       const served = { current: primary }
@@ -725,14 +761,17 @@ export class AssistantRunner {
       // A 1M model and a 4K model do not get fed the same amount: the reader sets this per model on the
       // composer's context control, and the assistant-wide ceiling is what a model without one falls back
       // to — for the window and for the input ceiling over it alike.
-      const contextTokens = contextBudgetFor(model, limits)
+      const contextTokens = Math.min(contextBudgetFor(model, limits), this.conversationSettings.maxContext ?? Number.POSITIVE_INFINITY)
       // What one step may spend, thinking included. The model's own ceiling is the whole answer here and
       // the account's number answers only for a model the reader has not set: taking the lower of the two
       // let the account default (1024) silently outrank a model the reader had set to 64000. Read before
       // the history is budgeted, because the answer a turn means to write is part of what the prompt has
       // to leave room for, and kept in a name because a turn cut off at it has to say the number that cut
       // it.
-      const capFor = (entry: ResolvedCall) => entry.model.maxOutputTokens ?? limits.maxOutputTokens
+      const capFor = (entry: ResolvedCall) => {
+        const modelCap = entry.model.maxOutputTokens ?? limits.maxOutputTokens
+        return project?.maxOutputTokens ? Math.min(modelCap, project.maxOutputTokens) : modelCap
+      }
       let outputCap = capFor(primary)
       if (!(await this.reserve(1, limits.maxRequestsPerDay, { providerId: provider.id, providerLabel: provider.label }, model.label))) {
         throw ApiError.conflict(`The daily limit of ${limits.maxRequestsPerDay} assistant requests is reached. It is adjustable in Assistant settings.`)
@@ -743,7 +782,13 @@ export class AssistantRunner {
       // the web-search switch works on a protocol with no vendor search by naming one of these tools to
       // the model, which only lands if the prompt has not been built yet. A server that is slow or down is
       // reported to the settings screen rather than failing the answer.
-      const external: ExternalToolsResult = await loadExternalTools(this.store)
+      const external: ExternalToolsResult = await loadExternalTools(this.store, project
+        ? {
+            serverIds: project.mcpServerIds,
+            forceApproval: project.mcpMode === 'manual',
+            off: project.mcpMode === 'off',
+          }
+        : undefined)
       // A turn that may call nothing gets no vendor search either: on the wire that one is a tool, and an
       // answer that quietly cites pages the reader never let this turn look up is the failure the flag
       // exists to prevent.
@@ -777,6 +822,11 @@ export class AssistantRunner {
       const selected = await this.recallMemories(userMessage?.content ?? message)
       const memories = this.memoryHistory.promptMemories(selected, memoryTokenBudget(contextTokens))
       const history = await this.contextHistory(conversationId)
+      // An Agent that keeps only a window of turns says so once here, before the context budget walks the
+      // whole thread: the model then sees exactly the recent part its editor promised.
+      const recentHistory = project?.keepRecentMessages
+        ? history.slice(-project.keepRecentMessages)
+        : history
       // The row being resumed was taken out of the table so it can be written back whole; its words are
       // still what the model needs to go on from, so they are put back as the newest turn.
       if (this.continueFrom) {
@@ -787,42 +837,75 @@ export class AssistantRunner {
           id: this.continueFrom.id,
         })
       }
+      // A threshold the reader chose is checked before the window is built, not after it overflows: the
+      // point of compacting early is to keep a long thread's request small, and waiting for the ceiling
+      // would spend the very tokens the setting exists to save.
+      let promptSummary: string | null = conversation.summary ?? null
+      let promptSummaryUpto = conversation.summaryUpto ?? null
+      const autoLimit = project?.contextCustom
+        ? project.autoCompactMode === 'absolute'
+          ? project.autoCompactTokens
+          : project.autoCompactMode === 'ratio'
+            ? Math.floor(contextTokens * project.autoCompactRatio)
+            : null
+        : this.settings.autoCompactMode === 'absolute'
+          ? this.settings.autoCompactTokens
+          : this.settings.autoCompactMode === 'ratio'
+            ? Math.floor(contextTokens * this.settings.autoCompactRatio)
+            : null
+      if (autoLimit !== null) {
+        const historyTokens = recentHistory.reduce(
+          (total, entry) => total + estimateTokens(entry.content) + (entry.calls ?? []).reduce((sum, call) => sum + estimateTokens(call.result), 0),
+          0,
+        )
+        if (historyTokens > autoLimit && recentHistory.length > 6) {
+          const rolled = await this.summarize(conversationId, promptSummary, recentHistory.slice(0, -6))
+          if (rolled) {
+            promptSummary = rolled.summary
+            promptSummaryUpto = rolled.upto
+          }
+        }
+      }
       const context = await this.contextLabels()
-      const project = await this.project()
+      const projectSkills = await this.projectSkills()
+      const projectInstructionsFile = await this.projectInstructionsFile()
+      const projectInstructions = [project?.instructions, projectInstructionsFile].filter(Boolean).join('\n\n')
       system = buildSystemPrompt({
         agentName: this.settings.agentName,
         language: this.settings.language,
         timezone: this.settings.timezone,
         localTime: describeLocalTime(new Date(), this.settings.timezone),
+        timeAware: project?.timeAware !== false,
         autoMemory: this.settings.autoMemory,
         memories,
-        conversationSummary: conversation.summary,
+        conversationSummary: promptSummary,
         noteScope: this.settings.noteScope,
         noteScopeLabels: await this.scopeLabels(),
         noteTagLabels: this.scopeTagLabels(),
         pinnedNotes: await this.pinnedNotes(),
         turnTools: this.turnTools,
-        openNote: context.openNote,
+        openNote: project?.focusSync === false ? null : context.openNote,
         browsingFolder: context.browsingFolder,
         artifact: this.artifactPromptContext(),
-        project: project?.instructions ? { name: project.name, instructions: project.instructions } : null,
+        project: projectInstructions ? { name: project?.name ?? '', instructions: projectInstructions } : null,
+        skills: projectSkills,
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
       })
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
       // answer the turn is going to write, and the results the steps after this one read back into it.
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
-      let window = buildContextWindow(history, historyBudget, conversation.summaryUpto ?? null)
+      let window = buildContextWindow(recentHistory, historyBudget, promptSummaryUpto)
       // Only now are the files read: the turns the budget dropped were never expanded at all.
       window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
 
       if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
-        const rolled = await this.summarize(conversationId, conversation.summary ?? null, window.overflow)
+        const rolled = await this.summarize(conversationId, promptSummary, window.overflow)
         if (rolled) {
           // The mark is the row the roll-up ends on, named rather than timed: the newest rows of this turn
           // can share its millisecond, and a cutoff that compares times alone would drop them — including
           // the question being answered.
-          window = buildContextWindow(history, historyBudget, rolled.upto, rolled.uptoId)
+          window = buildContextWindow(recentHistory, historyBudget, rolled.upto, rolled.uptoId)
           window = await this.hydrateWindow(window, model.vision, model.modalities, historyBudget, call.protocol)
         } else {
           // The roll-up did not happen and nothing else about the turn says so: the answer arrives as
@@ -833,7 +916,8 @@ export class AssistantRunner {
 
       yield { type: 'stage', stage: 'generating' }
       const executor = new ToolExecutor(await this.toolContext(conversationId, generatedAttachments), { maxToolCalls: limits.maxToolCalls }, external.definitions)
-      const schemas: ToolSchema[] = executor.available()
+      // Recomputed per step: a turn that loaded a schema has to see that tool in its very next request.
+      const toolSchemas = (): ToolSchema[] => executor.available()
         // On a protocol that sends the vendor's own search tool, that one already carries this name, and a
         // request with two entries called `web_search` is a request the provider refuses outright. The
         // vendor's search is the better of the two wherever it exists, so the built-in one steps aside.
@@ -861,15 +945,25 @@ export class AssistantRunner {
       // things for the reader to act on.
       let ceiling: string | null = null
       let steps = 0
+      // A step is one request; an Agent that allows N tool rounds therefore allows N + 1 requests (the
+      // final answer). Zero/absent is the account's own bound, which is a tool-call budget rather than a
+      // request count.
+      const maxSteps = project?.maxToolRounds ? project.maxToolRounds + 1 : Number.POSITIVE_INFINITY
 
       for (;;) {
         steps++
+        if (steps > maxSteps) break
         // A turn that walks several steps outlives the lease it was claimed with, and the row is also how
         // a stop reaches this generator: the reader's tab closing only fails a write on some platforms,
         // and a turn nobody is watching must not keep spending their budget.
         if (!(await this.holdLease(conversationId))) throw new AbortError()
         const calls: ToolCallRecord[] = []
         let eventsSeen = 0
+        // The catalog names what disclosure left out, and it shrinks as the turn loads schemas; the tools
+        // list is rebuilt with it so a loaded schema is callable on the step that follows the load.
+        const schemas = toolSchemas()
+        const catalog = executor.catalogText()
+        const turnSystem = catalog ? `${system}\n\n${catalog}` : system
         // Judged per step and only the last step's verdict is kept: a step cut off mid-tool-call is
         // repaired by the step after it, while a cut-off *answer* is what must not be filed as whole.
         this.turnTruncated = false
@@ -877,11 +971,31 @@ export class AssistantRunner {
         // The first step is where a model may be swapped for one further down the chain; every step after
         // it is answered by whichever model got through, so a reply never changes voice halfway.
         const candidates = steps === 1 ? chain : [served.current]
-        for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey) => ({
+        if (this.settings.llmDebug) {
+          // Shape only: a debug line that carried the prompt would be the reader's note in a log. The
+          // effective numbers are what proves a saved assistant knob reached the request rather than only
+          // the form.
+          const extra = { ...customParamBody(served.current.model.customParams), ...(project ? customParamBody(project.customParams) : {}) }
+          console.info('[inkstone] assistant request', {
+            model: served.current.model.model,
+            protocol: served.current.call.protocol,
+            steps,
+            turns: turns.length,
+            tools: schemas.length,
+            systemChars: turnSystem.length,
+            temperature: this.conversationSettings.temperature ?? project?.temperature ?? served.current.model.temperature,
+            topP: this.conversationSettings.topP ?? project?.topP ?? served.current.model.topP,
+            maxOutputTokens: capFor(served.current),
+            transport: project?.stream === false && schemas.length === 0 ? 'once' : 'stream',
+            compactLimit: autoLimit,
+            extraKeys: Object.keys(extra),
+          })
+        }
+        for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey, signal) => ({
           baseUrl: entry.call.baseUrl,
           apiKey,
           model: entry.model.model,
-          system,
+          system: turnSystem,
           turns,
           // A model that invents tool calls is silenced by not sending the schemas at all, which is the
           // same door a turn asked to answer without tools, and a model switched off for tools, both go
@@ -889,14 +1003,14 @@ export class AssistantRunner {
           tools: entry.model.supportsTools && !this.toolsRefused(entry) ? schemas : [],
           webSearch: this.webSearchNative,
           maxOutputTokens: capFor(entry),
-          temperature: entry.model.temperature,
-          topP: entry.model.topP,
-          extraBody: customParamBody(entry.model.customParams),
+          temperature: this.conversationSettings.temperature ?? project?.temperature ?? entry.model.temperature,
+          topP: this.conversationSettings.topP ?? project?.topP ?? entry.model.topP,
+          extraBody: { ...customParamBody(entry.model.customParams), ...(project ? customParamBody(project.customParams) : {}) },
           reasoning: entry.model.reasoning,
           reasoningDialect: entry.call.reasoningDialect,
           retry: this.retryFor(entry.provider),
-          signal: input.signal,
-        }), calls, usage)) {
+          signal,
+        }), calls, usage, project?.stream === false && schemas.length === 0)) {
           if (event.type === 'text') {
             text += event.delta ?? ''
             // Everything the reader on this wire has been shown, filed steps and the step in hand. Carried
@@ -1021,7 +1135,17 @@ export class AssistantRunner {
             : 'I could not produce an answer this time. Try rephrasing, or check the model in Assistant settings.'
         }
       }
-      yield { type: 'usage', usage }
+      const contextBreakdown = {
+        system: estimateTokens(system),
+        tools: toolSchemas().reduce((total, schema) => total + estimateTokens(JSON.stringify(schema)), 0)
+          + estimateTokens(executor.catalogText()),
+        rules: estimateTokens([this.settings.customInstructions, projectInstructions].filter(Boolean).join('\n')),
+        skills: projectSkills.reduce((total, skill) => total + estimateTokens(`${skill.title}\n${skill.content}`), 0),
+        memory: estimateTokens(JSON.stringify(memories)),
+        conversation: turns.reduce((total, turn) => total + estimateTokens(turn.content ?? '') + (turn.calls?.length ? estimateTokens(JSON.stringify(turn.calls)) : 0), 0),
+        reasoning: estimateTokens(reasoning),
+      }
+      yield { type: 'usage', usage: usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }, contextBreakdown }
       // Read the signal again here: every `yield` above hands control back to the response writer, and
       // a reader who stopped the turn in the meantime must not have their half answer filed as whole.
       const finalMessage = await finish(stopped() ? 'cancelled' : outcome, failure, usage)
@@ -1111,7 +1235,7 @@ export class AssistantRunner {
     protocol: AssistantProtocol,
     request: UpstreamRequest,
     calls: ToolCallRecord[],
-    usage: { inputTokens: number, outputTokens: number },
+    usage: { inputTokens: number, outputTokens: number, cachedInputTokens: number },
   ): AsyncGenerator<ChatStreamEvent> {
     for await (const event of streamUpstream(protocol, request)) {
       if (event.type === 'text') {
@@ -1129,6 +1253,7 @@ export class AssistantRunner {
         // own prompt again, and each of those is real spend.
         usage.inputTokens = Math.max(usage.inputTokens, event.inputTokens)
         usage.outputTokens = Math.max(usage.outputTokens, event.outputTokens)
+        usage.cachedInputTokens = Math.max(usage.cachedInputTokens, event.cachedInputTokens ?? 0)
         continue
       }
       // The cap signal is the runner's own business: the client has no event for it, and what the
@@ -1149,7 +1274,14 @@ export class AssistantRunner {
         for (const source of event.sources) this.collectSource(source)
         continue
       }
-      calls.push({ id: event.id, name: event.name, args: event.args, result: '', error: false })
+      calls.push({
+        id: event.id,
+        name: event.name,
+        args: event.args,
+        result: '',
+        error: false,
+        ...(event.signature ? { signature: event.signature.slice(0, MAX_TOOL_SIGNATURE_CHARS) } : {}),
+      })
     }
   }
 
@@ -1169,39 +1301,127 @@ export class AssistantRunner {
   private async *stepWithFailover(
     candidates: readonly ResolvedCall[],
     served: { current: ResolvedCall },
-    requestFor: (entry: ResolvedCall, apiKey: string) => UpstreamRequest,
+    requestFor: (entry: ResolvedCall, apiKey: string, signal: AbortSignal) => UpstreamRequest,
     calls: ToolCallRecord[],
-    usage: { inputTokens: number, outputTokens: number },
+    usage: { inputTokens: number, outputTokens: number, cachedInputTokens: number },
+    preferOnce = false,
   ): AsyncGenerator<ChatStreamEvent> {
     let failure: unknown = null
     for (const entry of candidates) {
-      const attemptCalls: ToolCallRecord[] = []
-      const attemptUsage = { inputTokens: 0, outputTokens: 0 }
       const sourcesBefore = new Set(this.turnSources.keys())
       const truncatedBefore = this.turnTruncated
       const blockedBefore = this.turnBlocked
       let spoke = false
-      try {
-        const apiKey = await this.signKey(entry.provider)
-        for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey), attemptCalls, attemptUsage)) {
-          spoke = true
-          yield event
+      // One recovery attempt per entry, and only before a word has been streamed: a failed request that
+      // already showed text cannot be taken back, so the reader is not shown two versions of the same
+      // answer. The retry is still a stream; only a third failure after both streams timed out falls
+      // back to the wire's non-streaming shape, if the reader allowed recovery.
+      for (let attempt = 1; attempt <= (this.settings.autoRecover ? 2 : 1); attempt++) {
+        // Per-attempt, not per-entry: a retry must not inherit the calls or tokens a timed-out attempt
+        // had already collected before it failed.
+        const attemptCalls: ToolCallRecord[] = []
+        const attemptUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
+        const timed = this.attemptSignal()
+        try {
+          const apiKey = await this.signKey(entry.provider)
+          // An Agent that turned streaming off answers a tool-less step in one request. A step with tools
+          // stays streamed: the non-streaming door returns words, not the calls the loop exists to run.
+          if (preferOnce) {
+            const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, timed.signal))
+            if (once.text.trim()) {
+              usage.inputTokens += once.inputTokens
+              usage.outputTokens += once.outputTokens
+              usage.cachedInputTokens += once.cachedInputTokens ?? 0
+              served.current = entry
+              yield { type: 'text', delta: once.text }
+              if (once.inputTokens || once.outputTokens) {
+                yield { type: 'usage', usage: once.cachedInputTokens ? { inputTokens: once.inputTokens, outputTokens: once.outputTokens, cachedInputTokens: once.cachedInputTokens } : { inputTokens: once.inputTokens, outputTokens: once.outputTokens } }
+              }
+              return
+            }
+          }
+          for await (const event of this.step(entry.call.protocol, requestFor(entry, apiKey, timed.signal), attemptCalls, attemptUsage)) {
+            spoke = true
+            yield event
+          }
+          // Only a call that got through is charged, and only its calls and counters are kept.
+          usage.inputTokens += attemptUsage.inputTokens
+          usage.outputTokens += attemptUsage.outputTokens
+          usage.cachedInputTokens += attemptUsage.cachedInputTokens ?? 0
+          calls.push(...attemptCalls)
+          served.current = entry
+          return
+        } catch (error) {
+          failure = error
+          // A reader's stop is not a failure to retry; neither is a failure after words were shown.
+          if (this.turnSignal?.aborted || spoke) throw error
+          if (attempt === 2 && timed.timedOut() && this.settings.autoRecover) {
+            this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+            try {
+              const apiKey = await this.signKey(entry.provider)
+              const once = await fetchOnce(entry.call.protocol, requestFor(entry, apiKey, this.turnSignal ?? new AbortController().signal))
+              if (once.text.trim()) {
+                usage.inputTokens += once.inputTokens
+                usage.outputTokens += once.outputTokens
+                usage.cachedInputTokens += once.cachedInputTokens ?? 0
+                served.current = entry
+                yield { type: 'text', delta: once.text }
+                if (once.inputTokens || once.outputTokens) {
+                  yield { type: 'usage', usage: once.cachedInputTokens ? { inputTokens: once.inputTokens, outputTokens: once.outputTokens, cachedInputTokens: once.cachedInputTokens } : { inputTokens: once.inputTokens, outputTokens: once.outputTokens } }
+                }
+                return
+              }
+            } catch {
+              // The non-streaming door failed too; the model's own failure is reported below.
+            }
+          }
+          if (attempt === 1 && timed.timedOut() && this.settings.autoRecover) {
+            // The recovery attempt is the next loop iteration; the rollback happens before it so a
+            // trace or source list from the timed-out attempt cannot be attributed to the retry.
+            this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+            continue
+          }
+          if (!worthAnotherModel(error)) throw error
+          this.rollbackAttempt(sourcesBefore, truncatedBefore, blockedBefore)
+          break
+        } finally {
+          timed.clear()
         }
-        // Only a call that got through is charged, and only its calls and counters are kept.
-        usage.inputTokens += attemptUsage.inputTokens
-        usage.outputTokens += attemptUsage.outputTokens
-        calls.push(...attemptCalls)
-        served.current = entry
-        return
-      } catch (error) {
-        failure = error
-        if (spoke || !worthAnotherModel(error)) throw error
-        for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
-        this.turnTruncated = truncatedBefore
-        this.turnBlocked = blockedBefore
       }
     }
     throw failure ?? new Error('No model in the fallback chain could answer.')
+  }
+
+  /**
+   * One attempt's cancellation: the reader's own stop, plus the configured request timeout.
+   *
+   * The two are combined by hand rather than with `AbortSignal.any` because the timeout has to be
+   * distinguishable from a stop: a stop is final, a timeout may be retried once.
+   */
+  private attemptSignal(): { signal: AbortSignal, clear: () => void, timedOut: () => boolean } {
+    const controller = new AbortController()
+    let timedOut = false
+    const onAbort = () => controller.abort(this.turnSignal?.reason)
+    if (this.turnSignal?.aborted) onAbort()
+    else this.turnSignal?.addEventListener('abort', onAbort, { once: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort(new Error('The request timed out.'))
+    }, this.settings.requestTimeoutMs)
+    return {
+      signal: controller.signal,
+      clear: () => {
+        clearTimeout(timer)
+        this.turnSignal?.removeEventListener('abort', onAbort)
+      },
+      timedOut: () => timedOut,
+    }
+  }
+
+  private rollbackAttempt(sourcesBefore: Set<string>, truncatedBefore: boolean, blockedBefore: UpstreamStopReason | null): void {
+    for (const url of this.turnSources.keys()) if (!sourcesBefore.has(url)) this.turnSources.delete(url)
+    this.turnTruncated = truncatedBefore
+    this.turnBlocked = blockedBefore
   }
 
   /**
@@ -1237,6 +1457,7 @@ export class AssistantRunner {
       name: call.name,
       status: 'running',
       args: toolPayloadText(call.args),
+      ...(call.signature ? { signature: call.signature } : {}),
     }))
     tools.push(...activities)
     for (const activity of activities) yield { type: 'tool', tool: { ...activity } }
@@ -1287,6 +1508,7 @@ export class AssistantRunner {
       } catch (error) {
         if (abandoned) return
         const reason = error instanceof Error ? error.message : 'The tool failed.'
+        executor.recordFailure(call.name)
         call.result = JSON.stringify({ error: reason })
         call.error = true
         call.args = call.args ?? {}
@@ -1431,7 +1653,7 @@ export class AssistantRunner {
     conversationId: string,
     previous: string | null,
     overflow: HistoryEntry[],
-  ): Promise<{ upto: number, uptoId?: string } | null> {
+  ): Promise<{ upto: number, uptoId?: string, summary: string } | null> {
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) return null
     const call = modelEndpoint(resolved.model, resolved.provider)
@@ -1476,7 +1698,7 @@ export class AssistantRunner {
     await this.store.setSummary(conversationId, summary, last.createdAt)
     // The row the roll-up ends on travels back with its time: two turns can share a millisecond, and the
     // one that came after must not be folded away with the history above it.
-    return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}) }
+    return { upto: last.createdAt, ...(last.id ? { uptoId: last.id } : {}), summary }
   }
 
   /**
@@ -1512,14 +1734,15 @@ export class AssistantRunner {
     signal: AbortSignal
   }): Promise<{ title: string | null, suggestions: string[] } | null> {
     const { system, user } = namingPrompt(this.settings.language, args.question, args.answer)
+    const titleSystem = this.settings.titlePrompt.trim() || system
     let text: string
     try {
       // Budget, key, deadline and metering are the one-shot path's job. A call with no request left on
       // the day's ceiling, or one the provider refuses, yields nothing and leaves the derived title
       // standing — the answer is already filed, so this is the honest failure for a nicety.
       const answer = await runOneShot(this.store, this.settings, {
-        modelId: args.modelId,
-        system,
+        modelId: this.settings.namingModelId ?? args.modelId,
+        system: titleSystem,
         user,
         maxOutputTokens: NAMING_MAX_OUTPUT_TOKENS,
         temperature: 0,
@@ -1565,6 +1788,21 @@ export class AssistantRunner {
    */
   private async resolveModel(input: TurnInput) {
     if (this.turnModelId) return loadModelAndProvider(this.store, this.settings, this.turnModelId)
+    // The thread's own choice is the narrowest standing rule, so it is read before the Agent's. A model
+    // deleted since answers exactly like a deleted Agent model: the next rule answers, rather than the
+    // turn failing over a pointer the settings screen already shows as broken.
+    if (this.conversationSettings.modelId) {
+      const chosen = await loadModelAndProvider(this.store, this.settings, this.conversationSettings.modelId)
+      if (chosen.model && chosen.provider) return chosen
+    }
+    // The Agent's own model is the standing choice for every conversation filed under it. A model the
+    // reader deleted since is not a reason to refuse the turn: the account default answers instead, and
+    // the settings screen still shows the broken pointer that can be fixed.
+    const project = await this.project()
+    if (project?.modelId) {
+      const chosen = await loadModelAndProvider(this.store, this.settings, project.modelId)
+      if (chosen.model && chosen.provider) return chosen
+    }
     if (!this.settings.autoRoute) return loadModelAndProvider(this.store, this.settings)
     if ((input.attachments?.length ?? 0) > 0) return loadModelAndProvider(this.store, this.settings)
     const models = await this.store.listModels()
@@ -1614,6 +1852,7 @@ export class AssistantRunner {
                   args: {},
                   result: historyToolResult(tool),
                   error: tool.status === 'error',
+                  ...(tool.signature ? { signature: tool.signature } : {}),
                 })),
               }
             : {}),
@@ -1627,7 +1866,7 @@ export class AssistantRunner {
       if (entries[index]!.role === 'user') { lastUser = entries[index]; break }
     }
     if (lastUser) {
-      const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope())
+      const block = await resolveNoteMentions(this.deps.env.DB, this.store.userId, lastUser.content, await this.noteScope(), this.settings.mentionMode)
       const subscriptionBlock = await resolveSubscriptionMentions(this.deps.env.DB, this.store.userId, lastUser.content)
       // The plan on screen is carried even when the sentence names nothing: "what will this cost me
       // this year" is a question about the row the reader is looking at, not a mention of one.
@@ -1683,7 +1922,7 @@ export class AssistantRunner {
       const key = `${withImages ? 'recent' : 'older'}:${ids.join(',')}`
       let payload = memo.get(key)
       if (!payload) {
-        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages, protocol)
+        payload = await expandChatAttachments(this.store, this.deps.env, ids, vision, modalities, withImages, protocol, this.settings.fetchExternalImages)
         memo.set(key, payload)
       }
       hydrated.push({
@@ -1774,15 +2013,14 @@ export class AssistantRunner {
         ? base.filter((id) => project.scopeIds.includes(id))
         : base
       this.scopePromise = resolveNoteScope(this.deps.env.DB, this.store.userId, effective, {
+        excludeFolderIds: project?.excludeIds ?? [],
         folderIds: this.turnScopes.filter((entry) => entry.kind === 'folder').map((entry) => entry.id),
         tagIds: this.turnScopes.filter((entry) => entry.kind === 'tag').map((entry) => entry.id),
-        // The note the reader had open, the notes they pinned as chips, and the pages the project names.
-        // All three are the same act — pointing at a page and asking about it — and `noteIds` is the one
-        // channel the scope has for it: "summarise this" is a question about the page in front of them,
-        // and refusing it because the folder they excluded happens to hold it would answer a question
-        // nobody asked. A project's own list is that decision made once and standing, so it travels the
-        // same channel; the ids were checked against this account when the project was saved.
-        noteIds: [...turnNoteIds(this.contextNoteId, this.turnScopes), ...(project?.pinIds ?? [])],
+        // The note the reader had open and the chips they pinned are additions to this turn. The pages a
+        // project names are a different channel: they are the project's own scope when it names no folder,
+        // so they travel as pins rather than as another turn addition.
+        noteIds: turnNoteIds(this.contextNoteId, this.turnScopes),
+        pinIds: project?.pinIds ?? [],
       })
     }
     return this.scopePromise
@@ -1802,8 +2040,35 @@ export class AssistantRunner {
    * A project that says nothing at all — no brief, no folder, no page — contributes nothing and reads as
    * absent rather than as an empty selection.
    */
-  private projectPromise: Promise<{ name: string, instructions: string, scopeIds: string[], pinIds: string[] } | null> | null = null
-
+  private projectPromise: Promise<{
+    name: string
+    instructions: string
+    scopeIds: string[]
+    excludeIds: string[]
+    pinIds: string[]
+    modelId: string | null
+    tools: string[]
+    toolsLimited: boolean
+    toolOverrides: Record<string, AssistantToolMode>
+    skillIds: string[]
+    temperature: number | null
+    topP: number | null
+    maxOutputTokens: number | null
+    stream: boolean
+    maxToolRounds: number | null
+    keepRecentMessages: number | null
+    contextCustom: boolean
+    autoCompactMode: AssistantSettings['autoCompactMode']
+    autoCompactTokens: number
+    autoCompactRatio: number
+    customParams: Project['customParams']
+    mcpMode: Project['mcpMode']
+    mcpServerIds: string[]
+    knowledgeBaseIds: string[]
+    focusSync: boolean
+    timeAware: boolean
+    readProjectInstructions: boolean
+  } | null> | null = null
   private project() {
     if (!this.projectPromise) {
       this.projectPromise = (async () => {
@@ -1812,11 +2077,118 @@ export class AssistantRunner {
         const project = await this.store.getProject(projectId)
         if (!project) return null
         const brief = project.instructions.trim()
-        if (!project.noteScope.length && !project.noteIds.length && !brief) return null
-        return { name: project.name, instructions: brief, scopeIds: project.noteScope, pinIds: project.noteIds }
+        // A project that only carries a name or a description changes nothing about a turn; returning it
+        // would make the prompt and the tool filter walk a row whose every field is empty.
+        if (
+          !brief && !project.noteScope.length && !project.excludeScope.length && !project.noteIds.length
+          && !project.modelId && !project.tools.length && !project.skillIds.length
+          && !project.knowledgeBaseIds.length && project.temperature === null && project.topP === null
+          && project.maxOutputTokens === null && project.stream && project.maxToolRounds === null
+          && project.keepRecentMessages === null && !project.contextCustom && !project.customParams.length
+          && project.mcpMode === 'auto' && !project.mcpServerIds.length
+          && project.focusSync && project.timeAware && !project.readProjectInstructions
+        ) return null
+        return {
+          name: project.name,
+          instructions: brief,
+          scopeIds: project.noteScope,
+          excludeIds: project.excludeScope,
+          pinIds: project.noteIds,
+          modelId: project.modelId,
+          tools: project.tools,
+          toolsLimited: project.toolsLimited,
+          toolOverrides: project.toolOverrides,
+          skillIds: project.skillIds,
+          temperature: project.temperature,
+          topP: project.topP,
+          maxOutputTokens: project.maxOutputTokens,
+          stream: project.stream,
+          maxToolRounds: project.maxToolRounds,
+          keepRecentMessages: project.keepRecentMessages,
+          contextCustom: project.contextCustom,
+          autoCompactMode: project.autoCompactMode,
+          autoCompactTokens: project.autoCompactTokens,
+          autoCompactRatio: project.autoCompactRatio,
+          customParams: project.customParams,
+          mcpMode: project.mcpMode,
+          mcpServerIds: project.mcpServerIds,
+          knowledgeBaseIds: project.knowledgeBaseIds,
+          focusSync: project.focusSync,
+          timeAware: project.timeAware,
+          readProjectInstructions: project.readProjectInstructions,
+        }
       })()
     }
     return this.projectPromise
+  }
+
+  /**
+   * The saved skills this Agent carries, as prompt text.
+   *
+   * A skill is the reader's own words plus an arrangement; the arrangement (tools, folders, model) is
+   * applied by the composer, and the words are what belong in the standing prompt. The total is capped
+   * so an Agent with a dozen long skills does not spend the whole window before the question is read.
+   */
+  private projectSkillsPromise: Promise<Array<{ title: string, content: string }>> | null = null
+
+  private projectSkills() {
+    if (!this.projectSkillsPromise) {
+      this.projectSkillsPromise = (async () => {
+        const project = await this.project()
+        if (!project?.skillIds.length) return []
+        const out: Array<{ title: string, content: string }> = []
+        let used = 0
+        for (const id of project.skillIds) {
+          const skill = await this.store.getSkill(id)
+          if (!skill || skill.enabled === false) continue
+          const body = skill.content.trim()
+          if (!body) continue
+          const room = PROJECT_SKILLS_CHAR_CAP - used
+          if (room <= 0) break
+          // An on-demand Skill is named, not injected. Its description is what lets the model decide
+          // whether the body is worth a call; `read_skill` is the only way to get the rest.
+          if (skill.kind === 'skill' && skill.loadMode === 'on_demand') {
+            const description = ((skill.description ?? '').trim() || body.slice(0, 200)).slice(0, 400)
+            const content = `${description}\n\n[Call read_skill with id "${skill.id}" to load the full instructions.]`
+            out.push({ title: skill.title || 'Skill', content })
+            used += content.length
+            continue
+          }
+          const clipped = body.slice(0, room)
+          out.push({ title: skill.title || 'Skill', content: clipped })
+          used += clipped.length
+        }
+        return out
+      })()
+    }
+    return this.projectSkillsPromise
+  }
+
+  /**
+   * A root `AGENTS.md` / `CLAUDE.md` note, when the Agent asked to read project instructions.
+   *
+   * This deployment has no filesystem; the project convention is carried by a root note instead. Only the
+   * exact root title is read, never a folder search, so enabling the switch cannot quietly pull an
+   * unrelated note with the same name into every prompt.
+   */
+  private projectInstructionsPromise: Promise<string | null> | null = null
+
+  private projectInstructionsFile() {
+    if (!this.projectInstructionsPromise) {
+      this.projectInstructionsPromise = (async () => {
+        const project = await this.project()
+        if (!project?.readProjectInstructions) return null
+        const row = await this.deps.env.DB.prepare(
+          `SELECT content FROM notes
+            WHERE user_id = ?1 AND folder_id IS NULL AND deleted_at IS NULL
+              AND lower(title) IN ('agents.md', 'claude.md')
+            ORDER BY updated_at DESC LIMIT 1`,
+        ).bind(this.store.userId).first<{ content: string }>()
+        const body = row?.content?.trim()
+        return body ? body.slice(0, PROJECT_INSTRUCTIONS_CHAR_CAP) : null
+      })()
+    }
+    return this.projectInstructionsPromise
   }
 
   /**
@@ -1932,9 +2304,131 @@ export class AssistantRunner {
     return (results ?? []).map((row) => row.name)
   }
 
+  /** Starts a child that outlives the turn; the task row is what the reader can find afterwards. */
+  private async startAsyncSubagent(
+    input: { description: string, prompt: string, modelId?: string | null },
+    parentConversationId: string,
+  ): Promise<{ taskId: string, status: 'running' }> {
+    const taskId = await this.store.createSubagentTask({
+      parentConversationId,
+      parentMessageId: null,
+      callId: null,
+      description: input.description.slice(0, 200),
+      prompt: input.prompt.slice(0, 8_000),
+      modelId: input.modelId ?? this.settings.subagentModelId,
+    })
+    if (this.deps.env.SUBAGENT) {
+      try {
+        const stub = this.deps.env.SUBAGENT.get(this.deps.env.SUBAGENT.idFromName(taskId))
+        await stub.fetch('https://subagent/start', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            userId: this.store.userId,
+            taskId,
+            description: input.description,
+            prompt: input.prompt,
+            modelId: input.modelId ?? this.settings.subagentModelId,
+            parentConversationId,
+            origin: this.deps.origin,
+          }),
+        })
+        return { taskId, status: 'running' }
+      } catch {
+        // The object could not be reached; the in-isolate fallback below still gives the task one run.
+      }
+    }
+    const work = (async () => {
+      try {
+        const result = await this.runSubagent(input, parentConversationId, taskId)
+        await this.store.createNotification({ title: input.description.slice(0, 200), body: result.text.slice(0, 1_000) || 'The sub-agent finished without an answer.' })
+      } catch (error) {
+        await this.store.createNotification({ title: input.description.slice(0, 200), body: error instanceof Error ? error.message : 'The sub-agent failed.' })
+      }
+    })()
+    if (this.deps.executionCtx?.waitUntil) this.deps.executionCtx.waitUntil(work)
+    else void work
+    return { taskId, status: 'running' }
+  }
+
+  private async runSubagent(
+    input: { description: string, prompt: string, modelId?: string | null },
+    parentConversationId: string,
+    existingTaskId?: string,
+  ): Promise<{ text: string, toolCalls: number, tokens: number }> {
+    const taskId = existingTaskId ?? await this.store.createSubagentTask({
+      parentConversationId,
+      parentMessageId: null,
+      callId: null,
+      description: input.description.slice(0, 200),
+      prompt: input.prompt.slice(0, 8_000),
+      modelId: input.modelId ?? this.settings.subagentModelId,
+    })
+    // The child is read-only and unwatched: a write or a deletion would need a card no one is looking at,
+    // and asking the reader a question from inside a tool call has no surface either.
+    const allowedTools = ALL_TOOLS
+      .filter((definition) => definition.permission === 'read' && definition.name !== 'ask_user_question' && definition.name !== 'delegate_subagent')
+      .map((definition) => definition.name)
+    const childSettings: AssistantSettings = {
+      ...this.settings,
+      subagentEnabled: false,
+      toolModes: { ...this.settings.toolModes, read: 'auto' },
+      limits: {
+        ...this.settings.limits,
+        maxToolCalls: Math.min(this.settings.limits.maxToolCalls, 8),
+        maxAgentSteps: Math.min(this.settings.limits.maxAgentSteps, 12),
+      },
+    }
+    const child = new AssistantRunner({ ...this.deps, settings: childSettings, runToken: undefined })
+    const controller = new AbortController()
+    const onAbort = () => controller.abort(this.turnSignal?.reason)
+    this.turnSignal?.addEventListener('abort', onAbort, { once: true })
+    let text = ''
+    let error: string | null = null
+    let tokens = 0
+    let childConversationId: string | null = null
+    const toolIds = new Set<string>()
+    try {
+      for await (const event of child.chat({
+        message: input.prompt,
+        modelId: input.modelId ?? this.settings.subagentModelId,
+        ephemeral: true,
+        origin: 'subagent',
+        signal: controller.signal,
+        subagent: true,
+        allowedTools,
+      })) {
+        if (event.type === 'start' && event.conversationId) childConversationId = event.conversationId
+        if (event.type === 'text') text += event.delta ?? ''
+        if (event.type === 'tool' && event.tool) toolIds.add(event.tool.id)
+        if (event.type === 'usage' && event.usage) tokens = event.usage.inputTokens + event.usage.outputTokens
+        if (event.type === 'error') error = event.message ?? 'The sub-agent failed.'
+        if (event.type === 'done' && event.finalMessage?.status === 'complete' && event.finalMessage.content) text = event.finalMessage.content
+      }
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : 'The sub-agent failed.'
+    } finally {
+      this.turnSignal?.removeEventListener('abort', onAbort)
+      await this.store.finishSubagentTask(taskId, {
+        status: error ? (controller.signal.aborted ? 'cancelled' : 'error') : 'success',
+        result: error ? null : text.slice(0, 20_000),
+        error,
+        toolCalls: toolIds.size,
+        tokens,
+      })
+      if (childConversationId) {
+        await this.store.releaseRun(childConversationId)
+        await this.store.deleteConversation(childConversationId)
+      }
+    }
+    if (error) throw new ToolError(controller.signal.aborted ? 'The reader stopped the turn before the sub-agent finished.' : error)
+    return { text: text.slice(0, 20_000), toolCalls: toolIds.size, tokens }
+  }
+
   private async toolContext(conversationId?: string, generatedAttachments?: string[]): Promise<ToolContext> {
     const bounds = localDayBounds(this.settings.timezone)
     const store = this.store
+    const project = await this.project()
     return {
       store,
       env: this.deps.env,
@@ -1945,6 +2439,31 @@ export class AssistantRunner {
       dayEnd: bounds.end,
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
+      ...(this.turnAllowedTools ? { allowedTools: this.turnAllowedTools } : {}),
+      // A child turn has no reader to ask, and a read-only child needs no approval card nobody can press;
+      // both are expressed by leaving the callbacks it would reach for out of its context.
+      ...(conversationId && !this.turnIsSubagent && this.settings.subagentEnabled
+        ? {
+            runSubagent: (input: { description: string, prompt: string, modelId?: string | null }) => this.runSubagent(input, conversationId),
+            ...(this.settings.subagentAsyncEnabled ? { runSubagentAsync: (input: { description: string, prompt: string, modelId?: string | null }) => this.startAsyncSubagent(input, conversationId) } : {}),
+          }
+        : {}),
+      // A tool that waits on the reader has to stop when the turn does, and its wait has to keep the
+      // run claim alive or a long question would look like a dead request and be reaped mid-question.
+      ...(conversationId
+        ? {
+            ...(this.turnSignal ? { signal: this.turnSignal } : {}),
+            keepAlive: () => this.holdLease(conversationId),
+          }
+        : {}),
+      ...(project
+        ? {
+            projectTools: project.tools,
+            projectToolsLimited: project.toolsLimited,
+            projectToolOverrides: project.toolOverrides,
+            ...(project.knowledgeBaseIds.length ? { knowledgeBaseIds: project.knowledgeBaseIds } : {}),
+          }
+        : {}),
       memoryHistory: this.memoryHistory,
       memoryScope: this.memoryScope,
       automations: this.automations,
@@ -2025,6 +2544,7 @@ export class AssistantRunner {
    * reaches for a write tool.
    */
   async runScheduledPrompt(prompt: string, signal: AbortSignal): Promise<string> {
+    this.turnSignal = signal
     const resolved = await loadModelAndProvider(this.store, this.settings)
     if (!resolved.model || !resolved.provider) throw ApiError.badRequest('No model is configured for the assistant.')
     const limits = this.settings.limits
@@ -2059,13 +2579,13 @@ export class AssistantRunner {
     }
     const chain = await this.modelChain(primary)
     const served = { current: primary }
-    const usage = { inputTokens: 0, outputTokens: 0 }
+    const usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }
     let text = ''
     let steps = 0
     for (;;) {
       steps++
       const calls: ToolCallRecord[] = []
-      for await (const event of this.stepWithFailover(steps === 1 ? chain : [served.current], served, (entry, apiKey) => ({
+      for await (const event of this.stepWithFailover(steps === 1 ? chain : [served.current], served, (entry, apiKey, attemptSignal) => ({
         baseUrl: entry.call.baseUrl,
         apiKey,
         model: entry.model.model,
@@ -2077,7 +2597,7 @@ export class AssistantRunner {
         reasoning: entry.model.reasoning,
         reasoningDialect: entry.call.reasoningDialect,
         retry: this.retryFor(entry.provider),
-        signal,
+        signal: attemptSignal,
       }), calls, usage)) {
         if (event.type === 'text') text += event.delta ?? ''
       }
@@ -2087,6 +2607,7 @@ export class AssistantRunner {
           call.result = JSON.stringify(await executor.execute(call.name, call.args, call.id) ?? null)
           call.error = false
         } catch (error) {
+          executor.recordFailure(call.name)
           call.result = JSON.stringify({ error: error instanceof Error ? error.message : 'failed' })
           call.error = true
         }
@@ -2164,6 +2685,7 @@ function detailFor(args: unknown): string | undefined {
  * naming itself, because that is the part the model has to know.
  */
 function historyToolResult(tool: ToolActivity): string {
+  if (tool.pruned) return '[pruned from the model context by the reader]'
   if (tool.error) return JSON.stringify({ error: tool.error })
   if (!tool.result) return '[the result of this call was not kept]'
   if (tool.result.length <= MAX_HISTORY_TOOL_RESULT_CHARS) return tool.result

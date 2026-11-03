@@ -3,7 +3,7 @@ import type { EditorView } from '@codemirror/view';
 import { Blocks, Braces, CaseUpper, ChevronDown, FileText, Heading, Image as ImageIcon, Link2, MoveVertical, Sigma, Smile, Sparkles, Table, Wand2, WandSparkles } from 'lucide-react';
 import { Menu } from '../../components/overlay';
 import { cn } from '../../lib/cn';
-import { formatCodeBlock, insertCodeBlock, insertLink, insertTable } from '../../editor/commands';
+import { formatCodeBlock, getActiveEditorView, insertCodeBlock, insertLink, insertTable } from '../../editor/commands';
 import { blockCarryItems, blockMenuItems, codeMenuItems, formatMenuItems, headingMenuItems, imageMenuItems, mathMenuItems, noteMenuItems, referenceMenuItems, type RunEditorCommand } from '../../editor/editorMenus';
 import { Divider, FormatToolbar, MenuButton, ToolButton } from '../../editor/FormatToolbar';
 import { isTouchPointer } from '../../editor/dragger';
@@ -15,6 +15,8 @@ import { editorCombo } from '../../editor/shortcuts';
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { closeEmojiPicker, isEmojiPickerOpen, openEmojiPicker, useEmojiPicker } from '../../store/emoji-picker';
 import { EDITOR_AI_LABELS, runEditorAi, type EditorAiAction } from '../chat/editor-ai';
+import { useQuickAsk } from '../chat/quick-ask-store';
+import { SimilarNotesPanel } from '../chat/SimilarNotesPanel';
 import { suggestNoteMeta } from '../chat/note-suggestions';
 
 type ToolbarMenu = 'heading' | 'reference' | 'image' | 'note' | 'code' | 'math' | 'block' | 'carry' | 'format' | 'ai';
@@ -39,6 +41,7 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
     const formatRef = useRef<HTMLButtonElement>(null);
     const aiRef = useRef<HTMLButtonElement>(null);
     const [openMenu, setToolbarMenu] = useState<ToolbarMenu | null>(null);
+    const [similarNotesOpen, setSimilarNotesOpen] = useState(false);
     const draggerOn = useSession((state) => state.settings.editor.dragger);
     const draggerTextDrag = useSession((state) => state.settings.editor.draggerMobileTextDrag);
     const draggerModeButton = useSession((state) => state.settings.editor.draggerDragModeButton);
@@ -95,11 +98,43 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         });
     };
     const aiItems = [
-        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo'] as const).map((action) => ({
+        {
+            id: 'quick-ask',
+            label: t('assistant.quick_ask.open'),
+            onSelect: () => {
+                setToolbarMenu(null);
+                const noteId = useUi.getState().activeNoteId;
+                const target = view ?? getActiveEditorView();
+                const doc = target?.state.doc.toString() ?? '';
+                const range = target?.state.selection.main;
+                const selection = range && !range.empty ? doc.slice(range.from, range.to) : '';
+                const from = range?.from ?? doc.length;
+                const to = range?.to ?? doc.length;
+                const rect = aiRef.current?.getBoundingClientRect();
+                useQuickAsk.getState().openPanel({
+                    noteId,
+                    noteTitle: noteId ? useNotes.getState().notes[noteId]?.title ?? '' : '',
+                    selection,
+                    whole: doc,
+                    from,
+                    to,
+                }, rect ? { top: rect.bottom + 6, left: Math.max(12, rect.right - 380) } : null);
+            },
+        },
+        ...(['ask', 'rewrite', 'summarize', 'continue', 'translate', 'outline', 'todo', 'condense', 'expand'] as const).map((action) => ({
             id: action,
             label: t(EDITOR_AI_LABELS[action]),
             onSelect: () => runAi(action),
         })),
+        {
+            id: 'similar-notes',
+            label: t('assistant.similar.open'),
+            separatorBefore: true,
+            onSelect: () => {
+                setToolbarMenu(null);
+                setSimilarNotesOpen(true);
+            },
+        },
         // The one AI entry that is about the note rather than the selection: it reads the whole body
         // and writes to the front matter, so it sits apart from the five that rewrite a passage.
         {
@@ -197,5 +232,6 @@ export function EditorToolbar({ runCommand, view, onPickImage, mobile = false, s
         </ToolButton>
       </>)}
       {menus.map((menu) => <Menu key={menu.id} anchor={menu.anchor} open={openMenu === menu.id} onClose={() => setToolbarMenu(null)} items={menu.items} width={menu.width} label={menu.label}/>)}
+      <SimilarNotesPanel open={similarNotesOpen} onClose={() => setSimilarNotesOpen(false)}/>
     </div>);
 }

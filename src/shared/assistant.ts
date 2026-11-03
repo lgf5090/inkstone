@@ -119,6 +119,11 @@ export const MAX_AUTOMATION_TARGET_ID_CHARS = 64
 export const MAX_CONVERSATION_TITLE_CHARS = 200
 /** How much standing instruction the prompt will carry: enough for a page, short enough to stay a rule. */
 export const MAX_CUSTOM_INSTRUCTIONS_CHARS = 2_000
+/** A title prompt is a short instruction, not a second standing brief. */
+export const MAX_TITLE_PROMPT_CHARS = 4_000
+/** Timeout bounds for a primary request, in milliseconds. */
+export const MIN_REQUEST_TIMEOUT_MS = 5_000
+export const MAX_REQUEST_TIMEOUT_MS = 300_000
 /** How many follow-up questions the model may volunteer under a finished answer. A shorter list is honest; padding one is not. */
 export const MAX_TITLE_SUGGESTIONS = 3
 /** The widest a single follow-up chip may run before the server trims it, so one long sentence cannot crowd the footline. */
@@ -721,6 +726,20 @@ export interface AssistantSettings {
   timezone: string
   activeModelId: string | null
   /**
+   * The cheap model that names a conversation and offers follow-ups.
+   *
+   * Null follows the model that answered the turn, which is what every account did before this field
+   * existed. A naming pass is a short structured call; pointing it at a small model is the whole reason
+   * it is separate from the chat model.
+   */
+  namingModelId: string | null
+  /** The system prompt for the naming pass; empty uses the built-in one. */
+  titlePrompt: string
+  /** Retry a failed streaming request once without streaming, before walking the failover chain. */
+  autoRecover: boolean
+  /** How long a primary request may take before it is treated as timed out. */
+  requestTimeoutMs: number
+  /**
    * The model a realtime voice session is opened with.
    *
    * Kept apart from `activeModelId` because a realtime model cannot answer a text turn: it speaks
@@ -750,6 +769,52 @@ export interface AssistantSettings {
    * one class at a time, so there is one answer to "may it delete this?" rather than two that can drift.
    */
   toolModes: AssistantToolModes
+  /**
+   * A reader's decision to always allow one named tool, made at its approval card.
+   *
+   * It sits above the class policy but below an Agent's own switch: approval never widens what the
+   * account or the Agent allows, it only stops asking again for this one tool.
+   */
+  toolGrants: Record<string, AssistantToolMode>
+  /** Per-tool on/off and approval, the settings page's finer gate than the three classes. */
+  toolSettings: Record<string, { enabled: boolean, mode?: AssistantToolMode }>
+  /**
+   * Whether every tool schema goes out on every request, or only a resident set plus the ones the model
+   * loads. On demand trades a catalog line per tool for the full schema of tools the turn never uses.
+   */
+  toolDisclosure: 'all' | 'on_demand'
+  /** How a turn that needs the reader (an approval, a finished answer) announces itself. */
+  notifyChannel: 'off' | 'sound' | 'browser' | 'both'
+  /** Keep quiet while the reader is looking at this tab; the notification centre still records it. */
+  notifyOnlyUnfocused: boolean
+  notifyApproval: boolean
+  notifyFinish: boolean
+  /** When the thread is compacted without the reader asking, measured in tokens or in window share. */
+  autoCompactMode: 'off' | 'absolute' | 'ratio'
+  autoCompactTokens: number
+  autoCompactRatio: number
+  /** Log request shape (model, protocol, bucket counts) without content or credentials. */
+  llmDebug: boolean
+  /** Keep the passage that was quoted into the chat marked in the editor until the note is left. */
+  keepQuotedHighlight: boolean
+  /** Where a quoted passage sits beside the instruction that uses it. */
+  quotePlacement: 'before' | 'after'
+  /** Whether an editor AI write is applied at once or shown as a diff first. */
+  editApplyMode: 'preview' | 'direct'
+  /** How many semantic neighbours a meaning search may return. */
+  semanticTopK: number
+  /** The cosine floor a neighbour must clear to be returned. */
+  semanticScoreFloor: number
+  /** How many characters one indexed PDF chunk holds when a book is added to the knowledge base. */
+  kbChunkChars: number
+  /** How many embedding batches the reader index keeps in flight at once (1 is sequential). */
+  kbChunkConcurrency: number
+  /** Whether a turn may delegate a self-contained subtask to a child agent. Off by default. */
+  subagentEnabled: boolean
+  /** Whether a child may run after the parent turn has returned, reporting by notification. */
+  subagentAsyncEnabled: boolean
+  /** The model child agents use; null follows the parent turn's model. */
+  subagentModelId: string | null
   /** Answer from the offline stub instead of a provider, so the app is usable with no key. */
   offlineMode: boolean
   /** Which of the assistant's surfaces the container opens on. */
@@ -757,6 +822,37 @@ export interface AssistantSettings {
   /** Folders the assistant may read notes from; empty means the whole vault. */
   noteScope: string[]
   sendOnEnter: boolean
+  /**
+   * How much of a mentioned note the turn carries.
+   *
+   * `full` is the old behavior: the whole note up to the mention cap. `light` carries its identity,
+   * headings and a short excerpt, and leaves the model to call `read_note` for the body — the setting
+   * exists because a long note named with `@` used to spend a large part of the window before the
+   * question was read.
+   */
+  mentionMode: 'full' | 'light'
+  /** The whole chat interface's scale, 0.7–1.5. */
+  chatScale: number
+  /** Whether inline Tab completion is offered in the note editor. Off by default. */
+  tabCompletionEnabled: boolean
+  /** The model completion uses; null follows the answering model. */
+  tabCompletionModelId: string | null
+  /** Extra instruction sent with a completion request. */
+  tabCompletionConstraint: string
+  /** Whether typing the trigger at the start of an empty line opens Quick Ask. */
+  quickAskEnabled: boolean
+  /** The 1–3 character trigger for Quick Ask. */
+  quickAskTrigger: string
+  /** Shrink pictures before uploading them to the model. */
+  imageCompressEnabled: boolean
+  /** Fetch images linked from a text/Markdown attachment into the turn. Off by default. */
+  fetchExternalImages: boolean
+  /** One value for both dimensions and JPEG quality, 1–100. */
+  imageCompressQuality: number
+  /** Include reasoning blocks in a Markdown export. */
+  exportReasoning: boolean
+  /** Include tool calls and their results in a Markdown export. */
+  exportToolCalls: boolean
   /**
    * Standing instructions the reader wants every answer to follow.
    *
@@ -807,6 +903,10 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   language: 'en-US',
   timezone: 'UTC',
   activeModelId: null,
+  namingModelId: null,
+  titlePrompt: '',
+  autoRecover: true,
+  requestTimeoutMs: 60_000,
   realtimeModelId: null,
   temperature: 0.4,
   limits: { ...DEFAULT_LIMITS },
@@ -816,10 +916,43 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
   conflictReview: true,
   aiConflictCheck: false,
   toolModes: { ...DEFAULT_TOOL_MODES },
+  toolGrants: {},
+  toolSettings: {},
+  toolDisclosure: 'all',
+  notifyChannel: 'browser',
+  notifyOnlyUnfocused: true,
+  notifyApproval: true,
+  notifyFinish: true,
+  autoCompactMode: 'off',
+  autoCompactTokens: 100_000,
+  autoCompactRatio: 0.8,
+  llmDebug: false,
+  keepQuotedHighlight: true,
+  quotePlacement: 'before',
+  editApplyMode: 'preview',
+  semanticTopK: 40,
+  semanticScoreFloor: 0.55,
+  kbChunkChars: 1_500,
+  kbChunkConcurrency: 1,
+  subagentEnabled: false,
+  subagentAsyncEnabled: false,
+  subagentModelId: null,
   offlineMode: false,
   startView: 'chat',
   noteScope: [],
   sendOnEnter: true,
+  mentionMode: 'full',
+  chatScale: 1,
+  tabCompletionEnabled: false,
+  tabCompletionModelId: null,
+  tabCompletionConstraint: '',
+  quickAskEnabled: true,
+  quickAskTrigger: '@',
+  imageCompressEnabled: true,
+  fetchExternalImages: false,
+  imageCompressQuality: 85,
+  exportReasoning: false,
+  exportToolCalls: false,
   customInstructions: '',
   autoRoute: false,
   webSearchEndpoint: '',
@@ -834,6 +967,11 @@ function stringValue(value: unknown, fallback: string, max: number): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
   return trimmed ? trimmed.slice(0, max) : fallback
+}
+
+/** A text field where blank is a real answer — a title prompt that means “use the built-in one”. */
+function stringAllowEmpty(value: unknown, fallback: string, max: number): string {
+  return typeof value === 'string' ? value.slice(0, max) : fallback
 }
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
@@ -885,6 +1023,32 @@ function toolModesValue(raw: Record<string, unknown>): AssistantToolModes {
   }
 }
 
+function toolGrantsValue(value: unknown): Record<string, AssistantToolMode> {
+  const stored = record(value)
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(stored)) {
+    if (name.length <= 120 && typeof mode === 'string' && (ASSISTANT_TOOL_MODES as readonly string[]).includes(mode)) {
+      out[name] = mode as AssistantToolMode
+    }
+  }
+  return out
+}
+
+function toolSettingsValue(value: unknown): Record<string, { enabled: boolean, mode?: AssistantToolMode }> {
+  const stored = record(value)
+  const out: Record<string, { enabled: boolean, mode?: AssistantToolMode }> = {}
+  for (const [name, entry] of Object.entries(stored)) {
+    if (name.length > 120) continue
+    const row = record(entry)
+    if (typeof row.enabled !== 'boolean') continue
+    const mode = typeof row.mode === 'string' && (ASSISTANT_TOOL_MODES as readonly string[]).includes(row.mode)
+      ? row.mode as AssistantToolMode
+      : undefined
+    out[name] = { enabled: row.enabled, ...(mode ? { mode } : {}) }
+  }
+  return out
+}
+
 /**
  * Every settings field a client may patch, as one list rather than as a route that names them.
  *
@@ -919,6 +1083,10 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
       ? (raw.timezone as string)
       : DEFAULT_ASSISTANT_SETTINGS.timezone,
     activeModelId: typeof raw.activeModelId === 'string' && raw.activeModelId ? raw.activeModelId.slice(0, 26) : null,
+    namingModelId: typeof raw.namingModelId === 'string' && raw.namingModelId ? raw.namingModelId.slice(0, 26) : null,
+    titlePrompt: stringAllowEmpty(raw.titlePrompt, DEFAULT_ASSISTANT_SETTINGS.titlePrompt, MAX_TITLE_PROMPT_CHARS),
+    autoRecover: booleanValue(raw.autoRecover, DEFAULT_ASSISTANT_SETTINGS.autoRecover),
+    requestTimeoutMs: integerInRange(raw.requestTimeoutMs, MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, DEFAULT_ASSISTANT_SETTINGS.requestTimeoutMs),
     realtimeModelId: typeof raw.realtimeModelId === 'string' && raw.realtimeModelId ? raw.realtimeModelId.slice(0, 26) : null,
     temperature: numberInRange(raw.temperature, 0, 1.5, DEFAULT_ASSISTANT_SETTINGS.temperature),
     limits,
@@ -928,10 +1096,45 @@ export function normalizeAssistantSettings(value: unknown): AssistantSettings {
     conflictReview: booleanValue(raw.conflictReview, DEFAULT_ASSISTANT_SETTINGS.conflictReview),
     aiConflictCheck: booleanValue(raw.aiConflictCheck, DEFAULT_ASSISTANT_SETTINGS.aiConflictCheck),
     toolModes: toolModesValue(raw),
+    toolGrants: toolGrantsValue(raw.toolGrants),
+    toolSettings: toolSettingsValue(raw.toolSettings),
+    toolDisclosure: enumValue(raw.toolDisclosure, ['all', 'on_demand'] as const, 'all'),
+    notifyChannel: enumValue(raw.notifyChannel, ['off', 'sound', 'browser', 'both'] as const, DEFAULT_ASSISTANT_SETTINGS.notifyChannel),
+    notifyOnlyUnfocused: booleanValue(raw.notifyOnlyUnfocused, DEFAULT_ASSISTANT_SETTINGS.notifyOnlyUnfocused),
+    notifyApproval: booleanValue(raw.notifyApproval, DEFAULT_ASSISTANT_SETTINGS.notifyApproval),
+    notifyFinish: booleanValue(raw.notifyFinish, DEFAULT_ASSISTANT_SETTINGS.notifyFinish),
+    autoCompactMode: enumValue(raw.autoCompactMode, ['off', 'absolute', 'ratio'] as const, DEFAULT_ASSISTANT_SETTINGS.autoCompactMode),
+    autoCompactTokens: numberInRange(raw.autoCompactTokens, 10_000, 2_000_000, DEFAULT_ASSISTANT_SETTINGS.autoCompactTokens),
+    autoCompactRatio: numberInRange(raw.autoCompactRatio, 0.3, 0.95, DEFAULT_ASSISTANT_SETTINGS.autoCompactRatio),
+    llmDebug: booleanValue(raw.llmDebug, DEFAULT_ASSISTANT_SETTINGS.llmDebug),
+    keepQuotedHighlight: booleanValue(raw.keepQuotedHighlight, DEFAULT_ASSISTANT_SETTINGS.keepQuotedHighlight),
+    quotePlacement: enumValue(raw.quotePlacement, ['before', 'after'] as const, DEFAULT_ASSISTANT_SETTINGS.quotePlacement),
+    editApplyMode: enumValue(raw.editApplyMode, ['preview', 'direct'] as const, DEFAULT_ASSISTANT_SETTINGS.editApplyMode),
+    semanticTopK: numberInRange(raw.semanticTopK, 5, 100, DEFAULT_ASSISTANT_SETTINGS.semanticTopK),
+    semanticScoreFloor: numberInRange(raw.semanticScoreFloor, 0, 1, DEFAULT_ASSISTANT_SETTINGS.semanticScoreFloor),
+    kbChunkChars: numberInRange(raw.kbChunkChars, 300, 4_000, DEFAULT_ASSISTANT_SETTINGS.kbChunkChars),
+    kbChunkConcurrency: numberInRange(raw.kbChunkConcurrency, 1, 4, DEFAULT_ASSISTANT_SETTINGS.kbChunkConcurrency),
+    subagentEnabled: booleanValue(raw.subagentEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentEnabled),
+    subagentAsyncEnabled: booleanValue(raw.subagentAsyncEnabled, DEFAULT_ASSISTANT_SETTINGS.subagentAsyncEnabled),
+    subagentModelId: typeof raw.subagentModelId === 'string' && raw.subagentModelId ? raw.subagentModelId.slice(0, 26) : null,
     offlineMode: booleanValue(raw.offlineMode, DEFAULT_ASSISTANT_SETTINGS.offlineMode),
     startView,
     noteScope: stringList(raw.noteScope, 12, 26),
     sendOnEnter: booleanValue(raw.sendOnEnter, DEFAULT_ASSISTANT_SETTINGS.sendOnEnter),
+    mentionMode: enumValue(raw.mentionMode, ['full', 'light'] as const, DEFAULT_ASSISTANT_SETTINGS.mentionMode),
+    chatScale: numberInRange(raw.chatScale, 0.7, 1.5, DEFAULT_ASSISTANT_SETTINGS.chatScale),
+    tabCompletionEnabled: booleanValue(raw.tabCompletionEnabled, DEFAULT_ASSISTANT_SETTINGS.tabCompletionEnabled),
+    tabCompletionModelId: typeof raw.tabCompletionModelId === 'string' && raw.tabCompletionModelId ? raw.tabCompletionModelId.slice(0, 26) : null,
+    tabCompletionConstraint: stringAllowEmpty(raw.tabCompletionConstraint, '', 1_000),
+    quickAskEnabled: booleanValue(raw.quickAskEnabled, DEFAULT_ASSISTANT_SETTINGS.quickAskEnabled),
+    quickAskTrigger: (typeof raw.quickAskTrigger === 'string' && raw.quickAskTrigger.trim() && raw.quickAskTrigger.trim().length <= 3
+      ? raw.quickAskTrigger.trim()
+      : DEFAULT_ASSISTANT_SETTINGS.quickAskTrigger),
+    imageCompressEnabled: booleanValue(raw.imageCompressEnabled, DEFAULT_ASSISTANT_SETTINGS.imageCompressEnabled),
+    fetchExternalImages: booleanValue(raw.fetchExternalImages, DEFAULT_ASSISTANT_SETTINGS.fetchExternalImages),
+    imageCompressQuality: integerInRange(raw.imageCompressQuality, 1, 100, DEFAULT_ASSISTANT_SETTINGS.imageCompressQuality),
+    exportReasoning: booleanValue(raw.exportReasoning, DEFAULT_ASSISTANT_SETTINGS.exportReasoning),
+    exportToolCalls: booleanValue(raw.exportToolCalls, DEFAULT_ASSISTANT_SETTINGS.exportToolCalls),
     customInstructions: stringValue(raw.customInstructions, DEFAULT_ASSISTANT_SETTINGS.customInstructions, MAX_CUSTOM_INSTRUCTIONS_CHARS),
     autoRoute: booleanValue(raw.autoRoute, DEFAULT_ASSISTANT_SETTINGS.autoRoute),
     webSearchEndpoint: searchEndpointValue(raw.webSearchEndpoint),
@@ -1207,6 +1410,15 @@ export interface AssistantSkill {
   scopes: AssistantTurnScope[]
   /** Whichever model should answer; null leaves the reader's current pick alone. */
   modelId: string | null
+  /** A saved prompt or a Skill package. The body lives in `content` for both. */
+  kind?: 'prompt' | 'skill'
+  /** One line the catalog can show when the body is loaded on demand. */
+  description?: string
+  /** Whether the body is always injected or only named until the model asks for it. */
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
+  source?: 'user' | 'builtin' | 'github'
+  position?: number
   createdAt: number
   updatedAt: number
 }
@@ -1225,6 +1437,11 @@ export interface AssistantSkillInput {
   tools?: string[]
   scopes?: AssistantTurnScope[]
   modelId?: string | null
+  kind?: 'prompt' | 'skill'
+  description?: string
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
+  source?: 'user' | 'builtin' | 'github'
 }
 
 /**
@@ -1245,6 +1462,10 @@ export interface AssistantSkillExport {
   tools: string[]
   scopes: AssistantTurnScope[]
   modelId: string | null
+  kind?: 'prompt' | 'skill'
+  description?: string
+  loadMode?: 'full' | 'on_demand'
+  enabled?: boolean
 }
 
 /** The file a reader downloads, and the shape an import reads back. */
@@ -1270,6 +1491,10 @@ export function skillBundleOf(skills: readonly AssistantSkill[]): AssistantSkill
       tools: skill.tools,
       scopes: skill.scopes,
       modelId: skill.modelId,
+      kind: skill.kind,
+      description: skill.description,
+      loadMode: skill.loadMode,
+      enabled: skill.enabled,
     })),
   }
 }
@@ -1365,6 +1590,176 @@ export interface AssistantConversation {
    * can judge without opening it, and what the click scrolls to once the thread is open.
    */
   match?: { messageId: string, snippet: string } | null
+  /**
+   * This thread's own overrides, read before the Agent's standing choice and the model's defaults.
+   *
+   * Absent fields mean "inherit": an empty conversation setting is not the same as a value equal to the
+   * account default, because changing that default later should move this thread with it.
+   */
+  settings?: AssistantConversationSettings
+  /** Where the thread came from, so a routine's or a sub-agent's thread can be picked out of the list. */
+  origin?: AssistantConversationOrigin
+}
+
+/** The places a conversation can come from; a thread started by the reader is `chat`. */
+export const CONVERSATION_ORIGINS = ['chat', 'automation', 'subagent', 'import'] as const
+export type AssistantConversationOrigin = (typeof CONVERSATION_ORIGINS)[number]
+
+/**
+ * What one conversation may override.
+ *
+ * Temperature and top-p are nullable on purpose: a reader can pin a value without clearing it, and
+ * clearing it restores the model's own default rather than writing today's default into the row.
+ */
+export interface AssistantConversationSettings {
+  modelId?: string | null
+  temperature?: number | null
+  topP?: number | null
+  webSearch?: boolean
+  /** A smaller prompt window for one thread, never larger than the model's own ceiling. */
+  maxContext?: number | null
+}
+
+const CONVERSATION_SETTING_KEYS = ['modelId', 'temperature', 'topP', 'webSearch', 'maxContext'] as const
+
+/**
+ * Reads a stored or submitted override, keeping only the fields this version knows.
+ *
+ * An unknown key is dropped here as well as refused by the route: rows restored from a newer backup
+ * must not make an older build send a field its request builder has never heard of. An invalid value
+ * becomes "inherit" rather than a zero, which would silently change what the model is asked.
+ */
+export function normalizeConversationSettings(raw: unknown): AssistantConversationSettings {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const record = raw as Record<string, unknown>
+  const out: AssistantConversationSettings = {}
+  if (typeof record.modelId === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(record.modelId)) out.modelId = record.modelId
+  else if (record.modelId === null) out.modelId = null
+  if (typeof record.temperature === 'number' && Number.isFinite(record.temperature) && record.temperature >= 0 && record.temperature <= 1.5) out.temperature = record.temperature
+  else if (record.temperature === null) out.temperature = null
+  if (typeof record.topP === 'number' && Number.isFinite(record.topP) && record.topP >= 0 && record.topP <= 1) out.topP = record.topP
+  else if (record.topP === null) out.topP = null
+  if (typeof record.webSearch === 'boolean') out.webSearch = record.webSearch
+  if (typeof record.maxContext === 'number' && Number.isInteger(record.maxContext) && record.maxContext >= 1_000 && record.maxContext <= 2_000_000) out.maxContext = record.maxContext
+  else if (record.maxContext === null) out.maxContext = null
+  return out
+}
+
+/** Whether the caller named a key this version does not understand. */
+export function unknownConversationSettingKeys(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const known = new Set<string>(CONVERSATION_SETTING_KEYS)
+  return Object.keys(raw).filter((key) => !known.has(key))
+}
+
+export const CURSOR_COMMAND_EXECUTIONS = ['quick-ask-ask', 'quick-ask-rewrite', 'add-to-composer', 'add-and-send'] as const
+export type CursorCommandExecution = (typeof CURSOR_COMMAND_EXECUTIONS)[number]
+
+/** A reusable instruction the reader can run from a selection or the command palette. */
+export interface AssistantCursorCommand {
+  id: string
+  label: string
+  instruction: string
+  execution: CursorCommandExecution
+  enabled: boolean
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
+export const MAX_CURSOR_COMMAND_LABEL_CHARS = 80
+export const MAX_CURSOR_COMMAND_INSTRUCTION_CHARS = 4_000
+export const MAX_CURSOR_COMMANDS = 100
+
+export const ASK_QUESTION_TYPES = ['single', 'multi', 'text'] as const
+export type AssistantQuestionType = (typeof ASK_QUESTION_TYPES)[number]
+
+/** One question a turn pauses on. `options` is present for single and multi, never for text. */
+export interface AssistantQuestion {
+  id: string
+  title: string
+  type: AssistantQuestionType
+  options?: string[]
+  required: boolean
+}
+
+export type AssistantQuestionStatus = 'pending' | 'answered' | 'cancelled' | 'expired'
+
+/** What the reader submits: one value per question, a list for `multi`. */
+export type AssistantQuestionAnswers = Record<string, string | string[]>
+
+export interface AssistantQuestionRow {
+  id: string
+  conversationId: string
+  callId: string
+  questions: AssistantQuestion[]
+  status: AssistantQuestionStatus
+  answers: AssistantQuestionAnswers | null
+  createdAt: number
+  expiresAt: number
+}
+
+export const MAX_ASK_QUESTIONS = 3
+export const MAX_ASK_OPTIONS = 6
+export const ASK_QUESTION_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * Reads the model's proposed questions, or null when the shape is not one this app can ask.
+ *
+ * The wire may hand back anything, so every field is checked here rather than trusted: a question with
+ * no id cannot be answered, and a single-choice question with no options cannot be chosen from.
+ */
+export function normalizeAskedQuestions(raw: unknown): AssistantQuestion[] | null {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_ASK_QUESTIONS) return null
+  const seen = new Set<string>()
+  const out: AssistantQuestion[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
+    const item = entry as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id.trim().slice(0, 40) : ''
+    const title = typeof item.title === 'string' ? item.title.trim().slice(0, 500) : ''
+    if (!id || !title || seen.has(id)) return null
+    seen.add(id)
+    if (!(ASK_QUESTION_TYPES as readonly string[]).includes(String(item.type))) return null
+    const type = item.type as AssistantQuestionType
+    let options: string[] | undefined
+    if (type !== 'text') {
+      if (!Array.isArray(item.options)) return null
+      const list = item.options
+        .filter((option): option is string => typeof option === 'string')
+        .map((option) => option.trim().slice(0, 200))
+        .filter(Boolean)
+        .slice(0, MAX_ASK_OPTIONS)
+      if (list.length < 2) return null
+      options = list
+    }
+    out.push({ id, title, type, required: item.required === true, ...(options ? { options } : {}) })
+  }
+  return out
+}
+
+/** Reads a submission, keeping only the question ids this row actually asked. */
+export function normalizeQuestionAnswers(questions: readonly AssistantQuestion[], raw: unknown): AssistantQuestionAnswers {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {}
+  const out: AssistantQuestionAnswers = {}
+  for (const question of questions) {
+    const value = source[question.id]
+    if (question.type === 'multi') {
+      if (!Array.isArray(value)) continue
+      const picked = value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim().slice(0, 200))
+        .filter((entry) => question.options?.includes(entry))
+      if (picked.length) out[question.id] = [...new Set(picked)]
+    } else {
+      if (typeof value !== 'string') continue
+      const text = value.trim().slice(0, 2_000)
+      if (!text) continue
+      // A typed "other" is allowed for a choice question only when it is not one of the offered options.
+      out[question.id] = text
+    }
+  }
+  return out
 }
 
 /**
@@ -1644,6 +2039,13 @@ export interface ToolActivity {
   detail?: string
   status: 'running' | 'success' | 'error'
   error?: string
+  /**
+   * Gemini's signature for the call this chip describes, kept so the next turn can echo the call.
+   *
+   * Google refuses a tool round whose earlier function call arrives without it, and the only copy of it
+   * is the reply that is being stored here. Absent for every other protocol.
+   */
+  signature?: string
   /** The draft this call created or rewrote, so the chip can offer to open it. */
   artifactId?: string
   approval?: PendingAction
@@ -1659,6 +2061,8 @@ export interface ToolActivity {
    */
   args?: string
   result?: string
+  /** Removed from the model's context by the reader's prune call; the row still shows what it found. */
+  pruned?: boolean
 }
 
 /**
@@ -1738,6 +2142,29 @@ export interface AssistantToolSpec {
   /** Only a destructive tool has one: the approval card names what will be removed. */
   approvalKey?: MessageKey
   permission: ToolPermission
+  /** Optional override; the manager derives it from the name when absent. */
+  category?: AssistantToolCategory
+}
+
+export const ASSISTANT_TOOL_CATEGORIES = ['notes', 'tasks', 'memory', 'context', 'external', 'apps'] as const
+export type AssistantToolCategory = (typeof ASSISTANT_TOOL_CATEGORIES)[number]
+
+const TOOL_CATEGORY_NAMES: Record<AssistantToolCategory, readonly string[]> = {
+  notes: ['create_note', 'update_note', 'delete_note', 'list_notes', 'count_notes', 'read_note', 'search_notes', 'list_folders', 'list_tags', 'list_artifacts', 'read_artifact', 'create_artifact', 'update_artifact'],
+  tasks: ['create_task', 'create_tasks_from_note', 'list_tasks', 'get_task', 'update_task', 'complete_task', 'plan_task', 'move_task', 'list_trash', 'restore_task', 'snooze_task', 'delete_task', 'rename_task_tag', 'delete_task_tag', 'list_task_lists', 'create_task_list', 'update_task_list', 'delete_task_list', 'delete_completed_tasks', 'add_task_step', 'check_task_step', 'delete_task_step', 'decompose_task', 'plan_today', 'task_stats'],
+  memory: ['remember', 'search_memories', 'update_memory', 'forget_memory'],
+  context: ['search', 'search_knowledge', 'ask_user_question', 'read_skill', 'delegate_subagent', 'context_prune_tool_results', 'notify_reader'],
+  external: ['image_generate', 'code_execute', 'fetch_url', 'web_search'],
+  apps: [],
+}
+
+/** The group a tool is shown under. Unknown names — including remote tools — land under Apps. */
+export function toolCategoryOf(name: string, override?: AssistantToolCategory): AssistantToolCategory {
+  if (override) return override
+  for (const category of ASSISTANT_TOOL_CATEGORIES) {
+    if (TOOL_CATEGORY_NAMES[category].includes(name)) return category
+  }
+  return 'apps'
 }
 
 /**
@@ -2064,6 +2491,10 @@ export interface AssistantMcpProblem {
  * `tests/assistant-tool-specs.test.ts` proves the two directions.
  */
 export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
+  { name: 'ask_user_question', labelKey: 'assistant.tool.ask_user_question', permission: 'read' },
+  { name: 'context_prune_tool_results', labelKey: 'assistant.tool.context_prune_tool_results', permission: 'read' },
+  { name: 'read_skill', labelKey: 'assistant.tool.read_skill', permission: 'read' },
+  { name: 'delegate_subagent', labelKey: 'assistant.tool.delegate_subagent', permission: 'read' },
   { name: 'create_task', labelKey: 'assistant.tool.create_task', permission: 'write' },
   { name: 'create_tasks_from_note', labelKey: 'assistant.tool.create_tasks_from_note', permission: 'write' },
   { name: 'list_tasks', labelKey: 'assistant.tool.list_tasks', permission: 'read' },
@@ -2094,6 +2525,7 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'update_memory', labelKey: 'assistant.tool.update_memory', permission: 'write' },
   { name: 'forget_memory', labelKey: 'assistant.tool.forget_memory', approvalKey: 'assistant.approval.forget_memory', permission: 'destructive' },
   { name: 'search_notes', labelKey: 'assistant.tool.search_notes', permission: 'read' },
+  { name: 'search_knowledge', labelKey: 'assistant.tool.search_knowledge', permission: 'read' },
   { name: 'list_notes', labelKey: 'assistant.tool.list_notes', permission: 'read' },
   { name: 'count_notes', labelKey: 'assistant.tool.count_notes', permission: 'read' },
   { name: 'list_folders', labelKey: 'assistant.tool.list_folders', permission: 'read' },
@@ -2492,7 +2924,7 @@ export interface AssistantMessage {
    * written before a reason could be given.
    */
   feedbackReason?: string
-  usage?: { inputTokens: number, outputTokens: number } | null
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
   /** How long the model took, in milliseconds — the denominator of the tokens-per-second figure. */
   durationMs?: number
   /** The model that answered, kept as text for the same reason a version keeps it. */
@@ -2630,10 +3062,15 @@ export interface Task {
   completedAt: number | null
 }
 
+export const PROJECT_MCP_MODES = ['off', 'auto', 'manual'] as const
+export type ProjectMcpMode = (typeof PROJECT_MCP_MODES)[number]
+
 export interface Project {
   id: string
   name: string
   description: string
+  /** The Agent's mark, in the same stored forms a provider or model icon uses. Empty means inferred. */
+  icon: string
   /**
    * What every conversation inside this project is answered under.
    *
@@ -2649,6 +3086,12 @@ export interface Project {
    */
   noteScope: string[]
   /**
+   * Folders this project must not read, even when a parent folder is in `noteScope`.
+   *
+   * Exclusion wins over inclusion, and the account's own scope is the ceiling both are applied to.
+   */
+  excludeScope: string[]
+  /**
    * The pages this project reads by name, as note ids.
    *
    * Beside `noteScope` rather than inside it, because the two select at a different grain and one merged
@@ -2660,12 +3103,77 @@ export interface Project {
   noteIds: string[]
   /** The model this project prefers, when the reader has said so. */
   modelId: string | null
+  /**
+   * Names of the built-in tools this Agent may use.
+   *
+   * Empty with `toolsLimited` off means "inherit the account's tool policy". An explicit empty list with
+   * `toolsLimited` on means "no tools"; the second boolean exists because those two states cannot be told
+   * apart in a JSON array otherwise.
+   */
+  tools: string[]
+  toolsLimited: boolean
+  /** Per-tool approval overrides for this Agent; tools not named follow the account's class policy. */
+  toolOverrides: Record<string, AssistantToolMode>
+  /** The reader's saved skills this Agent injects or may load. */
+  skillIds: string[]
+  /** How the assistant list groups this Agent; empty is the ungrouped section. */
+  group: string
+  /** One assistant's own sampling, when it has said anything. Null follows the model. */
+  temperature: number | null
+  topP: number | null
+  /** A ceiling for one answer; null keeps the model's own. */
+  maxOutputTokens: number | null
+  /** Whether a turn with no tools may answer in one request instead of streaming. */
+  stream: boolean
+  /** The most model requests one turn may make; null is the account's own bound. */
+  maxToolRounds: number | null
+  /** How many recent turns the assistant keeps; null keeps the whole thread. */
+  keepRecentMessages: number | null
+  /** Whether this assistant overrides the account's automatic-compaction thresholds. */
+  contextCustom: boolean
+  autoCompactMode: 'off' | 'absolute' | 'ratio'
+  autoCompactTokens: number
+  autoCompactRatio: number
+  /** Extra request-body fields this assistant adds, beyond its model's. */
+  customParams: AssistantCustomParam[]
+  /** Whether MCP tools are off, follow the reader's per-tool modes, or wait for a press on every call. */
+  mcpMode: ProjectMcpMode
+  /** The servers this assistant may use; empty means every enabled server. */
+  mcpServerIds: string[]
+  /** The knowledge bases this assistant answers from; empty means the whole notebook. */
+  knowledgeBaseIds: string[]
+  /** Whether the note on screen rides in the prompt. */
+  focusSync: boolean
+  /** Whether the current time rides in the prompt. */
+  timeAware: boolean
+  /** Whether a root `AGENTS.md` / `CLAUDE.md` note is read as project instructions. */
+  readProjectInstructions: boolean
+  /** Order in the Agent picker; lower first, ties fall back to name. */
+  position: number
   createdAt: number
   updatedAt: number
 }
 
-export interface Automation {
+/**
+ * A named slice of the notebook's AI index.
+ *
+ * It owns no vectors: the same account-wide embeddings answer every knowledge base, and the scope below
+ * decides which hits may be returned. That is what lets a reader split "work" from "reading" without
+ * paying for a second index, and why changing a scope never requires a rebuild.
+ */
+export interface KnowledgeBase {
   id: string
+  name: string
+  description: string
+  /** Folders whose notes belong to this knowledge base. Empty means the whole notebook. */
+  includeScope: string[]
+  /** Folders excluded even when a parent is included. */
+  excludeScope: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Automation {  id: string
   name: string
   kind: AutomationKind
   message: string
@@ -2838,6 +3346,16 @@ export function normalizeModelId(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, '').slice(0, 120) : ''
 }
 
+export interface AssistantContextBreakdown {
+  system: number
+  tools: number
+  rules: number
+  skills: number
+  memory: number
+  conversation: number
+  reasoning: number
+}
+
 export interface ChatStreamEvent {
   type: 'start' | 'text' | 'reasoning' | 'tool' | 'artifact' | 'title' | 'stage' | 'usage' | 'error' | 'done' | 'mcp_problem' | 'notice'
   conversationId?: string
@@ -2863,7 +3381,9 @@ export interface ChatStreamEvent {
   artifact?: AssistantArtifact
   change?: 'created' | 'updated' | 'restored'
   stage?: 'reading' | 'searching' | 'generating' | 'waiting'
-  usage?: { inputTokens: number, outputTokens: number }
+  usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number }
+  /** For `usage`: where the prompt's estimated tokens went. */
+  contextBreakdown?: AssistantContextBreakdown
   /** For `mcp_problem`: which external server failed to list, and why. */
   server?: string
   /**

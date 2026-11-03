@@ -14,17 +14,18 @@
  */
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Download, FileText, Folder, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2, Upload, Wrench } from 'lucide-react'
-import type { AssistantModel, AssistantTurnScope, AssistantSkill, SkillImportSkip } from '@shared/assistant'
+import type { AssistantModel, AssistantProvider, AssistantTurnScope, AssistantSkill, SkillImportSkip } from '@shared/assistant'
 import { MAX_SKILL_CONTENT_CHARS, MAX_SKILL_ICON_CHARS, MAX_SKILL_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS } from '@shared/assistant'
 import { ASSISTANT_TOOL_BY_NAME } from '@shared/assistant'
 import { t } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { useDebounced } from '../../lib/hooks'
 import { Button, IconButton } from '../../components/primitives'
-import { Field, Input, Select, Textarea } from '../../components/form'
-import { Menu, Modal, confirm, type MenuItem } from '../../components/overlay'
+import { Field, Input, Select, Switch, Textarea } from '../../components/form'
+import { Menu, Modal, confirm, prompt, type MenuItem } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 import { NoteScopePicker, useVaultFolders } from './NoteScopePicker'
 import { readSkillBundleFile } from './skill-bundle'
 import { exampleSkills } from './skill-examples'
@@ -41,9 +42,13 @@ interface Draft {
   tools: string[]
   scopes: AssistantTurnScope[]
   modelId: string | null
+  kind: 'prompt' | 'skill'
+  description: string
+  loadMode: 'full' | 'on_demand'
+  enabled: boolean
 }
 
-const EMPTY: Draft = { id: null, title: '', content: '', group: '', icon: '', tools: [], scopes: [], modelId: null }
+const EMPTY: Draft = { id: null, title: '', content: '', group: '', icon: '', tools: [], scopes: [], modelId: null, kind: 'prompt', description: '', loadMode: 'full', enabled: true }
 
 const draftOf = (skill: AssistantSkill): Draft => ({
   id: skill.id,
@@ -54,6 +59,10 @@ const draftOf = (skill: AssistantSkill): Draft => ({
   tools: skill.tools,
   scopes: skill.scopes,
   modelId: skill.modelId,
+  kind: skill.kind ?? 'prompt',
+  description: skill.description ?? '',
+  loadMode: skill.loadMode ?? 'full',
+  enabled: skill.enabled !== false,
 })
 
 /** The binding summary one row shows under its words, or nothing when the skill is only words. */
@@ -66,9 +75,10 @@ function bindingHint(skill: AssistantSkill, models: AssistantModel[]): string {
   return parts.join(' · ')
 }
 
-function SkillEditor({ draft, models, busy, onChange, onSubmit, onClose }: {
+function SkillEditor({ draft, models, providers, busy, onChange, onSubmit, onClose }: {
   draft: Draft
   models: AssistantModel[]
+  providers: AssistantProvider[]
   busy: boolean
   onChange: (draft: Draft) => void
   onSubmit: (draft: Draft) => void
@@ -119,6 +129,31 @@ function SkillEditor({ draft, models, busy, onChange, onSubmit, onClose }: {
         <Input autoFocus value={draft.title} maxLength={MAX_SKILL_TITLE_CHARS} aria-label={t('assistant.skills.field_title')} placeholder={t('assistant.skills.field_title')} onChange={(event) => patch({ title: event.target.value })} />
       </div>
       <Input value={draft.group} maxLength={60} aria-label={t('assistant.skills.group')} placeholder={t('assistant.skills.group')} onChange={(event) => patch({ group: event.target.value })} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field label={t('assistant.skills.kind')}>
+          <Select aria-label={t('assistant.skills.kind')} value={draft.kind} onChange={(event) => patch({ kind: event.target.value === 'skill' ? 'skill' : 'prompt' })}>
+            <option value="prompt">{t('assistant.skills.kind_prompt')}</option>
+            <option value="skill">{t('assistant.skills.kind_skill')}</option>
+          </Select>
+        </Field>
+        <Field label={t('assistant.skills.load_mode')}>
+          <Select aria-label={t('assistant.skills.load_mode')} value={draft.loadMode} onChange={(event) => patch({ loadMode: event.target.value === 'on_demand' ? 'on_demand' : 'full' })}>
+            <option value="full">{t('assistant.skills.load_full')}</option>
+            <option value="on_demand">{t('assistant.skills.load_on_demand')}</option>
+          </Select>
+        </Field>
+      </div>
+      <Input
+        value={draft.description}
+        maxLength={500}
+        aria-label={t('assistant.skills.description')}
+        placeholder={t('assistant.skills.description')}
+        onChange={(event) => patch({ description: event.target.value })}
+      />
+      <label className="flex items-center justify-between gap-3 text-[length:var(--text-12)] text-[var(--text-secondary)]">
+        {t('assistant.skills.enabled')}
+        <Switch checked={draft.enabled} label={t('assistant.skills.enabled')} onChange={(enabled) => patch({ enabled })} />
+      </label>
       <Textarea
         value={draft.content}
         maxLength={MAX_SKILL_CONTENT_CHARS}
@@ -177,7 +212,7 @@ function SkillEditor({ draft, models, busy, onChange, onSubmit, onClose }: {
         >
           <option value="">{t('assistant.skills.model_follow')}</option>
           {models.map((model) => (
-            <option key={model.id} value={model.id}>{model.label || model.model}</option>
+            <option key={model.id} value={model.id}>{modelOptionLabel(model, models, providers)}</option>
           ))}
         </Select>
       </Field>
@@ -192,9 +227,11 @@ export function SkillsView() {
   const saveSkill = useAssistant((state) => state.saveSkill)
   const removeSkill = useAssistant((state) => state.removeSkill)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const loadSettings = useAssistant((state) => state.loadSettings)
   const exportSkills = useAssistant((state) => state.exportSkills)
   const importSkills = useAssistant((state) => state.importSkills)
+  const importGithubSkill = useAssistant((state) => state.importGithubSkill)
   const toast = useUi((state) => state.toast)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -235,6 +272,10 @@ export function SkillsView() {
         tools: next.tools,
         scopes: next.scopes,
         modelId: next.modelId,
+        kind: next.kind,
+        description: next.description.trim(),
+        loadMode: next.loadMode,
+        enabled: next.enabled,
       }
       if (next.id) await saveSkill(next.id, input)
       else await createSkill(input)
@@ -296,6 +337,21 @@ export function SkillsView() {
 
   const menuItems: MenuItem[] = [
     { id: 'import', label: t('assistant.skills.import'), icon: <Upload size={13} />, onSelect: () => bundleRef.current?.click() },
+    {
+      id: 'github',
+      label: t('assistant.skills.import_github'),
+      icon: <FileText size={13} />,
+      onSelect: () => {
+        void prompt({
+          title: t('assistant.skills.import_github'),
+          description: t('assistant.skills.import_github_hint'),
+          placeholder: 'https://github.com/owner/repo/blob/main/SKILL.md',
+          confirmLabel: t('assistant.skills.import_github'),
+        }).then((url) => {
+          if (url) void importGithubSkill(url.trim())
+        })
+      },
+    },
     { id: 'export', label: t('assistant.skills.export'), icon: <Download size={13} />, onSelect: () => void exportSkills() },
     { id: 'examples', label: t('assistant.skills.add_examples'), icon: <Sparkles size={13} />, separatorBefore: true, onSelect: () => void runImport(exampleSkills()) },
   ]
@@ -349,7 +405,14 @@ export function SkillsView() {
                       : <FileText size={13} className="mt-0.5 shrink-0 text-[var(--text-quaternary)]" />}
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDraft(draftOf(skill))}>
                       <span className="block truncate text-[length:var(--text-12-5)] text-[var(--text-primary)]">{skill.title}</span>
-                      <span className={cn('block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]')}>{skill.content.replace(/\s+/g, ' ')}</span>
+                      <span className={cn('block truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]')}>{skill.description || skill.content.replace(/\s+/g, ' ')}</span>
+                      <span className="mt-0.5 block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                        {[
+                          skill.kind === 'skill' ? t('assistant.skills.kind_skill') : t('assistant.skills.kind_prompt'),
+                          skill.loadMode === 'on_demand' ? t('assistant.skills.badge_on_demand') : '',
+                          skill.enabled === false ? t('assistant.skills.badge_disabled') : '',
+                        ].filter(Boolean).join(' · ')}
+                      </span>
                       {hint && (
                         <span className="mt-0.5 flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                           {skill.tools.length > 0 && <Wrench size={10} aria-hidden />}
@@ -371,6 +434,7 @@ export function SkillsView() {
         <SkillEditor
           draft={draft}
           models={chatModels}
+          providers={providers}
           busy={busy}
           onChange={setDraft}
           onSubmit={(next) => void submit(next)}

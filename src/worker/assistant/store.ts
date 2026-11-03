@@ -9,7 +9,7 @@
  *    written by an older build, restored from a backup file, or edited by hand — stored text is input.
  */
 
-import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
+import { ASSISTANT_MODEL_KINDS, ASSISTANT_MODEL_PURPOSES, ASSISTANT_TOOL_MODES, CONVERSATION_ORIGINS, MAX_ARTIFACT_VERSIONS, MAX_TURN_SCOPES, PROJECT_MCP_MODES, SAVED_MESSAGE_EXCERPT_CHARS, clipMusicClientEffect, clipSuggestionList, clipToolPayload, isMusicClientEffect, normalizeConversationSettings, parseCustomParams, isNoteSourceId, isSourceUrl } from '@shared/assistant'
 import { activePricePeriod, parsePricePeriods } from '@shared/price-periods'
 import { parseAssistantIcon } from '@shared/assistant-icons'
 import type {
@@ -17,6 +17,14 @@ import type {
   AssistantArtifactVersion,
   AssistantArtifactVersionSource,
   AssistantConversation,
+  AssistantConversationOrigin,
+  AssistantConversationSettings,
+  AssistantCursorCommand,
+  CursorCommandExecution,
+  AssistantQuestion,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
+  AssistantQuestionStatus,
   AssistantMemory,
   AssistantMemoryCategory,
   AssistantMemorySource,
@@ -31,16 +39,19 @@ import type {
   AssistantModelKind,
   AssistantModelPurpose,
   AssistantCustomParam,
+  ProjectMcpMode,
   AssistantNotification,
   AssistantProvider,
   AssistantProviderKey,
   AssistantSearchKey,
   AssistantReasoning,
   AssistantSettings,
+  AssistantToolMode,
   Automation,
   AutomationKind,
   AutomationRun,
   AutomationStatus,
+  KnowledgeBase,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -55,6 +66,7 @@ import type {
   SavedMessage,
 } from '@shared/assistant'
 import { dialectsForProtocol } from '@shared/reasoning'
+import { cosineSimilarityPrecomputed, decodeVector } from '../mcp/ai-search'
 import {
   COMPLETED_PAGE_SIZE,
   MAX_DAY_TRACKED_MS,
@@ -691,6 +703,7 @@ interface MessageRow {
   source: string | null
   input_tokens: number | null
   output_tokens: number | null
+  cached_input_tokens: number | null
   duration_ms: number | null
   model_label: string | null
   reasoning: string | null
@@ -704,7 +717,7 @@ interface MessageRow {
 }
 
 const MESSAGE_COLUMNS
-  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, saved_at, created_at`
+  = `id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, cached_input_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, saved_at, created_at`
 /** How many answers this turn has already displaced; only the transcript list pays for it. */
 const MESSAGE_VERSION_COUNT
   = `(SELECT COUNT(*) FROM chat_answer_versions v WHERE v.user_id = chat_messages.user_id AND v.message_id = chat_messages.id) AS version_count`
@@ -803,7 +816,7 @@ function toMessage(r: MessageRow): AssistantMessage {
     error: r.error,
     source: r.source === 'import' ? 'import' : 'chat',
     createdAt: r.created_at,
-    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0 },
+    usage: { inputTokens: r.input_tokens ?? 0, outputTokens: r.output_tokens ?? 0, ...(r.cached_input_tokens ? { cachedInputTokens: r.cached_input_tokens } : {}) },
     durationMs: r.duration_ms ?? 0,
     modelLabel: r.model_label ?? '',
     ...(verdict ? { feedback: verdict.verdict } : {}),
@@ -1474,7 +1487,7 @@ export class AssistantStore {
    * literals from this module, and the caller-supplied part is only ever a value.
    */
   private async partialUpdate(
-    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
+    table: 'chat_models' | 'chat_providers' | 'chat_projects' | 'chat_knowledge_bases' | 'chat_cursor_commands' | 'todos_tasks' | 'todos_lists' | 'todos_tags',
     id: string,
     fields: readonly (readonly [column: string, value: unknown])[],
   ): Promise<number> {
@@ -2143,8 +2156,7 @@ export class AssistantStore {
   // every statement below, so the mismatch is read once here rather than puzzled over at each query.
 
   /** The reader's saved skills, newest first; `group` narrows to one folder of them. */
-  async listSkills(options: { query?: string, group?: string, limit?: number } = {}): Promise<AssistantSkill[]> {
-    const q = new Query(this.userId)
+  async listSkills(options: { query?: string, group?: string, limit?: number } = {}): Promise<AssistantSkill[]> {    const q = new Query(this.userId)
     if (options.group) q.eq(`group_name`, options.group)
     if (options.query) {
       const pattern = q.add(containsPattern(options.query))
@@ -2172,6 +2184,8 @@ export class AssistantStore {
   async insertSkill(input: {
     title: string, content: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+    kind?: 'prompt' | 'skill', description?: string, loadMode?: 'full' | 'on_demand',
+    enabled?: boolean, source?: 'user' | 'builtin' | 'github',
   }): Promise<AssistantSkill> {
     const id = newId()
     const at = Date.now()
@@ -2180,13 +2194,20 @@ export class AssistantStore {
     const tools = input.tools ?? []
     const scopes = input.scopes ?? []
     const modelId = input.modelId ?? null
+    const kind = input.kind === 'skill' ? 'skill' : 'prompt'
+    const description = input.description?.trim() ?? ''
+    const loadMode = input.loadMode === 'on_demand' ? 'on_demand' : 'full'
+    const enabled = input.enabled !== false
+    const source = input.source === 'builtin' || input.source === 'github' ? input.source : 'user'
     await this.write(
-      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)`,
-      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, icon, at,
+      `INSERT INTO chat_prompts (id, user_id, title, content, group_name, tools, scopes, model_id, icon, kind, description, load_mode, enabled, source, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)`,
+      id, input.title, input.content, group, JSON.stringify(tools), JSON.stringify(scopes), modelId, icon,
+      kind, description, loadMode, enabled ? 1 : 0, source, at, at,
     )
     return {
       id, title: input.title, content: input.content, group, icon, tools, scopes, modelId,
+      kind, description, loadMode, enabled, source, position: at,
       createdAt: at, updatedAt: at,
     }
   }
@@ -2194,6 +2215,8 @@ export class AssistantStore {
   async updateSkill(id: string, patch: {
     title?: string, content?: string, group?: string, icon?: string,
     tools?: string[], scopes?: AssistantTurnScope[], modelId?: string | null,
+    kind?: 'prompt' | 'skill', description?: string, loadMode?: 'full' | 'on_demand',
+    enabled?: boolean, source?: 'user' | 'builtin' | 'github',
   }): Promise<AssistantSkill | null> {
     const existing = await this.getSkill(id)
     if (!existing) return null
@@ -2206,14 +2229,21 @@ export class AssistantStore {
       ...(patch.tools !== undefined ? { tools: patch.tools } : {}),
       ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
       ...(patch.modelId !== undefined ? { modelId: patch.modelId } : {}),
+      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.loadMode !== undefined ? { loadMode: patch.loadMode } : {}),
+      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.source !== undefined ? { source: patch.source } : {}),
       updatedAt: Date.now(),
     }
     await this.write(
       `UPDATE chat_prompts SET title = ?2, content = ?3, group_name = ?4, tools = ?5, scopes = ?6,
-         model_id = ?7, icon = ?8, updated_at = ?9
-         WHERE user_id = ?1 AND id = ?10`,
+         model_id = ?7, icon = ?8, kind = ?9, description = ?10, load_mode = ?11, enabled = ?12,
+         source = ?13, updated_at = ?14
+         WHERE user_id = ?1 AND id = ?15`,
       next.title, next.content, next.group, JSON.stringify(next.tools), JSON.stringify(next.scopes),
-      next.modelId, next.icon, next.updatedAt, id,
+      next.modelId, next.icon, next.kind, next.description, next.loadMode, next.enabled ? 1 : 0,
+      next.source, next.updatedAt, id,
     )
     return next
   }
@@ -2223,6 +2253,88 @@ export class AssistantStore {
     if (!existing) return false
     await this.write(`DELETE FROM chat_prompts WHERE user_id = ?1 AND id = ?2`, id)
     return true
+  }
+
+  async listCursorCommands(): Promise<AssistantCursorCommand[]> {
+    const rows = await this.rows<CursorCommandRow>(
+      `SELECT id, label, instruction, execution, enabled, position, created_at, updated_at
+         FROM chat_cursor_commands WHERE user_id = ?1 ORDER BY position, created_at`,
+      this.userId,
+    )
+    return rows.map(toCursorCommand)
+  }
+
+  async createCursorCommand(input: {
+    label: string
+    instruction: string
+    execution: CursorCommandExecution
+    enabled?: boolean
+    position?: number
+  }): Promise<AssistantCursorCommand> {
+    const id = newId()
+    const at = Date.now()
+    const position = input.position ?? at
+    await this.write(
+      `INSERT INTO chat_cursor_commands (user_id, id, label, instruction, execution, enabled, position, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)`,
+      id, input.label, input.instruction, input.execution, input.enabled === false ? 0 : 1, position, at,
+    )
+    return { id, label: input.label, instruction: input.instruction, execution: input.execution, enabled: input.enabled !== false, position, createdAt: at, updatedAt: at }
+  }
+
+  async updateCursorCommand(id: string, patch: {
+    label?: string
+    instruction?: string
+    execution?: CursorCommandExecution
+    enabled?: boolean
+    position?: number
+  }): Promise<AssistantCursorCommand | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.label !== undefined) fields.push(['label', patch.label])
+    if (patch.instruction !== undefined) fields.push(['instruction', patch.instruction])
+    if (patch.execution !== undefined) fields.push(['execution', patch.execution])
+    if (patch.enabled !== undefined) fields.push(['enabled', patch.enabled ? 1 : 0])
+    if (patch.position !== undefined) fields.push(['position', patch.position])
+    if (fields.length) {
+      const changes = await this.partialUpdate('chat_cursor_commands', id, [...fields, ['updated_at', Date.now()]])
+      if (!changes) return null
+    }
+    const row = await this.one<CursorCommandRow>(
+      `SELECT id, label, instruction, execution, enabled, position, created_at, updated_at
+         FROM chat_cursor_commands WHERE user_id = ?1 AND id = ?2`,
+      this.userId, id,
+    )
+    return row ? toCursorCommand(row) : null
+  }
+
+  async deleteCursorCommand(id: string): Promise<boolean> {
+    const changes = await this.write(`DELETE FROM chat_cursor_commands WHERE user_id = ?1 AND id = ?2`, id)
+    return changes > 0
+  }
+
+  async createSubagentTask(input: {
+    parentConversationId: string
+    parentMessageId: string | null
+    callId: string | null
+    description: string
+    prompt: string
+    modelId: string | null
+  }): Promise<string> {
+    const id = newId()
+    await this.write(
+      `INSERT INTO chat_subagent_tasks (user_id, id, parent_conversation_id, parent_message_id, call_id, description, prompt, model_id, status, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'running', ?9)`,
+      id, input.parentConversationId, input.parentMessageId, input.callId, input.description, input.prompt, input.modelId, Date.now(),
+    )
+    return id
+  }
+
+  async finishSubagentTask(id: string, result: { status: 'success' | 'error' | 'cancelled', result: string | null, error: string | null, toolCalls: number, tokens: number }): Promise<void> {
+    await this.write(
+      `UPDATE chat_subagent_tasks SET status = ?2, result = ?3, error = ?4, tool_calls = ?5, tokens = ?6, finished_at = ?7
+        WHERE user_id = ?1 AND id = ?8`,
+      result.status, result.result, result.error, result.toolCalls, result.tokens, Date.now(), id,
+    )
   }
 
   /** Every attachment the reader has, newest first — the list the composer's picker walks. */
@@ -2235,6 +2347,39 @@ export class AssistantStore {
       ...q.binds,
     )
     return rows.map(toChatAttachment)
+  }
+
+
+  async readerBookTitle(bookId: string): Promise<string | null> {
+    const row = await this.one<{ title: string }>(`SELECT title FROM reader_books WHERE user_id = ?1 AND id = ?2`, this.userId, bookId)
+    return row?.title ?? null
+  }
+
+  async replaceReaderPages(bookId: string, title: string, pages: Array<{ page: number, chunks: Array<{ text: string, vector: ArrayBuffer, norm: number }> }>): Promise<number> {
+    const at = Date.now()
+    let written = 0
+    for (const entry of pages) {
+      await this.write(`DELETE FROM chat_reader_embeddings WHERE user_id = ?1 AND book_id = ?2 AND page = ?3`, bookId, entry.page)
+      for (const [chunk, piece] of entry.chunks.entries()) {
+        await this.write(
+          `INSERT INTO chat_reader_embeddings (user_id, book_id, page, chunk, title, text, vector, norm, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+          bookId, entry.page, chunk, title, piece.text, piece.vector, piece.norm, at,
+        )
+        written += 1
+      }
+    }
+    return written
+  }
+
+  async searchReaderChunks(vector: Float32Array, norm: number, limit = 5): Promise<Array<{ bookId: string, title: string, page: number, text: string, score: number }>> {
+    const rows = await this.rows<{ book_id: string, title: string, page: number, text: string, vector: ArrayBuffer, norm: number }>(
+      `SELECT book_id, title, page, text, vector, norm FROM chat_reader_embeddings WHERE user_id = ?1 ORDER BY indexed_at DESC LIMIT 2000`, this.userId)
+    return rows.map((row) => ({ bookId: row.book_id, title: row.title, page: row.page, text: row.text, score: cosineSimilarityPrecomputed(vector, norm, decodeVector(row.vector), row.norm) }))
+      .sort((a, b) => b.score - a.score).slice(0, limit)
+  }
+
+  async deleteReaderChunks(bookId: string): Promise<void> {
+    await this.write(`DELETE FROM chat_reader_embeddings WHERE user_id = ?1 AND book_id = ?2`, bookId)
   }
 
   // ----------------------------------------------------------- conversations
@@ -2255,6 +2400,8 @@ export class AssistantStore {
       /** Narrows to the threads started from one note; an exact id match, bounded by the account. */
       noteId?: string
       tagId?: string
+      /** Narrows to one source: a routine's threads, a sub-agent's, an import's, or the reader's own. */
+      origin?: AssistantConversationOrigin
       starred?: boolean
       pinned?: boolean
       archived?: boolean
@@ -2284,6 +2431,7 @@ export class AssistantStore {
     // threads started from it. The id is matched exactly, and `user_id = ?1` is already in `q.where`, so a
     // foreign note id can only ever reach this account's own rows.
     if (filter.noteId !== undefined) q.eq('note_id', filter.noteId)
+    if (filter.origin !== undefined) q.eq('origin', filter.origin)
     if (filter.starred) q.raw('starred = 1')
     if (filter.pinned) q.raw('pinned = 1')
     // Absent means "either", which is what the backup and the assistant's own search want: an archived
@@ -2605,14 +2753,16 @@ export class AssistantStore {
     parentId: string | null = null,
     /** The note this thread was started from, when it was started from one. */
     noteId: string | null = null,
+    /** Where it came from: a routine, a sub-agent, an import, or the reader. */
+    origin: AssistantConversationOrigin = 'chat',
   ): Promise<AssistantConversation> {
     const id = newId()
     const at = Date.now()
     await this.write(
-      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, note_id, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-      id, title, folderId, ephemeral ? 1 : 0, parentId, noteId, at, at,
+      `INSERT INTO chat_conversations (id, user_id, title, folder_id, ephemeral, parent_id, note_id, origin, created_at, updated_at) VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      id, title, folderId, ephemeral ? 1 : 0, parentId, noteId, origin, at, at,
     )
-    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, noteId, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
+    return { id, title, pinned: false, starred: false, archived: false, ephemeral, parentId, folderId, noteId, settings: {}, origin, createdAt: at, updatedAt: at, messageCount: 0, tags: [], summary: null, summaryUpto: null }
   }
 
   /**
@@ -2626,6 +2776,80 @@ export class AssistantStore {
       `UPDATE chat_conversations SET note_id = ?2 WHERE user_id = ?1 AND id = ?3 AND note_id IS NULL`,
       noteId, id,
     )
+  }
+
+  /**
+   * Replaces this thread's overrides whole.
+   *
+   * A merge would leave a field the reader cleared in place: the client sends the settings it means,
+   * and a key it stopped sending is a key that must stop applying.
+   */
+  async setConversationSettings(id: string, settings: AssistantConversationSettings): Promise<void> {
+    await this.write(
+      `UPDATE chat_conversations SET settings = ?2, updated_at = ?3 WHERE user_id = ?1 AND id = ?4`,
+      JSON.stringify(normalizeConversationSettings(settings)), Date.now(), id,
+    )
+  }
+
+  async createQuestion(input: {
+    conversationId: string
+    callId: string
+    questions: AssistantQuestion[]
+    expiresAt: number
+  }): Promise<AssistantQuestionRow> {
+    const id = newId()
+    const at = Date.now()
+    await this.write(
+      `INSERT INTO chat_questions (user_id, id, conversation_id, call_id, questions, status, answers, created_at, expires_at, answered_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'pending', NULL, ?6, ?7, NULL)`,
+      id, input.conversationId, input.callId, JSON.stringify(input.questions), at, input.expiresAt,
+    )
+    return { id, conversationId: input.conversationId, callId: input.callId, questions: input.questions, status: 'pending', answers: null, createdAt: at, expiresAt: input.expiresAt }
+  }
+
+  /** The row as it stands now, with a lapsed pending question marked expired before it is answered from. */
+  async getQuestion(id: string): Promise<AssistantQuestionRow | null> {
+    const row = await this.one<QuestionRow>(`SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND id = ?2`, this.userId, id)
+    if (!row) return null
+    if (row.status === 'pending' && row.expires_at <= Date.now()) {
+      await this.write(`UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`, id)
+      return toQuestion({ ...row, status: 'expired' })
+    }
+    return toQuestion(row)
+  }
+
+  async pendingQuestions(conversationId: string): Promise<AssistantQuestionRow[]> {
+    await this.write(
+      `UPDATE chat_questions SET status = 'expired' WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' AND expires_at <= ?3`,
+      conversationId, Date.now(),
+    )
+    const rows = await this.rows<QuestionRow>(
+      `SELECT ${QUESTION_COLUMNS} FROM chat_questions WHERE user_id = ?1 AND conversation_id = ?2 AND status = 'pending' ORDER BY created_at ASC`,
+      this.userId, conversationId,
+    )
+    return rows.map(toQuestion)
+  }
+
+  /** Only a pending question can be answered; a second submission returns null rather than overwriting. */
+  async answerQuestion(id: string, answers: AssistantQuestionAnswers): Promise<AssistantQuestionRow | null> {
+    const at = Date.now()
+    await this.write(
+      `UPDATE chat_questions SET status = 'answered', answers = ?3, answered_at = ?4
+        WHERE user_id = ?1 AND id = ?2 AND status = 'pending' AND expires_at > ?4`,
+      id, JSON.stringify(answers), at,
+    )
+    const row = await this.getQuestion(id)
+    return row?.status === 'answered' ? row : null
+  }
+
+  async cancelQuestion(id: string): Promise<AssistantQuestionRow | null> {
+    await this.write(
+      `UPDATE chat_questions SET status = 'cancelled', answered_at = ?3
+        WHERE user_id = ?1 AND id = ?2 AND status = 'pending'`,
+      id, Date.now(),
+    )
+    const row = await this.getQuestion(id)
+    return row && row.status !== 'pending' ? row : null
   }
 
   /**
@@ -3289,7 +3513,7 @@ export class AssistantStore {
     status?: AssistantMessage['status']
     error?: string | null
     id?: string
-    usage?: { inputTokens: number, outputTokens: number } | null
+    usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
     durationMs?: number
     modelLabel?: string
     source?: 'chat' | 'import'
@@ -3315,13 +3539,14 @@ export class AssistantStore {
     const suggestionList = clipSuggestionList(input.suggestions ?? [])
     await this.write(
       `INSERT INTO chat_messages
-         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, created_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, '', ?17, ?18, ?19, ?16)`,
+         (id, user_id, conversation_id, role, content, reasoning, tools, attachments, status, error, source, input_tokens, output_tokens, cached_input_tokens, duration_ms, model_label, feedback, sources, scopes, suggestions, created_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?20, ?14, ?15, '', ?17, ?18, ?19, ?16)`,
       id, input.conversationId, input.role, input.content, reasoning, JSON.stringify(tools), JSON.stringify(attachments),
       status, error, source, usage?.inputTokens ?? 0, usage?.outputTokens ?? 0, durationMs, input.modelLabel ?? '', at,
       JSON.stringify(input.sources ?? []),
       JSON.stringify((input.scopes ?? []).slice(0, MAX_TURN_SCOPES)),
       JSON.stringify(suggestionList),
+      usage?.cachedInputTokens || null,
     )
     await this.write(
       `UPDATE chat_conversations SET updated_at = ?2 WHERE user_id = ?1 AND id = ?3`,
@@ -3339,7 +3564,7 @@ export class AssistantStore {
       error,
       source,
       createdAt: at,
-      usage,
+      usage: usage ? (usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }) : usage,
       durationMs,
       modelLabel: input.modelLabel ?? '',
       // The pages this answer leaned on are filed above, so they belong on the row handed back: the live
@@ -3586,7 +3811,7 @@ export class AssistantStore {
     reasoning?: string
     tools?: ToolActivity[]
     modelLabel?: string
-    usage?: { inputTokens: number, outputTokens: number } | null
+    usage?: { inputTokens: number, outputTokens: number, cachedInputTokens?: number } | null
     durationMs?: number
     createdAt?: number
   }): Promise<AssistantAnswerVersion | null> {
@@ -3621,7 +3846,7 @@ export class AssistantStore {
       reasoning: input.reasoning ?? '',
       tools,
       modelLabel,
-      usage,
+      usage: usage ? (usage.cachedInputTokens ? usage : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }) : usage,
       durationMs,
       createdAt: at,
     }
@@ -6126,7 +6351,7 @@ export class AssistantStore {
 
   async listProjects(): Promise<Project[]> {
     const list = await this.rows<ProjectRow>(
-      `SELECT * FROM chat_projects WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
+      `SELECT * FROM chat_projects WHERE user_id = ?1 ORDER BY position ASC, name COLLATE NOCASE`,
       this.userId,
     )
     return list.map(toProject)
@@ -6146,28 +6371,125 @@ export class AssistantStore {
   }
 
   async createProject(input: {
-    name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null,
+    name: string
+    description?: string
+    icon?: string
+    instructions?: string
+    noteScope?: string[]
+    excludeScope?: string[]
+    noteIds?: string[]
+    modelId?: string | null
+    tools?: string[]
+    toolsLimited?: boolean
+    toolOverrides?: Record<string, AssistantToolMode>
+    skillIds?: string[]
+    group?: string
+    temperature?: number | null
+    topP?: number | null
+    maxOutputTokens?: number | null
+    stream?: boolean
+    maxToolRounds?: number | null
+    keepRecentMessages?: number | null
+    contextCustom?: boolean
+    autoCompactMode?: Project['autoCompactMode']
+    autoCompactTokens?: number
+    autoCompactRatio?: number
+    customParams?: AssistantCustomParam[]
+    mcpMode?: ProjectMcpMode
+    mcpServerIds?: string[]
+    knowledgeBaseIds?: string[]
+    focusSync?: boolean
+    timeAware?: boolean
+    readProjectInstructions?: boolean
+    position?: number
   }): Promise<Project> {
     const id = newId()
     const at = Date.now()
     const name = input.name.trim()
     const description = input.description ?? ''
+    const icon = input.icon ?? ''
     const instructions = input.instructions ?? ''
     const noteScope = input.noteScope ?? []
+    const excludeScope = input.excludeScope ?? []
     const noteIds = input.noteIds ?? []
     const modelId = input.modelId ?? null
+    const tools = input.tools ?? []
+    const toolsLimited = input.toolsLimited === true
+    const toolOverrides = input.toolOverrides ?? {}
+    const skillIds = input.skillIds ?? []
+    const group = input.group ?? ''
+    const settings: ProjectAssistantSettings = {
+      temperature: input.temperature ?? null,
+      topP: input.topP ?? null,
+      maxOutputTokens: input.maxOutputTokens ?? null,
+      stream: input.stream !== false,
+      maxToolRounds: input.maxToolRounds ?? null,
+      keepRecentMessages: input.keepRecentMessages ?? null,
+      contextCustom: input.contextCustom === true,
+      autoCompactMode: input.autoCompactMode ?? 'off',
+      autoCompactTokens: input.autoCompactTokens ?? 100_000,
+      autoCompactRatio: input.autoCompactRatio ?? 0.8,
+      customParams: input.customParams ?? [],
+      mcpMode: input.mcpMode ?? 'auto',
+      mcpServerIds: input.mcpServerIds ?? [],
+    }
+    const knowledgeBaseIds = input.knowledgeBaseIds ?? []
+    const focusSync = input.focusSync !== false
+    const timeAware = input.timeAware !== false
+    const readProjectInstructions = input.readProjectInstructions === true
+    const position = input.position ?? 0
     await this.write(
       `INSERT INTO chat_projects
-         (id, user_id, name, description, instructions, note_scope, note_ids, model_id, created_at, updated_at)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
-      id, name, description, instructions, JSON.stringify(noteScope), JSON.stringify(noteIds), modelId, at, at,
+         (id, user_id, name, description, icon, instructions, note_scope, exclude_scope, note_ids, model_id,
+          tools, tools_limited, tool_overrides, skill_ids, group_name, settings_json, knowledge_base_ids,
+          focus_sync, time_aware, read_project_instructions, position, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
+      id, name, description, icon, instructions, JSON.stringify(noteScope), JSON.stringify(excludeScope),
+      JSON.stringify(noteIds), modelId, JSON.stringify(tools), toolsLimited ? 1 : 0, JSON.stringify(toolOverrides),
+      JSON.stringify(skillIds), group, JSON.stringify(settings), JSON.stringify(knowledgeBaseIds),
+      focusSync ? 1 : 0, timeAware ? 1 : 0, readProjectInstructions ? 1 : 0,
+      position, at, at,
     )
-    return { id, name, description, instructions, noteScope, noteIds, modelId, createdAt: at, updatedAt: at }
+    return {
+      id, name, description, icon, instructions, noteScope, excludeScope, noteIds, modelId,
+      tools, toolsLimited, toolOverrides, skillIds, group, ...settings, knowledgeBaseIds,
+      focusSync, timeAware, readProjectInstructions,
+      position, createdAt: at, updatedAt: at,
+    }
   }
 
   async updateProject(id: string, patch: {
-    name?: string, description?: string, instructions?: string,
-    noteScope?: string[], noteIds?: string[], modelId?: string | null,
+    name?: string
+    description?: string
+    icon?: string
+    instructions?: string
+    noteScope?: string[]
+    excludeScope?: string[]
+    noteIds?: string[]
+    modelId?: string | null
+    tools?: string[]
+    toolsLimited?: boolean
+    toolOverrides?: Record<string, AssistantToolMode>
+    skillIds?: string[]
+    group?: string
+    temperature?: number | null
+    topP?: number | null
+    maxOutputTokens?: number | null
+    stream?: boolean
+    maxToolRounds?: number | null
+    keepRecentMessages?: number | null
+    contextCustom?: boolean
+    autoCompactMode?: Project['autoCompactMode']
+    autoCompactTokens?: number
+    autoCompactRatio?: number
+    customParams?: AssistantCustomParam[]
+    mcpMode?: ProjectMcpMode
+    mcpServerIds?: string[]
+    knowledgeBaseIds?: string[]
+    focusSync?: boolean
+    timeAware?: boolean
+    readProjectInstructions?: boolean
+    position?: number
   }): Promise<Project | null> {
     const fields: (readonly [string, unknown])[] = []
     const set = (column: string, value: unknown): void => { fields.push([column, value]) }
@@ -6176,10 +6498,50 @@ export class AssistantStore {
     // stops filing its facts anywhere.
     if (patch.name !== undefined) set('name', patch.name.trim())
     if (patch.description !== undefined) set('description', patch.description)
+    if (patch.icon !== undefined) set('icon', patch.icon)
     if (patch.instructions !== undefined) set('instructions', patch.instructions)
     if (patch.noteScope !== undefined) set('note_scope', JSON.stringify(patch.noteScope))
+    if (patch.excludeScope !== undefined) set('exclude_scope', JSON.stringify(patch.excludeScope))
     if (patch.noteIds !== undefined) set('note_ids', JSON.stringify(patch.noteIds))
     if (patch.modelId !== undefined) set('model_id', patch.modelId)
+    if (patch.tools !== undefined) set('tools', JSON.stringify(patch.tools))
+    if (patch.toolsLimited !== undefined) set('tools_limited', patch.toolsLimited ? 1 : 0)
+    if (patch.toolOverrides !== undefined) set('tool_overrides', JSON.stringify(patch.toolOverrides))
+    if (patch.skillIds !== undefined) set('skill_ids', JSON.stringify(patch.skillIds))
+    if (patch.group !== undefined) set('group_name', patch.group)
+    // The assistant's own knobs are one stored document. A patch that names one of them reads the row and
+    // writes the merged document, because a partial write here would silently reset every other knob.
+    const touchesSettings = patch.temperature !== undefined || patch.topP !== undefined || patch.maxOutputTokens !== undefined
+      || patch.stream !== undefined || patch.maxToolRounds !== undefined || patch.keepRecentMessages !== undefined
+      || patch.contextCustom !== undefined || patch.autoCompactMode !== undefined || patch.autoCompactTokens !== undefined
+      || patch.autoCompactRatio !== undefined || patch.customParams !== undefined || patch.mcpMode !== undefined
+      || patch.mcpServerIds !== undefined
+    if (touchesSettings) {
+      const current = await this.getProject(id)
+      if (!current) return null
+      const merged = projectAssistantSettings({
+        ...projectAssistantSettings(current),
+        ...(patch.temperature !== undefined ? { temperature: patch.temperature } : {}),
+        ...(patch.topP !== undefined ? { topP: patch.topP } : {}),
+        ...(patch.maxOutputTokens !== undefined ? { maxOutputTokens: patch.maxOutputTokens } : {}),
+        ...(patch.stream !== undefined ? { stream: patch.stream } : {}),
+        ...(patch.maxToolRounds !== undefined ? { maxToolRounds: patch.maxToolRounds } : {}),
+        ...(patch.keepRecentMessages !== undefined ? { keepRecentMessages: patch.keepRecentMessages } : {}),
+        ...(patch.contextCustom !== undefined ? { contextCustom: patch.contextCustom } : {}),
+        ...(patch.autoCompactMode !== undefined ? { autoCompactMode: patch.autoCompactMode } : {}),
+        ...(patch.autoCompactTokens !== undefined ? { autoCompactTokens: patch.autoCompactTokens } : {}),
+        ...(patch.autoCompactRatio !== undefined ? { autoCompactRatio: patch.autoCompactRatio } : {}),
+        ...(patch.customParams !== undefined ? { customParams: patch.customParams } : {}),
+        ...(patch.mcpMode !== undefined ? { mcpMode: patch.mcpMode } : {}),
+        ...(patch.mcpServerIds !== undefined ? { mcpServerIds: patch.mcpServerIds } : {}),
+      })
+      set('settings_json', JSON.stringify(merged))
+    }
+    if (patch.knowledgeBaseIds !== undefined) set('knowledge_base_ids', JSON.stringify(patch.knowledgeBaseIds))
+    if (patch.focusSync !== undefined) set('focus_sync', patch.focusSync ? 1 : 0)
+    if (patch.timeAware !== undefined) set('time_aware', patch.timeAware ? 1 : 0)
+    if (patch.readProjectInstructions !== undefined) set('read_project_instructions', patch.readProjectInstructions ? 1 : 0)
+    if (patch.position !== undefined) set('position', patch.position)
     set('updated_at', Date.now())
     const changes = await this.partialUpdate('chat_projects', id, fields)
     return changes ? await this.getProject(id) : null
@@ -6191,7 +6553,7 @@ export class AssistantStore {
     // or strand them under a project that no longer exists, listed on the memory page and unreachable by
     // any turn. A conversation is a record and stays; a fact about a context that is gone does not.
     const filed = await this.rows<{ id: string, content: string }>(
-      `SELECT id, content FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, id,
+      `SELECT id, content FROM chat_memories WHERE user_id = ?1 AND project_id = ?2`, this.userId, id,
     )
     if (filed.length) {
       // The vectors go with the facts: `memoryEmbeddingCount` is a plain count of rows, so a vector whose
@@ -6213,6 +6575,72 @@ export class AssistantStore {
 
   async resolveProject(ref: string): Promise<Project | null> {
     return (await this.getProject(ref)) ?? (await this.findProjectByName(ref))
+  }
+
+  // --------------------------------------------------------- knowledge bases
+
+  async listKnowledgeBases(): Promise<KnowledgeBase[]> {
+    const list = await this.rows<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 ORDER BY name COLLATE NOCASE`,
+      this.userId,
+    )
+    return list.map(toKnowledgeBase)
+  }
+
+  async getKnowledgeBase(id: string): Promise<KnowledgeBase | null> {
+    const row = await this.one<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 AND id = ?2`, this.userId, id,
+    )
+    return row ? toKnowledgeBase(row) : null
+  }
+
+  async findKnowledgeBaseByName(name: string): Promise<KnowledgeBase | null> {
+    const row = await this.one<KnowledgeBaseRow>(
+      `SELECT * FROM chat_knowledge_bases WHERE user_id = ?1 AND lower(name) = lower(?2) LIMIT 1`,
+      this.userId, name.trim(),
+    )
+    return row ? toKnowledgeBase(row) : null
+  }
+
+  async createKnowledgeBase(input: {
+    name: string
+    description?: string
+    includeScope?: string[]
+    excludeScope?: string[]
+  }): Promise<KnowledgeBase> {
+    const id = newId()
+    const at = Date.now()
+    const name = input.name.trim()
+    const description = input.description ?? ''
+    const includeScope = input.includeScope ?? []
+    const excludeScope = input.excludeScope ?? []
+    await this.write(
+      `INSERT INTO chat_knowledge_bases
+         (id, user_id, name, description, include_scope, exclude_scope, created_at, updated_at)
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      id, name, description, JSON.stringify(includeScope), JSON.stringify(excludeScope), at, at,
+    )
+    return { id, name, description, includeScope, excludeScope, createdAt: at, updatedAt: at }
+  }
+
+  async updateKnowledgeBase(id: string, patch: {
+    name?: string
+    description?: string
+    includeScope?: string[]
+    excludeScope?: string[]
+  }): Promise<KnowledgeBase | null> {
+    const fields: (readonly [string, unknown])[] = []
+    if (patch.name !== undefined) fields.push(['name', patch.name.trim()])
+    if (patch.description !== undefined) fields.push(['description', patch.description])
+    if (patch.includeScope !== undefined) fields.push(['include_scope', JSON.stringify(patch.includeScope)])
+    if (patch.excludeScope !== undefined) fields.push(['exclude_scope', JSON.stringify(patch.excludeScope)])
+    fields.push(['updated_at', Date.now()])
+    const changes = await this.partialUpdate('chat_knowledge_bases', id, fields)
+    return changes ? await this.getKnowledgeBase(id) : null
+  }
+
+  async deleteKnowledgeBase(id: string): Promise<void> {
+    await this.write(`DELETE FROM chat_knowledge_bases WHERE user_id = ?1 AND id = ?2`, id)
   }
 
   // ------------------------------------------------------------- automations
@@ -6640,6 +7068,31 @@ export class AssistantStore {
       ? { ...tool, approval: action, ...(result ? { result: clipToolPayload(result) } : {}) }
       : tool))
     await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(tools), messageId)
+  }
+
+  /**
+   * Marks the tool results older than the newest `keepRecent` answers as pruned.
+   *
+   * The row keeps the payload — the reader may still want to read what a tool found — and only a flag
+   * changes, which is what the context builder reads. Nothing is deleted, so this is reversible by
+   * editing one JSON blob rather than by restoring a backup.
+   */
+  async pruneToolResults(conversationId: string, keepRecent: number): Promise<number> {
+    const rows = await this.rows<{ id: string, tools: string | null }>(
+      `SELECT id, tools FROM chat_messages
+        WHERE user_id = ?1 AND conversation_id = ?2 AND role = 'assistant' AND tools IS NOT NULL
+        ORDER BY created_at DESC, id DESC LIMIT 200`,
+      this.userId, conversationId,
+    )
+    let changed = 0
+    for (const row of rows.slice(Math.max(0, keepRecent))) {
+      const tools = decodeTools(row.tools)
+      if (!tools.length || tools.every((tool) => tool.pruned)) continue
+      const next = tools.map((tool) => (tool.status === 'running' ? tool : { ...tool, pruned: true }))
+      await this.write(`UPDATE chat_messages SET tools = ?2 WHERE user_id = ?1 AND id = ?3`, JSON.stringify(next), row.id)
+      changed += 1
+    }
+    return changed
   }
 
   /**
@@ -7874,7 +8327,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // forgot what it was forked from.
   // `note_id` rides along for the same reason: a thread restored without it forgets which note it came
   // from, and the chip that says so has nothing left to say.
-  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'created_at', 'updated_at'],
+  chat_conversations: ['id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'folder_id', 'project_id', 'parent_id', 'note_id', 'settings', 'origin', 'created_at', 'updated_at'],
   chat_artifacts: ['id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
   // Every snapshot travels: a restore onto another device that kept only the head would turn a document
   // with history into one that has never been edited, which is the opposite of what the panel promises.
@@ -7886,7 +8339,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // so a restore that lost it leaves the reader with a thread whose answer they had kept, kept nowhere — and
   // because the column is nullable, `INSERT OR IGNORE` drops nothing on the way back in. The row lands with
   // the mark gone, which is the quiet version of the loss rather than the loud one.
-  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'suggestions', 'saved_at', 'created_at'],
+  chat_messages: ['id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'duration_ms', 'model_label', 'sources', 'feedback', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   // `note_id` is the note a fact was written out as: a pointer the management screen shows, so it
   // travels with the fact it belongs to.
@@ -7945,7 +8398,7 @@ const EXPORT_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // project that named three pages and came back naming none would answer from the whole vault, which is
   // the opposite of what the reader picked. `model_id` is left out on purpose: models are not in the
   // backup, so a carried id could only point at nothing.
-  chat_projects: ['id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'created_at', 'updated_at'],
+  chat_projects: ['id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
   // The two targets travel with the schedule: a routine that was told to file its answer into one folder,
   // or to refill one standing page, restored without that pointer would have to be re-pointed by hand —
   // and a reader who restores a backup expecting their morning log page to keep being written would find
@@ -8383,7 +8836,7 @@ export const MODEL_SELECT_COLUMNS = `id, provider_id, model, label, icon, temper
  * The columns a skill row is read with. One list, because two hand-copied ones are how a new column ends
  * up written but never read back: the editor saved an icon and the reader saw the old blank.
  */
-const SKILL_SELECT_COLUMNS = `id, title, content, group_name, tools, scopes, model_id, icon, created_at, updated_at`
+const SKILL_SELECT_COLUMNS = `id, title, content, group_name, tools, scopes, model_id, icon, kind, description, load_mode, enabled, source, position, created_at, updated_at`
 
 interface SkillRow {
   id: string
@@ -8394,6 +8847,12 @@ interface SkillRow {
   scopes: string | null
   model_id: string | null
   icon: string | null
+  kind: string | null
+  description: string | null
+  load_mode: string | null
+  enabled: number
+  source: string | null
+  position: number
   created_at: number
   updated_at: number
 }
@@ -8408,6 +8867,12 @@ function toSkill(r: SkillRow): AssistantSkill {
     tools: decodeStringList(r.tools),
     scopes: decodeScopes(r.scopes),
     modelId: r.model_id ?? null,
+    kind: r.kind === 'skill' ? 'skill' : 'prompt',
+    description: r.description ?? '',
+    loadMode: r.load_mode === 'on_demand' ? 'on_demand' : 'full',
+    enabled: Number(r.enabled) !== 0,
+    source: r.source === 'builtin' || r.source === 'github' ? r.source : 'user',
+    position: Number(r.position ?? 0),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }
@@ -8526,7 +8991,7 @@ const ARTIFACT_VERSION_COLUMNS = `id, artifact_id, conversation_id, version, tit
  * added to one and not the other read back as a default in exactly one of the two surfaces — which is how
  * a flag comes to be set and still look unset.
  */
-const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.note_id, c.created_at, c.updated_at`
+const CONVERSATION_COLUMNS = `c.id, c.title, c.summary, c.summary_upto, c.pinned, c.starred, c.archived, c.ephemeral, c.parent_id, c.folder_id, c.project_id, c.note_id, c.settings, c.origin, c.created_at, c.updated_at`
 
 interface ArtifactRow {
   id: string
@@ -8605,13 +9070,102 @@ interface ConversationRow {
   folder_id: string | null
   project_id: string | null
   note_id: string | null
+  settings: string | null
+  origin: string | null
   created_at: number
   updated_at: number
   message_count: number
 }
 
-function toConversation(r: ConversationRow): AssistantConversation {
+function parseStoredConversationSettings(raw: string | null): AssistantConversationSettings {
+  if (!raw) return {}
+  try {
+    return normalizeConversationSettings(JSON.parse(raw))
+  } catch {
+    // A hand-edited or half-written row falls back to "inherit everything", which is the behaviour the
+    // conversation had before this column existed.
+    return {}
+  }
+}
+
+function conversationOrigin(raw: string | null): AssistantConversationOrigin {
+  return raw && (CONVERSATION_ORIGINS as readonly string[]).includes(raw) ? raw as AssistantConversationOrigin : 'chat'
+}
+
+const QUESTION_COLUMNS = `id, conversation_id, call_id, questions, status, answers, created_at, expires_at`
+
+interface CursorCommandRow {
+  id: string
+  label: string
+  instruction: string
+  execution: string
+  enabled: number
+  position: number
+  created_at: number
+  updated_at: number
+}
+
+function toCursorCommand(row: CursorCommandRow): AssistantCursorCommand {
   return {
+    id: row.id,
+    label: row.label,
+    instruction: row.instruction,
+    execution: (['quick-ask-ask', 'quick-ask-rewrite', 'add-to-composer', 'add-and-send'] as readonly string[]).includes(row.execution)
+      ? row.execution as CursorCommandExecution
+      : 'quick-ask-ask',
+    enabled: bool(row.enabled),
+    position: row.position,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+interface QuestionRow {
+  id: string
+  conversation_id: string
+  call_id: string
+  questions: string
+  status: string
+  answers: string | null
+  created_at: number
+  expires_at: number
+}
+
+function questionStatus(raw: string): AssistantQuestionStatus {
+  return raw === 'answered' || raw === 'cancelled' || raw === 'expired' ? raw : 'pending'
+}
+
+/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */
+function toQuestion(row: QuestionRow): AssistantQuestionRow {
+  let questions: AssistantQuestion[] = []
+  try {
+    const parsed: unknown = JSON.parse(row.questions)
+    questions = Array.isArray(parsed) ? parsed as AssistantQuestion[] : []
+  } catch {
+    questions = []
+  }
+  let answers: AssistantQuestionAnswers | null = null
+  if (row.answers) {
+    try {
+      const parsed: unknown = JSON.parse(row.answers)
+      answers = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as AssistantQuestionAnswers : null
+    } catch {
+      answers = null
+    }
+  }
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    callId: row.call_id,
+    questions,
+    status: questions.length ? questionStatus(row.status) : 'expired',
+    answers,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  }
+}
+
+function toConversation(r: ConversationRow): AssistantConversation {  return {
     id: r.id,
     title: r.title,
     pinned: bool(r.pinned),
@@ -8622,6 +9176,8 @@ function toConversation(r: ConversationRow): AssistantConversation {
     folderId: r.folder_id ?? null,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     noteId: r.note_id ?? null,
+    settings: parseStoredConversationSettings(r.settings),
+    origin: conversationOrigin(r.origin),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     messageCount: r.message_count ?? 0,
@@ -8917,23 +9473,160 @@ interface ProjectRow {
   id: string
   name: string
   description: string | null
+  icon: string | null
   instructions: string | null
   note_scope: string | null
+  exclude_scope: string | null
   note_ids: string | null
   model_id: string | null
+  tools: string | null
+  tools_limited: number | null
+  tool_overrides: string | null
+  skill_ids: string | null
+  group_name: string | null
+  settings_json: string | null
+  knowledge_base_ids: string | null
+  focus_sync: number | null
+  time_aware: number | null
+  read_project_instructions: number | null
+  position: number | null
   created_at: number
   updated_at: number
 }
 
+const DEFAULT_PROJECT_ASSISTANT_SETTINGS = {
+  temperature: null as number | null,
+  topP: null as number | null,
+  maxOutputTokens: null as number | null,
+  stream: true,
+  maxToolRounds: null as number | null,
+  keepRecentMessages: null as number | null,
+  contextCustom: false,
+  autoCompactMode: 'off' as AssistantSettings['autoCompactMode'],
+  autoCompactTokens: 100_000,
+  autoCompactRatio: 0.8,
+  customParams: [] as AssistantCustomParam[],
+  mcpMode: 'auto' as ProjectMcpMode,
+  mcpServerIds: [] as string[],
+}
+
+type ProjectAssistantSettings = typeof DEFAULT_PROJECT_ASSISTANT_SETTINGS
+
+function boundedNumber(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.min(max, Math.max(min, value))
+}
+
+function decodeProjectAssistantSettings(value: string | null): ProjectAssistantSettings {
+  const parsed = parseJson(value)
+  const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {}
+  return {
+    temperature: boundedNumber(record.temperature, 0, 1.5),
+    topP: boundedNumber(record.topP, 0, 1),
+    maxOutputTokens: record.maxOutputTokens === null || record.maxOutputTokens === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.maxOutputTokens, 64, 200_000) ?? 0) || null,
+    stream: record.stream !== false,
+    maxToolRounds: record.maxToolRounds === null || record.maxToolRounds === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.maxToolRounds, 1, 50) ?? 0) || null,
+    keepRecentMessages: record.keepRecentMessages === null || record.keepRecentMessages === undefined
+      ? null
+      : Math.trunc(boundedNumber(record.keepRecentMessages, 1, 200) ?? 0) || null,
+    contextCustom: record.contextCustom === true,
+    autoCompactMode: record.autoCompactMode === 'absolute' || record.autoCompactMode === 'ratio'
+      ? record.autoCompactMode
+      : 'off',
+    autoCompactTokens: Math.trunc(boundedNumber(record.autoCompactTokens, 10_000, 2_000_000) ?? 100_000),
+    autoCompactRatio: boundedNumber(record.autoCompactRatio, 0.3, 0.95) ?? 0.8,
+    customParams: parseCustomParams(record.customParams),
+    mcpMode: PROJECT_MCP_MODES.includes(record.mcpMode as ProjectMcpMode)
+      ? record.mcpMode as ProjectMcpMode
+      : 'auto',
+    mcpServerIds: decodeStringList(typeof record.mcpServerIds === 'string' ? record.mcpServerIds : JSON.stringify(record.mcpServerIds ?? [])),
+  }
+}
+
+function projectAssistantSettings(project: Pick<Project,
+  'temperature' | 'topP' | 'maxOutputTokens' | 'stream' | 'maxToolRounds' | 'keepRecentMessages'
+  | 'contextCustom' | 'autoCompactMode' | 'autoCompactTokens' | 'autoCompactRatio'
+  | 'customParams' | 'mcpMode' | 'mcpServerIds'>): ProjectAssistantSettings {
+  return {
+    temperature: project.temperature,
+    topP: project.topP,
+    maxOutputTokens: project.maxOutputTokens,
+    stream: project.stream,
+    maxToolRounds: project.maxToolRounds,
+    keepRecentMessages: project.keepRecentMessages,
+    contextCustom: project.contextCustom,
+    autoCompactMode: project.autoCompactMode,
+    autoCompactTokens: project.autoCompactTokens,
+    autoCompactRatio: project.autoCompactRatio,
+    customParams: project.customParams,
+    mcpMode: project.mcpMode,
+    mcpServerIds: project.mcpServerIds,
+  }
+}
+
+function decodeToolOverrides(value: string | null): Record<string, AssistantToolMode> {
+  const parsed = parseJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const out: Record<string, AssistantToolMode> = {}
+  for (const [name, mode] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof name === 'string' && ASSISTANT_TOOL_MODES.includes(mode as AssistantToolMode)) {
+      out[name] = mode as AssistantToolMode
+    }
+  }
+  return out
+}
+
 function toProject(r: ProjectRow): Project {
+  const assistant = decodeProjectAssistantSettings(r.settings_json)
   return {
     id: r.id,
     name: r.name,
     description: r.description ?? '',
+    icon: r.icon ?? '',
     instructions: r.instructions ?? '',
     noteScope: decodeStringList(r.note_scope),
+    excludeScope: decodeStringList(r.exclude_scope),
     noteIds: decodeStringList(r.note_ids),
     modelId: r.model_id,
+    tools: decodeStringList(r.tools),
+    toolsLimited: Number(r.tools_limited ?? 0) === 1,
+    toolOverrides: decodeToolOverrides(r.tool_overrides),
+    skillIds: decodeStringList(r.skill_ids),
+    group: r.group_name ?? '',
+    ...assistant,
+    knowledgeBaseIds: decodeStringList(r.knowledge_base_ids),
+    focusSync: Number(r.focus_sync ?? 1) === 1,
+    timeAware: Number(r.time_aware ?? 1) === 1,
+    readProjectInstructions: Number(r.read_project_instructions ?? 0) === 1,
+    position: r.position ?? 0,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+interface KnowledgeBaseRow {
+  id: string
+  name: string
+  description: string | null
+  include_scope: string | null
+  exclude_scope: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toKnowledgeBase(r: KnowledgeBaseRow): KnowledgeBase {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? '',
+    includeScope: decodeStringList(r.include_scope),
+    excludeScope: decodeStringList(r.exclude_scope),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }

@@ -15,8 +15,8 @@
  * the vault while nobody is watching.
  */
 
-import type { AssistantArtifact, AssistantSettings, Task, TaskPriority } from '@shared/assistant'
-import { ASSISTANT_TOOL_SPECS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
+import type { AssistantArtifact, AssistantSettings, AssistantToolMode, Task, TaskPriority } from '@shared/assistant'
+import { ASSISTANT_TOOL_SPECS, ASK_QUESTION_TIMEOUT_MS, MAX_ARTIFACT_CONTENT_CHARS, MAX_ARTIFACT_TITLE_CHARS, MAX_ARTIFACTS_PER_CONVERSATION, MAX_MUSIC_EFFECT_TRACK_REF_CHARS, MAX_TASK_TITLE_CHARS, TASK_PRIORITIES, TASK_STATUSES, WEB_SEARCH_TOOL_NAME, normalizeAskedQuestions, toolPayloadText, toolModeFor, webSearchConfigured, type AssistantMemory, type AssistantMemoryCategory, type AutomationKind } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
 import {
   MAX_BATCH_TASKS,
@@ -60,6 +60,7 @@ import type { McpWriteContext } from '../mcp/writes'
 import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
+import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
 import { applyRateOverrides, rateTableFor, type RateTable } from '@shared/subscriptions/currency'
 import { isListSort, LIST_SORTS, sortSubscriptions } from '@shared/subscriptions/sort'
@@ -96,7 +97,7 @@ import {
   type NoteVectorGate,
   type NoteVectorRecall,
 } from './semantic'
-import { assertNoteReadable, noteTitleForLog, readableNoteIds, type NoteScope } from './note-scope'
+import { assertNoteReadable, noteTitleForLog, readableNoteIds, resolveNoteScope, type NoteScope } from './note-scope'
 import { oneHopNeighbours } from './note-graph'
 import {
   SCOPE_NOTE,
@@ -207,6 +208,17 @@ export interface ToolContext {
   dayEnd: number
   mode: 'chat' | 'scheduled'
   conversationId?: string
+  signal?: AbortSignal
+  /** Renews the turn's lease while a tool waits on the reader; false means the turn was stopped. */
+  keepAlive?: () => Promise<boolean>
+  /** Present only on a parent chat turn: runs one isolated child turn and returns what it produced. */
+  runSubagent?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ text: string, toolCalls: number, tokens: number }>
+  /** Starts a child that outlives this turn and reports by notification. */
+  runSubagentAsync?: (input: { description: string, prompt: string, modelId?: string | null }) => Promise<{ taskId: string, status: 'running' }>
+  /** The only tools a turn may reach, when it is a child; absent means the account policy alone decides. */
+  allowedTools?: readonly string[]
+  /** The knowledge bases the Agent linked; empty means every base the reader has. */
+  knowledgeBaseIds?: readonly string[]
   /** The provider's own id for this call, reused as the note write's idempotency key. */
   callId?: string
   /** The saved database connection the reader is looking at, so the tools can default to it. */
@@ -222,6 +234,15 @@ export interface ToolContext {
    */
   memoryScope: MemoryScope
   automations: AutomationService
+  /**
+   * The Agent's tool narrowing, resolved by the runner.
+   *
+   * `projectToolsLimited` is what tells an explicit empty list apart from "no Agent restriction"; without
+   * it an Agent that meant "no tools" would look exactly like one that said nothing.
+   */
+  projectTools?: readonly string[]
+  projectToolsLimited?: boolean
+  projectToolOverrides?: Readonly<Record<string, AssistantToolMode>>
   /** Resolved once per turn by the runner: the note tools all ask it, and a second answer would be a race. */
   noteScope: () => Promise<NoteScope>
   /**
@@ -273,6 +294,13 @@ interface BaseTool {
   fields: Record<string, FieldSpec>
   maxCallsPerTurn?: number
   /**
+   * A protocol tool the model uses to reach the rest of the catalog.
+   *
+   * It has no reader-facing label spec and never appears in the tool manager: it is not something the
+   * reader grants, it is the door the deferred disclosure mode opens.
+   */
+  internal?: boolean
+  /**
    * A tool the reader added through an external MCP server. Its arguments are validated by that server, not
    * by this file, so the schema the server sent is what the model sees and the object it sends back is
    * passed through as-is.
@@ -323,6 +351,12 @@ export class ToolError extends Error {
 
 function tool(definition: ToolDefinition): ToolDefinition {
   return definition
+}
+
+/** A catalog line: enough to decide whether the tool is worth loading, not the whole description. */
+function firstSentence(text: string): string {
+  const sentence = text.split(/(?<=[.!?])\s/)[0] ?? text
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}…` : sentence
 }
 
 const localDateField = (description: string, nullable = false): FieldSpec => ({
@@ -1717,6 +1751,61 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     },
   }),
   tool({
+    name: 'search_knowledge',
+    permission: 'read',
+    maxCallsPerTurn: 3,
+    description: 'Search one named knowledge base. Use it when the reader named a collection (for example "my research notes") or when you need to keep an answer inside one; the description of each knowledge base says what it holds. The search is keyword plus meaning, limited to the folders that knowledge base allows. Without a knowledge base, use search_notes for the whole notebook.',
+    fields: {
+      query: { type: 'string', minLength: 1, maxLength: 200, description: 'What to look for, in the reader\'s own words.' },
+      knowledge_base: { type: 'string', minLength: 1, maxLength: 120, description: 'The knowledge base name (or its id). Ask for the list if you do not know which one fits.' },
+    },
+    async run(args, ctx) {
+      const query = String(args.query)
+      const ref = String(args.knowledge_base).trim()
+      const linked = ctx.knowledgeBaseIds ?? []
+      const knowledgeBase = (await ctx.store.getKnowledgeBase(ref)) ?? (await ctx.store.findKnowledgeBaseByName(ref))
+      const allowed = async (entry: { id: string }) => !linked.length || linked.includes(entry.id)
+      if (!knowledgeBase || !(await allowed(knowledgeBase))) {
+        // A base outside the Agent's own list is answered the same way as one that does not exist: the
+        // Agent cannot reach it, and naming the real list is what lets the model choose correctly.
+        const available = (await ctx.store.listKnowledgeBases()).filter((entry) => !linked.length || linked.includes(entry.id))
+        return {
+          error: `There is no knowledge base named "${ref}" available to this assistant.`,
+          knowledge_bases: available.map((entry) => ({ name: entry.name, description: entry.description })),
+        }
+      }
+      const turnScope = await ctx.noteScope()
+      const kbScope = await resolveNoteScope(ctx.env.DB, ctx.store.userId, knowledgeBase.includeScope, {
+        excludeFolderIds: knowledgeBase.excludeScope,
+      })
+      const found = await searchMcpNotes(ctx.env, ctx.store.userId, ctx.origin, ctx.ftsEnabled, {
+        query,
+        limit: 20,
+        mode: 'hybrid',
+        semanticTopK: ctx.settings.semanticTopK,
+        semanticScoreFloor: ctx.settings.semanticScoreFloor,
+      })
+      const ids = found.results.map((hit) => hit.id)
+      const turnAllowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, ids, turnScope)
+      const kbAllowed = await readableNoteIds(ctx.env.DB, ctx.store.userId, ids, kbScope)
+      const hits = found.results
+        .filter((hit) => turnAllowed.has(hit.id) && kbAllowed.has(hit.id))
+        .slice(0, 10)
+      const readers = knowledgeBase.includeScope.length === 0 && ctx.env.AI
+        ? await (async () => {
+            const queryVector = await embedQueryText(ctx.env.AI!, query)
+            return ctx.store.searchReaderChunks(queryVector, vectorNorm(queryVector), 5)
+          })().catch(() => [])
+        : []
+      return {
+        knowledge_base: { name: knowledgeBase.name, description: knowledgeBase.description },
+        results: hits.map((hit) => ({ id: hit.id, title: hit.title, excerpt: hit.snippet.slice(0, 240), via: hit.source })),
+        ...(readers.length ? { book_pages: readers.map((hit) => ({ book_id: hit.bookId, title: hit.title, page: hit.page, excerpt: hit.text.slice(0, 240) })) } : {}),
+        ...(hits.length || readers.length ? {} : { note: 'Nothing inside this knowledge base matched. Say so rather than widening to the whole notebook unless the reader asks.' }),
+      }
+    },
+  }),
+  tool({
     name: 'list_notes',
     permission: 'read',
     maxCallsPerTurn: 4,
@@ -1837,6 +1926,11 @@ export const NOTE_TOOLS: ToolDefinition[] = [
     },
     async run(args, ctx) {
       const id = String(args.id)
+      // Both body fields are optional in the schema, so a call that names neither would otherwise replace
+      // the body with the empty string. A title by itself is not permission to erase what is under it.
+      if (typeof args.content !== 'string' && typeof args.append !== 'string') {
+        throw new ToolError('update_note needs `content` (the new body) or `append` (text to add); a title alone cannot replace the body.')
+      }
       await assertNoteReadable(ctx.env.DB, ctx.store.userId, id, await ctx.noteScope())
       const writeContext = requireWriteContext(ctx)
       if (typeof args.append === 'string') {
@@ -1854,7 +1948,8 @@ export const NOTE_TOOLS: ToolDefinition[] = [
         operationId: ctx.callId ?? 'assistant',
         noteId: id,
         expectedRev: await currentNoteRev(ctx, id),
-        operation: 'replace',
+        // `replace` is a passage swap and refuses without `old_text`; the whole body is `replace_all`.
+        operation: 'replace_all',
         text: String(args.content ?? ''),
         ...(typeof args.title === 'string' ? { title: args.title } : {}),
       })
@@ -2231,6 +2326,118 @@ export const SEARCH_TOOLS: ToolDefinition[] = [
   }),
 ]
 
+export const QUESTION_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'ask_user_question',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'Pause and ask the reader one to three short questions when their answer is required to continue. The turn resumes with their answers.',
+    fields: {
+      questions: {
+        type: 'array',
+        items: 'object',
+        maxItems: 3,
+        description: 'Each item: { id, title, type: "single" | "multi" | "text", options?: string[2-6], required?: boolean }.',
+      },
+    },
+    async run(args, ctx) {
+      const questions = normalizeAskedQuestions(args.questions)
+      if (!questions) throw new ToolError('Ask one to three questions, each with a unique id and title; a choice needs two to six options.')
+      if (!ctx.conversationId) throw new ToolError('A question can only be asked in a conversation.')
+      const question = await ctx.store.createQuestion({
+        conversationId: ctx.conversationId,
+        callId: ctx.callId ?? '',
+        questions,
+        expiresAt: Date.now() + ASK_QUESTION_TIMEOUT_MS,
+      })
+      const settle = async (why: string): Promise<never> => {
+        await ctx.store.cancelQuestion(question.id)
+        throw new ToolError(why)
+      }
+      let delay = 1_000
+      let waited = 0
+      while (waited < ASK_QUESTION_TIMEOUT_MS) {
+        if (ctx.signal?.aborted) await settle('The reader stopped this turn before answering.')
+        const current = await ctx.store.getQuestion(question.id)
+        if (current?.status === 'answered') {
+          return { questionId: current.id, answers: current.answers ?? {} }
+        }
+        if (current?.status === 'cancelled') throw new ToolError('The reader cancelled the question. Ask a different way or continue with what you know.')
+        if (current?.status === 'expired') throw new ToolError('The question expired before it was answered. Continue without it, or ask again if it is essential.')
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        waited += delay
+        delay = Math.min(3_000, delay + 500)
+        if (ctx.keepAlive && !(await ctx.keepAlive())) await settle('The turn lost its claim while waiting for an answer.')
+      }
+      await ctx.store.cancelQuestion(question.id)
+      throw new ToolError('No answer arrived in ten minutes. Continue without it, or ask again if it is essential.')
+    },
+  }),
+  tool({
+    name: 'context_prune_tool_results',
+    permission: 'read',
+    maxCallsPerTurn: 1,
+    description: 'Remove older tool results from what the model is shown on later turns, keeping the answers themselves. Use when old tool output is crowding the conversation.',
+    fields: {
+      keep_recent: {
+        type: 'integer',
+        optional: true,
+        description: 'How many of the newest answers keep their tool payloads. Defaults to 6.',
+      },
+    },
+    async run(args, ctx) {
+      if (!ctx.conversationId) throw new ToolError('Tool results can only be pruned inside a conversation.')
+      const requested = typeof args.keep_recent === 'number' ? Math.trunc(args.keep_recent) : 6
+      const keep = Math.min(50, Math.max(1, requested))
+      const pruned = await ctx.store.pruneToolResults(ctx.conversationId, keep)
+      return { pruned, kept: keep }
+    },
+  }),
+]
+
+export const SKILL_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'read_skill',
+    permission: 'read',
+    maxCallsPerTurn: 10,
+    description: 'Read the full instructions of one of the reader\'s saved Skills by id. Use when the turn was given only its name and description.',
+    fields: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+    async run(args, ctx) {
+      const skill = await ctx.store.getSkill(String(args.id))
+      // A Skill from another account is simply not this reader's, and the model is told the same thing a
+      // missing id says; distinguishing the two would confirm an id the caller never had.
+      if (!skill || skill.enabled === false) throw new ToolError('That skill is not available.')
+      return { id: skill.id, title: skill.title, description: skill.description, content: skill.content }
+    },
+  }),
+  tool({
+    name: 'delegate_subagent',
+    permission: 'read',
+    maxCallsPerTurn: 2,
+    description: 'Give one self-contained subtask to a child agent with its own context. The child cannot ask the reader anything or delegate further; it returns its result and a count of the tools it used.',
+    fields: {
+      description: { type: 'string', minLength: 1, maxLength: 200 },
+      prompt: { type: 'string', minLength: 1, maxLength: 8_000 },
+      modelId: { type: 'string', optional: true, maxLength: 64 },
+      mode: { type: 'string', enum: ['sync', 'async'], optional: true },
+    },
+    requires: (_env, settings, ctx) => settings.subagentEnabled && Boolean(ctx.runSubagent),
+    async run(args, ctx) {
+      if (!ctx.runSubagent) throw new ToolError('Sub-agents are not available in this turn.')
+      const input = {
+        description: String(args.description),
+        prompt: String(args.prompt),
+        modelId: typeof args.modelId === 'string' ? args.modelId : null,
+      }
+      if (args.mode === 'async') {
+        if (!ctx.runSubagentAsync) throw new ToolError('Background sub-agents are switched off.')
+        return await ctx.runSubagentAsync(input)
+      }
+      return await ctx.runSubagent(input)
+    },
+  }),
+]
+
 export const IMAGE_TOOLS: ToolDefinition[] = [
   tool({
     name: 'image_generate',
@@ -2445,13 +2652,24 @@ export const WEB_TOOLS: ToolDefinition[] = [
       // https only: a plain-http page can be rewritten in transit, and the model has no way to tell.
       if (target.protocol !== 'https:') throw new ToolError('Only an https URL can be read.')
       let response: Response
+      // A page that accepts the connection and never answers would hold the turn open with no deadline:
+      // the attempt clock only covers the provider request, not the tool call the model is waiting on.
+      const controller = new AbortController()
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, 15_000)
       try {
         response = await fetch(target.toString(), {
           redirect: NO_REDIRECT,
           headers: { 'user-agent': 'Inkstone-Chat/1.0', accept: 'text/html,text/plain,application/json' },
+          signal: controller.signal,
         })
       } catch {
-        throw new ToolError('That URL could not be reached.')
+        throw new ToolError(timedOut ? 'That URL took too long to answer.' : 'That URL could not be reached.')
+      } finally {
+        clearTimeout(timer)
       }
       // A redirect is how a public address becomes a private one; the fetch refuses to follow, and the
       // model is told so rather than handed the redirect target as if it had read it.
@@ -4740,6 +4958,8 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...AUTOMATION_TOOLS,
   ...PROJECT_TOOLS,
   ...SEARCH_TOOLS,
+  ...QUESTION_TOOLS,
+  ...SKILL_TOOLS,
   ...IMAGE_TOOLS,
   ...CODE_TOOLS,
   ...WEB_TOOLS,
@@ -4749,6 +4969,61 @@ export const ALL_TOOLS: ToolDefinition[] = [
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))
+
+/**
+ * The tools every on-demand turn keeps in its request: the ones a conversation reaches for first, so the
+ * common turn does not pay an extra round trip merely to see what it already knew it needed.
+ */
+const RESIDENT_TOOL_NAMES = new Set([
+  'ask_user_question',
+  'notify_reader',
+  'search',
+  'search_notes',
+  'search_knowledge',
+  'read_note',
+  'update_note',
+  'create_note',
+  'list_tasks',
+  'create_task',
+  'list_artifacts',
+  'read_artifact',
+])
+
+export const DEFERRED_TOOL_NAMES = ['load_tool_schemas', 'invoke_tool'] as const
+
+/**
+ * The protocol pair behind deferred disclosure.
+ *
+ * `load_tool_schemas` is how a name in the prompt's catalog becomes a callable schema for the rest of the
+ * turn; `invoke_tool` is how a call is made without that second request, which is what keeps a one-shot
+ * tool from costing a whole model round trip. Neither is a reader-facing capability, and both are
+ * intercepted by the executor rather than run as ordinary functions.
+ */
+const DEFERRED_TOOLS: ToolDefinition[] = [
+  tool({
+    name: 'load_tool_schemas',
+    permission: 'read',
+    internal: true,
+    description: 'Load the full parameter schema of one or more tools named in the catalog. Loaded tools stay callable for the rest of this turn.',
+    fields: { names: { type: 'array', items: 'string', maxItems: 20, minLength: 1 } },
+    async run() {
+      throw new ToolError('load_tool_schemas is handled by the executor.')
+    },
+  }),
+  tool({
+    name: 'invoke_tool',
+    permission: 'read',
+    internal: true,
+    description: 'Call one tool by name. Its approval, budget, duplicate and failure rules are the real tool\'s, not this wrapper\'s.',
+    fields: {
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      arguments: { type: 'object', optional: true },
+    },
+    async run() {
+      throw new ToolError('invoke_tool is handled by the executor.')
+    },
+  }),
+]
 
 /**
  * Refuses to start with a tool the reader could never see.
@@ -4762,6 +5037,7 @@ export function assertToolsMatchSpecs(): void {
   for (const definition of ALL_TOOLS) {
     if (names.has(definition.name)) throw new Error(`duplicate assistant tool: ${definition.name}`)
     names.add(definition.name)
+    if (definition.internal) continue
     if (!ASSISTANT_TOOL_SPECS.some((spec) => spec.name === definition.name)) {
       throw new Error(`assistant tool missing from ASSISTANT_TOOL_SPECS: ${definition.name}`)
     }
@@ -4878,7 +5154,10 @@ export class ToolExecutor {
   private calls = 0
   private readonly perTool = new Map<string, number>()
   private readonly signatures = new Map<string, number>()
+  private readonly failures = new Map<string, number>()
   private readonly approvals = new Map<string, { id: string, toolId: string }>()
+  /** Schemas the model asked for this turn; cleared with the executor, because a new turn is a new request. */
+  private readonly loaded = new Set<string>()
 
   constructor(
     private readonly ctx: ToolContext,
@@ -4889,6 +5168,15 @@ export class ToolExecutor {
 
   get callCount(): number {
     return this.calls
+  }
+
+  /** One failed call, counted so a tool that keeps breaking stops being offered the same turn. */
+  recordFailure(name: string): void {
+    this.failures.set(name, (this.failures.get(name) ?? 0) + 1)
+  }
+
+  failureCount(name: string): number {
+    return this.failures.get(name) ?? 0
   }
 
   /**
@@ -4908,6 +5196,16 @@ export class ToolExecutor {
 
   available(): ToolDefinition[] {
     if (this.budget.maxToolCalls <= 0) return []
+    const all = this.everyOffered().filter((definition) => !definition.internal)
+    if (!this.onDemand()) return all
+    return [
+      ...all.filter((definition) => RESIDENT_TOOL_NAMES.has(definition.name) || this.loaded.has(definition.name)),
+      ...DEFERRED_TOOLS,
+    ]
+  }
+
+  /** The tools the reader's policy leaves on the table, before disclosure narrows what is sent. */
+  private everyOffered(): ToolDefinition[] {
     const own = this.ctx.mode === 'chat'
       ? ALL_TOOLS
       : ALL_TOOLS.filter((definition) => definition.permission === 'read' || definition.name === 'notify_reader')
@@ -4916,6 +5214,27 @@ export class ToolExecutor {
     // The reader's policy comes last and can only ever take tools away: it is a ceiling on what the turn
     // may reach, not a second list of things to reach for.
     return [...own, ...remote].filter((definition) => this.offers(definition))
+  }
+
+  private onDemand(): boolean {
+    return this.ctx.mode === 'chat' && this.ctx.settings.toolDisclosure === 'on_demand'
+  }
+
+  /**
+   * The catalog line per tool that disclosure did not send.
+   *
+   * One line, not the whole schema: the point is to tell the model a tool exists and what it is for,
+   * and to let it decide whether loading the arguments is worth a round trip.
+   */
+  catalogText(): string {
+    if (!this.onDemand()) return ''
+    const lines = this.everyOffered()
+      .filter((definition) => !definition.internal
+        && !RESIDENT_TOOL_NAMES.has(definition.name)
+        && !this.loaded.has(definition.name))
+      .map((definition) => `- ${definition.name}: ${firstSentence(definition.description)}`)
+    if (!lines.length) return ''
+    return ['Tools you can load when needed (call load_tool_schemas with their names, then invoke_tool):', ...lines].join('\n')
   }
 
   /**
@@ -4928,12 +5247,29 @@ export class ToolExecutor {
    * would leave a schedule that runs every morning and says nothing.
    */
   private offers(definition: ToolDefinition): boolean {
+    // The reader's own question is the one tool with a person on the other end of it: it is offered in a
+    // conversation whatever the class policy says, because silencing it only makes the model guess. An
+    // unwatched run has nobody to ask, so there it is never offered.
+    if (definition.name === 'ask_user_question') return this.ctx.mode === 'chat'
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
-    const mode = toolModeFor(this.ctx.settings, definition.permission)
+    if (this.ctx.allowedTools && !this.ctx.allowedTools.includes(definition.name)) return false
+    if (this.ctx.settings.toolSettings[definition.name]?.enabled === false) return false
+    // An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the
+    // runner passes `projectToolsLimited` beside the list.
+    if (this.ctx.projectToolsLimited && !this.ctx.projectTools?.includes(definition.name)) return false
+    const mode = this.modeFor(definition)
     if (this.ctx.mode === 'chat') return mode !== 'off'
     return mode === 'auto' || definition.name === 'notify_reader'
+  }
+
+  /** The per-Agent override, the per-tool setting, the always-allow grant, then the class policy. */
+  private modeFor(definition: ToolDefinition): AssistantToolMode {
+    return this.ctx.projectToolOverrides?.[definition.name]
+      ?? this.ctx.settings.toolSettings[definition.name]?.mode
+      ?? this.ctx.settings.toolGrants[definition.name]
+      ?? toolModeFor(this.ctx.settings, definition.permission)
   }
 
   find(name: string): ToolDefinition | undefined {
@@ -4945,9 +5281,43 @@ export class ToolExecutor {
     return this.approvals.get(callId)
   }
 
+  /**
+   * Answers the protocol call that turns catalog names into schemas.
+   *
+   * Only a tool the reader's policy actually leaves on the table can be loaded: disclosure shortens the
+   * request, it must not become a second route around a closed class or a switched-off tool.
+   */
+  private loadToolSchemas(rawNames: unknown): unknown {
+    const names = Array.isArray(rawNames) ? rawNames.filter((entry): entry is string => typeof entry === 'string') : []
+    const loaded: unknown[] = []
+    const skipped: string[] = []
+    const offered = this.everyOffered()
+    for (const name of [...new Set(names)].slice(0, 20)) {
+      const definition = offered.find((entry) => entry.name === name && !entry.internal)
+      if (!definition) {
+        skipped.push(name)
+        continue
+      }
+      this.loaded.add(name)
+      loaded.push({ name, description: definition.description, parameters: parametersSchema(definition.fields) })
+    }
+    return { loaded, skipped }
+  }
+
   async execute(name: string, rawArgs: unknown, callId: string): Promise<unknown> {
     const definition = this.find(name)
     if (!definition) throw new ToolError(`Tool "${name}" is not available.`)
+    // The wrapper is not a call of its own: unwrap it before counting, so budget, duplicate detection,
+    // approval and the failure counter all belong to the real tool rather than to the door it came through.
+    if (definition.internal && name === 'invoke_tool') {
+      const args = validateArgs(definition.fields, rawArgs)
+      const inner = this.find(String(args.name))
+      if (!inner || inner.internal) throw new ToolError(`Tool "${String(args.name)}" is not available. Load it with load_tool_schemas first.`)
+      return await this.execute(inner.name, args.arguments ?? {}, callId)
+    }
+    if ((this.failures.get(name) ?? 0) >= 3) {
+      throw new ToolError(`"${name}" has failed three times in this turn. Try a different approach instead of repeating it.`)
+    }
     if (this.calls >= this.budget.maxToolCalls) {
       throw new ToolError('The tool-call budget for this request is spent. Answer with what you already have.')
     }
@@ -4964,7 +5334,16 @@ export class ToolExecutor {
     this.perTool.set(name, used + 1)
     this.signatures.set(signature, (this.signatures.get(signature) ?? 0) + 1)
 
-    if (toolModeFor(this.ctx.settings, definition.permission) === 'auto') {
+    if (definition.internal) {
+      if (name === 'load_tool_schemas') return this.loadToolSchemas(args.names)
+      throw new ToolError(`"${name}" is handled by the executor.`)
+    }
+    // A question is not an action on the reader's data, so the approval policy does not apply: the model
+    // waits for an answer rather than for a press. Any other read in manual mode would open a card.
+    if (definition.name === 'ask_user_question' && definition.permission !== 'destructive') {
+      return await definition.run(args, this.contextFor(callId))
+    }
+    if (this.modeFor(definition) === 'auto') {
       // A read or a write *is* the call. A deletion goes through the same prepare/commit pair the
       // approval card runs, minus the wait: skipping `prepare` would also skip the lookup that decides
       // what this tool is allowed to touch.
@@ -5014,7 +5393,7 @@ function stableStringify(value: unknown): string {
  * The pending row is claimed first, so a double press, a second device and a retry after a failed
  * commit all run the target at most once — and only ever on the target that was shown.
  */
-export async function runApprovedAction(store: AssistantStore, ctx: ToolContext, actionId: string) {
+export async function runApprovedAction(store: AssistantStore, ctx: ToolContext, actionId: string, argsOverride?: Record<string, unknown>) {
   const stored = await store.getPendingAction(actionId)
   if (!stored) throw ApiError.notFound('This action no longer exists.')
   const definition = ctx.externalByName?.get(stored.tool) ?? TOOL_BY_NAME.get(stored.tool)
@@ -5023,6 +5402,12 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     await store.resolvePendingAction(actionId, { status: 'expired' })
     throw ApiError.conflict('This request expired. Ask again to get a new one.')
   }
+  // A reader who accepted only some hunks sends the text they chose. It is a new proposal, so it goes
+  // through the same field validation as the one the model made; a destructive call cannot be reshaped
+  // this way, because its target was already decided.
+  const args = argsOverride && definition.permission !== 'destructive' && !definition.external
+    ? validateArgs(definition.fields, argsOverride)
+    : stored.args ?? {}
   if (!(await store.claimPendingAction(actionId, 'approved'))) {
     throw ApiError.conflict('This action was already handled.')
   }
@@ -5032,8 +5417,8 @@ export async function runApprovedAction(store: AssistantStore, ctx: ToolContext,
     // arguments that were shown on the card are replayed whole — the call the reader approved, and no
     // other.
     output = definition.permission === 'destructive'
-      ? await definition.commit(stored.targetId, ctx, stored.args ?? {})
-      : await definition.run(stored.args ?? {}, { ...ctx, callId: stored.id })
+      ? await definition.commit(stored.targetId, ctx, args)
+      : await definition.run(args, { ...ctx, callId: stored.id })
   } catch (error) {
     await store.resolvePendingAction(actionId, {
       status: 'failed',

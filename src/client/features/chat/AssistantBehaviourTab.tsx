@@ -9,12 +9,15 @@ import { isValidTimeZone } from '@shared/assistant-schedule'
 import { t } from '../../lib/i18n'
 import { ApiError, api } from '../../lib/api'
 import { Button } from '../../components/primitives'
-import { Input, Segmented, Select, SettingRow, Switch, Textarea } from '../../components/form'
+import { Input, Segmented, Select, SettingRow, Slider, Switch, Textarea } from '../../components/form'
 import { useAssistant, type WriteFailure } from './assistant-store'
-import { Group, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
+import { ToolManagerSection } from './ToolManagerSection'
+import { Group, modelOptionLabel, SaveFailure, storedKeyLabel } from './assistant-settings-shared'
 
 export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   const saveSettings = useAssistant((state) => state.saveSettings)
+  const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   // A key arriving or leaving changes what the composer is allowed to promise about search, and the chip
   // reads that from the settings response rather than guessing: so the settings are re-read here.
   const loadSettings = useAssistant((state) => state.loadSettings)
@@ -24,6 +27,9 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   useEffect(() => setInstructions(settings.customInstructions), [settings.customInstructions])
   const [endpoint, setEndpoint] = useState(settings.webSearchEndpoint)
   useEffect(() => setEndpoint(settings.webSearchEndpoint), [settings.webSearchEndpoint])
+  const [autoTokens, setAutoTokens] = useState(String(settings.autoCompactTokens))
+  useEffect(() => setAutoTokens(String(settings.autoCompactTokens)), [settings.autoCompactTokens])
+  const chatModels = models.filter((model) => model.enabled && model.purpose === 'chat')
   // The engine is a settings field; what it needs is not. A hosted engine's key lives in its own encrypted
   // row, so the state of that row has to be asked for — for the one engine the reader picked, and only when
   // the engine says it needs a key at all.
@@ -69,7 +75,6 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
   // control's accessible name rather than a line of text beside it.
   const agentNameId = useId()
   const timezoneId = useId()
-  const startViewId = useId()
   const endpointId = useId()
   const engineId = useId()
   const keyId = useId()
@@ -167,21 +172,96 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         </SettingRow>
       </Group>
 
-      <Group title={t('assistant.settings.behaviour')}>
-        <SettingRow title={t('assistant.settings.send_enter')} description={t('assistant.settings.send_enter_hint')}>
-          <Switch checked={settings.sendOnEnter} onChange={(value) => void saveSettings({ sendOnEnter: value })} label={t('assistant.settings.send_enter')} />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.auto_route')} description={t('assistant.settings.auto_route_hint')}>
-          <Switch checked={settings.autoRoute} onChange={(value) => void saveSettings({ autoRoute: value })} label={t('assistant.settings.auto_route')} />
-        </SettingRow>
-        <SettingRow title={t('assistant.settings.start_view')} description={t('assistant.settings.start_view_hint')} controlId={startViewId}>
-          <Select id={startViewId} value={settings.startView} onChange={(event) => void saveSettings({ startView: event.target.value })}>
-            <option value="chat">{t('assistant.view.chat')}</option>
-            <option value="memory">{t('assistant.view.memory')}</option>
-            <option value="tasks">{t('assistant.view.tasks')}</option>
-            <option value="automations">{t('assistant.view.automations')}</option>
-            <option value="settings">{t('assistant.view.settings')}</option>
+      <Group title={t('assistant.settings.compaction')}>        <SettingRow
+          title={t('assistant.settings.compaction_mode')}
+          description={t('assistant.settings.compaction_mode_hint')}
+          controlId="assistant-compact-mode"
+        >
+          <Select
+            id="assistant-compact-mode"
+            value={settings.autoCompactMode}
+            onChange={(event) => void saveSettings({ autoCompactMode: event.target.value as AssistantSettings['autoCompactMode'] })}
+            className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+          >
+            <option value="off">{t('assistant.settings.compaction_off')}</option>
+            <option value="absolute">{t('assistant.settings.compaction_absolute')}</option>
+            <option value="ratio">{t('assistant.settings.compaction_ratio')}</option>
           </Select>
+        </SettingRow>
+        {settings.autoCompactMode === 'absolute' && (
+          <SettingRow title={t('assistant.settings.compaction_tokens')} controlId="assistant-compact-tokens">
+            <Input
+              id="assistant-compact-tokens"
+              type="number"
+              min={10_000}
+              max={2_000_000}
+              step={1_000}
+              value={autoTokens}
+              onChange={(event) => setAutoTokens(event.target.value)}
+              onBlur={() => {
+                const parsed = Number(autoTokens)
+                if (Number.isInteger(parsed) && parsed >= 10_000 && parsed <= 2_000_000) void saveSettings({ autoCompactTokens: parsed })
+                else setAutoTokens(String(settings.autoCompactTokens))
+              }}
+              className="w-40"
+            />
+          </SettingRow>
+        )}
+        {settings.autoCompactMode === 'ratio' && (
+          <SettingRow title={t('assistant.settings.compaction_ratio')}>
+            <Slider
+              value={Math.round(settings.autoCompactRatio * 100)}
+              min={30}
+              max={95}
+              step={5}
+              suffix="%"
+              label={t('assistant.settings.compaction_ratio')}
+              onChange={(percent) => void saveSettings({ autoCompactRatio: percent / 100 })}
+            />
+          </SettingRow>
+        )}
+      </Group>
+
+      <Group title={t('assistant.settings.notifications')}>        <SettingRow
+          title={t('assistant.settings.notify_channel')}
+          description={t('assistant.settings.notify_channel_hint')}
+          controlId="assistant-notify-channel"
+        >
+          <Select
+            id="assistant-notify-channel"
+            value={settings.notifyChannel}
+            onChange={(event) => void saveSettings({ notifyChannel: event.target.value as typeof settings.notifyChannel })}
+            className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+          >
+            <option value="off">{t('assistant.settings.notify_off')}</option>
+            <option value="sound">{t('assistant.settings.notify_sound')}</option>
+            <option value="browser">{t('assistant.settings.notify_browser')}</option>
+            <option value="both">{t('assistant.settings.notify_both')}</option>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          title={t('assistant.settings.notify_only_unfocused')}
+          description={t('assistant.settings.notify_only_unfocused_hint')}
+        >
+          <Switch
+            checked={settings.notifyOnlyUnfocused}
+            label={t('assistant.settings.notify_only_unfocused')}
+            onChange={(notifyOnlyUnfocused) => void saveSettings({ notifyOnlyUnfocused })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.notify_approval')}>
+          <Switch
+            checked={settings.notifyApproval}
+            label={t('assistant.settings.notify_approval')}
+            onChange={(notifyApproval) => void saveSettings({ notifyApproval })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.notify_finish')}>
+          <Switch
+            checked={settings.notifyFinish}
+            label={t('assistant.settings.notify_finish')}
+            onChange={(notifyFinish) => void saveSettings({ notifyFinish })}
+          />
         </SettingRow>
       </Group>
 
@@ -214,6 +294,41 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
         </div>
       </Group>
 
+      <Group title={t('assistant.settings.subagents')}>
+        <SettingRow title={t('assistant.settings.subagent_enabled')} description={t('assistant.settings.subagent_enabled_hint')}>
+          <Switch
+            checked={settings.subagentEnabled}
+            label={t('assistant.settings.subagent_enabled')}
+            onChange={(subagentEnabled) => void saveSettings({ subagentEnabled })}
+          />
+        </SettingRow>
+        {settings.subagentEnabled && (
+          <>
+          <SettingRow title={t('assistant.settings.subagent_async')} description={t('assistant.settings.subagent_async_hint')}>
+            <Switch
+              checked={settings.subagentAsyncEnabled}
+              label={t('assistant.settings.subagent_async')}
+              onChange={(subagentAsyncEnabled) => void saveSettings({ subagentAsyncEnabled })}
+            />
+          </SettingRow>
+          <SettingRow title={t('assistant.settings.subagent_model')} description={t('assistant.settings.subagent_model_hint')} controlId="assistant-subagent-model">
+            <Select
+              id="assistant-subagent-model"
+              value={settings.subagentModelId ?? ''}
+              aria-label={t('assistant.settings.subagent_model')}
+              onChange={(event) => void saveSettings({ subagentModelId: event.target.value || null })}
+              className="h-7 max-w-[240px] text-[length:var(--text-11)]"
+            >
+              <option value="">{t('assistant.conversation.settings.inherit')}</option>
+              {chatModels.map((model) => (
+                <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>
+              ))}
+            </Select>
+          </SettingRow>
+          </>
+        )}
+      </Group>
+
       <Group title={t('assistant.settings.tool_access')}>
         {ASSISTANT_TOOL_PERMISSIONS.map((permission) => (
           <SettingRow
@@ -233,6 +348,7 @@ export function BehaviourTab({ settings }: { settings: AssistantSettings }) {
             />
           </SettingRow>
         ))}
+        <ToolManagerSection />
         <SettingRow
           title={t('assistant.settings.web_search_engine')}
           description={t(engine.noteKey)}

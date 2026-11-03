@@ -22,7 +22,7 @@ const ICON_PACKAGE = 'lucide-react'
  * retires the entry and the site has to be looked at again.
  */
 const exempt = new Set([
-  'src/client/features/chat/ChatAttachments.tsx:151',
+  'src/client/features/chat/ChatAttachments.tsx:156',
   'src/client/features/cloudflare/screens/DashboardScreen.tsx:250',
   'src/client/features/cloudflare/screens/WorkersScreen.tsx:232',
   'src/client/features/cloudflare/screens/accounts/AccountTable.tsx:247',

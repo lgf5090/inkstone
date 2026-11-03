@@ -37,6 +37,7 @@ import {
 } from './chat-files'
 import type { ChatAudioPart } from './upstream'
 import type { Env } from '../env'
+import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import type { AssistantStore } from './store'
 
 /**
@@ -115,6 +116,38 @@ export interface AttachmentPayload {
  * left silent, because a model reading a turn where an attachment simply says nothing has no way to find
  * out that anything is missing.
  */
+/**
+ * Images a Markdown file links to, fetched under the same rules as any other outbound request.
+ *
+ * Only http(s), no redirects, a five-second clock, an image content type and a small size ceiling. Four at
+ * most, because this is context the reader did not attach by hand and the turn still has a budget.
+ */
+async function linkedImages(markdown: string, room: number): Promise<{ mime: string, dataUrl: string }[]> {
+  if (room <= 0) return []
+  const urls = [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((match) => match[1]!))].slice(0, room)
+  const out: { mime: string, dataUrl: string }[] = []
+  for (const raw of urls) {
+    let target: URL
+    try { target = assertRelayableEndpoint(raw) } catch { continue }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5_000)
+    try {
+      const response = await fetch(target, { signal: controller.signal, redirect: 'error' })
+      const type = response.headers.get('content-type') ?? ''
+      if (!response.ok || !type.startsWith('image/')) continue
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.byteLength > 5 * 1024 * 1024) continue
+      const mime = type.split(';')[0]!
+      out.push({ mime, dataUrl: `data:${mime};base64,${base64FromBytes(bytes)}` })
+    } catch {
+      // A broken link is simply not added; the file's words are still there and the model can cite those.
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return out
+}
+
 export async function expandChatAttachments(
   store: AssistantStore,
   env: Env,
@@ -138,6 +171,8 @@ export async function expandChatAttachments(
    * things for the reader to change.
    */
   protocol: AssistantProtocol | null = null,
+  /** Whether images linked from a text/Markdown file may be fetched into this turn. */
+  fetchExternalImages = false,
 ): Promise<AttachmentPayload> {
   if (!ids.length) return { block: '', images: [], audio: [] }
   const rows = await store.chatAttachments(ids)
@@ -241,8 +276,10 @@ export async function expandChatAttachments(
       // A PDF's words were read by the browser's own parser at upload time, because the worker cannot
       // pull them out of the bytes; a file that had none is named and nothing more is claimed.
       const text = extracted.get(row.id)
-      if (text) pushText(header, text, ' (text read from the file)')
-      else lines.push(`${header} (not text; contents not read)`)
+      if (text) {
+        pushText(header, text, ' (text read from the file)')
+        if (fetchExternalImages && vision && includeImages) images.push(...await linkedImages(text, Math.max(0, 4 - images.length)))
+      } else lines.push(`${header} (not text; contents not read)`)
       continue
     }
     const bytes = await readChatObject(env, row.key)
@@ -254,7 +291,9 @@ export async function expandChatAttachments(
       lines.push(`${header} (larger than ${Math.round(CHAT_TEXT_INLINE_BYTES / 1024)} KB; contents not read)`)
       continue
     }
-    pushText(header, new TextDecoder().decode(bytes), '')
+    const decoded = new TextDecoder().decode(bytes)
+    pushText(header, decoded, '')
+    if (fetchExternalImages && vision && includeImages) images.push(...await linkedImages(decoded, Math.max(0, 4 - images.length)))
   }
   // Said once, after every file has been named: a turn whose remaining attachments go quiet looks like
   // empty documents rather than like a turn the budget ran out on, and the model cannot ask about a

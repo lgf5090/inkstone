@@ -24,6 +24,7 @@ import { Select, Segmented } from '../../components/form'
 import { Modal } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 import { sendForAnswerDetailed } from './editor-ai'
 import { saveReplyAsNote } from './save-to-note'
 import { speak, stopSpeaking } from './speech'
@@ -105,6 +106,7 @@ function micFailure(error: unknown): string {
 export function VoiceMode({ onClose }: { onClose: () => void }) {
   const settings = useAssistant((state) => state.settings)
   const models = useAssistant((state) => state.models)
+  const providers = useAssistant((state) => state.providers)
   const saveSettings = useAssistant((state) => state.saveSettings)
   const [engine, setEngine] = useState<Engine>('turn')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -426,7 +428,7 @@ export function VoiceMode({ onClose }: { onClose: () => void }) {
                 onChange={(event) => void saveSettings({ realtimeModelId: event.target.value || null })}
               >
                 {realtimeModels.map((model) => (
-                  <option key={model.id} value={model.id}>{model.label || model.model}</option>
+                  <option key={model.id} value={model.id}>{modelOptionLabel(model, realtimeModels, providers)}</option>
                 ))}
               </Select>
             </label>

@@ -99,21 +99,29 @@ async function visitListings(
  * The listing is done up front because the model is offered the schemas before it can call anything: a tool
  * discovered mid-turn would need a second request to the server inside the token budget of the first.
  */
-export async function loadExternalTools(store: AssistantStore): Promise<ExternalToolsResult> {
+export async function loadExternalTools(
+  store: AssistantStore,
+  filter: { serverIds?: readonly string[]; forceApproval?: boolean; off?: boolean } = {},
+): Promise<ExternalToolsResult> {
   const definitions: ToolDefinition[] = []
   const schemas: Record<string, Record<string, unknown>> = {}
   let calls = 0
   const full = () => definitions.length >= MAX_EXTERNAL_TOOLS_PER_TURN
   const problems: ExternalToolsResult['problems'] = []
+  if (filter.off) return { definitions, schemas, problems, called: () => calls }
+  let servers = await store.enabledMcpServers()
+  if (filter.serverIds?.length) servers = servers.filter((server) => filter.serverIds!.includes(server.id))
 
-  const { problems: failures } = await visitListings(store, await store.enabledMcpServers(), (server, session, listing) => {
+  const { problems: failures } = await visitListings(store, servers, (server, session, listing) => {
     if (full()) {
       problems.push({ serverId: server.id, label: server.label, error: 'Skipped: the turn already offers enough tools.', needsAuthorization: false })
       return
     }
     for (const tool of listing.tools.slice(0, MAX_MCP_TOOLS_PER_SERVER)) {
       if (full()) break
-      const mode = mcpToolModeFor(server, tool.remoteName)
+      // Manual mode is the Agent saying every remote call needs a press, whatever the account's per-tool
+      // answer was; the account can narrow that further but cannot make the call silent again.
+      const mode = filter.forceApproval ? 'ask' : mcpToolModeFor(server, tool.remoteName)
       // A tool the reader switched off is not offered at all: no schema, no definition, so the model cannot
       // name it and nothing has to be refused later.
       if (mode === 'off') continue

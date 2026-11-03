@@ -20,7 +20,7 @@ import { useUi } from '../../store/ui'
 import { useNotes } from '../../store/notes'
 import { useAssistant } from './assistant-store'
 
-export type EditorAiAction = 'ask' | 'rewrite' | 'summarize' | 'continue' | 'translate' | 'outline' | 'todo'
+export type EditorAiAction = 'ask' | 'rewrite' | 'summarize' | 'continue' | 'translate' | 'outline' | 'todo' | 'condense' | 'expand'
 
 /** The words either side of a selection, kept so the range can be found again after the note moved. */
 export interface EditorAiAnchor {
@@ -73,6 +73,8 @@ export const EDITOR_AI_LABELS: Record<EditorAiAction, MessageKey> = {
   translate: 'assistant.edit.translate',
   outline: 'assistant.edit.outline',
   todo: 'assistant.edit.todo',
+  condense: 'assistant.edit.condense',
+  expand: 'assistant.edit.expand',
 }
 
 const PROMPT_KEYS: Record<Exclude<EditorAiAction, 'ask'>, MessageKey> = {
@@ -82,6 +84,8 @@ const PROMPT_KEYS: Record<Exclude<EditorAiAction, 'ask'>, MessageKey> = {
   translate: 'assistant.edit.prompt_translate',
   outline: 'assistant.edit.prompt_outline',
   todo: 'assistant.edit.prompt_todo',
+  condense: 'assistant.edit.prompt_condense',
+  expand: 'assistant.edit.prompt_expand',
 }
 
 /**
@@ -423,6 +427,12 @@ export function runEditorAi(input: EditorAiInput): boolean {
 }
 
 /** A passage as a Markdown block quote, which is how a question about it stays a question about it. */
+export function composeQuoted(quote: string, instruction = ''): string {
+  const block = quotePassage(quote)
+  if (!instruction) return block
+  return useAssistant.getState().settings?.quotePlacement === 'after' ? `${instruction}\n\n${block}` : `${block}\n\n${instruction}`
+}
+
 export function quotePassage(text: string): string {
   const body = text.length > QUOTE_CAP ? `${text.slice(0, QUOTE_CAP)}…` : text
   const quoted = body.split('\n').map((line) => `> ${line}`).join('\n')

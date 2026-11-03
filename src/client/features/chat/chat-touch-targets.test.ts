@@ -167,7 +167,7 @@ const NOTE_CALL: ToolActivity = {
 }
 
 /** The fold's heading carries the same padding as its rows, and it is the first control the walk meets. */
-const groupHeading = () => `${t('assistant.chat.tools_group')}${t('assistant.chat.tool_calls', { count: 2 })}`
+const groupHeading = () => `${t('assistant.chat.tools_group')}${t('assistant.chat.tool_calls', { count: 2 })}· ${t('assistant.chat.tool_summary_read', { count: 2 })}`
 
 function mountAnswer(): void {
   mount(createElement(AssistantBubble, {

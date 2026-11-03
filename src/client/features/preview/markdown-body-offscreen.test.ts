@@ -25,6 +25,8 @@ import { MarkdownBody } from './MarkdownBody'
 const passes = vi.hoisted(() => ({
   enhance: 0,
   render: 0,
+  mermaid: 0,
+  chart: 0,
 }))
 
 const SOURCE = ['A snippet:', '', '```ts', 'const answer = 42', '```', '', '$x^2$'].join('\n')
@@ -36,8 +38,8 @@ vi.mock('../../lib/markdown/enhance', async (importOriginal) => {
     // The pass prism and katex are run from, counted instead of run: what is under test is how often a
     // surface asks for it, not what it draws.
     enhancePreview: async () => { passes.enhance += 1 },
-    renderPendingMermaid: () => undefined,
-    renderPendingCharts: () => undefined,
+    renderPendingMermaid: () => { passes.mermaid += 1 },
+    renderPendingCharts: () => { passes.chart += 1 },
     destroyChartInstances: () => undefined,
   }
 })
@@ -137,6 +139,8 @@ beforeEach(async () => {
   FakeObserver.instances = []
   passes.enhance = 0
   passes.render = 0
+  passes.mermaid = 0
+  passes.chart = 0
   vi.stubGlobal('IntersectionObserver', FakeObserver)
   // jsdom lays nothing out, so "where is this body" is answered here: `out-of-view` puts a body two
   // screens below the reader, anything else sits at the top of it.
@@ -196,6 +200,11 @@ describe('the hold on a body nobody is looking at', () => {
 
     await act(async () => { observer!.report(true) })
     expect(passes.enhance, 'the body arrived and was never drawn').toBe(1)
+    // Arrival is the only event a static body ever gets: a stored reply does not change its text again,
+    // so a draw that is not asked for on `seen` is a diagram that stays at "drawing…" until the reader
+    // happens to stream a new answer.
+    expect(passes.mermaid, 'the body arrived and the diagram pass was never asked').toBe(1)
+    expect(passes.chart, 'the body arrived and the chart pass was never asked').toBe(1)
 
     await act(async () => { observer!.report(false) })
     expect(node.isConnected, 'a body that scrolled away was unmounted, which breaks the DOM contracts').toBe(true)
@@ -205,6 +214,29 @@ describe('the hold on a body nobody is looking at', () => {
     expect(container.querySelector('.ink-prose')).toBe(node)
     expect(passes.enhance, 'the drawing pass ran again for a body that only came and went').toBe(1)
     expect(observer!.disconnected, 'the observer outlived the one arrival it was made for').toBe(true)
+  })
+
+  it('asks the diagram pass again when a settled body repaints its markup', () => {
+    // A repaint that keeps the same text is what a stored reply goes through when the locale arrives
+    // after it mounted. The markup under the drawer is replaced, so the pass that was running into the
+    // old nodes is discarded; nothing re-asks it unless the settled text's repaint does.
+    const identity = (html: string) => html
+    mount(createElement(MarkdownBody, { source: SOURCE, transformHtml: identity }))
+    expect(passes.mermaid, 'a mounted body was never asked to draw').toBe(1)
+    expect(passes.chart, 'a mounted body was never asked to chart').toBe(1)
+
+    act(() => {
+      root!.render(createElement(MarkdownBody, { source: SOURCE, transformHtml: (html: string) => `${html}<!-- repainted -->` }))
+    })
+    expect(passes.mermaid, 'the repainted markup was never asked to draw again').toBe(2)
+    expect(passes.chart, 'the repainted markup was never asked to chart again').toBe(2)
+
+    // The other half: text that is still moving waits for the settle, so a stream is not a redraw per
+    // token. This render's debounced value has not arrived yet.
+    act(() => {
+      root!.render(createElement(MarkdownBody, { source: `${SOURCE}\n\nmore`, transformHtml: identity }))
+    })
+    expect(passes.mermaid, 'a body redrew its diagram before the text settled').toBe(2)
   })
 
   it('draws at once on a host that cannot answer where its content is', () => {

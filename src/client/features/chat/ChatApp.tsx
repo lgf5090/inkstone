@@ -26,6 +26,7 @@ import { AssistantSettingsView } from './AssistantSettingsView'
 import { ProjectsView } from './ProjectsView'
 import { NotificationsBell } from './NotificationCenter'
 import { DeepResearchProgress } from './DeepResearchProgress'
+import { MermaidViewer } from './MermaidViewer'
 
 const VIEW_ICONS: Record<AssistantView, typeof MessageSquare> = {
   chat: MessageSquare,
@@ -69,6 +70,7 @@ export function ChatApp() {
   const loaded = useAssistant((state) => state.loaded)
   const error = useAssistant((state) => state.error)
   const agentName = useAssistant((state) => state.settings?.agentName)
+  const chatScale = useAssistant((state) => state.settings?.chatScale ?? 1)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   useEffect(() => {
@@ -106,7 +108,11 @@ export function ChatApp() {
   const title = useMemo(() => (view === 'chat' ? agentName || t('assistant.app.title') : t(VIEW_LABELS[view])), [view, agentName])
 
   return (
-    <section className="flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]" data-assistant-app="1">
+    <section
+      className="flex h-full min-h-0 overflow-hidden bg-[var(--bg-base)]"
+      data-assistant-app="1"
+      style={{ zoom: chatScale }}
+    >
       {/* Below md the five sections move to the same bottom bar the notebook uses; a second 48px
           column beside the app rail would cost a quarter of a phone's width. */}
       <nav
@@ -204,6 +210,7 @@ export function ChatApp() {
             )
           })}
         </nav>
+        <MermaidViewer />
       </div>
     </section>
   )

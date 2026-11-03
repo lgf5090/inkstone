@@ -3309,6 +3309,219 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 227,
     statements: [`DROP INDEX IF EXISTS idx_nav_links_category`],
   },
+  {
+    version: 228,
+    skipIfColumnExists: { table: 'chat_projects', column: 'icon' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 229,
+    skipIfColumnExists: { table: 'chat_projects', column: 'exclude_scope' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN exclude_scope TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 230,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tools' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tools TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 231,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tools_limited' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tools_limited INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 232,
+    skipIfColumnExists: { table: 'chat_projects', column: 'tool_overrides' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN tool_overrides TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 233,
+    skipIfColumnExists: { table: 'chat_projects', column: 'skill_ids' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN skill_ids TEXT NOT NULL DEFAULT '[]'`],
+  },
+  {
+    version: 234,
+    skipIfColumnExists: { table: 'chat_projects', column: 'focus_sync' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN focus_sync INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 235,
+    skipIfColumnExists: { table: 'chat_projects', column: 'time_aware' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN time_aware INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 236,
+    skipIfColumnExists: { table: 'chat_projects', column: 'read_project_instructions' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN read_project_instructions INTEGER NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 237,
+    skipIfColumnExists: { table: 'chat_projects', column: 'position' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN position REAL NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 238,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_knowledge_bases (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        include_scope TEXT NOT NULL DEFAULT '[]',
+        exclude_scope TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_knowledge_bases_unique
+         ON chat_knowledge_bases(user_id, lower(name))`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_knowledge_bases_user
+         ON chat_knowledge_bases(user_id, updated_at DESC)`,
+    ],
+  },
+  {
+    version: 239,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'settings' },
+    statements: [`ALTER TABLE chat_conversations ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 240,
+    skipIfColumnExists: { table: 'chat_conversations', column: 'origin' },
+    statements: [`ALTER TABLE chat_conversations ADD COLUMN origin TEXT NOT NULL DEFAULT 'chat'`],
+  },
+  {
+    version: 241,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_questions (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        questions TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        answers TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        answered_at INTEGER,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_questions_conversation
+         ON chat_questions(user_id, conversation_id, status, created_at DESC)`,
+    ],
+  },
+  {
+    version: 242,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_cursor_commands (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        execution TEXT NOT NULL DEFAULT 'quick-ask-ask',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        position REAL NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_cursor_commands_user
+         ON chat_cursor_commands(user_id, position, created_at)`,
+    ],
+  },
+  {
+    version: 243,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'kind' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN kind TEXT NOT NULL DEFAULT 'prompt'`],
+  },
+  {
+    version: 244,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'description' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN description TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 245,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'load_mode' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN load_mode TEXT NOT NULL DEFAULT 'full'`],
+  },
+  {
+    version: 246,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'enabled' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    version: 247,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'source' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`],
+  },
+  {
+    version: 248,
+    skipIfColumnExists: { table: 'chat_prompts', column: 'position' },
+    statements: [`ALTER TABLE chat_prompts ADD COLUMN position REAL NOT NULL DEFAULT 0`],
+  },
+  {
+    version: 249,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_subagent_tasks (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        parent_conversation_id TEXT NOT NULL,
+        parent_message_id TEXT,
+        call_id TEXT,
+        description TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        model_id TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        result TEXT,
+        error TEXT,
+        tool_calls INTEGER NOT NULL DEFAULT 0,
+        tokens INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_subagent_tasks_parent
+         ON chat_subagent_tasks(user_id, parent_conversation_id, created_at DESC)`,
+    ],
+  },
+  {
+    version: 250,
+    skipIfColumnExists: { table: 'chat_messages', column: 'cached_input_tokens' },
+    statements: [`ALTER TABLE chat_messages ADD COLUMN cached_input_tokens INTEGER`],
+  },
+  {
+    version: 251,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_reader_embeddings (
+        user_id TEXT NOT NULL,
+        book_id TEXT NOT NULL,
+        page INTEGER NOT NULL,
+        chunk INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        text TEXT NOT NULL,
+        vector BLOB NOT NULL,
+        norm REAL NOT NULL,
+        indexed_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, book_id, page, chunk)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_chat_reader_embeddings_user
+         ON chat_reader_embeddings(user_id, indexed_at DESC)`,
+    ],
+  },
+  {
+    version: 252,
+    skipIfColumnExists: { table: 'chat_projects', column: 'group_name' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 253,
+    skipIfColumnExists: { table: 'chat_projects', column: 'settings_json' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'`],
+  },
+  {
+    version: 254,
+    skipIfColumnExists: { table: 'chat_projects', column: 'knowledge_base_ids' },
+    statements: [`ALTER TABLE chat_projects ADD COLUMN knowledge_base_ids TEXT NOT NULL DEFAULT '[]'`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

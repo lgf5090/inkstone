@@ -106,6 +106,11 @@ import type {
   AssistantArtifact,
   AssistantArtifactVersion,
   AssistantConversation,
+  AssistantConversationSettings,
+  AssistantCustomParam,
+  AssistantQuestionAnswers,
+  AssistantQuestionRow,
+  AssistantCursorCommand,
   ChatFolderNode,
   ChatProjectNode,
   ConversationTag,
@@ -126,9 +131,11 @@ import type {
   AssistantVendorModel,
   Automation as AssistantAutomation,
   AutomationRun as AssistantAutomationRun,
+  KnowledgeBase,
   MemoryReview,
   PendingAction,
   Project as AssistantProject,
+  ProjectMcpMode,
   SavedMessage,
 } from '@shared/assistant'
 import type {
@@ -1870,13 +1877,15 @@ export const api = {
     /** A note the browser wrote from a reply: the worker cannot see that save, so the client reports it. */
     recordNoteWrite: (noteId: string, conversationId: string) =>
       request<{ ok: true }>('/api/assistant/note-writes', { method: 'POST', body: { noteId, conversationId } }),
-    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
+    conversations: (params: { q?: string, folder?: string, project?: string, tag?: string, origin?: string, noteId?: string, starred?: string, pinned?: string, archived?: string, limit?: string, cursor?: string } = {}, signal?: AbortSignal) =>
       request<{ conversations: AssistantConversation[], nextCursor: string | null }>(`/api/assistant/conversations${toQuery(params)}`, { signal }),
     createConversation: (title?: string, folderId?: string | null, ephemeral = false) =>
       request<{ conversation: AssistantConversation }>('/api/assistant/conversations', {
         method: 'POST',
         body: { title, ...(folderId === undefined ? {} : { folderId }), ...(ephemeral ? { ephemeral: true } : {}) },
       }),
+    promoteConversation: (body: { title?: string, noteId?: string | null, messages: Array<{ role: 'user' | 'assistant', content: string }> }) =>
+      request<{ conversation: AssistantConversation, messages: AssistantMessage[] }>('/api/assistant/conversations/promote', { method: 'POST', body }),
     /** A folder from the notebook's tree; null files the conversation back to unfiled. */
     setConversationProject: (id: string, projectId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { projectId } }),
@@ -1889,6 +1898,20 @@ export const api = {
      */
     setConversationNote: (id: string, noteId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { noteId } }),
+    /** This thread's own overrides; the object replaces the stored one rather than merging into it. */
+    setConversationSettings: (id: string, settings: AssistantConversationSettings) =>
+      request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { settings } }),
+    pendingQuestions: (conversationId: string, signal?: AbortSignal) =>      request<{ questions: AssistantQuestionRow[] }>(`/api/assistant/conversations/${conversationId}/questions`, { signal }),
+    answerQuestion: (conversationId: string, questionId: string, answers: AssistantQuestionAnswers) =>
+      request<{ question: AssistantQuestionRow }>(
+        `/api/assistant/conversations/${conversationId}/questions/${questionId}/answer`,
+        { method: 'POST', body: { answers } },
+      ),
+    cancelQuestion: (conversationId: string, questionId: string) =>
+      request<{ question: AssistantQuestionRow }>(
+        `/api/assistant/conversations/${conversationId}/questions/${questionId}/cancel`,
+        { method: 'POST' },
+      ),
     moveConversation: (id: string, folderId: string | null) =>
       request<{ conversation: AssistantConversation }>(`/api/assistant/conversations/${id}`, { method: 'PATCH', body: { folderId } }),
     /** Put a conversation away or take it back out. Not a delete: the thread stays whole and searchable. */
@@ -2100,9 +2123,17 @@ export const api = {
     updateSkill: (id: string, body: AssistantSkillInput) =>
       request<{ skill: AssistantSkill }>(`/api/assistant/skills/${id}`, { method: 'PATCH', body }),
     removeSkill: (id: string) => request<{ deleted: boolean }>(`/api/assistant/skills/${id}`, { method: 'DELETE' }),
+    cursorCommands: () => request<{ commands: AssistantCursorCommand[] }>('/api/assistant/cursor-commands'),
+    createCursorCommand: (body: { label: string, instruction: string, execution: string }) =>
+      request<{ command: AssistantCursorCommand }>('/api/assistant/cursor-commands', { method: 'POST', body }),
+    updateCursorCommand: (id: string, body: Partial<Pick<AssistantCursorCommand, 'label' | 'instruction' | 'execution' | 'enabled'>>) =>
+      request<{ command: AssistantCursorCommand }>(`/api/assistant/cursor-commands/${id}`, { method: 'PATCH', body }),
+    removeCursorCommand: (id: string) => request<{ deleted: true }>(`/api/assistant/cursor-commands/${id}`, { method: 'DELETE' }),
     exportSkills: () => request<{ bundle: AssistantSkillBundle }>('/api/assistant/skills/export'),
     importSkills: (skills: unknown[]) =>
       request<SkillImportResult>('/api/assistant/skills/import', { method: 'POST', body: { skills } }),
+    importGithubSkill: (url: string) =>
+      request<{ skill: AssistantSkill }>('/api/assistant/skills/github', { method: 'POST', body: { url } }),
     chatFiles: () => request<{ files: ChatAttachment[] }>('/api/assistant/files'),
     deleteChatFile: (id: string) => request<{ deleted: boolean }>(`/api/assistant/files/${id}`, { method: 'DELETE' }),
     starConversation: (id: string, starred: boolean) =>
@@ -2113,8 +2144,8 @@ export const api = {
       request<{ deleted: number }>('/api/assistant/conversations', { method: 'DELETE', body: { confirm: 'DELETE' } }),
     cancel: (conversationId: string, runToken?: number) =>
       request<{ cancelled: true }>('/api/assistant/chat/cancel', { method: 'POST', body: { conversationId, ...(runToken === undefined ? {} : { runToken }) } }),
-    approveAction: (id: string) =>
-      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: {} }),
+    approveAction: (id: string, always = false, args?: Record<string, unknown>) =>
+      request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/approve`, { method: 'POST', body: { always, ...(args ? { args } : {}) } }),
     declineAction: (id: string) =>
       request<{ action: PendingAction, result?: string }>(`/api/assistant/actions/${id}/cancel`, { method: 'POST', body: {} }),
     memories: (params: { q?: string, status?: string, category?: string, noteId?: string } = {}) =>
@@ -2155,11 +2186,90 @@ export const api = {
       request<{ kept: number, deleted: boolean }>(`/api/assistant/memories/reviews/${id}`, { method: 'POST', body: { action } }),
     projects: () => request<{ projects: AssistantProject[] }>('/api/assistant/projects'),
     getProject: (id: string) => request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`),
-    createProject: (body: { name: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
+    createProject: (body: {
+      name: string
+      description?: string
+      icon?: string
+      instructions?: string
+      noteScope?: string[]
+      excludeScope?: string[]
+      noteIds?: string[]
+      modelId?: string | null
+      tools?: string[]
+      toolsLimited?: boolean
+      toolOverrides?: Record<string, string>
+      skillIds?: string[]
+      group?: string
+      temperature?: number | null
+      topP?: number | null
+      maxOutputTokens?: number | null
+      stream?: boolean
+      maxToolRounds?: number | null
+      keepRecentMessages?: number | null
+      contextCustom?: boolean
+      autoCompactMode?: 'off' | 'absolute' | 'ratio'
+      autoCompactTokens?: number
+      autoCompactRatio?: number
+      customParams?: AssistantCustomParam[]
+      mcpMode?: ProjectMcpMode
+      mcpServerIds?: string[]
+      knowledgeBaseIds?: string[]
+      focusSync?: boolean
+      timeAware?: boolean
+      readProjectInstructions?: boolean
+    }) =>
       request<{ project: AssistantProject }>('/api/assistant/projects', { method: 'POST', body }),
-    updateProject: (id: string, body: { name?: string, description?: string, instructions?: string, noteScope?: string[], noteIds?: string[], modelId?: string | null }) =>
+    updateProject: (id: string, body: {
+      name?: string
+      description?: string
+      icon?: string
+      instructions?: string
+      noteScope?: string[]
+      excludeScope?: string[]
+      noteIds?: string[]
+      modelId?: string | null
+      tools?: string[]
+      toolsLimited?: boolean
+      toolOverrides?: Record<string, string>
+      skillIds?: string[]
+      group?: string
+      temperature?: number | null
+      topP?: number | null
+      maxOutputTokens?: number | null
+      stream?: boolean
+      maxToolRounds?: number | null
+      keepRecentMessages?: number | null
+      contextCustom?: boolean
+      autoCompactMode?: 'off' | 'absolute' | 'ratio'
+      autoCompactTokens?: number
+      autoCompactRatio?: number
+      customParams?: AssistantCustomParam[]
+      mcpMode?: ProjectMcpMode
+      mcpServerIds?: string[]
+      knowledgeBaseIds?: string[]
+      focusSync?: boolean
+      timeAware?: boolean
+      readProjectInstructions?: boolean
+    }) =>
       request<{ project: AssistantProject }>(`/api/assistant/projects/${id}`, { method: 'PATCH', body }),
     deleteProject: (id: string) => request<{ deleted: true }>(`/api/assistant/projects/${id}`, { method: 'DELETE' }),
+    knowledgeBases: () => request<{ knowledgeBases: KnowledgeBase[] }>('/api/assistant/knowledge-bases'),
+    createKnowledgeBase: (body: { name: string, description?: string, includeScope?: string[], excludeScope?: string[] }) =>
+      request<{ knowledgeBase: KnowledgeBase }>('/api/assistant/knowledge-bases', { method: 'POST', body }),
+    updateKnowledgeBase: (id: string, body: { name?: string, description?: string, includeScope?: string[], excludeScope?: string[] }) =>
+      request<{ knowledgeBase: KnowledgeBase }>(`/api/assistant/knowledge-bases/${id}`, { method: 'PATCH', body }),
+    deleteKnowledgeBase: (id: string) =>
+      request<{ deleted: true }>(`/api/assistant/knowledge-bases/${id}`, { method: 'DELETE' }),
+    indexReaderBook: (bookId: string, pages: Array<{ page: number, text: string }>) =>
+      request<{ indexed: number, pages: number }>('/api/assistant/reader-index', { method: 'POST', body: { bookId, pages } }),
+    similarNotes: (noteId: string) =>
+      request<{ status: 'ok' | 'unavailable', hits: Array<{ id: string, title: string, excerpt: string, score: number }> }>(
+        `/api/assistant/similar-notes?noteId=${encodeURIComponent(noteId)}`,
+      ),
+    oneShot: (body: { user: string, system?: string, modelId?: string, maxOutputTokens?: number, timeoutMs?: number }) =>
+      request<{ text: string }>('/api/assistant/one-shot', { method: 'POST', body }),
+    compactConversation: (id: string) =>
+      request<{ summary: string, upto: number }>(`/api/assistant/conversations/${id}/compact`, { method: 'POST', body: {} }),
     automations: () =>
       request<{ automations: AssistantAutomation[], runs: AssistantAutomationRun[], timezone: string }>('/api/assistant/automations'),
     createAutomation: (body: Record<string, unknown>) =>
@@ -2270,6 +2380,11 @@ export const api = {
      * import reads a bounded file, and a backup past that bound is one that cannot come back.
      */
     exportBackup: () => request<Record<string, unknown>>('/api/assistant/export'),
+    exportAssistantConfig: () => request<Record<string, unknown>>('/api/assistant/config/export'),
+    importAssistantConfig: (payload: unknown) =>
+      request<{ imported: { settings: boolean, providers: number, models: number, skills: number, projects: number, skipped: number } }>(
+        '/api/assistant/config/import', { method: 'POST', body: payload },
+      ),
     importBackup: (payload: unknown) =>
       request<{ imported: AssistantImportSummary }>('/api/assistant/import', { method: 'POST', body: payload }),
     /**

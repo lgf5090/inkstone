@@ -19,7 +19,7 @@ import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { COPY_RESET_MS } from '../../lib/motion'
 import { dayKey, formatDay, formatInZone } from './time-format'
-import { LoadFailure } from './assistant-settings-shared'
+import { LoadFailure, modelOptionLabel } from './assistant-settings-shared'
 import { isImeComposing } from '../../lib/ime'
 import { relativeTime } from '../../lib/time'
 import { useDebouncedDraft, useMediaQuery } from '../../lib/hooks'
@@ -28,7 +28,7 @@ import type { MoveMenuFolder } from '../../lib/tree'
 import { Button, Divider, IconButton, Spinner } from '../../components/primitives'
 import { FilterInput } from '../../components/FilterInput'
 import { Input, Textarea } from '../../components/form'
-import { Menu, Modal, Tooltip, confirm, prompt, submenuFor, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, hasOpenLayer, prompt, submenuFor, type MenuItem } from '../../components/overlay'
 import { api } from '../../lib/api'
 import { FolderMoveMenu } from '../folders/FolderMoveMenu'
 import { ConversationTabStrip, ConversationTaxonomyPanel, moveMenuTree } from './ChatTaxonomy'
@@ -50,6 +50,7 @@ import {
   ModelMenu,
   NotePicker,
   PlusMenu,
+  ProjectMenu,
   ReasoningMenu,
   WebSearchMenu,
   VoiceButton,
@@ -69,6 +70,8 @@ import { MultiModelMenu, MultiModelView } from './MultiModelView'
 import { useMultiModel } from './multi-model-store'
 import { SessionResourcesPanel } from './SessionResourcesPanel'
 import { VoiceMode } from './VoiceMode'
+import { ConversationSettingsDialog } from './ConversationSettingsDialog'
+import { AskUserQuestionPanel } from './AskUserQuestionPanel'
 import { openNote } from './note-links'
 import { formatNoteMention } from './note-refs'
 import { SelectionBar, SelectionTick, selectedMessages, type MessageSelection } from './SelectionBar'
@@ -85,6 +88,7 @@ import { ChatOutline } from './ChatOutline'
 import { modelReasoning, reasoningOptions } from './model-reasoning'
 import { CHAT_SHORTCUTS, isChatShortcut } from './chat-shortcuts'
 import { useChatIntent } from './chat-intents'
+import { useEditorAi } from './editor-ai'
 
 /** The composer's "common requests" list: the same openers the empty thread offers, by key. */
 /**
@@ -99,7 +103,11 @@ async function exportConversation(conversationId: string, title: string): Promis
     // The whole thread, walked page by page: the export is a document, and a document that stops at
     // the first page of a long conversation is a file the reader cannot tell is incomplete.
     const detail = await fetchWholeConversation(conversationId)
-    downloadTranscript(detail.messages, title)
+    const settings = useAssistant.getState().settings
+    downloadTranscript(detail.messages, title, {
+      reasoning: settings?.exportReasoning === true,
+      toolCalls: settings?.exportToolCalls === true,
+    })
     toast({ title: t('assistant.chat.exported', { title }), tone: 'success' })
   } catch (error) {
     toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
@@ -322,11 +330,14 @@ export function ChatView() {
 
   // The reader is following the thread, so every part of a turn that is still arriving keeps it pinned to
   // the bottom — the reasoning trace included. Left out of the deps, a long think grew off-screen and the
-  // reader had to scroll to find the answer.
+  // reader had to scroll to find the answer. An approval card grows the same turn without adding a tool,
+  // so its arrival is counted separately: otherwise its buttons render under the composer, out of reach
+  // until the reader scrolls for a control they were already looking at.
+  const approvalCount = (turnHere?.tools ?? []).filter((tool) => tool.approval).length
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [messages.length, turnHere?.text, turnHere?.reasoning, turnHere?.tools.length, turnHere?.error])
+  }, [messages.length, turnHere?.text, turnHere?.reasoning, turnHere?.tools.length, turnHere?.error, approvalCount])
 
   // Older turns are a page away rather than part of the transcript, so the control that fetches them
   // belongs at the top of the list and the scroll position is kept where the reader left it: the new
@@ -383,6 +394,30 @@ export function ChatView() {
   // One right-hand slot: the canvas and the resource monitor are both full-height panels, and two of
   // them would leave a phone thread with nothing. Opening either puts the other away.
   const [resourcesOpen, setResourcesOpen] = useState(false)
+  const [conversationSettingsOpen, setConversationSettingsOpen] = useState(false)
+  const activeConversation = activeId ? conversations.find((entry) => entry.id === activeId) ?? null : null
+  // One Escape for the whole surface: a dialog or menu keeps its own key first, then a running reply
+  // stops, then an editor request that is still waiting is cleared. The composer's own handler stays
+  // for the case where focus is in the box and nothing else is layered above it.
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || hasOpenLayer()) return
+      const state = useAssistant.getState()
+      if (state.turn && !state.turn.done) {
+        event.preventDefault()
+        state.stop()
+        return
+      }
+      if (useEditorAi.getState().request) {
+        event.preventDefault()
+        useEditorAi.getState().clear()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const navigatorRef = useRef<HTMLButtonElement>(null)
+  const [navigatorOpen, setNavigatorOpen] = useState(false)
   useEffect(() => {
     if (canvasOpen && resourcesOpen) setResourcesOpen(false)
   }, [canvasOpen, resourcesOpen])
@@ -425,6 +460,8 @@ export function ChatView() {
     : turnHere.streamInterrupted === true
       ? streamInterruptedLine(turnAnswerCanBePickedUp)
       : turnHere.error
+  const turnErrorCode = turnHere === null ? null
+    : turnHere.streamInterrupted === true ? 'stream' : turnHere.errorCode ?? null
   // One identity for the whole view: the regenerate control hangs off a memoised row, and a fresh
   // closure per token would be a different prop each time the answer streamed in.
   const retryLast = useCallback(() => {
@@ -473,6 +510,16 @@ export function ChatView() {
   const anchors = useMemo(
     () => messages.filter((message) => message.role === 'user').map((message) => ({ id: message.id, text: message.content })),
     [messages],
+  )
+  const navigatorItems: MenuItem[] = useMemo(
+    () => anchors.map((anchor, index) => ({
+      id: anchor.id,
+      label: `${index + 1}. ${anchor.text.replace(/\s+/g, ' ').trim().slice(0, 60) || t('assistant.chat.untitled')}`,
+      onSelect: () => {
+        document.querySelector(`[data-chat-anchor="${CSS.escape(anchor.id)}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      },
+    })),
+    [anchors],
   )
 
   return (
@@ -626,6 +673,18 @@ export function ChatView() {
                 <ListTree size={15} />
               </IconButton>
             </Tooltip>
+            {/* This thread's own model and sampling rules, kept out of the composer because they are
+                decisions about the conversation rather than about one question. */}
+            <Tooltip label={t('assistant.conversation.settings.open')} side="bottom">
+              <IconButton
+                label={t('assistant.conversation.settings.open')}
+                size="sm"
+                disabled={!activeConversation}
+                onClick={() => setConversationSettingsOpen(true)}
+              >
+                <Settings2 size={15} />
+              </IconButton>
+            </Tooltip>
             {/* A toggle owes the reader which way it is about to go: naming the panel says only what the
                 button belongs to, and the button already looks pressed when the panel is up. */}
             <Tooltip label={canvasOpen ? t('assistant.canvas.close') : t('assistant.canvas.show.tip')} side="bottom">
@@ -644,6 +703,27 @@ export function ChatView() {
             </Tooltip>
             {/* The chord is part of the answer: this control is the one thing on the row the keyboard already
                 reaches, and the overview prints the same table. */}
+            <Tooltip label={t('assistant.chat.navigator')} side="bottom">
+              <IconButton
+                ref={navigatorRef}
+                active={navigatorOpen}
+                label={t('assistant.chat.navigator')}
+                size="sm"
+                disabled={!anchors.length}
+                onClick={() => setNavigatorOpen((open) => !open)}
+              >
+                <ListTree size={15} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchor={navigatorRef}
+              open={navigatorOpen}
+              onClose={() => setNavigatorOpen(false)}
+              items={navigatorItems}
+              width={320}
+              searchable={navigatorItems.length > 8}
+              label={t('assistant.chat.navigator')}
+            />
             <Tooltip label={finding ? t('assistant.chat.find.close.tip') : t('assistant.chat.find.tip')} combo={CHAT_SHORTCUTS.find} side="bottom">
               <IconButton active={finding} label={t('assistant.chat.find')} size="sm" onClick={() => setFinding((open) => !open)}>
                 <Search size={15} />
@@ -737,6 +817,14 @@ export function ChatView() {
                   </Button>
                 </div>
               )}
+              {activeConversation?.summary && (
+                <details className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-2 text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                  <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">{t('assistant.chat.compaction_title')}</summary>
+                  <p className="mt-1 leading-relaxed">{t('assistant.chat.compaction_hint')}</p>
+                  <p className="mt-1.5 font-medium text-[var(--text-secondary)]">{t('assistant.chat.compaction_summary')}</p>
+                  <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{activeConversation.summary}</p>
+                </details>
+              )}
               {messages.map((message, index) => {
                 // A long thread crosses days, and a run of bubbles with no date is a transcript the
                 // reader has to guess the shape of. The separator belongs to the turn that starts the day.
@@ -789,6 +877,7 @@ export function ChatView() {
                     reasoning={turnHere.reasoning}
                     tools={turnHere.tools}
                     error={turnError}
+                    errorCode={turnErrorCode}
                     streaming={!turnHere.done}
                     stage={turnHere.stage}
                     sources={turnHere.sources}
@@ -869,6 +958,7 @@ export function ChatView() {
             onExit={() => setSelected(null)}
           />
         )}
+        <AskUserQuestionPanel conversationId={activeId} streaming={streaming} />
         <ChatComposer
           streaming={streaming}
           sendOnEnter={useAssistant((state) => state.settings?.sendOnEnter ?? true)}
@@ -916,6 +1006,14 @@ export function ChatView() {
       )}
 
       {voiceOpen && <VoiceMode onClose={() => setVoiceOpen(false)} />}
+
+      {activeConversation && (
+        <ConversationSettingsDialog
+          conversation={activeConversation}
+          open={conversationSettingsOpen}
+          onClose={() => setConversationSettingsOpen(false)}
+        />
+      )}
 
       {activeId && shareScope && (
         <ConversationSharePanel
@@ -1970,6 +2068,8 @@ export function ChatComposer({
 }) {
   const [value, setValue] = useState('')
   const seed = useAssistant((state) => state.composerSeed)
+  const seedId = useAssistant((state) => state.composerSeedId)
+  const consumedSeed = useRef(0)
   const ref = useRef<HTMLTextAreaElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   // Only the disabled "no model" chip needs an anchor of its own: the menu variant brings its own.
@@ -1977,16 +2077,19 @@ export function ChatComposer({
   const fileRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
   // A quote from a message menu lands at the top of whatever the reader was already writing, and the
-  // handover is spent on arrival: leaving it in the store would re-insert it on the next render.
+  // handover is spent on arrival: leaving it in the store would re-insert it on the next render. Each
+  // hand-over carries an id, because `StrictMode` runs this effect twice for one seed and the same words
+  // may be sent again later — without it the first run duplicated the quote in the box.
   useEffect(() => {
-    if (seed === null) return
+    if (seed === null || consumedSeed.current === seedId) return
+    consumedSeed.current = seedId
     setValue((current) => (current.trim() ? `${seed}
 
 ${current}` : seed))
     useAssistant.getState().clearComposerSeed()
     const box = ref.current
     if (box) box.focus()
-  }, [seed])
+  }, [seed, seedId])
   const pending = useAssistant((state) => state.pending)
   const attachFiles = useAssistant((state) => state.attachFiles)
   const attachUrl = useAssistant((state) => state.attachUrl)
@@ -1995,7 +2098,16 @@ ${current}` : seed))
   const retryAttachment = useAssistant((state) => state.retryAttachment)
   const models = useAssistant((state) => state.models)
   const providers = useAssistant((state) => state.providers)
+  const projects = useAssistant((state) => state.projects)
+  const conversations = useAssistant((state) => state.conversations)
+  const activeId = useAssistant((state) => state.activeId)
+  const setConversationProject = useAssistant((state) => state.setConversationProject)
   const settings = useAssistant((state) => state.settings)
+  const activeProjectId = activeId
+    ? conversations.find((conversation) => conversation.id === activeId)?.projectId ?? null
+    : null
+  const queued = useAssistant((state) => state.queued)
+  const removeQueued = useAssistant((state) => state.removeQueued)
   const activateModel = useAssistant((state) => state.activateModel)
   const updateModel = useAssistant((state) => state.updateModel)
   const saveSettings = useAssistant((state) => state.saveSettings)
@@ -2060,7 +2172,11 @@ ${current}` : seed))
 
   const submit = () => {
     const text = value.trim()
-    if ((!text && !pending.length) || streaming || disabled || uploading) return
+    if ((!text && !pending.length) || disabled || uploading) return
+    // A turn that is already running takes the words as the next turn instead of refusing them. A queued
+    // turn carries no files (the queue holds text and a model id), so a draft with attachments keeps
+    // waiting for the running turn rather than sending its words and silently leaving the files behind.
+    if (streaming && (!text || pending.length)) return
     setValue('')
     // A turn the worker never took hands the whole draft back: the store returns the attachments and the
     // chips, and this box owns the words. Refused and stopped-before-the-first-frame are the same thing
@@ -2173,7 +2289,16 @@ ${current}` : seed))
           label: tool.name,
           hint: tool.description.slice(0, 40),
         }))
-      setTriggerRows(filterRows([...TOOL_TRIGGER_ROWS, ...external], next.query))
+      const skillRows: TriggerRow[] = savedSkills.map((skill) => ({
+        id: skill.id,
+        label: skill.title || t('assistant.skills.untitled'),
+        hint: t('assistant.trigger.skill'),
+        kind: 'skill' as const,
+      }))
+      const commandRows: TriggerRow[] = [
+        { id: 'compact-context', label: t('assistant.chat.compact'), hint: t('assistant.chat.compact_hint'), kind: 'command' as const },
+      ]
+      setTriggerRows(filterRows([...commandRows, ...TOOL_TRIGGER_ROWS, ...skillRows, ...external], next.query))
       setTriggerBusy(false)
       return
     }
@@ -2188,7 +2313,28 @@ ${current}` : seed))
         if (current()) setTriggerRows(filterRows(rows, next.query.replace(/^#/, '')))
       } else {
         const found = await api.search(next.query || t('assistant.attach.note_prompt'), 8)
-        if (current()) setTriggerRows(found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') })))
+        // One sigil, four kinds: a note becomes a citation, a folder narrows what the turn may read, an
+        // Agent sets where the thread is filed, a model is switched for the next answer. They share the
+        // picker because the reader is naming one thing the turn should be about.
+        const needle = next.query.toLocaleLowerCase()
+        const folders = useNotes.getState().folders
+          .filter((folder) => !needle || folder.name.toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((folder) => ({ id: folder.id, label: folder.name, hint: t('assistant.trigger.folder'), kind: 'folder' as const }))
+        const agents = useAssistant.getState().projects
+          .filter((agent) => !needle || agent.name.toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((agent) => ({ id: agent.id, label: agent.name, hint: t('assistant.trigger.agent'), kind: 'agent' as const }))
+        const listedModels = chatModels(useAssistant.getState().models)
+        const providers = useAssistant.getState().providers
+        const modelRows = listedModels
+          .filter((model) => !needle || modelOptionLabel(model, listedModels, providers).toLocaleLowerCase().includes(needle))
+          .slice(0, 4)
+          .map((model) => ({ id: model.id, label: modelOptionLabel(model, listedModels, providers), hint: t('assistant.trigger.model'), kind: 'model' as const }))
+        const notes = found.results.map((hit) => ({ id: hit.note.id, label: hit.note.title || t('assistant.trigger.untitled') }))
+        // The note search has already matched the words; only the three local lists need the same filter,
+        // or a row the server found would be dropped because its title does not repeat the query.
+        if (current()) setTriggerRows([...notes, ...filterRows([...folders, ...agents, ...modelRows], next.query)].slice(0, 8))
       }
     } catch {
       // A failed lookup leaves the panel empty rather than closing it: the reader is still typing, and a
@@ -2215,6 +2361,19 @@ ${current}` : seed))
     const tail = value.slice(caret)
     const gap = tail === '' || tail.startsWith(' ') ? '' : ' '
     if (trigger.sigil === '@') {
+      if (row.kind === 'folder' || row.kind === 'agent' || row.kind === 'model') {
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+        setTrigger(null)
+        setTriggerRows([])
+        if (row.kind === 'folder') addTurnScope({ kind: 'folder', id: row.id, name: row.label })
+        else if (row.kind === 'agent') {
+          if (activeId) void setConversationProject(activeId, row.id)
+        } else {
+          void activateModel(row.id)
+        }
+        ref.current?.focus()
+        return
+      }
       // The id rides inside the link, not the title alone: two notes of one title, or a note renamed
       // after this turn was written, would otherwise point the model at a document the reader never
       // picked. See `formatNoteMention`.
@@ -2223,9 +2382,35 @@ ${current}` : seed))
       setTriggerRows([])
       return
     }
-    if (trigger.sigil === '/') addTurnTool(row.id)
-    else addTurnScope({ kind: row.kind ?? 'tag', id: row.id, name: row.label.replace(/^#/, '') })
-    setValue(`${head}${tail.replace(/^ /, '')}`)
+    if (trigger.sigil === '/') {
+      if (row.kind === 'command' && row.id === 'compact-context') {
+        if (!activeId) return
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+        setTrigger(null)
+        setTriggerRows([])
+        void api.assistant.compactConversation(activeId)
+          .then(() => {
+            toast({ title: t('assistant.chat.compacted'), tone: 'success' })
+            void useAssistant.getState().openConversation(activeId)
+          })
+          .catch((error: unknown) => {
+            toast({ title: error instanceof Error ? error.message : t('assistant.toast.failed'), tone: 'danger' })
+          })
+        return
+      }
+      if (row.kind === 'skill') {
+        const skill = savedSkills.find((entry) => entry.id === row.id)
+        if (!skill) return
+        setValue(`${head}${skill.content}${gap}${tail}`)
+        applySkill(skill)
+      } else {
+        addTurnTool(row.id)
+        setValue(`${head}${tail.replace(/^ /, '')}`)
+      }
+    } else {
+      addTurnScope({ kind: row.kind === 'folder' ? 'folder' : 'tag', id: row.id, name: row.label.replace(/^#/, '') })
+      setValue(`${head}${tail.replace(/^ /, '')}`)
+    }
     setTrigger(null)
     setTriggerRows([])
   }
@@ -2259,6 +2444,15 @@ ${current}` : seed))
   const onPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const files = [...event.clipboardData.files]
     const text = event.clipboardData.getData('text')
+    // A pasted address is a reference, not a paragraph: the reader who copies a URL into the box means
+    // "read this page", and the worker already knows how to fetch it safely. A message that merely
+    // contains a URL keeps its text.
+    const soleUrl = text.trim()
+    if (!files.length && /^https?:\/\/\S+$/i.test(soleUrl) && soleUrl.length <= 2_048) {
+      event.preventDefault()
+      void attachUrl(soleUrl)
+      return
+    }
     const asFile = !files.length && text.length >= PASTE_FILE_MIN_CHARS
     // The decision has to be made before the handler returns: once the browser has pasted, calling
     // preventDefault is a no-op and the reader gets the wall of text next to the file.
@@ -2345,6 +2539,24 @@ ${current}` : seed))
             onPick={pickTriggerRow}
           />
         )}
+        {queued.length > 0 && (
+          <div role="status" className="mb-1 flex flex-wrap items-center gap-1 px-1 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span>{t('assistant.chat.queue_waiting', { count: queued.length })}</span>
+            {queued.map((entry) => (
+              <span key={entry.id} className="inline-flex max-w-[220px] items-center gap-1 rounded-[var(--r-full)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] py-0.5 pl-2 pr-0.5">
+                <span className="truncate">{entry.text}</span>
+                <button
+                  type="button"
+                  aria-label={t('assistant.chat.queue_remove')}
+                  onClick={() => removeQueued(entry.id)}
+                  className="ink-tap-pad flex size-4 shrink-0 items-center justify-center rounded-full hover:text-[var(--danger)]"
+                >
+                  <X size={9} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div
           ref={boxRef}
           onDragOver={(event) => {
@@ -2419,6 +2631,14 @@ ${current}` : seed))
               <FolderOpen size={14} />
             </IconButton>
             <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-0.5">
+              {activeId && (
+                <ProjectMenu
+                  projects={projects}
+                  value={activeProjectId}
+                  disabled={streaming}
+                  onPick={(projectId) => void setConversationProject(activeId, projectId)}
+                />
+              )}
               {settings && (
                 <ApprovalMenu
                   mode={settings.toolModes.destructive}
@@ -2478,9 +2698,26 @@ ${current}` : seed))
               <Divider vertical className="mx-0.5" />
               <VoiceButton onText={(chunk) => setValue((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${chunk}`)} />
               {streaming ? (
-                <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
-                  <Square size={12} className="fill-current" />
-                </IconButton>
+                <>
+                  {/* Words typed while an answer streams are the next turn: the store holds up to five and
+                      the strip above the box names them. The stop button stays beside it, because a reader
+                      who wants the current answer to end should not have to erase the draft to reach it. */}
+                  {value.trim() && !pending.length && (
+                    <IconButton
+                      label={t('assistant.chat.queue_send')}
+                      size="sm"
+                      variant="primary"
+                      disabled={disabled || uploading}
+                      onClick={submit}
+                      className="size-8 rounded-[var(--r-md)]"
+                    >
+                      <ArrowUp size={15} />
+                    </IconButton>
+                  )}
+                  <IconButton label={t('assistant.chat.stop')} size="sm" variant="secondary" onClick={onStop} className="size-8 rounded-[var(--r-md)]">
+                    <Square size={12} className="fill-current" />
+                  </IconButton>
+                </>
               ) : (
                 <IconButton
                   label={t('assistant.chat.send')}

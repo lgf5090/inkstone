@@ -115,6 +115,12 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     scopes TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
     icon TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'prompt',
+    description TEXT NOT NULL DEFAULT '',
+    load_mode TEXT NOT NULL DEFAULT 'full',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    source TEXT NOT NULL DEFAULT 'user',
+    position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -171,6 +177,8 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     folder_id TEXT,
     project_id TEXT,
     note_id TEXT,
+    settings TEXT NOT NULL DEFAULT '{}',
+    origin TEXT NOT NULL DEFAULT 'chat',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
@@ -295,6 +303,7 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     source TEXT NOT NULL DEFAULT 'chat',
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_input_tokens INTEGER,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     model_label TEXT NOT NULL DEFAULT '',
     feedback TEXT NOT NULL DEFAULT '',
@@ -448,16 +457,45 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
     instructions TEXT NOT NULL DEFAULT '',
     note_scope TEXT NOT NULL DEFAULT '[]',
+    exclude_scope TEXT NOT NULL DEFAULT '[]',
     note_ids TEXT NOT NULL DEFAULT '[]',
     model_id TEXT,
+    tools TEXT NOT NULL DEFAULT '[]',
+    tools_limited INTEGER NOT NULL DEFAULT 0,
+    tool_overrides TEXT NOT NULL DEFAULT '{}',
+    skill_ids TEXT NOT NULL DEFAULT '[]',
+    group_name TEXT NOT NULL DEFAULT '',
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    knowledge_base_ids TEXT NOT NULL DEFAULT '[]',
+    focus_sync INTEGER NOT NULL DEFAULT 1,
+    time_aware INTEGER NOT NULL DEFAULT 1,
+    read_project_instructions INTEGER NOT NULL DEFAULT 0,
+    position REAL NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, id)
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_projects_unique
      ON chat_projects(user_id, lower(name))`,
+
+  `CREATE TABLE IF NOT EXISTS chat_knowledge_bases (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    include_scope TEXT NOT NULL DEFAULT '[]',
+    exclude_scope TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_knowledge_bases_unique
+     ON chat_knowledge_bases(user_id, lower(name))`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_knowledge_bases_user
+     ON chat_knowledge_bases(user_id, updated_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS chat_automations (
     user_id TEXT NOT NULL,
@@ -738,6 +776,55 @@ export const ASSISTANT_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_active_runs_user
      ON chat_active_runs(user_id, lease_until)`,
+  `CREATE TABLE IF NOT EXISTS chat_questions (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    call_id TEXT NOT NULL,
+    questions TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    answers TEXT,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    answered_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_questions_conversation
+     ON chat_questions(user_id, conversation_id, status, created_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS chat_cursor_commands (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    instruction TEXT NOT NULL,
+    execution TEXT NOT NULL DEFAULT 'quick-ask-ask',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position REAL NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_cursor_commands_user
+     ON chat_cursor_commands(user_id, position, created_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_subagent_tasks (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    parent_conversation_id TEXT NOT NULL,
+    parent_message_id TEXT,
+    call_id TEXT,
+    description TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    model_id TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    result TEXT,
+    error TEXT,
+    tool_calls INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_subagent_tasks_parent
+     ON chat_subagent_tasks(user_id, parent_conversation_id, created_at DESC)`,
 ]
 
 export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
@@ -754,6 +841,7 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_memory_embeddings',
   'chat_memory_reviews',
   'chat_projects',
+  'chat_knowledge_bases',
   'chat_automations',
   'chat_runs',
   'chat_notifications',
@@ -768,6 +856,10 @@ export const ASSISTANT_REQUIRED_TABLES: readonly string[] = [
   'chat_share_links',
   'chat_activity',
   'chat_active_runs',
+  'chat_questions',
+  'chat_cursor_commands',
+  'chat_subagent_tasks',
+  'chat_reader_embeddings',
 ]
 
 export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
@@ -793,6 +885,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_reviews_memory',
   'idx_chat_reviews_other',
   'idx_chat_projects_unique',
+  'idx_chat_knowledge_bases_unique',
+  'idx_chat_knowledge_bases_user',
   'idx_chat_automations_due',
   'idx_chat_automations_user',
   'idx_chat_runs_started',
@@ -809,6 +903,10 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
   'idx_chat_share_links_scope',
   'idx_chat_activity_user',
   'idx_chat_active_runs_user',
+  'idx_chat_questions_conversation',
+  'idx_chat_cursor_commands_user',
+  'idx_chat_subagent_tasks_parent',
+  'idx_chat_reader_embeddings_user',
   'idx_chat_prompts_user',
   'idx_chat_answer_versions_message',
   'idx_chat_mcp_servers_user',
@@ -816,7 +914,8 @@ export const ASSISTANT_REQUIRED_INDEXES: readonly string[] = [
 
 export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   chat_settings: ['user_id', 'config', 'updated_at'],
-  chat_projects: ['user_id', 'id', 'name', 'description', 'instructions', 'note_scope', 'note_ids', 'model_id', 'created_at', 'updated_at'],
+  chat_projects: ['user_id', 'id', 'name', 'description', 'icon', 'instructions', 'note_scope', 'exclude_scope', 'note_ids', 'model_id', 'tools', 'tools_limited', 'tool_overrides', 'skill_ids', 'group_name', 'settings_json', 'knowledge_base_ids', 'focus_sync', 'time_aware', 'read_project_instructions', 'position', 'created_at', 'updated_at'],
+  chat_knowledge_bases: ['user_id', 'id', 'name', 'description', 'include_scope', 'exclude_scope', 'created_at', 'updated_at'],
   chat_usage_daily_model: ['user_id', 'day', 'model_label', 'model_id', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_key: ['user_id', 'day', 'model_label', 'provider_id', 'provider_label', 'key_id', 'key_label', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'errors'],
   chat_usage_daily_period: ['user_id', 'day', 'model_label', 'model_id', 'period_id', 'provider_id', 'key_id', 'input_tokens', 'output_tokens'],
@@ -828,13 +927,13 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
     'vendor_context_tokens', 'vendor_max_output_tokens', 'vision',
     'purpose', 'kind', 'supports_tools', 'no_tools', 'max_input_tokens', 'modalities', 'top_p', 'custom_params', 'protocol', 'fallback_model_id',
     'input_price', 'output_price', 'price_currency', 'price_periods', 'enabled', 'position'],
-  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'created_at', 'updated_at'],
+  chat_conversations: ['user_id', 'id', 'title', 'summary', 'summary_upto', 'pinned', 'starred', 'archived', 'ephemeral', 'parent_id', 'folder_id', 'project_id', 'note_id', 'settings', 'origin', 'created_at', 'updated_at'],
   chat_artifacts: ['user_id', 'id', 'conversation_id', 'title', 'content', 'note_id', 'version', 'created_at', 'updated_at'],
   chat_artifact_versions: ['user_id', 'id', 'artifact_id', 'conversation_id', 'version', 'title', 'content', 'source', 'message_id', 'created_at'],
   chat_note_writes: ['user_id', 'note_id', 'conversation_id', 'created_at'],
   chat_attachments: ['user_id', 'id', 'kind', 'folder_id', 'filename', 'mime', 'size', 'key', 'extracted_text', 'is_starred', 'is_pinned', 'tags', 'created_at'],
   chat_conversation_tags: ['user_id', 'conversation_id', 'tag_id', 'created_at'],
-  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'suggestions', 'saved_at', 'created_at'],
+  chat_messages: ['user_id', 'id', 'conversation_id', 'role', 'content', 'reasoning', 'tools', 'attachments', 'status', 'error', 'source', 'input_tokens', 'output_tokens', 'cached_input_tokens', 'duration_ms', 'model_label', 'feedback', 'sources', 'scopes', 'suggestions', 'saved_at', 'created_at'],
   chat_answer_versions: ['user_id', 'id', 'message_id', 'conversation_id', 'content', 'reasoning', 'tools', 'model_label', 'input_tokens', 'output_tokens', 'duration_ms', 'created_at'],
   chat_mcp_servers: ['user_id', 'id', 'label', 'url', 'description', 'transport', 'timeout_seconds', 'header_ciphertext', 'oauth_ciphertext', 'oauth_meta', 'enabled', 'tool_mode', 'tool_modes', 'created_at', 'updated_at'],
   chat_memories: ['user_id', 'id', 'content', 'category', 'source', 'status', 'superseded_by', 'valid_from', 'valid_until', 'project_id', 'note_id', 'created_at', 'updated_at'],
@@ -848,5 +947,9 @@ export const ASSISTANT_REQUIRED_COLUMNS: Readonly<Record<string, readonly string
   chat_usage_daily: ['user_id', 'day', 'requests', 'input_tokens', 'output_tokens', 'tool_calls', 'scheduled_runs', 'embeddings', 'errors'],
   chat_activity: ['user_id', 'id', 'type', 'summary', 'created_at'],
   chat_active_runs: ['user_id', 'conversation_id', 'started_at', 'lease_until', 'partial_text'],
-  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'created_at', 'updated_at'],
+  chat_questions: ['user_id', 'id', 'conversation_id', 'call_id', 'questions', 'status', 'answers', 'created_at', 'expires_at', 'answered_at'],
+  chat_cursor_commands: ['user_id', 'id', 'label', 'instruction', 'execution', 'enabled', 'position', 'created_at', 'updated_at'],
+  chat_reader_embeddings: ['user_id', 'book_id', 'page', 'chunk', 'title', 'text', 'vector', 'norm', 'indexed_at'],
+  chat_subagent_tasks: ['user_id', 'id', 'parent_conversation_id', 'parent_message_id', 'call_id', 'description', 'prompt', 'model_id', 'status', 'result', 'error', 'tool_calls', 'tokens', 'created_at', 'finished_at'],
+  chat_prompts: ['user_id', 'id', 'title', 'content', 'group_name', 'tools', 'scopes', 'model_id', 'icon', 'kind', 'description', 'load_mode', 'enabled', 'source', 'position', 'created_at', 'updated_at'],
 }

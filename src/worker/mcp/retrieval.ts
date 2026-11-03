@@ -25,6 +25,9 @@ const HYBRID_CANDIDATES = 24
 export type McpSearchMode = 'auto' | 'lexical' | 'semantic' | 'hybrid'
 
 export interface McpSearchOptions {
+  /** The reader's own semantic depth and floor, when the caller has settings to offer. */
+  semanticTopK?: number
+  semanticScoreFloor?: number
   query: string
   limit?: number
   tags?: string[]
@@ -154,7 +157,7 @@ export async function searchMcpNotes(
         folder: options.folder,
         starred: options.starred,
         archived: options.archived,
-      }).then((hits): SemanticOutcome => ({ hits, threw: false }))
+      }, options.semanticScoreFloor, options.semanticTopK).then((hits): SemanticOutcome => ({ hits, threw: false }))
         .catch((error): SemanticOutcome => {
           // Rate-limited, malformed response, or the binding vanishing mid-call: degrade to lexical, and
           // remember that this is a call that failed rather than an index that declined to answer.

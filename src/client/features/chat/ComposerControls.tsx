@@ -13,6 +13,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import {
   Brain,
+  Bot,
   Check,
   Eye,
   FilePlus2,
@@ -34,7 +35,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react'
-import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope } from '@shared/assistant'
+import type { AssistantModel, AssistantReasoning, AssistantSkill, AssistantToolMode, AssistantTurnScope, Project } from '@shared/assistant'
 import { ASSISTANT_TOOL_MODES, TOKEN_STEPS } from '@shared/assistant'
 import { iconForModel } from '@shared/assistant-icons'
 import { cn } from '../../lib/cn'
@@ -43,6 +44,7 @@ import { Menu, Modal, Tooltip, submenuFor, type MenuItem } from '../../component
 import { Input } from '../../components/form'
 import { IconButton } from '../../components/primitives'
 import { useAssistant } from './assistant-store'
+import { modelOptionLabel } from './assistant-settings-shared'
 import { AssistantIcon } from './AssistantIcon'
 import { speechRecognitionCtor, voiceBlocker, voiceBlockerReason, voiceRefusal, type SpeechEngine } from './voice-engine'
 
@@ -145,16 +147,19 @@ export function ModelMenu({
   const active = models.find((model) => model.id === activeId)
   const providers = useAssistant((state) => state.providers)
   const providerFor = (model: AssistantModel) => providers.find((entry) => entry.id === model.providerId) ?? null
+  // Two providers may offer the same vendor model id; a menu of bare names then presents two rows the
+  // reader cannot tell apart. `modelOptionLabel` names the provider only where the name repeats.
+  const displayName = (model: AssistantModel): string => modelOptionLabel(model, models, providers)
   // Automatic routing is decided by the worker, per turn, out of this same catalogue: while it is on, the
   // standing pick is the fallback and not the answer. Naming the standing pick anyway would credit one model
   // with every turn in the thread — the reader would have no way to notice that a different one answered,
   // which is the whole fact a turn's cost and a turn's quality turn on.
   const autoRoute = useAssistant((state) => state.settings?.autoRoute === true)
-  const standing = active ? active.label || active.model : t('assistant.composer.model_none')
+  const standing = active ? displayName(active) : t('assistant.composer.model_none')
   const activeIcon = active ? iconForModel(active, providerFor(active)) : ''
   const items: MenuItem[] = [
     ...models.map((model) => {
-      const name = model.label || model.model
+      const name = displayName(model)
       return {
         id: model.id,
         // The tick marks the row this menu moves, and under routing what it moves is the standing default,
@@ -206,8 +211,58 @@ export function ModelMenu({
   )
 }
 
-export const REASONING_LABELS: Record<AssistantReasoning, MessageKey> = {
-  auto: 'assistant.reasoning.auto',
+/**
+ * Which Agent answers this conversation.
+ *
+ * The project menu is the same row the conversation menu writes, moved to where the choice is made:
+ * an Agent is the standing brief plus its model, tools and knowledge, so switching one is a change to
+ * this thread and not to the account. "Default" is the absence of a project, never a row that could be
+ * deleted by accident.
+ */
+export function ProjectMenu({
+  projects,
+  value,
+  onPick,
+  disabled,
+}: {
+  projects: Project[]
+  value: string | null
+  onPick: (id: string | null) => void
+  disabled?: boolean
+}) {
+  const anchor = useMenuAnchor()
+  const active = value ? projects.find((project) => project.id === value) ?? null : null
+  const items: MenuItem[] = [
+    {
+      id: 'default',
+      label: t('assistant.composer.agent_default'),
+      icon: value === null ? <Check size={13} /> : <Bot size={13} />,
+      onSelect: () => onPick(null),
+    },
+    ...projects.map((project) => ({
+      id: project.id,
+      label: project.name,
+      icon: value === project.id ? <Check size={13} /> : <Bot size={13} />,
+      onSelect: () => onPick(project.id),
+    })),
+  ]
+  return (
+    <>
+      <ControlChip
+        refObject={anchor.ref}
+        label={t('assistant.composer.agent')}
+        value={active?.name ?? t('assistant.composer.agent_default')}
+        icon={<Bot size={12} />}
+        active={anchor.open}
+        disabled={disabled}
+        onClick={anchor.toggle}
+      />
+      <Menu anchor={anchor.ref} open={anchor.open} onClose={anchor.close} items={items} width={220} align="end" label={t('assistant.composer.agent')} searchable={projects.length > 8} />
+    </>
+  )
+}
+
+export const REASONING_LABELS: Record<AssistantReasoning, MessageKey> = {  auto: 'assistant.reasoning.auto',
   off: 'assistant.reasoning.off',
   minimal: 'assistant.reasoning.minimal',
   low: 'assistant.reasoning.low',

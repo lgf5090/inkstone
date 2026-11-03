@@ -20,11 +20,11 @@ import { cn } from '../../lib/cn'
 import { matchesQuery } from '../../lib/fuzzy'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button, Divider, IconButton } from '../../components/primitives'
-import { Field, Input, Select, SettingRow, Switch, useRovingRadio } from '../../components/form'
+import { Field, Input, Select, SettingRow, Switch, Textarea, useRovingRadio } from '../../components/form'
 import { Modal, Tooltip, confirm, useClickOutside, useEscape } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { useAssistant, type ReportFailure, type WriteFailure } from './assistant-store'
-import { DIALECT_LABELS, Group, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
+import { DIALECT_LABELS, Group, modelOptionLabel, PROTOCOL_LABELS, SaveFailure, refusalFor, storedKeyLabel } from './assistant-settings-shared'
 
 /**
  * One capability, drawn as the switch that sets it.
@@ -306,6 +306,16 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
   const [picking, setPicking] = useState<AssistantProvider | null>(null)
   const [editingProvider, setEditingProvider] = useState<AssistantProvider | null>(null)
   const [editing, setEditing] = useState<AssistantModel | null>(null)
+  const [titlePrompt, setTitlePrompt] = useState(settings.titlePrompt)
+  useEffect(() => setTitlePrompt(settings.titlePrompt), [settings.titlePrompt])
+  const [timeoutSeconds, setTimeoutSeconds] = useState(String(Math.round(settings.requestTimeoutMs / 1000)))
+  useEffect(() => setTimeoutSeconds(String(Math.round(settings.requestTimeoutMs / 1000))), [settings.requestTimeoutMs])
+  const chatModels = useMemo(
+    () => models.filter((model) => model.enabled && model.purpose === 'chat'),
+    [models],
+  )
+  const timeoutNumber = Number(timeoutSeconds)
+  const timeoutValid = Number.isFinite(timeoutNumber) && timeoutNumber >= 5 && timeoutNumber <= 300
 
   const byProvider = useMemo(() => providers.map((provider) => ({
     provider,
@@ -345,6 +355,81 @@ export function ModelTab({ settings }: { settings: AssistantSettings }) {
           <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setAddingProvider(true)}>
             {t('assistant.settings.add_provider')}
           </Button>
+        </div>
+      </Group>
+
+      <Group title={t('assistant.settings.defaults')}>
+        <SettingRow title={t('assistant.settings.default_chat_model')} description={t('assistant.settings.default_chat_model_hint')}>
+          <Select
+            aria-label={t('assistant.settings.default_chat_model')}
+            value={settings.activeModelId ?? ''}
+            onChange={(event) => void saveSettings({ activeModelId: event.target.value || null })}
+          >
+            <option value="">{t('assistant.settings.model_none_selected')}</option>
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>)}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.naming_model')} description={t('assistant.settings.naming_model_hint')}>
+          <Select
+            aria-label={t('assistant.settings.naming_model')}
+            value={settings.namingModelId ?? ''}
+            onChange={(event) => void saveSettings({ namingModelId: event.target.value || null })}
+          >
+            <option value="">{t('assistant.settings.naming_model_follow')}</option>
+            {chatModels.map((model) => <option key={model.id} value={model.id}>{modelOptionLabel(model, chatModels, providers)}</option>)}
+          </Select>
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.auto_recover')} description={t('assistant.settings.auto_recover_hint')}>
+          <Switch
+            checked={settings.autoRecover}
+            label={t('assistant.settings.auto_recover')}
+            onChange={(autoRecover) => void saveSettings({ autoRecover })}
+          />
+        </SettingRow>
+        <SettingRow title={t('assistant.settings.request_timeout')} description={t('assistant.settings.request_timeout_hint')}>
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (timeoutValid) void saveSettings({ requestTimeoutMs: Math.round(timeoutNumber * 1000) })
+            }}
+          >
+            <Input
+              aria-label={t('assistant.settings.request_timeout')}
+              type="number"
+              min={5}
+              max={300}
+              value={timeoutSeconds}
+              onChange={(event) => setTimeoutSeconds(event.target.value)}
+              className="h-8 w-20 text-[length:var(--text-12)]"
+              invalid={!timeoutValid}
+            />
+            <span className="text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('assistant.settings.seconds')}</span>
+            <Button type="submit" size="sm" variant="secondary" disabled={!timeoutValid || Math.round(timeoutNumber * 1000) === settings.requestTimeoutMs}>
+              {t('common.save')}
+            </Button>
+          </form>
+        </SettingRow>
+        <div className="py-2.5">
+          <Field label={t('assistant.settings.title_prompt')} hint={t('assistant.settings.title_prompt_hint')}>
+            <Textarea
+              value={titlePrompt}
+              maxLength={4000}
+              rows={3}
+              onChange={(event) => setTitlePrompt(event.target.value)}
+              placeholder={t('assistant.settings.title_prompt_placeholder')}
+            />
+          </Field>
+          <div className="mt-1.5 flex justify-end">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={titlePrompt === settings.titlePrompt}
+              onClick={() => void saveSettings({ titlePrompt })}
+            >
+              {t('common.save')}
+            </Button>
+          </div>
         </div>
       </Group>
 

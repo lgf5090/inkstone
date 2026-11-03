@@ -22,6 +22,7 @@ import { liveBlockContextMenu, liveLinkGesture, livePreview } from './live-previ
 // Aliased: the prop that carries the reader's switch is named for what it turns on.
 import { templaterHighlight as templaterHighlightExt } from './templater';
 import { templaterCompletion, type TemplaterScriptSource } from './templater-completion';
+import { tabCompletionExtension, type TabCompletionOptions } from './tab-completion';
 import { DEFAULT_SETTINGS } from '@shared/constants';
 import { linkHoverExtension, linkHoverFacet } from './link-hover-plugin';
 import { runRenderedLinkGesture, runSourceLinkGesture } from '../features/links/use-link-editor';
@@ -34,6 +35,7 @@ import { WikiLinkHoverCard } from '../features/preview/wiki-link-hover-card';
 import { useLinkHoverHost } from '../features/preview/link-hover-host';
 import { TagContextMenuAt, tagMenuRequestFrom, type TagMenuRequest } from '../features/tags/TagContextMenuAt';
 import { useLongPress } from '../features/workspace/context-menu/use-long-press';
+import { quotedHighlight } from './quoted-highlight';
 import type { Heading } from '../lib/markdown/renderer';
 import { t } from "../lib/i18n";
 
@@ -65,6 +67,9 @@ export interface CodeEditorProps {
     onSelectionChange?: (selection: EditorSelectionInfo | null) => void;
     /** Ask the host to open the note's context menu at a pointer position. */
     onRequestContextMenu?: (request: { x: number; y: number; editor: EditorContext }) => void;
+    /** The reader typed the Quick Ask trigger at the start of an empty line. */
+    quickAskTrigger?: string;
+    onQuickAskTrigger?: (payload: { from: number; to: number; whole: string; rect: { top: number, left: number } }) => void;
     /**
      * Mark Templater tags — `<% … %>` — as template code rather than prose.
      *
@@ -81,6 +86,8 @@ export interface CodeEditorProps {
     templaterIntellisenseRender?: string;
     /** The reader's own scripts, for the `tp.user` chain. Absent means that chain completes nothing. */
     templaterUserScripts?: TemplaterScriptSource;
+    /** Inline Tab completion, when the reader has switched it on. */
+    tabCompletion?: TabCompletionOptions;
     placeholder?: string;
     className?: string;
 }
@@ -92,7 +99,7 @@ export function DeferredCodeEditor({ visible, ...props }: CodeEditorProps & { vi
     // Preserve undo history across mode changes once editing has started.
     return visible || initialized ? <CodeEditor {...props}/> : null;
 }
-export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
+export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHeadings, onChange, settings, sources, handlers, onReady, onScroll, onCursorLine, onSelectionChange, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight = false, templaterIntellisenseRender = DEFAULT_SETTINGS.templater.intellisenseRender, templaterUserScripts, tabCompletion, placeholder = t("editor.start_writing"), className, }: CodeEditorProps) {
     const hostRef = useRef<HTMLDivElement>(null);
     const [tagMenu, setTagMenu] = useState<TagMenuRequest | null>(null);
     const [blockMenu, setBlockMenu] = useState<DraggerBlockMenuRequest | null>(null);
@@ -100,8 +107,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     tagMenuRef.current = setTagMenu;
     const viewRef = useRef<EditorView | null>(null);
 
-    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender, templaterUserScripts });
-    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, templaterHighlight, templaterIntellisenseRender, templaterUserScripts };
+    const cbRef = useRef({ onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight, templaterIntellisenseRender, templaterUserScripts });
+    cbRef.current = { onChange, onScroll, onCursorLine, onSelectionChange, sources, handlers, onHeadings, noteTitle, onRequestContextMenu, quickAskTrigger, onQuickAskTrigger, templaterHighlight, templaterIntellisenseRender, templaterUserScripts };
     const { hover, handlePin } = useLinkHoverHost(noteId ?? null);
     const longPress = useLongPress((point, target) => {
         // A long press on a handle is the phone's version of right-clicking it: the block's own menu,
@@ -170,12 +177,16 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
     const draggerHost = useRef(createDraggerHost((view, line, point) => blockMenuRef.current({ view, line, ...point })));
     const appliedDraggerPaint = useRef(draggerPaintKey(settings));
     const tabSizeCompartment = useRef(new Compartment());
+    const tabCompletionCompartment = useRef(new Compartment());
+    const tabCompletionRef = useRef(tabCompletion);
+    tabCompletionRef.current = tabCompletion;
     const placeholderCompartment = useRef(new Compartment());
     const outlinerFoldCompartment = useRef(new Compartment());
     const templaterCompartment = useRef(new Compartment());
     const outlinerRef = useRef(settings);
     outlinerRef.current = settings;
     const configuredDisplay = useRef({ live, lineNumbers: settings.lineNumbers });
+    const triggerPrefix = useRef('');
 
     useEffect(() => {
         const host = hostRef.current;
@@ -218,7 +229,9 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             }),
             editorTheme(),
             markdownDecorations,
+            quotedHighlight,
             templaterCompartment.current.of(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })),
+            tabCompletionCompartment.current.of(tabCompletionRef.current?.enabled ? tabCompletionExtension(tabCompletionRef.current) : []),
             liveCompartment.current.of(live ? livePreview((headings) => cbRef.current.onHeadings?.(headings), () => cbRef.current.noteTitle) : []),
             focusModePlugin,
             typewriterPlugin,
@@ -248,6 +261,24 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
                     // The old range no longer describes the same words. Hiding the bar is more honest than
                     // moving it over text the reader did not select.
                     cbRef.current.onSelectionChange?.(null);
+                    const trigger = cbRef.current.quickAskTrigger;
+                    const ask = cbRef.current.onQuickAskTrigger;
+                    if (trigger && ask && update.transactions.some((transaction) => transaction.isUserEvent('input.type'))) {
+                        const head = update.state.selection.main.head;
+                        const line = update.state.doc.lineAt(head);
+                        const before = update.state.sliceDoc(line.from, head);
+                        if (before === trigger) {
+                            const coords = update.view.coordsAtPos(head);
+                            const whole = update.state.doc.toString();
+                            update.view.dispatch({ changes: { from: line.from, to: head, insert: '' } });
+                            ask({
+                                from: line.from,
+                                to: line.from,
+                                whole: whole.replace(trigger, ''),
+                                rect: { top: coords?.top ?? 0, left: coords?.left ?? 0 },
+                            });
+                        }
+                    }
                 }
                 if (update.selectionSet) {
                     if (cbRef.current.onCursorLine) {
@@ -326,6 +357,47 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
             parent: host,
         });
         view.contentDOM.spellcheck = settings.spellcheck;
+        /**
+         * The trigger never becomes text.
+         *
+         * Removing it after the fact raced the host's `value` prop: the editor removed the sigil, React
+         * re-applied the content it still held, and the reader saw the trigger sitting under the panel they
+         * had just opened. A capturing listener runs before CodeMirror's own input handling, so the
+         * character is refused before the document — or the host's copy of it — ever contains it.
+         */
+        const onTriggerInput = (event: Event): void => {
+            const input = event as InputEvent
+            if (input.inputType !== 'insertText' || input.isComposing) return
+            const trigger = cbRef.current.quickAskTrigger
+            const ask = cbRef.current.onQuickAskTrigger
+            if (!trigger || !ask) return
+            const selection = view.state.selection.main
+            if (!selection.empty) return
+            const before = view.state.sliceDoc(view.state.doc.lineAt(selection.head).from, selection.head)
+            if (before !== '') return
+            const typed = `${triggerPrefix.current}${input.data ?? ''}`
+            if (!trigger.startsWith(typed)) {
+                triggerPrefix.current = ''
+                return
+            }
+            event.preventDefault()
+            event.stopImmediatePropagation()
+            if (typed !== trigger) {
+                triggerPrefix.current = typed
+                return
+            }
+            triggerPrefix.current = ''
+            const coords = view.coordsAtPos(selection.head)
+            ask({
+                from: selection.head,
+                to: selection.head,
+                whole: view.state.doc.toString(),
+                rect: { top: coords?.top ?? 0, left: coords?.left ?? 0 },
+            })
+        }
+        view.contentDOM.addEventListener('beforeinput', onTriggerInput, true)
+        const clearTriggerPrefix = (): void => { triggerPrefix.current = '' }
+        view.contentDOM.addEventListener('blur', clearTriggerPrefix)
         viewRef.current = view;
         setActiveEditorView(view);
         if (noteId)
@@ -339,6 +411,8 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         }
         onReady?.(view);
         return () => {
+            view.contentDOM.removeEventListener('beforeinput', onTriggerInput, true)
+            view.contentDOM.removeEventListener('blur', clearTriggerPrefix)
             onReady?.(null);
             // Only the view that registered may unregister itself: a second editor mounted over this
             // one (a pinned window, a mode switch) owns the cursor now, and clearing it here would
@@ -395,6 +469,19 @@ export function CodeEditor({ value, live = false, noteId, noteTitle = '', onHead
         templaterOn.current = templaterHighlight;
         view.dispatch({ effects: templaterCompartment.current.reconfigure(templaterHighlightExt({ enabled: () => cbRef.current.templaterHighlight })) });
     }, [templaterHighlight]);
+
+    const tabCompletionKey = tabCompletion ? `${tabCompletion.enabled}|${tabCompletion.modelId ?? ''}|${tabCompletion.constraint ?? ''}` : 'off';
+    const tabCompletionKeyRef = useRef(tabCompletionKey);
+    useEffect(() => {
+        const view = viewRef.current;
+        if (!view || tabCompletionKeyRef.current === tabCompletionKey) return;
+        tabCompletionKeyRef.current = tabCompletionKey;
+        view.dispatch({
+            effects: tabCompletionCompartment.current.reconfigure(
+                tabCompletion?.enabled ? tabCompletionExtension(tabCompletion) : [],
+            ),
+        });
+    }, [tabCompletion, tabCompletionKey]);
 
     const outlinerPaint = useRef(JSON.stringify(outlinerOptionsFrom(settings)));
     useEffect(() => {

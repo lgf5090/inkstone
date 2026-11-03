@@ -8,11 +8,26 @@
  */
 import { type ReactNode } from 'react'
 import { TriangleAlert } from 'lucide-react'
-import { formatTokenStep, REASONING_DIALECTS, type AssistantProvider, type ReasoningDialect } from '@shared/assistant'
+import { formatTokenStep, REASONING_DIALECTS, type AssistantModel, type AssistantProvider, type ReasoningDialect } from '@shared/assistant'
 import { cn } from '../../lib/cn'
 import { t, type MessageKey } from '../../lib/i18n'
 import { Button } from '../../components/primitives'
 import type { WriteFailure } from './assistant-store'
+
+/**
+ * What a model is called in a list that may hold two providers' copies of the same vendor model.
+ *
+ * A dropdown of bare labels offered `deepseek-chat` twice — one per provider — with no way to tell which
+ * row was which. The provider is named only where the name actually repeats, so a catalogue without
+ * collisions keeps its short labels everywhere else.
+ */
+export function modelOptionLabel(model: AssistantModel, models: readonly AssistantModel[], providers: readonly AssistantProvider[]): string {
+  const name = model.label || model.model
+  const repeated = models.filter((entry) => (entry.label || entry.model) === name).length > 1
+  if (!repeated) return name
+  const provider = providers.find((entry) => entry.id === model.providerId)
+  return provider ? `${name} · ${provider.label}` : name
+}
 
 /**
  * What a screen says when the request behind it was refused, instead of going on spinning.

@@ -90,7 +90,44 @@ describe('a note the reader allowed the assistant to read', () => {
     expect(scope.noteIds.size).toBe(0)
   })
 
+  it('leaves the vault readable when the turn only named a note', async () => {
+    // A reader with a page open names that page for the turn. It is an addition, not a folder scope: every
+    // listing that asks "what is in this vault" must still see the vault, or a count from a docked note
+    // answers zero about a notebook full of notes.
+    const scope = await resolveNoteScope(db, USER, [], { noteIds: [IN_OTHER] })
+    expect(scope.restricted).toBe(false)
+    expect(scope.noteIds.has(IN_OTHER)).toBe(true)
+    expect([...(await readableNoteIds(db, USER, [IN_WORK, TAGGED], scope))].sort())
+      .toEqual([IN_WORK, TAGGED].sort())
+  })
+
+  it('does read only the pages a project names when it names no folder', async () => {
+    // The other direction: a project's own list is the scope itself. An open vault here would present a
+    // curated project and answer from everything.
+    const scope = await resolveNoteScope(db, USER, [], { pinIds: [IN_OTHER] })
+    expect(scope.restricted).toBe(true)
+    expect([...(await readableNoteIds(db, USER, [IN_WORK, IN_OTHER], scope))]).toEqual([IN_OTHER])
+  })
+
+  it('lets a turn\'s own note beside a project\'s pins', async () => {
+    const scope = await resolveNoteScope(db, USER, [], { pinIds: [IN_OTHER], noteIds: [IN_WORK] })
+    expect([...(await readableNoteIds(db, USER, [IN_WORK, IN_OTHER, TAGGED], scope))].sort())
+      .toEqual([IN_WORK, IN_OTHER].sort())
+  })
+
   it('refuses a note id that is not even the right shape', async () => {
     await expect(assertNoteReadable(db, USER, 'not-an-id', openScope)).rejects.toThrow()
+  })
+
+  it('excludes a folder from an otherwise open vault', async () => {
+    const scope = await resolveNoteScope(db, USER, [], { excludeFolderIds: [OTHER_FOLDER] })
+    const allowed = await readableNoteIds(db, USER, [IN_WORK, IN_OTHER, TAGGED], scope)
+    expect([...allowed]).toEqual([IN_WORK])
+  })
+
+  it('lets a named note past an exclusion for that one turn', async () => {
+    const scope = await resolveNoteScope(db, USER, [], { excludeFolderIds: [OTHER_FOLDER], noteIds: [IN_OTHER] })
+    const allowed = await readableNoteIds(db, USER, [IN_OTHER, TAGGED], scope)
+    expect([...allowed]).toEqual([IN_OTHER])
   })
 })

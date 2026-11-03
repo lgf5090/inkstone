@@ -599,6 +599,7 @@ function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: st
   const toast = useUi((state) => state.toast)
   const content = useNotes((state) => state.contents[request.noteId])
   const [pending, setPending] = useState<EditorAiWriteMode | null>(null)
+  const autoApplied = useRef(false)
   // Measured against a replace, because that is the affordance with something to lose: an insert only
   // adds, and its preview is the same dialog read one way.
   const preview = content === undefined ? null : previewEditorAiWrite(content, request, answer, 'replace')
@@ -612,6 +613,13 @@ function AiResultRow({ request, answer }: { request: EditorAiRequest, answer: st
     toast({ title: t(mode === 'replace' ? 'assistant.edit.replaced' : 'assistant.edit.inserted'), tone: 'success' })
     clear()
   }
+  useEffect(() => {
+    if (autoApplied.current) return
+    if (useAssistant.getState().settings?.editApplyMode !== 'direct') return
+    if (!writable) return
+    autoApplied.current = true
+    commit(request.from < request.to && request.action !== 'continue' ? 'replace' : 'insert')
+  }, [request.noteId, writable])
   return (
     <div
       role="group"

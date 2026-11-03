@@ -167,6 +167,16 @@ describe('counting the notebook', () => {
     expect(counts.total).toBe(0)
     expect(counts.scopeLimited).toBe(true)
   })
+
+  it('counts the pages a project names when it names no folder', async () => {
+    const scope: NoteScope = {
+      restricted: true, folderIds: new Set(), tagIds: new Set(), noteIds: new Set(), pinIds: new Set(['n-2']),
+    }
+    const counts = await countVaultNotes(fixture.db, USER, scope, {})
+    expect(counts.total).toBe(1)
+    const listing = await listVaultNotes(fixture.db, USER, scope, {})
+    expect(listing.notes.map((note) => note.id)).toEqual(['n-2'])
+  })
 })
 
 describe('listing the notebook', () => {
