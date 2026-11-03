@@ -42588,6 +42588,8 @@ const allowed = new Map([
     "// Every real request carries an ExecutionContext; the routes that start background work need one.",
     "// A finished task holds no lock, so the next one can start immediately.",
     "// A task that is still running refuses a second one instead of racing it.",
+    "// Put the finished row back into the state the Stop button is offered in: running, locked.",
+    "// The dead lock must not hold the account out of ever rebuilding again.",
   ]],
   ["tests/clouddrive-meta.test.ts", [
     "// A rule written as a regular expression cannot match anything here, so it is refused instead of",

@@ -149,6 +149,28 @@ describe('CloudDrive maintenance', () => {
     expect(clash.status).toBe(409)
   })
 
+  it('releases the index lock when a running task is cancelled', async () => {
+    await insertEntry({ path: '/c.txt' })
+    const started = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    const taskId = started.body.taskId as string
+
+    // Put the finished row back into the state the Stop button is offered in: running, locked.
+    sqlite.prepare(`UPDATE CloudDrive_tasks SET status = 'running', locked_until = ? WHERE id = ?`)
+      .run(Date.now() + 60_000, taskId)
+    const cancelled = await call<Record<string, any>>(USER, 'POST', `/api/clouddrive/tasks/${taskId}/cancel`, {})
+    expect(cancelled.status).toBe(200)
+    const row = sqlite.prepare(`SELECT status, locked_until FROM CloudDrive_tasks WHERE id = ?`).get(taskId) as
+      { status: string; locked_until: number | null }
+    expect(row.status).toBe('cancelled')
+
+    // The dead lock must not hold the account out of ever rebuilding again.
+    const again = await call<Record<string, any>>(USER, 'POST', '/api/clouddrive/admin/index/rebuild', {})
+    expect(again.status).toBe(202)
+    expect(again.body.taskId).not.toBe(taskId)
+    const revived = sqlite.prepare(`SELECT status FROM CloudDrive_tasks WHERE id = ?`).get(taskId) as { status: string }
+    expect(revived.status).toBe('cancelled')
+  })
+
   it('lists only objects no row references and deletes only those', async () => {
     const key = `CloudDrive/txt/${newId()}`
     await insertEntry({ path: '/kept.txt', storageKey: key })
