@@ -2672,6 +2672,10 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'reading_book_info', labelKey: 'assistant.tool.reading_book_info', permission: 'read' },
   { name: 'reading_list_highlights', labelKey: 'assistant.tool.reading_list_highlights', permission: 'read' },
   { name: 'reading_chapter_info', labelKey: 'assistant.tool.reading_chapter_info', permission: 'read' },
+  { name: 'rss_list_feeds', labelKey: 'assistant.tool.rss_list_feeds', permission: 'read' },
+  { name: 'rss_list_entries', labelKey: 'assistant.tool.rss_list_entries', permission: 'read' },
+  { name: 'rss_read_entry', labelKey: 'assistant.tool.rss_read_entry', permission: 'read' },
+  { name: 'rss_mark', labelKey: 'assistant.tool.rss_mark', permission: 'write' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

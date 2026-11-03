@@ -18,7 +18,7 @@ import { Hono } from 'hono'
 import { isBlockedTarget } from '@shared/ai-proxy-guard'
 import { emptyLibrary, parseRssLibrary, RSS_LIMITS, type RssFetchResult } from '@shared/rss/model'
 import { applyLibraryPatch, parseRssPatch, patchChars, patchIsEmpty } from '@shared/rss/patch'
-import { accountExists, loadRssLibrary, storeRssLibrary } from '../lib/rss-store'
+import { accountExists, loadRssLibrary, saveRssReadingFeed, storeRssLibrary } from '../lib/rss-store'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 import { NO_REDIRECT, isRedirectResponse } from '../lib/no-redirect'
@@ -242,6 +242,32 @@ rssRoutes.post('/patch', async (c) => {
   const savedAt = Date.now()
   const report = await storeRssLibrary(c.env.DB, userId, data, savedAt)
   return c.json({ savedAt, rows: report.rowsWritten + report.rowsDeleted })
+})
+
+/**
+ * The articles this device can hand the assistant, one feed at a time.
+ *
+ * The subscription rows say what the reader follows, never what is in an article, and the articles
+ * themselves never leave the device that fetched them. The assistant runs in the Worker, so the
+ * device uploads the text it already holds — newest first, reduced to plain text, capped per feed and
+ * in total — and the RSS tools read that. The write is accepted only for a feed this account really
+ * subscribes to, so the row cannot become a place to park arbitrary text.
+ */
+const MAX_READING_BODY = 512 * 1024
+const MAX_READING_ENTRIES = 40
+
+rssRoutes.put('/reading', async (c) => {
+  const userId = c.get('userId')
+  const body = await readJson<{ feedId?: unknown; entries?: unknown }>(c, MAX_READING_BODY)
+  const feedId = typeof body.feedId === 'string' ? body.feedId.slice(0, 80) : ''
+  if (!feedId) throw ApiError.badRequest('A feed id is required')
+  if (!Array.isArray(body.entries)) throw ApiError.badRequest('The reading snapshot must be a list of articles')
+  const stored = await loadRssLibrary(c.env.DB, userId)
+  if (!stored.library?.feeds.some((feed) => feed.id === feedId)) {
+    throw ApiError.badRequest('That subscription is not in this account')
+  }
+  const saved = await saveRssReadingFeed(c.env.DB, userId, feedId, body.entries.slice(0, MAX_READING_ENTRIES))
+  return c.json(saved)
 })
 
 /**

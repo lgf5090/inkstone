@@ -10,16 +10,20 @@
  * Loading is deliberately on mount rather than at boot. A reader who never opens this tab should not
  * pay for a library they will not read, and the Worker should not answer for it either.
  */
-import { useEffect, useState, type ReactElement } from 'react'
-import { CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Rss, Search, Settings } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { CircleHelp, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Rss, Search, Settings, Sparkles } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
 import { IS_DEMO_MODE } from '../../lib/runtime'
 import { useSession } from '../../store/session'
 import { useNotes } from '../../store/notes'
+import { useUi } from '../../store/ui'
 import { Button, IconButton } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
-import { channelKey } from '@shared/rss/reading'
+import { channelEntries, channelKey, findEntry, unreadCounts } from '@shared/rss/reading'
+import type { AssistantPageContext } from '@shared/assistant'
+import { AssistantDock } from '../chat/AssistantDock'
+import { useAssistant } from '../chat/assistant-store'
 import { takeRssSection } from './rss-commands'
 import { useRss } from './store'
 import { RssChannelRail } from './RssChannelRail'
@@ -36,6 +40,7 @@ export function RssApp(): ReactElement {
   const status = useRss(state => state.status)
   const saveError = useRss(state => state.saveError)
   const library = useRss(state => state.library)
+  const articles = useRss(state => state.articles)
   const channel = useRss(state => state.channel)
   const refreshing = useRss(state => state.refreshing)
   const progress = useRss(state => state.progress)
@@ -47,10 +52,22 @@ export function RssApp(): ReactElement {
   const [center, setCenter] = useState<'manage' | 'add' | 'discover' | null>(null)
   const [preferences, setPreferences] = useState(false)
   const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches)
+  // The dock needs a third column, not a three-pane rail: 768px is where this app already lets
+  // two panes share the screen, so it is where the assistant column stops taking a pane.
+  const [dockable, setDockable] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches)
+  const assistantDockOpen = useUi(state => state.assistantDockOpen)
+  const views = useRss(state => state.views)
 
   useEffect(() => {
     const query = window.matchMedia('(min-width: 1024px)')
     const onChange = (): void => setWide(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 768px)')
+    const onChange = (): void => setDockable(query.matches)
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
@@ -122,6 +139,42 @@ export function RssApp(): ReactElement {
 
   const title = channelTitle(library, channel)
 
+  // What the dock sends with a question. The label is the screen the reader sees; the facts are the
+  // filter, the counts and the article under their eyes, so "summarise this" has an id to resolve
+  // and "what is unread today" does not need a second round trip to discover the channel.
+  const assistantPageContext = useMemo<AssistantPageContext>(() => {
+    const view = views[channelKey(channel)]
+    const read = new Set(library.readIds)
+    const hidden = new Set(library.hiddenIds)
+    const counts = unreadCounts({ library, articles })
+    const listed = channelEntries({ library, articles }, channel)
+    const unreadHere = listed.filter(entry => !read.has(entry.id) && !hidden.has(entry.id)).length
+    const open = view?.entryId ? findEntry({ library, articles }, view.entryId) : undefined
+    return {
+      surface: 'rss',
+      label: title,
+      facts: [
+        `channel: ${title}`,
+        `filter: ${view?.filter ?? 'all'}`,
+        `feeds: ${library.feeds.length}`,
+        `unread in this channel: ${unreadHere}`,
+        `unread everywhere: ${counts.total}`,
+        ...(view?.query ? [`search: ${view.query}`] : []),
+        ...(open ? [`open article: ${open.title.slice(0, 90)} · id ${open.id}`] : []),
+        `time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+      ],
+    }
+  }, [views, channel, library, articles, title])
+
+  // The assistant marks articles through the account rows this reader syncs. After a turn beside
+  // this page, re-read those rows once so the unread badge moves without a manual refresh. The
+  // store keeps its copy when this device still has an unsaved change, which is the honest answer
+  // rather than overwriting a mark the reader just made.
+  const turnDone = useAssistant(state => state.turn?.done ?? false)
+  useEffect(() => {
+    if (turnDone && useAssistant.getState().dockSurface === 'rss') void useRss.getState().reloadFromServer()
+  }, [turnDone])
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-[var(--bg-base)]">
       <header data-print="hide" className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3">
@@ -170,6 +223,16 @@ export function RssApp(): ReactElement {
               <RefreshCw size={15} className={refreshing.length > 0 ? 'animate-spin' : undefined} />
             </IconButton>
           </Tooltip>
+          <Tooltip label={t('assistant.dock.toggle')} side="bottom">
+            <IconButton
+              label={t('assistant.dock.toggle')}
+              size="sm"
+              active={assistantDockOpen}
+              onClick={() => useUi.getState().toggleAssistantDock()}
+            >
+              <Sparkles size={15} />
+            </IconButton>
+          </Tooltip>
           <Tooltip label={t('settings.rss')} side="bottom">
             <IconButton label={t('settings.rss')} size="sm" onClick={() => setPreferences(true)}>
               <Settings size={15} />
@@ -183,6 +246,7 @@ export function RssApp(): ReactElement {
         </div>
       </header>
 
+      <div className="flex min-h-0 flex-1">
       {IS_DEMO_MODE
         ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6">
@@ -223,6 +287,12 @@ export function RssApp(): ReactElement {
               </div>
             </div>
           )}
+
+      {/* The assistant column is this page's, not the notebook's: it is mounted here so its page
+          context is the RSS screen and disappears with it. Below the tablet breakpoint the third
+          column would leave the article pane a sliver, so the dock is not offered there. */}
+      {assistantDockOpen && dockable && <AssistantDock surface="rss" pageContext={assistantPageContext} />}
+      </div>
 
       {preferences && (
         <Modal open onClose={() => setPreferences(false)} title={t('settings.rss')} width={720} bodyClassName="px-4">

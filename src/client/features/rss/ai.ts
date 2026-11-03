@@ -1,72 +1,63 @@
 /**
- * Asking a model about an article, on the reader's own key.
+ * Asking a model about an article, through the account's assistant.
  *
- * The reference reader this port follows got its Chinese rewrites from the service that publishes
- * the feeds, which is a reasonable design for a hosted product and an impossible one for a notebook
- * that must work without an account. Here the same two affordances — a summary, and a translation
- * into the reader's language — are offered against whatever endpoint the reader configures, so the
- * feature is off until they ask for it and costs nothing they did not choose.
+ * These two affordances — a summary, and a translation into the reader's language — used to be
+ * answered by whatever endpoint the reader configured, with the key kept in this browser. That made
+ * the reader pay for a second model and left "summarise this article in the chat" unable to use it.
+ * They now run on the assistant's account model: the same `chat_providers` / `chat_models` rows
+ * every chat turn resolves, the same key handling, the same daily ceiling and the same usage meter.
  *
- * Two things are deliberate. The key is stored in this browser and never in the account row, so it
- * does not ride along in a backup or appear on another device the reader did not type it into; and
- * the article is sent as text a sanitizer already stripped, not as HTML, because a body full of
- * markup is both more tokens and more ways to say something to the model than the reader meant.
+ * Two things stay as they were. The article is sent as text a sanitizer already stripped, not as
+ * HTML, because a body full of markup is both more tokens and more ways for a feed to say something
+ * to the model than the reader meant; and a reader who typed a key into the old build is told so
+ * rather than silently forgotten — the local copy is shown in settings and cleared only on request.
  */
-import type { AIProvider } from '../../lib/ai'
-import { streamChatCompletion } from '../../lib/ai'
+
+import { api } from '../../lib/api'
 import { localDb } from '../../lib/db'
 import { getLocale } from '../../lib/i18n'
 import { htmlToText } from './sanitize'
 import type { RssEntry, RssFeed } from '@shared/rss/model'
 
-export interface RssAiConfig {
-  provider: AIProvider
-  baseURL: string
-  apiKey: string
-  model: string
-}
-
 export type RssAiKind = 'summary' | 'translation'
-
-const EMPTY: RssAiConfig = { provider: 'deepseek', baseURL: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-chat' }
 
 /** How much of an article a request carries. Beyond this the tail is dropped, not summarised badly. */
 const ARTICLE_TEXT_CHARS = 12_000
+/** What one answer may spend: a translation is longer than a five-bullet summary. */
+const SUMMARY_OUTPUT_TOKENS = 900
+const TRANSLATION_OUTPUT_TOKENS = 3000
+const EXCERPT_OUTPUT_TOKENS = 600
+/** The route's own ceiling is a minute, and a long translation has to fit inside it. */
+const ONE_SHOT_TIMEOUT_MS = 60_000
 
-export async function loadAiConfig(): Promise<RssAiConfig> {
+/**
+ * A key the reader typed into the old build, still on this device.
+ *
+ * Read only to tell them it exists. Nothing is taken from it, and nothing is deleted without the
+ * reader pressing the button in settings.
+ */
+export interface LegacyRssAi {
+  baseURL: string
+  model: string
+  apiKey: string
+}
+
+export async function loadLegacyAiKey(): Promise<LegacyRssAi | null> {
   const stored = await localDb.loadRssAi()
-  if (!stored || typeof stored !== 'object') return { ...EMPTY }
-  const value = stored as Partial<RssAiConfig>
+  if (!stored || typeof stored !== 'object') return null
+  const value = stored as { baseURL?: unknown; model?: unknown; apiKey?: unknown }
+  const apiKey = typeof value.apiKey === 'string' ? value.apiKey.trim() : ''
+  if (!apiKey) return null
   return {
-    provider: typeof value.provider === 'string' ? (value.provider as AIProvider) : EMPTY.provider,
-    baseURL: typeof value.baseURL === 'string' ? value.baseURL.slice(0, 200) : EMPTY.baseURL,
-    apiKey: typeof value.apiKey === 'string' ? value.apiKey.slice(0, 300) : '',
-    model: typeof value.model === 'string' ? value.model.slice(0, 120) : EMPTY.model,
+    baseURL: typeof value.baseURL === 'string' ? value.baseURL.slice(0, 200) : '',
+    model: typeof value.model === 'string' ? value.model.slice(0, 120) : '',
+    apiKey,
   }
 }
 
-export async function saveAiConfig(config: RssAiConfig): Promise<void> {
-  await localDb.saveRssAi({
-    provider: config.provider,
-    baseURL: config.baseURL.trim(),
-    apiKey: config.apiKey.trim(),
-    model: config.model.trim(),
-  })
-}
-
-/** The provider a base URL belongs to, read from the address rather than asked for. */
-export function providerForBaseUrl(baseUrl: string): AIProvider {
-  const host = baseUrl.toLowerCase()
-  if (host.includes('anthropic')) return 'anthropic'
-  if (host.includes('openai')) return 'openai'
-  if (host.includes('deepseek')) return 'deepseek'
-  if (host.includes('generativelanguage')) return 'google'
-  if (host.includes('x.ai')) return 'xai'
-  return 'openai-compatible'
-}
-
-export function aiReady(config: RssAiConfig): boolean {
-  return Boolean(config.apiKey.trim() && config.model.trim() && config.baseURL.trim())
+/** Forget the local copy of the old key, on the reader's explicit request. */
+export async function clearLegacyAiKey(): Promise<void> {
+  await localDb.saveRssAi({ provider: 'deepseek', baseURL: '', apiKey: '', model: '' })
 }
 
 /** What the model is asked, in the language the reader's interface is in. */
@@ -109,57 +100,50 @@ export function buildExcerptPrompts(question: string, excerpt: string, entry: Rs
   ]
 }
 
-/** One answer about a passage. Same relay, same key, same abort as the whole-article asks. */
-export function runExcerptAi(
-  entry: RssEntry,
-  feed: RssFeed | undefined,
-  question: string,
-  excerpt: string,
-  config: RssAiConfig,
-  language: 'source' | 'interface',
-  onChunk: (text: string) => void,
-): AiRun {
-  const controller = new AbortController()
-  const [system, user] = buildExcerptPrompts(question, excerpt, entry, feed, language)
-  const promise = streamChatCompletion(
-    [{ id: 'system', role: 'system', content: system }, { id: 'user', role: 'user', content: user }],
-    config,
-    { model: config.model, systemPrompt: undefined, signal: controller.signal, onChunk: (_chunk, full) => onChunk(full) },
-  ).then(result => result.content.trim())
-  return { promise, abort: () => controller.abort() }
-}
-
 export interface AiRun {
   promise: Promise<string>
   abort: () => void
 }
 
 /**
- * Stream one answer.
+ * One answer through the assistant's one-shot route.
  *
- * `onChunk` is what keeps a twenty-second summary from reading as a hang, and the abort signal is
- * what lets the reader stop one they no longer want — both go through the same relay the editor's
- * AI features use, so the key never leaves for the provider by a second path.
+ * The route resolves the reader's active model on the Worker, so this device never holds a provider
+ * key for RSS. `onChunk` is kept because every caller already shows a fixed-size pane: the answer
+ * arrives in one piece and the pane is told once, which is still better than an unexplained wait.
  */
+function askAssistant(system: string, user: string, maxOutputTokens: number, onChunk: (text: string) => void): AiRun {
+  const controller = new AbortController()
+  const promise = api.assistant.oneShot(
+    { system, user, maxOutputTokens, timeoutMs: ONE_SHOT_TIMEOUT_MS },
+    { signal: controller.signal },
+  ).then((result) => {
+    const text = result.text.trim()
+    onChunk(text)
+    return text
+  })
+  return { promise, abort: () => controller.abort() }
+}
+
 export function runArticleAi(
   entry: RssEntry,
   feed: RssFeed | undefined,
   kind: RssAiKind,
-  config: RssAiConfig,
   language: 'source' | 'interface',
   onChunk: (text: string) => void,
 ): AiRun {
-  const controller = new AbortController()
   const [system, user] = buildPrompts(entry, feed, kind, language)
-  const promise = streamChatCompletion(
-    [{ id: 'system', role: 'system', content: system }, { id: 'user', role: 'user', content: user }],
-    config,
-    {
-      model: config.model,
-      systemPrompt: undefined,
-      signal: controller.signal,
-      onChunk: (_chunk, full) => onChunk(full),
-    },
-  ).then(result => result.content.trim())
-  return { promise, abort: () => controller.abort() }
+  return askAssistant(system, user, kind === 'translation' ? TRANSLATION_OUTPUT_TOKENS : SUMMARY_OUTPUT_TOKENS, onChunk)
+}
+
+export function runExcerptAi(
+  entry: RssEntry,
+  feed: RssFeed | undefined,
+  question: string,
+  excerpt: string,
+  language: 'source' | 'interface',
+  onChunk: (text: string) => void,
+): AiRun {
+  const [system, user] = buildExcerptPrompts(question, excerpt, entry, feed, language)
+  return askAssistant(system, user, EXCERPT_OUTPUT_TOKENS, onChunk)
 }

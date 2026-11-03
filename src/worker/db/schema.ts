@@ -263,6 +263,21 @@ const RSS_LIBRARY_STATEMENTS: readonly string[] = [
     last_channel TEXT NOT NULL DEFAULT '',
     saved_at INTEGER NOT NULL DEFAULT 0
   )`,
+
+  /**
+   * The bounded text the assistant reads.
+   *
+   * Article bodies are rebuilt from the network and stay on the device that fetched them, so a tool
+   * running in the Worker cannot see an article at all. This row is the device's answer: the newest
+   * articles it holds, already reduced to plain text, per feed, with a ceiling on both count and size.
+   * It is a cache rather than a library, so it is replaced feed by feed and never merged into the
+   * subscription rows.
+   */
+  `CREATE TABLE IF NOT EXISTS rss_reading (
+    user_id TEXT PRIMARY KEY,
+    snapshot TEXT NOT NULL DEFAULT '',
+    captured_at INTEGER NOT NULL DEFAULT 0
+  )`,
 ]
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
@@ -3522,6 +3537,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'chat_projects', column: 'knowledge_base_ids' },
     statements: [`ALTER TABLE chat_projects ADD COLUMN knowledge_base_ids TEXT NOT NULL DEFAULT '[]'`],
   },
+  {
+    version: 255,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS rss_reading (
+         user_id TEXT PRIMARY KEY,
+         snapshot TEXT NOT NULL DEFAULT '',
+         captured_at INTEGER NOT NULL DEFAULT 0
+       )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -3580,6 +3605,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   rss_group: ['user_id', 'id', 'parent_id', 'name', 'position', 'collapsed', 'icon', 'color', 'created_at', 'updated_at'],
   rss_mark: ['user_id', 'kind', 'entry_id', 'value', 'at'],
   rss_state: ['user_id', 'last_channel', 'saved_at'],
+  rss_reading: ['user_id', 'snapshot', 'captured_at'],
   ...ASSISTANT_REQUIRED_COLUMNS,
   ...TODOS_REQUIRED_COLUMNS,
   ...SUBSCRIPTIONS_REQUIRED_COLUMNS,
@@ -3654,6 +3680,7 @@ export const REQUIRED_TABLES = [
   'rss_group',
   'rss_mark',
   'rss_state',
+  'rss_reading',
   ...ASSISTANT_REQUIRED_TABLES,
   ...TODOS_REQUIRED_TABLES,
   ...SUBSCRIPTIONS_REQUIRED_TABLES,

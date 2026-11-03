@@ -9,7 +9,8 @@
  * Every action in the toolbar is a question about one article, which is why they live here and not
  * on the list rows. The three that touch the notebook (save, add to today, excerpt) go through the
  * notes module, which is where the dedupe rules are; the two that ask a model go through the AI
- * module, which refuses to say anything until the reader has configured a key.
+ * module, which answers on the assistant's account model and refuses to pretend otherwise when
+ * none is configured.
  */
 import type { MessageKey } from '@shared/locales/en-US'
 import type { RssReadingTheme } from '@shared/types'
@@ -56,7 +57,8 @@ import { channelEntries, channelKey, findFeed, remoteContentKey, stepIndex } fro
 import { api } from '../../lib/api'
 import { articleDisplayHtml } from './sanitize'
 import { appendToDailyNote, dailyNoteTitle, openSavedNote, savedNoteId, saveArticleAsNote } from './notes'
-import { aiReady, loadAiConfig, runArticleAi, type RssAiKind } from './ai'
+import { runArticleAi, type RssAiKind } from './ai'
+import { useAssistant } from '../chat/assistant-store'
 import { useRss, type RssReadingVersion } from './store'
 import { ExcerptPopup } from './ExcerptPopup'
 import { reloadEntry } from './rssMenus'
@@ -147,18 +149,18 @@ export function RssReader({ onBack, focus, onToggleFocus }: { onBack?: () => voi
 
   const ask = async (kind: RssAiKind): Promise<void> => {
     if (!entry) return
-    // Read the key when it is asked for, not when the pane mounted: a reader who has just typed it
-    // into the settings dialog expects this button to work, and a snapshot taken before they did
-    // would tell them to go configure it again.
-    const live = await loadAiConfig()
-    if (!aiReady(live)) {
+    // The model is the account's, read when the button is pressed rather than when the pane mounted:
+    // a reader who configured one in the assistant a moment ago expects this button to work on the
+    // next click. The bootstrap is idempotent, so a dock already open makes this a no-op.
+    await useAssistant.getState().bootstrap()
+    if (!useAssistant.getState().settings?.activeModelId) {
       useUi.getState().toast({ title: t('rss.ai.not_configured'), tone: 'danger' })
       return
     }
     abortRef.current?.()
     const asked = entry
     setAi({ kind, text: '', running: true, error: '' })
-    const run = runArticleAi(entry, feed, kind, live, settings.aiLanguage, text => {
+    const run = runArticleAi(entry, feed, kind, settings.aiLanguage, text => {
       setAi(current => (current ? { ...current, text } : current))
     })
     abortRef.current = run.abort
