@@ -48,6 +48,13 @@ export interface ToolCallRecord {
   args: unknown
   result: string
   error: boolean
+  /**
+   * Gemini's opaque signature for the function call, echoed back verbatim on the next request.
+   *
+   * Google rejects a follow-up tool turn without it, so it is carried with the call rather than
+   * discarded at the wire; the other protocols ignore the field.
+   */
+  signature?: string
 }
 
 /**
@@ -86,7 +93,7 @@ export interface ModelTurn {
 export type UpstreamEvent
   = | { type: 'text', delta: string }
     | { type: 'reasoning', delta: string }
-    | { type: 'tool-call', id: string, name: string, args: unknown }
+    | { type: 'tool-call', id: string, name: string, args: unknown, signature?: string }
     /** Pages the vendor reported as consulted, named the way the vendor names them. */
     | { type: 'sources', sources: UpstreamSource[] }
     | { type: 'usage', inputTokens: number, outputTokens: number, cachedInputTokens?: number }
@@ -619,7 +626,9 @@ function providerReason(body: string): string | null {
 }
 
 async function describeFailure(response: Response): Promise<UpstreamError> {
-  const text = (await response.text().catch(() => '')).slice(0, 600)
+  // The reason is parsed before truncation: a long provider message cut mid-string is not JSON any more,
+  // and the reader would be told only the status. Only the reason itself is shortened afterwards.
+  const text = (await response.text().catch(() => '')).slice(0, 4096)
   const lower = text.toLowerCase()
   const after = retryAfterMs(response)
   if (response.status === 401 || response.status === 403) {
@@ -631,11 +640,15 @@ async function describeFailure(response: Response): Promise<UpstreamError> {
       ? 'The provider reports the account is out of quota.'
       : 'The provider is rate-limiting this account. Try again shortly.', response.status, after)
   }
-  if (response.status === 404 || /model|not found|unsupported/.test(lower)) {
-    return new UpstreamError('unsupported', `The provider does not know that model (${response.status}).`, response.status)
-  }
+  // An outage is an outage: a 5xx body that happens to mention the model is not a wrong model id, and
+  // asking the reader to fix their model setting for a provider failure sends them to the wrong screen.
   if (response.status >= 500) {
     return new UpstreamError('unreachable', `The provider is unavailable (${response.status}).`, response.status, after)
+  }
+  // Only a phrase that actually says the model is unknown. The bare word `model` appears in every
+  // provider's error envelope, so matching it here used to turn a tool-schema 400 into "wrong model".
+  if (response.status === 404 || /(no such|unknown|unsupported|invalid|unrecognized) model|model (?:not found|does not exist|is not supported|not supported)/.test(lower)) {
+    return new UpstreamError('unsupported', `The provider does not know that model (${response.status}).`, response.status)
   }
   const reason = providerReason(text)
   return new UpstreamError('bad-request', reason
@@ -1118,7 +1131,12 @@ function geminiBody(request: UpstreamRequest): Record<string, unknown> {
       parts.push({ inlineData: { mimeType: image.mime, data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1) } })
     }
     for (const call of turn.calls ?? []) {
-      parts.push({ functionCall: { name: call.name, args: (call.args as Record<string, unknown>) ?? {} } })
+      // The signature belongs to the call itself: Google answers a follow-up function response with a 400
+      // when the model's own call is echoed without it, so it travels beside the name and args.
+      parts.push({
+        functionCall: { name: call.name, args: (call.args as Record<string, unknown>) ?? {} },
+        ...(call.signature ? { thoughtSignature: call.signature } : {}),
+      })
     }
     for (const call of turn.calls ?? []) {
       parts.push({ functionResponse: { name: call.name, response: { result: call.result } } })
@@ -1147,7 +1165,9 @@ function geminiBody(request: UpstreamRequest): Record<string, unknown> {
                   functionDeclarations: request.tools.map((tool) => ({
                     name: tool.name,
                     description: tool.description,
-                    parameters: tool.parameters,
+                    // Gemini refuses the whole request on a schema keyword it does not know, so the
+                    // provider's dialect is applied here rather than to every provider's payload.
+                    parameters: geminiSchema(tool.parameters),
                   })),
                 }]
               : []),
@@ -1155,6 +1175,49 @@ function geminiBody(request: UpstreamRequest): Record<string, unknown> {
         }
       : {}),
   }
+}
+
+/**
+ * The subset of JSON Schema Gemini's function declarations accept.
+ *
+ * `additionalProperties` is the one the app's own generator emits on every object and string; Google
+ * answers it with a 400 for the whole turn. Keys are dropped rather than rewritten, and the recursion
+ * reaches nested objects and array items because a tool may describe either.
+ */
+const GEMINI_SCHEMA_KEYS = new Set([
+  'type', 'description', 'enum', 'format', 'nullable', 'items', 'properties', 'required', 'anyOf',
+  'minimum', 'maximum', 'minItems', 'maxItems', 'minLength', 'maxLength', 'pattern', 'title',
+  'propertyOrdering',
+])
+
+function geminiSchema(schema: unknown): Record<string, unknown> | undefined {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return undefined
+  const source = schema as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (!GEMINI_SCHEMA_KEYS.has(key)) continue
+    if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
+      const properties: Record<string, unknown> = {}
+      for (const [name, child] of Object.entries(value as Record<string, unknown>)) {
+        const sanitized = geminiSchema(child)
+        if (sanitized) properties[name] = sanitized
+      }
+      if (Object.keys(properties).length) out.properties = properties
+      continue
+    }
+    if (key === 'items') {
+      const sanitized = geminiSchema(value)
+      if (sanitized) out.items = sanitized
+      continue
+    }
+    if (key === 'anyOf' && Array.isArray(value)) {
+      const branches = value.map(geminiSchema).filter((entry): entry is Record<string, unknown> => Boolean(entry))
+      if (branches.length) out.anyOf = branches
+      continue
+    }
+    out[key] = value
+  }
+  return out
 }
 
 async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamEvent> {
@@ -1197,6 +1260,7 @@ async function* streamGemini(request: UpstreamRequest): AsyncGenerator<UpstreamE
           id: `${call.name}-${callIndex}`,
           name: call.name,
           args: (call.args as Record<string, unknown>) ?? {},
+          ...(typeof part.thoughtSignature === 'string' ? { signature: part.thoughtSignature } : {}),
         }
       }
     }

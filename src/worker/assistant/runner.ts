@@ -57,6 +57,14 @@ import { fuseMemoryRecall, rankMemoriesByVector, semanticModel } from './semanti
 export const SUMMARIZE_THRESHOLD = 8
 
 /**
+ * The longest Gemini tool signature kept on a stored call.
+ *
+ * The value is opaque and usually a few hundred characters; this bound exists so a provider that grows
+ * it cannot turn every chip in a long thread into an outsized row.
+ */
+const MAX_TOOL_SIGNATURE_CHARS = 8_000
+
+/**
  * The room a turn keeps in its prompt for what the prompt itself cannot know yet.
  *
  * The window was cut against the model's whole context minus a slack figure, so a turn that also meant to
@@ -964,7 +972,10 @@ export class AssistantRunner {
         // it is answered by whichever model got through, so a reply never changes voice halfway.
         const candidates = steps === 1 ? chain : [served.current]
         if (this.settings.llmDebug) {
-          // Shape only: a debug line that carried the prompt would be the reader's note in a log.
+          // Shape only: a debug line that carried the prompt would be the reader's note in a log. The
+          // effective numbers are what proves a saved assistant knob reached the request rather than only
+          // the form.
+          const extra = { ...customParamBody(served.current.model.customParams), ...(project ? customParamBody(project.customParams) : {}) }
           console.info('[inkstone] assistant request', {
             model: served.current.model.model,
             protocol: served.current.call.protocol,
@@ -972,6 +983,12 @@ export class AssistantRunner {
             turns: turns.length,
             tools: schemas.length,
             systemChars: turnSystem.length,
+            temperature: this.conversationSettings.temperature ?? project?.temperature ?? served.current.model.temperature,
+            topP: this.conversationSettings.topP ?? project?.topP ?? served.current.model.topP,
+            maxOutputTokens: capFor(served.current),
+            transport: project?.stream === false && schemas.length === 0 ? 'once' : 'stream',
+            compactLimit: autoLimit,
+            extraKeys: Object.keys(extra),
           })
         }
         for await (const event of this.stepWithFailover(candidates, served, (entry, apiKey, signal) => ({
@@ -1257,7 +1274,14 @@ export class AssistantRunner {
         for (const source of event.sources) this.collectSource(source)
         continue
       }
-      calls.push({ id: event.id, name: event.name, args: event.args, result: '', error: false })
+      calls.push({
+        id: event.id,
+        name: event.name,
+        args: event.args,
+        result: '',
+        error: false,
+        ...(event.signature ? { signature: event.signature.slice(0, MAX_TOOL_SIGNATURE_CHARS) } : {}),
+      })
     }
   }
 
@@ -1433,6 +1457,7 @@ export class AssistantRunner {
       name: call.name,
       status: 'running',
       args: toolPayloadText(call.args),
+      ...(call.signature ? { signature: call.signature } : {}),
     }))
     tools.push(...activities)
     for (const activity of activities) yield { type: 'tool', tool: { ...activity } }
@@ -1827,6 +1852,7 @@ export class AssistantRunner {
                   args: {},
                   result: historyToolResult(tool),
                   error: tool.status === 'error',
+                  ...(tool.signature ? { signature: tool.signature } : {}),
                 })),
               }
             : {}),

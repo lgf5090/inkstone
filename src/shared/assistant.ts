@@ -2039,6 +2039,13 @@ export interface ToolActivity {
   detail?: string
   status: 'running' | 'success' | 'error'
   error?: string
+  /**
+   * Gemini's signature for the call this chip describes, kept so the next turn can echo the call.
+   *
+   * Google refuses a tool round whose earlier function call arrives without it, and the only copy of it
+   * is the reply that is being stored here. Absent for every other protocol.
+   */
+  signature?: string
   /** The draft this call created or rewrote, so the chip can offer to open it. */
   artifactId?: string
   approval?: PendingAction
