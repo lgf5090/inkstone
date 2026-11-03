@@ -45,7 +45,6 @@ import { musicAudioEngine } from './player/engine'
 import { useMusicSettings } from './store/settings'
 import { useMusicShortcuts } from './shortcuts'
 import { useMusicAssistantContext } from './assistant-surface'
-import { useMusicToolEffects } from './use-tool-effects'
 import { useMusicUi } from './store/ui'
 
 /**
@@ -198,7 +197,6 @@ export function MusicApp(): ReactElement {
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const normalize = useMusicSettings((state) => state.local.normalize)
   useMusicShortcuts()
-  useMusicToolEffects()
 
   // A restored queue is a promise the browser will not let us keep without a gesture: it comes back
   // paused, and the bar says so. Restore is idempotent, which is what makes the StrictMode second
