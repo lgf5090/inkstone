@@ -8,7 +8,7 @@
  */
 
 import { CLIENT_HEADER } from '@shared/constants'
-import type { AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
+import type { AssistantPageContext, AssistantTurnScope, ChatStreamEvent } from '@shared/assistant'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
@@ -37,6 +37,8 @@ export interface StreamTurnInput {
   contextMusic?: MusicAssistantContext
   /** The hand-written note open beside the dock; the worker re-reads it against the caller. */
   contextInknote?: InknoteAssistantContext
+  /** The generic page the dock sits beside, for surfaces without a bespoke context. */
+  contextPage?: AssistantPageContext
   /** The note this thread is being started from, recorded on the conversation the first time. */
   noteId?: string
   retry?: boolean
@@ -113,6 +115,7 @@ export async function streamAssistantTurn(
         ...(input.contextTodo ? { contextTodo: input.contextTodo } : {}),
         ...(input.contextMusic ? { contextMusic: input.contextMusic } : {}),
         ...(input.contextInknote ? { contextInknote: input.contextInknote } : {}),
+        ...(input.contextPage ? { contextPage: input.contextPage } : {}),
         ...(input.noteId ? { noteId: input.noteId } : {}),
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),

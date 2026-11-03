@@ -98,6 +98,7 @@ import {
   type AssistantUsageDay,
   type AssistantUsageSlice,
   type UsageFilter,
+  normalizeAssistantPageContext,
 } from '@shared/assistant'
 import { assertRelayableEndpoint } from '@shared/ai-proxy-guard'
 import { parsePricePeriods } from '@shared/price-periods'
@@ -1684,7 +1685,7 @@ async function unstartableTurn(
 
 
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, contextPage?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1709,6 +1710,10 @@ assistantRoutes.post('/chat', async (c) => {
   const contextNav = readNavContext(body.contextNav)
   const contextMusic = readMusicContext(body.contextMusic)
   const contextInknote = await resolveInknoteContext(c.env, c.get('userId'), body.contextInknote)
+  // The generic page. It is text the model reads rather than a resource it opens, so the only checks are
+  // the bounds: an oversized label or too many facts is cut down to the limit, never refused. Unknown
+  // fields are dropped here, so nothing outside the type can reach the prompt.
+  const contextPage = normalizeAssistantPageContext(body.contextPage)
 
   // Which kind of turn this is, decided once: the preconditions below and the runner's own input have to
   // read it the same way, or a refusal answered here and a refusal answered as a frame would diverge.
@@ -1832,6 +1837,7 @@ assistantRoutes.post('/chat', async (c) => {
         ...(contextNav ? { contextNav } : {}),
         ...(contextMusic ? { contextMusic } : {}),
         ...(contextInknote ? { contextInknote } : {}),
+        ...(contextPage ? { contextPage } : {}),
         // The note the thread began beside, recorded on the conversation rather than on the turn.
         ...(typeof body.noteId === 'string' && isValidId(body.noteId) && await s.knownNote(body.noteId) ? { originNoteId: body.noteId } : {}),
         webSearch,

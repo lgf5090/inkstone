@@ -14,7 +14,8 @@
 
 import { MAX_MESSAGE_CHARS, SEARCH_NATIVE_PROTOCOLS, WEB_SEARCH_TOOL_NAME, clipMusicClientEffect, isToolEffectEnvelope, looksLikeSearchTool, toolModeFor, toolPayloadText, webSearchConfigured } from '@shared/assistant'
 import { webSearchEngineFor } from '@shared/web-search-engines'
-import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, Project, ToolActivity } from '@shared/assistant'
+import type { AssistantArtifact, AssistantConversationOrigin, AssistantConversationSettings, AssistantMessage, AssistantModel, AssistantModelModality, AssistantPageContext, AssistantProtocol, AssistantSettings, AssistantSource, AssistantToolMode, ChatStreamEvent, Project, ToolActivity } from '@shared/assistant'
+import { renderAssistantPageContext } from '@shared/assistant'
 import { ARTIFACT_CONTEXT_HEAD_CHARS, ARTIFACT_CONTEXT_TAIL_CHARS, contextBudgetFor, customParamBody, MAX_ARTIFACT_CONTEXT_CHARS, MAX_CHAT_ATTACHMENTS, MAX_CONVERSATION_TITLE_CHARS, MAX_TURN_SCOPES, MAX_TURN_TOOLS, clipSuggestionList, estimateTokens, titleFromMessage, type AssistantTurnScope } from '@shared/assistant'
 import { hasHistoricalIntent, memoryTokenBudget } from '@shared/assistant-memory'
 import { ATTACHMENT_MARKER, expandChatAttachments, type AttachmentPayload } from './attachments'
@@ -255,6 +256,8 @@ export interface TurnInput {
   contextMusic?: MusicAssistantContext
   /** The hand-written note on screen, already re-read against this account by the route. */
   contextInknote?: InknoteAssistantContext
+  /** The generic page the dock is beside, already bounded by the route. */
+  contextPage?: AssistantPageContext
   /**
    * The note this thread began beside.
    *
@@ -423,6 +426,8 @@ export class AssistantRunner {
   private contextDatabase: DatabaseAssistantContext | null = null
   private contextMusic: MusicAssistantContext | null = null
   private contextInknote: InknoteAssistantContext | null = null
+  /** The generic screen this turn was asked beside; rendered into the system prompt, not the user turn. */
+  private contextPage: AssistantPageContext | null = null
   private contextPromise: Promise<{ openNote: { id: string, title: string } | null, browsingFolder: string | null }> | null = null
   /** The draft the reader has open, read once after the conversation it must belong to is known. */
   private contextArtifactId: string | null = null
@@ -513,6 +518,7 @@ export class AssistantRunner {
     this.contextDatabase = input.contextDatabase ?? null
     this.contextMusic = input.contextMusic ?? null
     this.contextInknote = input.contextInknote ?? null
+    this.contextPage = input.contextPage ?? null
     let conversation = input.conversationId ? await this.store.getConversation(input.conversationId) : null
     // The project comes from the row that was just read, so a conversation moved between projects is
     // answered under the one it is in now.
@@ -892,6 +898,10 @@ export class AssistantRunner {
         continuing: this.continueFrom !== null,
         customInstructions: this.settings.customInstructions,
       })
+      // The page the reader is on rides at the end of the standing instructions: it is true for this turn
+      // only, and it is not a note or a mention that a tool would resolve. The block is already bounded,
+      // and an absent page leaves the prompt exactly as it was.
+      if (this.contextPage) system = `${system}\n\n${renderAssistantPageContext(this.contextPage)}`
       // The history is what is left once the prompt has paid for itself: the standing instructions, the
       // answer the turn is going to write, and the results the steps after this one read back into it.
       const historyBudget = Math.max(500, contextTokens - estimateTokens(system) - outputCap - TOOL_RESULT_RESERVE_TOKENS)
@@ -983,6 +993,7 @@ export class AssistantRunner {
             turns: turns.length,
             tools: schemas.length,
             systemChars: turnSystem.length,
+            pageContext: this.contextPage ? `${this.contextPage.surface}:${this.contextPage.label}` : null,
             temperature: this.conversationSettings.temperature ?? project?.temperature ?? served.current.model.temperature,
             topP: this.conversationSettings.topP ?? project?.topP ?? served.current.model.topP,
             maxOutputTokens: capFor(served.current),

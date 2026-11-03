@@ -47,6 +47,8 @@ import type {
   Project,
   ToolActivity,
   MessageFeedback,
+  AssistantDockSurface,
+  AssistantPageContext,
 } from '@shared/assistant'
 import type { AssistantSkill } from '@shared/assistant'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
@@ -281,7 +283,16 @@ interface AssistantState {
    * that has no note on it. The surface is therefore checked where the chips are drawn and where the turn
    * is sent, not only when the dock appears.
    */
-  dockSurface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote'
+  dockSurface: AssistantDockSurface
+  /**
+   * The generic page the reader is on, for every surface that does not have a bespoke context type.
+   *
+   * It is the fallback the dock fills in from whatever the page did hand over (a to-do screen's view,
+   * a mailbox message's subject, a database table's name), and the seam a new app page uses directly.
+   * Notebook pages do not send it: their note and folder pointers already say what is on screen.
+   */
+  pageContext: AssistantPageContext | null
+  pageContextOn: boolean
   folderContextOn: boolean
   /**
    * Whether the draft open in the canvas rides along with the next turn.
@@ -307,7 +318,9 @@ interface AssistantState {
   inknoteContextOn: boolean
   setNoteContext: (on: boolean) => void
   setSubscriptionContext: (value: { id: string, name: string } | null) => void
-  setDockSurface: (surface: 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote') => void
+  setDockSurface: (surface: AssistantDockSurface) => void
+  setPageContext: (value: AssistantPageContext | null) => void
+  setPageContextOn: (on: boolean) => void
   setFolderContext: (on: boolean) => void
   setCanvasContext: (on: boolean) => void
   setTodoContext: (value: TodoAssistantContext | null) => void
@@ -1519,6 +1532,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   noteContextOn: true,
   subscriptionContext: null,
   dockSurface: 'notebook',
+  pageContext: null,
+  pageContextOn: true,
   folderContextOn: true,
   canvasContextOn: true,
   todoContext: null,
@@ -2341,7 +2356,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     // The pins go with the thread they were added to. They are "this turn's" by definition — the row the
     // composer draws is the record of what this question was asked about — so a new conversation that
     // inherited them would answer a question nobody asked, in a folder nobody named.
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, pageContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: false, turnTools: [], turnScopes: [] })
   },
 
   /**
@@ -2354,7 +2369,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
     const live = get().turn
     if (live && !live.done) return
     stopRemoteStreamWatch()
-    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
+    set({ activeId: null, messages: [], messagesReady: true, messagesError: null, remoteStreaming: false, remotePartial: null, remotePartialTruncated: false, turn: null, noteContextOn: true, folderContextOn: true, canvasContextOn: true, todoContextOn: true, emailContextOn: true, navContextOn: true, databaseContextOn: true, musicContextOn: true, inknoteContextOn: true, pageContextOn: true, artifacts: [], artifactsReady: true, artifactVersions: {}, canvasOpen: false, activeArtifactId: null, ephemeral: true })
   },
 
   attachFiles: async (files) => {
@@ -2620,6 +2635,8 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
   setNoteContext: (on) => set({ noteContextOn: on }),
   setSubscriptionContext: (value) => set({ subscriptionContext: value }),
   setDockSurface: (surface) => set({ dockSurface: surface }),
+  setPageContext: (value) => set({ pageContext: value }),
+  setPageContextOn: (on) => set({ pageContextOn: on }),
   setTodoContext: (value) => set({ todoContext: value }),
   setTodoContextOn: (on) => set({ todoContextOn: on }),
   setEmailContext: (value) => set({ emailContext: value }),
@@ -2875,6 +2892,10 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           ...(retry || continuing ? {} : {
             ...(state.dockSurface === 'notebook' && state.noteContextOn && ui.activeNoteId ? { contextNoteId: ui.activeNoteId } : {}),
             ...(state.dockSurface === 'notebook' && state.folderContextOn && ui.folderId ? { contextFolderId: ui.folderId } : {}),
+            // Every page that is not the notebook says what it is, in the generic shape: a slug, a label,
+            // and a few bounded facts. The notebook is left out because its note and folder pointers are
+            // the more precise answer and a page block beside them would only repeat the same screen.
+            ...(state.dockSurface !== 'notebook' && state.pageContextOn && state.pageContext ? { contextPage: state.pageContext } : {}),
             // Named by id, not by title: two plans can share a name, and the reader pointed at one of them.
             ...(state.subscriptionContext ? { contextSubscriptionId: state.subscriptionContext.id } : {}),
             // The canvas chip is the visible half of this: a draft the reader can see on screen but

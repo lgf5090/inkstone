@@ -17,6 +17,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { ArrowUpRight, Compass, Database, ListChecks, Mail, Music, NotebookPen, Plus, Sparkles, Wallet, X } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
+import type { AssistantDockSurface, AssistantPageContext } from '@shared/assistant'
 import type { TodoAssistantContext } from '@shared/todos/assistant-context'
 import type { EmailAssistantContext } from '@shared/email/assistant-context'
 import type { NavAssistantContext } from '@shared/nav/assistant-context'
@@ -24,7 +25,7 @@ import type { DatabaseAssistantContext } from '@shared/development/database/assi
 import type { MusicAssistantContext } from '@shared/music/assistant-context'
 import type { InknoteAssistantContext } from '@shared/inknote/assistant-context'
 import { cn } from '../../lib/cn'
-import { t } from '../../lib/i18n'
+import { getLocale, t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button, Spinner } from '../../components/primitives'
 import { Modal, Tooltip } from '../../components/overlay'
@@ -47,8 +48,124 @@ import {
 import { buildWriteDiff, WriteDiffSummary, WriteDiffView } from './editor-ai-diff'
 import { saveReplyAsNote } from './save-to-note'
 
-/** Which app the dock is sitting beside: it decides what "this page" can honestly mean. */
-export type AssistantDockSurface = 'notebook' | 'subscriptions' | 'todos' | 'email' | 'nav' | 'music' | 'database' | 'inknote'
+/**
+ * Which app the dock is sitting beside: it decides what "this page" can honestly mean.
+ *
+ * The type lives in `@shared/assistant` so a page can name its surface without importing this panel,
+ * and it is open-ended: a new app page gets a page-context chip without a bespoke context type.
+ */
+export type { AssistantDockSurface } from '@shared/assistant'
+
+function twoDigits(value: number): string {
+  return value.toString().padStart(2, '0')
+}
+
+/** The calendar's own label, since the month is the thing the reader is actually looking at. */
+function calendarLabel(now = new Date()): string {
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
+  return getLocale() === 'zh-CN'
+    ? `${year} 年 ${month} 月${t('todo.view.calendar')}`
+    : `${t('todo.view.calendar')} ${year}-${twoDigits(month)}`
+}
+
+/**
+ * The generic page a built-in surface is showing, derived from the props the page already handed over.
+ *
+ * This is the half that needs no integration: the calendar page, the mailbox and the Studio already say
+ * enough for "what is this page" to have an answer. A page that wants to say more passes `pageContext`
+ * itself, and a page this panel has never heard of gets the same seam with no type of its own.
+ */
+function derivePageContext(input: {
+  surface: AssistantDockSurface
+  subscription: { id: string, name: string } | null
+  todo: TodoAssistantContext | null
+  email: EmailAssistantContext | null
+  nav: NavAssistantContext | null
+  database: DatabaseAssistantContext | null
+  music: MusicAssistantContext | null
+  inknote: InknoteAssistantContext | null
+}): AssistantPageContext | null {
+  const { surface } = input
+  if (surface === 'notebook') return null
+  if (surface === 'subscriptions') {
+    return {
+      surface,
+      label: input.subscription?.name?.trim() || 'subscriptions',
+      facts: input.subscription?.id ? [`plan id: ${input.subscription.id}`] : [],
+    }
+  }
+  if (surface === 'todos') {
+    const todo = input.todo
+    const now = new Date()
+    const label = todo?.view === 'calendar' ? calendarLabel(now) : todo ? todoLabel(todo) : 'todos'
+    const facts = [
+      todo ? `view: ${todo.view}` : '',
+      todo?.view === 'calendar' ? `month: ${now.getFullYear()}-${twoDigits(now.getMonth() + 1)}` : '',
+      todo?.listName ? `list: ${todo.listName}` : '',
+      todo?.tagName ? `tag: ${todo.tagName}` : '',
+      todo?.query ? `search: ${todo.query}` : '',
+      todo?.taskTitle ? `open task: ${todo.taskTitle}` : '',
+    ].filter(Boolean)
+    return { surface, label, facts }
+  }
+  if (surface === 'email') {
+    const email = input.email
+    const label = email?.subject?.trim() || email?.sender?.trim() || email?.address?.trim() || 'email'
+    const facts = [
+      email?.sender ? `from: ${email.sender}` : '',
+      email?.accountId ? `account id: ${email.accountId}` : '',
+      email?.folderId ? `folder id: ${email.folderId}` : '',
+    ].filter(Boolean)
+    return { surface, label, facts }
+  }
+  if (surface === 'nav') {
+    const nav = input.nav
+    const label = nav?.query
+      ? t('nav.ai.dock.context_search', { query: nav.query })
+      : nav?.subcategoryName?.trim() || nav?.categoryName?.trim() || 'navigation'
+    const facts = [
+      nav?.categoryName ? `category: ${nav.categoryName}` : '',
+      nav?.subcategoryName ? `subcategory: ${nav.subcategoryName}` : '',
+      nav?.query ? `search: ${nav.query}` : '',
+      nav?.visibleLinks !== undefined ? `visible links: ${nav.visibleLinks}` : '',
+      nav?.totalLinks !== undefined ? `total links: ${nav.totalLinks}` : '',
+    ].filter(Boolean)
+    return { surface, label, facts }
+  }
+  if (surface === 'database') {
+    const database = input.database
+    const label = database
+      ? `${database.connectionName}${database.activeTable ? ` · ${database.activeTable}` : ''}`
+      : 'database'
+    const facts = [
+      database?.connectionName ? `connection: ${database.connectionName}` : '',
+      database?.activeTable ? `table: ${database.activeTable}` : '',
+      database?.sql ? 'a query is in the editor' : '',
+    ].filter(Boolean)
+    return { surface, label, facts }
+  }
+  if (surface === 'music') {
+    const music = input.music
+    const label = music?.trackTitle?.trim() || music?.cloudPath?.trim() || music?.playlistId || music?.page || 'music'
+    const facts = [
+      music?.page ? `page: ${music.page}` : '',
+      music?.trackTitle ? `track: ${music.trackTitle}` : '',
+      music?.artists?.length ? `artists: ${music.artists.join(', ')}` : '',
+      music?.queueLength !== undefined ? `queue: ${music.queueLength}` : '',
+    ].filter(Boolean)
+    return { surface, label, facts }
+  }
+  if (surface === 'inknote') {
+    const inknote = input.inknote
+    return {
+      surface,
+      label: inknote?.noteTitle?.trim() || 'inknote',
+      facts: inknote ? [`page: ${inknote.pageIndex + 1} of ${inknote.pageCount}`] : [],
+    }
+  }
+  return null
+}
 
 const TODO_VIEW_LABELS: Record<string, MessageKey> = {
   board: 'todo.view.board',
@@ -70,8 +187,15 @@ function todoLabel(context: TodoAssistantContext): string {
   return key ? t(key) : t('todo.view.board')
 }
 
-export function AssistantDock({ surface = 'notebook', subscription = null, email = null, nav = null, music = null, database = null, inknote = null, onInsertAnswer, onReadAnswer }: {
+export function AssistantDock({ surface = 'notebook', subscription = null, email = null, nav = null, music = null, database = null, inknote = null, pageContext: pageContextProp = null, onInsertAnswer, onReadAnswer }: {
   surface?: AssistantDockSurface
+  /**
+   * What this page is, for a page with no bespoke context type.
+   *
+   * Optional: the built-in surfaces are described from their own props below, and a page that has
+   * something more precise to say passes this instead. The notebook never sends it.
+   */
+  pageContext?: AssistantPageContext | null
   /** The plan the money app has open, so "what will this cost me this year" has an answer. */
   subscription?: { id: string, name: string } | null
   email?: EmailAssistantContext | null
@@ -121,6 +245,10 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
   const databaseContext = useAssistant((state) => state.databaseContext)
   const databaseOn = useAssistant((state) => state.databaseContextOn)
   const setDatabaseContextOn = useAssistant((state) => state.setDatabaseContextOn)
+  const pageContext = useAssistant((state) => state.pageContext)
+  const pageContextOn = useAssistant((state) => state.pageContextOn)
+  const setPageContext = useAssistant((state) => state.setPageContext)
+  const setPageContextOn = useAssistant((state) => state.setPageContextOn)
   const sendOnEnter = useAssistant((state) => state.settings?.sendOnEnter ?? true)
   const blocked = useAssistant((state) => !state.settings?.activeModelId && !state.settings?.offlineMode)
   const fileIndex = useAssistant((state) => state.fileIndex)
@@ -256,6 +384,28 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
     || musicContext?.playlistId
     || t('assistant.dock.music_label')
   const inknoteLabel = inknoteContext?.noteTitle?.trim() || t('assistant.dock.inknote_label')
+
+  // What "this page" means here. The caller's own context wins when it has one; otherwise the surface's
+  // props are enough to name the screen. The notebook is left out — its note pointer says it better.
+  const derivedPageContext = useMemo(
+    () => pageContextProp ?? derivePageContext({ surface, subscription: subscriptionId ? { id: subscriptionId, name: subscriptionName ?? '' } : null, todo, email: emailContext, nav: navContext, database: databaseContext, music: musicContext, inknote: inknoteContext }),
+    [pageContextProp, surface, subscriptionId, subscriptionName, todo, emailContext, navContext, databaseContext, musicContext, inknoteContext],
+  )
+  // Re-attached only when the screen's words change, never on every render: a reader who takes the chip
+  // off must not find it back on the next keystroke elsewhere in the page.
+  const pageContextKey = derivedPageContext
+    ? `${derivedPageContext.surface}\u0001${derivedPageContext.label}\u0001${derivedPageContext.facts.join('\u0001')}`
+    : ''
+  useEffect(() => {
+    if (surface === 'notebook' || !pageContextKey) {
+      setPageContext(null)
+      return
+    }
+    setPageContext(derivedPageContext ? { surface: derivedPageContext.surface, label: derivedPageContext.label, facts: [...derivedPageContext.facts] } : null)
+    // `derivedPageContext` is read through its key: the object is rebuilt on every render, the key is
+    // the only thing that means the screen actually changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surface, pageContextKey, setPageContext])
 
   const streaming = (!!turn && !turn.done) || remoteStreaming
   const turnHere = turn && turn.conversationId === (activeId ?? null) ? turn : null
@@ -445,6 +595,25 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         )}
       </div>
 
+      {/* The generic page chip. Drawn only when the page supplied its own page context, so the built-in
+          surfaces keep their single bespoke chip and the notebook keeps its note chip: one visible
+          promise per screen rather than two saying the same thing. */}
+      {surface !== 'notebook' && pageContext && pageContextOn && pageContextProp !== null && (
+        <div role="group" aria-label={t('assistant.context.title')} data-page-context-chip="" className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+            <span aria-hidden className="shrink-0 text-[var(--text-quaternary)]"><Sparkles size={12} /></span>
+            <span className="min-w-0 max-w-[220px] truncate">{pageContext.label}</span>
+            <button
+              type="button"
+              aria-label={t('assistant.context.remove', { name: pageContext.label })}
+              onClick={() => setPageContextOn(false)}
+              className="relative shrink-0 p-0.5 text-[var(--text-quaternary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              <X size={11} />
+            </button>
+          </span>
+        </div>
+      )}
       {surface === 'subscriptions' && attached && (
         <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-3 pt-1.5">
           <span className="inline-flex min-w-0 items-center gap-1 rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[length:var(--text-11)] text-[var(--text-tertiary)]">
