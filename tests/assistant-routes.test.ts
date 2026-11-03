@@ -1346,6 +1346,57 @@ describe('providers', () => {
     expect(after.settings.activeModelId).toBeNull()
   })
 
+  it('leaves a chosen default model alone when an unrelated provider goes', async () => {
+    const primary = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Primary',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.com',
+      models: ['primary-model'],
+    })
+    const spare = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Spare',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.org',
+      models: ['spare-model'],
+    })
+    const listed = await call<{ settings: AssistantSettings, models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const chosen = listed.models.find((model) => model.providerId === primary.provider.id)
+    expect(chosen, 'the first provider did not carry a model').toBeTruthy()
+    await call('PATCH', '/api/assistant/settings', { activeModelId: chosen!.id })
+
+    await call('DELETE', `/api/assistant/providers/${spare.provider.id}`)
+
+    const after = await call<{ settings: AssistantSettings }>('GET', '/api/assistant/settings')
+    // Removing a provider the reader was not answering from is not an edit of that setting: the default
+    // stays exactly where they put it instead of being replaced by the first suggestion.
+    expect(after.settings.activeModelId).toBe(chosen!.id)
+  })
+
+  it('moves the default to what is left when the provider carrying it goes', async () => {
+    const doomed = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Doomed',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.com',
+      models: ['doomed-model'],
+    })
+    const survivor = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
+      label: 'Survivor',
+      protocol: 'openai',
+      baseUrl: 'https://api.example.org',
+      models: ['survivor-model'],
+    })
+    const listed = await call<{ settings: AssistantSettings, models: AssistantModel[] }>('GET', '/api/assistant/settings')
+    const chosen = listed.models.find((model) => model.providerId === doomed.provider.id)
+    expect(chosen, 'the doomed provider did not carry a model').toBeTruthy()
+    await call('PATCH', '/api/assistant/settings', { activeModelId: chosen!.id })
+
+    await call('DELETE', `/api/assistant/providers/${doomed.provider.id}`)
+
+    const after = await call<{ settings: AssistantSettings }>('GET', '/api/assistant/settings')
+    const remaining = listed.models.find((model) => model.providerId === survivor.provider.id)
+    expect(after.settings.activeModelId).toBe(remaining!.id)
+  })
+
   it('records which of several keys was refused, so the screen can point at the broken one', async () => {
     const created = await call<{ provider: AssistantProvider }>('POST', '/api/assistant/providers', {
       label: 'Ring',

@@ -38807,7 +38807,6 @@ const allowed = new Map([
     "// ------------------------------------------------------------------ settings",
     "// Wall-clock schedules have to move with the reader's clock, or a 07:30 digest arrives at 07:30 UTC.",
     "// ----------------------------------------------------------------- providers",
-    "// The active model may have belonged to the provider that just went away.",
     "/**\n * The reader types the address, so it is vetted the same way the existing AI relay vets one: a private\n * or link-local target would let the worker be pointed at whatever the deployment itself can reach.\n */",
     "// -------------------------------------------------------------------- models",
     "// --------------------------------------------------------------------- usage",
@@ -39225,6 +39224,11 @@ const allowed = new Map([
     "/** The widest answer a one-shot call may ask for: a whole-article translation, not an essay. */",
     "// The default stays small because most callers are a naming pass; a caller that asks for more is",
     "// capped here rather than trusted, and the RSS translation is the widest legitimate ask.",
+    "// Which model the reader answers with, read before the provider's rows go: the models are deleted",
+    "// with it, so the question \"did this provider carry the active one\" can only be asked now.",
+    "// Only a provider that carried the active model takes the default down with it. Recomputing for",
+    "// every deletion replaced a default the reader had chosen with the first suggestion, which made",
+    "// removing an unrelated provider an edit of a setting nobody asked to change.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",
@@ -42563,6 +42567,8 @@ const allowed = new Map([
     "// A refused voice session is its own kind of failure: the panel can say what to check instead of",
     "// falling back to \"the server had an internal error\".",
     "// A panel that saves one knob must not reset the others: the whole document is stored as one value.",
+    "// Removing a provider the reader was not answering from is not an edit of that setting: the default",
+    "// stays exactly where they put it instead of being replaced by the first suggestion.",
   ]],
   ["tests/assistant-routing.test.ts", [
     "/**\n * Which model answers a turn when the reader asked the assistant to choose.\n *\n * The rule is a policy, so it is tested as one: what may be picked at all (tools, a window that fits\n * with room to answer), and which of the eligible models wins (the smallest declared window, with an\n * undeclared one treated as the reader's default rather than as a small model).\n */",
