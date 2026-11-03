@@ -61,6 +61,7 @@ import { createMcpNote, editMcpNote, trashMcpNote } from '../mcp/writes'
 import { DATABASE_TOOLS } from './database-tools'
 import { CALENDAR_TOOLS } from './calendar-tools'
 import { CLOUDDRIVE_TOOLS } from './clouddrive-tools'
+import { IMGBED_TOOLS } from './imgbed-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
@@ -4970,6 +4971,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...DATABASE_TOOLS,
   ...CALENDAR_TOOLS,
   ...CLOUDDRIVE_TOOLS,
+  ...IMGBED_TOOLS,
 ]
 
 const TOOL_BY_NAME = new Map(ALL_TOOLS.map((definition) => [definition.name, definition]))

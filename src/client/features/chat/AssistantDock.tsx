@@ -274,9 +274,24 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
       setNoteContext(true)
       return
     }
+    // What the notebook's chips were before this screen borrowed the store, so leaving can put them
+    // back rather than leaving the notebook silently contextless. Read before the two setters below.
+    const previousNoteContext = useAssistant.getState().noteContextOn
+    const previousFolderContext = useAssistant.getState().folderContextOn
     setNoteContext(false)
     setFolderContext(false)
     for (const scope of useAssistant.getState().turnScopes) useAssistant.getState().dropTurnScope(scope.id)
+    // Leaving this screen must not leave the account believing the dock still sits beside it: the
+    // chat window has no dock of its own, and a surface left behind here silently turns the notebook's
+    // note pointer off for the next question asked there. Only the surface this instance set is reset,
+    // so a second dock that has already claimed a new surface is not undone by the first one's teardown.
+    return () => {
+      const state = useAssistant.getState()
+      if (state.dockSurface !== surface) return
+      state.setDockSurface('notebook')
+      state.setNoteContext(previousNoteContext)
+      state.setFolderContext(previousFolderContext)
+    }
   }, [surface, setNoteContext, setFolderContext])
 
   // The dock hands the plan over and takes it back as the reader moves through the list; the chip below is
@@ -401,6 +416,16 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
       return
     }
     setPageContext(derivedPageContext ? { surface: derivedPageContext.surface, label: derivedPageContext.label, facts: [...derivedPageContext.facts] } : null)
+    // The page is cleared when this dock stops showing it, not only when another page takes its place:
+    // the chat window does not mount a dock, so a page left in the store there is one the next turn
+    // would attach while the reader is looking at something else entirely.
+    return () => {
+      const state = useAssistant.getState()
+      const current = state.pageContext
+      if (!current) return
+      const currentKey = `${current.surface}\u0001${current.label}\u0001${current.facts.join('\u0001')}`
+      if (currentKey === pageContextKey) state.setPageContext(null)
+    }
     // `derivedPageContext` is read through its key: the object is rebuilt on every render, the key is
     // the only thing that means the screen actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps

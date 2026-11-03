@@ -12,7 +12,7 @@ export const imgbedAiRoutes = new Hono<AppBindings>()
 
 const MAX_IMAGE_BYTES = 256 * 1024
 
-function promptFor(settings: ReturnType<typeof parseAiSettings>, preferred: string[]): string {
+export function promptFor(settings: ReturnType<typeof parseAiSettings>, preferred: string[]): string {
   const template = settings.prompt || IMGBED_DEFAULT_TAG_PROMPT
   return `${template
     .replace(/\{language\}/g, settings.language === 'en' ? 'English' : 'Simplified Chinese')
@@ -20,7 +20,7 @@ function promptFor(settings: ReturnType<typeof parseAiSettings>, preferred: stri
     .replace(/\{preferredTags\}/g, JSON.stringify(preferred))}\n${IMGBED_TAG_OUTPUT_INSTRUCTION}`
 }
 
-function parseTags(text: string, maxTags: number): string[] {
+export function parseTags(text: string, maxTags: number): string[] {
   let value: unknown
   try {
     value = JSON.parse(text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1'))
@@ -36,7 +36,7 @@ function parseTags(text: string, maxTags: number): string[] {
   return normalized
 }
 
-async function callModel(
+export async function callModel(
   env: AppBindings['Bindings'],
   userId: string,
   modelId: string,
