@@ -76,10 +76,11 @@ function commandFor(path: string, fileName: string, language: string): string {
   return language === 'shell' ? `curl -fsSL ${url} | bash` : `curl -fsSL ${url} -o ${fileName}`
 }
 
-export function SnippetList({ searchRef, onOpenDetail, onOpenPanel }: {
+export function SnippetList({ searchRef, onOpenDetail, onOpenPanel, expanded = false }: {
   searchRef: RefObject<HTMLInputElement | null>
   onOpenDetail?: () => void
   onOpenPanel?: (id: string, panel: PanelKind) => void
+  expanded?: boolean
 }) {
   const snippets = useScriptsHub((state) => state.snippets)
   const total = useScriptsHub((state) => state.total)
@@ -173,22 +174,28 @@ export function SnippetList({ searchRef, onOpenDetail, onOpenPanel }: {
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)] md:w-[340px]">
+    <section className={cn(
+      "flex h-full min-h-0 w-full shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]",
+      "transition-[width] duration-[var(--dur-base)] ease-[var(--ease-out)] motion-reduce:transition-none",
+      expanded ? "md:w-[420px]" : "md:w-[340px]",
+    )}>
       <div className="space-y-2 border-b border-[var(--border-subtle)] px-3 py-2.5">
         <div className="flex items-center gap-1.5">
-          <Input
-            ref={searchRef}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            leading={<Search size={13} aria-hidden="true" />}
-            trailing={search ? (
-              <IconButton label={t('scriptshub.list.clear_search')} size="xs" onClick={() => setSearch('')}>
-                <X size={11} aria-hidden="true" />
-              </IconButton>
-            ) : undefined}
-            aria-label={t('scriptshub.list.search_label')}
-            placeholder={t('scriptshub.list.search')}
-          />
+          <div className="min-w-0 flex-1">
+            <Input
+              ref={searchRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              leading={<Search size={13} aria-hidden="true" />}
+              trailing={search ? (
+                <IconButton label={t('scriptshub.list.clear_search')} size="xs" onClick={() => setSearch('')}>
+                  <X size={11} aria-hidden="true" />
+                </IconButton>
+              ) : undefined}
+              aria-label={t('scriptshub.list.search_label')}
+              placeholder={t('scriptshub.list.search')}
+            />
+          </div>
           <IconButton label={t('scriptshub.sidebar.new_snippet')} variant="primary" onClick={newSnippet}>
             <Plus size={14} aria-hidden="true" />
           </IconButton>

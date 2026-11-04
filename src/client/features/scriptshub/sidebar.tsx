@@ -45,8 +45,9 @@ interface NameDialogState {
   color: string | null
 }
 
-export function SnippetsSidebar({ mobile = false, onNavigate }: {
+export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
   mobile?: boolean
+  open?: boolean
   onNavigate?: () => void
 }) {
   const overview = useScriptsHub((state) => state.overview)
@@ -274,11 +275,18 @@ export function SnippetsSidebar({ mobile = false, onNavigate }: {
 
   return (
     <>
-      <aside className={cn(
-        'h-full min-h-0 w-[248px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]',
-        mobile ? 'hidden' : 'hidden md:block',
-      )}>
-        {content}
+      <aside
+        id="scriptshub-sidebar"
+        aria-hidden={!open}
+        {...(open ? {} : { inert: true })}
+        className={cn(
+          'h-full min-h-0 shrink-0 overflow-hidden bg-[var(--bg-sunken)]',
+          'transition-[width,border-color] duration-[var(--dur-base)] ease-[var(--ease-out)] motion-reduce:transition-none',
+          mobile ? 'hidden' : 'hidden md:block',
+          open ? 'w-[248px] border-r border-[var(--border-subtle)]' : 'w-0 border-r-0 border-transparent',
+        )}
+      >
+        <div className="h-full w-[248px]">{content}</div>
       </aside>
       {mobile && (
         <Drawer open onClose={() => onNavigate?.()} side="left" width={286} title={t('scriptshub.sidebar.title')}>
