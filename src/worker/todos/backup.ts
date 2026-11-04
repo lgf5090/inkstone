@@ -58,6 +58,7 @@ import {
   MAX_TAG_NAME_CHARS,
   MAX_TASK_DESCRIPTION_CHARS,
   MAX_TIME_ESTIMATE_MS,
+  FOCUS_RUN_KINDS,
   TIME_ENTRY_SOURCES,
   taskColorOrNull,
   taskIconOrNull,
@@ -478,6 +479,8 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
       textRule('description', MAX_TASK_DESCRIPTION_CHARS, { notNull: true }),
       wordRule('status', TASK_STATUSES, 'todo'),
       wordRule('priority', TASK_PRIORITIES, 'medium'),
+      intRule('matrix_important', { min: 0, max: 1 }),
+      intRule('matrix_urgent', { min: 0, max: 1 }),
       realRule('position'),
       stampRule('due_at'),
       stampRule('start_at'),
@@ -610,6 +613,35 @@ const TABLE_SPECS: Readonly<Record<string, TodoTableSpec>> = {
     ],
     place: requireParents({ task_id: ['todos_tasks', 'task'] }),
     readFilter: 'end_at IS NOT NULL',
+  },
+  todos_focus_runs: {
+    label: 'focus records',
+    dependsOn: ['todos_tasks'],
+    key: ['id'],
+    ceiling: MAX_ROWS_PER_TABLE,
+    rules: [
+      idRule('id', { notNull: true }),
+      // A break may name no task, so this reference is nullable like a task's parent.
+      idRule('task_id'),
+      wordRule('kind', FOCUS_RUN_KINDS, 'work'),
+      stampRule('started_at', { notNull: true }),
+      stampRule('ended_at', { notNull: true }),
+      intRule('planned_ms', { min: 0, max: STAMP_MAX, notNull: true }),
+      intRule('actual_ms', { min: 0, max: STAMP_MAX, notNull: true }),
+      flagRule('completed'),
+      dayRule('day', { notNull: true }),
+      stampRule('created_at', { notNull: true }),
+    ],
+    // A record whose task the file does not carry still happened, so the reference is nulled rather
+    // than the row being dropped; the break and cancelled blocks that name no task stay as well.
+    place: (row, ids, note) => {
+      const taskId = row.task_id
+      if (typeof taskId === 'string' && !ids.get('todos_tasks')?.has(taskId)) {
+        note('focus record kept without its task: the task is not in the file')
+        return { ...row, task_id: null }
+      }
+      return row
+    },
   },
   todos_counter_ticks: {
     label: 'habit days',

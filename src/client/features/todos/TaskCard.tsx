@@ -32,6 +32,7 @@ import { useUi } from '../../store/ui'
 import { useTodos } from './store'
 import { EstimateDialog } from './estimate-picker'
 import { buildTaskContextMenuItems, buildTaskMenuItems, TASK_ROW_MENU_WIDTH } from './task-menu'
+import type { TaskQuadrantControls } from './task-menu'
 import { attachFilesToTask } from './task-attachments'
 import { BatchContextMenu } from './BatchBar'
 import { dueLabel, priorityDot, priorityLabel } from './todo-ui'
@@ -372,7 +373,7 @@ function descriptionPreview(description: string): string {
   return toPlainText(description).replace(/\s+/g, ' ').trim()
 }
 
-export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, compact = false, showList = true, depth = 0, childCount = 0, collapsed = false, onToggleCollapsed }: {
+export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, onOpen, onStar, onUnplan, move, quadrant, compact = false, showList = true, depth = 0, childCount = 0, collapsed = false, onToggleCollapsed }: {
   task: TodoTask
   lists: readonly TaskList[]
   bounds: { dayEnd: number; now: number }
@@ -390,6 +391,11 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
    * where the order is not the reader's — the plan groups by day, and an explicit sort has its own.
    */
   move?: TaskMoveControls
+  /**
+   * The matrix answers, passed only by the matrix screen. The card's own menu grows the four-cell
+   * submenu from this object, so a phone and a keyboard get the same move a drop writes.
+   */
+  quadrant?: TaskQuadrantControls
   compact?: boolean
   /**
    * Whether the row names its list. A row on one list is already inside that list, so repeating the
@@ -694,6 +700,7 @@ export const TaskCard = memo(function TaskCard({ task, lists, bounds, timezone, 
     move,
     update: (patch: Record<string, unknown>) => { void updateTask(task.id, patch) },
     snooze: (minutes: SnoozeMinutes) => { void snooze(task.id, minutes) },
+    quadrant,
   }
   const menuItems = buildTaskMenuItems(task, { ...menuHandlers, onClose: () => setMenuOpen(false) })
   // A row the reader no longer owes has nothing left to be reminded about, so the right-click leaves
@@ -1217,6 +1224,8 @@ export interface TaskRowActions {
    * day and an explicit sort has its own.
    */
   moveFor?: (task: TodoTask) => TaskMoveControls | null
+  /** The matrix answers, or nothing where the screen is not a matrix. */
+  quadrantFor?: (task: TodoTask) => TaskQuadrantControls | undefined
   /** Take this row out of today. Only the today screen has a plan to take a task out of. */
   unplan?: (task: TodoTask) => void
   /** Whether `unplan` would really take the row off this screen, which narrows the button further. */
@@ -1228,21 +1237,23 @@ export interface TaskRowActions {
 /** The page's own `TaskRowActions`, bound to the store's writes and to whatever order it keeps. */
 export function useTaskRowActions(order: {
   moveFor?: (task: TodoTask) => TaskMoveControls | null
+  quadrantFor?: (task: TodoTask) => TaskQuadrantControls | undefined
   unplan?: (task: TodoTask) => void
   canUnplan?: (task: TodoTask) => boolean
 } = {}): TaskRowActions {
   const openEditor = useTodos((state) => state.openEditor)
   const updateTask = useTodos((state) => state.updateTask)
   const toggleCollapsed = useTodos((state) => state.toggleTaskCollapsed)
-  const { moveFor, unplan, canUnplan } = order
+  const { moveFor, quadrantFor, unplan, canUnplan } = order
   return useMemo(() => ({
     open: (task: TodoTask) => { openEditor({ id: task.id }) },
     star: (task: TodoTask) => { void updateTask(task.id, { starred: !task.starred }) },
     moveFor,
+    quadrantFor,
     unplan,
     canUnplan,
     toggleCollapsed,
-  }), [openEditor, updateTask, moveFor, unplan, canUnplan, toggleCollapsed])
+  }), [openEditor, updateTask, moveFor, quadrantFor, unplan, canUnplan, toggleCollapsed])
 }
 
 /**
@@ -1282,6 +1293,7 @@ export const TaskRow = memo(function TaskRow({ task, lists, bounds, timezone, ac
         ? { onToggleCollapsed: () => { actions.toggleCollapsed!(task.id) } }
         : {})}
       move={actions.moveFor?.(task) ?? undefined}
+      quadrant={actions.quadrantFor?.(task)}
       onOpen={() => actions.open(task)}
       onStar={() => actions.star(task)}
       {...(actions.unplan && (!actions.canUnplan || actions.canUnplan(task))

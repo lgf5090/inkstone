@@ -40,6 +40,7 @@ import { TodoFilters } from './TodoFilters'
 import { ListIcon } from './list-icons'
 import { RunningTimerBar } from './running-timer'
 import { FocusLayer } from './FocusOverlay'
+import { restoreFocusSession } from './focus-session'
 import { TodoKeysHelp } from './TodoKeysHelp'
 import { TODO_ROW_MENU_WIDTH, useTodoShortcuts } from './use-todo-shortcuts'
 import { TodoContent } from './views/registry'
@@ -141,7 +142,11 @@ export function TodosApp() {
     // `/todo?view=plan`, or of one task's own address, has to open on the view or the panel it names
     // rather than flash the board and wait for the reader to put it back.
     useTodos.getState().syncFromAddress()
-    void load()
+    // A focus block that was running when the page last closed is restored only after the rows that
+    // name its task have arrived; restoring against an empty listing would discard it as unknown.
+    void load().then(() => {
+      if (useTodos.getState().status === 'ready') restoreFocusSession()
+    })
   }, [load])
 
   useEffect(() => {

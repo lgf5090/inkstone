@@ -1059,6 +1059,10 @@ export interface NewTask {
   description?: string
   status?: TaskStatus
   priority?: TaskPriority
+  /** The importance answer for the matrix, or null to let the priority ladder derive it again. */
+  important?: boolean | null
+  /** The urgency answer for the matrix, or null to let the due date derive it again. */
+  urgent?: boolean | null
   dueAt?: number | null
   /** When the task may be begun. Independent of `dueAt`; null clears it. */
   startAt?: number | null
@@ -5093,12 +5097,14 @@ export class AssistantStore {
     // late would replay as work the flow never saw arrive.
     const insert = this.db.prepare(
       `INSERT INTO todos_tasks
-         (id, user_id, title, description, status, priority, due_at, start_at, project_id, list_id,
+         (id, user_id, title, description, status, priority, matrix_important, matrix_urgent,
+          due_at, start_at, project_id, list_id,
           icon, color, starred, repeat_rule, note_id, conversation_id, created_at, updated_at,
           completed_at, created_on, completed_on, planned_for, time_estimate_ms, archived_at, parent_id)
-       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
+       VALUES (?2, ?1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`,
     ).bind(
       this.userId, id, input.title.trim().slice(0, 300), input.description ?? '', status, input.priority ?? 'medium',
+      flagValue(input.important), flagValue(input.urgent),
       input.dueAt ?? null, input.startAt ?? null, input.projectId ?? null, input.listId ?? null,
       taskIconOrNull(input.icon), taskColorOrNull(input.color), input.starred ? 1 : 0,
       repeat ? JSON.stringify(repeat) : null, input.noteId ?? null,
@@ -5238,6 +5244,10 @@ export class AssistantStore {
     if (patch.title !== undefined) fields.push(['title', patch.title.trim().slice(0, 300)])
     if (patch.description !== undefined) fields.push(['description', patch.description])
     if (patch.priority !== undefined) fields.push(['priority', patch.priority])
+    // Null clears the reader's own answer and lets the axis be derived again, so it is written
+    // rather than skipped.
+    if (patch.important !== undefined) fields.push(['matrix_important', flagValue(patch.important)])
+    if (patch.urgent !== undefined) fields.push(['matrix_urgent', flagValue(patch.urgent)])
     if (patch.dueAt !== undefined) fields.push(['due_at', patch.dueAt])
     if (patch.startAt !== undefined) fields.push(['start_at', patch.startAt])
     if (patch.projectId !== undefined) fields.push(['project_id', patch.projectId])
@@ -5595,6 +5605,8 @@ export class AssistantStore {
       title: existing.title,
       description: existing.description,
       priority: existing.priority,
+      important: existing.important ?? null,
+      urgent: existing.urgent ?? null,
       dueAt,
       startAt,
       // The task's own face and its own colour: a copy that lost them wore its list's instead, so a
@@ -9263,6 +9275,9 @@ export interface TaskRow {
   description: string | null
   status: string
   priority: string
+  /** The reader's Eisenhower answers, or null while the matrix derives them. */
+  matrix_important: number | null
+  matrix_urgent: number | null
   /** The reader's place among the list's rows, or null while nobody has moved it. */
   position: number | null
   due_at: number | null
@@ -9393,6 +9408,18 @@ function decodeTaskStatus(value: unknown): TaskStatus {
   return typeof value === 'string' && value !== '' ? (value as TaskStatus) : 'todo'
 }
 
+/** A nullable answer column as two booleans and an absence, never collapsing null to false. */
+function nullableFlag(value: unknown): boolean | null {
+  if (value === null || value === undefined) return null
+  return value === 1 || value === true || value === '1'
+}
+
+/** The column value for a tri-state flag: null is "not answered", false is 0, true is 1. */
+function flagValue(value: boolean | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value ? 1 : 0
+}
+
 /**
  * A task row plus the page's own side reads, into the one shape every task answer uses.
  *
@@ -9411,6 +9438,8 @@ export function toTask(
     description: r.description ?? '',
     status: decodeTaskStatus(r.status),
     priority: pickEnum(r.priority, TASK_PRIORITY_VALUES, 'medium'),
+    important: nullableFlag(r.matrix_important),
+    urgent: nullableFlag(r.matrix_urgent),
     position: num(r.position),
     dueAt: num(r.due_at),
     startAt: num(r.start_at),

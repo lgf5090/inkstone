@@ -47,6 +47,7 @@ import {
   type StatSlice,
 } from './stats-charts'
 import { WorklogSection, useWorklog } from './WorklogSection'
+import { FocusStatsSection, useFocusStats } from './FocusStatsSection'
 
 const RANGE_CHOICES = [
   { value: '7', labelKey: 'todo.stats.range.7', days: 7 },
@@ -659,6 +660,9 @@ export function StatsView() {
   // disagree about the same window, and an export that disagrees with the screen is the worse of the
   // two ways to be wrong.
   const worklog = useWorklog({ from: statsFrom ?? '', to: statsTo ?? '' })
+  // The focus history reads the same window on its own endpoint: a phase is a session fact, not a
+  // ledger span, and a break that named no task could not live in the worklog at all.
+  const focus = useFocusStats({ from: statsFrom ?? '', to: statsTo ?? '' })
   const dailyGoal = useSession((state) => state.settings.todo.dailyGoal) ?? null
   const weeklyGoal = useSession((state) => state.settings.todo.weeklyGoal) ?? null
 
@@ -714,6 +718,7 @@ export function StatsView() {
           {/* The hours the ledger holds, beside the counts the plate moved: the two read different
               tables and are allowed to disagree about the same week. */}
           <WorklogSection state={worklog} />
+          <FocusStatsSection state={focus} />
         </>
       )}
     </div>

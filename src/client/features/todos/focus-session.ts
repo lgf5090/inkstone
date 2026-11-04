@@ -20,12 +20,14 @@
  * clock move a block that is in progress, which is the failure that bar exists to avoid.
  */
 import { create } from 'zustand'
-import { DEFAULT_TODO_FOCUS } from '@shared/constants'
+import { DEFAULT_TODO_FOCUS, TODO_FOCUS_STRATEGIES } from '@shared/constants'
 import type { TodoFocusSettings, TodoFocusStrategy } from '@shared/types'
-import type { TodoTask } from '@shared/todos/model'
+import type { FocusRunKind, TodoTask } from '@shared/todos/model'
 import { isTaskDone } from '@shared/todos/status'
 import { playCue, releaseCues, unlockCues } from '../../lib/audio-cues'
+import { t } from '../../lib/i18n'
 import { useSession } from '../../store/session'
+import { useUi } from '../../store/ui'
 import { useTodos } from './store'
 import {
   breakAfterBlock,
@@ -91,6 +93,8 @@ interface FocusSessionState {
   finishBlock: () => void
   /** Enter the break the finished block named, filing the block first when it is still live. */
   beginBreak: () => void
+  /** File a break that has run its course, then open the next block. */
+  completeBreak: () => void
   /** Come off the break early. */
   skipBreak: () => void
   /** Begin the next block, which is what a finished break and a "one more" press both mean. */
@@ -105,6 +109,154 @@ interface FocusSessionState {
 
 /** How long a whole minute is, in the only unit this module and the ledger both speak. */
 const MINUTE_MS = 60_000
+
+/**
+ * Where a running session survives a reload.
+ *
+ * The store is a module singleton, so a route change inside the app already keeps it; a browser
+ * reload is the one boundary that would otherwise throw a block away. The snapshot keeps the phase's
+ * elapsed reading and the wall instant it was taken, so a running phase can add the time the page
+ * spent closed before it resumes on the monotonic clock.
+ */
+const FOCUS_SESSION_KEY = 'inkstone.todos.focus.session.v1'
+const FOCUS_SCREENS: readonly FocusScreen[] = ['main', 'session-done', 'break']
+const FOCUS_RUN_STATES: readonly FocusRunState[] = ['ready', 'running', 'paused']
+
+interface StoredFocusSession {
+  taskId: string
+  strategy: TodoFocusStrategy
+  screen: FocusScreen
+  runState: FocusRunState
+  visible: boolean
+  settingsOpen: boolean
+  blockMs: number | null
+  breakMs: number
+  round: number
+  workedMs: number
+  heldMs: number
+  savedAt: number
+}
+
+function focusStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function isStoredFocusSession(value: unknown): value is StoredFocusSession {
+  if (typeof value !== 'object' || value === null) return false
+  const item = value as Record<string, unknown>
+  const finite = (field: unknown): field is number => typeof field === 'number' && Number.isFinite(field)
+  return typeof item.taskId === 'string'
+    && (TODO_FOCUS_STRATEGIES as readonly unknown[]).includes(item.strategy)
+    && (FOCUS_SCREENS as readonly unknown[]).includes(item.screen)
+    && (FOCUS_RUN_STATES as readonly unknown[]).includes(item.runState)
+    && typeof item.visible === 'boolean'
+    && typeof item.settingsOpen === 'boolean'
+    && (item.blockMs === null || finite(item.blockMs))
+    && finite(item.breakMs)
+    && finite(item.round)
+    && finite(item.workedMs)
+    && finite(item.heldMs)
+    && finite(item.savedAt)
+}
+
+function persistFocusSession(session: FocusSession | null): void {
+  const storage = focusStorage()
+  if (!storage) return
+  if (!session) {
+    storage.removeItem(FOCUS_SESSION_KEY)
+    return
+  }
+  const snapshot: StoredFocusSession = {
+    taskId: session.taskId,
+    strategy: session.strategy,
+    screen: session.screen,
+    runState: session.runState,
+    visible: session.visible,
+    settingsOpen: session.settingsOpen,
+    blockMs: session.blockMs,
+    breakMs: session.breakMs,
+    round: session.round,
+    workedMs: session.workedMs,
+    heldMs: session.heldMs,
+    savedAt: Date.now(),
+  }
+  try {
+    storage.setItem(FOCUS_SESSION_KEY, JSON.stringify(snapshot))
+  } catch {
+    // A full or disabled storage is not a session failure: the overlay keeps the live state and only
+    // the reload protection is missing.
+  }
+}
+
+/**
+ * Put a stored session back once the listing that owns its task has arrived.
+ *
+ * A task that is no longer on the page means the session cannot be shown or resumed, so the snapshot
+ * is dropped rather than restored as a panel with no title.
+ */
+export function restoreFocusSession(): boolean {
+  if (useFocusSession.getState().session) return false
+  const storage = focusStorage()
+  const raw = storage?.getItem(FOCUS_SESSION_KEY)
+  if (!storage || !raw) return false
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    storage.removeItem(FOCUS_SESSION_KEY)
+    return false
+  }
+  if (!isStoredFocusSession(parsed) || !sessionTask(parsed.taskId)) {
+    storage.removeItem(FOCUS_SESSION_KEY)
+    return false
+  }
+  const running = parsed.runState === 'running'
+  const heldMs = parsed.heldMs + (running ? Math.max(0, Date.now() - parsed.savedAt) : 0)
+  useFocusSession.setState({
+    session: {
+      taskId: parsed.taskId,
+      strategy: parsed.strategy,
+      screen: parsed.screen,
+      runState: parsed.runState,
+      visible: parsed.visible,
+      settingsOpen: parsed.settingsOpen,
+      blockMs: parsed.blockMs,
+      breakMs: parsed.breakMs,
+      round: parsed.round,
+      workedMs: parsed.workedMs,
+      heldMs,
+      anchorPerf: running ? performance.now() : null,
+    },
+  })
+  return true
+}
+
+/** Which break a finished round leads into, as the history's own word for it. */
+function breakKind(settings: TodoFocusSettings, strategy: TodoFocusStrategy, round: number): FocusRunKind {
+  if (strategy !== 'pomodoro') return 'short_break'
+  return round > 0 && round % settings.pomodoro.every === 0 ? 'long_break' : 'short_break'
+}
+
+/** File one phase through the store's own door, so the overlay and the statistics share one write. */
+function recordPhase(session: FocusSession, kind: FocusRunKind, actualMs: number, plannedMs: number, completed: boolean): void {
+  const endedAt = Date.now()
+  const actual = Math.max(0, Math.round(actualMs))
+  const planned = Math.max(0, Math.round(plannedMs))
+  void useTodos.getState().recordFocusRun({
+    taskId: session.taskId,
+    kind,
+    startedAt: Math.max(0, endedAt - actual),
+    endedAt,
+    plannedMs: planned,
+    actualMs: actual,
+    completed,
+  })
+}
 
 /** The account's focus settings, read when a decision needs them rather than copied into the session. */
 function focusSettings(): TodoFocusSettings {
@@ -300,8 +452,13 @@ export const useFocusSession = create<FocusSessionState>()((set, get) => ({
     const round = session.round + 1
     const workedMs = session.workedMs + worked
     const nextBreak = breakAfterBlock(session.strategy, settings, round, workedMs)
+    const planned = session.blockMs ?? worked
+    // A block with no plan (flowtime) counts as completed when the reader ends it deliberately; a
+    // planned block is completed only when its countdown actually reached the end.
+    recordPhase(session, 'work', worked, planned, session.blockMs === null || worked >= session.blockMs)
     if (!keepsLedgerOpen(settings, nextBreak)) closeLedgerIfRunning(session.taskId)
     if (focusSoundPlays(settings.sound, 'chime')) playCue('chime')
+    useUi.getState().toast({ title: t('todo.focus.block_done_toast'), tone: 'success' })
     set({
       session: {
         ...session,
@@ -327,7 +484,28 @@ export const useFocusSession = create<FocusSessionState>()((set, get) => ({
     set({ session: { ...session, screen: 'break', runState: 'running', heldMs: 0, anchorPerf: performance.now() } })
   },
 
+  completeBreak: () => {
+    const session = get().session
+    if (!session || session.screen !== 'break') return
+    const settings = focusSettings()
+    const actual = phaseElapsedMs(session, performance.now())
+    recordPhase(session, breakKind(settings, session.strategy, session.round), actual, session.breakMs, true)
+    if (focusSoundPlays(settings.sound, 'chime')) playCue('chime')
+    useUi.getState().toast({ title: t('todo.focus.break_done_toast'), tone: 'success' })
+    get().nextBlock()
+  },
+
   skipBreak: () => {
+    const session = get().session
+    if (!session || session.screen !== 'break') return
+    const settings = focusSettings()
+    recordPhase(
+      session,
+      breakKind(settings, session.strategy, session.round),
+      phaseElapsedMs(session, performance.now()),
+      session.breakMs,
+      false,
+    )
     get().nextBlock()
   },
 
@@ -359,6 +537,15 @@ export const useFocusSession = create<FocusSessionState>()((set, get) => ({
   endSession: () => {
     const session = get().session
     if (!session) return
+    const settings = focusSettings()
+    const actual = phaseElapsedMs(session, performance.now())
+    if (actual > 0) {
+      if (session.screen === 'main') {
+        recordPhase(session, 'work', actual, session.blockMs ?? actual, false)
+      } else if (session.screen === 'break') {
+        recordPhase(session, breakKind(settings, session.strategy, session.round), actual, session.breakMs, false)
+      }
+    }
     closeLedgerIfRunning(session.taskId)
     releaseCues()
     set({ session: null })
@@ -385,8 +572,7 @@ export const useFocusSession = create<FocusSessionState>()((set, get) => ({
     const elapsed = phaseElapsedMs(session, performance.now())
     if (session.screen === 'break') {
       if (elapsed >= session.breakMs) {
-        if (focusSoundPlays(settings.sound, 'chime')) playCue('chime')
-        get().nextBlock()
+        get().completeBreak()
       }
       return
     }
@@ -395,3 +581,16 @@ export const useFocusSession = create<FocusSessionState>()((set, get) => ({
     if (elapsed >= session.blockMs) get().finishBlock()
   },
 }))
+
+/**
+ * Keep the reload snapshot in step with the store.
+ *
+ * The ticker does not write state while a phase is running, so this fires on the gestures that matter
+ * — open, start, hold, hide, finish — and a run in between is recovered from the wall instant the
+ * snapshot already holds.
+ */
+if (typeof window !== 'undefined') {
+  useFocusSession.subscribe((state, previous) => {
+    if (state.session !== previous.session) persistFocusSession(state.session)
+  })
+}
