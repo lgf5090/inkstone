@@ -97,11 +97,31 @@ export function ProjectsView({ onOpenText }: { onOpenText: () => void }) {
   const share = async (item: CompareProjectListItem) => {
     try {
       const { slug } = await compareApi.shareProject(item.id)
-      await navigator.clipboard.writeText(sharePageUrl(slug)).catch(() => undefined)
-      useUi.getState().toast({ title: t('tools.compare.projects.shared'), tone: 'success' })
+      const url = sharePageUrl(slug)
+      let copied = false
+      try {
+        await navigator.clipboard.writeText(url)
+        copied = true
+      } catch {
+        // A browser may refuse clipboard access outside a direct gesture; the link is still created,
+        // and the row carries a copy button for the reader to press themselves.
+      }
+      useUi.getState().toast({
+        title: copied ? t('tools.compare.projects.shared') : t('tools.compare.projects.shared_ready'),
+        tone: 'success',
+      })
       void load()
     } catch {
       useUi.getState().toast({ title: t('tools.compare.projects.share_failed'), tone: 'danger' })
+    }
+  }
+
+  const copyShareLink = async (slug: string) => {
+    try {
+      await navigator.clipboard.writeText(sharePageUrl(slug))
+      useUi.getState().toast({ title: t('tools.compare.projects.shared'), tone: 'success' })
+    } catch {
+      useUi.getState().toast({ title: t('tools.compare.projects.copy_failed'), tone: 'danger' })
     }
   }
 
@@ -231,7 +251,7 @@ export function ProjectsView({ onOpenText }: { onOpenText: () => void }) {
                     {item.share_slug ? (
                       <>
                         <Tooltip label={t('tools.compare.projects.copy_link')}>
-                          <IconButton size="sm" label={t('tools.compare.projects.copy_link')} onClick={() => void navigator.clipboard.writeText(sharePageUrl(item.share_slug!))}>
+                          <IconButton size="sm" label={t('tools.compare.projects.copy_link')} onClick={() => void copyShareLink(item.share_slug!)}>
                             <Link2 size={13} />
                           </IconButton>
                         </Tooltip>

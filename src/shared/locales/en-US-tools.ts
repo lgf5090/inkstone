@@ -1710,6 +1710,8 @@ export const EN_US_TOOLS = {
   'tools.compare.projects.rename_failed': 'The comparison could not be renamed.',
   'tools.compare.projects.share': 'Create share link',
   'tools.compare.projects.shared': 'Share link copied',
+  'tools.compare.projects.shared_ready': 'Share link created — copy it from the card',
+  'tools.compare.projects.copy_failed': 'Could not copy the share link',
   'tools.compare.projects.shared_badge': 'Shared',
   'tools.compare.projects.unshare': 'Stop sharing',
   'tools.compare.projects.unshared': 'Sharing stopped',

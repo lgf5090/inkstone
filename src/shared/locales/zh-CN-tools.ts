@@ -1710,6 +1710,8 @@ export const ZH_CN_TOOLS = {
   'tools.compare.projects.rename_failed': '对比重命名失败。',
   'tools.compare.projects.share': '创建分享链接',
   'tools.compare.projects.shared': '分享链接已复制',
+  'tools.compare.projects.shared_ready': '分享链接已创建，可在卡片上复制',
+  'tools.compare.projects.copy_failed': '分享链接复制失败',
   'tools.compare.projects.shared_badge': '已分享',
   'tools.compare.projects.unshare': '停止分享',
   'tools.compare.projects.unshared': '已停止分享',

@@ -10,6 +10,7 @@ import { ChevronRight, Download, FolderOpen, FolderTree } from 'lucide-react'
 import { Button } from '../../../../components/primitives'
 import { Empty } from '../../../../components/feedback'
 import { cn } from '../../../../lib/cn'
+import { treeIndent } from '../../../../lib/tree/indent'
 import { t } from '../../../../lib/i18n'
 import { useUi } from '../../../../store/ui'
 import type { DirCompareResult, DirManifest, DirTreeNode } from '@shared/tools/compare/types'
@@ -305,7 +306,7 @@ function TreeNode({ node, depth, expanded, onToggle }: {
   return (
     <div role="treeitem" aria-expanded={node.isFile ? undefined : open} aria-level={depth + 1}>
       <div className={cn('grid grid-cols-2 border-b border-[var(--border-subtle)]/60 text-[length:var(--text-12)]', node.status !== 'same' && 'bg-[var(--bg-hover)]/40')}>
-        <div className="flex min-w-0 items-center gap-1 border-r border-[var(--border-subtle)] px-2 py-1" style={{ paddingLeft: 8 + depth * 14 }}>
+        <div className="flex min-w-0 items-center gap-1 border-r border-[var(--border-subtle)] px-2 py-1" style={{ paddingLeft: treeIndent(depth) }}>
           {node.isFile ? <span aria-hidden="true" className="w-3 shrink-0" /> : (
             <button
               type="button"
@@ -320,7 +321,7 @@ function TreeNode({ node, depth, expanded, onToggle }: {
             <span className={cn('truncate font-mono', node.isFile ? STATUS_STYLE[node.status] : 'text-[var(--text-primary)]')} title={node.path}>{node.name}</span>
           ) : <span className="text-[var(--text-quaternary)]">—</span>}
         </div>
-        <div className="flex min-w-0 items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 + depth * 14 }}>
+        <div className="flex min-w-0 items-center gap-1 px-2 py-1" style={{ paddingLeft: treeIndent(depth) }}>
           {node.isFile ? <span aria-hidden="true" className="w-3 shrink-0" /> : <span aria-hidden="true" className="w-3 shrink-0" />}
           {presentRight ? (
             <span className={cn('truncate font-mono', node.isFile ? STATUS_STYLE[node.status] : 'text-[var(--text-primary)]')} title={node.path}>{node.name}</span>

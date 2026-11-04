@@ -495,6 +495,8 @@ const ACCOUNT_GLOBAL_KEYS = new Map<string, string>([
   ['tools_shortlinks_clicks', 'id INTEGER PRIMARY KEY AUTOINCREMENT append-only click log; every read binds user_id'],
   ['tools_shortlinks_bundles', 'id INTEGER PRIMARY KEY AUTOINCREMENT, every read filters on user_id'],
   ['tools_shortlinks_api_keys', 'id INTEGER PRIMARY KEY AUTOINCREMENT, lookup by unique key_hash; management binds user_id'],
+  ['tools_compare_projects', 'id INTEGER PRIMARY KEY AUTOINCREMENT; every read filters on user_id, and the public share is addressed by an unguessable slug'],
+  ['tools_compare_runs', 'id INTEGER PRIMARY KEY AUTOINCREMENT append-only comparison ledger; every read binds user_id'],
 ])
 
 /** The tables that carry a `user_id` column yet key on something else. */
