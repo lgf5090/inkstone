@@ -51,7 +51,13 @@ export function ScriptsHubApp() {
   const select = useScriptsHub((state) => state.select)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const toast = useUi((state) => state.toast)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem('scriptshub:sidebar-open') !== 'false'
+    } catch {
+      return true
+    }
+  })
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -85,6 +91,14 @@ export function ScriptsHubApp() {
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('scriptshub:sidebar-open', sidebarOpen ? 'true' : 'false')
+    } catch {
+      // A blocked storage area only costs the preference, not the toggle.
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -233,6 +247,8 @@ export function ScriptsHubApp() {
         <IconButton
           label={t('scriptshub.sidebar.toggle')}
           active={sidebarOpen}
+          aria-expanded={sidebarOpen}
+          aria-controls="scriptshub-sidebar"
           onClick={() => setSidebarOpen((open) => !open)}
         >
           <PanelLeft size={15} aria-hidden="true" />
@@ -253,9 +269,10 @@ export function ScriptsHubApp() {
         </IconButton>
       </header>
       <div className="flex min-h-0 flex-1">
-        {sidebarOpen && <SnippetsSidebar />}
+        <SnippetsSidebar open={sidebarOpen} />
         <SnippetList
           searchRef={searchRef}
+          expanded={!sidebarOpen}
           onOpenPanel={(id, panel) => {
             void select(id)
             setPanelRequest({ id, panel })
