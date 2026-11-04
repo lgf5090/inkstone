@@ -349,6 +349,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     is_pinned INTEGER NOT NULL DEFAULT 0,
     is_starred INTEGER NOT NULL DEFAULT 0,
     is_archived INTEGER NOT NULL DEFAULT 0,
+    is_encrypted INTEGER NOT NULL DEFAULT 0,
     position REAL NOT NULL DEFAULT 0,
     content_hash TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
@@ -3682,6 +3683,29 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON scriptshub_publications(user_id, snippet_id, file_id)`,
     ],
   },
+  {
+    // The notes lock column originally shipped as 266 in this branch, before Memos merged and took
+    // 266 for `memos_items.content_cipher`. A local database that already ran the old number has
+    // 266 in its ledger with `notes.is_encrypted` present and the Memos column absent; leaving that
+    // row would make the Memos migration look applied forever. This cleanup frees the number only
+    // in that exact shape, so a database where 266 really was Memos keeps its ledger row.
+    version: 268,
+    statements: [
+      `DELETE FROM schema_migrations
+        WHERE version = 266
+          AND EXISTS (SELECT 1 FROM pragma_table_info('notes') WHERE name = 'is_encrypted')
+          AND NOT EXISTS (SELECT 1 FROM pragma_table_info('memos_items') WHERE name = 'content_cipher')`,
+    ],
+  },
+  {
+    // The lock marker itself: one column, one number, guarded so an old-number database (whose
+    // column is already present) and a fresh install both record the number without re-adding it.
+    version: 269,
+    skipIfColumnExists: { table: 'notes', column: 'is_encrypted' },
+    statements: [
+      `ALTER TABLE notes ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -3706,7 +3730,7 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   schema_migrations: ['version', 'applied_at'],
   users: ['id', 'username', 'password_hash', 'login', 'name', 'avatar_url', 'role', 'settings', 'template_library', 'quickadd', 'rss', 'created_at', 'last_seen_at'],
   folders: ['id', 'user_id', 'parent_id', 'name', 'icon', 'color', 'position', 'created_at', 'updated_at', 'deleted_at'],
-  notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
+  notes: ['id', 'user_id', 'folder_id', 'title', 'title_key', 'content', 'excerpt', 'rev', 'word_count', 'char_count', 'is_pinned', 'is_starred', 'is_archived', 'is_encrypted', 'position', 'content_hash', 'created_at', 'updated_at', 'deleted_at'],
   tags: ['id', 'user_id', 'name', 'color', 'is_manual', 'created_at'],
   note_tags: ['note_id', 'tag_id'],
   links: ['source_note_id', 'target_key', 'target_title', 'target_note_id', 'user_id'],
