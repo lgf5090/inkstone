@@ -33800,6 +33800,10 @@ const allowed = new Map([
     "// ---------------------------------------------------------------- tools",
     "// One gap per day: \"which gaps does this week have\" is answered by five days, not by the",
     "// five overlapping starts a quarter-hour step would put on the first free morning.",
+    "// \"Not in the past\" is measured against the turn's clock, so a fixed test day keeps the same",
+    "// answer whatever hour the suite runs at.",
+    "// Build the window from the wall clock, not by adding elapsed hours to midnight: on a DST",
+    "// changeover day an exact-hour add would move \"9:00\" to 8:00 or 10:00, and 24:00 to 23:00.",
   ]],
   ["src/worker/assistant/chat-files.ts", [
     "/**\n * Chat attachments: the reader's own files, under the chat's own prefix.\n *\n * The notebook has an attachment table and a storage backend of its own, and a chat attachment is\n * deliberately *not* one of those: a picture pasted into a question is not a file the reader keeps, it\n * is fuel for one turn. The prefix is therefore `chat/images/<user>/<id>.<ext>` and\n * `chat/files/<user>/<id>.<ext>`, which is what makes a chat upload findable — and deletable — without\n * touching anything the notebook can see.\n *\n * Two ceilings do the rest of the work. An image is capped at what a vision model can be sent in one\n * request body, a document at what fits the reader's context budget; anything above either is refused\n * with its own number in the message rather than truncated in silence.\n */",
@@ -36264,6 +36268,7 @@ const allowed = new Map([
     "// third party's call is held for a press every time, whatever the local settings say.",
     "// A whitelist from the caller is the narrowest rule there is, so it is read before the exceptions",
     "// below: a template that declared `read_note` only must not still reach the question tool.",
+    "/**\n   * The turn's clock. Production sets it once when the context is built so every tool in a turn\n   * agrees on \"now\"; tests set it so a case about a fixed day does not change meaning with the hour\n   * the suite happens to run at. Absent means the wall clock.\n   */",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -42794,6 +42799,14 @@ const allowed = new Map([
   ]],
   ["tests/assistant-calendar-tools.test.ts", [
     "/**\n * The calendar tools the assistant reaches through the executor.\n *\n * The real `CalendarStore` runs against an in-memory D1 double, because the point of these tools is\n * that a sentence becomes a stored row: a fake calendar would pass while nothing was written. The\n * cases pin the defaults the model depends on — the default calendar, the account's zone, one hour\n * for an unspecified meeting — and the two safety rules: a range filters real rows, and a delete is a\n * pending action rather than a write.\n */",
+    "/**\n * The turn's clock is pinned to the first minute of 4 November 2026 in the account zone. The cases\n * below are written against a fixed day, so they must not inherit the hour the suite happens to run\n * at: at 10:31 the \"first free slot\" of that day is no longer 10:30.\n */",
+    "// 11:00 UTC on 4 November is 19:00 in Shanghai, an hour after the default window ends.",
+    "// 10:30 IST is 05:00 UTC, not 04:30 or 05:30: the +05:30 offset is not rounded to whole hours.",
+    "// 31 October 2026 noon in New York: the day before the clocks fall back from 02:00 to 01:00.",
+    "// 09:00 EST is 14:00 UTC; an elapsed-hour add from midnight would have answered 08:00 EST.",
+    "// 24:00 is the end of that 25-hour calendar day, so the slot still ends at next-day midnight.",
+    "// 7 March 2026 noon in New York: the day before the clocks spring forward from 02:00 to 03:00.",
+    "// 09:00 EDT is 13:00 UTC; an elapsed-hour add from midnight would have answered 10:00 EDT.",
   ]],
   ["tests/assistant-clouddrive-tools.test.ts", [
     "/**\n * The Cloud Drive tools, driven the way the assistant drives them.\n *\n * `assistant-rules.test.ts` proves these names are registered, permissioned and labelled. This file\n * drives the executor against a real database, because what matters here is not the catalogue: a\n * search that misses a file whose name is actually there, a move that lands in the wrong folder, a\n * share link no browser can open, a delete that erases instead of trashing, or a path another account\n * owns that the model could reach by naming it.\n */",

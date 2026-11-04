@@ -2514,6 +2514,7 @@ export class AssistantRunner {
       settings: this.settings,
       timezone: this.settings.timezone,
       dayEnd: bounds.end,
+      now: Date.now(),
       mode: conversationId ? 'chat' : 'scheduled',
       ...(conversationId ? { conversationId } : {}),
       ...(this.turnAllowedTools ? { allowedTools: this.turnAllowedTools } : {}),

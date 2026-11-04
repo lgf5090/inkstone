@@ -350,8 +350,8 @@ async function loadEvent(ctx: ToolContext, visibleId: string, needWrite: boolean
   return { store: own, event, visibleId, rawId: visibleId }
 }
 
-function rangeFrom(args: Record<string, unknown>, zone: string): { fromMs: number; toMs: number } {
-  const now = Date.now()
+function rangeFrom(args: Record<string, unknown>, zone: string, clock: number): { fromMs: number; toMs: number } {
+  const now = clock
   const fromValue = args.from
   const toValue = args.to
   let fromMs = now
@@ -531,7 +531,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     },
     async run(args, ctx) {
       const zone = await zoneOf(ctx)
-      const { fromMs, toMs } = rangeFrom(args, zone)
+      const { fromMs, toMs } = rangeFrom(args, zone, ctx.now ?? Date.now())
       const limit = typeof args.limit === 'number' ? Math.min(MAX_LISTED_EVENTS, Math.max(1, args.limit)) : 100
       const kind = args.kind as CalendarEventKind | undefined
       const collected = await collectEvents(ctx, fromMs, toMs, calendarIdsOf(args))
@@ -764,7 +764,7 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     },
     async run(args, ctx) {
       const zone = await zoneOf(ctx)
-      const { fromMs, toMs } = rangeFrom(args, zone)
+      const { fromMs, toMs } = rangeFrom(args, zone, ctx.now ?? Date.now())
       const { blocks } = await busyBlocks(ctx, fromMs, toMs, calendarIdsOf(args))
       return {
         from: toLocalMinute(fromMs, zone),
@@ -792,7 +792,8 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
     },
     async run(args, ctx) {
       const zone = await zoneOf(ctx)
-      const { fromMs, toMs } = rangeFrom(args, zone)
+      const clock = ctx.now ?? Date.now()
+      const { fromMs, toMs } = rangeFrom(args, zone, clock)
       const duration = typeof args.durationMinutes === 'number' ? args.durationMinutes : 30
       const startHour = typeof args.dayStartHour === 'number' ? args.dayStartHour : 9
       const endHour = typeof args.dayEndHour === 'number' ? args.dayEndHour : 18
@@ -804,7 +805,9 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
         : [1, 2, 3, 4, 5]
       if (allowedDays.length === 0) throw new ToolError('"days" must name weekdays from 0 to 6.')
       const { blocks } = await busyBlocks(ctx, fromMs, toMs, calendarIdsOf(args))
-      const earliest = Math.max(fromMs, Date.now() + 60_000)
+      // "Not in the past" is measured against the turn's clock, so a fixed test day keeps the same
+      // answer whatever hour the suite runs at.
+      const earliest = Math.max(fromMs, clock + 60_000)
       const firstDay = Temporal.Instant.fromEpochMilliseconds(earliest).toZonedDateTimeISO(zone).toPlainDate()
       const lastDay = Temporal.Instant.fromEpochMilliseconds(toMs).toZonedDateTimeISO(zone).toPlainDate()
       const slots: Array<{ start: string; end: string; start_ms: number; end_ms: number; day: string }> = []
@@ -812,8 +815,12 @@ export const CALENDAR_TOOLS: readonly ToolDefinition[] = [
       for (let offset = 0; offset < MAX_DATE_RANGE_DAYS && slots.length < limit; offset += 1) {
         if (Temporal.PlainDate.compare(day, lastDay) > 0) break
         if (allowedDays.includes(day.dayOfWeek % 7)) {
-          const windowStart = day.toZonedDateTime(zone).add({ hours: startHour }).epochMilliseconds
-          const windowEnd = day.toZonedDateTime(zone).add({ hours: endHour }).epochMilliseconds
+          // Build the window from the wall clock, not by adding elapsed hours to midnight: on a DST
+          // changeover day an exact-hour add would move "9:00" to 8:00 or 10:00, and 24:00 to 23:00.
+          const windowStart = day.toZonedDateTime({ timeZone: zone, plainTime: { hour: startHour } }).epochMilliseconds
+          const windowEnd = endHour === 24
+            ? day.add({ days: 1 }).toZonedDateTime(zone).epochMilliseconds
+            : day.toZonedDateTime({ timeZone: zone, plainTime: { hour: endHour } }).epochMilliseconds
           const stride = step * 60_000
           let cursor = Math.max(windowStart, earliest)
           cursor = windowStart + Math.ceil((cursor - windowStart) / stride) * stride

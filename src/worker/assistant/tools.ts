@@ -215,6 +215,12 @@ export interface ToolContext {
   timezone: string
   /** End of the reader's local day, so 'today' means the same thing in every tool. */
   dayEnd: number
+  /**
+   * The turn's clock. Production sets it once when the context is built so every tool in a turn
+   * agrees on "now"; tests set it so a case about a fixed day does not change meaning with the hour
+   * the suite happens to run at. Absent means the wall clock.
+   */
+  now?: number
   mode: 'chat' | 'scheduled'
   conversationId?: string
   signal?: AbortSignal
