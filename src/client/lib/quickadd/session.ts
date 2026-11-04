@@ -14,6 +14,31 @@ import type { NotePort, QuickAddRunStatus } from './context'
 import { t } from '../../lib/i18n'
 import type { QuickAddChoice } from '@shared/quickadd'
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/**
+ * The day an answer names, read in the reader's own zone.
+ *
+ * `Date.parse('2026-11-04')` reads an ISO date-only string as UTC midnight. West of Greenwich that
+ * is the previous evening, so `setHours` in the session clock lands on the day before the one the
+ * reader picked. A date-only answer is built from local components instead; anything carrying a time
+ * keeps its explicit offset.
+ */
+export function parseDayAnswer(value: string): Date | null {
+  const text = value.trim()
+  const match = DATE_ONLY.exec(text)
+  if (match) {
+    const year = Number(match[1])
+    const month = Number(match[2]) - 1
+    const day = Number(match[3])
+    const date = new Date(year, month, day)
+    if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) return null
+    return date
+  }
+  const stamp = Date.parse(text)
+  return Number.isFinite(stamp) ? new Date(stamp) : null
+}
+
 export function promptRequest(over: Partial<PromptRequest>): PromptRequest {
   return {
     kind: 'text',
@@ -106,10 +131,9 @@ export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunS
   if (!asksForDay(session)) return null
   const value = await askOrReuse(session, dayRequest(session))
   if (value === null) return { kind: 'cancelled' }
-  const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
-  if (!Number.isFinite(stamp))
+  const origin = typeof value === 'string' ? parseDayAnswer(value) : null
+  if (!origin)
     return { kind: 'failed', reason: t('quickadd.error_day_unreadable') }
-  const origin = new Date(stamp)
   origin.setHours(session.clock.now.getHours(), session.clock.now.getMinutes(), session.clock.now.getSeconds())
   session.clock = { now: session.clock.now, date: origin }
   return null

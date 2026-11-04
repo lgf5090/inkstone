@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, FolderKanban, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -23,7 +23,6 @@ export type AppTabId =
   | 'calendar'
   | 'todo'
   | 'email'
-  | 'projects'
   | 'nav'
   | 'chat'
   | 'subscriptions'
@@ -54,7 +53,6 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'calendar', path: '/calendar', labelKey: 'app.tabs.calendar', icon: CalendarDays },
   { id: 'todo', path: '/todo', labelKey: 'app.tabs.todo', icon: ListChecks },
   { id: 'email', path: '/email', labelKey: 'app.tabs.email', icon: Mail },
-  { id: 'projects', path: '/projects', labelKey: 'app.tabs.projects', icon: FolderKanban },
   { id: 'chat', path: '/chat', labelKey: 'app.tabs.chat', icon: MessageSquare },
   { id: 'subscriptions', path: '/subscriptions', labelKey: 'app.tabs.subscriptions', icon: Wallet },
   { id: 'reading', path: '/reading', labelKey: 'app.tabs.reading', icon: BookOpen },

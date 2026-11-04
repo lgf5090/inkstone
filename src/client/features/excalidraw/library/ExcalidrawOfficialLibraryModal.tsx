@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { FilterInput } from '../../../components/FilterInput'
+import { Select } from '../../../components/form'
 import { compileQuery, queryMatches } from '../../../lib/query-match'
 import { usePinyinVersion } from '../../../lib/pinyin'
 import { api } from '../../../lib/api'
@@ -389,10 +390,11 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
             <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
               <FolderInput size={14} />
               <span>{t('excalidraw.import_to_folder')}:</span>
-              <select
+              <Select
+                aria-label={t('excalidraw.import_to_folder')}
                 value={selectedFolder || ''}
                 onChange={(e) => setSelectedFolder(e.target.value || null)}
-                className="h-7 rounded border border-[var(--border-default)] bg-[var(--bg-surface)] px-2 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                className="h-7 px-2 text-xs"
               >
                 <option value="">{t('excalidraw.all_folders')}</option>
                 {folders.map((f) => (
@@ -400,7 +402,7 @@ export const ExcalidrawOfficialLibraryModal: React.FC<ExcalidrawOfficialLibraryM
                     {f.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
 
             <button

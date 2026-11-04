@@ -10,7 +10,7 @@ import type { QuickAddChoice } from '@shared/quickadd'
 import { t } from '../../lib/i18n'
 import { useQuickAdd } from '../../store/quickadd'
 import { askQuickAddPrompts } from './prompt-queue'
-import { promptRequest } from '../../lib/quickadd/session'
+import { parseDayAnswer, promptRequest } from '../../lib/quickadd/session'
 
 export async function runChoiceWithChosenDay(
   choice: QuickAddChoice,
@@ -29,8 +29,8 @@ export async function runChoiceWithChosenDay(
     choiceName: choice.name,
   })
   const value = answers?.get('day')
-  const stamp = typeof value === 'string' ? Date.parse(value) : Number.NaN
-  if (!Number.isFinite(stamp)) return
+  const day = typeof value === 'string' ? parseDayAnswer(value) : null
+  if (!day) return
   const { runQuickAddChoice } = await import('../../lib/quickadd/runner')
-  await runQuickAddChoice(choice.id, { sourceNoteId: options.sourceNoteId, day: new Date(stamp) })
+  await runQuickAddChoice(choice.id, { sourceNoteId: options.sourceNoteId, day })
 }

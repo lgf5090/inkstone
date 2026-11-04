@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
-import { bodyRunsCode, createNoteWithEngine, insertNoteWithEngine, isTemplaterTemplate } from './template-engine'
+import { bodyHasAiSlots, bodyRunsCode, createNoteWithEngine, insertNoteWithEngine } from './template-engine'
 import { peekNoteContent } from '../preview/card-content'
 import { useNotes } from '../../store/notes'
 import { templateOrderValue, useNoteTemplates } from '../../store/note-templates'
@@ -121,10 +121,12 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       // Importing is the moment a stranger's template becomes the reader's own: afterwards it runs with the
       // reader's rights, because they have now read it. That is why the question is asked here and not at
       // every use — and why a body with no commands in it needs no question at all.
-      if (bodyRunsCode(item.content)) {
+      const runsCode = bodyRunsCode(item.content)
+      const fillsWithAi = bodyHasAiSlots(item.content)
+      if (runsCode || fillsWithAi) {
         const accepted = await confirm({
           title: t('templates.community_import_title'),
-          description: t('templates.community_import_body'),
+          description: t(runsCode ? 'templates.community_import_body' : 'templates.community_import_body_ai'),
           confirmLabel: t('templates.community_import'),
           tone: 'danger',
         })
@@ -167,12 +169,19 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       // Plan §0.6: a gallery body that runs code is not executed on a reader's word alone. The default
       // posture says "import it first", which is the step where the confirmation happens; the reader who
       // turned the policy to "trusted" has already said they want direct use, and gets the run — under the
-      // community profile, which is read-only no matter what the template asks for.
-      if (isTemplaterTemplate(template) && useSession.getState().settings.templater.communityScriptPolicy === 'readonly') {
-        useUi.getState().toast({ title: t('templates.community_direct_blocked'), tone: 'warning' })
+      // community profile, which is read-only no matter what the template asks for. An AI slot is the
+      // same kind of action: it spends a model turn and the account's tools, so it waits for the same
+      // import-first confirmation.
+      const runsCode = bodyRunsCode(template.content)
+      const fillsWithAi = bodyHasAiSlots(template.content)
+      if ((runsCode || fillsWithAi) && useSession.getState().settings.templater.communityScriptPolicy === 'readonly') {
+        useUi.getState().toast({
+          title: t(runsCode ? 'templates.community_direct_blocked' : 'templates.community_direct_blocked_ai'),
+          tone: 'warning',
+        })
         return
       }
-      const made = await createNoteWithEngine(template, null, isTemplaterTemplate(template) ? 'community' : 'library')
+      const made = await createNoteWithEngine(template, null, runsCode ? 'community' : 'library')
       if (made)
         onClose()
     })()

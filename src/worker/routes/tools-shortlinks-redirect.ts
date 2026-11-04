@@ -4,6 +4,9 @@
 
 import { Hono, type Context } from 'hono'
 import { getCookie } from 'hono/cookie'
+import { EN_US_SHORTLINKS_PUBLIC, type ShortlinksPublicCopy } from '@shared/locales/en-US-shortlinks-public'
+import { ZH_CN_SHORTLINKS_PUBLIC } from '@shared/locales/zh-CN-shortlinks-public'
+import { urlProblem } from '@shared/tools/shortlinks/schemas'
 import type { AppBindings } from '../env'
 import { escapeHtml } from '../lib/encoding'
 import { verifyPassword } from '../lib/password'
@@ -23,14 +26,33 @@ import { parseUserAgentInfo } from '../tools/shortlinks/ua'
 
 export const toolsShortlinksRedirectRoutes = new Hono<AppBindings>()
 
-function renderPasswordPage(slug: string, errorMsg?: string, status = 401): Response {
+/**
+ * The language a public page answers in.
+ *
+ * A short link is opened by whoever received it, not by the deployment's owner, so the deployment
+ * setting would be the wrong guess. `Accept-Language` is the reader's own statement; anything that
+ * does not ask for Chinese gets English, which is the catalog's source language.
+ */
+export function shortlinksPublicCopy(acceptLanguage: string | undefined): { locale: 'en-US' | 'zh-CN'; copy: ShortlinksPublicCopy } {
+  return (acceptLanguage ?? '').toLowerCase().startsWith('zh')
+    ? { locale: 'zh-CN', copy: ZH_CN_SHORTLINKS_PUBLIC }
+    : { locale: 'en-US', copy: EN_US_SHORTLINKS_PUBLIC }
+}
+
+function renderPasswordPage(
+  slug: string,
+  locale: 'en-US' | 'zh-CN',
+  copy: ShortlinksPublicCopy,
+  errorMsg?: string,
+  status = 401,
+): Response {
   const safeSlug = encodeURIComponent(slug)
   const html = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${locale}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>\u53d7\u4fdd\u62a4\u7684\u94fe\u63a5 - Inkstone Shortlinks</title>
+  <title>${escapeHtml(copy.passwordTitle)} - Inkstone Shortlinks</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -136,15 +158,15 @@ function renderPasswordPage(slug: string, errorMsg?: string, status = 401): Resp
     <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
     </svg>
-    <h1>\u53d7\u4fdd\u62a4\u7684\u77ed\u94fe\u63a5</h1>
-    <p>\u6b64\u77ed\u94fe\u63a5\u5df2\u8bbe\u7f6e\u8bbf\u95ee\u5bc6\u7801\u4fdd\u62a4\uff0c\u8bf7\u8f93\u5165\u6b63\u786e\u7684\u8bbf\u95ee\u5bc6\u7801\u4ee5\u7ee7\u7eed\u8df3\u8f6c\u3002</p>
+    <h1>${escapeHtml(copy.passwordHeading)}</h1>
+    <p>${escapeHtml(copy.passwordMessage)}</p>
     ${errorMsg ? `<div class="error" role="alert">${escapeHtml(errorMsg)}</div>` : ''}
     <form method="POST" action="/l/${safeSlug}">
       <div>
-        <label for="password">\u8bbf\u95ee\u5bc6\u7801</label>
-        <input type="password" id="password" name="password" required autofocus autocomplete="current-password" placeholder="\u8bf7\u8f93\u5165\u8bbf\u95ee\u5bc6\u7801" />
+        <label for="password">${escapeHtml(copy.passwordLabel)}</label>
+        <input type="password" id="password" name="password" required autofocus autocomplete="current-password" placeholder="${escapeHtml(copy.passwordPlaceholder)}" />
       </div>
-      <button type="submit">\u9a8c\u8bc1\u5e76\u8df3\u8f6c</button>
+      <button type="submit">${escapeHtml(copy.passwordSubmit)}</button>
     </form>
   </div>
 </body>
@@ -159,11 +181,15 @@ function renderPasswordPage(slug: string, errorMsg?: string, status = 401): Resp
   })
 }
 
-function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', message = '\u62b1\u6b49\uff0c\u60a8\u8bbf\u95ee\u7684\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u5220\u9664\u3002'): Response {
+function renderNotFoundPage(
+  locale: 'en-US' | 'zh-CN',
+  title: string,
+  message: string,
+): Response {
   const safeTitle = escapeHtml(title)
   const safeMessage = escapeHtml(message)
   const html = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${locale}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -206,16 +232,17 @@ function renderNotFoundPage(title = '\u77ed\u94fe\u63a5\u4e0d\u5b58\u5728', mess
 }
 
 async function handleRedirect(c: Context<AppBindings>, providedPassword?: string) {
+  const { locale, copy } = shortlinksPublicCopy(c.req.header('accept-language'))
   const slug = c.req.param('slug')
   if (!slug) {
-    return renderNotFoundPage()
+    return renderNotFoundPage(locale, copy.notFoundTitle, copy.notFoundMessage)
   }
 
   // 1. Resolve the slug from D1
   const lookup = new ShortlinksStore(c.env.DB, '')
   const dbRecord = await lookup.findSlugForRedirect(slug)
   if (!dbRecord) {
-    return renderNotFoundPage()
+    return renderNotFoundPage(locale, copy.notFoundTitle, copy.notFoundMessage)
   }
 
   let entry = {
@@ -229,12 +256,18 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
 
   // 2. Status checks
   if (entry.disabled_at != null) {
-    return renderNotFoundPage('\u94fe\u63a5\u5df2\u505c\u7528', '\u8be5\u77ed\u94fe\u63a5\u5df2\u88ab\u521b\u5efa\u8005\u6682\u65f6\u505c\u7528\u3002')
+    return renderNotFoundPage(locale, copy.disabledTitle, copy.disabledMessage)
   }
 
   const now = Math.floor(Date.now() / 1000)
   if (entry.expires_at != null && entry.expires_at <= now) {
-    return renderNotFoundPage('\u94fe\u63a5\u5df2\u8fc7\u671f', '\u8be5\u77ed\u94fe\u63a5\u5df2\u8fbe\u5230\u9884\u8bbe\u6709\u6548\u671f\u9650\u5e76\u5df2\u8fc7\u671f\u5931\u6548\u3002')
+    return renderNotFoundPage(locale, copy.expiredTitle, copy.expiredMessage)
+  }
+
+  // A stored target that is not a web address cannot be handed to a browser as `Location`; older
+  // rows may predate the schema check, so the same rule is enforced again at the edge.
+  if (urlProblem(entry.url)) {
+    return renderNotFoundPage(locale, copy.invalidTargetTitle, copy.invalidTargetMessage)
   }
 
   const store = new ShortlinksStore(c.env.DB, entry.user_id)
@@ -254,7 +287,9 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
       if (gate.blocked) {
         return renderPasswordPage(
           slug,
-          `\u5bc6\u7801\u9519\u8bef\u6b21\u6570\u8fc7\u591a\uff0c\u8bf7\u5728 ${Math.ceil(gate.retryAfter / 60)} \u5206\u949f\u540e\u91cd\u8bd5`,
+          locale,
+          copy,
+          copy.tooManyAttempts.replace('{minutes}', String(Math.ceil(gate.retryAfter / 60))),
           429,
         )
       }
@@ -273,7 +308,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
       }
       if (!verified) {
         if (bucket) await store.recordPasswordFailure(bucket, now)
-        return renderPasswordPage(slug, '\u8bbf\u95ee\u5bc6\u7801\u9519\u8bef\uff0c\u8bf7\u91cd\u65b0\u8f93\u5165')
+        return renderPasswordPage(slug, locale, copy, copy.wrongPassword)
       }
       if (bucket) await store.clearPasswordFailures(bucket)
       issuedCookie = await mintAuthToken(authKey, slug, now + AUTH_TOKEN_TTL_SECONDS)
@@ -283,7 +318,7 @@ async function handleRedirect(c: Context<AppBindings>, providedPassword?: string
     }
 
     if (!verified) {
-      return renderPasswordPage(slug)
+      return renderPasswordPage(slug, locale, copy)
     }
   }
 

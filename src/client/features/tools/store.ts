@@ -8,6 +8,27 @@ export const TOOLS_NAV_WIDTH = {
 
 export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator'
 
+const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator']
+
+/**
+ * The module a Tools address names, or null when the address does not name one.
+ *
+ * A bookmark or a new tab has to open the module in its path rather than whichever module this
+ * browser last remembered; the store keeps the preference for `/tools` itself, but a deeper address
+ * is the reader's explicit answer.
+ */
+export function toolsSubmoduleFromPath(pathname: string): ToolsSubmodule | null {
+  const match = /^\/tools\/([^/?#]+)/.exec(pathname)
+  if (!match) return null
+  const candidate = match[1] as ToolsSubmodule
+  return TOOLS_SUBMODULES.includes(candidate) ? candidate : null
+}
+
+/** The address a sidebar entry links with, so history and the back button agree with the screen. */
+export function toolsPathForSubmodule(submodule: ToolsSubmodule): string {
+  return `/tools/${submodule}`
+}
+
 export type ShortlinksNavView = 'dashboard' | 'links' | 'bundles' | 'settings'
 
 export type IdPhotoNavView =

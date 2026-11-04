@@ -1,14 +1,15 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { PanelLeft, Wrench } from 'lucide-react'
 import { LoadingBlock } from '../../components/feedback'
 import { t } from '../../lib/i18n'
+import { usePathname } from '../../lib/app-history'
 import { useBreakpoint } from '../../lib/hooks'
 import { Drawer } from '../../components/overlay'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import { Resizer } from '../shell/Resizer'
 import { ToolsSidebar } from './ToolsSidebar'
-import { TOOLS_NAV_WIDTH, useToolsStore } from './store'
+import { TOOLS_NAV_WIDTH, toolsSubmoduleFromPath, useToolsStore } from './store'
 
 const PasswordApp = lazy(() => import('./password/PasswordApp').then((m) => ({ default: m.PasswordApp })))
 const QrCodeApp = lazy(() => import('./qrcode/QrCodeApp').then((m) => ({ default: m.QrCodeApp })))
@@ -30,6 +31,14 @@ export function ToolsApp() {
   const toggleToolsNav = useToolsStore((s) => s.toggleToolsNav)
   const toggleToolsNavDrawer = useToolsStore((s) => s.toggleToolsNavDrawer)
   const activeSubmodule = useToolsStore((s) => s.activeSubmodule)
+  const pathname = usePathname()
+
+  useEffect(() => {
+    const fromPath = toolsSubmoduleFromPath(pathname)
+    if (fromPath && fromPath !== useToolsStore.getState().activeSubmodule) {
+      useToolsStore.getState().setActiveSubmodule(fromPath)
+    }
+  }, [pathname])
 
   return (
     <div

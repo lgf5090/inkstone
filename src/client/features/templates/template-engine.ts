@@ -16,6 +16,7 @@
 import { detectEngine } from '../../lib/templater/detection'
 import type { TemplateOrigin } from '../templater/run-shell'
 import type { Note, NoteTemplate } from '@shared/types'
+import { renderNewNoteTemplate } from '@shared/note-template-render'
 
 /** Whether this body is written in Templater's syntax — the badge, the filter, and the QuickAdd route. */
 export function isTemplaterTemplate(template: NoteTemplate): boolean {
@@ -30,6 +31,17 @@ export function isTemplaterTemplate(template: NoteTemplate): boolean {
  */
 export function bodyRunsCode(content: string): boolean {
   return detectEngine(content) === 'templater'
+}
+
+/**
+ * Whether this body asks the assistant to write something when the note is made.
+ *
+ * `{{ai: …}}` runs no JavaScript, but it does start a model turn with the reader's tools and account
+ * budget. A gallery body with a slot is therefore the same kind of stranger-supplied action as a
+ * script: it has to be imported — read first — before it may run where it stands.
+ */
+export function bodyHasAiSlots(content: string): boolean {
+  return renderNewNoteTemplate(content, { title: '' }).aiSlots.length > 0
 }
 
 /**

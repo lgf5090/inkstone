@@ -198,6 +198,19 @@ describe('local graph companion', () => {
     expect(buttonByLabel(t('graph.fit'))?.disabled).toBe(false)
   })
 
+  it('rebuilds when the note it draws is edited', async () => {
+    // The request carries the note id, not its text, so a saved edit is the only signal that the
+    // `[[links]]` behind the picture may have changed.
+    useNotes.setState({ notes: { 'note-0': { id: 'note-0', rev: 1 } as never } })
+    await mount()
+    await takeRequest()
+    expect(graphCalls).toHaveLength(1)
+    await act(async () => {
+      useNotes.setState({ notes: { 'note-0': { id: 'note-0', rev: 2 } as never } })
+    })
+    expect(graphCalls).toHaveLength(2)
+  })
+
   it('says so when the neighbourhood could not be loaded', async () => {
     vi.spyOn(api, 'graph').mockImplementation(() => Promise.reject(new Error('offline')))
     await mount()

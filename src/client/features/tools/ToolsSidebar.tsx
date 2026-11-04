@@ -44,16 +44,19 @@ import {
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
+import { navigateToPath } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import {
   useToolsStore,
+  toolsPathForSubmodule,
   type CalculatorNavView,
   type ColorNavView,
   type IdPhotoNavView,
   type PasswordNavView,
   type QrCodeNavView,
   type ShortlinksNavView,
+  type ToolsSubmodule,
 } from './store'
 import { GroupTree } from './password/GroupTree'
 import { usePasswordVaultStore } from './password/store'
@@ -195,8 +198,15 @@ export function ToolsSidebar({
   const isBackupSettingsOpen = usePasswordVaultStore((s) => s.isBackupSettingsOpen)
   const isBatchOperationsOpen = usePasswordVaultStore((s) => s.isBatchOperationsOpen)
 
+  // The path is part of the state, not a side effect of it: a new tab, a bookmark or the back button
+  // has to land on the module the address names, and the next visit starts from what the URL says.
+  const openSubmodule = (submodule: ToolsSubmodule) => {
+    setActiveSubmodule(submodule)
+    navigateToPath(toolsPathForSubmodule(submodule))
+  }
+
   const handleSlotClick = (slotId: PasswordNavView) => {
-    setActiveSubmodule('password')
+    openSubmodule('password')
     if (slotId === 'backup_settings') {
       usePasswordVaultStore.getState().openBackupSettings()
     } else if (slotId === 'batch_operations') {
@@ -208,31 +218,31 @@ export function ToolsSidebar({
   }
 
   const handleQrSlotClick = (slotId: QrCodeNavView) => {
-    setActiveSubmodule('qrcode')
+    openSubmodule('qrcode')
     setActiveQrCodeView(slotId)
     onNavigate?.()
   }
 
   const handleIdPhotoSlotClick = (slotId: IdPhotoNavView) => {
-    setActiveSubmodule('id_photo')
+    openSubmodule('id_photo')
     setActiveIdPhotoView(slotId)
     onNavigate?.()
   }
 
   const handleColorSlotClick = (slotId: ColorNavView) => {
-    setActiveSubmodule('color')
+    openSubmodule('color')
     setActiveColorView(slotId)
     onNavigate?.()
   }
 
   const handleCalculatorSlotClick = (slotId: CalculatorNavView) => {
-    setActiveSubmodule('calculator')
+    openSubmodule('calculator')
     setActiveCalculatorView(slotId)
     onNavigate?.()
   }
 
   const handleShortlinksSlotClick = (slotId: ShortlinksNavView) => {
-    setActiveSubmodule('shortlinks')
+    openSubmodule('shortlinks')
     setActiveShortlinksView(slotId)
     useShortlinksStore.getState().selectLink(null)
     onNavigate?.()
@@ -263,7 +273,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'shortlinks'}
               onClick={() => {
-                setActiveSubmodule('shortlinks')
+                openSubmodule('shortlinks')
                 onExpand?.()
               }}
             >
@@ -276,7 +286,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'password'}
               onClick={() => {
-                setActiveSubmodule('password')
+                openSubmodule('password')
                 onExpand?.()
               }}
             >
@@ -289,7 +299,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'qrcode'}
               onClick={() => {
-                setActiveSubmodule('qrcode')
+                openSubmodule('qrcode')
                 onExpand?.()
               }}
             >
@@ -302,7 +312,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'id_photo'}
               onClick={() => {
-                setActiveSubmodule('id_photo')
+                openSubmodule('id_photo')
                 onExpand?.()
               }}
             >
@@ -315,7 +325,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'color'}
               onClick={() => {
-                setActiveSubmodule('color')
+                openSubmodule('color')
                 onExpand?.()
               }}
             >
@@ -328,7 +338,7 @@ export function ToolsSidebar({
               size="sm"
               active={activeSubmodule === 'calculator'}
               onClick={() => {
-                setActiveSubmodule('calculator')
+                openSubmodule('calculator')
                 onExpand?.()
               }}
             >

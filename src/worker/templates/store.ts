@@ -130,7 +130,8 @@ export class CommunityTemplatesStore {
            description = excluded.description,
            content = excluded.content,
            tags = excluded.tags,
-           category = excluded.category`,
+           category = excluded.category
+         WHERE community_templates.author_id = excluded.author_id`,
       )
       .bind(
         input.id,

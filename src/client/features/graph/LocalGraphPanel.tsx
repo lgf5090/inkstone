@@ -37,6 +37,10 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
   const [reload, setReload] = useState(0)
   const openNote = useNotes((state) => state.openNote)
   const createNote = useNotes((state) => state.createNote)
+  // The graph is derived from this note's text, but the request carries only its id. Editing the
+  // note (adding or removing `[[links]]`) bumps this revision, and the panel has to read that as a
+  // reason to rebuild rather than keep drawing the edges the note no longer has.
+  const noteRev = useNotes((state) => state.notes[noteId]?.rev ?? null)
   const exportActions = useGraphExport(stateRef, prefs, readPalette)
 
   const request: GraphQuery = useMemo(() => ({
@@ -75,7 +79,7 @@ export function LocalGraphPanel({ noteId, onClose, onOpenFullGraph, fill = false
       cancelled = true
       controller.abort()
     }
-  }, [request, reload])
+  }, [request, reload, noteRev])
 
   return <section className={fill ? 'flex min-h-0 flex-1 flex-col' : 'flex h-64 shrink-0 flex-col border-t border-[var(--border-subtle)] bg-[var(--bg-base)]'}
     aria-label={t('graph.local_graph')}>

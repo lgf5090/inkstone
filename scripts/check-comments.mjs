@@ -1344,12 +1344,39 @@ const allowed = new Map([
   ["src/client/features/blog-admin/FriendsAdminPanel.tsx", [
     "/**\n * The friend-link manager is the nav app, scoped by selecting the reserved category. Applications\n * arrive in their own reserved category; moving an edited link into the friends category approves it.\n */",
   ]],
+  ["src/client/features/blog-admin/MediaPanel.tsx", [
+    "/** One selection uploads at most this many files; the rest wait for a second selection. */",
+    "// A failed file has to be selectable again: the browser fires no change event for the same path",
+    "// unless the input was reset, and the upload button's loading state is already back to idle.",
+  ]],
+  ["src/client/features/blog-admin/PostEditor.tsx", [
+    "/**\n   * Metadata lives only in the publish panel until \"Save details\" is pressed, so a route change or a\n   * closed tab would drop it silently. The browser's own unload prompt is the only mechanism a page\n   * gets for the second case; leaving through the back link asks in the app's dialog instead.\n   */",
+  ]],
+  ["src/client/features/blog-admin/PostPublishPanel.test.tsx", [
+    "/**\n * The publish panel owns metadata that has no autosave, so the editor has to be told when a field\n * is edited: that flag is what the back link and the drawer close read before letting the page go.\n */",
+    "// React tracks the previous value on the DOM node; the native setter is what its onChange",
+    "// listener sees as a real edit.",
+  ]],
+  ["src/client/features/blog-admin/PostPublishPanel.tsx", [
+    "/** Lets the editor know that leaving would drop metadata the reader has not saved. */",
+    "// The post row is the write that can be refused (a slug another article already uses), so it",
+    "// goes first: the frontmatter tags are only written once the row has accepted the rest.",
+  ]],
+  ["src/client/features/blog-admin/save-details.ts", [
+    "/**\n * The order two separate writes have to happen in.\n *\n * A post row and its frontmatter tags cannot be written in one request from here. The post row is\n * the one that can be refused (a slug another article already uses), so it goes first; writing tags\n * first would leave a half-saved post whenever the row loses that race.\n */",
+  ]],
   ["src/client/features/blog-admin/shared.tsx", [
     "/** The article the editor has open, as the assistant's page context needs it. */",
     "/** Null until the note has a blog projection, which is the state the first draft is made in. */",
   ]],
+  ["src/client/features/blog/publish.test.ts", [
+    "/**\n * \"Update\" publishes what the reader sees.\n *\n * The editor keeps unsaved keystrokes in the notes store, so a refresh that read the server copy\n * would re-publish the previous paragraph. These cases pin the store-first read and the flush that\n * makes the server agree with it.\n */",
+  ]],
   ["src/client/features/blog/publish.ts", [
     "/**\n * Set the note's isPublished property, save it, then publish the rendered snapshot (or withdraw the\n * projection). The note remains the source of truth; a snapshot failure leaves the property set and\n * the post pending rather than pretending the publish succeeded.\n */",
+    "// \"Update\" publishes what the reader sees. The editor keeps unsaved keystrokes in the store, so",
+    "// reading the note from the server here would re-publish the previous paragraph — the one the",
+    "// stale-render badge warns about only after readers have already seen it.",
   ]],
   ["src/client/features/blog/snapshot.ts", [
     "/**\n * Whether a note's body may leave the owner's workspace as part of a public article: published, not\n * password-protected, and not scheduled for later. A protected post is public only through its own\n * unlock page, so embedding it elsewhere would hand its body to anyone reading the host article.\n */",
@@ -7027,6 +7054,9 @@ const allowed = new Map([
     "// The threads beside this page are a second read: when it fails the local graph still draws its",
     "// notes, and the header says the threads are missing rather than showing a quieter picture.",
     "/* The reason is too long for this row and is logged at the read that failed; what belongs here is\n            that the threads are absent, so a smaller picture is not mistaken for the whole one. */",
+    "// The graph is derived from this note's text, but the request carries only its id. Editing the",
+    "// note (adding or removing `[[links]]`) bumps this revision, and the panel has to read that as a",
+    "// reason to rebuild rather than keep drawing the edges the note no longer has.",
   ]],
   ["src/client/features/graph/graph-panel/canvas.tsx", [
     "// A thread is opened, not created and not filed: the panel owns what that means, and the canvas only",
@@ -7110,6 +7140,10 @@ const allowed = new Map([
     "/** The same answer, with the threads in it. Every field but the nodes is the route's own. */",
     "/** Pressed on a thread: the panel decides what opening a conversation means, the canvas only names it. */",
     "/**\n * A node kind the graph feature knows about and the note schema does not.\n *\n * A conversation is not a note, so it has no `GraphNode.kind` of its own in the shared type: what the notes\n * app stores, what its graph route answers, and what its link index can point at are all note-shaped, and\n * widening that union would make the notebook's storage answer for a table it does not own. The threads are\n * merged in here, in the one module that draws them, from the assistant's own reads — so the extra kind\n * lives on this side of the boundary, and a `GraphNode` still flows into it unchanged.\n */",
+  ]],
+  ["src/client/features/graph/local-graph.test.ts", [
+    "// The request carries the note id, not its text, so a saved edit is the only signal that the",
+    "// `[[links]]` behind the picture may have changed.",
   ]],
   ["src/client/features/imgbed/ImgbedApp.tsx", [
     "// The library is the only page that can say what its filters are; every other page describes itself.",
@@ -15457,7 +15491,9 @@ const allowed = new Map([
     "// Plan §0.6: a gallery body that runs code is not executed on a reader's word alone. The default",
     "// posture says \"import it first\", which is the step where the confirmation happens; the reader who",
     "// turned the policy to \"trusted\" has already said they want direct use, and gets the run — under the",
-    "// community profile, which is read-only no matter what the template asks for.",
+    "// community profile, which is read-only no matter what the template asks for. An AI slot is the",
+    "// same kind of action: it spends a model turn and the account's tools, so it waits for the same",
+    "// import-first confirmation.",
   ]],
   ["src/client/features/templates/gallery-controller.tsx", [
     "/**\n * The two header buttons that disappear on a narrow phone have to land here instead, or the\n * compact layout would simply drop the features they open.\n */",
@@ -15533,10 +15569,10 @@ const allowed = new Map([
     "// import dialog's paste box is a different component.",
   ]],
   ["src/client/features/templates/misc-modals.tsx", [
-    "// A body with no command in it publishes with nothing to acknowledge; the checkbox only exists for the",
-    "// ones that will run code on somebody else's device.",
-    "// Plan §D15: the author is the one person who can say what a script template does, so the publish",
     "// path asks them to acknowledge it before the body reaches anybody else's device.",
+    "// A body that neither runs code nor asks the assistant for text publishes with nothing to",
+    "// acknowledge; the checkbox exists for the bodies that will act on somebody else's device.",
+    "// Plan §D15: the author is the one person who can say what a template does, so the publish",
   ]],
   ["src/client/features/templates/quick-actions.test.ts", [
     "// React derives onPointerEnter from the bubbled pointerover, so drive that.",
@@ -15563,6 +15599,7 @@ const allowed = new Map([
     "// `create_new` and this app's behaviour for the picker; a caller that knows the name passes it in.",
     "/** Splice one library template into the note the reader is looking at. */",
     "/**\n * Render one library body and hand back its text, writing nothing.\n *\n * The third route the shell offers, for a caller that owns its own write: QuickAdd's Template choice\n * resolves the title, the folder, the tags, the link-back and its conflict rules, so it needs the document\n * and not a door that places it. Which syntax the body is written in stays the caller's question to ask —\n * {@link bodyRunsCode} is right beside this — because this function runs whatever it is handed.\n */",
+    "/**\n * Whether this body asks the assistant to write something when the note is made.\n *\n * `{{ai: …}}` runs no JavaScript, but it does start a model turn with the reader's tools and account\n * budget. A gallery body with a slot is therefore the same kind of stranger-supplied action as a\n * script: it has to be imported — read first — before it may run where it stands.\n */",
   ]],
   ["src/client/features/templates/template-gallery.tsx", [
     "// The search box asks for these keys itself before the shared filter contract decides, so a key",
@@ -18092,6 +18129,8 @@ const allowed = new Map([
     "/* Fourth submodule: ID Photo Studio (tools/id_photo) */",
     "/* Fifth submodule: Color Assistant (tools/color) */",
     "/* Sixth submodule: Calculator (tools/calculator) */",
+    "// The path is part of the state, not a side effect of it: a new tab, a bookmark or the back button",
+    "// has to land on the module the address names, and the next visit starts from what the URL says.",
   ]],
   ["src/client/features/tools/calculator/api.ts", [
     "// The status is still a usable message when the body is not JSON.",
@@ -19250,6 +19289,9 @@ const allowed = new Map([
     "// Four canvases a second were allocated, decoded and dropped; one is reused instead.",
     "// A paused camera has to look paused: leaving the last frame on the element reads as a live feed",
     "// while the reader's record light has already gone out.",
+    "// A code held in front of the lens would otherwise be decoded four times a second for as",
+    "// long as the tab stays open. The reader resumes with the same button when the next code",
+    "// is ready, so the scan stops itself after a hit instead of farming frames forever.",
   ]],
   ["src/client/features/tools/qrcode/scanner/QrScannerView.tsx", [
     "// Paste image from clipboard",
@@ -19260,6 +19302,9 @@ const allowed = new Map([
     "/* Right: Results Card */",
     "// A picked or pasted image only has to outlive the decode; without releasing it the page kept one",
     "// blob URL alive per file for the rest of the session.",
+  ]],
+  ["src/client/features/tools/qrcode/scanner/camera-scan-stop.test.tsx", [
+    "/**\n * A decoded code stops the camera loop.\n *\n * The loop used to keep decoding the same frame four times a second for as long as the scanner\n * stayed open, so one code in front of the lens produced an endless stream of result updates.\n */",
   ]],
   ["src/client/features/tools/qrcode/scanner/scan-pipeline.ts", [
     "// 1. Try native BarcodeDetector if available",
@@ -19281,6 +19326,9 @@ const allowed = new Map([
     "// two parts separated, which blind concatenation never gives them.",
     "// RFC 6068 keeps the addr-spec literal and writes a space as %20; URLSearchParams percent-encodes",
     "// the @ and spells spaces '+', which several readers hand to the mail app as typed.",
+  ]],
+  ["src/client/features/tools/routes.test.ts", [
+    "/**\n * The Tools address is the source of truth for which module opens.\n *\n * A module chosen in this browser was persisted and replayed even for `/tools/qrcode`, so a bookmark\n * opened Short Links. These cases pin the path-to-module reading and the path the sidebar links with.\n */",
   ]],
   ["src/client/features/tools/shortlinks/BundlesView.tsx", [
     "/* Header */",
@@ -19380,6 +19428,8 @@ const allowed = new Map([
   ["src/client/features/tools/store.ts", [
     "// Best effort background persist",
     "// Short links open first: the vault behind the password module would otherwise greet every visit.",
+    "/**\n * The module a Tools address names, or null when the address does not name one.\n *\n * A bookmark or a new tab has to open the module in its path rather than whichever module this\n * browser last remembered; the store keeps the preference for `/tools` itself, but a deeper address\n * is the reader's explicit answer.\n */",
+    "/** The address a sidebar entry links with, so history and the back button agree with the screen. */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",
@@ -26099,6 +26149,9 @@ const allowed = new Map([
     "/** How many pattern characters the token `kind` occupies, from the same table that prints it. */",
     "/**\n * The ordinal suffix a day, month or quarter is written with.\n *\n * Only a handful of languages have ordinal forms at all, and this fork's date patterns are written\n * in the two the interface offers plus whatever a reader copies out of a note. French is the one\n * whose suffix actually changes what is read back — `1er` — so it is spelled out here; a language\n * with no ordinal rule keeps the bare number, which is what its own almanac does.\n */",
   ]],
+  ["src/client/lib/quickadd/day-parse.test.ts", [
+    "/**\n * A date-only answer is a calendar day, not an instant.\n *\n * The old path fed `Date.parse('2026-11-04')` (UTC midnight) into a local `setHours`, so a reader\n * west of Greenwich got the previous day in `{{DATE}}` and in journal titles.\n */",
+  ]],
   ["src/client/lib/quickadd/editor-actions.test.ts", [
     "/**\n * The rules an editor step follows, worked out on text rather than on a live CodeMirror view: which\n * characters a line owns, what counts as the link on it, and what a cut leaves behind.\n */",
   ]],
@@ -26391,6 +26444,7 @@ const allowed = new Map([
     "/** Ask which day this run measures from, whatever the choice's own day origin says. */",
     "/**\n * Whether this run still has to ask which day it counts from.\n *\n * Two things decide the day besides the clock: the choice's own \"ask me each time\", and an entry point\n * that means a second command — the palette twin, the launcher's Shift. When the entry point has\n * already been given a day, neither of them asks again: the reader would answer the same question\n * twice, and re-reading a date out of text can land on a different day than the `Date` they picked.\n */",
     "/** The day a run measures its dates from, when the choice or the entry point says to ask. */",
+    "/**\n * The day an answer names, read in the reader's own zone.\n *\n * `Date.parse('2026-11-04')` reads an ISO date-only string as UTC midnight. West of Greenwich that\n * is the previous evening, so `setHours` in the session clock lands on the day before the one the\n * reader picked. A date-only answer is built from local components instead; anything carrying a time\n * keeps its explicit offset.\n */",
   ]],
   ["src/client/lib/quickadd/startup.test.ts", [
     "/** A stamp file the browser already holds, plus a way to read back what a run wrote. */",
@@ -30987,6 +31041,9 @@ const allowed = new Map([
   ["src/shared/locales/en-US-cloudflare.ts", [
     "/**\n * The Cloudflare app's catalogue, one language at a time.\n *\n * Loaded by the app when a reader opens it and never by the shell: the module carries 1,200-odd keys\n * of its own, and a reader who never visits /cloudflare should pay none of them.\n */",
   ]],
+  ["src/shared/locales/en-US-shortlinks-public.ts", [
+    "/**\n * The handful of sentences served by the public `/l/:slug` pages.\n *\n * These pages are rendered by the worker, outside the app shell, so they cannot reach the client\n * catalog. Keeping the copy in its own module keeps the language pair together without pulling the\n * whole interface vocabulary into every redirect.\n */",
+  ]],
   ["src/shared/locales/en-US-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in English.\n *\n * A separate catalog from the interface's because the worker writes these and the interface never\n * shows them: the scheduler has no request and therefore no reader to ask which language to use, and\n * shipping seven thousand interface keys into the worker to reach twenty sentences would be a cost\n * every deployment pays for a feature one of them uses. `tests/subscriptions-notify-copy.test.ts`\n * pins this file and its Chinese twin to the same keys and the same placeholders.\n */",
   ]],
@@ -31079,6 +31136,9 @@ const allowed = new Map([
   ["src/shared/locales/zh-CN-quick-add-keywords.ts", [
     "/** The Chinese words the quick-add parser reads. Data about the language, not interface copy. */",
     "/** The words that shift a 12-hour wall clock into the afternoon/evening; data about the language. */",
+  ]],
+  ["src/shared/locales/zh-CN-shortlinks-public.ts", [
+    "/**\n * The Chinese counterpart of the public `/l/:slug` page copy.\n */",
   ]],
   ["src/shared/locales/zh-CN-subscriptions-notify.ts", [
     "/**\n * The words a notification carries, in Chinese.\n *\n * The twin of `en-US-subscriptions-notify.ts`; the two are proven against each other by key and by\n * placeholder in `tests/subscriptions-notify-copy.test.ts`. This file is registered as a catalog in\n * `scripts/check-i18n.mjs`, which is what lets it hold Chinese at all — every other source file is\n * held to English.\n */",
@@ -32700,6 +32760,7 @@ const allowed = new Map([
   ]],
   ["src/shared/tools/shortlinks/schemas.ts", [
     "/**\n * Shared Zod schemas for Short Links manager under Tools (`tools/shortlinks`).\n */",
+    "/**\n * Why a target URL may not be stored, or null when it may.\n *\n * A short link is handed to a browser as a `Location` header, and `z.string().url()` also accepts\n * `javascript:`, `data:` and `ftp:`. Only the two schemes a redirect can honestly mean are kept, and\n * credentials are refused because the address bar would otherwise show a host the reader never sees.\n */",
   ]],
   ["src/shared/tools/shortlinks/types.ts", [
     "/**\n * Shared types for Short Links manager under Tools (`tools/shortlinks`).\n */",
@@ -40511,6 +40572,9 @@ const allowed = new Map([
     "// 2. Status checks",
     "// 3. Password Gate",
     "// 4. Async Click Tracking via ctx.waitUntil",
+    "/**\n * The language a public page answers in.\n *\n * A short link is opened by whoever received it, not by the deployment's owner, so the deployment\n * setting would be the wrong guess. `Accept-Language` is the reader's own statement; anything that\n * does not ask for Chinese gets English, which is the catalog's source language.\n */",
+    "// A stored target that is not a web address cannot be handed to a browser as `Location`; older",
+    "// rows may predate the schema check, so the same rule is enforced again at the edge.",
   ]],
   ["src/worker/routes/tools-shortlinks.ts", [
     "/**\n * Short Links Manager API routes (`/api/tools/shortlinks/*`).\n */",
@@ -41780,6 +41844,12 @@ const allowed = new Map([
     "// Four bound values per row; D1 rejects statements past roughly a hundred parameters.",
     "// A 48-hex-character random key needs no password KDF; a plain digest keeps per-request lookup an",
     "// indexed equality match instead of a scrypt call.",
+    "/** One visitor's repeat visit inside this window is a reload, not a second click. */",
+    "// A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that",
+    "// refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an",
+    "// unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one",
+    "// fingerprint counts once inside the window; both are decided before the insert, so the skipped",
+    "// request costs a single indexed read instead of two writes.",
   ]],
   ["src/worker/tools/shortlinks/title-fetch.ts", [
     "/**\n * Title fetcher with SSRF prevention, safe redirect validation, and timeout protection.\n */",
@@ -41911,6 +41981,11 @@ const allowed = new Map([
     "// A body this client refuses is released rather than left for the runtime to drain; a refusal",
     "// that is not JSON cannot be classified, so it is reported as an upstream failure.",
     "/**\n * One upstream request: key injected, timeout enforced, body capped, refusal translated.\n *\n * The ledger write happens once a response arrives and before its answer is interpreted, so a\n * quota-refused request is counted too. A request that never got a response — a timeout or a\n * network failure — is not counted, and neither is one refused for a missing key: no units were\n * spent upstream.\n */",
+    "/**\n * The row that holds the day's reserved total.\n *\n * The per-endpoint rows are the panel's breakdown, written after the response arrives. The budget\n * lives in its own row so a reservation can be one conditional write: two tabs reading the same\n * \"used\" sum and both deciding there is room is exactly the race this row removes. It is a ledger\n * detail, not an endpoint, so the panel filters it out.\n */",
+    "// Both statements run in one D1 transaction. On a day whose budget row does not exist yet, the first",
+    "// seeds it from the endpoint rows already on the ledger — otherwise a restart would let the day",
+    "// start spending from zero again. The second is the reservation itself: it writes only while the",
+    "// total (actual usage already folded in + in-flight cost) stays inside the limit.",
   ]],
   ["tests/accent-on-soft-contrast.test.ts", [
     "/** The text colour a pairing paints, following the `var(--accent)` indirection the base token uses. */",
@@ -41956,6 +42031,8 @@ const allowed = new Map([
   ["tests/app-tab-routes.test.ts", [
     "// An address missing from this list is still served — by the asset layer's SPA fallback,",
     "// which never reaches the worker, so the document arrives without our Content-Security-Policy.",
+    "// A rail entry whose container is missing opens the placeholder instead of an app, which is how",
+    "// the old `projects` row looked like a real feature that had never been built.",
   ]],
   ["tests/assistant-artifact-context.test.ts", [
     "/**\n * The draft in the system prompt.\n *\n * The model has to know which document is on screen, but the document is user text: it goes inside a\n * tag that says so, and a long one is cut to its head and tail with a pointer to the tool that reads the\n * rest. A prompt that quietly showed a truncated body would invite the model to rewrite from a fragment.\n */",
@@ -44017,6 +44094,9 @@ const allowed = new Map([
   ["tests/community-templates-route.test.ts", [
     "// Every field hono's request handler declares, so the fake cannot hand the route less than the real",
     "// Worker runtime would; `app.request` may settle either way, hence the awaited return.",
+    "// The route checks `authorOf` first, but that check and the upsert are two statements. The",
+    "// conditional update makes the row's owner part of the write itself, so a concurrent insert",
+    "// from another account cannot land on top of it in the gap.",
   ]],
   ["tests/contrast-dark-text-quaternary.test.ts", [
     "/**\n * `--text-quaternary` is the app-wide de-emphasis step: counts, placeholders and\n * secondary metadata in every module read it, so nothing that paints it can be\n * used as the gate — the gate has to be the declaration itself.\n *\n * Dark theme is the hard case. Its lightest surface (`--bg-overlay` under\n * `[data-background='white']`) sits near #292a2d, and AA 4.5:1 normal text on\n * that is only reachable above ~67% L, so the whole de-emphasis ladder has to\n * live in the upper lightness band and keep its steps by spacing rather than by\n * distance from white. This gate holds both halves of that contract.\n */",
@@ -47395,6 +47475,10 @@ const allowed = new Map([
     "// Switch to Retouch tab",
     "// Switch to Attire tab",
   ]],
+  ["tests/tools-no-raw-select.test.ts", [
+    "// The tools surfaces use the project's `Select`, which carries the field styling and the shared",
+    "// focus ring; a raw `<select>` silently loses both, and the accessible-name rule with them.",
+  ]],
   ["tests/tools-password-api.test.ts", [
     "// Simulate authentication",
     "// 1. User A inits vault",
@@ -47509,6 +47593,12 @@ const allowed = new Map([
     "// A scale that names a value the handle cannot reach reads as a working control that lies.",
     "// jsdom hands the FileReader result back over several task turns, so wait on the value, not one tick.",
   ]],
+  ["tests/tools-shortlinks-api.test.ts", [
+    "// Public pages used to be Chinese-only, so the suite's public assertions name Chinese; a real",
+    "// browser sends both a user agent and a language, and the bot check reads the first.",
+    "// A visitor id only exists when the deployment has a salt; without one `computeVisitorFingerprint`",
+    "// refuses to invent an identity, and this test would be measuring nothing.",
+  ]],
   ["tests/tools-shortlinks-ui.test.tsx", [
     "// First render with activeLink null",
     "// Subsequent render with activeLink and timeline loaded",
@@ -47595,6 +47685,7 @@ const allowed = new Map([
     "// Behavioural coverage for the YouTube upstream proxy: request shapes, transforms, quota preflight,",
     "// ledger accumulation, search throttling and upstream error mapping. The upstream is a fetch stub;",
     "// the database is real sqlite behind the D1 double.",
+    "// Only the search that held the budget reached the upstream; the other was refused before it.",
   ]],
   ["vite.config.ts", [
     "// Keep optional preview renderers and their language modules behind dynamic-import boundaries.",

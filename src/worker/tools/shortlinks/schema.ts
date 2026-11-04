@@ -70,6 +70,8 @@ export const TOOLS_SHORTLINKS_SCHEMA_STATEMENTS: readonly string[] = [
     ON tools_shortlinks_clicks(user_id, link_id, clicked_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_slug_time 
     ON tools_shortlinks_clicks(user_id, slug, clicked_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_visitor_time
+    ON tools_shortlinks_clicks(user_id, link_id, visitor_fp, clicked_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_country 
     ON tools_shortlinks_clicks(user_id, country)`,
   `CREATE INDEX IF NOT EXISTS idx_tools_shortlinks_clicks_refhost 
@@ -175,6 +177,7 @@ export const TOOLS_SHORTLINKS_REQUIRED_INDEXES: readonly string[] = [
   'idx_tools_shortlinks_clicks_user_time',
   'idx_tools_shortlinks_clicks_link_time',
   'idx_tools_shortlinks_clicks_slug_time',
+  'idx_tools_shortlinks_clicks_visitor_time',
   'idx_tools_shortlinks_clicks_country',
   'idx_tools_shortlinks_clicks_refhost',
   'idx_tools_shortlinks_clicks_device',

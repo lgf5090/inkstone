@@ -44,6 +44,9 @@ import { PASSWORD_ATTEMPT_LIMIT, PASSWORD_ATTEMPT_WINDOW_SECONDS } from './passw
 import { generateUniqueSlug, validateCustomSlug } from './slugs'
 import { fetchPageTitle } from './title-fetch'
 
+/** One visitor's repeat visit inside this window is a reload, not a second click. */
+const CLICK_DEDUPE_WINDOW_SECONDS = 30
+
 export function normalizeUrl(rawUrl: string): string {
   return rawUrl.trim().replace(/[?#]+$/, '')
 }
@@ -794,6 +797,25 @@ export class ShortlinksStore {
 
   async recordClick(slug: string, linkId: number, targetUserId: string, click: ClickData): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
+
+    // A public redirect is an unauthenticated write. A crawler that ignores the 302, a page that
+    // refreshes itself, or one reader holding down a shortcut would otherwise turn `/l/:slug` into an
+    // unbounded D1 writer and inflate the owner's statistics. Bots are not a reader at all, and one
+    // fingerprint counts once inside the window; both are decided before the insert, so the skipped
+    // request costs a single indexed read instead of two writes.
+    if (click.isBot) return
+    if (click.visitorFp) {
+      const recent = await this.db
+        .prepare(
+          `SELECT 1 AS seen FROM tools_shortlinks_clicks
+            WHERE user_id = ? AND link_id = ? AND visitor_fp = ? AND clicked_at >= ?
+            LIMIT 1`,
+        )
+        .bind(targetUserId, linkId, click.visitorFp, now - CLICK_DEDUPE_WINDOW_SECONDS)
+        .first<{ seen: number }>()
+      if (recent) return
+    }
+
     const insertStatement = this.db
       .prepare(
         `INSERT INTO tools_shortlinks_clicks (

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, History, PanelRightOpen, RefreshCw, Save } from 'lucide-react'
 import type { BlogPostAdminDetail } from '@shared/blog/model'
 import { Badge, Button, IconButton, Spinner } from '../../components/primitives'
-import { Drawer, Modal } from '../../components/overlay'
+import { confirm, Drawer, Modal } from '../../components/overlay'
 import { api, ApiError } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToPath } from '../../lib/app-history'
@@ -32,7 +32,10 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
   const [historyOpen, setHistoryOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [detailsDirty, setDetailsDirty] = useState(false)
   const publishRef = useRef<(() => Promise<void>) | null>(null)
+  const detailsDirtyRef = useRef(false)
+  const saveDetailsRef = useRef<(() => Promise<boolean>) | null>(null)
 
   const loadPost = useCallback(async (initialize = false) => {
     setError('')
@@ -76,6 +79,49 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
 
   useEffect(() => () => onArticleContext?.(null), [onArticleContext])
 
+  /**
+   * Metadata lives only in the publish panel until "Save details" is pressed, so a route change or a
+   * closed tab would drop it silently. The browser's own unload prompt is the only mechanism a page
+   * gets for the second case; leaving through the back link asks in the app's dialog instead.
+   */
+  useEffect(() => {
+    if (!detailsDirty) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [detailsDirty])
+
+  const leavePage = async () => {
+    if (detailsDirtyRef.current) {
+      const ok = await confirm({
+        title: t('blog.admin.unsaved_details_title'),
+        description: t('blog.admin.unsaved_details_desc'),
+        confirmLabel: t('blog.admin.save_and_leave'),
+        cancelLabel: t('common.cancel'),
+      })
+      if (!ok) return
+      if (!(await saveDetailsRef.current?.())) return
+    }
+    navigateToPath(pageHref)
+  }
+
+  const closeSettings = async () => {
+    if (detailsDirtyRef.current) {
+      const ok = await confirm({
+        title: t('blog.admin.unsaved_details_title'),
+        description: t('blog.admin.unsaved_details_desc'),
+        confirmLabel: t('blog.admin.save_and_close'),
+        cancelLabel: t('common.cancel'),
+      })
+      if (!ok) return
+      if (!(await saveDetailsRef.current?.())) return
+    }
+    setSettingsOpen(false)
+  }
+
   const publishQuick = async () => {
     if (!post || publishing) return
     setPublishing(true)
@@ -111,7 +157,7 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
         <a
           href={pageHref}
           aria-label={t('blog.admin.back_to_posts')}
-          onClick={(event) => { event.preventDefault(); navigateToPath(pageHref) }}
+          onClick={(event) => { event.preventDefault(); void leavePage() }}
           className="inline-flex size-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
         >
           <ArrowLeft size={15} />
@@ -160,12 +206,15 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
               publishRef={publishRef}
               onChanged={() => loadPost()}
               onOpenHistory={() => setHistoryOpen(true)}
+              dirtyRef={detailsDirtyRef}
+              saveDetailsRef={saveDetailsRef}
+              onDirtyChange={setDetailsDirty}
             />
           )}
         </aside>
       </div>
 
-      <Drawer open={settingsOpen} onClose={() => setSettingsOpen(false)} side="right" width={340} title={t('blog.admin.editor_details')}>
+      <Drawer open={settingsOpen} onClose={() => void closeSettings()} side="right" width={340} title={t('blog.admin.editor_details')}>
         {post && (
           <PostPublishPanel
             noteId={noteId}
@@ -175,6 +224,9 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
             publishRef={publishRef}
             onChanged={() => loadPost()}
             onOpenHistory={() => setHistoryOpen(true)}
+            dirtyRef={detailsDirtyRef}
+            saveDetailsRef={saveDetailsRef}
+            onDirtyChange={setDetailsDirty}
           />
         )}
       </Drawer>

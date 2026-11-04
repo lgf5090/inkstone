@@ -8,6 +8,7 @@ import { SCHEMA_STATEMENTS } from '../src/worker/db/schema'
 import { errorResponse } from '../src/worker/lib/errors'
 import type { AppBindings } from '../src/worker/env'
 import { communityTemplatesRoutes } from '../src/worker/routes/community-templates'
+import { CommunityTemplatesStore } from '../src/worker/templates/store'
 import { newId } from '../src/worker/lib/id'
 import { makeD1 } from './doubles/d1-sqlite'
 
@@ -79,6 +80,26 @@ beforeEach(() => {
 })
 
 describe('publishing', () => {
+  it('does not let a racing writer take another author’s row', async () => {
+    // The route checks `authorOf` first, but that check and the upsert are two statements. The
+    // conditional update makes the row's owner part of the write itself, so a concurrent insert
+    // from another account cannot land on top of it in the gap.
+    insert({ id: 'race-row', author: AUTHOR, name: 'Original' })
+    const stranger = new CommunityTemplatesStore(db, STRANGER)
+    await stranger.publish({
+      id: 'race-row',
+      authorName: 'Other',
+      now: 2,
+      template: { name: 'Hijacked', description: 'taken', content: 'other body', tags: [], category: 'General' },
+    })
+    const row = sqlite
+      .prepare('SELECT author_id, name, content FROM community_templates WHERE id = ?')
+      .get('race-row') as { author_id: string; name: string; content: string }
+    expect(row.author_id).toBe(AUTHOR)
+    expect(row.name).toBe('Original')
+    expect(row.content).toBe('body')
+  })
+
   it('stores a template under the signed-in account', async () => {
     const response = await publish({ tags: ['work', '  ', 'x'.repeat(60)] })
     expect(response.status).toBe(200)

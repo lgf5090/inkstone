@@ -17,8 +17,39 @@ export const CustomSlugSchema = z
   .max(MAX_SLUG_LENGTH)
   .regex(CustomSlugRegex, 'Slug must contain only lowercase letters, digits and hyphens, and cannot start or end with a hyphen')
 
+/**
+ * Why a target URL may not be stored, or null when it may.
+ *
+ * A short link is handed to a browser as a `Location` header, and `z.string().url()` also accepts
+ * `javascript:`, `data:` and `ftp:`. Only the two schemes a redirect can honestly mean are kept, and
+ * credentials are refused because the address bar would otherwise show a host the reader never sees.
+ */
+export function urlProblem(value: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return 'Invalid URL format'
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'Only http and https URLs are supported'
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    return 'URLs with embedded credentials are not supported'
+  }
+  return null
+}
+
+const HttpUrlSchema = z
+  .string()
+  .max(2048, 'URL exceeds maximum length of 2048 characters')
+  .superRefine((value, context) => {
+    const problem = urlProblem(value)
+    if (problem) context.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+  })
+
 export const CreateLinkSchema = z.object({
-  url: z.string().url('Invalid URL format').max(2048, 'URL exceeds maximum length of 2048 characters'),
+  url: HttpUrlSchema,
   label: z.string().max(256, 'Label exceeds 256 characters').optional().nullable(),
   password: z.string().min(1).max(64).optional().nullable(),
   slug_length: z.number().int().min(MIN_SLUG_LENGTH).max(MAX_SLUG_LENGTH).optional(),
@@ -28,7 +59,7 @@ export const CreateLinkSchema = z.object({
 })
 
 export const UpdateLinkSchema = z.object({
-  url: z.string().url('Invalid URL format').max(2048).optional(),
+  url: HttpUrlSchema.optional(),
   label: z.string().max(256).nullable().optional(),
   password: z.string().max(64).nullable().optional(),
   expires_at: z.number().int().nonnegative().nullable().optional(),
@@ -75,7 +106,7 @@ export const CreateApiKeySchema = z.object({
 export const BatchImportSchema = z.object({
   items: z.array(
     z.object({
-      url: z.string().url(),
+      url: HttpUrlSchema,
       label: z.string().max(256).optional(),
       slug: CustomSlugSchema.optional(),
     }),

@@ -23,7 +23,7 @@ import { PublishTemplateDialog } from './misc-modals'
 import type { GalleryLocalState } from './gallery-state'
 import type { MessageKey } from '@shared/locales/en-US'
 
-const confirmMock = vi.hoisted(() => vi.fn(async (_options: { title?: string } = {}) => true))
+const confirmMock = vi.hoisted(() => vi.fn(async (_options: { title?: string; description?: string } = {}) => true))
 
 vi.mock('../../components/overlay', async (original) => ({
   ...(await original<typeof import('../../components/overlay')>()),
@@ -51,6 +51,7 @@ vi.mock('../../lib/api', async (original) => {
 })
 
 const CODE_BODY = '<%* tR += tp.file.title %>'
+const AI_BODY = '# Meeting\n\n{{ai: write three bullets}}\n'
 const PLAIN_BODY = '# {{title}}\n'
 
 function community(content: string, id = 'cm-1'): CommunityTemplate {
@@ -145,6 +146,18 @@ describe('using a gallery template where it stands', () => {
     expect(closed).toBe(0)
   })
 
+  it('refuses a body that only asks the assistant to write, until it is imported', async () => {
+    policy('readonly')
+    await render(createElement(Probe))
+    await act(async () => {
+      actions.useCommunityTemplate(community(AI_BODY))
+    })
+    await settle()
+    expect(toasts()).toContain(t('templates.community_direct_blocked_ai'))
+    expect(create).not.toHaveBeenCalled()
+    expect(closed).toBe(0)
+  })
+
   it('runs it read-only once the reader has chosen the trusted posture', async () => {
     policy('trusted')
     await render(createElement(Probe))
@@ -211,6 +224,17 @@ describe('importing a gallery template', () => {
     expect(toasts()).toContain(t('templates.community_imported'))
   })
 
+  it('asks before an assistant-filled body joins the library', async () => {
+    confirmMock.mockResolvedValueOnce(false)
+    await render(createElement(Probe))
+    await act(async () => {
+      actions.importCommunityTemplate(community(AI_BODY))
+    })
+    await settle()
+    expect(confirmMock).toHaveBeenCalledTimes(1)
+    expect(confirmMock.mock.calls[0]![0]?.description).toBe(t('templates.community_import_body_ai'))
+  })
+
   it('does not ask about a body that cannot run anything', async () => {
     const created = vi.fn(() => 'tpl-new')
     useNoteTemplates.setState({ createTemplate: created as never })
@@ -254,6 +278,23 @@ describe('publishing', () => {
       await Promise.resolve()
     })
     expect(publishButton().disabled).toBe(false)
+  })
+
+  it('makes the author acknowledge an assistant-filled body', async () => {
+    await render(createElement(PublishTemplateDialog, {
+      template: libraryTemplate(AI_BODY),
+      category: 'General',
+      onClose: () => {},
+      onPublished: () => {},
+    }))
+    expect(checkbox(), 'the acknowledgement is missing').toBeTruthy()
+    expect(publishButton().disabled).toBe(true)
+    await act(async () => {
+      checkbox()!.click()
+      await Promise.resolve()
+    })
+    expect(publishButton().disabled).toBe(false)
+    expect(dialog().textContent).toContain(t('templates.publish_ai_fill'))
   })
 
   it('asks nothing of a plain body', async () => {

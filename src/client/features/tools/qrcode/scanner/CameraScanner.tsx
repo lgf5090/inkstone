@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Camera, CameraOff } from 'lucide-react'
+import { Select } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { preprocessImageToCanvas, scanCanvas, type PreprocessOptions, type ScanResult } from './scan-pipeline'
 
@@ -111,6 +112,10 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
           const result = await scanCanvas(processedCanvas)
           if (result && !isCancelled) {
             onScanRef.current(result)
+            // A code held in front of the lens would otherwise be decoded four times a second for as
+            // long as the tab stays open. The reader resumes with the same button when the next code
+            // is ready, so the scan stops itself after a hit instead of farming frames forever.
+            setIsScanning(false)
           }
         } catch {
           // Ignore frame decode errors
@@ -157,17 +162,18 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan, preprocess
 
       <div className="flex w-full max-w-[420px] items-center justify-between gap-3">
         {devices.length > 1 && (
-          <select
+          <Select
+            aria-label={t('tools.qrcode.scanner.camera_device')}
             value={selectedDeviceId}
             onChange={(e) => setSelectedDeviceId(e.target.value)}
-            className="flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+            className="h-8 flex-1 px-2.5 py-1.5 text-xs"
           >
             {devices.map((d, index) => (
               <option key={d.deviceId || index} value={d.deviceId}>
                 {d.label || `Camera ${index + 1}`}
               </option>
             ))}
-          </select>
+          </Select>
         )}
 
         <button
