@@ -13640,6 +13640,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/scriptshub/snippet-editor.tsx", [
     "/**\n * One snippet's editor.\n *\n * The draft is local until Save: every file tab, the description, the tags and the folder are edited\n * here and written together, so a version is a version of the whole snippet rather than of whichever\n * text box happened to be focused. The right column holds the facts that are not code — source,\n * notes, publication, assets and history — and it is the same column on a phone, below the editor.\n */",
+    "// Attachments are supplementary: a refused list leaves the panel empty instead of taking the",
+    "// editor down, and the upload button still reports its own failure.",
   ]],
   ["src/client/features/scriptshub/snippet-list.tsx", [
     "/**\n * The snippet list between the rail and the editor.\n *\n * Search is the list's own field and settles after a pause: every keystroke is a server query, and a\n * Chinese phrase typed quickly would otherwise arrive as five half-words. The quick switcher is the\n * sort menu beside it; batch actions only appear when rows are actually selected.\n */",
