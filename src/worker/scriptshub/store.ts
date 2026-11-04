@@ -167,7 +167,7 @@ function snippetRow(row: SnippetRow): ScriptSnippetSummary {
     preview: row.preview ?? '',
     charCount: Number(row.char_count ?? 0),
     tags: [],
-    publication: null,
+    publications: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastUsedAt: row.last_used_at,
@@ -634,13 +634,15 @@ export class ScriptsHubStore {
     ])
     const tagById = new Map(items.map((item) => [item.id, [] as ScriptTag[]]))
     for (const row of tagRows) tagById.get(row.snippet_id)?.push(tagRow(row))
-    const publicationBySnippet = new Map<string, ScriptPublicationSummary>()
+    const publicationBySnippet = new Map<string, ScriptPublicationSummary[]>()
     for (const row of publicationRows) {
-      if (!publicationBySnippet.has(row.snippet_id)) publicationBySnippet.set(row.snippet_id, publicationRow(row))
+      const list = publicationBySnippet.get(row.snippet_id) ?? []
+      list.push(publicationRow(row))
+      publicationBySnippet.set(row.snippet_id, list)
     }
     for (const item of items) {
       item.tags = tagById.get(item.id) ?? []
-      item.publication = publicationBySnippet.get(item.id) ?? null
+      item.publications = publicationBySnippet.get(item.id) ?? []
     }
   }
 
@@ -674,8 +676,8 @@ export class ScriptsHubStore {
         `SELECT id, snippet_id, file_id, path, is_enabled, visibility, token_hash, expires_at, short_slug,
                 created_at, updated_at, last_served_at
            FROM scriptshub_publications WHERE user_id = ? AND snippet_id = ?
-          ORDER BY created_at DESC LIMIT 1`,
-      ).bind(this.user, id).first<Parameters<typeof publicationRow>[0]>(),
+          ORDER BY created_at DESC`,
+      ).bind(this.user, id).all<Parameters<typeof publicationRow>[0]>(),
     ])
     return {
       ...summary,
@@ -690,7 +692,7 @@ export class ScriptsHubStore {
         updatedAt: file.updated_at,
       })),
       revisionCount: Number(revisionCount?.n ?? 0),
-      publication: publication ? publicationRow(publication) : null,
+      publications: publication.results.map(publicationRow),
     }
   }
 
@@ -896,6 +898,14 @@ export class ScriptsHubStore {
           ).bind(this.user, file.id, id, file.name, file.language, file.content, file.position, now, now),
         )
       }
+      // A publication names a file. When the save removes that file, the address has nothing left to
+      // serve, so it is removed with it; the removed id can never be resurrected by a later save.
+      statements.push(
+        this.db.prepare(
+          `DELETE FROM scriptshub_publications
+            WHERE user_id = ? AND snippet_id = ? AND file_id NOT IN (${files.map(() => '?').join(', ')})`,
+        ).bind(this.user, id, ...files.map((file) => file.id)),
+      )
     }
     statements.push(this.db.prepare('DELETE FROM scriptshub_snippet_tags WHERE user_id = ? AND snippet_id = ?').bind(this.user, id))
     for (const tagId of tagIds) {
@@ -1141,14 +1151,17 @@ export class ScriptsHubStore {
       `SELECT p.id, p.snippet_id, p.file_id, p.path, p.is_enabled, p.visibility, p.token_hash, p.expires_at,
               p.short_slug, p.created_at, p.updated_at, p.last_served_at,
               s.title AS snippet_title,
+              f.name AS file_name,
               (SELECT COUNT(*) FROM scriptshub_events e WHERE e.user_id = p.user_id AND e.publication_id = p.id AND e.kind = 'download') AS downloads,
               (SELECT COUNT(DISTINCT e.visitor_fp) FROM scriptshub_events e WHERE e.user_id = p.user_id AND e.publication_id = p.id AND e.kind = 'download' AND e.visitor_fp IS NOT NULL) AS visitors
          FROM scriptshub_publications p
          JOIN scriptshub_snippets s ON s.user_id = p.user_id AND s.id = p.snippet_id
+         LEFT JOIN scriptshub_files f ON f.user_id = p.user_id AND f.id = p.file_id
         WHERE p.user_id = ?
         ORDER BY p.created_at DESC`,
     ).bind(this.user).all<Parameters<typeof publicationRow>[0] & {
       snippet_title: string
+      file_name: string | null
       downloads: number
       visitors: number
     }>()
@@ -1156,6 +1169,7 @@ export class ScriptsHubStore {
       ...publicationRow(row),
       snippetId: row.snippet_id,
       snippetTitle: row.snippet_title,
+      fileName: row.file_name ?? '',
       fileCount: 1,
       downloadCount: Number(row.downloads ?? 0),
       uniqueVisitors: Number(row.visitors ?? 0),
@@ -1167,6 +1181,10 @@ export class ScriptsHubStore {
     if (!snippet.files.some((file) => file.id === input.fileId)) throw ApiError.badRequest('The file to publish does not exist')
     const pathProblem = publicationPathProblem(input.path)
     if (pathProblem) throw ApiError.badRequest(pathProblem)
+    const already = await this.db.prepare(
+      'SELECT id FROM scriptshub_publications WHERE user_id = ? AND snippet_id = ? AND file_id = ?',
+    ).bind(this.user, snippetId, input.fileId).first<{ id: string }>()
+    if (already) throw ApiError.conflict('This file already has a distribution; edit it instead')
     const visibility = normalizeVisibility(input.visibility)
     const taken = await this.db.prepare(
       'SELECT 1 AS present FROM scriptshub_publications WHERE lower(path) = lower(?) LIMIT 1',
@@ -1358,15 +1376,17 @@ export class ScriptsHubStore {
       ).bind(this.user, since, Math.floor(now / 1000)).all<{ day: string; downloads: number; visitors: number; failures: number }>(),
       this.db.prepare(
         `SELECT p.snippet_id AS id, s.title AS title, p.path AS path,
+                p.file_id AS file_id, f.name AS file_name,
                 COUNT(*) AS downloads,
                 COUNT(DISTINCT e.visitor_fp) AS visitors
            FROM scriptshub_events e
            JOIN scriptshub_publications p ON p.user_id = e.user_id AND p.id = e.publication_id
            JOIN scriptshub_snippets s ON s.user_id = p.user_id AND s.id = p.snippet_id
+           LEFT JOIN scriptshub_files f ON f.user_id = p.user_id AND f.id = p.file_id
           WHERE e.user_id = ? AND e.kind = 'download' AND e.at >= ? AND e.at <= ?
           GROUP BY p.id
           ORDER BY downloads DESC LIMIT 10`,
-      ).bind(this.user, since, Math.floor(now / 1000)).all<{ id: string; title: string; path: string | null; downloads: number; visitors: number }>(),
+      ).bind(this.user, since, Math.floor(now / 1000)).all<{ id: string; title: string; path: string | null; file_id: string | null; file_name: string | null; downloads: number; visitors: number }>(),
       this.db.prepare(
         `SELECT COALESCE(NULLIF(referrer_host, ''), 'direct') AS label, COUNT(*) AS value
            FROM scriptshub_events WHERE user_id = ? AND kind = 'download' AND at >= ? AND at <= ?
@@ -1383,9 +1403,9 @@ export class ScriptsHubStore {
           GROUP BY label ORDER BY value DESC LIMIT 10`,
       ).bind(this.user, since, Math.floor(now / 1000)).all<{ label: string; value: number }>(),
       this.db.prepare(
-        `SELECT CAST(status AS TEXT) AS label, COUNT(*) AS value
+        `SELECT COALESCE(NULLIF(path, ''), '(unknown)') AS label, COUNT(*) AS value
            FROM scriptshub_events WHERE user_id = ? AND kind <> 'download' AND status IN (403, 404) AND at >= ? AND at <= ?
-          GROUP BY status ORDER BY value DESC LIMIT 10`,
+          GROUP BY path ORDER BY value DESC LIMIT 10`,
       ).bind(this.user, since, Math.floor(now / 1000)).all<{ label: string; value: number }>(),
     ])
     return {
@@ -1401,6 +1421,8 @@ export class ScriptsHubStore {
         id: row.id,
         title: row.title,
         path: row.path,
+        fileId: row.file_id,
+        fileName: row.file_name ?? '',
         downloads: Number(row.downloads),
         uniqueVisitors: Number(row.visitors),
       })),

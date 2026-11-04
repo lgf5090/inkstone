@@ -142,6 +142,8 @@ export const SCRIPTSHUB_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_scriptshub_publications_path
      ON scriptshub_publications(path)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_scriptshub_publications_file
+     ON scriptshub_publications(user_id, snippet_id, file_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scriptshub_publications_user_snippet
      ON scriptshub_publications(user_id, snippet_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scriptshub_publications_user_created
@@ -215,6 +217,7 @@ export const SCRIPTSHUB_REQUIRED_INDEXES: readonly string[] = [
   'idx_scriptshub_revisions_user_created',
   'idx_scriptshub_assets_user_snippet',
   'idx_scriptshub_publications_path',
+  'idx_scriptshub_publications_file',
   'idx_scriptshub_publications_user_snippet',
   'idx_scriptshub_publications_user_created',
   'idx_scriptshub_events_user_at',
