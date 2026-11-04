@@ -80,7 +80,27 @@ export type CalculatorNavView =
   | 'currency'
   | 'graph'
   | 'kinship'
+  | 'textcalc'
   | 'settings'
+
+const CALCULATOR_NAV_VIEWS: readonly CalculatorNavView[] = [
+  'standard',
+  'scientific',
+  'programmer',
+  'date',
+  'unit',
+  'currency',
+  'graph',
+  'kinship',
+  'textcalc',
+  'settings',
+]
+
+/** The calculator view a query names, so a pasted `/tools/calculator?view=textcalc` opens that view. */
+export function calculatorViewFromSearch(search: string): CalculatorNavView | null {
+  const candidate = new URLSearchParams(search).get('view') as CalculatorNavView | null
+  return candidate && CALCULATOR_NAV_VIEWS.includes(candidate) ? candidate : null
+}
 
 export type CompareNavView = 'text' | 'files' | 'folders' | 'images' | 'projects' | 'stats' | 'shortcuts'
 

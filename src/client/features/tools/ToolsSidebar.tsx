@@ -42,13 +42,14 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  TextCursorInput,
   Users,
   Wrench,
 } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
-import { navigateToPath } from '../../lib/app-history'
+import { navigateToAddress, navigateToPath } from '../../lib/app-history'
 import { IconButton } from '../../components/primitives'
 import { Tooltip } from '../../components/overlay'
 import {
@@ -111,6 +112,7 @@ const CALCULATOR_NAV_SLOTS: readonly { id: CalculatorNavView; labelKey: MessageK
   { id: 'currency', labelKey: 'tools.calculator.nav.currency', icon: Coins },
   { id: 'graph', labelKey: 'tools.calculator.nav.graph', icon: LineChart },
   { id: 'kinship', labelKey: 'tools.calculator.nav.kinship', icon: Users },
+  { id: 'textcalc', labelKey: 'tools.calculator.nav.textcalc', icon: TextCursorInput },
   { id: 'settings', labelKey: 'tools.calculator.nav.settings', icon: Settings },
 ]
 
@@ -255,8 +257,9 @@ export function ToolsSidebar({
   }
 
   const handleCalculatorSlotClick = (slotId: CalculatorNavView) => {
-    openSubmodule('calculator')
+    setActiveSubmodule('calculator')
     setActiveCalculatorView(slotId)
+    navigateToAddress(toolsPathForSubmodule('calculator'), `view=${slotId}`)
     onNavigate?.()
   }
 

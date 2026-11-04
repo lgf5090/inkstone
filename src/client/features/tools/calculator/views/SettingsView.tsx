@@ -11,7 +11,7 @@ import { useCalculatorStore, getCalculatorEngine } from '../store'
 import { calculatorApi } from '../api'
 import { GRAPH_DEFAULT_VIEWPORT } from '@shared/tools/calculator/contract'
 
-const VIEW_OPTIONS = ['standard', 'scientific', 'programmer', 'date', 'unit', 'currency', 'graph', 'kinship'] as const
+const VIEW_OPTIONS = ['standard', 'scientific', 'programmer', 'date', 'unit', 'currency', 'graph', 'kinship', 'textcalc'] as const
 
 export function SettingsView() {
   const settings = useCalculatorStore((state) => state.settings)
