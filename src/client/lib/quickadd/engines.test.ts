@@ -8,6 +8,7 @@ import type { JsRunOutcome } from '../../features/preview/js-runner-core'
 import type { PromptAnswer, PromptRequest } from './format'
 import type { NewNoteInput, NotePort, NoteRef, QuickAddEditorOutcome, QuickAddLinkOptions, QuickAddOpenOptions, TemplatePickOption, TemplaterRenderRequest } from './context'
 import type { RunOptions } from './session'
+import { noteCalendarDay } from './session'
 import { isTargetFilterSyntax, parseTargetFilter, targetScope, titleSuggestions } from './context'
 import { runCaptureChoice } from './capture'
 import { runTemplateChoice } from './template'
@@ -82,12 +83,13 @@ afterAll(() => {
 interface FakeNote extends NoteRef {
   content: string
   tags?: string[]
+  createdAt?: number
 }
 
-function harness(start: Record<string, string>, settings: Partial<QuickAddSettings> = {}, selection = '') {
+function harness(start: Record<string, string>, settings: Partial<QuickAddSettings> = {}, selection = '', dates: Record<string, number> = {}) {
   const notes: Record<string, FakeNote> = {}
   for (const [title, content] of Object.entries(start))
-    notes[title] = { id: `n-${title}`, title, folderPath: null, content }
+    notes[title] = { id: `n-${title}`, title, folderPath: null, content, createdAt: dates[title] }
   const created: NewNoteInput[] = []
   const copied: string[] = []
   const commands: string[] = []
@@ -149,10 +151,12 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
     selection: () => selection,
     clipboard: async () => '',
     templateBody: async (name) => (name === 'tpl-daily' || name === 'Daily' ? 'Daily body'
-      : name === 'tpl-props' ? '---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n'
-        : name === 'tpl-marked' ? 'Hi{{CURSOR}}there\n'
-          : name === 'tpl-space' ? '　'
-          : name === 'tpl-cleared' ? '' : null),
+      : name === 'tpl-dated' ? 'On {{DATE:YYYY-MM-DD}}\n'
+        : name === 'tpl-next' ? 'On {{DATE+1:YYYY-MM-DD}}\n'
+          : name === 'tpl-props' ? '---\nmood: glad\ntags:\n  - journal\n---\nFrom template\n'
+            : name === 'tpl-marked' ? 'Hi{{CURSOR}}there\n'
+              : name === 'tpl-space' ? '　'
+                : name === 'tpl-cleared' ? '' : null),
     renderTemplater: async (request) => {
       templaterRenders.push(request)
       return { kind: 'not-templater' }
@@ -209,7 +213,7 @@ function harness(start: Record<string, string>, settings: Partial<QuickAddSettin
 
   function ref(id: string): NoteRef | null {
     const found = Object.values(notes).find((note) => note.id === id)
-    return found ? { id: found.id, title: found.title, folderPath: found.folderPath } : null
+    return found ? { id: found.id, title: found.title, folderPath: found.folderPath, createdAt: found.createdAt } : null
   }
 
   return {
@@ -2395,3 +2399,90 @@ describe('a macro that acts on the editor', () => {
     expect(fake.editorActions).toEqual(['lineEnd'])
   })
 })
+
+describe('dates that count from the target note', () => {
+  const leapDay = new Date(2024, 1, 29, 10, 0, 0).getTime()
+  const monthEnd = new Date(2024, 0, 31, 10, 0, 0).getTime()
+
+  it('measures a template body from the target note rather than the run clock', async () => {
+    const fake = harness({ Backfill: 'old\n' }, {}, '', { Backfill: leapDay })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-dated',
+      nameFormat: { enabled: true, format: 'Backfill' },
+      existing: 'appendBottom' as const,
+      dateOrigin: 'note' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.writes.at(-1)?.content).toContain('2024-02-29')
+  })
+
+  it('measures a capture from the note it is writing into', async () => {
+    const fake = harness({ Backfill: 'old\n' }, {}, '', { Backfill: leapDay })
+    fake.setActive('Backfill')
+    const choice = {
+      ...newCaptureChoice('qa-c', 'Backfill', 0),
+      targetMode: 'active' as const,
+      writePosition: 'bottom' as const,
+      format: { enabled: true, format: '{{DATE:YYYY-MM-DD}}' },
+      dateOrigin: 'note' as const,
+    }
+    const status = await runCaptureChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.writes.at(-1)?.content).toContain('2024-02-29')
+  })
+
+  it('keeps today when the choice counts from the run', async () => {
+    const fake = harness({ Backfill: 'old\n' }, {}, '', { Backfill: leapDay })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-dated',
+      nameFormat: { enabled: true, format: 'Backfill' },
+      existing: 'appendBottom' as const,
+      dateOrigin: 'run' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.writes.at(-1)?.content).toContain('2026-10-08')
+  })
+
+  it('lets a day chosen for the run outrank the note', async () => {
+    const fake = harness({ Backfill: 'old\n' }, {}, '', { Backfill: leapDay })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-dated',
+      nameFormat: { enabled: true, format: 'Backfill' },
+      existing: 'appendBottom' as const,
+      dateOrigin: 'note' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port, { day: new Date(2024, 0, 15) })
+    expect(status.kind).toBe('written')
+    expect(fake.writes.at(-1)?.content).toContain('2024-01-15')
+  })
+
+  it('crosses a month end from the note day', async () => {
+    const fake = harness({ Backfill: 'old\n' }, {}, '', { Backfill: monthEnd })
+    const choice = {
+      ...newTemplateChoice('qa-t', 'Backfill', 0),
+      templateId: 'tpl-next',
+      nameFormat: { enabled: true, format: 'Backfill' },
+      existing: 'appendBottom' as const,
+      dateOrigin: 'note' as const,
+    }
+    const status = await runTemplateChoice(choice, fake.port)
+    expect(status.kind).toBe('written')
+    expect(fake.writes.at(-1)?.content).toContain('2024-02-01')
+  })
+
+  it('maps the same instant to the note calendar of each zone', () => {
+    // 16:30 UTC is 00:30 the next day in Shanghai, so the note's own calendar day differs by zone.
+    const instant = Date.UTC(2024, 1, 28, 16, 30)
+    expect(isoDay(noteCalendarDay(instant, 'Asia/Shanghai'))).toBe('2024-02-29')
+    expect(isoDay(noteCalendarDay(instant, 'UTC'))).toBe('2024-02-28')
+  })
+})
+
+function isoDay(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+}

@@ -11,7 +11,7 @@ import { appendFrontMatterTag, parseFrontMatter, setFrontMatterValue } from '@sh
 import type { QuickAddTemplateChoice } from '@shared/quickadd'
 import type { FormatRuntime, PromptRequest } from './format'
 import { askForInputs, buildRuntime, type RunSession } from './runtime'
-import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request, type RunOptions } from './session'
+import { askOrReuse, applyDateOrigin, applyNoteDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest as request, type RunOptions } from './session'
 import {
   folderJoin,
   joinRouted,
@@ -194,6 +194,7 @@ async function dropIntoNote(
   runtime.title = note.title
   runtime.folderPath = note.folderPath
   session.destination = note
+  applyNoteDateOrigin(session, note)
   const rendered = await renderBody(body, templateId, note.title, note.id, runtime, session, port)
   if (rendered.refused) return engineRefusal()
   if (session.dismissed) return { kind: 'cancelled' }
@@ -310,6 +311,7 @@ export async function runTemplateChoice(
     })])
     if (answers.get('overwrite') !== 'true') return { kind: 'cancelled' }
     session.destination = existing
+    applyNoteDateOrigin(session, existing)
     const rendered = await renderBody(body, templateRef, existing.title, existing.id, runtime, session, port)
     if (rendered.refused) return engineRefusal()
     if (session.dismissed) return { kind: 'cancelled' }

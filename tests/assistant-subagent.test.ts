@@ -51,4 +51,11 @@ describe('delegate_subagent', () => {
     const executor = new ToolExecutor(context({ allowedTools: ['search_notes'] }), { maxToolCalls: 4 })
     expect(executor.available().map((tool) => tool.name)).not.toContain('delegate_subagent')
   })
+
+  it('offers only what a template declared, including the question tool', () => {
+    const names = new ToolExecutor(context({ allowedTools: ['search_notes'] }), { maxToolCalls: 4 })
+      .available()
+      .map((tool) => tool.name)
+    expect(names).toEqual(['search_notes'])
+  })
 })

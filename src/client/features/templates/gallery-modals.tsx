@@ -2,12 +2,13 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Check, Upload } from 'lucide-react'
 import type { NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import { TEMPLATE_IMPORT_LIMITS, parseTemplateLibraryExport } from '@shared/note-templates'
+import { parseTemplateProtocol } from '@shared/note-template-render'
 import { EMPTY_DRAFT, splitTagInput, type TemplateDraft } from './gallery-persist'
 import { TemplateTag } from './template-tag'
 import { cn } from '../../lib/cn'
 import { Button } from '../../components/primitives'
 import { Field, Input, Select, Textarea } from '../../components/form'
-import { Modal } from '../../components/overlay'
+import { Modal, confirm } from '../../components/overlay'
 import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
 // The body editor belongs to the Templater feature: a template body is code the engine reads, and the
 // highlighting and the `tp.` completion are that feature's, not this dialog's.
@@ -190,22 +191,48 @@ export function ImportTemplatesModal({ onClose }: {
   const errorId = useId()
   const fileRef = useRef<HTMLInputElement>(null)
   const importJson = () => {
-    const parsed = parseTemplateLibraryExport(text)
-    if (!parsed.data) {
-      setIsError(true)
-      return
-    }
-    const { imported, skipped } = useNoteTemplates.getState().importTemplates(parsed.data)
-    useUi.getState().toast({
-      title: t('templates.import_summary_value0_dup_value1_bad_value2', {
-        value0: imported,
-        value1: skipped,
-        value2: parsed.dropped,
-      }),
-      description: parsed.truncated ? t('templates.import_fields_truncated') : undefined,
-      tone: imported ? 'success' : 'danger',
-    })
-    onClose()
+    void (async () => {
+      const parsed = parseTemplateLibraryExport(text)
+      if (!parsed.data) {
+        setIsError(true)
+        return
+      }
+      // A template that asks the assistant to write spends a model turn and may use the reader's tools,
+      // so the list is shown before it joins the library rather than after a run has already used it.
+      const aiTemplates = parsed.data.templates.flatMap((template) => {
+        const protocol = parseTemplateProtocol(template.content)
+        if (!protocol.ai.enabled) return []
+        const tools = protocol.ai.tools.length > 0
+          ? protocol.ai.tools.join(', ')
+          : t('templates.import_ai_tools_none')
+        return [`${template.name}: ${tools}`]
+      })
+      if (aiTemplates.length > 0) {
+        const accepted = await confirm({
+          title: t('templates.import_title'),
+          description: t('templates.import_ai_capabilities', { value0: aiTemplates.join('\n') }),
+          confirmLabel: t('templates.import_templates'),
+        })
+        if (!accepted) return
+      }
+      const { imported, skipped } = useNoteTemplates.getState().importTemplates(parsed.data)
+      const notices = [
+        parsed.invalidProtocols > 0
+          ? t('templates.import_invalid_ai', { value0: parsed.invalidProtocols })
+          : null,
+        parsed.truncated ? t('templates.import_fields_truncated') : null,
+      ].filter((notice): notice is string => notice !== null)
+      useUi.getState().toast({
+        title: t('templates.import_summary_value0_dup_value1_bad_value2', {
+          value0: imported,
+          value1: skipped,
+          value2: parsed.dropped,
+        }),
+        description: notices.length > 0 ? notices.join(' ') : undefined,
+        tone: imported ? 'success' : 'danger',
+      })
+      onClose()
+    })()
   }
   const pickFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]

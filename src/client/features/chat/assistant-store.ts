@@ -608,6 +608,8 @@ interface AssistantState {
     /** A model named by a canvas action or a skill; absent uses the reader's standing pick. */
     modelId?: string | null
     noTools?: boolean
+    /** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */
+    allowedTools?: readonly string[]
   }) => Promise<boolean>
   /** Drop one message that was queued while a turn was running. */
   removeQueued: (id: string) => void
@@ -2923,6 +2925,7 @@ export const useAssistant = create<AssistantState>()((set, get) => ({
           webSearch: state.webSearch,
           ...(opts?.modelId ? { modelId: opts.modelId } : {}),
           ...(opts?.noTools ? { noTools: true } : {}),
+          ...(opts?.allowedTools ? { allowedTools: [...opts.allowedTools] } : {}),
           // Only when this turn is the one that makes the conversation: the flag is read at creation and
           // never again, because the promise is about the whole thread.
           ...(state.ephemeral && !conversationId ? { ephemeral: true } : {}),

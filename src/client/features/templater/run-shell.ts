@@ -164,6 +164,16 @@ function placeholderContext(note: Pick<Note, 'title' | 'folderId' | 'tags'>): Ne
   }
 }
 
+/** Say why the assistant was not asked to fill a template's slots, rather than leaving the markers unexplained. */
+function toastAiBlocked(rendered: ReturnType<typeof renderNewNoteTemplate>): void {
+  useUi.getState().toast({
+    title: rendered.protocolErrors.length > 0
+      ? t('templates.ai_declaration_invalid')
+      : t('templates.ai_not_declared', { count: rendered.aiBlocked }),
+    tone: 'warning',
+  })
+}
+
 /**
  * Splice a `{{…}}` template into the note the reader is looking at, without the engine.
  *
@@ -176,6 +186,7 @@ function insertPlaceholders(template: NoteTemplate, note: Note): boolean {
   if (rendered.content === '') return false
   useUi.getState().requestTemplateInsert({ noteId: note.id, content: rendered.content, cursor: rendered.cursor })
   useUi.getState().toast({ title: t('templates.inserted_into_note'), tone: 'success' })
+  if (rendered.aiBlocked > 0) toastAiBlocked(rendered)
   return true
 }
 
@@ -195,11 +206,12 @@ async function replaceWithPlaceholders(template: NoteTemplate, note: Note, succe
     return false
   }
   useUi.getState().toast({ title: t(success), tone: 'success' })
+  if (rendered.aiBlocked > 0) toastAiBlocked(rendered)
   // `{{ai: …}}` is a request, and like the gallery's create path it is answered after the note holds the text
   // around it. The chat module arrives on demand, so a template with no slot never pays for it.
   if (rendered.aiSlots.length > 0) {
     const { startTemplateSlotFill } = await import('../chat/template-fill')
-    startTemplateSlotFill(note.id, rendered.aiSlots)
+    startTemplateSlotFill(note.id, rendered.aiSlots, rendered.ai.tools)
   }
   return true
 }

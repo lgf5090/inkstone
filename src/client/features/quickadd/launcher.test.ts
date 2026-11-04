@@ -270,7 +270,7 @@ describe('running a choice from the launcher', () => {
     await settle()
     expect(runs.calls.length).toBe(1)
     expect(runs.calls[0].id).toBe('qa-daily')
-    expect(runs.calls[0].day?.getTime()).toBe(Date.parse('2024-03-04'))
+    expect(runs.calls[0].day?.getTime()).toBe(new Date(2024, 2, 4).getTime())
   })
 
   it('runs nothing when the day question is dismissed', async () => {

@@ -66,3 +66,10 @@ describe('the web-search switch on the way out', () => {
     expect(sentInput()?.webSearch).toBe(true)
   })
 })
+
+describe('a caller that owns the turn’s tools', () => {
+  it('passes its whitelist through to the request', async () => {
+    await useAssistant.getState().send('Write the passage', { allowedTools: ['read_note'] })
+    expect(sentInput()?.allowedTools).toEqual(['read_note'])
+  })
+})

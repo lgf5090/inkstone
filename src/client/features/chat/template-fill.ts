@@ -52,7 +52,7 @@ async function drive(generation: number, from: number): Promise<void> {
       return
     }
     patchSlotJob(index, { state: 'running' })
-    const answer = await askAboutNote(job.noteId, slot.instruction)
+    const answer = await askAboutNote(job.noteId, slot.instruction, { tools: job.tools })
     if (readSlotJob()?.generation !== generation) return
     if (answer.status === 'ok') {
       patchSlotJob(index, { state: 'filled', answer: answer.text, failure: null, error: null })
@@ -106,7 +106,11 @@ function commitSlotJob(generation: number): void {
  * rather than queued behind the reader's back, because two jobs in one card would be one card lying about
  * which note it is writing — and the first can be finished or dropped in the card itself.
  */
-export function startTemplateSlotFill(noteId: string, slots: readonly NewNoteAiSlot[]): void {
+export function startTemplateSlotFill(
+  noteId: string,
+  slots: readonly NewNoteAiSlot[],
+  tools: readonly string[] = [],
+): void {
   if (slots.length === 0) return
   if (readSlotJob()?.status === 'running') {
     useUi.getState().toast({ title: t('assistant.template.in_flight'), tone: 'warning' })
@@ -119,6 +123,7 @@ export function startTemplateSlotFill(noteId: string, slots: readonly NewNoteAiS
     // Document order, not the order they are written in: the reader counts passages the way the template
     // lists them, and the backwards write is the run's own business.
     slots: slots.map((slot) => ({ ...slot, state: 'pending' as const, answer: null, failure: null, error: null })),
+    tools: [...tools],
     stoppedAt: null,
     status: 'running',
   })

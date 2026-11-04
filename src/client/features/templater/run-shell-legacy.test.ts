@@ -29,7 +29,7 @@ const legacy = vi.hoisted(() => ({
   created: [] as Array<{ name: string, options: Record<string, unknown> }>,
   writes: [] as Array<{ id: string, content: string }>,
   refusal: null as null | 'conflict' | 'not-found' | 'failed',
-  fills: [] as Array<{ id: string, slots: unknown[] }>,
+  fills: [] as Array<{ id: string, slots: unknown[], tools: string[] }>,
 }))
 
 vi.mock('../../lib/templater', () => ({
@@ -64,8 +64,8 @@ vi.mock('../../lib/templater/host/store-port', async (importOriginal) => {
 })
 
 vi.mock('../chat/template-fill', () => ({
-  startTemplateSlotFill: (id: string, slots: unknown[]) => {
-    legacy.fills.push({ id, slots })
+  startTemplateSlotFill: (id: string, slots: unknown[], tools: string[] = []) => {
+    legacy.fills.push({ id, slots, tools })
   },
 }))
 
@@ -191,12 +191,23 @@ describe('applying a placeholder template to a note that was just created', () =
 })
 
 describe('the assistant request inside a placeholder template', () => {
+  const AI_ENABLED = '<!-- inkstone-template\nai:\n  enabled: true\n  tools: [read_note]\n-->\n'
+
   it('is answered against the note that now holds the text', async () => {
     mountEditor(TARGET.content)
-    await replaceActiveNoteWithTemplate(template('Intro\n\n{{ai: summarise this note}}\n'))
+    await replaceActiveNoteWithTemplate(template(`${AI_ENABLED}Intro\n\n{{ai: summarise this note}}\n`))
     expect(legacy.writes[0]!.content).toBe('Intro\n\n')
     expect(legacy.fills).toHaveLength(1)
     expect(legacy.fills[0]!.id).toBe(TARGET.id)
     expect(legacy.fills[0]!.slots).toEqual([{ at: 7, instruction: 'summarise this note' }])
+    expect(legacy.fills[0]!.tools).toEqual(['read_note'])
+  })
+
+  it('leaves the placeholder visible and says why when no capability is declared', async () => {
+    mountEditor(TARGET.content)
+    await replaceActiveNoteWithTemplate(template('Intro\n\n{{ai: summarise this note}}\n'))
+    expect(legacy.writes[0]!.content).toBe('Intro\n\n{{ai: summarise this note}}\n')
+    expect(legacy.fills).toEqual([])
+    expect(toastTitles()).toContain(t('templates.ai_not_declared', { count: 1 }))
   })
 })

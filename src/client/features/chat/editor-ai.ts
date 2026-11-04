@@ -324,7 +324,7 @@ export type AnswerResult =
  */
 export async function sendForAnswerDetailed(
   prompt: string,
-  options: { activeArtifactId?: string, modelId?: string | null, noTools?: boolean } = {},
+  options: { activeArtifactId?: string, modelId?: string | null, noTools?: boolean, allowedTools?: readonly string[] } = {},
 ): Promise<AnswerResult> {
   const assistant = useAssistant.getState()
   if (assistant.turn && !assistant.turn.done) return { status: 'busy' }

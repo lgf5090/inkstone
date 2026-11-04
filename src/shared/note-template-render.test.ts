@@ -215,8 +215,22 @@ describe('front matter survives any folder a note can live in', () => {
 })
 
 describe('template AI slots', () => {
+  const AI_ENABLED = '<!-- inkstone-template\nai:\n  enabled: true\n  tools: [read_note]\n-->\n'
+
+  it('strips the capability protocol from the note it writes', () => {
+    const { content } = renderNewNoteTemplate(`${AI_ENABLED}---\ntitle: {{title}}\n---\n\nBody\n`, context())
+    expect(content).toBe('---\ntitle: Reading list\n---\n\nBody\n')
+  })
+
+  it('leaves AI placeholders alone when no capability is declared', () => {
+    const { content, aiSlots, aiBlocked } = renderNewNoteTemplate('{{ai: write three bullets}}\n', context())
+    expect(content).toBe('{{ai: write three bullets}}\n')
+    expect(aiSlots).toEqual([])
+    expect(aiBlocked).toBe(1)
+  })
+
   it('takes a slot on its own line out of the body and reports where it was', () => {
-    const { content, aiSlots } = renderNewNoteTemplate('# Week\n\n{{ai: write three bullets}}\n\n## Notes\n', context())
+    const { content, aiSlots } = renderNewNoteTemplate(`${AI_ENABLED}# Week\n\n{{ai: write three bullets}}\n\n## Notes\n`, context())
     expect(content).toBe('# Week\n\n## Notes\n')
     expect(aiSlots).toEqual([{ at: '# Week\n\n'.length, instruction: 'write three bullets' }])
     // The offset is the place the answer goes, in the content that was actually saved.
@@ -224,26 +238,26 @@ describe('template AI slots', () => {
   })
 
   it('keeps the text around a slot that shares its line', () => {
-    const { content, aiSlots } = renderNewNoteTemplate('Summary: {{ai: one sentence}} (draft)', context())
+    const { content, aiSlots } = renderNewNoteTemplate(`${AI_ENABLED}Summary: {{ai: one sentence}} (draft)`, context())
     expect(content).toBe('Summary:  (draft)')
     expect(aiSlots[0]).toEqual({ at: 'Summary: '.length, instruction: 'one sentence' })
   })
 
   it('reports every slot against the stripped content, in document order', () => {
-    const { content, aiSlots } = renderNewNoteTemplate('{{ai: first}}\n\nmiddle\n\n{{ai: second}}\n', context())
+    const { content, aiSlots } = renderNewNoteTemplate(`${AI_ENABLED}{{ai: first}}\n\nmiddle\n\n{{ai: second}}\n`, context())
     expect(content).toBe('middle\n\n')
     expect(aiSlots.map((slot) => slot.instruction)).toEqual(['first', 'second'])
     expect(aiSlots.map((slot) => slot.at)).toEqual([0, 'middle\n\n'.length])
   })
 
   it('leaves a slot with no instruction alone, so the mistake stays visible', () => {
-    const { content, aiSlots } = renderNewNoteTemplate('{{ai:   }}\n', context())
+    const { content, aiSlots } = renderNewNoteTemplate(`${AI_ENABLED}{{ai:   }}\n`, context())
     expect(content).toBe('{{ai:   }}\n')
     expect(aiSlots).toEqual([])
   })
 
   it('pulls the caret back by what the slots took out ahead of it', () => {
-    const { content, cursor } = renderNewNoteTemplate('{{ai: first}}\n\nbody {{cursor}}', context())
+    const { content, cursor } = renderNewNoteTemplate(`${AI_ENABLED}{{ai: first}}\n\nbody {{cursor}}`, context())
     expect(content).toBe('body ')
     expect(content.slice(cursor!)).toBe('')
   })
@@ -251,6 +265,17 @@ describe('template AI slots', () => {
   it('does not treat the marker as a placeholder to interpolate', () => {
     const { content } = interpolateNewNoteTemplate('{{ai: mention {{title}}}}', context())
     expect(content).toBe('{{ai: mention Reading list}}')
+  })
+
+  it('refuses a declaration naming a tool the assistant does not have', () => {
+    const { content, aiSlots, aiBlocked, protocolErrors } = renderNewNoteTemplate(
+      '<!-- inkstone-template\nai:\n  enabled: true\n  tools: [read_everything]\n-->\n{{ai: draft}}\n',
+      context(),
+    )
+    expect(content).toBe('{{ai: draft}}\n')
+    expect(aiSlots).toEqual([])
+    expect(aiBlocked).toBe(1)
+    expect(protocolErrors.length).toBe(1)
   })
 })
 

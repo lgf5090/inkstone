@@ -10,7 +10,7 @@
 import { collectRequirements, formatQuickAddText, type FormatRuntime, type PromptAnswer, type PromptRequest } from './format'
 import { askForInputs, pageMode } from './runtime'
 import type { RunSession } from './runtime'
-import type { NotePort, QuickAddRunStatus } from './context'
+import type { NotePort, NoteRef, QuickAddRunStatus } from './context'
 import { t } from '../../lib/i18n'
 import type { QuickAddChoice } from '@shared/quickadd'
 
@@ -136,7 +136,61 @@ export async function applyDateOrigin(session: RunSession): Promise<QuickAddRunS
     return { kind: 'failed', reason: t('quickadd.error_day_unreadable') }
   origin.setHours(session.clock.now.getHours(), session.clock.now.getMinutes(), session.clock.now.getSeconds())
   session.clock = { now: session.clock.now, date: origin }
+  // The day was answered for this run: it is task context, so a later target note must not replace it.
+  session.dayGiven = true
   return null
+}
+
+/**
+ * The calendar day a note belongs to, in the reader's own zone or one named explicitly.
+ *
+ * A note stores an instant, and "the note's day" is that instant read as a wall calendar: 16:30 UTC is
+ * already the next day in Shanghai. `timeZone` exists so tests can pin both readings without changing
+ * the machine's zone; production callers leave it out and get the reader's local calendar.
+ */
+export function noteCalendarDay(timestamp: number, timeZone?: string): Date {
+  const instant = new Date(timestamp)
+  if (!timeZone) return new Date(instant.getFullYear(), instant.getMonth(), instant.getDate())
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(instant)
+    const read = (type: Intl.DateTimeFormatPartTypes): number => Number(parts.find((part) => part.type === type)?.value)
+    return new Date(read('year'), read('month') - 1, read('day'))
+  } catch (error) {
+    // An unknown zone is a caller mistake rather than a note fact: choose the reader's calendar instead
+    // of answering with an Invalid Date that would silently poison every date token after it.
+    console.warn('[quickadd] the requested time zone could not be read; falling back to the local calendar', error)
+    return new Date(instant.getFullYear(), instant.getMonth(), instant.getDate())
+  }
+}
+
+/**
+ * Make a run's date tokens count from the target note rather than from the run clock.
+ *
+ * The order is fixed and documented for the reader in the setting's description: an explicit day for
+ * the run wins, then the note's own calendar day, then today. A run that creates its note has no target
+ * date to read yet, so it stays on today; one that writes into an existing note switches here, after the
+ * note is known and before any body, property or payload is formatted.
+ *
+ * `createdAt` is the note's day because backfilling a note is asking "what day is this note about"; the
+ * update time would answer "when did I last touch it", which is exactly the run clock this replaces.
+ */
+export function applyNoteDateOrigin(session: RunSession, note: Pick<NoteRef, 'createdAt' | 'updatedAt'>): void {
+  if (session.dayGiven || session.base.dateOrigin !== 'note') return
+  const stamp = note.createdAt ?? note.updatedAt
+  if (stamp === undefined || !Number.isFinite(stamp)) return
+  const day = noteCalendarDay(stamp)
+  day.setHours(
+    session.clock.now.getHours(),
+    session.clock.now.getMinutes(),
+    session.clock.now.getSeconds(),
+    session.clock.now.getMilliseconds(),
+  )
+  session.clock = { now: session.clock.now, date: day }
 }
 
 /**

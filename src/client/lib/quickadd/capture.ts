@@ -14,7 +14,7 @@ import { propertyValueKind } from '@shared/property-values'
 import type { FormatRuntime, PromptAnswer, PromptRequest } from './format'
 import { memoizeStructure } from './format'
 import { buildRuntime, type RunSession } from './runtime'
-import { askOrReuse, applyDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
+import { askOrReuse, applyDateOrigin, applyNoteDateOrigin, asksForDay, dayRequest, formatWithPrompts, newSession, precollectInputs, promptRequest, type RunOptions } from './session'
 import { createTodoFromQuickAdd } from './todo-sink'
 import { folderJoin, linkOptions, openingOptions, parseTargetFilter, sanitizeTitle, splitTargetPath, targetScope, titleSuggestions, type NotePort, type NoteRef, type QuickAddRunStatus, type TargetCandidate, type TargetFilter } from './context'
 import { bodyOf, parseValueToken, scanTokens, type ValueInputType } from './token-grammar'
@@ -516,6 +516,9 @@ export async function runCaptureChoice(
   session.destination = note
   runtime.title = note.title
   runtime.folderPath = note.folderPath
+  // The target is known now: a note-date run measures the capture's own tokens from here. A new note
+  // has no row to read yet, so it keeps the run clock and is created on today.
+  applyNoteDateOrigin(session, note)
 
   const materialise = async (): Promise<QuickAddRunStatus | null> => {
     if (!created || note.id !== '') return null

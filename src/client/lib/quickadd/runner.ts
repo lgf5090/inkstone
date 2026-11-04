@@ -31,7 +31,13 @@ import type { QuickAddCaptureChoice, QuickAddChoice, QuickAddMacroChoice, QuickA
 function noteRef(id: string): NoteRef | null {
   const summary = useNotes.getState().notes[id]
   if (!summary || summary.deletedAt) return null
-  return { id, title: summary.title, folderPath: folderPathOf(summary.folderId) }
+  return {
+    id,
+    title: summary.title,
+    folderPath: folderPathOf(summary.folderId),
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+  }
 }
 
 function folderPathOf(folderId: string | null): string | null {

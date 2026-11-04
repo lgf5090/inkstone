@@ -9,6 +9,7 @@
  * touching user-created templates or user edits.
  */
 import { normalizeOrganizerIcon, organizerColorOrNull } from './organizer-colors'
+import { parseTemplateProtocol } from './note-template-render'
 import type { MessageKey } from './locales/en-US'
 import type { NoteTemplate, NoteTemplateCategory } from './types'
 
@@ -892,6 +893,8 @@ export interface TemplateLibraryParseResult {
   data: TemplateLibraryExport | null
   /** Entries dropped for being malformed or over budget; reported so the UI can say so out loud. */
   dropped: number
+  /** Entries dropped because their AI capability declaration was invalid. */
+  invalidProtocols: number
   truncated: boolean
 }
 
@@ -947,7 +950,7 @@ export function parseTemplateLibraryExport(
   text: string,
   options: { keepFlags?: boolean } = {},
 ): TemplateLibraryParseResult {
-  const empty: TemplateLibraryParseResult = { data: null, dropped: 0, truncated: false }
+  const empty: TemplateLibraryParseResult = { data: null, dropped: 0, invalidProtocols: 0, truncated: false }
   if (text.length > TEMPLATE_IMPORT_LIMITS.maxTextLength) return empty
   let value: unknown
   try {
@@ -959,6 +962,7 @@ export function parseTemplateLibraryExport(
   if (!isRecord(value) || value.app !== 'inkstone' || value.kind !== 'template-library' || value.version !== 1)
     return empty
   let dropped = 0
+  let invalidProtocols = 0
   let truncated = false
   const rawCategories = Array.isArray(value.categories) ? value.categories : []
   const rawTemplates = Array.isArray(value.templates) ? value.templates : []
@@ -993,6 +997,13 @@ export function parseTemplateLibraryExport(
       dropped++
       continue
     }
+    // The capability declaration is a security boundary, so a file that names an unknown tool is
+    // refused entry rather than imported into a library where the run would silently lose it.
+    if (parseTemplateProtocol(template.content).errors.length > 0) {
+      dropped++
+      invalidProtocols++
+      continue
+    }
     // A body the reader wrote is code once Templater is in the library, and a command cut in half imports as
     // a template that prints `<% …` forever. The clamp is the right size limit to keep — it is what stops one
     // paste filling the store — but it may not be silent: `truncated` is the flag the import dialog and the
@@ -1021,6 +1032,7 @@ export function parseTemplateLibraryExport(
       templates,
     },
     dropped,
+    invalidProtocols,
     truncated,
   }
 }
