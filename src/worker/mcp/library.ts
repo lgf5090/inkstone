@@ -48,7 +48,7 @@ export async function duplicateMcpNote(
 ) {
   const source = await context.env.DB.prepare(
     `SELECT title, content, folder_id FROM notes
-      WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+      WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND is_encrypted = 0`,
   ).bind(input.noteId, context.userId).first<{
     title: string
     content: string
@@ -141,7 +141,7 @@ export async function restoreMcpNoteVersion(
 
 export async function getMcpNoteProperties(db: D1Database, userId: string, noteId: string) {
   const row = await db.prepare(
-    `SELECT title, content, rev FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+    `SELECT title, content, rev FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND is_encrypted = 0`,
   ).bind(noteId, userId).first<{ title: string; content: string; rev: number }>()
   if (!row) throw ApiError.notFound('Note not found')
   const parsed = parseFrontMatter(row.content)
@@ -160,7 +160,7 @@ export async function updateMcpNoteProperties(
   },
 ) {
   const row = await context.env.DB.prepare(
-    `SELECT content FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+    `SELECT content FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND is_encrypted = 0`,
   ).bind(input.noteId, context.userId).first<{ content: string }>()
   if (!row) throw ApiError.notFound('Note not found')
   const parsed = parseFrontMatter(row.content)

@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from 'react';
-import { Archive, Brush, Columns2, FileText, FolderInput, MoreHorizontal, Network, PenLine, Star, Trash2 } from 'lucide-react';
+import { Archive, Brush, Columns2, FileText, FolderInput, Lock, MoreHorizontal, Network, PenLine, Star, Trash2 } from 'lucide-react';
 import type { Folder, NoteSummary } from '@shared/types';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
@@ -9,9 +9,11 @@ import { t } from '../../lib/i18n';
 import { IconButton } from '../../components/primitives';
 import { Menu, useContextMenu, type MenuItem } from '../../components/overlay';
 import { useNotes } from '../../store/notes';
+import { useNoteLocks } from '../../store/note-locks';
 import { useUi } from '../../store/ui';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
+import { noteLockMenuItems } from '../notes/note-lock-menu';
 import { writeNoteDrag } from '../../lib/note-drag';
 import { treeIndent, treeItemProps, useTreeKeyboard } from '../../lib/tree';
 import { noteFolderOwner } from '../../lib/folders';
@@ -30,7 +32,8 @@ export function groupExplorerNotes(notes: Record<string, NoteSummary>, folders: 
     }
     for (const siblings of groups.values()) {
         const collator = numericCollator(locale);
-        siblings.sort((a, b) => collator.compare(a.title, b.title) || a.id.localeCompare(b.id));
+        // A sealed title is an envelope, not a name: sorting it would order notes by ciphertext.
+        siblings.sort((a, b) => collator.compare(a.isEncrypted ? '' : a.title, b.isEncrypted ? '' : b.title) || a.id.localeCompare(b.id));
     }
     return groups;
 }
@@ -41,14 +44,16 @@ export const ExplorerNote = memo(ExplorerNoteRow);
  * The row's title, with the part a filter query reached marked out. A reading-based hit has no
  * letters in the label to mark, so it comes back plain rather than underlining the wrong ones.
  */
-function titleWithHighlight(note: NoteSummary, highlight?: Query): React.ReactNode {
-    const title = note.title || t('common.untitled_note');
+function titleWithHighlight(note: NoteSummary, unlockedTitle: string | null, highlight?: Query): React.ReactNode {
+    if (note.isEncrypted && unlockedTitle === null)
+        return <span className="note-lock-mosaic" role="img" aria-label={t('notelock.masked')}/>;
+    const title = unlockedTitle ?? note.title;
     if (!highlight?.text)
         return title;
-    const match = queryMatches(highlight, note.title);
+    const match = queryMatches(highlight, unlockedTitle ?? (note.isEncrypted ? '' : note.title));
     if (!match?.ranges.length)
         return title;
-    return splitByRanges(note.title, match.ranges).map((part, index) => part.hit
+    return splitByRanges(unlockedTitle ?? note.title, match.ranges).map((part, index) => part.hit
         ? <span key={index} className="font-semibold text-[var(--accent)]">{part.text}</span>
         : <span key={index}>{part.text}</span>);
 }
@@ -57,6 +62,7 @@ function titleWithHighlight(note: NoteSummary, highlight?: Query): React.ReactNo
 // change re-renders every visible row in the explorer.
 function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setSize, posInSet }: { note: NoteSummary; depth: number; canOpenToSide: boolean; trailing?: React.ReactNode; highlight?: Query; setSize?: number; posInSet?: number }) {
     const active = useUi((s) => s.activeNoteId === note.id);
+    const unlockedTitle = useNoteLocks((s) => s.unlocked[note.id]?.title ?? null);
     const openNote = useNotes((s) => s.openNote);
     const patchNote = useNotes((s) => s.patchNote);
     const deleteNote = useNotes((s) => s.deleteNote);
@@ -80,18 +86,21 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
         { id: 'move', label: t('notes.move_to_folder'), icon: <FolderInput size={13}/>, onSelect: () => setMoving(true) },
         { id: 'archive', label: t('navigation.archive'), icon: <Archive size={13}/>, onSelect: () => void patchNote(note.id, { isArchived: true }) },
         ...lintItems,
+        ...noteLockMenuItems(note, unlockedTitle !== null),
         { id: 'delete', label: t('common.move_to_trash'), icon: <Trash2 size={13}/>, separatorBefore: true, tone: 'danger', onSelect: () => void deleteNote(note.id) },
     ];
     const isDrawing = note.title.endsWith('.excalidraw');
     const isInk = isInkNoteTitle(note.title);
     const isMindmap = isMindmapDocumentTitle(note.title);
-    return <div {...treeItemProps({ level: depth + 1, selected: active, setSize, posInSet })} data-tree-note-id={note.id}>
+    return <div {...treeItemProps({ level: depth + 1, selected: active, setSize, posInSet })} data-tree-note-id={note.id} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 30px' }}>
         <div ref={anchor} draggable onDragStart={(event) => {
             const selected = useUi.getState().selectedIds;
             writeNoteDrag(event, selected.length > 1 && selected.includes(note.id) ? selected : [note.id]);
         }} onContextMenu={(event) => { setMenuOpen(false); contextMenu.onContextMenu(event); }} className={cn('group relative flex h-11 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]', active ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]')} style={{ paddingLeft: treeIndent(depth) }}>
             <span className="w-8 shrink-0 md:w-4"/>
-            {isDrawing ? (
+            {note.isEncrypted && unlockedTitle === null ? (
+                <Lock size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
+            ) : isDrawing ? (
                 <Brush size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             ) : isInk ? (
                 <PenLine size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
@@ -100,8 +109,8 @@ function ExplorerNoteRow({ note, depth, canOpenToSide, trailing, highlight, setS
             ) : (
                 <FileText size={14} className={cn('shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')}/>
             )}
-            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={note.title || t('common.untitled_note')} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[length:var(--text-12-5)]">
-                {titleWithHighlight(note, highlight)}
+            <button type="button" data-tree-note-open data-tree-row data-navigation-item aria-current={active ? 'page' : undefined} title={unlockedTitle ?? (note.isEncrypted ? t('notelock.masked') : note.title || t('common.untitled_note'))} onClick={() => open()} onKeyDown={onKeyDown} className="h-full min-w-0 flex-1 truncate pl-1 text-left text-[length:var(--text-12-5)]">
+                {titleWithHighlight(note, unlockedTitle, highlight)}
             </button>
             {trailing}
             <IconButton label={t('common.more_actions')} size="sm" onClick={() => { contextMenu.close(); setMenuOpen(true); }} className="shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"><MoreHorizontal size={13}/></IconButton>

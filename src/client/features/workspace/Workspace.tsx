@@ -26,6 +26,8 @@ import { insertFiles } from '../../editor/paste';
 import { optimizeImageFile } from '../../lib/image';
 import { exportNoteAsHtml, exportNoteAsMarkdown, exportNoteAsPdf } from '../../lib/export-note';
 import { Preview } from '../preview/Preview';
+import { LockedNoteView } from '../notes/LockedNoteView';
+import { noteLockMenuItems } from '../notes/note-lock-menu';
 import { Outline } from '../preview/Outline';
 import { FloatingOutline } from '../preview/FloatingOutline';
 import { revealPreviewTarget } from '../preview/markdown-tabs';
@@ -434,6 +436,11 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
     }
     const noteFolder = note.folderId ? folders.find((folder) => folder.id === note.folderId) ?? null : null;
     const noteFolderPath = note.folderId ? folderPathLabel(folders, note.folderId) : '';
+    // A sealed note gets its own surface: the editor and the ordinary preview must never receive an
+    // envelope, and an unlocked body is read-only because the server cannot re-seal an edit.
+    if (note.isEncrypted) {
+        return <LockedNoteView note={note} onMobileBack={onMobileBack}/>;
+    }
     const exportNote = async (format: 'md' | 'html' | 'pdf') => {
         setExportMenuOpen(false);
         if (!note)
@@ -512,6 +519,7 @@ export function Workspace({ onMobileBack, pane = 'active', grouped = false, }: {
             icon: <FileDown size={13}/>,
             onSelect: () => void exportNote('pdf'),
         },
+        ...noteLockMenuItems(note, false),
     ];
     const groupedItems: MenuItem[] = [
         { id: 'layout-live', label: t("workspace.editing_mode"), checked: layout === 'live', onSelect: () => setEditorLayout('live') },

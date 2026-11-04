@@ -76,6 +76,7 @@ function stubNote(id: string, title: string): NoteSummary {
     id,
     title,
     excerpt: '',
+    isEncrypted: false,
     folderId: null,
     tags: [],
     isPinned: false,

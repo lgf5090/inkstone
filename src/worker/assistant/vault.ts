@@ -92,7 +92,7 @@ function baseWhere(
   bind: (value: unknown) => string,
   inList: (values: readonly string[]) => string,
 ): string {
-  let where = `n.user_id = ?1 AND n.deleted_at IS NULL`
+  let where = `n.user_id = ?1 AND n.deleted_at IS NULL AND n.is_encrypted = 0`
   if (filter.folderIds?.length) where += ` AND n.folder_id IN (${inList(filter.folderIds)})`
   if (filter.tagId) where += ` AND EXISTS (SELECT 1 FROM note_tags nt WHERE nt.note_id = n.id AND nt.tag_id = ${bind(filter.tagId)})`
   return where + scopeClause(scope, inList)

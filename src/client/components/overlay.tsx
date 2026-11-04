@@ -430,6 +430,11 @@ export interface PromptOptions {
      * and the default trim would turn `{n}. ` into `{n}.` and glue the number to the text.
      */
     preserveSpaces?: boolean;
+    /**
+     * The input's type. A password field keeps the value out of the DOM's visible text and lets the
+     * browser offer its own reveal control; the lock dialogs are the caller that needs this.
+     */
+    inputType?: 'text' | 'password';
 }
 interface PromptRequest {
     options: PromptOptions;
@@ -501,7 +506,7 @@ function PromptDialog({ request, finish }: { request: PromptRequest; finish: (re
         if (submit)
             finish(request, submit);
     }} className="mt-[var(--sp-2)]">
-        <input data-autofocus type="text" className={`${FIELD_BASE} h-9`} value={value} placeholder={request.options.placeholder} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
+        <input data-autofocus type={request.options.inputType ?? 'text'} className={`${FIELD_BASE} h-9`} value={value} placeholder={request.options.placeholder} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => {
         if (isImeComposing(event)) return;
         // Enter has to be cancelled before it commits: committing opens the next dialog in the
         // queue, and the browser runs this keydown's default action after the handler returns.

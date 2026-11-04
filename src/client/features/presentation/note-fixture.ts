@@ -7,6 +7,7 @@ export function noteSummary(id: string, overrides: Partial<NoteSummary> = {}): N
     id,
     title: `Note ${id}`,
     excerpt: '',
+    isEncrypted: false,
     folderId: null,
     tags: [],
     isPinned: false,

@@ -168,7 +168,7 @@ function VirtualRow({ ns, rootIcon, node, allIds, showEmptyToggle }: {
     // That is what lines the calendar/todo root up with the folder root, whose top-level nodes start
     // at `depth: 0` and so render at the same `treeIndent(0)` column and `aria-level: 1`. The `+1` is
     // not an off-by-one to remove — dropping it would push the folder tree's root one step left.
-    return (<div {...treeItemProps({ level: node.depth + 2, expanded: hasChildren ? expanded : undefined, selected: active })}>
+    return (<div {...treeItemProps({ level: node.depth + 2, expanded: hasChildren ? expanded : undefined, selected: active })} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 30px' }}>
       <div ref={anchor} onContextMenu={(event) => {
             setMenuOpen(false);
             menu.onContextMenu(event);

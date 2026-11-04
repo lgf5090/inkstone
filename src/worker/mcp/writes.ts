@@ -124,6 +124,9 @@ export async function editMcpNote(
       const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
       await assertExpectedRevision(context, current, input.expectedRev)
       if (current.deleted_at !== null) throw ApiError.notFound('The note is in the trash')
+      // The server holds ciphertext it cannot re-seal; a plaintext edit here would overwrite the
+      // envelope and leave the note marked encrypted while readable.
+      if (current.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it in the notebook before editing')
       const content = applyEdit(current.content, input)
       return patchNote(context, current, {
         content,
@@ -252,18 +255,20 @@ export async function restoreMcpNote(
         `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
           WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
       ).bind(now, nextRev, row.id, context.userId, row.rev)
-      const derived = buildNoteDerivedStatements({
-        db: context.env.DB,
-        userId: context.userId,
-        noteId: row.id,
-        title: row.title,
-        content: row.content,
-        ftsEnabled: context.ftsEnabled,
-        expectedRev: nextRev,
-        expectedContentHash: row.content_hash,
-        expectedTitle: row.title,
-        expectedUpdatedAt: now,
-      }).statements
+      const derived = row.is_encrypted === 1
+        ? []
+        : buildNoteDerivedStatements({
+            db: context.env.DB,
+            userId: context.userId,
+            noteId: row.id,
+            title: row.title,
+            content: row.content,
+            ftsEnabled: context.ftsEnabled,
+            expectedRev: nextRev,
+            expectedContentHash: row.content_hash,
+            expectedTitle: row.title,
+            expectedUpdatedAt: now,
+          }).statements
       const change = context.env.DB.prepare(
         `INSERT INTO changes (user_id, entity, entity_id, op, at)
          SELECT ?1, 'note', ?2, 'upsert', ?3
@@ -272,7 +277,7 @@ export async function restoreMcpNote(
       ).bind(context.userId, row.id, now, nextRev)
       const results = await context.env.DB.batch([
         update, ...derived,
-        noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now),
+        ...(row.is_encrypted === 1 ? [] : [noteIndexQueueStatement(context.env.DB, context.userId, row.id, 'embed', now)]),
         change,
         readBackNoteStatement(context.env.DB, context.userId, row.id),
       ])

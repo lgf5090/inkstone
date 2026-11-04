@@ -64,12 +64,21 @@ export async function moveNotesToFolder(noteIds: string[], folderId: string | nu
             continue;
         previous.push({ id, folderId: note.folderId ?? null });
     }
-    for (const assignment of previous)
-        await useNotes.getState().patchNote(assignment.id, { folderId });
+    // One revision per note means one request each; sending them serially made a 200-note drag wait
+    // on 200 round trips. Six at a time keeps the burst bounded while cutting the wall time by an
+    // order of magnitude, and each note's own write tail still serialises its revisions.
+    const BATCH = 6;
+    for (let offset = 0; offset < previous.length; offset += BATCH) {
+        await Promise.all(previous.slice(offset, offset + BATCH).map((assignment) =>
+            useNotes.getState().patchNote(assignment.id, { folderId })));
+    }
     return previous;
 }
 
 export async function restoreNoteFolders(assignments: NoteFolderAssignment[]): Promise<void> {
-    for (const assignment of assignments)
-        await useNotes.getState().patchNote(assignment.id, { folderId: assignment.folderId });
+    const BATCH = 6;
+    for (let offset = 0; offset < assignments.length; offset += BATCH) {
+        await Promise.all(assignments.slice(offset, offset + BATCH).map((assignment) =>
+            useNotes.getState().patchNote(assignment.id, { folderId: assignment.folderId })));
+    }
 }

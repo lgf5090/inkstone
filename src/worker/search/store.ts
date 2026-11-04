@@ -161,7 +161,7 @@ export class SearchStore {
     const userId = this.userId
     const binds: unknown[] = [`user_id : "${userId.replace(/"/g, '""')}" AND {title body} : (${match})`, userId]
     let where = `notes_fts MATCH ?1 AND notes_fts.user_id = ?2
-      AND n.user_id = ?2 AND n.deleted_at IS NULL`
+      AND n.user_id = ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0`
     applyFilters(q, binds, 2, (clause) => (where += clause))
     binds.push(q.terms[0]!)
     const contentWindow = contentWindowSql(binds.length)
@@ -195,6 +195,9 @@ export class SearchStore {
     const binds: unknown[] = [userId]
     const termBindIndexes: number[] = []
     let where = 'n.user_id = ?1'
+    // A locked note's title and body are ciphertext; matching them would only surface noise, and a
+    // snippet cut from the envelope is not the note either.
+    where += ' AND n.is_encrypted = 0'
     where += q.trash ? ' AND n.deleted_at IS NOT NULL' : ' AND n.deleted_at IS NULL'
     if (noteIds && noteIds.length) {
       const placeholders = noteIds.map((id) => {

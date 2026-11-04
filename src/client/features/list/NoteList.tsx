@@ -1,7 +1,7 @@
 import { APP_SHORTCUTS, NOTE_LIST_SHORTCUTS } from '../../lib/shortcuts';
 import { PenLine } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
+import { Archive, ArrowDownWideNarrow, BookOpen, Brush, CalendarDays, CheckSquare2, Columns2, Copy, FileCode, FileDown, FileText, FolderInput, Link2, Lock, MoreHorizontal, Network, Newspaper, Pin, PictureInPicture2, PinOff, PanelLeft, Plus, RotateCcw, Sparkles, Star, StarOff, Trash2, Undo2, X, Zap, } from 'lucide-react';
 import { isMindmapDocumentTitle } from '../../lib/markdown/mindmap/document';
 import { isInkNoteTitle } from '../../lib/inkpad/document';
 import type { NoteSummary, SearchHit, SortKey, ViewKind } from '@shared/types';
@@ -23,6 +23,7 @@ import { useUi } from '../../store/ui';
 import { startChatAboutNote } from '../chat/start-chat';
 import { useQuickAdd } from '../../store/quickadd';
 import { createContextualNote, useNotes, useVisibleNotes } from '../../store/notes';
+import { useNoteLocks } from '../../store/note-locks';
 import { useSession } from '../../store/session';
 import { folderPathLabel } from '../../lib/folders';
 import { writeNoteDrag } from '../../lib/note-drag';
@@ -30,6 +31,7 @@ import { isVirtualFolderId, virtualFolderLabel } from '../../lib/calendar-tree';
 import { openNoteFloatingWindow } from './note-floating-window';
 import { FolderPicker } from '../folders/FolderPicker';
 import { useLintNoteMenuItems } from '../linter/useLintMenuItems';
+import { noteLockMenuItems } from '../notes/note-lock-menu';
 import { TemplateQuickActions } from '../templates/quick-actions';
 import { OmnisearchEntry } from '../omnisearch/OmnisearchEntry';
 import { t, useLocale, type MessageKey } from "../../lib/i18n";
@@ -178,6 +180,7 @@ export function NoteList() {
         [searchList, allNotes, notes]);
     const pinyinVersion = usePinyinVersion()
     const deferredQuery = useMemo(() => compileQuery(deferredFilter), [deferredFilter, pinyinVersion]);
+    const unlockedNotes = useNoteLocks((s) => s.unlocked);
     const filtered = useMemo(() => {
         // An empty box or a refused expression keeps every row: the box is the only thing that speaks,
         // exactly as the other `FilterInput` listings do (a query that would not compile is not a
@@ -186,9 +189,16 @@ export function NoteList() {
             return notes.map((note) => ({ note, ranges: EMPTY_HIGHLIGHT }));
         const scored: { note: NoteSummary; ranges: [number, number][]; score: number }[] = [];
         for (const note of searchScope) {
-            const match = queryMatches(deferredQuery, searchKeyOfNote(note, contents));
+            // A sealed note has no searchable text until this session opens it: its title and body
+            // are envelopes, and matching an envelope would only produce noise.
+            if (note.isEncrypted && !unlockedNotes[note.id])
+                continue;
+            const plain = unlockedNotes[note.id];
+            const key = plain ? `${plain.title}\n${plain.content}\n${note.tags.join(' ')}` : searchKeyOfNote(note, contents);
+            const match = queryMatches(deferredQuery, key);
             if (!match) continue;
-            scored.push({ note, score: match.score, ranges: match.ranges.filter(([s]) => s < note.title.length) });
+            const titleLength = plain?.title.length ?? note.title.length;
+            scored.push({ note, score: match.score, ranges: match.ranges.filter(([s]) => s < titleLength) });
         }
         scored.sort((a, b) => b.score - a.score);
         const local = scored.slice(0, SEARCH_FILTER_LIMIT).map(({ note, ranges }) => ({ note, ranges }));
@@ -200,7 +210,7 @@ export function NoteList() {
             seen.add(note.id);
             return [{ note, ranges: EMPTY_HIGHLIGHT }];
         })];
-    }, [notes, searchScope, deferredQuery, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion]);
+    }, [notes, searchScope, deferredQuery, deferredFilter, searchList, remote, allNotes, contents, pinyinVersion, unlockedNotes]);
     useEffect(() => {
         // Deriving the whole vault's readings costs about 0.06ms a title, so on the first keystroke it
         // is one 120ms task for 2000 notes. Idle spreads the same work into a few milliseconds per
@@ -481,7 +491,13 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
     const duplicateNote = useNotes((s) => s.duplicateNote);
     const folders = useNotes((s) => s.folders);
     const role = useSession((s) => s.user?.role);
+    const unlockedTitle = useNoteLocks((s) => s.unlocked[note.id]?.title ?? null);
+    const locked = note.isEncrypted && unlockedTitle === null;
     const publishBlog = async (publish: boolean) => {
+        if (locked) {
+            toast({ title: t('notelock.share_blocked'), tone: 'warning' });
+            return;
+        }
         const { publishNoteToBlog } = await import('../blog/publish');
         await publishNoteToBlog(note.id, publish);
     };
@@ -514,6 +530,10 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         }
     };
     const exportNote = async (format: 'md' | 'html' | 'pdf') => {
+        if (locked) {
+            toast({ title: t('notelock.export_blocked'), tone: 'warning' });
+            return;
+        }
         const state = useNotes.getState();
         let content = state.contents[note.id];
         if (content === undefined) {
@@ -566,6 +586,7 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
             },
         ]
         : [
+            ...noteLockMenuItems(note, unlockedTitle !== null),
             ...(breakpoint === 'desktop' ? [{
                 id: 'open-side',
                 label: t("notes.open_to_side"),
@@ -615,9 +636,10 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
                 label: t("assistant.scope.about_note"),
                 icon: <Sparkles size={13}/>,
                 separatorBefore: true,
+                disabled: locked,
                 onSelect: () => startChatAboutNote(note.id),
             },
-            { id: 'duplicate', label: t("notes.create_a_copy"), icon: <Copy size={13}/>, onSelect: () => void duplicateNote(note.id) },
+            { id: 'duplicate', label: t("notes.create_a_copy"), icon: <Copy size={13}/>, disabled: locked, onSelect: () => void duplicateNote(note.id) },
             { id: 'new-drawing', label: t("common.new_drawing"), icon: <Brush size={13}/>, onSelect: () => void useNotes.getState().createExcalidrawNote(note.folderId) },
             { id: 'new-ink', label: t("common.new_ink"), icon: <PenLine size={13}/>, onSelect: () => void useNotes.getState().createInkNote(note.folderId) },
             { id: 'new-mindmap', label: t("common.new_mindmap"), icon: <Network size={13}/>, onSelect: () => void useNotes.getState().createMindmapNote(note.folderId) },
@@ -647,13 +669,13 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
             },
         ];
     const items: MenuItem[] = [
-        { id: 'copy-title', label: t('notes.copy_title'), icon: <Copy size={13}/>, onSelect: () => void copyText(note.title || t('common.untitled_note'), 'notes.title_copied') },
+        { id: 'copy-title', label: t('notes.copy_title'), icon: <Copy size={13}/>, disabled: locked, onSelect: () => void copyText((unlockedTitle ?? note.title) || t('common.untitled_note'), 'notes.title_copied') },
         { id: 'copy-id', label: t('notes.copy_id'), icon: <Copy size={13}/>, onSelect: () => void copyText(note.id, 'notes.id_copied') },
         { id: 'copy-direct-link', label: t('notes.copy_direct_link'), icon: <Link2 size={13}/>, onSelect: () => void copyText(new URL(`/n/${encodeURIComponent(note.id)}`, window.location.origin).href, 'notes.direct_link_copied') },
         ...(inTrash ? [] : lintItems),
         ...noteActions,
     ];
-    const titleParts = splitByRanges(note.title || t("common.untitled_note"), highlight);
+    const titleParts = locked ? [] : splitByRanges((unlockedTitle ?? note.title) || t("common.untitled_note"), highlight);
     return (<>
       <div id={`note-option-${note.id}`} role="option" aria-selected={active || selected} aria-posinset={position} aria-setsize={total} tabIndex={-1} data-note-id={note.id} draggable style={{ contentVisibility: 'auto', containIntrinsicSize: density === 'compact' ? 'auto 42px' : 'auto 72px' }} onDragStart={(e) => {
             writeNoteDrag(e, selectedIds.length > 1 && selectedIds.includes(note.id) ? selectedIds : [note.id]);
@@ -686,14 +708,17 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
         <div className="flex items-start gap-1.5">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              {note.title.endsWith('.excalidraw') && <Brush size={12} className="shrink-0 text-[var(--accent)]"/>}
+              {locked && <Lock size={12} className="shrink-0 text-[var(--accent)]"/>}
+              {!locked && note.title.endsWith('.excalidraw') && <Brush size={12} className="shrink-0 text-[var(--accent)]"/>}
               {isInkNoteTitle(note.title) && <PenLine size={12} className="shrink-0 text-[var(--accent)]"/>}
               {isMindmapDocumentTitle(note.title) && <Network size={12} className="shrink-0 text-[var(--accent)]"/>}
               {note.isPinned && <Pin size={10} className="anim-mark-enter shrink-0 text-[var(--accent)]"/>}
               <h3 className={cn('min-w-0 flex-1 truncate text-[length:var(--text-13)] leading-snug', active
             ? 'font-semibold text-[var(--accent)]'
             : 'font-medium text-[var(--text-primary)]')}>
-                {titleParts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
+                {locked
+                    ? <span className="note-lock-mosaic" role="img" aria-label={t('notelock.masked')}/>
+                    : titleParts.map((part, i) => part.hit ? (<mark key={i} className="ink-hit">
                       {part.text}
                     </mark>) : (<span key={i}>{part.text}</span>))}
               </h3>
@@ -701,11 +726,11 @@ const NoteRow = memo(function NoteRow({ note, highlight, density, tagColors, pos
               {blogStatus && <BlogOpenIcon status={blogStatus}/>}
             </div>
 
-            {density === 'comfortable' && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-11-5)] leading-[1.5] text-[var(--text-tertiary)]">
+            {density === 'comfortable' && !locked && note.excerpt && (<p className="truncate-2 mt-1 text-[length:var(--text-11-5)] leading-[1.5] text-[var(--text-tertiary)]">
                 {note.excerpt}
               </p>)}
 
-            {note.tags.length > 0 && density === 'comfortable' && (<div className="group/tags mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
+            {note.tags.length > 0 && !locked && density === 'comfortable' && (<div className="group/tags mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-[length:var(--text-10-5)] text-[var(--text-tertiary)]">
                 {note.tags.map((tag) => (<span key={tag} className="flex max-w-[70%] shrink-0 items-center gap-px truncate">
                     <button type="button" onClick={(event) => {
                             event.stopPropagation();

@@ -139,7 +139,7 @@ export async function drainFtsQueue(
     const { results: noteRows } = await db
       .prepare(
         `SELECT id, title, substr(content, 1, ?3) AS content, rev, content_hash, updated_at FROM notes
-          WHERE user_id = ?1 AND deleted_at IS NULL
+          WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0
             AND id IN (SELECT value FROM json_each(?2))`,
       )
       .bind(userId, JSON.stringify(upsertIds), LIMITS.ftsContentChars)

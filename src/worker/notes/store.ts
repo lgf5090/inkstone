@@ -205,6 +205,7 @@ export interface NotePatchColumns {
   content?: string
   content_hash?: string
   title?: string
+  title_key?: string
   excerpt?: string
   word_count?: number
   char_count?: number
@@ -212,6 +213,7 @@ export interface NotePatchColumns {
   is_pinned?: number
   is_starred?: number
   is_archived?: number
+  is_encrypted?: number
 }
 
 /**
@@ -231,6 +233,11 @@ export interface NotePatchInput {
   titleChanged: boolean
   /** Rebuild tags, links and index rows: skipped for a note that is already in the trash. */
   derive: boolean
+  /**
+   * Whether this edit's text belongs in the AI index. A lock writes ciphertext, which must not be
+   * embedded; ordinary edits leave this unset and keep the queue statement.
+   */
+  indexable?: boolean
   /** `null` when the previous text is not kept; the route owns that rule. */
   snapshot: { preserve: boolean; bigChange: boolean } | null
 }
@@ -792,7 +799,7 @@ export class NotesStore {
       }
     }
 
-    if (input.contentChanged || input.titleChanged) {
+    if ((input.contentChanged || input.titleChanged) && input.indexable !== false) {
       statements.push(noteIndexQueueStatement(this.db, this.userId, id, 'embed', now))
     }
 
@@ -966,19 +973,21 @@ export class NotesStore {
       `UPDATE notes SET deleted_at = NULL, updated_at = ?1, rev = ?2
         WHERE id = ?3 AND user_id = ?4 AND rev = ?5 AND deleted_at IS NOT NULL`,
     ).bind(now, nextRev, current.id, this.userId, current.rev)
-    const derived = buildNoteDerivedStatements({
-      db: this.db,
-      userId: this.userId,
-      noteId: current.id,
-      title: current.title,
-      content: current.content,
-      ftsEnabled: this.ftsEnabled,
-      titleChanged: true,
-      expectedRev: nextRev,
-      expectedContentHash: current.content_hash,
-      expectedTitle: current.title,
-      expectedUpdatedAt: now,
-    }).statements
+    const derived = current.is_encrypted === 1
+      ? []
+      : buildNoteDerivedStatements({
+          db: this.db,
+          userId: this.userId,
+          noteId: current.id,
+          title: current.title,
+          content: current.content,
+          ftsEnabled: this.ftsEnabled,
+          titleChanged: true,
+          expectedRev: nextRev,
+          expectedContentHash: current.content_hash,
+          expectedTitle: current.title,
+          expectedUpdatedAt: now,
+        }).statements
     const change = this.db.prepare(
       `INSERT INTO changes (user_id, entity, entity_id, op, at)
        SELECT ?1, 'note', ?2, 'upsert', ?3
@@ -991,7 +1000,7 @@ export class NotesStore {
     const batchResults = await this.db.batch([
       update,
       ...derived,
-      noteIndexQueueStatement(this.db, this.userId, current.id, 'embed', now),
+      ...(current.is_encrypted === 1 ? [] : [noteIndexQueueStatement(this.db, this.userId, current.id, 'embed', now)]),
       change,
       readback,
     ])

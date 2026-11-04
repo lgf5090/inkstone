@@ -100,7 +100,7 @@ export class ShareStore {
   /** Whether this account owns a live (un-trashed) note — the only check a share target needs. */
   async liveNoteExists(noteId: string): Promise<boolean> {
     const row = await this.db
-      .prepare(`SELECT id FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`)
+      .prepare(`SELECT id FROM notes WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL AND is_encrypted = 0`)
       .bind(noteId, this.userId)
       .first<{ id: string }>()
     return row !== null
@@ -182,7 +182,7 @@ export async function loadSharedNote(
     .prepare(
       `SELECT n.title, n.content, n.created_at, n.updated_at, u.name, u.avatar_url
          FROM notes n JOIN users u ON u.id = n.user_id
-        WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
+        WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0`,
     )
     .bind(noteId, ownerId)
     .first<SharedNoteRow>()
@@ -213,7 +213,7 @@ export async function loadSharePageMeta(
     .prepare(
       `SELECT s.password_hash, s.expires_at, s.is_enabled, n.title, n.excerpt
          FROM shares s JOIN notes n ON n.id = s.note_id AND n.user_id = s.user_id
-        WHERE s.slug = ?1 AND n.deleted_at IS NULL`,
+        WHERE s.slug = ?1 AND n.deleted_at IS NULL AND n.is_encrypted = 0`,
     )
     .bind(slug)
     .first<SharePageMeta>()

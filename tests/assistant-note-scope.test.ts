@@ -27,7 +27,7 @@ function seed(): D1Database {
   const sqlite = new DatabaseSync(':memory:')
   sqlite.exec(`
     CREATE TABLE folders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, parent_id TEXT, name TEXT NOT NULL, deleted_at INTEGER);
-    CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, folder_id TEXT, deleted_at INTEGER);
+    CREATE TABLE notes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, folder_id TEXT, is_encrypted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER);
     CREATE TABLE note_tags (note_id TEXT NOT NULL, tag_id TEXT NOT NULL);
   `)
   for (const id of [WORK, OTHER_FOLDER]) {

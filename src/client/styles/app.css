@@ -542,3 +542,47 @@
   top: 0;
   z-index: 2;
 }
+
+/* A locked note is drawn as redacted bars, never as its envelope. The bars carry no text and no
+   width derived from the plaintext, so the shape of a secret is not something the list reveals. */
+.note-lock-mosaic {
+  display: inline-block;
+  height: 0.9em;
+  min-width: 72px;
+  max-width: 160px;
+  vertical-align: middle;
+  border-radius: var(--r-xs);
+  background:
+    repeating-linear-gradient(90deg,
+      var(--bg-inset) 0 7px,
+      var(--bg-hover) 7px 14px);
+  user-select: none;
+}
+
+.note-lock-mosaic--wide {
+  width: 100%;
+  max-width: none;
+}
+
+.note-lock-mosaic--body {
+  display: block;
+  height: 0.78em;
+  margin: 0.42em 0;
+}
+
+.note-lock-mosaic--short {
+  width: 46%;
+}
+
+.note-lock-mosaic--medium {
+  width: 72%;
+}
+
+/* The lock panel's own placeholder: a dimmed surface with the same redaction bars, so an unlocked
+   demo can show what is hidden without ever putting the words in the DOM. */
+.note-lock-panel {
+  background:
+    radial-gradient(120% 90% at 15% 0%, var(--accent-soft), transparent 60%),
+    var(--bg-editor);
+}
+

@@ -2257,7 +2257,7 @@ export class AssistantRunner {
         if (!project?.readProjectInstructions) return null
         const row = await this.deps.env.DB.prepare(
           `SELECT content FROM notes
-            WHERE user_id = ?1 AND folder_id IS NULL AND deleted_at IS NULL
+            WHERE user_id = ?1 AND folder_id IS NULL AND deleted_at IS NULL AND is_encrypted = 0
               AND lower(title) IN ('agents.md', 'claude.md')
             ORDER BY updated_at DESC LIMIT 1`,
         ).bind(this.store.userId).first<{ content: string }>()

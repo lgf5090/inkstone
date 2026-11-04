@@ -359,7 +359,7 @@ export async function rebuildDerivedFields(
   const page = await db
     .prepare(
       `SELECT id, content, rev, content_hash FROM notes
-        WHERE user_id = ?1 AND deleted_at IS NULL AND (?3 IS NULL OR id > ?3)
+        WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0 AND (?3 IS NULL OR id > ?3)
         ORDER BY id ASC LIMIT ?2`,
     )
     .bind(userId, limit + 1, afterId)

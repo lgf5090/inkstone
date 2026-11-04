@@ -30,7 +30,6 @@ const exempt = new Set([
   'src/client/features/development/database/StudioSidebar.tsx:684',
   'src/client/features/imgbed/settings/SettingsPage.tsx:200',
   'src/client/features/memos/pages/memo-settings/ImportExportSettings.tsx:194',
-  'src/client/features/sidebar/Sidebar.tsx:988',
   'src/client/features/subscriptions/SubscriptionDetail.tsx:137',
   'src/client/features/youtube/quota/QuotaDialog.tsx:168',
 ])

@@ -189,7 +189,7 @@ export async function readableNoteIds(
       where += ` AND (folder_id IS NULL OR folder_id NOT IN (${excludedPlaceholders}))`
     }
     const { results } = await db.prepare(
-      `SELECT id FROM notes WHERE ${where}`,
+      `SELECT id FROM notes WHERE ${where} AND is_encrypted = 0`,
     ).bind(...binds).all<{ id: string }>()
     for (const row of results ?? []) allowed.add(row.id)
   }

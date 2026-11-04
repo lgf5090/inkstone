@@ -22,6 +22,12 @@ export function startPresentationFromNote(noteId: string): boolean {
     useUi.getState().toast({ title: t('workspace.presentation_start_no_note'), tone: 'warning' })
     return false
   }
+  // The projector reads the body whatever the session holds; a sealed note has only an envelope,
+  // and presenting it would put ciphertext on the screen instead of the note.
+  if (note.isEncrypted) {
+    useUi.getState().toast({ title: t('notelock.presentation_blocked'), tone: 'warning' })
+    return false
+  }
   const content = state.contents[noteId] ?? ''
   const offset = getActiveEditorView()?.state.selection.main.head ?? 0
   usePresentation.getState().start({ noteId, content, title: note.title, initialSlideIndex: findSlideIndexByOffset(content, offset) })

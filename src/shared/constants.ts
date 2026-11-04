@@ -512,6 +512,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     newNoteTemplate: DEFAULT_NEW_NOTE_TEMPLATE,
     syncTitleToFrontMatter: true,
     syncFrontMatterTitle: true,
+    lockTimeoutMinutes: 5,
   },
   search: {
     enabled: true,
@@ -1077,6 +1078,10 @@ export function mergeSettings(partial: unknown): UserSettings {
     : base.notes.newNoteTemplate
   base.notes.syncTitleToFrontMatter = booleanValue(notes.syncTitleToFrontMatter, base.notes.syncTitleToFrontMatter)
   base.notes.syncFrontMatterTitle = booleanValue(notes.syncFrontMatterTitle, base.notes.syncFrontMatterTitle)
+  // A lock timeout of zero would lock the note before it could be read, and a very long one would
+  // leave an unlocked note readable for a whole working day; the panel offers minutes, the reader
+  // stores minutes, and the clamp is the one rule both obey.
+  base.notes.lockTimeoutMinutes = integerInRange(notes.lockTimeoutMinutes, 1, 240, base.notes.lockTimeoutMinutes)
   base.todo.defaultRemind = todoRemindOffset(todo.defaultRemind)
   base.todo.dailyGoal = todoGoal(todo.dailyGoal)
   base.todo.weeklyGoal = todoGoal(todo.weeklyGoal)

@@ -92,11 +92,11 @@ export async function resolveNoteMentions(
     const query = mention.id
       ? db.prepare(
         `SELECT id, title, content FROM notes
-          WHERE user_id = ?1 AND deleted_at IS NULL AND id = ?2`,
+          WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0 AND id = ?2`,
       ).bind(userId, mention.id)
       : db.prepare(
         `SELECT id, title, content FROM notes
-          WHERE user_id = ?1 AND deleted_at IS NULL AND lower(title) = lower(?2)
+          WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0 AND lower(title) = lower(?2)
           ORDER BY updated_at DESC LIMIT 5`,
       ).bind(userId, mention.title)
     const { results } = await query.all<{ id: string, title: string, content: string }>()
