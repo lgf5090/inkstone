@@ -9,9 +9,9 @@ import { makeD1 } from './doubles/d1-sqlite'
  * The lock column's ledger transition, run against a real SQLite database rather than a shape check.
  *
  * The branch first shipped `notes.is_encrypted` as migration 266. Memos then merged and took 266 for
- * `memos_items.content_cipher`. A local database that already ran the old number must record 268/269
- * without re-adding the column, and must not keep 266 in the ledger in a way that makes the Memos
- * migration look applied forever.
+ * `memos_items.content_cipher`. A local database that already ran the old number records 266 without
+ * the Memos column, so 268 backfills exactly that column to make 266 truthful; 269 then adds the lock
+ * column idempotently. Deleting 266 is not an option because the boot fingerprint caches the pass.
  */
 
 function boot(sqlite: DatabaseSync): Promise<unknown> {
@@ -33,7 +33,7 @@ function forgetFingerprint(sqlite: DatabaseSync): void {
 }
 
 describe('the notes lock migration on a real D1-shaped database', () => {
-  it('adds the column and the Memos columns on a fresh boot, under 268/269', async () => {
+  it('adds the lock column and records 268/269 on a fresh boot', async () => {
     const sqlite = new DatabaseSync(':memory:')
     await boot(sqlite)
 
@@ -41,13 +41,14 @@ describe('the notes lock migration on a real D1-shaped database', () => {
     expect(columns(sqlite, 'memos_items')).toContain('encrypted')
     expect(columns(sqlite, 'memos_items')).toContain('content_cipher')
     const applied = ledger(sqlite)
+    expect(applied).toContain(266)
     expect(applied).toContain(268)
     expect(applied).toContain(269)
   })
 })
 
 describe('a database that already ran the old 266', () => {
-  it('keeps the column, frees the number for Memos, and converges on the next boot', async () => {
+  it('keeps 266 truthful by adding the Memos column, and converges without a duplicate', async () => {
     const sqlite = new DatabaseSync(':memory:')
     await boot(sqlite)
 
@@ -62,22 +63,23 @@ describe('a database that already ran the old 266', () => {
     await boot(sqlite)
 
     expect(columns(sqlite, 'notes')).toContain('is_encrypted')
-    // The shape repair replays the Memos column even though its ledger row was freed in this pass.
+    // 266 stays in the ledger; 268 makes the effect it names true instead of deleting the row.
     expect(columns(sqlite, 'memos_items')).toContain('content_cipher')
     expect(columns(sqlite, 'memos_items')).toContain('encrypted')
     const firstBoot = ledger(sqlite)
-    expect(firstBoot).not.toContain(266)
+    expect(firstBoot).toContain(265)
+    expect(firstBoot).toContain(266)
     expect(firstBoot).toContain(268)
     expect(firstBoot).toContain(269)
 
-    // The next boot restores the Memos ledger row without touching a column that already exists.
+    // A second boot reads the stored fingerprint and must not add the column again.
     forgetFingerprint(sqlite)
     await boot(sqlite)
     const secondBoot = ledger(sqlite)
-    expect(secondBoot).toContain(265)
     expect(secondBoot).toContain(266)
     expect(secondBoot).toContain(268)
     expect(secondBoot).toContain(269)
     expect(columns(sqlite, 'notes').filter((name) => name === 'is_encrypted')).toHaveLength(1)
+    expect(columns(sqlite, 'memos_items').filter((name) => name === 'content_cipher')).toHaveLength(1)
   })
 })

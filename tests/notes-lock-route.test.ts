@@ -152,12 +152,12 @@ describe('search ignores locked notes', () => {
 })
 
 describe('the lock column migration', () => {
-  it('adds the column once and frees the old number only in the shape this branch wrote', () => {
-    const cleanup = SCHEMA_MIGRATIONS.find((entry) => entry.version === 268)
-    expect(cleanup?.statements).toHaveLength(1)
-    expect(cleanup?.statements[0]).toMatch(/DELETE FROM schema_migrations/)
-    expect(cleanup?.statements[0]).toMatch(/pragma_table_info\('notes'\).*is_encrypted/s)
-    expect(cleanup?.statements[0]).toMatch(/NOT EXISTS \(SELECT 1 FROM pragma_table_info\('memos_items'\).*content_cipher/s)
+  it('adds the lock column once and repairs the effect of a reused 266 for Memos', () => {
+    const repair = SCHEMA_MIGRATIONS.find((entry) => entry.version === 268)
+    expect(repair).toMatchObject({
+      skipIfColumnExists: { table: 'memos_items', column: 'content_cipher' },
+      statements: ['ALTER TABLE memos_items ADD COLUMN content_cipher TEXT NOT NULL DEFAULT \'\''],
+    })
 
     const migration = SCHEMA_MIGRATIONS.find((entry) => entry.version === 269)
     expect(migration).toMatchObject({

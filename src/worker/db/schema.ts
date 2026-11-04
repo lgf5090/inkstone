@@ -3685,16 +3685,15 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   },
   {
     // The notes lock column originally shipped as 266 in this branch, before Memos merged and took
-    // 266 for `memos_items.content_cipher`. A local database that already ran the old number has
-    // 266 in its ledger with `notes.is_encrypted` present and the Memos column absent; leaving that
-    // row would make the Memos migration look applied forever. This cleanup frees the number only
-    // in that exact shape, so a database where 266 really was Memos keeps its ledger row.
+    // 266 for `memos_items.content_cipher`. A database that already ran the old number has 266 in
+    // its ledger, so the Memos entry is skipped and its column can be missing. Deleting 266 would
+    // leave the ledger permanently short — the boot fingerprint caches the migration pass, so no
+    // later boot revisits it. Instead this version makes 266's recorded effect true by adding the
+    // column it names; from then on 266 is a legitimate Memos row in every ledger that has it.
     version: 268,
+    skipIfColumnExists: { table: 'memos_items', column: 'content_cipher' },
     statements: [
-      `DELETE FROM schema_migrations
-        WHERE version = 266
-          AND EXISTS (SELECT 1 FROM pragma_table_info('notes') WHERE name = 'is_encrypted')
-          AND NOT EXISTS (SELECT 1 FROM pragma_table_info('memos_items') WHERE name = 'content_cipher')`,
+      `ALTER TABLE memos_items ADD COLUMN content_cipher TEXT NOT NULL DEFAULT ''`,
     ],
   },
   {
