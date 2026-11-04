@@ -12,7 +12,8 @@ import {
 import { MapPin, Plus, X } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo } from '@shared/memos/types'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { Modal } from '../../../components/overlay'
 import { InlineErrorBoundary } from '../../../components/ErrorBoundary'
@@ -285,9 +286,9 @@ export function MemoMapPage({ onOpenMemo }: MemoMapPageProps): ReactElement {
                       {coordinateLabel(selection.latitude, selection.longitude)}
                     </p>
                   </div>
-                  <IconButton label={t('memos.map.clear_selection')} size="xs" onClick={clearSelection}>
+                  <TooltipIconButton label={t('memos.map.clear_selection')} size="xs" onClick={clearSelection}>
                     <X size={13} aria-hidden="true" />
-                  </IconButton>
+                  </TooltipIconButton>
                 </div>
                 <Button
                   size="sm"

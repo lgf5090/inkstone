@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Paperclip, Pencil, Trash2, X } from 'lucide-react'
 import { MEMO_ATTACHMENT_MAX_BYTES, MEMO_COMMENT_PAGE_SIZE } from '@shared/memos/constants'
 import type { Memo, MemoAttachment } from '@shared/memos/types'
-import { Button, IconButton, Spinner } from '../../../components/primitives'
+import { Button, Spinner } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Skeleton } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { ApiError } from '../../../lib/api'
@@ -88,14 +89,14 @@ function AttachmentDraftList({
         >
           <Paperclip size={11} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]" />
           <span className="min-w-0 flex-1 truncate">{attachment.filename}</span>
-          <IconButton
+          <TooltipIconButton
             label={t('memos.comments.remove_attachment', { name: attachment.filename })}
             size="xs"
             disabled={disabled}
             onClick={() => onRemove(attachment)}
           >
             <X size={11} />
-          </IconButton>
+          </TooltipIconButton>
         </li>
       ))}
     </ul>
@@ -394,22 +395,22 @@ function MemoCommentsThread({
                   </time>
                   {canManage ? (
                     <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                      <IconButton
+                      <TooltipIconButton
                         label={t('memos.comments.edit')}
                         size="xs"
                         disabled={busy}
                         onClick={() => startEdit(comment)}
                       >
                         <Pencil size={12} />
-                      </IconButton>
-                      <IconButton
+                      </TooltipIconButton>
+                      <TooltipIconButton
                         label={t('memos.comments.delete')}
                         size="xs"
                         disabled={busy}
                         onClick={() => void removeComment(comment)}
                       >
                         {deletingId === comment.id ? <Spinner size={12} /> : <Trash2 size={12} />}
-                      </IconButton>
+                      </TooltipIconButton>
                     </div>
                   ) : null}
                 </div>
@@ -436,14 +437,14 @@ function MemoCommentsThread({
                       onRemove={removeEditingAttachment}
                     />
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <IconButton
+                      <TooltipIconButton
                         label={t('memos.comments.attach_file')}
                         size="sm"
                         disabled={savingEdit || uploadingEdit}
                         onClick={() => editFileInputRef.current?.click()}
                       >
                         <Paperclip size={14} />
-                      </IconButton>
+                      </TooltipIconButton>
                       {uploadingEdit ? (
                         <span role="status" className="inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                           <Spinner size={12} />
@@ -553,14 +554,14 @@ function MemoCommentsThread({
             onRemove={removeNewAttachment}
           />
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <IconButton
+            <TooltipIconButton
               label={t('memos.comments.attach_file')}
               size="sm"
               disabled={posting || uploadingNew}
               onClick={() => newFileInputRef.current?.click()}
             >
               <Paperclip size={14} />
-            </IconButton>
+            </TooltipIconButton>
             {uploadingNew ? (
               <span role="status" className="inline-flex items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                 <Spinner size={12} />

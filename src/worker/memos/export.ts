@@ -58,6 +58,7 @@ interface MemoRow {
   location_placeholder: string | null
   latitude: number | null
   longitude: number | null
+  encrypted: number
   created_at: number
   updated_at: number
 }
@@ -88,7 +89,7 @@ interface SpaceRow {
 }
 
 const MEMO_COLUMNS = `id, space_id, parent_id, content, visibility, state, pinned, has_location,
-  location_placeholder, latitude, longitude, created_at, updated_at`
+  location_placeholder, latitude, longitude, encrypted, created_at, updated_at`
 
 const ATTACHMENT_COLUMNS = `a.id, a.user_id, a.memo_id, a.filename, a.mime, a.size, a.storage,
   a.storage_key, a.width, a.height, a.thumbnail_key, a.media_metadata, a.motion_group_id,
@@ -99,6 +100,18 @@ const VISIBILITY_BY_MEMO: Record<MemoVisibility, MemoExportVisibility> = {
   protected: 'PROTECTED',
   public: 'PUBLIC',
 }
+
+/**
+ * What a sealed memo's content file says.
+ *
+ * The archive is plaintext by design: an importer has no key, and shipping the ciphertext would only
+ * create a file nobody can read. Saying so in the body is the honest alternative to an empty entry.
+ */
+const SEALED_MEMO_EXPORT_BODY = [
+  'This memo is sealed in Memos. Its body is not included in this plaintext export.',
+  'Open the memo in Memos and enter your passphrase to read it.',
+  '',
+].join('\n')
 
 const EXTENDED_TIMESTAMP_EXTRA_ID = 0x5455
 const COMPRESSION_LEVEL = 6
@@ -349,9 +362,14 @@ export async function buildMemoExport(
     }
     const attachments = attachmentsByMemo.get(row.id)
     if (attachments?.length) record.attachments = attachments
+    if (row.encrypted) record.encrypted = true
 
     addEntry(memoExportMemoJsonPath(row.id), encodeJson(record), true)
-    addEntry(record.contentPath, encodeText(row.content), true)
+    addEntry(
+      record.contentPath,
+      encodeText(row.encrypted ? SEALED_MEMO_EXPORT_BODY : row.content),
+      true,
+    )
   }
 
   if (failure.error) throw failure.error

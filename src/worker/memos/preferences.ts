@@ -29,6 +29,8 @@ const PREFERENCE_KEYS = new Set<string>([
   'transcriptionModel',
   'transcriptionLanguage',
   'transcriptionPrompt',
+  'maskAutoLockMinutes',
+  'relockOnNavigate',
 ])
 
 const TRANSCRIPTION_LANGUAGE_MAX = 16
@@ -198,7 +200,21 @@ function mergePreferences(
     transcriptionPrompt: patch.transcriptionPrompt === undefined
       ? current.transcriptionPrompt
       : parseOptionalText(patch.transcriptionPrompt, 'transcriptionPrompt', TRANSCRIPTION_PROMPT_MAX) ?? '',
+    maskAutoLockMinutes: patch.maskAutoLockMinutes === undefined
+      ? current.maskAutoLockMinutes
+      : parseMaskAutoLockMinutes(patch.maskAutoLockMinutes),
+    relockOnNavigate: patch.relockOnNavigate === undefined
+      ? current.relockOnNavigate
+      : parseBoolean(patch.relockOnNavigate, 'relockOnNavigate'),
   }
+}
+
+/** 0 means "keep it revealed until this tab closes"; otherwise a positive number of minutes. */
+function parseMaskAutoLockMinutes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 24 * 60) {
+    throw ApiError.badRequest('maskAutoLockMinutes must be an integer between 0 and 1440')
+  }
+  return value
 }
 
 function parseStoredPreferences(json: string): MemoPreferences | null {

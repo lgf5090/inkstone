@@ -64,6 +64,8 @@ function comment(id: string, content: string, snippet = ''): Memo {
     relations: [],
     commentCount: 0,
     rev: 1,
+    encrypted: false,
+    contentCipher: '',
     createdAt: 1,
     updatedAt: 1,
   }

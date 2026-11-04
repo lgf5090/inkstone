@@ -3,7 +3,8 @@ import { Maximize2, Minus, Plus } from 'lucide-react'
 import L from 'leaflet'
 import 'leaflet.markercluster'
 import 'leaflet.markercluster/dist/MarkerCluster.css'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { t, useLocale } from '../../../lib/i18n'
 import { createMemoLeafletMap, prefersReducedMotion } from '../leaflet-map'
 import {
@@ -279,7 +280,7 @@ export function MemoMap({
         className="absolute inset-0 isolate"
       />
       <div className="absolute left-2 top-2 z-[var(--z-sticky)] flex flex-col gap-1">
-        <IconButton
+        <TooltipIconButton
           label={t('memos.map.zoom_in')}
           size="sm"
           variant="secondary"
@@ -287,8 +288,8 @@ export function MemoMap({
           onClick={() => mapRef.current?.zoomIn()}
         >
           <Plus size={15} aria-hidden="true" />
-        </IconButton>
-        <IconButton
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('memos.map.zoom_out')}
           size="sm"
           variant="secondary"
@@ -296,8 +297,8 @@ export function MemoMap({
           onClick={() => mapRef.current?.zoomOut()}
         >
           <Minus size={15} aria-hidden="true" />
-        </IconButton>
-        <IconButton
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('memos.map.fit_all')}
           size="sm"
           variant="secondary"
@@ -305,7 +306,7 @@ export function MemoMap({
           onClick={fitAll}
         >
           <Maximize2 size={14} aria-hidden="true" />
-        </IconButton>
+        </TooltipIconButton>
       </div>
       {tileError ? (
         <div

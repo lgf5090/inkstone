@@ -75,6 +75,7 @@ function listOptions(c: Context<AppBindings>): MemoListOptions {
     state: parseStateQuery(c.req.query('state')),
     spaceId: parseQueryId(c.req.query('spaceId'), 'spaceId'),
     parentId: parseQueryId(c.req.query('parentId'), 'parentId'),
+    commentsOnly: c.req.query('commentsOnly') === '1',
     filter: c.req.query('filter') || undefined,
     orderBy: parseOrderBy(c.req.query('orderBy')),
     order: parseOrder(c.req.query('order')),

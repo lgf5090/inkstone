@@ -3629,6 +3629,24 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE scriptshub_revisions ADD COLUMN diff_stat TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    // A sealed memo keeps its body in `content_cipher` and leaves `content` empty, so the server
+    // never receives plaintext. The flag and the column arrive one version apart because the ledger
+    // spends one version per added column; both are guarded so a database that already has them
+    // simply records the numbers.
+    version: 265,
+    skipIfColumnExists: { table: 'memos_items', column: 'encrypted' },
+    statements: [
+      `ALTER TABLE memos_items ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 266,
+    skipIfColumnExists: { table: 'memos_items', column: 'content_cipher' },
+    statements: [
+      `ALTER TABLE memos_items ADD COLUMN content_cipher TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

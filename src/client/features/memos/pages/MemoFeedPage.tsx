@@ -231,6 +231,7 @@ export function MemoFeedPage({
                   }
                   doubleClickEdit={preferences.preferences.enableDoubleClickEdit}
                   highlight={highlightWords}
+                  maskAutoLockMinutes={preferences.preferences.maskAutoLockMinutes}
                   onOpen={onOpen}
                   onStartEdit={() => setEditingId(memo.id)}
                   onEndEdit={() => setEditingId(null)}

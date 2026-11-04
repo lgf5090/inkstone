@@ -17,6 +17,17 @@ export const MEMO_TAGS_MAX = 64
 export const MEMO_TAG_NAME_MAX_LENGTH = LIMITS.tagNameMaxLength
 
 export const MEMO_CONTENT_MAX_BYTES = LIMITS.contentMaxBytes
+/**
+ * The plaintext ceiling for a memo that is going to be sealed. AES-GCM ciphertext plus its base64
+ * envelope is about 1.4x the plaintext, and a D1 row is capped at 2 MB; keeping the encrypted form
+ * well under that leaves room for tags, timestamps and the rest of the row.
+ */
+export const MEMO_ENCRYPTED_CONTENT_MAX_BYTES = 400_000
+/** The ceiling on a stored sealed value, including the version prefix, salt and nonce. */
+export const MEMO_CIPHER_MAX_BYTES = 600_000
+/** `<prefix><salt>:<nonce>:<ciphertext>` — parsed by `memo-crypto.ts` on the client. */
+export const MEMO_CIPHER_PREFIX = 'memoenc:v1:'
+
 export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'unused'] as const
 export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]
 
@@ -79,4 +90,6 @@ export const MEMO_PREFERENCES_DEFAULTS: MemoPreferences = {
   transcriptionModel: null,
   transcriptionLanguage: '',
   transcriptionPrompt: '',
+  maskAutoLockMinutes: 30,
+  relockOnNavigate: true,
 }

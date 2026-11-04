@@ -166,6 +166,12 @@ function applyOptimisticPatch(memo: Memo, input: MemoPatchInput): Memo {
     ...(input.location !== undefined ? { location: input.location } : {}),
     ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
     ...(input.updatedAt !== undefined ? { updatedAt: input.updatedAt } : {}),
+    ...(input.encrypted !== undefined ? { encrypted: input.encrypted } : {}),
+    ...(input.contentCipher !== undefined ? { contentCipher: input.contentCipher } : {}),
+    ...(input.tags !== undefined ? { tags: input.tags } : {}),
+    ...(input.encrypted === true
+      ? { content: '', title: '', snippet: '' }
+      : {}),
   }
 }
 
@@ -173,10 +179,10 @@ function optimisticMemo(input: MemoCreateInput, id: string): Memo {
   const now = Math.floor(Date.now() / 1000)
   return {
     id,
-    content: input.content,
+    content: input.encrypted ? '' : input.content,
     title: '',
     snippet: '',
-    tags: [],
+    tags: input.tags ?? [],
     visibility: input.visibility ?? MEMO_DEFAULT_VISIBILITY,
     state: 'normal',
     pinned: false,
@@ -197,6 +203,8 @@ function optimisticMemo(input: MemoCreateInput, id: string): Memo {
     rev: 0,
     createdAt: input.createdAt ?? now,
     updatedAt: input.updatedAt ?? input.createdAt ?? now,
+    encrypted: Boolean(input.encrypted),
+    contentCipher: input.contentCipher ?? '',
   }
 }
 

@@ -1116,6 +1116,7 @@ export function Tooltip({ label, combo, children, side = 'bottom', delay = 420, 
     const holderRef = useRef<HTMLSpanElement>(null);
     const tooltipRef = useRef<HTMLDivElement>(null);
     const timerRef = useRef<number>(0);
+    const touchTimerRef = useRef<number>(0);
     const [rect, setRect] = useState<DOMRect | null>(null);
     const [position, setPosition] = useState<TooltipPosition | null>(null);
     const measureAnchor = useCallback(() => {
@@ -1140,7 +1141,10 @@ export function Tooltip({ label, combo, children, side = 'bottom', delay = 420, 
         setPosition(null);
         setRect(null);
     };
-    useEffect(() => () => window.clearTimeout(timerRef.current), []);
+    useEffect(() => () => {
+        window.clearTimeout(timerRef.current);
+        window.clearTimeout(touchTimerRef.current);
+    }, []);
     useLayoutEffect(() => {
         const tooltip = tooltipRef.current;
         if (!rect || !tooltip)
@@ -1176,7 +1180,11 @@ export function Tooltip({ label, combo, children, side = 'bottom', delay = 420, 
         }} onMouseLeave={hide} onFocus={(event) => {
             if ((event.target as HTMLElement).matches(':focus-visible'))
                 show();
-        }} onBlur={hide} className="contents">
+        }} onBlur={hide} onTouchStart={() => {
+            // A touch screen has no hover: a long press is the only way to ask what a glyph means.
+            window.clearTimeout(touchTimerRef.current);
+            touchTimerRef.current = window.setTimeout(show, 450);
+        }} onTouchEnd={hide} onTouchCancel={hide} onTouchMove={hide} className="contents">
         {children}
       </span>
       {rect &&

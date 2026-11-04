@@ -1,5 +1,5 @@
-import { useMemo, type MouseEvent, type ReactElement } from 'react'
-import { MessageCircle, MapPin, Pin } from 'lucide-react'
+import { useState, useMemo, type MouseEvent, type ReactElement } from 'react'
+import { Lock, MessageCircle, MapPin, Pin } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { Memo, MemoOrderField, MemoTagRule, MemoVisibility } from '@shared/memos/types'
 import { Badge } from '../../../components/primitives'
@@ -7,7 +7,9 @@ import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime, shortTime } from '../../../lib/time'
+import { useUi } from '../../../store/ui'
 import { memoPlaceLabel } from '../location'
+import { useMemoLock } from '../memo-lock'
 import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemoTaskToggle } from '../use-memo-task-toggle'
 import { MemoAttachments } from './MemoAttachments'
@@ -16,6 +18,7 @@ import { MemoCommentPreview } from './MemoCommentPreview'
 import { MemoComposer } from './MemoComposer'
 import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
+import { MemoPassphraseDialog } from './MemoPassphraseDialog'
 import { MemoReactions } from './MemoReactions'
 
 const VISIBILITY_KEYS: Record<MemoVisibility, MessageKey> = {
@@ -44,6 +47,7 @@ export interface MemoCardProps {
   enableLinkPreview?: boolean
   doubleClickEdit?: boolean
   highlight?: readonly string[]
+  maskAutoLockMinutes?: number
   onOpen: (id: string) => void
   onStartEdit: () => void
   onEndEdit: () => void
@@ -62,6 +66,7 @@ export function MemoCard({
   enableLinkPreview = true,
   doubleClickEdit = false,
   highlight,
+  maskAutoLockMinutes = 30,
   onOpen,
   onStartEdit,
   onEndEdit,
@@ -69,6 +74,12 @@ export function MemoCard({
 }: MemoCardProps): ReactElement {
   const href = `${MEMOS_APP_PATH}/m/${encodeURIComponent(memo.id)}`
   const onToggleTask = useMemoTaskToggle(memo)
+  const [contextPoint, setContextPoint] = useState<{ x: number; y: number } | null>(null)
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
+  const decrypted = useMemoLock((state) => state.plaintext[memo.id] ?? null)
+  const sealedLocked = memo.encrypted && decrypted === null
+  const revealedContent = decrypted ?? memo.content
   const shownAt = timeBasis === 'updated' ? memo.updatedAt : memo.createdAt
   const shownMs = shownAt * 1000
   const shownLabel = t(timeBasis === 'updated' ? 'memos.card.updated_at' : 'memos.card.created_at', {
@@ -90,6 +101,43 @@ export function MemoCard({
     if (!doubleClickEdit || editing || memo.state !== 'normal') return
     const target = event.target instanceof Element ? event.target : null
     if (target?.closest('a, button, input, textarea, select, [contenteditable="true"]')) return
+    if (sealedLocked) {
+      useUi.getState().toast({ title: t('memos.cipher.unlock_first'), tone: 'warning' })
+      return
+    }
+    onStartEdit()
+  }
+  const onContextMenu = (event: MouseEvent<HTMLElement>): void => {
+    if (editing) return
+    const target = event.target instanceof Element ? event.target : null
+    if (target?.closest('a, button, input, textarea, select, [contenteditable="true"]')) return
+    event.preventDefault()
+    setContextPoint({ x: event.clientX, y: event.clientY })
+  }
+  const requestUnlock = (): void => {
+    if (!memo.encrypted) return
+    const sessionPassphrase = useMemoLock.getState().passphrase
+    if (!sessionPassphrase) {
+      setUnlockOpen(true)
+      return
+    }
+    setUnlocking(true)
+    void useMemoLock.getState().unlock(memo.id, memo.contentCipher, maskAutoLockMinutes)
+      .catch(() => setUnlockOpen(true))
+      .finally(() => setUnlocking(false))
+  }
+  const unlockWithPassphrase = async (value: string): Promise<void> => {
+    await useMemoLock.getState()
+      .unlockWithPassphrase(memo.id, memo.contentCipher, value, maskAutoLockMinutes)
+  }
+  const relock = (): void => {
+    useMemoLock.getState().lock(memo.id)
+  }
+  const startEdit = (): void => {
+    if (sealedLocked) {
+      useUi.getState().toast({ title: t('memos.cipher.unlock_first'), tone: 'warning' })
+      return
+    }
     onStartEdit()
   }
   const commentLabel = t(memo.commentCount === 1 ? 'memos.card.comments_one' : 'memos.card.comments', {
@@ -98,7 +146,9 @@ export function MemoCard({
   return (
     <article
       data-memo-id={memo.id}
+      data-memo-encrypted={memo.encrypted ? 'true' : undefined}
       onDoubleClick={onCardDoubleClick}
+      onContextMenu={onContextMenu}
       className={cn(
         'flex min-w-0 flex-col rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-sm',
         compact ? 'p-2.5' : 'p-3',
@@ -121,6 +171,14 @@ export function MemoCard({
         ) : null}
         {isNew ? <Badge tone="accent">{t('memos.card.new')}</Badge> : null}
         <Badge tone={VISIBILITY_TONES[memo.visibility]}>{t(VISIBILITY_KEYS[memo.visibility])}</Badge>
+        {memo.encrypted ? (
+          <Badge tone="warning">
+            <span className="inline-flex items-center gap-1">
+              <Lock size={10} aria-hidden="true" />
+              {t(sealedLocked ? 'memos.cipher.badge_locked' : 'memos.cipher.badge')}
+            </span>
+          </Badge>
+        ) : null}
         {spaceName ? <Badge>{spaceName}</Badge> : null}
         {memo.location ? (
           <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
@@ -129,21 +187,36 @@ export function MemoCard({
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <MemoCardActions memo={memo} onEdit={memo.state === 'normal' ? onStartEdit : undefined} />
+          <MemoCardActions
+            memo={memo}
+            onEdit={memo.state === 'normal' ? startEdit : undefined}
+            contextPoint={contextPoint}
+            onContextClose={() => setContextPoint(null)}
+          />
         </div>
       </header>
       {editing ? (
         <div className="mt-2">
-          <MemoComposer memo={memo} onSaved={onEndEdit} onCancel={onEndEdit} />
+          <MemoComposer
+            memo={memo}
+            initialContent={revealedContent}
+            onSaved={onEndEdit}
+            onCancel={onEndEdit}
+          />
         </div>
       ) : (
         <>
           <MemoMaskedBody
-            key={`${memo.id}:${blurred ? 'blurred' : 'clear'}`}
-            content={memo.content}
+            key={`${memo.id}:${memo.encrypted ? 'sealed' : blurred ? 'blurred' : 'clear'}`}
+            content={memo.encrypted ? revealedContent : memo.content}
             tagRules={tagRules}
-            highlight={highlight}
-            blurred={blurred && memo.content.trim() !== ''}
+            highlight={memo.encrypted && sealedLocked ? undefined : highlight}
+            blurred={!memo.encrypted && blurred && memo.content.trim() !== ''}
+            sealed={memo.encrypted}
+            revealed={!sealedLocked}
+            unlocking={unlocking}
+            onUnlock={requestUnlock}
+            onRelock={relock}
             onTagPress={onTagPress}
             onToggleTask={onToggleTask}
             className="mt-2"
@@ -162,10 +235,14 @@ export function MemoCard({
               ))}
             </div>
           ) : null}
-          <MemoAttachments attachments={memo.attachments} compact className="mt-2" />
+          <MemoAttachments
+            attachments={sealedLocked ? [] : memo.attachments}
+            compact
+            className="mt-2"
+          />
           <MemoLinkPreviews
-            content={memo.content}
-            enabled={enableLinkPreview && !blurred}
+            content={memo.encrypted ? revealedContent : memo.content}
+            enabled={enableLinkPreview && !blurred && !sealedLocked}
             excludeUrls={memo.attachments.flatMap((attachment) => (
               attachment.thumbnailUrl ? [attachment.url, attachment.thumbnailUrl] : [attachment.url]
             ))}
@@ -193,6 +270,12 @@ export function MemoCard({
           ) : null}
         </>
       )}
+      <MemoPassphraseDialog
+        open={unlockOpen}
+        mode="open"
+        onClose={() => setUnlockOpen(false)}
+        onSubmit={unlockWithPassphrase}
+      />
     </article>
   )
 }

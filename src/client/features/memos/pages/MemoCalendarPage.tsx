@@ -15,7 +15,8 @@ import type { Memo } from '@shared/memos/types'
 import { heatCell } from '../../../components/activity-calendar/heat-cell'
 import { Empty, Skeleton } from '../../../components/feedback'
 import { Modal } from '../../../components/overlay'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { usePathname } from '../../../lib/app-history'
 import { cn } from '../../../lib/cn'
 import { t, useLocale } from '../../../lib/i18n'
@@ -288,26 +289,26 @@ export function MemoCalendarPage({ onOpenMemo }: MemoCalendarPageProps): ReactEl
               className="min-w-0 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 shadow-sm"
             >
               <div className="flex flex-wrap items-center gap-1.5">
-                <IconButton
+                <TooltipIconButton
                   label={t('memos.calendar.previous_month')}
                   size="sm"
                   onClick={() => shiftMonth(-1)}
                 >
                   <ChevronLeft size={14} />
-                </IconButton>
+                </TooltipIconButton>
                 <h3
                   id={monthHeadingId}
                   className="min-w-0 flex-1 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]"
                 >
                   {monthLabel}
                 </h3>
-                <IconButton
+                <TooltipIconButton
                   label={t('memos.calendar.next_month')}
                   size="sm"
                   onClick={() => shiftMonth(1)}
                 >
                   <ChevronRight size={14} />
-                </IconButton>
+                </TooltipIconButton>
                 <Button size="sm" variant="secondary" onClick={goToday}>
                   {t('memos.calendar.today')}
                 </Button>

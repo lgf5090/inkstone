@@ -13,6 +13,7 @@ import { MemoSettingsPage } from './MemoSettingsPage'
 import { MemoInboxPage } from './MemoInboxPage'
 
 const api = vi.hoisted(() => ({
+  list: vi.fn(),
   preferences: { get: vi.fn(), patch: vi.fn() },
   tokens: { list: vi.fn(), create: vi.fn(), delete: vi.fn() },
 }))
@@ -130,6 +131,7 @@ beforeEach(async () => {
   useUi.setState({ panel: null, toasts: [] })
   currentPreferences = preferences()
   tokenItems = []
+  api.list.mockResolvedValue({ items: [], nextCursor: null })
   api.preferences.get.mockImplementation(() => Promise.resolve(currentPreferences))
   api.preferences.patch.mockImplementation((patch: Partial<MemoPreferences>) => {
     currentPreferences = { ...currentPreferences, ...patch }
@@ -353,6 +355,7 @@ describe('the memo settings page', () => {
 
   it('explains the account-isolated inbox', async () => {
     rendered = renderElement(createElement(MemoInboxPage))
+    await flush(2)
     const host = rendered.container
     expect(host.textContent).toContain(t('memos.inbox.empty_title'))
     expect(host.textContent).toContain(t('memos.inbox.empty_description'))

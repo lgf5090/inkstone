@@ -43,6 +43,8 @@ function memo(id: string, createdAt: number): Memo {
     relations: [],
     commentCount: 0,
     rev: 0,
+    encrypted: false,
+    contentCipher: '',
     createdAt,
     updatedAt: createdAt,
   }

@@ -44,6 +44,8 @@ function memo(id: string, content: string, createdAt: number, overrides: Partial
     relations: [],
     commentCount: 0,
     rev: 0,
+    encrypted: false,
+    contentCipher: '',
     createdAt,
     updatedAt: createdAt,
     ...overrides,

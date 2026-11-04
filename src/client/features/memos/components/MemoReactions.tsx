@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { SmilePlus } from 'lucide-react'
 import { MEMO_DEFAULT_REACTIONS } from '@shared/memos/constants'
 import type { Memo, MemoReactionSummary } from '@shared/memos/types'
-import { IconButton } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Menu, type MenuItem } from '../../../components/overlay'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -121,7 +121,7 @@ export function MemoReactions({
       })}
       {!readOnly ? (
         <>
-          <IconButton
+          <TooltipIconButton
             ref={anchorRef}
             label={t('memos.reactions.add')}
             size="sm"
@@ -131,7 +131,7 @@ export function MemoReactions({
             onClick={() => setOpen((value) => !value)}
           >
             <SmilePlus size={14} />
-          </IconButton>
+          </TooltipIconButton>
           <Menu
             anchor={anchorRef}
             open={open}

@@ -3,8 +3,10 @@ import { CalendarClock, Eye, EyeOff, MapPin, Maximize2, Mic, Minimize2, Papercli
 import {
   MEMO_ATTACHMENT_MAX_BYTES,
   MEMO_CONTENT_MAX_BYTES,
+  MEMO_ENCRYPTED_CONTENT_MAX_BYTES,
   MEMO_DEFAULT_VISIBILITY,
 } from '@shared/memos/constants'
+import { scanMemoTags } from '@shared/memos/markdown'
 import {
   MEMO_VISIBILITIES,
   type Memo,
@@ -16,7 +18,8 @@ import {
 } from '@shared/memos/types'
 import { DatePicker, TimeField } from '../../../components/date-picker'
 import { Modal } from '../../../components/overlay'
-import { Button, IconButton, Spinner } from '../../../components/primitives'
+import { Button, Spinner } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Select } from '../../../components/form'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
@@ -26,6 +29,8 @@ import { useUi } from '../../../store/ui'
 import { memoAi, memoTranscriptionTarget } from '../ai-client'
 import { memosApi } from '../api'
 import { memoErrorMessage, memoIsAbortError } from '../errors'
+import { encryptMemoContent } from '../memo-crypto'
+import { useMemoLock } from '../memo-lock'
 import { prepareMemoAttachment } from '../image-metadata'
 import { memoPlaceLabel } from '../location'
 import { formatMediaDuration } from '../media'
@@ -64,6 +69,8 @@ export function memoComposerDraftScope(spaceId: string | null | undefined): stri
 
 export interface MemoComposerProps {
   memo?: Memo
+  /** The revealed body of a sealed memo; `memo.content` is empty on the server. */
+  initialContent?: string
   spaceId?: string | null
   initialCreatedAt?: number
   initialLocation?: MemoLocation | null
@@ -78,6 +85,7 @@ interface UploadingFile {
 
 export function MemoComposer({
   memo,
+  initialContent,
   spaceId = null,
   initialCreatedAt,
   initialLocation = null,
@@ -102,11 +110,13 @@ export function MemoComposer({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadKey = useRef(0)
   const uploadingRef = useRef(0)
-  const attachmentIdsRef = useRef<string[]>(restored?.attachmentIds ?? [])
+  const attachmentIdsRef = useRef<string[]>(
+    restored?.attachmentIds ?? memo?.attachments.map((attachment) => attachment.id) ?? [],
+  )
   const reasonId = useId()
   const previousSpaceProp = useRef(spaceId)
 
-  const [text, setText] = useState(memo?.content ?? restored?.content ?? '')
+  const [text, setText] = useState(initialContent ?? memo?.content ?? restored?.content ?? '')
   const [visibility, setVisibility] = useState<MemoVisibility>(
     memo?.visibility ?? restored?.visibility ?? MEMO_DEFAULT_VISIBILITY,
   )
@@ -177,11 +187,15 @@ export function MemoComposer({
   const byteLength = useMemo(() => new TextEncoder().encode(text).length, [text])
   const isEmpty = text.trim().length === 0
   const tooLarge = byteLength > MEMO_CONTENT_MAX_BYTES
+  const sealedTooLarge = editing && Boolean(memo?.encrypted) && byteLength > MEMO_ENCRYPTED_CONTENT_MAX_BYTES
   const uploadPending = uploading.length > 0
-  const saveDisabled = saving || uploadPending || transcribing || tooLarge || isEmpty || Boolean(conflictHere)
+  const saveDisabled = saving || uploadPending || transcribing || tooLarge || sealedTooLarge
+    || isEmpty || Boolean(conflictHere)
   const disabledReason = tooLarge
     ? t('memos.composer.too_large')
-    : uploadPending
+    : sealedTooLarge
+      ? t('memos.cipher.too_large')
+      : uploadPending
       ? t('memos.composer.uploading_hint')
       : transcribing
         ? t('memos.composer.voice_transcribing')
@@ -371,12 +385,33 @@ export function MemoComposer({
   const submit = async (): Promise<void> => {
     setAttempted(true)
     setSaveError(null)
-    if (saving || uploadingRef.current > 0 || transcribing || tooLarge || isEmpty || conflictHere) return
+    if (saving || uploadingRef.current > 0 || transcribing || tooLarge || sealedTooLarge
+      || isEmpty || conflictHere) return
     setSaving(true)
     const state = useMemos.getState()
     let saved: Memo | null
     if (memo) {
-      const input: MemoPatchInput = { rev: revRef.current, content: text }
+      let input: MemoPatchInput
+      if (memo.encrypted) {
+        const passphrase = useMemoLock.getState().passphrase
+        if (!passphrase) {
+          setSaving(false)
+          const message = t('memos.cipher.session_locked')
+          setSaveError(message)
+          useUi.getState().toast({ title: message, tone: 'warning' })
+          return
+        }
+        const contentCipher = await encryptMemoContent(passphrase, text)
+        input = {
+          rev: revRef.current,
+          encrypted: true,
+          contentCipher,
+          tags: scanMemoTags(text),
+          attachmentIds: attachmentIdsRef.current,
+        }
+      } else {
+        input = { rev: revRef.current, content: text }
+      }
       if (visibility !== memo.visibility) input.visibility = visibility
       if (space !== memo.spaceId) input.spaceId = space
       if (createdAt !== memo.createdAt) input.createdAt = createdAt
@@ -410,6 +445,7 @@ export function MemoComposer({
       return
     }
     revRef.current = saved.rev
+    if (memo?.encrypted) useMemoLock.getState().lock(memo.id)
     useUi.getState().toast({
       title: t(editing ? 'memos.composer.saved' : 'memos.composer.created'),
       tone: 'success',
@@ -437,7 +473,9 @@ export function MemoComposer({
 
   const reloadConflict = (): void => {
     if (!conflictHere?.memo) return
-    setText(conflictHere.memo.content)
+    // A sealed memo's conflict row has no plaintext to load; the reader's draft stays in the editor,
+    // and only the revision and the other fields move forward.
+    if (!memo?.encrypted) setText(conflictHere.memo.content)
     setVisibility(conflictHere.memo.visibility)
     setSpace(conflictHere.memo.spaceId)
     setCreatedAt(conflictHere.memo.createdAt)
@@ -586,14 +624,14 @@ export function MemoComposer({
           <time dateTime={new Date(createdAt * 1000).toISOString()} className="truncate">
             {fullTime(createdAt * 1000)}
           </time>
-          <IconButton
+          <TooltipIconButton
             label={t('memos.composer.edit_time')}
             size="xs"
             active={timeOpen}
             onClick={() => setTimeOpen((value) => !value)}
           >
             <CalendarClock size={12} />
-          </IconButton>
+          </TooltipIconButton>
         </span>
         {timeOpen ? (
           <div className="flex min-w-0 flex-col gap-1">
@@ -636,12 +674,13 @@ export function MemoComposer({
           </div>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <IconButton
+          <TooltipIconButton
             label={t(
               recorder.status === 'recording' || recorder.status === 'stopping'
                 ? 'memos.composer.voice_stop'
                 : 'memos.composer.voice_record',
             )}
+            disabledHint={t('memos.composer.voice_unavailable')}
             size="sm"
             active={recorder.status === 'recording' || recorder.status === 'stopping'}
             disabled={saving
@@ -654,39 +693,40 @@ export function MemoComposer({
             {recorder.status === 'recording' || recorder.status === 'stopping'
               ? <Square size={13} />
               : <Mic size={14} />}
-          </IconButton>
-          <IconButton
+          </TooltipIconButton>
+          <TooltipIconButton
             label={t('memos.composer.location')}
             size="sm"
             active={Boolean(location)}
             onClick={() => setLocationOpen(true)}
           >
             <MapPin size={14} />
-          </IconButton>
-          <IconButton
+          </TooltipIconButton>
+          <TooltipIconButton
             label={t('memos.composer.attach')}
+            disabledHint={t('memos.composer.save_first')}
             size="sm"
             disabled={saving}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip size={14} />
-          </IconButton>
-          <IconButton
+          </TooltipIconButton>
+          <TooltipIconButton
             label={t(showPreview ? 'memos.composer.hide_preview' : 'memos.composer.show_preview')}
             size="sm"
             active={showPreview}
             onClick={() => setShowPreview((value) => !value)}
           >
             {showPreview ? <EyeOff size={14} /> : <Eye size={14} />}
-          </IconButton>
-          <IconButton
+          </TooltipIconButton>
+          <TooltipIconButton
             label={t(focusMode ? 'memos.composer.exit_focus' : 'memos.composer.focus')}
             size="sm"
             active={focusMode}
             onClick={() => setFocusMode((value) => !value)}
           >
             {focusMode ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </IconButton>
+          </TooltipIconButton>
           {onCancel ? (
             <Button size="sm" variant="ghost" disabled={saving} onClick={onCancel}>
               {t('memos.composer.cancel')}
@@ -708,9 +748,9 @@ export function MemoComposer({
         <div className="mt-1 flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
           <MapPin size={11} aria-hidden="true" />
           <span className="min-w-0 truncate">{memoPlaceLabel(location)}</span>
-          <IconButton label={t('memos.composer.location_clear')} size="xs" onClick={() => setLocation(null)}>
+          <TooltipIconButton label={t('memos.composer.location_clear')} size="xs" onClick={() => setLocation(null)}>
             <X size={11} />
-          </IconButton>
+          </TooltipIconButton>
         </div>
       ) : null}
       <input

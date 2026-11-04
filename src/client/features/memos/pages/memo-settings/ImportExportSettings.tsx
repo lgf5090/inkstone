@@ -547,6 +547,9 @@ export function ImportExportSettings(): ReactElement {
       <p className="mt-0.5 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-tertiary)]">
         {t('memos.settings.transfer_export_hint')}
       </p>
+      <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+        {t('memos.settings.transfer_export_sealed_hint')}
+      </p>
       <div className="mt-2">
         <Button
           size="sm"

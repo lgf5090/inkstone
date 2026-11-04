@@ -155,13 +155,18 @@ async function hydratePublicMemos(
       parentId: null,
       location: null,
       properties: emptyProperties(),
-      attachments: memo.attachments.map(publicAttachment),
+      // A sealed memo is unreadable to everyone but its owner's browser. Attachments are not sealed,
+      // so a public view does not hand them out either: the lock would otherwise be a cover over the
+      // text while the picture beside it stayed visible.
+      attachments: memo.encrypted ? [] : memo.attachments.map(publicAttachment),
       reactions: [],
       relations: [],
-      commentCount: memo.commentCount,
+      commentCount: memo.encrypted ? 0 : memo.commentCount,
       rev: 0,
       createdAt: memo.createdAt,
       updatedAt: memo.updatedAt,
+      encrypted: memo.encrypted,
+      contentCipher: '',
       ...(creator ? { creator: publicCreator(creator) } : {}),
     })
   }

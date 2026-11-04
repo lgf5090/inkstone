@@ -28,6 +28,8 @@ function memo(id: string, title: string): Memo {
     relations: [],
     commentCount: 0,
     rev: 1,
+    encrypted: false,
+    contentCipher: '',
     createdAt: 1,
     updatedAt: 1,
   }

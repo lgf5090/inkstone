@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { ArrowLeft, Pin } from 'lucide-react'
+import { ArrowLeft, Lock, Pin } from 'lucide-react'
 import type { Memo, MemoAttachment } from '@shared/memos/types'
 import { Avatar, Badge } from '../../../components/primitives'
 import { t } from '../../../lib/i18n'
@@ -62,6 +62,20 @@ function MemoPin(): ReactElement {
   )
 }
 
+function SealedPublicBody(): ReactElement {
+  return (
+    <div className="mt-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-3 py-4">
+      <p className="flex items-center gap-1.5 text-[length:var(--text-12)] font-medium text-[var(--text-secondary)]">
+        <Lock size={13} aria-hidden="true" />
+        {t('memos.cipher.public_title')}
+      </p>
+      <p className="mt-1 text-[length:var(--text-11)] leading-relaxed text-[var(--text-quaternary)]">
+        {t('memos.cipher.public_notice')}
+      </p>
+    </div>
+  )
+}
+
 export interface MemoPublicCardProps {
   memo: Memo
   href?: string
@@ -80,7 +94,7 @@ export function MemoPublicCard({ memo, href }: MemoPublicCardProps): ReactElemen
           <MemoTime memo={memo} short />
         </span>
       </header>
-      <MemoBody content={memo.content} className="mt-2" />
+      {memo.encrypted ? <SealedPublicBody /> : <MemoBody content={memo.content} className="mt-2" />}
       <MemoTags tags={memo.tags} />
       <MemoAttachments attachments={memo.attachments} compact className="mt-2" />
       {href ? (
@@ -133,7 +147,9 @@ export function MemoPublicArticle({ memo, shareToken, backHref, backLabel }: Mem
           {t('memos.card.updated_at', { time: fullTime(updatedMs) })}
         </p>
       ) : null}
-      <MemoBody content={memo.content} shareToken={shareToken} className="mt-3" />
+      {memo.encrypted
+        ? <SealedPublicBody />
+        : <MemoBody content={memo.content} shareToken={shareToken} className="mt-3" />}
       <MemoTags tags={memo.tags} />
       <MemoAttachments attachments={memo.attachments} className="mt-3" />
     </article>

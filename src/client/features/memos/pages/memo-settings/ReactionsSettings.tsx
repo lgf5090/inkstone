@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { X } from 'lucide-react'
 import { MEMO_REACTIONS_MAX } from '@shared/memos/constants'
-import { Button, IconButton } from '../../../../components/primitives'
+import { Button } from '../../../../components/primitives'
+import { TooltipIconButton } from '../../../../components/tooltip-icon-button'
 import { Field, Input } from '../../../../components/form'
 import { t } from '../../../../lib/i18n'
 import { MEMO_SETTINGS_SECTION_IDS } from './sections'
@@ -88,14 +89,14 @@ export function ReactionsSettings({ preferences, saving, save }: MemoSettingsSec
               className="flex items-center gap-1 rounded-[var(--r-full)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] py-0.5 pl-2.5 pr-0.5"
             >
               <span aria-hidden="true" className="text-[length:var(--text-15)] leading-none">{reaction}</span>
-              <IconButton
+              <TooltipIconButton
                 label={t('memos.settings.reactions_remove', { emoji: reaction })}
                 size="sm"
                 disabled={saving || reactions.length <= 1}
                 onClick={() => void remove(reaction)}
               >
                 <X size={12} />
-              </IconButton>
+              </TooltipIconButton>
             </li>
           ))}
         </ul>

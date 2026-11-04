@@ -16,7 +16,10 @@ const VISIBILITY_KEYS: Record<MemoVisibility, MessageKey> = {
 
 export function GeneralSettings({ preferences, saving, save }: MemoSettingsSectionProps) {
   const visibilityId = useId()
+  const lockId = useId()
   const [error, setError] = useState<string | null>(null)
+
+  const MASK_MINUTES: readonly number[] = [5, 15, 30, 60, 0]
 
   const update = async (patch: Parameters<MemoSettingsSectionProps['save']>[0]): Promise<void> => {
     setError(null)
@@ -106,6 +109,40 @@ export function GeneralSettings({ preferences, saving, save }: MemoSettingsSecti
           disabled={saving}
           label={t('memos.settings.reverse_geocoding')}
           onChange={(next) => void update({ enableReverseGeocoding: next })}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t('memos.settings.mask_auto_lock')}
+        description={t('memos.settings.mask_auto_lock_hint')}
+        controlId={lockId}
+      >
+        <Select
+          id={lockId}
+          value={String(preferences.maskAutoLockMinutes)}
+          disabled={saving}
+          onChange={(event) => {
+            const next = Number(event.target.value)
+            if (MASK_MINUTES.includes(next)) void update({ maskAutoLockMinutes: next })
+          }}
+        >
+          {MASK_MINUTES.map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {minutes === 0
+                ? t('memos.settings.mask_until_closed')
+                : t('memos.settings.mask_minutes', { minutes })}
+            </option>
+          ))}
+        </Select>
+      </SettingRow>
+      <SettingRow
+        title={t('memos.settings.relock_on_navigate')}
+        description={t('memos.settings.relock_on_navigate_hint')}
+      >
+        <Switch
+          checked={preferences.relockOnNavigate}
+          disabled={saving}
+          label={t('memos.settings.relock_on_navigate')}
+          onChange={(next) => void update({ relockOnNavigate: next })}
         />
       </SettingRow>
     </SettingsCard>

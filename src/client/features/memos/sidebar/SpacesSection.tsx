@@ -2,10 +2,11 @@ import { useId, useRef, useState, type FormEvent, type ReactElement } from 'reac
 import { Folder, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { MemoSpace } from '@shared/memos/types'
-import { Button, IconButton, SectionLabel } from '../../../components/primitives'
+import { Button, SectionLabel } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Field, Input, Segmented, Textarea } from '../../../components/form'
 import { Skeleton } from '../../../components/feedback'
-import { Menu, Modal, Tooltip, type MenuItem } from '../../../components/overlay'
+import { Menu, Modal, type MenuItem } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
 import { memosApi, type MemoSpaceDeleteMode } from '../api'
 import { memoErrorMessage } from '../errors'
@@ -48,11 +49,9 @@ export function SpacesSection({
     <div className="pt-2">
       <div className="flex items-center gap-0.5 pr-1">
         <SectionLabel className="flex-1">{t('memos.nav.spaces')}</SectionLabel>
-        <Tooltip label={t('memos.spaces.create')} side="left">
-          <IconButton label={t('memos.spaces.create')} size="xs" onClick={() => setEditor({ space: null })}>
-            <Plus size={12} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton label={t('memos.spaces.create')} tooltipSide="left" size="xs" onClick={() => setEditor({ space: null })}>
+          <Plus size={12} />
+        </TooltipIconButton>
       </div>
       {status === 'loading' && spaces.length === 0 ? (
         <div className="space-y-1 px-2 py-1">
@@ -242,19 +241,18 @@ function SpaceRow({ space, active, onNavigate, onEdit, onDelete }: SpaceRowProps
           onNavigate={onNavigate}
         />
       </div>
-      <Tooltip label={actionsLabel} side="left">
-        <IconButton
-          ref={triggerRef}
-          label={actionsLabel}
-          size="sm"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((value) => !value)}
-          className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-        >
-          <MoreHorizontal size={13} />
-        </IconButton>
-      </Tooltip>
+      <TooltipIconButton
+        ref={triggerRef}
+        label={actionsLabel}
+        tooltipSide="left"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((value) => !value)}
+        className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+      >
+        <MoreHorizontal size={13} />
+      </TooltipIconButton>
       <Menu
         anchor={triggerRef}
         open={menuOpen}

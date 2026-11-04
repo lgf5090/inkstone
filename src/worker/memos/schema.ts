@@ -31,6 +31,8 @@ export const MEMOS_SCHEMA_STATEMENTS: readonly string[] = [
     location_placeholder TEXT,
     latitude REAL,
     longitude REAL,
+    encrypted INTEGER NOT NULL DEFAULT 0,
+    content_cipher TEXT NOT NULL DEFAULT '',
     rev INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -230,7 +232,8 @@ export const MEMOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   memos_items: [
     'id', 'user_id', 'space_id', 'parent_id', 'content', 'content_search', 'title', 'snippet',
     'visibility', 'state', 'pinned', 'has_link', 'has_code', 'has_task_list', 'has_incomplete_tasks',
-    'has_location', 'location_placeholder', 'latitude', 'longitude', 'rev', 'created_at', 'updated_at',
+    'has_location', 'location_placeholder', 'latitude', 'longitude', 'encrypted', 'content_cipher',
+    'rev', 'created_at', 'updated_at',
   ],
   memos_tags: ['memo_id', 'tag'],
   memos_relations: ['memo_id', 'related_memo_id', 'created_at'],

@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import type { MemoAttachment } from '@shared/memos/types'
 import { Modal } from '../../../components/overlay'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { copyText } from '../../../lib/clipboard'
 import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
@@ -403,13 +404,13 @@ export function AttachmentAudio({ attachment, action, caption, className }: {
             className="w-full accent-[var(--accent)]"
           />
           <div className="flex flex-wrap items-center gap-0.5">
-            <IconButton
+            <TooltipIconButton
               label={playing ? t('memos.media.audio_pause') : t('memos.media.audio_play')}
               size="sm"
               onClick={() => void togglePlayback()}
             >
               {playing ? <Pause size={14} /> : <Play size={14} />}
-            </IconButton>
+            </TooltipIconButton>
             <Button
               size="sm"
               variant="ghost"

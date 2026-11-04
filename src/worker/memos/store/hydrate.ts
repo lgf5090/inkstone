@@ -13,8 +13,8 @@ export const BATCH_ID_CHUNK = 90
 
 export const MEMO_COLUMNS = `i.id, i.user_id, i.space_id, i.parent_id, i.content, i.content_search,
   i.title, i.snippet, i.visibility, i.state, i.pinned, i.has_link, i.has_code, i.has_task_list,
-  i.has_incomplete_tasks, i.has_location, i.location_placeholder, i.latitude, i.longitude, i.rev,
-  i.created_at, i.updated_at`
+  i.has_incomplete_tasks, i.has_location, i.location_placeholder, i.latitude, i.longitude, i.encrypted,
+  i.content_cipher, i.rev, i.created_at, i.updated_at`
 
 const ATTACHMENT_COLUMNS = `a.id, a.user_id, a.memo_id, a.filename, a.mime, a.size, a.storage,
   a.storage_key, a.width, a.height, a.thumbnail_key, a.media_metadata, a.motion_group_id,
@@ -40,6 +40,8 @@ export interface MemoRow {
   location_placeholder: string | null
   latitude: number | null
   longitude: number | null
+  encrypted: number
+  content_cipher: string
   rev: number
   created_at: number
   updated_at: number
@@ -256,6 +258,8 @@ export async function hydrateMemos(
     rev: row.rev,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    encrypted: Boolean(row.encrypted),
+    contentCipher: row.content_cipher,
   }))
 }
 

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import L from 'leaflet'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { t } from '../../../lib/i18n'
 import { createMemoLeafletMap } from '../leaflet-map'
 import { formatCoordinate } from '../location'
@@ -107,7 +108,7 @@ export function LocationPickerMap({ point, label, onPick }: LocationPickerMapPro
         className="absolute inset-0 isolate rounded-[var(--r-md)]"
       />
       <div className="absolute left-2 top-2 z-[var(--z-sticky)] flex flex-col gap-1">
-        <IconButton
+        <TooltipIconButton
           label={t('memos.map.zoom_in')}
           size="sm"
           variant="secondary"
@@ -115,8 +116,8 @@ export function LocationPickerMap({ point, label, onPick }: LocationPickerMapPro
           onClick={() => mapRef.current?.zoomIn()}
         >
           <Plus size={15} aria-hidden="true" />
-        </IconButton>
-        <IconButton
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('memos.map.zoom_out')}
           size="sm"
           variant="secondary"
@@ -124,7 +125,7 @@ export function LocationPickerMap({ point, label, onPick }: LocationPickerMapPro
           onClick={() => mapRef.current?.zoomOut()}
         >
           <Minus size={15} aria-hidden="true" />
-        </IconButton>
+        </TooltipIconButton>
       </div>
       {point ? (
         <p className="absolute bottom-2 left-2 z-[var(--z-sticky)] rounded-[var(--r-sm)] bg-[var(--bg-overlay)] px-2 py-1 text-[length:var(--text-11)] tabular text-[var(--text-secondary)] shadow-sm">
