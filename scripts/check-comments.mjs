@@ -13660,6 +13660,8 @@ const allowed = new Map([
   ["src/client/features/scriptshub/snippet-list.tsx", [
     "/**\n * The snippet list between the rail and the editor.\n *\n * Every row carries what a reader decides with: the language, a line of the code itself, its tags,\n * how much there is and when it last moved. Search settles after a pause because every keystroke is\n * a server query; the density switch is the list's own, kept per device. The row menu is the same\n * `Menu` the notebook uses, so arrows, Enter, Esc and Shift+F10 behave identically.\n */",
     "// A blocked storage area only costs the preference, not the action that set it.",
+    "// A title is part of a version, so the rename goes through the same save the editor uses:",
+    "// otherwise restoring the latest content would quietly bring the old title back with it.",
   ]],
   ["src/client/features/scriptshub/stats-page.tsx", [
     "/**\n * The statistics screen: real aggregates from the event and snippet tables.\n *\n * Every number here is a server-side count over a bounded window; the charts are the shared\n * `ChartCanvas`, which defers chart.js until a chart is actually drawn. The daily line is filled\n * across the whole window so a quiet Tuesday is visible as a zero rather than as a missing point, and\n * the tables beside it carry the same numbers in text for a reader who cannot see the canvas.\n */",
