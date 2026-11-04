@@ -2681,6 +2681,8 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'scriptshub_create', labelKey: 'assistant.tool.scriptshub_create', permission: 'write' },
   { name: 'scriptshub_publish', labelKey: 'assistant.tool.scriptshub_publish', permission: 'write' },
   { name: 'scriptshub_stats', labelKey: 'assistant.tool.scriptshub_stats', permission: 'read' },
+  { name: 'compare_texts', labelKey: 'assistant.tool.compare_texts', permission: 'read' },
+  { name: 'list_comparisons', labelKey: 'assistant.tool.list_comparisons', permission: 'read' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

@@ -32,6 +32,7 @@ import { runEmailSnoozeWake } from './email/snooze'
 import { runEmailFollowUpSweep } from './email/follow-up'
 import { runScheduledSends } from './email/scheduled-send'
 import { runShortlinksRetention } from './tools/shortlinks/maintenance'
+import { runCompareRetention } from './tools/compare/retention'
 import { runDueCloudflareTasks } from './cloudflare/tasks'
 import { runDueCloudDriveJobs } from './clouddrive/routes-jobs'
 import { resumeCloudDriveIndexTasks } from './clouddrive/routes-admin'
@@ -111,6 +112,13 @@ export default {
             return 0
           })
         : Promise.resolve(0)
+      // An upload the compare tool never saved into a project is an R2 object with no row pointing at
+      // it. The sweep rides the top of the hour with the other bounded cleanups, not every minute.
+      const compareTick = new Date(event.scheduledTime).getUTCMinutes() === 0
+        ? runCompareRetention(env, event.scheduledTime).catch((error) => {
+            console.warn('[inkstone] compare retention failed:', (error as Error).message)
+          })
+        : Promise.resolve()
       const cloudflareTick = runDueCloudflareTasks(env, event.scheduledTime).catch((error) => {
         console.warn('[inkstone] Cloudflare scheduled tasks failed:', (error as Error).message)
         return null
@@ -130,7 +138,7 @@ export default {
         return null
       })
       if (!isDrainFire(event.scheduledTime)) {
-        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, clouddriveTick])
+        await Promise.all([assistantTick, subscriptionTick, calendarTick, calendarReminderTick, calendarProviderTick, reminderTick, emailDraftTick, emailSnoozeTick, emailFollowUpTick, emailScheduledTick, cloudflareTick, shortlinksTick, compareTick, clouddriveTick])
         return
       }
       const drains: Promise<unknown>[] = [

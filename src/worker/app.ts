@@ -75,6 +75,8 @@ import { toolsIdPhotoRoutes } from './routes/tools-id-photo'
 import { toolsShortlinksRoutes } from './routes/tools-shortlinks'
 import { toolsShortlinksRedirectRoutes } from './routes/tools-shortlinks-redirect'
 import { toolsCalculatorRoutes } from './routes/tools-calculator'
+import { toolsCompareRoutes } from './routes/tools-compare'
+import { comparePublicPageRoutes, comparePublicRoutes } from './routes/tools-compare-public'
 import { developmentDatabaseRoutes } from './routes/development-database'
 import { developmentXgetRoutes } from './routes/development-xget'
 import { isXgetProxyPath } from './development/xget/paths'
@@ -302,6 +304,8 @@ export function createApp() {
   app.route('/api/tools/id-photo', toolsIdPhotoRoutes)
   app.route('/api/tools/shortlinks', toolsShortlinksRoutes)
   app.route('/api/tools/calculator', toolsCalculatorRoutes)
+  app.route('/api/tools/compare', comparePublicRoutes)
+  app.route('/api/tools/compare', toolsCompareRoutes)
   app.route('/api/development/database', developmentDatabaseRoutes)
   app.route('/api/development/xget', developmentXgetRoutes)
   app.route('/api/development/api-tester', developmentApiTesterRoutes)
@@ -359,6 +363,7 @@ export function createApp() {
   app.route('/r', clouddriveRequestPageRoutes)
   app.route('/clouddrive/dav', clouddriveDavServerRoutes)
   app.route('/', scriptshubPublicRoutes)
+  app.route('/tc', comparePublicPageRoutes)
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
