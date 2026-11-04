@@ -1114,6 +1114,7 @@ const ZH_CORE_MESSAGES = {
     "email.compose.sending_toast": "正在发送邮件…",
     "email.compose.sending_in": "{seconds} 秒后发送",
     "email.compose.send_cancelled": "已取消发送，草稿仍保留。",
+    "email.compose.send_cancel_failed": "未能取消本次定时发送，它可能仍会发出；请检查定时列表后再确认已停止。",
     "email.compose.schedule_send": "定时发送",
     "email.compose.schedule_in_hour": "1 小时后",
     "email.compose.schedule_tomorrow": "明天 08:00",

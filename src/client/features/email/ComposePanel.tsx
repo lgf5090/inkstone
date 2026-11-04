@@ -427,8 +427,13 @@ export function ComposePanel({
     if (pending.jobId) {
       // The send itself was handed to the server as a queued job; undo is its cancel, not a timer in
       // this tab. A job the sweep already claimed answers 404, which means the mail is on its way and
-      // there is nothing left to take back.
-      void api.email.cancelScheduledSend(account.id, pending.jobId).catch(() => {})
+      // there is nothing left to take back. Any other failure is said out loud: the reader pressed
+      // undo believing it would work, and a silent no-op would let the mail go out unannounced.
+      const jobId = pending.jobId
+      void api.email.cancelScheduledSend(account.id, jobId)
+        .then(() => toast(t('email.compose.send_cancelled')))
+        .catch(() => toast(t('email.compose.send_cancel_failed'), 'danger'))
+      return
     }
     toast(t('email.compose.send_cancelled'))
   }

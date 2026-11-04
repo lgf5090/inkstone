@@ -1120,6 +1120,7 @@ const CORE_MESSAGES = {
     "email.compose.sending_toast": "Sending your message…",
     "email.compose.sending_in": "Sending in {seconds}s",
     "email.compose.send_cancelled": "Send cancelled. Your draft is still here.",
+    "email.compose.send_cancel_failed": "The scheduled send could not be cancelled. It may still go out; check the scheduled list before assuming it stopped.",
     "email.compose.schedule_send": "Schedule send",
     "email.compose.schedule_in_hour": "In 1 hour",
     "email.compose.schedule_tomorrow": "Tomorrow at 08:00",

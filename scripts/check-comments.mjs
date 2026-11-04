@@ -1350,7 +1350,7 @@ const allowed = new Map([
     "// unless the input was reset, and the upload button's loading state is already back to idle.",
   ]],
   ["src/client/features/blog-admin/PostEditor.tsx", [
-    "/**\n   * Metadata lives only in the publish panel until \"Save details\" is pressed, so a route change or a\n   * closed tab would drop it silently. The browser's own unload prompt is the only mechanism a page\n   * gets for the second case; leaving through the back link asks in the app's dialog instead.\n   */",
+    "/**\n   * Metadata lives only in the publish panel until \"Save details\" is pressed, so a route change asks in\n   * the app's own dialog before leaving. A tab the browser throws away gets no dialog at all in this app:\n   * `pagehide` is the last moment that still runs, so it saves the pending details best-effort and logs a\n   * refusal instead of raising the browser's leave-page prompt.\n   */",
   ]],
   ["src/client/features/blog-admin/PostPublishPanel.test.tsx", [
     "/**\n * The publish panel owns metadata that has no autosave, so the editor has to be told when a field\n * is edited: that flag is what the back link and the drawer close read before letting the page go.\n */",
@@ -6786,7 +6786,6 @@ const allowed = new Map([
     "/** Take the other device's copy into this form and drop what was typed here. */",
     "// The send itself was handed to the server as a queued job; undo is its cancel, not a timer in",
     "// this tab. A job the sweep already claimed answers 404, which means the mail is on its way and",
-    "// there is nothing left to take back.",
     "// Cancel the queued job first: if the sweep already claimed it, this answers 404 and the server",
     "// sends the one copy that exists. Only a successful cancel means this tab must send it now, so",
     "// the two paths can never both deliver.",
@@ -6795,6 +6794,8 @@ const allowed = new Map([
     "// where the schedule call fails keeps the old in-tab timer as the fallback.",
     "// A deployment without the schedule route keeps the in-tab timer; an offline client is the",
     "// ordinary case of that, not something to log on every send.",
+    "// there is nothing left to take back. Any other failure is said out loud: the reader pressed",
+    "// undo believing it would work, and a silent no-op would let the mail go out unannounced.",
   ]],
   ["src/client/features/emoji/EmojiPicker.test.ts", [
     "/** huō-jiàn, rocket: the Han word the set carries for it. */",
@@ -29642,6 +29643,11 @@ const allowed = new Map([
     "// A 413 is a refusal, not a save: the old branch completed the queue row and the",
     "// editor then believed the body had landed. Keep the write queued with its failure,",
     "// so it is not silently dropped, and tell the reader once what the limit is.",
+    "// Best effort: the sidebar keeps the folders it already has, and the next pull reconciles it.",
+    "// The mutation is already rolled back below; the re-read is a best-effort recovery, so a",
+    "// failure is logged rather than replacing the conflict the caller is already handling.",
+    "// The recovered result is already in memory and the caller retries the same write; a failed",
+    "// bookkeeping cleanup must not turn that recovery into a visible failure.",
   ]],
   ["src/client/store/pinned-windows.ts", [
     "/**\n * How long a pinned window is left flashing after a link jumps to it.\n *\n * This is not a taste value: it is the duration of `pinned-window-flash` in `prose.css`, and the flag\n * that carries the class has to outlive the animation that reads it — a shorter value clips the flash\n * off mid-fade, a longer one leaves a card that no longer looks targeted still claiming to be.\n */",
@@ -37692,9 +37698,11 @@ const allowed = new Map([
     "// `chat_messages` until now, so the day's counters — the ones the cost screen reads — could not say how",
     "// much of a prompt a vendor served from its cache. Four tables, four migrations: each ALTER is guarded",
     "// by its own column so a database that already has one is not skipped along with the rest.",
-    "// A Memos token is no longer a session: `scope` says what it may reach, and `parent_token_id`",
-    "// remembers which token minted it so revoking the parent takes its children with it. Both are",
-    "// additive and default to the safe side (`memos`, no parent) for rows written before this version.",
+    "// A Memos token is no longer a session: `scope` says what it may reach. The parent link follows in",
+    "// the next version, because the ledger spends one version per added column.",
+    "// `parent_token_id` remembers which token minted this one so revoking the parent takes its children",
+    "// with it; a row written before this version has no parent. Accounts that already ran the old",
+    "// combined 260 have the column, so the guard satisfies this version without re-adding it.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",

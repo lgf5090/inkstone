@@ -3572,13 +3572,21 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [`ALTER TABLE chat_usage_daily_period ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0`],
   },
   {
-    // A Memos token is no longer a session: `scope` says what it may reach, and `parent_token_id`
-    // remembers which token minted it so revoking the parent takes its children with it. Both are
-    // additive and default to the safe side (`memos`, no parent) for rows written before this version.
+    // A Memos token is no longer a session: `scope` says what it may reach. The parent link follows in
+    // the next version, because the ledger spends one version per added column.
     version: 260,
     skipIfColumnExists: { table: 'memos_tokens', column: 'scope' },
     statements: [
       `ALTER TABLE memos_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'memos'`,
+    ],
+  },
+  {
+    // `parent_token_id` remembers which token minted this one so revoking the parent takes its children
+    // with it; a row written before this version has no parent. Accounts that already ran the old
+    // combined 260 have the column, so the guard satisfies this version without re-adding it.
+    version: 261,
+    skipIfColumnExists: { table: 'memos_tokens', column: 'parent_token_id' },
+    statements: [
       `ALTER TABLE memos_tokens ADD COLUMN parent_token_id TEXT`,
     ],
   },
