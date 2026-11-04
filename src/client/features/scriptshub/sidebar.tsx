@@ -19,6 +19,7 @@ import { Input, commitOnEnter } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
 import { Drawer, Menu, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useScriptsHub, folderPathOf } from './store'
+import { treeIndent } from '../../lib/tree'
 import type { ScriptFolder, ScriptTag } from '@shared/scriptshub/types'
 
 const FOLDER_DRAG = 'application/x-scriptshub-folder'
@@ -375,7 +376,7 @@ function FolderNode({
           'group relative flex h-10 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[28px]',
           activeId === node.folder.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
         )}
-        style={{ paddingLeft: 6 + (depth * 12) }}
+        style={{ paddingLeft: treeIndent(depth) }}
       >
         <button
           type="button"

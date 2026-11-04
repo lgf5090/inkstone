@@ -17,6 +17,7 @@ import { SelectMenu } from '../../components/select-menu'
 import { Modal } from '../../components/overlay'
 import { useUi } from '../../store/ui'
 import { FolderPicker } from '../folders/FolderPicker'
+import { Z_INDEX } from '../../lib/z-index'
 import { scriptshubApi } from './api'
 import { folderPathOf } from './store'
 import { asNotebookFolders } from './sidebar'
@@ -207,7 +208,7 @@ export function ImportDialog({
         currentId={folderId}
         allowRoot
         rootLabel={t('scriptshub.sidebar.unfiled')}
-        zIndex={2400}
+        zIndex={Z_INDEX.picker}
         onSelect={setFolderId}
         onClose={() => setPickerOpen(false)}
       />

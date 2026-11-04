@@ -131,6 +131,8 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
     void scriptshubApi.assets(detail.id).then((response) => {
       if (alive) setAssets(response.assets)
     }).catch(() => {
+      // Attachments are supplementary: a refused list leaves the panel empty instead of taking the
+      // editor down, and the upload button still reports its own failure.
       if (alive) setAssets([])
     })
     return () => {
@@ -212,7 +214,11 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
     if (!activeFile) return
     const ok = await copyText(activeFile.content)
     toast({ title: ok ? t('scriptshub.editor.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
-    if (ok) void scriptshubApi.recordCopy(detail.id, activeFile.id ?? null).catch(() => undefined)
+    if (ok) {
+      void scriptshubApi.recordCopy(detail.id, activeFile.id ?? null).catch((error: unknown) => {
+        console.warn('[inkstone] scriptshub copy count failed:', error instanceof Error ? error.message : error)
+      })
+    }
   }
 
   const downloadActive = () => {
