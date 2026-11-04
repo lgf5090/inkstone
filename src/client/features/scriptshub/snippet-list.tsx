@@ -436,7 +436,19 @@ function SnippetRow({ snippet, layout, density, on, folders, tags, onOpen, onTog
     setRenaming(false)
     if (!next || next === snippet.title) return
     try {
-      await patchSnippet(snippet.id, { title: next })
+      // A title is part of a version, so the rename goes through the same save the editor uses:
+      // otherwise restoring the latest content would quietly bring the old title back with it.
+      const detail = await scriptshubApi.getSnippet(snippet.id)
+      await useScriptsHub.getState().save(snippet.id, {
+        title: next,
+        description: detail.description,
+        folderId: detail.folderId,
+        language: detail.files[0]?.language ?? detail.language,
+        sourceUrl: detail.sourceUrl,
+        notes: detail.notes,
+        tags: detail.tags.map((tag) => tag.id),
+        files: detail.files.map((file) => ({ id: file.id, name: file.name, language: file.language, content: file.content })),
+      })
       toast({ title: t('scriptshub.toast.renamed'), tone: 'success' })
     } catch (error) {
       toast({ title: t('scriptshub.toast.rename_failed'), description: error instanceof Error ? error.message : String(error), tone: 'danger' })
