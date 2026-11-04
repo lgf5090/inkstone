@@ -53,6 +53,10 @@ export interface ScriptSnippetSummary {
   copyCount: number
   downloadCount: number
   fileCount: number
+  /** The first file's opening text, already flattened to one line, for the list row. */
+  preview: string
+  /** Total characters across every file, so a row can say how much code it holds. */
+  charCount: number
   tags: ScriptTag[]
   publication: ScriptPublicationSummary | null
   createdAt: number
@@ -104,6 +108,9 @@ export interface ScriptRevisionMeta {
   source: ScriptRevisionSource
   fileCount: number
   charCount: number
+  /** Lines this version added and removed against the version before it. */
+  added: number
+  removed: number
   createdAt: number
 }
 

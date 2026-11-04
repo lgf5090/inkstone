@@ -22,6 +22,9 @@ import { parseBrowser, parseDeviceType } from '../tools/shortlinks/ua'
 import { parseReferrerHost } from '../tools/shortlinks/referrer'
 import { ScriptsHubStore } from './store'
 
+/** How many distribution requests one visitor may make in a rolling minute. */
+const REQUESTS_PER_MINUTE = 120
+
 const PUBLIC_PATH_PREFIX = '/sc/'
 const DETAIL_PREFIX = '/sc-view/'
 
@@ -75,6 +78,7 @@ function recordEvent(
   kind: string,
   status: number,
   revision: number | null,
+  knownFingerprint?: string | null,
 ): void {
   const now = Date.now()
   const ua = c.req.header('user-agent') ?? ''
@@ -82,7 +86,7 @@ function recordEvent(
   const referrer = parseReferrerHost(c.req.header('referer'))
   const country = c.req.header('cf-ipcountry') ?? null
   const record = (async () => {
-    const fingerprint = await visitorFingerprint(ip, ua, c.env.SHORTLINKS_SECRET, now)
+    const fingerprint = knownFingerprint ?? await visitorFingerprint(ip, ua, c.env.SHORTLINKS_SECRET, now)
     const statements = [
       c.env.DB.prepare(
         `INSERT INTO scriptshub_events
@@ -234,6 +238,21 @@ async function handleScript(c: Context<AppBindings>): Promise<Response> {
   if (!file) {
     recordEvent(c, row, 'missing_file', 404, version)
     return textResponse(404, 'Not found')
+  }
+  // A distribution path is public, so the only thing standing between it and a retry loop is this
+  // rolling cap. The row is already written per served request, so counting them costs no extra table.
+  const ip = (c.req.header('cf-connecting-ip') ?? '').trim()
+  const ua = c.req.header('user-agent') ?? ''
+  const fingerprint = await visitorFingerprint(ip, ua, c.env.SHORTLINKS_SECRET, now)
+  if (fingerprint) {
+    const since = Math.floor(now / 1000) - 60
+    const recent = await c.env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM scriptshub_events WHERE user_id = ? AND visitor_fp = ? AND at >= ?',
+    ).bind(row.user_id, fingerprint, since).first<{ n: number }>()
+    if (Number(recent?.n ?? 0) >= REQUESTS_PER_MINUTE) {
+      recordEvent(c, row, 'rate_limited', 429, version, fingerprint)
+      return textResponse(429, 'Too many requests', { 'Retry-After': '60' })
+    }
   }
   const sha256 = await sha256Hex(file.content)
   const headers = scriptResponseHeaders({

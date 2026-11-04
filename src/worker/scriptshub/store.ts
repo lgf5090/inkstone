@@ -8,6 +8,7 @@
  */
 
 import { defaultFileNames, languageFor, type ScriptLanguageId } from '@shared/scriptshub/languages'
+import { diffLines } from 'diff'
 import { publicationPathProblem } from '@shared/scriptshub/path'
 import { importTitleDecision } from '@shared/scriptshub/import'
 import { publishedShare } from '@shared/scriptshub/stats'
@@ -89,6 +90,8 @@ interface SnippetRow {
   last_used_at: number | null
   rev: number
   file_count?: number
+  char_count?: number
+  preview?: string
 }
 
 interface FileRow {
@@ -161,6 +164,8 @@ function snippetRow(row: SnippetRow): ScriptSnippetSummary {
     copyCount: row.copy_count,
     downloadCount: row.download_count,
     fileCount: Number(row.file_count ?? 0),
+    preview: row.preview ?? '',
+    charCount: Number(row.char_count ?? 0),
     tags: [],
     publication: null,
     createdAt: row.created_at,
@@ -350,16 +355,24 @@ export class ScriptsHubStore {
     return folder
   }
 
+  /**
+   * Delete a folder without orphaning what it held: its nested folders and snippets move up to the
+   * folder's own parent, and the move and the delete are one batch. A snippet left pointing at a
+   * deleted folder would be invisible in every folder view, which is worse than a moved one.
+   */
   async deleteFolder(id: string): Promise<void> {
     const folder = await this.folderState(id)
     if (!folder) throw ApiError.notFound('Folder not found')
-    const [{ results: children }, { results: snippets }] = await Promise.all([
-      this.db.prepare('SELECT id FROM scriptshub_folders WHERE user_id = ? AND parent_id = ?').bind(this.user, id).all<{ id: string }>(),
-      this.db.prepare('SELECT id FROM scriptshub_snippets WHERE user_id = ? AND folder_id = ? LIMIT 1').bind(this.user, id).all<{ id: string }>(),
+    const now = Date.now()
+    await this.db.batch([
+      this.db.prepare(
+        'UPDATE scriptshub_folders SET parent_id = ?, updated_at = ? WHERE user_id = ? AND parent_id = ?',
+      ).bind(folder.parent_id, now, this.user, id),
+      this.db.prepare(
+        'UPDATE scriptshub_snippets SET folder_id = ?, updated_at = ? WHERE user_id = ? AND folder_id = ?',
+      ).bind(folder.parent_id, now, this.user, id),
+      this.db.prepare('DELETE FROM scriptshub_folders WHERE user_id = ? AND id = ?').bind(this.user, id),
     ])
-    if (children.length) throw ApiError.conflict('Move or delete the nested folders first')
-    if (snippets.length) throw ApiError.conflict('Move the snippets out of this folder first')
-    await this.db.prepare('DELETE FROM scriptshub_folders WHERE user_id = ? AND id = ?').bind(this.user, id).run()
   }
 
   private async folderState(id: string): Promise<{ parent_id: string | null } | null> {
@@ -582,7 +595,13 @@ export class ScriptsHubStore {
       `SELECT s.id, s.title, s.description, s.folder_id, s.language, s.source_url, s.notes,
               s.is_favorite, s.is_pinned, s.is_deprecated, s.copy_count, s.download_count,
               s.created_at, s.updated_at, s.last_used_at,
-              (SELECT COUNT(*) FROM scriptshub_files f WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS file_count
+              (SELECT COUNT(*) FROM scriptshub_files f WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS file_count,
+              (SELECT COALESCE(SUM(length(f.content)), 0) FROM scriptshub_files f
+                WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS char_count,
+              (SELECT substr(replace(replace(f.content, char(13), ' '), char(10), ' '), 1, 200)
+                 FROM scriptshub_files f
+                WHERE f.user_id = s.user_id AND f.snippet_id = s.id
+                ORDER BY f.position, f.created_at LIMIT 1) AS preview
          FROM scriptshub_snippets s
         WHERE ${where.join(' AND ')}
         ORDER BY s.is_pinned DESC, ${order}
@@ -630,7 +649,13 @@ export class ScriptsHubStore {
       `SELECT s.id, s.title, s.description, s.folder_id, s.language, s.source_url, s.notes,
               s.is_favorite, s.is_pinned, s.is_deprecated, s.copy_count, s.download_count,
               s.created_at, s.updated_at, s.last_used_at, s.rev,
-              (SELECT COUNT(*) FROM scriptshub_files f WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS file_count
+              (SELECT COUNT(*) FROM scriptshub_files f WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS file_count,
+              (SELECT COALESCE(SUM(length(f.content)), 0) FROM scriptshub_files f
+                WHERE f.user_id = s.user_id AND f.snippet_id = s.id) AS char_count,
+              (SELECT substr(replace(replace(f.content, char(13), ' '), char(10), ' '), 1, 200)
+                 FROM scriptshub_files f
+                WHERE f.user_id = s.user_id AND f.snippet_id = s.id
+                ORDER BY f.position, f.created_at LIMIT 1) AS preview
          FROM scriptshub_snippets s
         WHERE s.user_id = ? AND s.id = ?`,
     ).bind(this.user, id).first<SnippetRow>()
@@ -811,7 +836,28 @@ export class ScriptsHubStore {
     }
     const tagIds = await this.validTagIds(input.tags)
     const now = Date.now()
-    const nextVersion = existing.rev + 1
+    const description = clip(input.description, DESCRIPTION_MAX)
+    const language = languageFor(input.language).id
+    const sourceUrl = cleanSourceUrl(input.sourceUrl)
+    const notes = clip(input.notes, NOTES_MAX)
+    const latest = await this.latestRevision(id)
+    const metadata = await this.saveState(id)
+    const contentSame = latest !== null && revisionMatches(latest, { title, description, files })
+    const metadataSame = metadata !== null
+      && metadata.title === title
+      && metadata.description === description
+      && metadata.folder_id === input.folderId
+      && metadata.language === language
+      && metadata.source_url === sourceUrl
+      && metadata.notes === notes
+      && sameIds(metadata.tags, tagIds)
+    if (contentSame && metadataSame) {
+      // Nothing a reader could see has changed, so no version is written and the row is not
+      // re-dated. A save that only toggled a tag still writes below, with the same `rev`.
+      return this.getSnippet(id)
+    }
+    const nextVersion = contentSame ? existing.rev : existing.rev + 1
+    const diff = contentSame ? { added: 0, removed: 0 } : lineChanges(latest?.files_json ?? '', files)
     const snapshot = JSON.stringify(files.map((file) => ({
       id: file.id,
       name: file.name,
@@ -829,25 +875,27 @@ export class ScriptsHubStore {
           WHERE user_id = ? AND id = ?`,
       ).bind(
         title,
-        clip(input.description, DESCRIPTION_MAX),
+        description,
         input.folderId,
-        languageFor(input.language).id,
-        cleanSourceUrl(input.sourceUrl),
-        clip(input.notes, NOTES_MAX),
+        language,
+        sourceUrl,
+        notes,
         nextVersion,
         now,
         this.user,
         id,
       ),
-      this.db.prepare('DELETE FROM scriptshub_files WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
     ]
-    for (const file of files) {
-      statements.push(
-        this.db.prepare(
-          `INSERT INTO scriptshub_files (user_id, id, snippet_id, name, language, content, position, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(this.user, file.id, id, file.name, file.language, file.content, file.position, now, now),
-      )
+    if (!contentSame) {
+      statements.push(this.db.prepare('DELETE FROM scriptshub_files WHERE user_id = ? AND snippet_id = ?').bind(this.user, id))
+      for (const file of files) {
+        statements.push(
+          this.db.prepare(
+            `INSERT INTO scriptshub_files (user_id, id, snippet_id, name, language, content, position, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).bind(this.user, file.id, id, file.name, file.language, file.content, file.position, now, now),
+        )
+      }
     }
     statements.push(this.db.prepare('DELETE FROM scriptshub_snippet_tags WHERE user_id = ? AND snippet_id = ?').bind(this.user, id))
     for (const tagId of tagIds) {
@@ -856,26 +904,29 @@ export class ScriptsHubStore {
           .bind(this.user, id, tagId),
       )
     }
-    statements.push(
-      this.db.prepare(
-        `INSERT INTO scriptshub_revisions
-          (user_id, snippet_id, version, title, description, files_json, file_count, char_count, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        this.user,
-        id,
-        nextVersion,
-        title,
-        clip(input.description, DESCRIPTION_MAX),
-        snapshot,
-        files.length,
-        charCount,
-        source,
-        now,
-      ),
-    )
+    if (!contentSame) {
+      statements.push(
+        this.db.prepare(
+          `INSERT INTO scriptshub_revisions
+            (user_id, snippet_id, version, title, description, files_json, file_count, char_count, diff_stat, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          this.user,
+          id,
+          nextVersion,
+          title,
+          description,
+          snapshot,
+          files.length,
+          charCount,
+          JSON.stringify(diff),
+          source,
+          now,
+        ),
+      )
+    }
     await this.db.batch(statements)
-    await this.pruneRevisions(id)
+    if (!contentSame) await this.pruneRevisions(id)
     return this.getSnippet(id)
   }
 
@@ -933,7 +984,21 @@ export class ScriptsHubStore {
           WHERE user_id = ? AND id IN (${[...found].map(() => '?').join(', ')})`,
       ).bind(input.folderId ?? null, Date.now(), this.user, ...found).run()
     } else {
-      for (const id of found) await this.deleteSnippet(id)
+      // One batch for every selected snippet: D1 runs it as a transaction, so a failure halfway does
+      // not leave the account with half of the selection deleted.
+      const statements: D1PreparedStatement[] = []
+      for (const id of found) {
+        statements.push(
+          this.db.prepare('DELETE FROM scriptshub_snippet_tags WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_files WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_revisions WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_publications WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_copy_events WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_assets WHERE user_id = ? AND snippet_id = ?').bind(this.user, id),
+          this.db.prepare('DELETE FROM scriptshub_snippets WHERE user_id = ? AND id = ?').bind(this.user, id),
+        )
+      }
+      await this.db.batch(statements)
     }
     return { affected: found.size, skipped: ids.length - found.size }
   }
@@ -941,6 +1006,42 @@ export class ScriptsHubStore {
   private async snippetState(id: string): Promise<{ rev: number } | null> {
     return this.db.prepare('SELECT rev FROM scriptshub_snippets WHERE user_id = ? AND id = ?')
       .bind(this.user, id).first<{ rev: number }>()
+  }
+
+  /** The newest snapshot, used to decide whether a save would add anything to the history. */
+  private async latestRevision(snippetId: string): Promise<{ title: string; description: string; files_json: string } | null> {
+    return this.db.prepare(
+      `SELECT title, description, files_json FROM scriptshub_revisions
+        WHERE user_id = ? AND snippet_id = ? ORDER BY version DESC LIMIT 1`,
+    ).bind(this.user, snippetId).first<{ title: string; description: string; files_json: string }>()
+  }
+
+  /** The snippet's own metadata and tags, for the same "did anything change" question. */
+  private async saveState(snippetId: string): Promise<{
+    title: string
+    description: string
+    folder_id: string | null
+    language: string
+    source_url: string
+    notes: string
+    tags: string[]
+  } | null> {
+    const row = await this.db.prepare(
+      `SELECT title, description, folder_id, language, source_url, notes
+         FROM scriptshub_snippets WHERE user_id = ? AND id = ?`,
+    ).bind(this.user, snippetId).first<{
+      title: string
+      description: string
+      folder_id: string | null
+      language: string
+      source_url: string
+      notes: string
+    }>()
+    if (!row) return null
+    const { results } = await this.db.prepare(
+      'SELECT tag_id FROM scriptshub_snippet_tags WHERE user_id = ? AND snippet_id = ?',
+    ).bind(this.user, snippetId).all<{ tag_id: string }>()
+    return { ...row, tags: results.map((entry) => entry.tag_id) }
   }
 
   private async validTagIds(ids: readonly string[]): Promise<string[]> {
@@ -957,7 +1058,7 @@ export class ScriptsHubStore {
 
   async listRevisions(snippetId: string): Promise<ScriptRevisionMeta[]> {
     const { results } = await this.db.prepare(
-      `SELECT version, title, description, source, file_count, char_count, created_at
+      `SELECT version, title, description, source, file_count, char_count, diff_stat, created_at
          FROM scriptshub_revisions WHERE user_id = ? AND snippet_id = ?
         ORDER BY version DESC`,
     ).bind(this.user, snippetId).all<{
@@ -967,6 +1068,7 @@ export class ScriptsHubStore {
       source: string
       file_count: number
       char_count: number
+      diff_stat: string
       created_at: number
     }>()
     return results.map((row) => ({
@@ -976,13 +1078,14 @@ export class ScriptsHubStore {
       source: revisionSource(row.source),
       fileCount: row.file_count,
       charCount: row.char_count,
+      ...revisionDiff(row.diff_stat),
       createdAt: row.created_at,
     }))
   }
 
   async readRevision(snippetId: string, version: number): Promise<ScriptRevisionSnapshot> {
     const row = await this.db.prepare(
-      `SELECT version, title, description, source, files_json, file_count, char_count, created_at
+      `SELECT version, title, description, source, files_json, file_count, char_count, diff_stat, created_at
          FROM scriptshub_revisions WHERE user_id = ? AND snippet_id = ? AND version = ?`,
     ).bind(this.user, snippetId, version).first<{
       version: number
@@ -992,6 +1095,7 @@ export class ScriptsHubStore {
       files_json: string
       file_count: number
       char_count: number
+      diff_stat: string
       created_at: number
     }>()
     if (!row) throw ApiError.notFound('Revision not found')
@@ -1002,6 +1106,7 @@ export class ScriptsHubStore {
       source: revisionSource(row.source),
       fileCount: row.file_count,
       charCount: row.char_count,
+      ...revisionDiff(row.diff_stat),
       createdAt: row.created_at,
       files: parseFilesJson(row.files_json),
     }
@@ -1064,7 +1169,7 @@ export class ScriptsHubStore {
     if (pathProblem) throw ApiError.badRequest(pathProblem)
     const visibility = normalizeVisibility(input.visibility)
     const taken = await this.db.prepare(
-      'SELECT 1 AS present FROM scriptshub_publications WHERE path = ? LIMIT 1',
+      'SELECT 1 AS present FROM scriptshub_publications WHERE lower(path) = lower(?) LIMIT 1',
     ).bind(input.path).first<{ present: number }>()
     if (taken) throw ApiError.conflict('That distribution path is already in use')
     const expires = validExpiresAt(input.expiresAt)
@@ -1093,7 +1198,7 @@ export class ScriptsHubStore {
       const problem = publicationPathProblem(patch.path)
       if (problem) throw ApiError.badRequest(problem)
       const taken = await this.db.prepare(
-        'SELECT 1 AS present FROM scriptshub_publications WHERE path = ? AND id <> ? LIMIT 1',
+        'SELECT 1 AS present FROM scriptshub_publications WHERE lower(path) = lower(?) AND id <> ? LIMIT 1',
       ).bind(patch.path, id).first<{ present: number }>()
       if (taken) throw ApiError.conflict('That distribution path is already in use')
       sets.push('path = ?')
@@ -1392,7 +1497,13 @@ export class ScriptsHubStore {
     const result: ScriptImportResult = { created: 0, overwritten: 0, skipped: 0, renamed: 0, tags: 0 }
     if (entries.length > 500) throw ApiError.badRequest('An import may hold at most 500 snippets')
     if (folderId) await this.assertFolder(folderId)
-    const tagsBefore = new Set((await this.listTags()).map((tag) => tag.name.toLowerCase()))
+    const existingTags = await this.listTags()
+    const tagsBefore = new Set(existingTags.map((tag) => tag.name.toLowerCase()))
+    // One read of the account's tags serves the whole import; asking per entry made a 500-snippet
+    // file 500 queries against the same table.
+    const knownTags = new Map(
+      existingTags.filter((tag) => !tag.parentId).map((tag) => [tag.name.toLowerCase(), tag]),
+    )
     for (const entry of entries) {
       const title = entry.title.trim().slice(0, TITLE_MAX)
       if (!title || !entry.files.length) {
@@ -1409,7 +1520,7 @@ export class ScriptsHubStore {
         result.skipped += 1
         continue
       }
-      const tagIds = await this.ensureTags(entry.tags, tagsBefore, result)
+      const tagIds = await this.ensureTags(entry.tags, tagsBefore, knownTags, result)
       if (decision.action === 'overwrite') {
         await this.saveSnippet(existing!.id, {
           title,
@@ -1454,14 +1565,20 @@ export class ScriptsHubStore {
     return result
   }
 
-  private async ensureTags(names: readonly string[], known: Set<string>, result: ScriptImportResult): Promise<string[]> {
+  private async ensureTags(
+    names: readonly string[],
+    known: Set<string>,
+    existing: Map<string, ScriptTag>,
+    result: ScriptImportResult,
+  ): Promise<string[]> {
     const ids: string[] = []
     for (const raw of names) {
       const name = cleanTagName(raw)
       const key = name.toLowerCase()
-      let tag = (await this.listTags()).find((entry) => !entry.parentId && entry.name.toLowerCase() === key)
+      let tag = existing.get(key)
       if (!tag) {
         tag = await this.createTag({ name })
+        existing.set(key, tag)
       }
       if (!known.has(key)) {
         known.add(key)
@@ -1536,6 +1653,102 @@ function validExpiresAt(value: unknown): number | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw ApiError.badRequest('An expiry must be a timestamp')
   if (value < Date.now()) throw ApiError.badRequest('An expiry cannot be in the past')
   return Math.trunc(value)
+}
+
+/**
+ * Whether a save would write the snapshot already at the head of the history.
+ *
+ * Only the fields a version owns are compared: title, description and the files themselves. Folder,
+ * tags, source and notes live on the snippet and never made a version, so changing them alone must
+ * not add an empty one.
+ */
+function revisionMatches(
+  latest: { title: string; description: string; files_json: string },
+  next: {
+    title: string
+    description: string
+    files: ReadonlyArray<{ id: string; name: string; language: string; content: string; position: number }>
+  },
+): boolean {
+  if (latest.title !== next.title || latest.description !== next.description) return false
+  let stored: unknown
+  try {
+    stored = JSON.parse(latest.files_json)
+  } catch {
+    return false
+  }
+  if (!Array.isArray(stored) || stored.length !== next.files.length) return false
+  return next.files.every((file, index) => {
+    const entry = stored[index] as Record<string, unknown> | null
+    return Boolean(entry)
+      && entry!.id === file.id
+      && entry!.name === file.name
+      && entry!.language === file.language
+      && entry!.content === file.content
+      && Number(entry!.position) === file.position
+  })
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const set = new Set(left)
+  return right.every((id) => set.has(id))
+}
+
+/**
+ * The +x/−y a version is worth, counted per file identity rather than per name: renaming a file
+ * changes no line, and a file deleted by this save removes every line it held.
+ */
+function lineChanges(
+  previousJson: string,
+  files: ReadonlyArray<{ id: string; content: string }>,
+): { added: number; removed: number } {
+  let before: unknown
+  try {
+    before = JSON.parse(previousJson || '[]')
+  } catch {
+    before = []
+  }
+  const previous = new Map<string, string>()
+  if (Array.isArray(before)) {
+    for (const entry of before) {
+      const file = entry as Record<string, unknown>
+      if (typeof file.id === 'string' && typeof file.content === 'string') previous.set(file.id, file.content)
+    }
+  }
+  let added = 0
+  let removed = 0
+  for (const file of files) {
+    const old = previous.get(file.id)
+    if (old === undefined) {
+      added += countedLines(file.content)
+      continue
+    }
+    previous.delete(file.id)
+    for (const change of diffLines(old, file.content)) {
+      if (change.added) added += countedLines(change.value)
+      else if (change.removed) removed += countedLines(change.value)
+    }
+  }
+  for (const content of previous.values()) removed += countedLines(content)
+  return { added, removed }
+}
+
+function countedLines(value: string): number {
+  if (!value) return 0
+  return value.replace(/\n$/, '').split('\n').length
+}
+
+function revisionDiff(stat: string): { added: number; removed: number } {
+  try {
+    const parsed = JSON.parse(stat) as { added?: unknown; removed?: unknown }
+    return {
+      added: Number.isFinite(Number(parsed.added)) ? Math.max(0, Number(parsed.added)) : 0,
+      removed: Number.isFinite(Number(parsed.removed)) ? Math.max(0, Number(parsed.removed)) : 0,
+    }
+  } catch {
+    return { added: 0, removed: 0 }
+  }
 }
 
 function revisionSource(value: string): ScriptRevisionSource {

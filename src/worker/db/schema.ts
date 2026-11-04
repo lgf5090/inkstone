@@ -3619,6 +3619,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     version: 263,
     statements: TOOLS_COMPARE_SCHEMA_STATEMENTS,
   },
+  {
+    // A revision's line counts are written when it is created, so the history panel can say +x/−y
+    // without re-reading every snapshot on ordinary opens. Stored as JSON (`{"added":n,"removed":m}`)
+    // because the line diff is a pair of numbers, not a second row per file.
+    version: 264,
+    skipIfColumnExists: { table: 'scriptshub_revisions', column: 'diff_stat' },
+    statements: [
+      `ALTER TABLE scriptshub_revisions ADD COLUMN diff_stat TEXT NOT NULL DEFAULT ''`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
