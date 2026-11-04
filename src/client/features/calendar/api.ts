@@ -3,6 +3,7 @@
  * locale, error translation and 204 handling stay one implementation.
  */
 import { ApiError, request } from '../../lib/api'
+import type { CalendarCountdownDto, CalendarCountdownInput } from '@shared/calendar/countdown'
 import type {
   CalendarAttachmentDto,
   CalendarAttendeeDto,
@@ -681,4 +682,32 @@ export function getFreeBusy(input: {
   })
   if (input.calendarIds?.length) params.set('calendarIds', input.calendarIds.join(','))
   return request(`/api/calendar/free-busy?${params.toString()}`)
+}
+
+export async function listCountdowns(signal?: AbortSignal): Promise<CalendarCountdownDto[]> {
+  const data = await request<{ countdowns: CalendarCountdownDto[] }>('/api/calendar/countdowns', { signal })
+  return data.countdowns
+}
+
+export async function createCountdown(input: CalendarCountdownInput): Promise<CalendarCountdownDto> {
+  const data = await request<{ countdown: CalendarCountdownDto }>('/api/calendar/countdowns', {
+    method: 'POST',
+    body: input,
+  })
+  return data.countdown
+}
+
+export async function updateCountdown(
+  id: string,
+  patch: Omit<CalendarCountdownInput, 'id'> & { rev: number },
+): Promise<CalendarCountdownDto> {
+  const data = await request<{ countdown: CalendarCountdownDto }>(`/api/calendar/countdowns/${entity(id)}`, {
+    method: 'PATCH',
+    body: patch,
+  })
+  return data.countdown
+}
+
+export function deleteCountdown(id: string, rev: number): Promise<void> {
+  return request<void>(`/api/calendar/countdowns/${entity(id)}?rev=${rev}`, { method: 'DELETE' })
 }

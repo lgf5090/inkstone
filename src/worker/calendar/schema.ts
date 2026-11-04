@@ -91,6 +91,10 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
      ON calendar_events(user_id, start_ms)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_updated
      ON calendar_events(user_id, updated_at)`,
+  // The activity heatmap counts events by the day they were created; the range index is ordered by
+  // start_ms and cannot answer that, so this one covers the year window instead of scanning.
+  `CREATE INDEX IF NOT EXISTS idx_calendar_events_created
+     ON calendar_events(user_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_recurring
      ON calendar_events(user_id, recurrence_rule) WHERE recurrence_rule IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_calendar_events_recurrence_parent
@@ -340,6 +344,30 @@ export const CALENDAR_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_scheduling_slug
      ON calendar_scheduling_links(slug)`,
+
+  // Countdowns: dated milestones that are deliberately not events. They have no duration, no calendar
+  // and no place in the range query, so one can never be dragged onto the grid or exported as a
+  // meeting. `target_date` is the solar day the reader typed; the lunar fields are what a lunar repeat
+  // needs after the fact, resolved once at write time so a list read never touches the lunar tables.
+  `CREATE TABLE IF NOT EXISTS calendar_countdowns (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    repeat_mode TEXT NOT NULL DEFAULT 'none',
+    lunar_month INTEGER,
+    lunar_day INTEGER,
+    lunar_leap INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT '',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    rev INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_calendar_countdowns_order
+     ON calendar_countdowns(user_id, pinned DESC, target_date)`,
 
   // A one-off "remind me again" parked on an event. The sweep reads it by notify_at and deletes the
   // row after delivering, so a snooze never changes the event's own lead list.

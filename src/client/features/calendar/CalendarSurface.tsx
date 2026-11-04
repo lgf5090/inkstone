@@ -66,6 +66,13 @@ import { CalendarEventDialog, type NewCalendarEvent } from './CalendarEventDialo
 import { CalendarContactsDialog } from './CalendarContactsDialog'
 import { CalendarTemplatesDialog } from './CalendarTemplatesDialog'
 import { CalendarTasksPanel } from './CalendarTasksPanel'
+import { CalendarAlmanacDialog } from './CalendarAlmanacDialog'
+import { CountdownDialog, CountdownStrip, CountdownsCard, useCountdowns } from './CalendarCountdowns'
+import { CalendarHeatmapCard } from './CalendarHeatmap'
+import { attachAlmanacChrome } from './almanac-chrome'
+import { cellLabel } from './almanac'
+import type { CalendarCountdownDto } from '@shared/calendar/countdown'
+import { navigateToPath } from '../../lib/app-history'
 import { holidayPresets } from './holidays'
 import { enqueueOutbox, flushOutbox } from './offline-outbox'
 import { CalendarQuickAdd } from './CalendarQuickAdd'
@@ -479,9 +486,25 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [schedulingOpen, setSchedulingOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [almanacDate, setAlmanacDate] = useState<string | null>(null)
+  const [countdownEditing, setCountdownEditing] = useState<CalendarCountdownDto | null | undefined>(undefined)
   const [printSheet, setPrintSheet] = useState<PrintSheet | null>(null)
   const shownRef = useRef<string | null>(null)
   const dismissedRef = useRef<string | null>(null)
+
+  /**
+   * Countdown rows: their own table, their own read, and never part of the event range.
+   *
+   * They are loaded once when the surface opens rather than with every range fetch, because their
+   * distance is counted from today and does not change when the reader navigates a month.
+   */
+  const countdownFailure = useCallback((message: string) => {
+    useUi.getState().toast({ title: t('calendar.countdown.load_failed'), description: message, tone: 'danger' })
+  }, [])
+  const countdowns = useCountdowns(countdownFailure)
+  useEffect(() => {
+    void countdowns.reload()
+  }, [countdowns.reload])
 
   const conflictView = useMemo<ConflictView>(() => ({
     locale: appLocale,
@@ -847,6 +870,38 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       onOpenDetail: id => app.onEventDetailToggle(id),
     })
   }, [app, appLocale, meta.preferences.weekStart, meta.preferences.eventDetailTrigger, wide])
+
+  /**
+   * The almanac line inside the month cells.
+   *
+   * The month map is resolved once per render pass and cached for the months a reader actually
+   * visited, so the library's re-renders cost a lookup rather than forty-two lunar conversions.
+   * `auto` follows the language: a Han interface expects an almanac, others do not.
+   */
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>('.inkstone-calendar')
+    if (!root) return
+    const showAlmanac = meta.preferences.almanac === 'on'
+      || (meta.preferences.almanac === 'auto' && appLocale.toLowerCase().startsWith('zh'))
+    return attachAlmanacChrome({
+      root,
+      weekStart: meta.preferences.weekStart,
+      showAlmanac,
+      showHolidayMarks: meta.preferences.holidayMarks,
+      formatDate: (key) => {
+        const [year, month, day] = key.split('-').map(Number) as [number, number, number]
+        return new Intl.DateTimeFormat(appLocale, { month: 'long', day: 'numeric', weekday: 'short' })
+          .format(new Date(year, month - 1, day))
+      },
+      labelOf: info => cellLabel(info, true),
+      holidayLabel: info => info.holiday.makeup
+        ? t('calendar.almanac.badge_makeup')
+        : info.holiday.off
+          ? t('calendar.almanac.badge_off')
+          : null,
+      onOpenDay: (key) => setAlmanacDate(key),
+    })
+  }, [appLocale, meta.preferences.almanac, meta.preferences.holidayMarks, meta.preferences.weekStart])
 
   useEffect(() => {
     const onVisibility = (): void => {
@@ -1396,6 +1451,19 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       tasks={meta.preferences.enableTasks ? (
         <CalendarTasksPanel app={app} calendars={meta.calendars} onChanged={() => { void reloadRef.current() }} />
       ) : undefined}
+      countdowns={(
+        <CountdownsCard
+          items={countdowns.items}
+          loading={countdowns.loading}
+          error={countdowns.error}
+          onAdd={() => setCountdownEditing(null)}
+          onOpenCountdown={(id) => {
+            const item = countdowns.items.find(row => row.id === id) ?? null
+            if (item) setCountdownEditing(item)
+          }}
+        />
+      )}
+      activity={<CalendarHeatmapCard today={new Date()} />}
       extras={extrasEventId ? (
         <CalendarEventExtras
           eventId={extrasEventId}
@@ -1485,6 +1553,16 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
             <span className="min-w-0 flex-1 truncate text-[length:var(--text-12)] text-[var(--text-secondary)]">{syncError}</span>
             <Button size="sm" onClick={() => setConnectionsOpen(true)}>{t('calendar.sync.open_connections')}</Button>
           </div>
+        )}
+
+        {assistantChrome.view === 'month' && (
+          <CountdownStrip
+            items={countdowns.items}
+            onOpen={(id) => {
+              const item = countdowns.items.find(row => row.id === id) ?? null
+              if (item) setCountdownEditing(item)
+            }}
+          />
         )}
 
         <div className="inkstone-calendar min-h-0 flex-1">
@@ -1578,6 +1656,24 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
         }}
         onClose={() => setTemplatesOpen(false)}
       />
+
+      <CalendarAlmanacDialog
+        open={almanacDate !== null}
+        dateKey={almanacDate}
+        countdowns={countdowns.items}
+        onClose={() => setAlmanacDate(null)}
+        onJump={(path) => navigateToPath(path)}
+      />
+
+      {countdownEditing !== undefined && (
+        <CountdownDialog
+          key={countdownEditing?.id ?? 'new'}
+          open
+          item={countdownEditing}
+          onClose={() => setCountdownEditing(undefined)}
+          onSaved={() => { void countdowns.reload() }}
+        />
+      )}
 
       <CalendarFilteredSearch
         open={filteredSearchOpen}

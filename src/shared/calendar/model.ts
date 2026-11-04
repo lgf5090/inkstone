@@ -73,6 +73,16 @@ export interface CalendarAttachmentDto {
 export const CALENDAR_YEAR_VIEW_MODES = ['year-canvas', 'fixed-week', 'grid'] as const
 export type CalendarYearViewMode = (typeof CALENDAR_YEAR_VIEW_MODES)[number]
 
+/**
+ * Whether the month grid prints the lunar date and festival names.
+ *
+ * `auto` is the default because the almanac is a property of the Chinese calendar tradition rather
+ * than of the app: a Han interface asks for it, and another language does not unless the reader
+ * turns it on.
+ */
+export const CALENDAR_ALMANAC_MODES = ['auto', 'on', 'off'] as const
+export type CalendarAlmanacMode = (typeof CALENDAR_ALMANAC_MODES)[number]
+
 export const MAX_CALENDAR_NAME = 80
 export const MAX_GROUP_NAME = 50
 export const MAX_EVENT_TITLE = 300
@@ -353,6 +363,10 @@ export interface CalendarPreferences {
   reminderEmail: string
   /** Offer a one-click switch to the browser's zone when it differs from the calendar's. */
   travelMode: boolean
+  /** Lunar date, solar term and festival names in the month grid; `auto` follows the language. */
+  almanac: CalendarAlmanacMode
+  /** Print the day-off and makeup-workday marks for statutory days. */
+  holidayMarks: boolean
 }
 
 export interface CalendarSubscriptionDto {
@@ -522,6 +536,8 @@ export function defaultCalendarPreferences(): CalendarPreferences {
     emailReminders: false,
     reminderEmail: '',
     travelMode: false,
+    almanac: 'auto',
+    holidayMarks: true,
   }
 }
 
@@ -609,6 +625,10 @@ export function normalizeCalendarPreferences(value: unknown): CalendarPreference
     emailReminders: typeof record.emailReminders === 'boolean' ? record.emailReminders : defaults.emailReminders,
     reminderEmail: typeof record.reminderEmail === 'string' ? record.reminderEmail.trim().slice(0, 254) : defaults.reminderEmail,
     travelMode: typeof record.travelMode === 'boolean' ? record.travelMode : defaults.travelMode,
+    almanac: CALENDAR_ALMANAC_MODES.includes(record.almanac as CalendarAlmanacMode)
+      ? record.almanac as CalendarAlmanacMode
+      : defaults.almanac,
+    holidayMarks: typeof record.holidayMarks === 'boolean' ? record.holidayMarks : defaults.holidayMarks,
   }
 }
 
