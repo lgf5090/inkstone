@@ -66,6 +66,7 @@ import { MEMOS_TOOLS } from './memos-tools'
 import { BLOG_TOOLS } from './blog-tools'
 import { READING_TOOLS } from './reading-tools'
 import { RSS_TOOLS } from './rss-tools'
+import { SCRIPTSHUB_TOOLS } from './scriptshub-tools'
 import { readMcpNote, loadMcpNote, searchMcpNotes } from '../mcp/retrieval'
 import { embedQueryText, vectorNorm } from '../mcp/ai-search'
 import { buildOverview, loadRates } from '../subscriptions/overview'
@@ -4977,6 +4978,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   ...CLOUDDRIVE_TOOLS,
   ...IMGBED_TOOLS,
   ...MEMOS_TOOLS,
+  ...SCRIPTSHUB_TOOLS,
   ...BLOG_TOOLS,
   ...READING_TOOLS,
   ...RSS_TOOLS,

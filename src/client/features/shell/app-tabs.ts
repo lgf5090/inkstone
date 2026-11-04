@@ -11,7 +11,7 @@
  * worker's Content-Security-Policy. tests/app-tab-routes.test.ts is what says so out loud.
  */
 import type { ComponentType } from 'react'
-import { BookOpen, CalendarDays, Cloud, Compass, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
+import { BookOpen, CalendarDays, Cloud, Compass, FileCode2, FileText, HardDrive, Images, ListChecks, Mail, MessageSquare, Music, Newspaper, NotebookPen, PlaySquare, Rss, StickyNote, Terminal, Wallet, Wrench } from 'lucide-react'
 import type { MessageKey } from '@shared/locales/en-US'
 
 export type AppTabId =
@@ -33,6 +33,7 @@ export type AppTabId =
   | 'cloudflare'
   | 'youtube'
   | 'tools'
+  | 'scriptshub'
   | 'development'
 
 export interface AppTab {
@@ -62,6 +63,7 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
   { id: 'youtube', path: '/youtube', labelKey: 'app.tabs.youtube', icon: PlaySquare },
   { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
+  { id: 'scriptshub', path: '/scripts', labelKey: 'app.tabs.scriptshub', icon: FileCode2 },
   { id: 'development', path: '/development', labelKey: 'app.tabs.development', icon: Terminal },
 ]
 
@@ -85,6 +87,7 @@ const NESTED_TAB_PATHS: readonly [prefix: string, id: AppTabId][] = [
   ['/cloudflare/', 'cloudflare'],
   ['/youtube/', 'youtube'],
   ['/tools/', 'tools'],
+  ['/scripts/', 'scriptshub'],
   ['/development/', 'development'],
 ]
 

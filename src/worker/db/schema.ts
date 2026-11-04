@@ -129,6 +129,12 @@ import {
   CALCULATOR_SCHEMA_STATEMENTS,
 } from '../tools/calculator/schema'
 import {
+  SCRIPTSHUB_REQUIRED_COLUMNS,
+  SCRIPTSHUB_REQUIRED_INDEXES,
+  SCRIPTSHUB_REQUIRED_TABLES,
+  SCRIPTSHUB_SCHEMA_STATEMENTS,
+} from '../scriptshub/schema'
+import {
   DEVELOPMENT_DATABASE_REQUIRED_COLUMNS,
   DEVELOPMENT_DATABASE_REQUIRED_INDEXES,
   DEVELOPMENT_DATABASE_REQUIRED_TABLES,
@@ -753,7 +759,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   ...CALENDAR_SCHEMA_STATEMENTS,
   ...CLOUDFLARE_SCHEMA_STATEMENTS,
   ...YOUTUBE_SCHEMA_STATEMENTS,
-  ...CLOUDDRIVE_SCHEMA_STATEMENTS,]
+  ...CLOUDDRIVE_SCHEMA_STATEMENTS,
+  ...SCRIPTSHUB_SCHEMA_STATEMENTS,]
 
 export interface SchemaMigration {
   version: number
@@ -3590,6 +3597,13 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE memos_tokens ADD COLUMN parent_token_id TEXT`,
     ],
   },
+  {
+    // ScriptsHub is a wholly new surface, so this version creates tables rather than changes one.
+    // The tables are also in `SCHEMA_STATEMENTS` for a fresh database; `IF NOT EXISTS` makes running
+    // them here harmless on a database whose first boot already built them.
+    version: 262,
+    statements: SCRIPTSHUB_SCHEMA_STATEMENTS,
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -3673,7 +3687,8 @@ export const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ...CALENDAR_REQUIRED_COLUMNS,
   ...CLOUDFLARE_REQUIRED_COLUMNS,
   ...YOUTUBE_REQUIRED_COLUMNS,
-  ...CLOUDDRIVE_REQUIRED_COLUMNS,} as const
+  ...CLOUDDRIVE_REQUIRED_COLUMNS,
+  ...SCRIPTSHUB_REQUIRED_COLUMNS,} as const
 
 export const REQUIRED_TABLES = [
   'app_meta',
@@ -3749,7 +3764,8 @@ export const REQUIRED_TABLES = [
   ...CALENDAR_REQUIRED_TABLES,
   ...CLOUDFLARE_REQUIRED_TABLES,
   ...YOUTUBE_REQUIRED_TABLES,
-  ...CLOUDDRIVE_REQUIRED_TABLES,] as const
+  ...CLOUDDRIVE_REQUIRED_TABLES,
+  ...SCRIPTSHUB_REQUIRED_TABLES,] as const
 
 export const REQUIRED_INDEXES = [
   'idx_folders_user',
@@ -3839,7 +3855,8 @@ export const REQUIRED_INDEXES = [
   ...CALENDAR_REQUIRED_INDEXES,
   ...CLOUDFLARE_REQUIRED_INDEXES,
   ...YOUTUBE_REQUIRED_INDEXES,
-  ...CLOUDDRIVE_REQUIRED_INDEXES,] as const
+  ...CLOUDDRIVE_REQUIRED_INDEXES,
+  ...SCRIPTSHUB_REQUIRED_INDEXES,] as const
 
 
 const initializationCache = new WeakMap<D1Database, Promise<DatabaseState>>()
