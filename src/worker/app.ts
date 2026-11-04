@@ -91,6 +91,8 @@ import {
 } from './clouddrive/routes'
 import { clouddriveRawRoutes } from './clouddrive/routes-shares'
 import { clouddriveDavRoutes as clouddriveDavServerRoutes } from './clouddrive/routes-dav'
+import { scriptshubRoutes } from './scriptshub/routes'
+import { scriptshubPublicRoutes } from './scriptshub/public'
 import { imgbedManageRoutes } from './imgbed/manage'
 import { imgbedSettingsRoutes } from './imgbed/settings-routes'
 import { imgbedPublicRoutes } from './imgbed/public-routes'
@@ -160,6 +162,14 @@ export function createApp() {
     await next()
   })
   app.use('/s/*', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
+  app.use('/sc/*', async (c, next) => {
+    c.set('database', await initializeDatabase(c.env))
+    await next()
+  })
+  app.use('/sc-view/*', async (c, next) => {
     c.set('database', await initializeDatabase(c.env))
     await next()
   })
@@ -308,6 +318,7 @@ export function createApp() {
   app.route('/imgbed', imgbedServeRoutes)
   app.route('/imgbed', imgbedRandomRoutes)
   app.route('/imgbed/dav', imgbedDavRoutes)
+  app.route('/api/scriptshub', scriptshubRoutes)
   app.route('/api/assistant', assistantRoutes)
   app.route('/api/activity', activityRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
@@ -347,6 +358,7 @@ export function createApp() {
   app.route('/d', clouddriveSharePageRoutes)
   app.route('/r', clouddriveRequestPageRoutes)
   app.route('/clouddrive/dav', clouddriveDavServerRoutes)
+  app.route('/', scriptshubPublicRoutes)
   app.route('/', toolsShortlinksRedirectRoutes)
   app.route('/', mcpAuthorizeRoutes)
 

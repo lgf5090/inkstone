@@ -2676,6 +2676,11 @@ export const ASSISTANT_TOOL_SPECS: readonly AssistantToolSpec[] = [
   { name: 'rss_list_entries', labelKey: 'assistant.tool.rss_list_entries', permission: 'read' },
   { name: 'rss_read_entry', labelKey: 'assistant.tool.rss_read_entry', permission: 'read' },
   { name: 'rss_mark', labelKey: 'assistant.tool.rss_mark', permission: 'write' },
+  { name: 'scriptshub_search', labelKey: 'assistant.tool.scriptshub_search', permission: 'read' },
+  { name: 'scriptshub_read', labelKey: 'assistant.tool.scriptshub_read', permission: 'read' },
+  { name: 'scriptshub_create', labelKey: 'assistant.tool.scriptshub_create', permission: 'write' },
+  { name: 'scriptshub_publish', labelKey: 'assistant.tool.scriptshub_publish', permission: 'write' },
+  { name: 'scriptshub_stats', labelKey: 'assistant.tool.scriptshub_stats', permission: 'read' },
 ]
 
 /** A page the model actually consulted, as the vendor reported it. */

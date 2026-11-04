@@ -46,7 +46,8 @@ export function ChartCanvas<K extends ChartType>({ height, label, build }: {
   useEffect(() => {
     const element = canvas.current
     if (!element) return
-    let chart: { destroy: () => void } | null = null
+    let chart: { destroy: () => void; resize: () => void } | null = null
+    let observer: ResizeObserver | null = null
     let cancelled = false
     void import('chart.js/auto').then(({ default: Chart }) => {
       if (cancelled || !canvas.current) return
@@ -61,6 +62,14 @@ export function ChartCanvas<K extends ChartType>({ height, label, build }: {
       // that will not load — and the numbers above it are what the reader came for. Best-effort, then.
       try {
         chart = new Chart(canvas.current, build(colors))
+        // A chart laid out while its column was still zero-width keeps that width forever, because
+        // Chart.js watches the window rather than the box it was put in. The observer makes the first
+        // real layout (and every later panel resize) reach the chart.
+        const host = canvas.current.parentElement ?? canvas.current
+        if (typeof ResizeObserver !== 'undefined') {
+          observer = new ResizeObserver(() => chart?.resize())
+          observer.observe(host)
+        }
       } catch {
         // A chart that refused to draw leaves its list of numbers beside it, which is the same answer.
         chart = null
@@ -68,6 +77,7 @@ export function ChartCanvas<K extends ChartType>({ height, label, build }: {
     })
     return () => {
       cancelled = true
+      observer?.disconnect()
       chart?.destroy()
     }
   }, [build, dark])
