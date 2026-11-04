@@ -24,12 +24,12 @@ import { canRetryTemplateSlot, peekTemplateSlotJob } from './template-slot-job'
 
 const { asks } = vi.hoisted(() => ({
   /** Every turn the run has opened, in the order it opened them, still waiting to be answered. */
-  asks: [] as { instruction: string, answer: (result: AnswerResult) => void }[],
+  asks: [] as { instruction: string, tools: readonly string[] | undefined, answer: (result: AnswerResult) => void }[],
 }))
 
 vi.mock('./note-ai', () => ({
-  askAboutNote: (_noteId: string, instruction: string) => new Promise<AnswerResult>((resolve) => {
-    asks.push({ instruction, answer: resolve })
+  askAboutNote: (_noteId: string, instruction: string, options?: { tools?: readonly string[] }) => new Promise<AnswerResult>((resolve) => {
+    asks.push({ instruction, tools: options?.tools, answer: resolve })
   }),
 }))
 
@@ -243,5 +243,21 @@ describe('a second template while one is running', () => {
     startTemplateSlotFill(NOTE_ID, [ENDING])
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: t('assistant.template.in_flight') }))
     expect(asked()).toEqual(['the opening'])
+  })
+})
+
+describe('the tools a template declared', () => {
+  it('are carried to every passage and kept across a retry', async () => {
+    startTemplateSlotFill(NOTE_ID, [OPENING, ENDING], ['read_note'])
+    await settle()
+    expect(asks[0]?.tools).toEqual(['read_note'])
+    answer('the opening', { status: 'ok', text: 'FIRST' })
+    await settle()
+    expect(asks[1]?.tools).toEqual(['read_note'])
+    answer('the ending', { status: 'failed', error: 'no' })
+    await settle()
+    retryTemplateSlot(1)
+    await settle()
+    expect(asks.at(-1)?.tools).toEqual(['read_note'])
   })
 })

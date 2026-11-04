@@ -136,6 +136,23 @@ describe('parseTemplateLibraryExport', () => {
     expect(parsed.truncated).toBe(false)
   })
 
+  it('keeps a template whose AI capability declaration is valid', () => {
+    const content = '<!-- inkstone-template\nai:\n  enabled: true\n  tools: [read_note]\n-->\n{{ai: draft}}\n'
+    const parsed = parseTemplateLibraryExport(exportJson({ templates: [template('tpl-1', { content })] }))
+    expect(parsed.data?.templates[0]?.content).toBe(content)
+    expect(parsed.invalidProtocols).toBe(0)
+  })
+
+  it('rejects a template whose AI capability declaration is invalid', () => {
+    const content = '<!-- inkstone-template\nai:\n  enabled: true\n  tools: [read_everything]\n-->\n{{ai: draft}}\n'
+    const parsed = parseTemplateLibraryExport(exportJson({
+      templates: [template('tpl-bad', { content }), template('tpl-1')],
+    }))
+    expect(parsed.data?.templates.map((item) => item.id)).toEqual(['tpl-1'])
+    expect(parsed.invalidProtocols).toBe(1)
+    expect(parsed.dropped).toBe(1)
+  })
+
   it('rejects anything that is not this file format', () => {
     for (const text of ['', 'not json', '[]', 'null', '"text"', JSON.stringify({ kind: 'template-library' })])
       expect(parseTemplateLibraryExport(text).data, text).toBe(null)

@@ -3792,6 +3792,7 @@ const allowed = new Map([
     "// Every page that is not the notebook says what it is, in the generic shape: a slug, a label,",
     "// and a few bounded facts. The notebook is left out because its note and folder pointers are",
     "// the more precise answer and a page block beside them would only repeat the same screen.",
+    "/** A whitelist from a caller that owns the turn's tools (a template's capability declaration). */",
   ]],
   ["src/client/features/chat/assistant-stream-isolation.test.ts", [
     "/** Every send's stream, in the order the store asked for them. */",
@@ -4946,6 +4947,9 @@ const allowed = new Map([
   ["src/client/features/chat/note-ai.ts", [
     "/**\n * One question about one note, answered and handed back as text.\n *\n * Several actions are \"ask the assistant about this note and then do something with the answer\": a\n * template's AI slot, a suggestion of tags and properties. They share the transport — put the note in\n * front of the assistant, open the dock so the reader can watch, wait for the whole turn — and differ\n * only in what they do with the answer. So the transport lives here once.\n *\n * The note is opened rather than merely named because that is what the turn carries: the request's\n * context is the note on screen, not an id the caller happens to hold. Opening it is also what the\n * reader expects from an action they aimed at a row.\n */",
     "/**\n * Ask about a note and wait for the answer, naming whichever state it ended in.\n *\n * The four states are not one thing to report: a turn already in flight is refused before it starts (the\n * store would silently drop the request, and a dropped request that returned the *previous* answer would\n * be worse than none), a run the worker did not take is a failure, and an answer with no words in it is\n * neither. Folding them into `null` left every caller guessing, so two of them said different things about\n * the same screen. The reason is said here once, and each caller decides what its reader should hear.\n *\n * Nothing is announced from here: a module that only carries the turn has no idea what was being asked\n * for, and a toast about \"nothing coming back\" from the transport is the guess this replaced.\n *\n * The answer is the one this question produced, never the newest row on the screen: the caller writes it\n * into the note's front matter, where an older answer would look like it was suggested for this page.\n */",
+    "// A caller that names tools is a template's declaration: it narrows the turn rather than adds to it.",
+    "// The empty list is \"write without tools\", which `noTools` expresses without leaving a prompt that",
+    "// promises a tool the turn has already refused.",
   ]],
   ["src/client/features/chat/note-citations.test.ts", [
     "/**\n * Where a citation leads.\n *\n * An answer can be built on two different things: pages a web search found, and notes the note tools read.\n * They are drawn side by side, so the only thing that keeps them apart is what the card does when it is\n * pressed — and that difference is the whole point. A note citation is a button that opens the note in\n * this vault; a web citation is a link that leaves. Getting them the wrong way round sends a reader to a\n * new tab for a note they already have, or worse, nowhere at all.\n */",
@@ -5578,6 +5582,7 @@ const allowed = new Map([
     "/** The music screen open beside the dock, so \"play this\" has a referent. */",
     "/** The hand-written note open beside the dock; the worker re-reads it against the caller. */",
     "/** The generic page the dock sits beside, for surfaces without a bespoke context. */",
+    "/** Only these assistant tools may be offered this turn; empty is refused by the caller as `noTools`. */",
   ]],
   ["src/client/features/chat/tag-attach.test.ts", [
     "/**\n * A new tag has to reach the conversation it was made for, or say why it did not.\n *\n * `createTag` is optimistic — it validates the name, answers a duplicate with the tag that already\n * exists, seeds the local cache and posts the row without waiting — so its id is in hand before the\n * server has a row to point at, and the attach route refuses an unknown tag. The old path caught that\n * refusal and threw the answer away: the reader typed a name, nothing appeared, and no one said so.\n * What is pinned here is the two honest outcomes: the conversation is filed once the row is back, or a\n * danger toast says it was not.\n */",
@@ -5647,6 +5652,7 @@ const allowed = new Map([
     "/**\n * Stop the run on one passage, and say which.\n *\n * The toast is fired from the state transition rather than from the caller, so there is no way to stop a\n * run quietly — a stopped passage the reader never heard about is how a template ends up half written.\n */",
     "// The reason rides in the description so it can still be read after the card is dismissed; the card",
     "// keeps saying it for as long as the run stands.",
+    "/** The assistant tools the template declared it may use; empty means text without tools. */",
   ]],
   ["src/client/features/chat/temporary-chat.test.ts", [
     "/**\n * The temporary thread's way from a click to the request.\n *\n * The promise is made once, at creation, so the two halves that have to meet are the reader's intent and\n * the turn that carries it: a button that lit up while the conversation went out unflagged would produce a\n * thread that looks temporary and is not, which is worse than not offering the button. The other direction\n * matters just as much — a flag sent on a later turn of an ordinary conversation would mean nothing,\n * because the server reads it only where it makes the conversation.\n */",
@@ -15298,6 +15304,7 @@ const allowed = new Map([
     "/**\n * One `<%+ … %>` command, asked for its text and nothing else.\n *\n * The preview pass in `dynamic-commands.ts` calls this once per command it found in the rendered note. Two\n * things make it different from every door above: the profile is `dynamic`, which grants the prompt and\n * refuses writing, creating, moving, the network, the clipboard and the reader's scripts; and the answer is\n * returned rather than toasted, because the reader is looking at the sentence the command failed inside, and\n * a notice at the other end of the screen would not tell them which one. `host/write.ts` refuses a\n * `dynamic-processor` run whatever the command asks for, so this cannot become a write path by accident.\n */",
     "// A port that throws is this app's data layer failing; the preview still says so beside the command",
     "// rather than swallowing it, which is the same rule `run()` follows for a door.",
+    "/** Say why the assistant was not asked to fill a template's slots, rather than leaving the markers unexplained. */",
   ]],
   ["src/client/features/templater/script-completion.ts", [
     "/**\n * The `tp.user` completion source, without dragging the sandbox into the first screen.\n *\n * The note editor is in the entry chunk, and answering \"which scripts does this reader have\" needs the page\n * host's store port and the export scanner — several hundred kilobytes of Templater that a reader who never\n * types `tp.user.` should not download. So this is the only piece of the completion path the editor may import\n * statically: it holds two closures, and the real work arrives on the first keystroke that asks for a list.\n *\n * `tests/templater-offline-footprint.test.ts` is what would notice if this indirection were removed, because\n * the sandbox's modules would then join the entry graph.\n */",
@@ -15542,6 +15549,8 @@ const allowed = new Map([
     "// here instead of freezing the tab on JSON.parse.",
     "// The body editor belongs to the Templater feature: a template body is code the engine reads, and the",
     "// highlighting and the `tp.` completion are that feature's, not this dialog's.",
+    "// A template that asks the assistant to write spends a model turn and may use the reader's tools,",
+    "// so the list is shown before it joins the library rather than after a run has already used it.",
   ]],
   ["src/client/features/templates/gallery-persist.ts", [
     "/**\n * What the gallery remembers between visits. The search text is deliberately not\n * part of it: a shared browser would otherwise keep whatever the last person typed,\n * and a template search is a lookup, not a preference.\n */",
@@ -15600,6 +15609,8 @@ const allowed = new Map([
     "/** Splice one library template into the note the reader is looking at. */",
     "/**\n * Render one library body and hand back its text, writing nothing.\n *\n * The third route the shell offers, for a caller that owns its own write: QuickAdd's Template choice\n * resolves the title, the folder, the tags, the link-back and its conflict rules, so it needs the document\n * and not a door that places it. Which syntax the body is written in stays the caller's question to ask —\n * {@link bodyRunsCode} is right beside this — because this function runs whatever it is handed.\n */",
     "/**\n * Whether this body asks the assistant to write something when the note is made.\n *\n * `{{ai: …}}` runs no JavaScript, but it does start a model turn with the reader's tools and account\n * budget. A gallery body with a slot is therefore the same kind of stranger-supplied action as a\n * script: it has to be imported — read first — before it may run where it stands.\n */",
+    "// `aiBlocked` is the undeclared case: the marker is still there, and the import gate belongs on it even",
+    "// though a run would leave it unfilled until the author declares the capability.",
   ]],
   ["src/client/features/templates/template-gallery.tsx", [
     "// The search box asks for these keys itself before the shared filter contract decides, so a key",
@@ -26059,6 +26070,8 @@ const allowed = new Map([
     "// without the checkbox the note would have carried, and then filed by the to-do app's own parser.",
     "// No target is resolved and no note is created, read or written — a choice that files tasks must",
     "// not leave an empty note behind when its destination was never a note at all.",
+    "// The target is known now: a note-date run measures the capture's own tokens from here. A new note",
+    "// has no row to read yet, so it keeps the run clock and is created on today.",
   ]],
   ["src/client/lib/quickadd/context.ts", [
     "/**\n * The seams a choice run needs from the rest of the app, as plain interfaces.\n *\n * The engines are written against these rather than against the note store, the router or the editor\n * directly: that is what lets a capture into a heading be tested with a two-line note and a fake\n * write, and what keeps a bad format from ever reaching a write. The app-backed implementation lives\n * in `runner.ts`.\n */",
@@ -26120,6 +26133,7 @@ const allowed = new Map([
     "/** The note the text is going into, when one exists: the engine reads its body as the target. */",
     "/**\n * What the engine answered for a Template choice's body.\n *\n * Three answers because there are three things that can be true, and collapsing them would write a\n * literal tag into a note: the body is not the engine's to run, the engine ran it, or the engine refused\n * it — and a refusal has already been said in the engine's own words by the time this comes back.\n */",
     "/**\n   * Render a Templater body through the engine and hand its text back, writing nothing.\n   *\n   * A port because the engine is a sandbox this core may not reach: `lib/quickadd` is guarded against\n   * importing `lib/templater` or `features/templater`, so the decision about which syntax a body is written\n   * in and the run itself both live behind the templates feature's seam, and only its answer crosses here.\n   *\n   * The write stays QuickAdd's — the title, the folder, the tags, the link-back and its own conflict rules\n   * are resolved by the engine of this feature, not by the template — which is why this asks for text and\n   * not for a note. A `refused` answer has already been told to the reader in the engine's own words, so\n   * the run stops instead of dropping a literal `<% … %>` into a note.\n   */",
+    "/** Epoch milliseconds, when the caller knows them; `note` date origins measure from here. */",
   ]],
   ["src/client/lib/quickadd/date-pattern.test.ts", [
     "// 2026-01-01 is a Thursday, so it belongs to week 1 of 2026; 8 October is 40 weeks later.",
@@ -26194,6 +26208,7 @@ const allowed = new Map([
     "/** Ask the port for one answer and keep what it was asked for. */",
     "// The engine has already named what it refused, in its own words; a QuickAdd failure line on top of that",
     "// would be two explanations of one event, and the less accurate one.",
+    "// 16:30 UTC is 00:30 the next day in Shanghai, so the note's own calendar day differs by zone.",
   ]],
   ["src/client/lib/quickadd/format.ts", [
     "/**\n * The QuickAdd format engine: one `{{ token }}` pass at a time, in the order the language promises.\n *\n * Two rules shape everything below. First, a stage replaces its own tokens and copies the rest of\n * the text verbatim, so an answer that happens to look like a token cannot be expanded a second\n * time — the failure the reference plugin hit when a note was literally named `{{value}}`. Second,\n * the stages run in a fixed order (globals → escapes → macros → includes → dates → prompts → data →\n * current-file tokens), so text injected by an earlier stage *can* be expanded by a later one,\n * which is what makes a global snippet or an included template useful.\n */",
@@ -26445,6 +26460,11 @@ const allowed = new Map([
     "/**\n * Whether this run still has to ask which day it counts from.\n *\n * Two things decide the day besides the clock: the choice's own \"ask me each time\", and an entry point\n * that means a second command — the palette twin, the launcher's Shift. When the entry point has\n * already been given a day, neither of them asks again: the reader would answer the same question\n * twice, and re-reading a date out of text can land on a different day than the `Date` they picked.\n */",
     "/** The day a run measures its dates from, when the choice or the entry point says to ask. */",
     "/**\n * The day an answer names, read in the reader's own zone.\n *\n * `Date.parse('2026-11-04')` reads an ISO date-only string as UTC midnight. West of Greenwich that\n * is the previous evening, so `setHours` in the session clock lands on the day before the one the\n * reader picked. A date-only answer is built from local components instead; anything carrying a time\n * keeps its explicit offset.\n */",
+    "// The day was answered for this run: it is task context, so a later target note must not replace it.",
+    "/**\n * The calendar day a note belongs to, in the reader's own zone or one named explicitly.\n *\n * A note stores an instant, and \"the note's day\" is that instant read as a wall calendar: 16:30 UTC is\n * already the next day in Shanghai. `timeZone` exists so tests can pin both readings without changing\n * the machine's zone; production callers leave it out and get the reader's local calendar.\n */",
+    "// An unknown zone is a caller mistake rather than a note fact: choose the reader's calendar instead",
+    "// of answering with an Invalid Date that would silently poison every date token after it.",
+    "/**\n * Make a run's date tokens count from the target note rather than from the run clock.\n *\n * The order is fixed and documented for the reader in the setting's description: an explicit day for\n * the run wins, then the note's own calendar day, then today. A run that creates its note has no target\n * date to read yet, so it stays on today; one that writes into an existing note switches here, after the\n * note is known and before any body, property or payload is formatted.\n *\n * `createdAt` is the note's day because backfilling a note is asking \"what day is this note about\"; the\n * update time would answer \"when did I last touch it\", which is exactly the run clock this replaces.\n */",
   ]],
   ["src/client/lib/quickadd/startup.test.ts", [
     "/** A stamp file the browser already holds, plus a way to read back what a run wrote. */",
@@ -31400,6 +31420,18 @@ const allowed = new Map([
     "// ahead of it — and onto the slot's own offset when it happened to be inside one.",
     "// The slots are taken out last, on the final body: a merge that grew the front matter would",
     "// otherwise leave every offset the answers are inserted at pointing at the wrong character.",
+    "/** What the template declared it may ask the assistant to do; disabled unless declared. */",
+    "/** How many `{{ai: …}}` markers were left untouched because no enabled declaration allowed them. */",
+    "/** Why a declared protocol was refused, in English; the caller says the reader-facing sentence. */",
+    "/**\n * The capability declaration a template carries.\n *\n * A template is data until the reader (or a gallery) runs it, and `{{ai: …}}` is the one placeholder\n * that spends a model turn and can reach the assistant's tools. So a template has to say out loud that\n * it wants that, and which tools it may use; absent means disabled, which is the safe default for a\n * file that arrived from outside the reader's library.\n */",
+    "/** Assistant tool names from `ASSISTANT_TOOL_SPECS`; an empty list means text without tools. */",
+    "/** The protocol block a template puts before its body, stripped before the note is written. */",
+    "/**\n * Read the optional protocol block off the front of a template.\n *\n * The block has to be the first thing in the file so it cannot be confused with markdown the reader\n * meant to keep. Everything about it is strict: the capability list is a security boundary, and a file\n * that names a tool the assistant does not have is refused rather than quietly run with fewer rights.\n */",
+    "/** How many non-empty `{{ai: …}}` markers a body still holds, which is what a blocked run left visible. */",
+    "// The capability protocol is a preamble for the runner, not text for the note; removing it here also",
+    "// keeps every caret offset honest, because interpolation counts characters of what it was handed.",
+    "// No declaration, or one the parser refused: leave the marker visible rather than write a hole the",
+    "// reader cannot account for, and let the caller say why the assistant did not answer it.",
   ]],
   ["src/shared/note-templates.test.ts", [
     "// The invariant is \"a built-in note names its own title\", not \"every built-in spells it the same way\":",
@@ -31434,6 +31466,9 @@ const allowed = new Map([
     "// a template that prints `<% …` forever. The clamp is the right size limit to keep — it is what stops one",
     "// paste filling the store — but it may not be silent: `truncated` is the flag the import dialog and the",
     "// save route already refuse on.",
+    "/** Entries dropped because their AI capability declaration was invalid. */",
+    "// The capability declaration is a security boundary, so a file that names an unknown tool is",
+    "// refused entry rather than imported into a library where the run would silently lose it.",
   ]],
   ["src/shared/omnisearch-query.test.ts", [
     "// A half-typed qualifier has no value to filter on, so it searches as the literal.",
@@ -35729,6 +35764,8 @@ const allowed = new Map([
     "// An external tool's permission is decided by its remote server, and an \"always allow\" grant is",
     "// never stored for one. A grant that somehow predates that rule must not be honoured either: the",
     "// third party's call is held for a press every time, whatever the local settings say.",
+    "// A whitelist from the caller is the narrowest rule there is, so it is read before the exceptions",
+    "// below: a template that declared `read_note` only must not still reach the question tool.",
   ]],
   ["src/worker/assistant/upstream.ts", [
     "/** A JSON Schema object, built by `toolSchemaFor` from the tool's own declared parameters. */",
@@ -39542,6 +39579,8 @@ const allowed = new Map([
     "// it cannot widen the account's class policy or an Agent's switch — those are checked before it —",
     "// and it is stored in settings so a later tab asks once rather than on every call. External tools",
     "// are never granted: their permission belongs to a third party, and the card stays every time.",
+    "// A caller that owns the turn's tools (a template's declared capability list) narrows what the model",
+    "// may be offered. The same name check as a pinned tool: a name the assistant cannot call is dropped.",
   ]],
   ["src/worker/routes/attachments.ts", [
     "/**\n * The attachment hub: one organiser surface for four applications.\n *\n * There is no SQL in this file, by guard as well as by choice — `tests/worker-layering.test.ts`\n * rejects a route that prepares a statement. The reason that matters here is that these rules are\n * shared with each application's own door, so a check written in a handler would apply to the hub\n * and not to the note editor that can delete the same row.\n */",

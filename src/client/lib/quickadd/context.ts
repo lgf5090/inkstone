@@ -13,6 +13,9 @@ export interface NoteRef {
   title: string
   /** Slash path of the note's folder, or null for the library root. */
   folderPath: string | null
+  /** Epoch milliseconds, when the caller knows them; `note` date origins measure from here. */
+  createdAt?: number
+  updatedAt?: number
 }
 
 export interface NewNoteInput {

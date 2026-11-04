@@ -6,6 +6,8 @@
  * out literally instead of being expanded a second time.
  */
 import { appendFrontMatterTag, parseFrontMatter } from './markdown-utils'
+import { parseDocument } from 'yaml'
+import { ASSISTANT_TOOL_SPECS } from './assistant'
 
 /** Placeholders the renderer knows. Anything else is copied through untouched. */
 export const NEW_NOTE_PLACEHOLDERS = [
@@ -52,10 +54,104 @@ export interface NewNoteAiSlot {
 
 export interface RenderedNewNoteTemplate extends InterpolatedNewNoteTemplate {
   aiSlots: NewNoteAiSlot[]
+  /** What the template declared it may ask the assistant to do; disabled unless declared. */
+  ai: NoteTemplateAiCapabilities
+  /** How many `{{ai: …}}` markers were left untouched because no enabled declaration allowed them. */
+  aiBlocked: number
+  /** Why a declared protocol was refused, in English; the caller says the reader-facing sentence. */
+  protocolErrors: string[]
+}
+
+/**
+ * The capability declaration a template carries.
+ *
+ * A template is data until the reader (or a gallery) runs it, and `{{ai: …}}` is the one placeholder
+ * that spends a model turn and can reach the assistant's tools. So a template has to say out loud that
+ * it wants that, and which tools it may use; absent means disabled, which is the safe default for a
+ * file that arrived from outside the reader's library.
+ */
+export interface NoteTemplateAiCapabilities {
+  enabled: boolean
+  /** Assistant tool names from `ASSISTANT_TOOL_SPECS`; an empty list means text without tools. */
+  tools: string[]
+}
+
+export const DEFAULT_TEMPLATE_AI: NoteTemplateAiCapabilities = { enabled: false, tools: [] }
+
+/** The protocol block a template puts before its body, stripped before the note is written. */
+const PROTOCOL_BLOCK_RE = /^\uFEFF?[ \t]*<!--[ \t]*inkstone-template[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*-->[ \t]*(?:\r?\n)?/
+
+const ASSISTANT_TOOL_NAMES = new Set(ASSISTANT_TOOL_SPECS.map((spec) => spec.name))
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Read the optional protocol block off the front of a template.
+ *
+ * The block has to be the first thing in the file so it cannot be confused with markdown the reader
+ * meant to keep. Everything about it is strict: the capability list is a security boundary, and a file
+ * that names a tool the assistant does not have is refused rather than quietly run with fewer rights.
+ */
+export function parseTemplateProtocol(template: string): {
+  content: string
+  ai: NoteTemplateAiCapabilities
+  errors: string[]
+} {
+  const match = PROTOCOL_BLOCK_RE.exec(template)
+  if (!match) return { content: template, ai: { ...DEFAULT_TEMPLATE_AI }, errors: [] }
+  const content = template.slice(match[0].length)
+  const document = parseDocument(match[1]!, { prettyErrors: false, uniqueKeys: true })
+  if (document.errors.length > 0) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: document.errors.map((error) => error.message) }
+  }
+  const value = document.toJS({ maxAliasCount: 20 }) as unknown
+  if (!isRecord(value)) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: ['The template protocol must be a mapping.'] }
+  }
+  const unknownRoot = Object.keys(value).filter((key) => key !== 'ai')
+  if (unknownRoot.length > 0) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: [`Unknown template protocol key: ${unknownRoot.join(', ')}`] }
+  }
+  if (value.ai === undefined) return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: [] }
+  if (!isRecord(value.ai)) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: ['The ai capability must be a mapping.'] }
+  }
+  const unknownAi = Object.keys(value.ai).filter((key) => key !== 'enabled' && key !== 'tools')
+  if (unknownAi.length > 0) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: [`Unknown ai capability key: ${unknownAi.join(', ')}`] }
+  }
+  if (value.ai.enabled !== undefined && typeof value.ai.enabled !== 'boolean') {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: ['ai.enabled must be true or false.'] }
+  }
+  const rawTools = value.ai.tools
+  if (rawTools !== undefined && !Array.isArray(rawTools)) {
+    return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: ['ai.tools must be a list of assistant tool names.'] }
+  }
+  const tools: string[] = []
+  for (const entry of (rawTools ?? []) as unknown[]) {
+    if (typeof entry !== 'string' || !ASSISTANT_TOOL_NAMES.has(entry)) {
+      return { content, ai: { ...DEFAULT_TEMPLATE_AI }, errors: [`ai.tools names an unknown assistant tool: ${String(entry)}`] }
+    }
+    if (!tools.includes(entry)) tools.push(entry)
+  }
+  return { content, ai: { enabled: value.ai.enabled === true, tools }, errors: [] }
 }
 
 /** `{{ai: …}}` is one line long: an instruction that wraps would be a prompt with a blank line in it. */
 const AI_SLOT_RE = /\{\{ai:[ \t]*([^\n}]*?)[ \t]*\}\}/g
+
+/** How many non-empty `{{ai: …}}` markers a body still holds, which is what a blocked run left visible. */
+function countAiSlots(text: string): number {
+  const slotRe = new RegExp(AI_SLOT_RE.source, 'g')
+  let count = 0
+  let match: RegExpExecArray | null
+  while ((match = slotRe.exec(text))) {
+    if (match[1]!.trim()) count += 1
+  }
+  return count
+}
 
 /**
  * Take the AI slots out of the body and remember where each one was.
@@ -253,9 +349,12 @@ function quoteLine(out: string, at: number): { text: string; start: number; end:
  * comma separated from the caller, which is why both are flattened to one line.
  */
 export function interpolateNewNoteTemplate(
-  template: string,
+  rawTemplate: string,
   context: NewNoteContext,
 ): InterpolatedNewNoteTemplate {
+  // The capability protocol is a preamble for the runner, not text for the note; removing it here also
+  // keeps every caret offset honest, because interpolation counts characters of what it was handed.
+  const template = parseTemplateProtocol(rawTemplate).content
   const now = context.now ?? new Date()
   const date = isoDate(now)
   const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
@@ -331,7 +430,8 @@ export function renderNewNoteTemplate(
   context: NewNoteContext,
   mergeTags: readonly string[] = [],
 ): RenderedNewNoteTemplate {
-  const rendered = interpolateNewNoteTemplate(template, context)
+  const parsed = parseTemplateProtocol(template)
+  const rendered = interpolateNewNoteTemplate(parsed.content, context)
   let content = rendered.content
   let cursor = rendered.cursor
   for (const tag of mergeTags) {
@@ -342,5 +442,16 @@ export function renderNewNoteTemplate(
   }
   // The slots are taken out last, on the final body: a merge that grew the front matter would
   // otherwise leave every offset the answers are inserted at pointing at the wrong character.
-  return stripAiSlots(content, cursor)
+  if (parsed.errors.length > 0 || !parsed.ai.enabled) {
+    // No declaration, or one the parser refused: leave the marker visible rather than write a hole the
+    // reader cannot account for, and let the caller say why the assistant did not answer it.
+    const aiBlocked = countAiSlots(content)
+    return { content, cursor, aiSlots: [], ai: parsed.ai, aiBlocked, protocolErrors: parsed.errors }
+  }
+  return {
+    ...stripAiSlots(content, cursor),
+    ai: parsed.ai,
+    aiBlocked: 0,
+    protocolErrors: parsed.errors,
+  }
 }

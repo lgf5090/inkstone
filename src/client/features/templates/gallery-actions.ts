@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { CommunityTemplate, NoteTemplate, NoteTemplateCategory } from '@shared/types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { TEMPLATE_IMPORT_LIMITS } from '@shared/note-templates'
+import { parseTemplateProtocol } from '@shared/note-template-render'
 import { bodyHasAiSlots, bodyRunsCode, createNoteWithEngine, insertNoteWithEngine } from './template-engine'
 import { peekNoteContent } from '../preview/card-content'
 import { useNotes } from '../../store/notes'
@@ -123,10 +124,22 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       // every use — and why a body with no commands in it needs no question at all.
       const runsCode = bodyRunsCode(item.content)
       const fillsWithAi = bodyHasAiSlots(item.content)
+      const protocol = parseTemplateProtocol(item.content)
+      if (protocol.errors.length > 0) {
+        useUi.getState().toast({ title: t('templates.ai_declaration_invalid'), tone: 'danger' })
+        return
+      }
       if (runsCode || fillsWithAi) {
+        const capability = protocol.ai.enabled
+          ? t('templates.community_ai_capabilities', {
+            value0: protocol.ai.tools.length > 0 ? protocol.ai.tools.join(', ') : t('templates.import_ai_tools_none'),
+          })
+          : ''
         const accepted = await confirm({
           title: t('templates.community_import_title'),
-          description: t(runsCode ? 'templates.community_import_body' : 'templates.community_import_body_ai'),
+          description: `${
+            runsCode ? t('templates.community_import_body') : t('templates.community_import_body_ai')
+          }${capability ? `\n\n${capability}` : ''}`,
           confirmLabel: t('templates.community_import'),
           tone: 'danger',
         })
@@ -172,6 +185,11 @@ export function useGalleryTemplateActions(state: GalleryLocalState, categories: 
       // community profile, which is read-only no matter what the template asks for. An AI slot is the
       // same kind of action: it spends a model turn and the account's tools, so it waits for the same
       // import-first confirmation.
+      const protocol = parseTemplateProtocol(template.content)
+      if (protocol.errors.length > 0) {
+        useUi.getState().toast({ title: t('templates.ai_declaration_invalid'), tone: 'danger' })
+        return
+      }
       const runsCode = bodyRunsCode(template.content)
       const fillsWithAi = bodyHasAiSlots(template.content)
       if ((runsCode || fillsWithAi) && useSession.getState().settings.templater.communityScriptPolicy === 'readonly') {

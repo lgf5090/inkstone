@@ -45,6 +45,8 @@ export interface TemplateSlotJob {
    */
   generation: number
   slots: TemplateSlot[]
+  /** The assistant tools the template declared it may use; empty means text without tools. */
+  tools: string[]
   /** The passage the run stopped on, or `null` while it is going or when the note itself went. */
   stoppedAt: number | null
   status: 'running' | 'stopped'

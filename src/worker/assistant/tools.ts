@@ -5277,6 +5277,9 @@ export class ToolExecutor {
    * would leave a schedule that runs every morning and says nothing.
    */
   private offers(definition: ToolDefinition): boolean {
+    // A whitelist from the caller is the narrowest rule there is, so it is read before the exceptions
+    // below: a template that declared `read_note` only must not still reach the question tool.
+    if (this.ctx.allowedTools && !this.ctx.allowedTools.includes(definition.name)) return false
     // The reader's own question is the one tool with a person on the other end of it: it is offered in a
     // conversation whatever the class policy says, because silencing it only makes the model guess. An
     // unwatched run has nobody to ask, so there it is never offered.
@@ -5284,7 +5287,6 @@ export class ToolExecutor {
     // A capability the deployment does not have, or an address the reader has not configured, takes the
     // tool away before the reader's policy is asked, because no policy can put it back.
     if (definition.requires && !definition.requires(this.ctx.env, this.ctx.settings, this.ctx)) return false
-    if (this.ctx.allowedTools && !this.ctx.allowedTools.includes(definition.name)) return false
     if (this.ctx.settings.toolSettings[definition.name]?.enabled === false) return false
     // An Agent's whitelist can only narrow the account's policy. The explicit-empty case is why the
     // runner passes `projectToolsLimited` beside the list.

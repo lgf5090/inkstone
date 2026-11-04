@@ -58,6 +58,8 @@ export interface StreamTurnInput {
   modelId?: string
   /** Answer this turn without tools: nothing is offered to the model, and nothing it invents runs. */
   noTools?: boolean
+  /** Only these assistant tools may be offered this turn; empty is refused by the caller as `noTools`. */
+  allowedTools?: readonly string[]
   /** Start the conversation as a temporary one, when this turn is the one that makes it. */
   ephemeral?: boolean
 }
@@ -120,6 +122,7 @@ export async function streamAssistantTurn(
         ...(input.webSearch ? { webSearch: true } : {}),
         ...(input.modelId ? { modelId: input.modelId } : {}),
         ...(input.noTools ? { noTools: true } : {}),
+        ...(input.allowedTools?.length ? { allowedTools: input.allowedTools } : {}),
         ...(input.ephemeral ? { ephemeral: true } : {}),
         ...(input.retry ? { retry: true } : {}),
         ...(input.retry && input.messageId ? { messageId: input.messageId } : {}),

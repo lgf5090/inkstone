@@ -41,7 +41,10 @@ export function bodyRunsCode(content: string): boolean {
  * script: it has to be imported — read first — before it may run where it stands.
  */
 export function bodyHasAiSlots(content: string): boolean {
-  return renderNewNoteTemplate(content, { title: '' }).aiSlots.length > 0
+  const rendered = renderNewNoteTemplate(content, { title: '' })
+  // `aiBlocked` is the undeclared case: the marker is still there, and the import gate belongs on it even
+  // though a run would leave it unfilled until the author declares the capability.
+  return rendered.aiSlots.length > 0 || rendered.aiBlocked > 0
 }
 
 /**

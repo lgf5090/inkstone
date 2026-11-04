@@ -30,12 +30,21 @@ import { sendForAnswerDetailed, type AnswerResult } from './editor-ai'
  * The answer is the one this question produced, never the newest row on the screen: the caller writes it
  * into the note's front matter, where an older answer would look like it was suggested for this page.
  */
-export async function askAboutNote(noteId: string, prompt: string): Promise<AnswerResult> {
+export async function askAboutNote(
+  noteId: string,
+  prompt: string,
+  options: { tools?: readonly string[] } = {},
+): Promise<AnswerResult> {
   const assistant = useAssistant.getState()
   if (assistant.turn && !assistant.turn.done) return { status: 'busy' }
   const ui = useUi.getState()
   if (ui.activeNoteId !== noteId) await useNotes.getState().openNote(noteId)
   assistant.setNoteContext(true)
   ui.setAssistantDock(true)
-  return await sendForAnswerDetailed(prompt)
+  // A caller that names tools is a template's declaration: it narrows the turn rather than adds to it.
+  // The empty list is "write without tools", which `noTools` expresses without leaving a prompt that
+  // promises a tool the turn has already refused.
+  if (options.tools === undefined) return await sendForAnswerDetailed(prompt)
+  if (options.tools.length === 0) return await sendForAnswerDetailed(prompt, { noTools: true })
+  return await sendForAnswerDetailed(prompt, { allowedTools: [...options.tools] })
 }

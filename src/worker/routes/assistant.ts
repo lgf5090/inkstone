@@ -1685,7 +1685,7 @@ async function unstartableTurn(
 
 
 assistantRoutes.post('/chat', async (c) => {
-  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, contextPage?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown }>(c, 64 * 1024)
+  const body = await readJson<{ conversationId?: unknown, message?: string, retry?: boolean, messageId?: unknown, continue?: unknown, attachments?: unknown, tools?: unknown, scopes?: unknown, webSearch?: unknown, contextNoteId?: unknown, contextFolderId?: unknown, contextSubscriptionId?: unknown, activeArtifactId?: unknown, contextTodo?: unknown, contextEmail?: unknown, contextNav?: unknown, contextMusic?: unknown, contextInknote?: unknown, contextPage?: unknown, noteId?: unknown, ephemeral?: unknown, modelId?: unknown, noTools?: unknown, allowedTools?: unknown }>(c, 64 * 1024)
   const s = store(c)
   const settings = await s.getSettings()
   const conversationId = body.conversationId === undefined || body.conversationId === null
@@ -1704,6 +1704,9 @@ assistantRoutes.post('/chat', async (c) => {
   // A tool the assistant cannot actually call is not a request, and a scope has to be a real id: both
   // narrow what the turn may reach, so neither may be invented by the caller.
   const tools = pinnedTools(body.tools)
+  // A caller that owns the turn's tools (a template's declared capability list) narrows what the model
+  // may be offered. The same name check as a pinned tool: a name the assistant cannot call is dropped.
+  const allowedTools = pinnedTools(body.allowedTools)
   const scopes = pinnedScopes(body.scopes)
   const contextTodo = readTodoContext(body.contextTodo)
   const contextEmail = readEmailContext(body.contextEmail)
@@ -1821,6 +1824,7 @@ assistantRoutes.post('/chat', async (c) => {
         message,
         attachments,
         tools,
+        ...(allowedTools.length > 0 ? { allowedTools } : {}),
         scopes,
         // What the reader had on screen. Only ids survive, and the runner re-reads both against this
         // account before either reaches the skill — a caller cannot name someone else's note.
