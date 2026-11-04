@@ -70,6 +70,10 @@ interface CalendarSidebarProps {
   extras?: ReactNode
   /** The task checklist for the loaded range. */
   tasks?: ReactNode
+  /** The countdown card; its own table and its own read, so it is handed in rather than derived here. */
+  countdowns?: ReactNode
+  /** The yearly activity grid, handed in for the same reason: it reads a server aggregate. */
+  activity?: ReactNode
   /** Hand the current period to the browser's print dialogue. */
   onPrint?: () => void
   onUndo?: () => void
@@ -182,6 +186,8 @@ export function CalendarSidebar({
   onRequestRange,
   extras,
   tasks,
+  countdowns,
+  activity,
   onPrint,
   onUndo,
   onRedo,
@@ -577,6 +583,10 @@ export function CalendarSidebar({
             onRequestRange={onRequestRange}
           />
         )}
+
+        {countdowns}
+
+        {activity}
 
         <div role="group" aria-label={t('calendar.a11y.calendar_list')} className="px-2">
           <SectionLabel>{t('calendar.sidebar.calendars')}</SectionLabel>

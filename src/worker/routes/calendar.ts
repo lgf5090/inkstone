@@ -15,11 +15,14 @@ import { MAX_CALENDAR_NAME, MAX_EVENTS_PER_BATCH, isSharedCalendarId, parseShare
 import type { CalendarEventDto } from '@shared/calendar/model'
 import type { AppBindings } from '../env'
 import { CalendarStore } from '../calendar/store'
+import { CountdownStore } from '../calendar/countdowns'
 import { listEventAttachments } from '../calendar/attachments'
 import { expandRecurringEvents } from '../calendar/ics'
 import {
   parseCalendarIdList,
   parseCalendarInput,
+  parseCountdownInput,
+  parseCountdownPatch,
   parseCalendarPatch,
   parseEntityId,
   parseEventInput,
@@ -535,5 +538,47 @@ calendarRoutes.patch('/groups/:id', async (c) => {
 
 calendarRoutes.delete('/groups/:id', async (c) => {
   await store(c).deleteGroup(pathId(c))
+  return noContent(c)
+})
+
+// ------------------------------------------------------------- countdowns
+
+/**
+ * Countdown rows, which are not events and never travel through the range query.
+ *
+ * The list is small by construction (a couple hundred at most), so it is read whole: a countdown's
+ * distance depends on the day it is read, and a windowed read would hide the ones a reader most wants
+ * to see — the ones still a year away.
+ */
+calendarRoutes.get('/countdowns', async (c) => {
+  const rows = await new CountdownStore(c.env.DB, c.get('userId')).list()
+  return c.json({ countdowns: rows })
+})
+
+calendarRoutes.post('/countdowns', async (c) => {
+  const input = parseCountdownInput(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
+  const store = new CountdownStore(c.env.DB, c.get('userId'))
+  const created = await store.create({
+    id: input.id ?? crypto.randomUUID(),
+    title: input.title,
+    date: input.date,
+    repeat: input.repeat,
+    note: input.note,
+    color: input.color,
+    pinned: input.pinned,
+  })
+  return c.json({ countdown: created }, 201)
+})
+
+calendarRoutes.patch('/countdowns/:id', async (c) => {
+  const id = pathId(c)
+  const patch = parseCountdownPatch(await readJson<unknown>(c, JSON_BODY_LIMITS.small))
+  const updated = await new CountdownStore(c.env.DB, c.get('userId')).update(id, patch)
+  return c.json({ countdown: updated })
+})
+
+calendarRoutes.delete('/countdowns/:id', async (c) => {
+  const id = pathId(c)
+  await new CountdownStore(c.env.DB, c.get('userId')).delete(id, parseRevQuery(c.req.query('rev')) ?? 0)
   return noContent(c)
 })

@@ -53,6 +53,7 @@ import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
 import { mcpSettingsRoutes } from './routes/mcp-settings'
 import { aiProxyRoutes } from './routes/ai-proxy'
 import { assistantRoutes } from './routes/assistant'
+import { activityRoutes } from './routes/activity'
 import { excalidrawLibraryRoutes } from './routes/excalidraw-library'
 import { readingRoutes } from './routes/reading'
 import { readerLibraryRoutes } from './routes/reader-library'
@@ -308,6 +309,7 @@ export function createApp() {
   app.route('/imgbed', imgbedRandomRoutes)
   app.route('/imgbed/dav', imgbedDavRoutes)
   app.route('/api/assistant', assistantRoutes)
+  app.route('/api/activity', activityRoutes)
   app.route('/api/excalidraw/ai', aiProxyRoutes)
   app.route('/api/excalidraw/library', excalidrawLibraryRoutes)
   app.route('/api/reading', readingRoutes)

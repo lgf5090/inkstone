@@ -58,8 +58,16 @@ import {
   type TemporalValue,
 } from '@shared/calendar/model'
 import { TASK_PRIORITIES } from '@shared/calendar/model'
+import {
+  isCountdownDate,
+  isCountdownRepeat,
+  MAX_COUNTDOWN_NOTE,
+  MAX_COUNTDOWN_TITLE,
+  type CountdownRepeat,
+} from '@shared/calendar/countdown'
 import { utf8ByteLength } from '@shared/text-utils'
 import { ApiError } from '../lib/errors'
+import type { CountdownPatch } from './countdowns'
 import type {
   CalendarEventPatchInput,
   CalendarEventWriteInput,
@@ -884,4 +892,95 @@ export function parseRevQuery(raw: string | undefined): number | null {
 /** Kept for the route's 404-on-malformed decision; the shared predicate is the single authority. */
 export function parseEntityId(value: unknown, field: string): string {
   return entityId(value, field)
+}
+
+const COLOR_HEX = /^#[0-9a-fA-F]{6}$/
+
+function optionalColor(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('color must be text')
+  if (!value.trim()) return ''
+  if (!COLOR_HEX.test(value)) throw ApiError.badRequest('color must be #rrggbb')
+  return value
+}
+
+function countdownTitle(value: unknown): string {
+  if (typeof value !== 'string') throw ApiError.badRequest('title must be text')
+  const title = value.trim()
+  if (!title) throw ApiError.badRequest('title is required')
+  if (title.length > MAX_COUNTDOWN_TITLE) {
+    throw ApiError.badRequest(`title is longer than ${MAX_COUNTDOWN_TITLE} characters`)
+  }
+  if (CONTROL_CHARS.test(title)) throw ApiError.badRequest('title must not contain control characters')
+  return title
+}
+
+function countdownNote(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string') throw ApiError.badRequest('note must be text')
+  if (value.length > MAX_COUNTDOWN_NOTE) {
+    throw ApiError.badRequest(`note is longer than ${MAX_COUNTDOWN_NOTE} characters`)
+  }
+  if (value.includes('\u0000')) throw ApiError.badRequest('note must not contain NUL characters')
+  return value
+}
+
+function countdownRepeat(value: unknown): CountdownRepeat {
+  if (value === undefined || value === null) return 'none'
+  if (isCountdownRepeat(value)) return value
+  throw ApiError.badRequest('repeat must be none, yearly or lunar')
+}
+
+/**
+ * One countdown as a create request.
+ *
+ * The date is the reader's own calendar day, and only the shape is checked here: whether that lunar
+ * day exists is a property of the table, which the store answers when it resolves the repeat.
+ */
+export function parseCountdownInput(value: unknown): CountdownWriteInput {
+  const record = requireRecord(value, 'countdown')
+  const id = record.id === undefined ? undefined : entityId(record.id, 'id')
+  if (!isCountdownDate(record.date)) throw ApiError.badRequest('date must be a YYYY-MM-DD day that exists')
+  return {
+    ...(id ? { id } : {}),
+    title: countdownTitle(record.title),
+    date: record.date,
+    repeat: countdownRepeat(record.repeat),
+    note: countdownNote(record.note),
+    color: optionalColor(record.color),
+    pinned: record.pinned === undefined ? false : booleanValue(record.pinned, 'pinned'),
+  }
+}
+
+export interface CountdownWriteInput extends CountdownWriteBase {
+  id?: string
+}
+
+interface CountdownWriteBase {
+  title: string
+  date: string
+  repeat: CountdownRepeat
+  note: string
+  color: string
+  pinned: boolean
+}
+
+/** A partial countdown write; every absent field means "leave it as it is". */
+export function parseCountdownPatch(value: unknown): CountdownPatch {
+  const record = requireRecord(value, 'countdown')
+  const rev = record.rev
+  if (typeof rev !== 'number' || !Number.isInteger(rev) || rev < 1) {
+    throw ApiError.badRequest('rev must be a positive integer')
+  }
+  const patch: CountdownPatch = { rev }
+  if (record.title !== undefined) patch.title = countdownTitle(record.title)
+  if (record.date !== undefined) {
+    if (!isCountdownDate(record.date)) throw ApiError.badRequest('date must be a YYYY-MM-DD day that exists')
+    patch.date = record.date
+  }
+  if (record.repeat !== undefined) patch.repeat = countdownRepeat(record.repeat)
+  if (record.note !== undefined) patch.note = countdownNote(record.note)
+  if (record.color !== undefined) patch.color = optionalColor(record.color)
+  if (record.pinned !== undefined) patch.pinned = booleanValue(record.pinned, 'pinned')
+  return patch
 }

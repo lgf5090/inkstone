@@ -188,6 +188,76 @@
 }
 
 /*
+ * The almanac line inside the month cells.
+ *
+ * DayFlow's date-number row is 33px tall and right-aligned, with no slot for a second line, so the
+ * injected label is positioned against the row's left edge. It must not steal the row's own hit area
+ * (the cell navigates on click), and it must stay legible on a tinted "today" pill, which is why it
+ * reads the secondary text token rather than the quaternary one used by faded adjacent days.
+ */
+.inkstone-calendar .cal-almanac-mark {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: var(--r-xs);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: var(--text-10);
+  font-variant-numeric: tabular-nums;
+  gap: var(--sp-0-5);
+  left: var(--sp-2);
+  line-height: 1;
+  max-width: calc(100% - var(--sp-12));
+  overflow: hidden;
+  padding: 0 var(--sp-0-5);
+  position: absolute;
+  text-overflow: ellipsis;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.inkstone-calendar .cal-almanac-mark:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.inkstone-calendar .cal-almanac-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.inkstone-calendar .cal-almanac-mark[data-festival='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.inkstone-calendar .cal-almanac-mark[data-holiday]::after {
+  background: var(--bg-sunken);
+  border-radius: var(--r-xs);
+  color: var(--text-secondary);
+  content: attr(data-holiday);
+  font-size: var(--text-9);
+  font-weight: 600;
+  padding: 0 var(--sp-0-5);
+}
+
+/* A statutory day off is the strongest signal in the month, and a makeup workday the opposite one. */
+.inkstone-calendar .cal-almanac-mark[data-off='true']::after {
+  background: var(--danger-soft, var(--bg-sunken));
+  color: var(--danger);
+}
+
+@media (max-width: 420px) {
+  .inkstone-calendar .cal-almanac-mark {
+    font-size: var(--text-9);
+    left: var(--sp-1);
+    max-width: calc(100% - var(--sp-8));
+  }
+}
+
+/*
  * Year grids.
  *
  * DayFlow formats a day cell with `toLocaleDateString(locale, { day: 'numeric' })`, which in zh-CN

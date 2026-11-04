@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
-import type { CalendarPreferences } from '@shared/calendar/model'
+import type { CalendarAlmanacMode, CalendarPreferences } from '@shared/calendar/model'
 import { normalizeCalendarPreferences } from '@shared/calendar/model'
 import { t } from '../../lib/i18n'
 import { useUi } from '../../store/ui'
@@ -198,6 +198,26 @@ export function CalendarSettings({ open, onClose, preferences, onSave, onOpenCon
               label={t('calendar.settings.show_half_hours')}
               checked={draft.showHalfHourLines}
               onChange={(value) => patch({ showHalfHourLines: value })}
+            />
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.almanac')} description={t('calendar.settings.almanac_hint')}>
+            <Segmented<CalendarAlmanacMode>
+              label={t('calendar.settings.almanac')}
+              value={draft.almanac}
+              onChange={(value) => patch({ almanac: value })}
+              options={[
+                { value: 'auto', label: t('calendar.settings.toggle_auto') },
+                { value: 'on', label: t('calendar.settings.toggle_on') },
+                { value: 'off', label: t('calendar.settings.toggle_off') },
+              ]}
+              size="sm"
+            />
+          </SettingRow>
+          <SettingRow title={t('calendar.settings.holiday_marks')} description={t('calendar.settings.holiday_marks_hint')}>
+            <Switch
+              label={t('calendar.settings.holiday_marks')}
+              checked={draft.holidayMarks}
+              onChange={(value) => patch({ holidayMarks: value })}
             />
           </SettingRow>
           <SettingRow title={t('calendar.settings.month_scroll')} description={t('calendar.settings.month_scroll_hint')}>
