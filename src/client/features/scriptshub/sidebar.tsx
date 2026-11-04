@@ -470,9 +470,16 @@ function TagNode({
   const menu = useContextMenu()
   const isOpen = expanded.has(node.tag.id)
   const items: MenuItem[] = [
-    { id: 'new', label: t('scriptshub.sidebar.new_subtag'), icon: <Plus size={13} aria-hidden="true" />, onSelect: () => onNew(node.tag.id) },
+    { id: 'filter', label: t('scriptshub.tag.filter'), icon: <Tag size={13} aria-hidden="true" />, onSelect: () => onChoose(node.tag.id) },
+    { id: 'copy', label: t('scriptshub.tag.copy_name'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => {
+      void copyText(`#${node.tag.name}`).then((ok) => {
+        useUi.getState().toast({ title: ok ? t('scriptshub.tag.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+      })
+    } },
+    { id: 'new', label: t('scriptshub.sidebar.new_subtag'), icon: <Plus size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onNew(node.tag.id) },
     { id: 'rename', label: t('scriptshub.common.rename'), onSelect: () => onRename(node.tag) },
-    { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onDelete(node.tag) },
+    { id: 'color', label: t('scriptshub.tag.color'), onSelect: () => onRename(node.tag) },
+    { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => onDelete(node.tag) },
   ]
   return (
     <div>

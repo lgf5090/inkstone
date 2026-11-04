@@ -24,7 +24,7 @@ import { copyText } from '../../lib/clipboard'
 import { Badge, Button, IconButton, Spinner } from '../../components/primitives'
 import { Input, Switch, Textarea, commitOnEnter } from '../../components/form'
 import { Empty } from '../../components/feedback'
-import { Menu, Modal, confirm, hasOpenLayer, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, Tooltip, confirm, hasOpenLayer, useContextMenu, type MenuItem } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
 import { FolderPicker } from '../folders/FolderPicker'
 import { useUi } from '../../store/ui'
@@ -341,9 +341,15 @@ export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPane
   }
 
   const fileActions = (file: DraftFile): MenuItem[] => {
-    const publication = detail.publication?.fileId === file.id ? detail.publication : null
+    const publication = detail.publications.find((entry) => entry.fileId === file.id) ?? null
     return [
-      { id: 'rename-file', label: t('scriptshub.menu.rename_file'), onSelect: () => startFileRename(file) },
+      { id: 'new-file', label: t('scriptshub.editor.add_file'), icon: <Plus size={13} aria-hidden="true" />, onSelect: openAddFile },
+      { id: 'copy-all-files', label: t('scriptshub.menu.copy_all_files'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => {
+        void copyText(draft.files.map((entry) => `# ${entry.name}\n${entry.content}`).join('\n\n')).then((ok) => {
+          toast({ title: ok ? t('scriptshub.editor.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+        })
+      } },
+      { id: 'rename-file', label: t('scriptshub.menu.rename_file'), separatorBefore: true, onSelect: () => startFileRename(file) },
       { id: 'copy-file', label: t('scriptshub.menu.copy_file'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => void copyFile(file) },
       { id: 'download-file', label: t('scriptshub.menu.download_file'), icon: <Download size={13} aria-hidden="true" />, onSelect: () => downloadFile(file) },
       { id: 'publish-file', label: t('scriptshub.menu.publish'), icon: <Upload size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => publishRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) },
@@ -487,7 +493,9 @@ export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPane
 
             <div className="mt-2.5 flex min-h-0 flex-1 flex-col">
               <div role="tablist" aria-label={t('scriptshub.editor.files')} className="flex items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] pb-1">
-                {draft.files.map((file) => (
+                {draft.files.map((file) => {
+                  const publication = detail.publications.find((entry) => entry.fileId === file.id) ?? null
+                  return (
                   <div
                     key={file.key}
                     className={cn('group flex items-center rounded-[var(--r-sm)]', activeKey === file.key ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}
@@ -535,6 +543,11 @@ export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPane
                         <span className="truncate">{file.name}</span>
                       </button>
                     )}
+                    {publication && (
+                      <Tooltip label={t('scriptshub.publish.tab_published', { path: publication.path })} side="bottom">
+                        <span className="mx-0.5 size-1.5 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                      </Tooltip>
+                    )}
                     <IconButton
                       label={t('scriptshub.editor.remove_file', { name: file.name })}
                       size="xs"
@@ -544,7 +557,8 @@ export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPane
                       <Trash2 size={10} aria-hidden="true" />
                     </IconButton>
                   </div>
-                ))}
+                  )
+                })}
                 <IconButton label={t('scriptshub.editor.add_file')} size="sm" onClick={openAddFile} className="ml-1">
                   <Plus size={13} aria-hidden="true" />
                 </IconButton>
@@ -660,7 +674,7 @@ export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPane
             </section>
 
             <div ref={publishRef}>
-              <PublishPanel detail={detail} />
+              <PublishPanel detail={detail} activeFileId={activeFile?.id ?? null} />
             </div>
 
             <section aria-labelledby="scriptshub-assets-heading" className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">

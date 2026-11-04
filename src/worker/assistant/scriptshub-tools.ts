@@ -48,7 +48,7 @@ function summary(snippet: Awaited<ReturnType<ScriptsHubStore['listSnippets']>>['
     favorite: snippet.isFavorite,
     pinned: snippet.isPinned,
     deprecated: snippet.isDeprecated,
-    publishedPath: snippet.publication?.path ?? null,
+    publications: snippet.publications.map((publication) => ({ fileId: publication.fileId, path: publication.path })),
     updatedAt: new Date(snippet.updatedAt).toISOString(),
   }
 }
@@ -109,15 +109,16 @@ export const SCRIPTSHUB_TOOLS: ToolDefinition[] = [
         language: detail.language,
         tags: detail.tags.map((tag) => ({ id: tag.id, name: tag.name })),
         files,
-        publication: detail.publication
-          ? {
-            path: detail.publication.path,
-            visibility: detail.publication.visibility,
-            enabled: detail.publication.isEnabled,
-            expiresAt: detail.publication.expiresAt ? new Date(detail.publication.expiresAt).toISOString() : null,
-            url: publicationUrlPath(detail.publication.path),
-          }
-          : null,
+        publications: detail.publications.map((publication) => ({
+          id: publication.id,
+          fileId: publication.fileId,
+          fileName: detail.files.find((file) => file.id === publication.fileId)?.name ?? '',
+          path: publication.path,
+          visibility: publication.visibility,
+          enabled: publication.isEnabled,
+          expiresAt: publication.expiresAt ? new Date(publication.expiresAt).toISOString() : null,
+          url: publicationUrlPath(publication.path),
+        })),
         revisionCount: detail.revisionCount,
       }
     },
@@ -187,7 +188,7 @@ export const SCRIPTSHUB_TOOLS: ToolDefinition[] = [
     name: 'scriptshub_publish',
     permission: 'write',
     maxCallsPerTurn: 3,
-    description: 'Publish one file of a snippet at a public path that a curl command can fetch. The path is validated before anything is written.',
+    description: 'Publish one file of a snippet at its own public path that a curl command can fetch. Each file has its own publication; the path is validated before anything is written.',
     fields: {
       snippetId: { type: 'string', minLength: 1, maxLength: 64, description: 'The snippet id.' },
       fileId: { type: 'string', maxLength: 64, description: 'The file to publish. Defaults to the snippet\'s first file.', optional: true },
@@ -220,6 +221,8 @@ export const SCRIPTSHUB_TOOLS: ToolDefinition[] = [
       })
       return {
         id: created.id,
+        fileId: created.fileId,
+        fileName: snippet.files.find((file) => file.id === created.fileId)?.name ?? '',
         path: created.path,
         url: publicationUrlPath(created.path),
         detailPage: `/sc-view/${created.id}`,

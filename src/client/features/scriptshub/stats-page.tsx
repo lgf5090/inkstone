@@ -242,7 +242,7 @@ export function StatsPage({ onBack }: { onBack: () => void }) {
                 {data.distribution.topScripts.map((row) => (
                   <li key={`${row.id}-${row.path ?? ''}`} className="flex items-center gap-2 py-1.5">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{row.title}</span>
+                      <span className="block truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]">{row.title}{row.fileName ? ` · ${row.fileName}` : ''}</span>
                       <span className="block truncate font-mono text-[length:var(--text-10)] text-[var(--text-quaternary)]">{row.path ? `/${row.path}` : '—'}</span>
                     </span>
                     <span className="tabular shrink-0 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">

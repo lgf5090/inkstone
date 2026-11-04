@@ -3647,6 +3647,41 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE memos_items ADD COLUMN content_cipher TEXT NOT NULL DEFAULT ''`,
     ],
   },
+  {
+    // A distribution is now one file's own address, not one per snippet. Rows already name a file;
+    // this version re-points any row whose file has since disappeared at that snippet's first file
+    // (the file the old single-card UI always published), drops rows whose snippet has no file left,
+    // keeps the newest row when a file somehow has two, and only then declares the key. All of it is
+    // `IF NOT EXISTS`/idempotent SQL, so a re-run on a repaired database changes nothing.
+    version: 267,
+    statements: [
+      `UPDATE scriptshub_publications AS p
+          SET file_id = (
+            SELECT f.id FROM scriptshub_files f
+             WHERE f.user_id = p.user_id AND f.snippet_id = p.snippet_id
+             ORDER BY f.position, f.created_at LIMIT 1
+          )
+        WHERE NOT EXISTS (
+          SELECT 1 FROM scriptshub_files f
+           WHERE f.user_id = p.user_id AND f.snippet_id = p.snippet_id AND f.id = p.file_id
+        )
+          AND EXISTS (
+            SELECT 1 FROM scriptshub_files f
+             WHERE f.user_id = p.user_id AND f.snippet_id = p.snippet_id
+          )`,
+      `DELETE FROM scriptshub_publications AS p
+        WHERE NOT EXISTS (
+          SELECT 1 FROM scriptshub_files f
+           WHERE f.user_id = p.user_id AND f.snippet_id = p.snippet_id
+        )`,
+      `DELETE FROM scriptshub_publications
+        WHERE rowid NOT IN (
+          SELECT MAX(rowid) FROM scriptshub_publications GROUP BY user_id, snippet_id, file_id
+        )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_scriptshub_publications_file
+         ON scriptshub_publications(user_id, snippet_id, file_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

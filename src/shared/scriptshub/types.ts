@@ -58,7 +58,8 @@ export interface ScriptSnippetSummary {
   /** Total characters across every file, so a row can say how much code it holds. */
   charCount: number
   tags: ScriptTag[]
-  publication: ScriptPublicationSummary | null
+  /** One row per published file; a snippet publishes files independently. */
+  publications: ScriptPublicationSummary[]
   createdAt: number
   updatedAt: number
   lastUsedAt: number | null
@@ -88,6 +89,7 @@ export interface ScriptPublicationSummary {
 export interface ScriptPublication extends ScriptPublicationSummary {
   snippetId: string
   snippetTitle: string
+  fileName: string
   fileCount: number
   downloadCount: number
   uniqueVisitors: number
@@ -274,6 +276,8 @@ export interface ScriptStatsTopScript {
   id: string
   title: string
   path: string | null
+  fileId: string | null
+  fileName: string
   downloads: number
   uniqueVisitors: number
 }

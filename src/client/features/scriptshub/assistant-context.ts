@@ -34,7 +34,7 @@ export function buildScriptsHubPageContext(input: ScriptsHubPageContextInput): A
   if (selected) {
     facts.push(`open snippet: ${fact(selected.title)} (${selected.language})`)
     if (files) facts.push(`files: ${fact(files, 180)}`)
-    facts.push(`published: ${selected.publication ? selected.publication.path : 'no'}`)
+    facts.push(`published: ${selected.publications.length ? selected.publications.map((publication) => publication.path).join(' | ') : 'no'}`)
   } else if (input.items.length) {
     facts.push(`recent: ${fact(input.items.slice(0, 3).map((item) => `"${item.title}"`).join(' | '), 180)}`)
   }

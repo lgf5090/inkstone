@@ -116,7 +116,7 @@ describe('renaming never carries a distribution path with it', () => {
       files: [{ id: first.id, name: first.name, language: 'shell', content: 'echo hi\n' }],
     })
     expect(renamed.title).toBe('Renamed')
-    expect(renamed.publication?.path).toBe(publication.path)
+    expect(renamed.publications[0]?.path).toBe(publication.path)
     // A title is part of a version, so the rename is one more version — under the same snippet id,
     // which is what keeps the whole history attached to the renamed snippet.
     expect(renamed.revisionCount).toBe(3)
@@ -132,7 +132,7 @@ describe('renaming never carries a distribution path with it', () => {
       fileId: first.id,
       path: 'System/Linux/Setup.sh',
       visibility: 'public',
-    })).rejects.toThrow(/already in use/)
+    })).rejects.toThrow(/already has a distribution|already in use/i)
   })
 })
 
