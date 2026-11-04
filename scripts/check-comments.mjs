@@ -13653,6 +13653,9 @@ const allowed = new Map([
   ["src/client/features/scriptshub/assistant-context.ts", [
     "/**\n * What the ScriptsHub page tells the assistant about itself.\n *\n * The facts are the ones a sentence typed beside the page leans on: which folder or tag is in force,\n * which snippet is open, what file and language it shows, and whether it is already published. The\n * file body is not included — the assistant has `scriptshub_read` for that, and a page context that\n * carried a megabyte of code would be charged to every question asked here.\n */",
   ]],
+  ["src/client/features/scriptshub/code-image.ts", [
+    "/**\n * A snippet as a shareable picture.\n *\n * The card is drawn on a canvas rather than a DOM screenshot so it needs no layout pass, works on a\n * phone, and follows the reader's current theme tokens. Only the first 48 lines are drawn; the card\n * says how many were left rather than pretending the picture is the file.\n */",
+  ]],
   ["src/client/features/scriptshub/import-dialog.tsx", [
     "/**\n * Importing a snippet library from another tool.\n *\n * The parsers are shared with the tests and run before anything is sent: a file that cannot be read\n * is refused here, with the reason, rather than becoming a partial import the server has to unwind.\n * The conflict policy is asked before the button is pressed because \"overwrite\" is destructive and\n * the reader is choosing it for every duplicate at once.\n */",
   ]],
@@ -13663,7 +13666,7 @@ const allowed = new Map([
     "/** The small, unlabelled alias a text-only row uses. */",
   ]],
   ["src/client/features/scriptshub/publish-panel.tsx", [
-    "/**\n * The publish card beside a snippet.\n *\n * A publication is one file at one path, and the card says the whole contract: status, visibility,\n * expiry, the `curl` a reader can run, the short address when one exists, and the token exactly once\n * when it is minted. Nothing here is a decoration — every switch writes the row the public route\n * reads.\n */",
+    "/**\n * The distribution cards beside a snippet.\n *\n * A publication belongs to one file: two files in the same snippet can sit at two unrelated paths,\n * with their own tokens, pauses and expiries. The card lists every file, says which are serving,\n * and opens one editor per file so a reader never has to guess which file a path belongs to.\n */",
   ]],
   ["src/client/features/scriptshub/revisions-panel.tsx", [
     "/**\n * The version history of one snippet, in place rather than in a dialog.\n *\n * The list is the left column and the diff is the page: selecting a version reads it, reads the one\n * before it, and draws the lines that version itself added or removed, the way a commit reads on\n * GitHub. The line counts on the list come from the server, written once when the version was made,\n * so opening the panel does not re-diff the whole history. Restoring is a new version, never a\n * rewind; the way forward stays readable.\n */",
@@ -13703,8 +13706,16 @@ const allowed = new Map([
     "/** A tag's path through its parent chain. */",
     "/**\n   * A duplicate is a new snippet, not a second pointer at the same files: the copy gets its own id\n   * and its own history, and the original keeps its publications. Its publication paths are not\n   * copied — two rows cannot own the same path.\n   */",
   ]],
+  ["src/client/features/scriptshub/tag-color.ts", [
+    "/**\n * Which project colour a tag wears when the tag has never picked one.\n *\n * The mapping is a hash of the tag name into the existing colour tokens, so the same tag reads the\n * same in light and dark, on every device, and no second palette is introduced. The pill keeps the\n * theme's text token and only tints its frame, which is what keeps the label above the AA floor.\n */",
+    "/** A 32-bit FNV-1a hash; stable across locales and sessions, unlike `String.length % n`. */",
+    "/** The frame a tag pill paints from its colour: a tinted background and a readable border. */",
+  ]],
   ["src/client/features/scriptshub/tag-picker.tsx", [
     "/**\n * The tag chooser shared by a snippet's own tag row and the batch bar.\n *\n * A checkbox list rather than a text field: tags are a set, and a reader adding the same tag to eight\n * selected snippets should see what is already on them. A nested tag is shown with its path so two\n * tags called `demo` are not read as one. Creating a tag in the box adds it to this set and to the\n * account's tag tree in one step; there is no separate \"manage tags\" screen for a five-second task.\n */",
+  ]],
+  ["src/client/features/scriptshub/tag-pill.tsx", [
+    "/**\n * Tag chips for a snippet row.\n *\n * The chip's colour is the tag's own when it has one, otherwise a hash of its name into the app's\n * existing colour tokens. The text stays on the theme's secondary token so the label clears AA in\n * both themes; only the frame and the dot carry the hue. Overflow folds into `+N`, whose menu lists\n * every tag so none becomes unreachable.\n */",
   ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
@@ -32207,6 +32218,7 @@ const allowed = new Map([
     "/** The first file's opening text, already flattened to one line, for the list row. */",
     "/** Total characters across every file, so a row can say how much code it holds. */",
     "/** Lines this version added and removed against the version before it. */",
+    "/** One row per published file; a snippet publishes files independently. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
@@ -38299,6 +38311,11 @@ const allowed = new Map([
     "// never receives plaintext. The flag and the column arrive one version apart because the ledger",
     "// spends one version per added column; both are guarded so a database that already has them",
     "// simply records the numbers.",
+    "// A distribution is now one file's own address, not one per snippet. Rows already name a file;",
+    "// this version re-points any row whose file has since disappeared at that snippet's first file",
+    "// (the file the old single-card UI always published), drops rows whose snippet has no file left,",
+    "// keeps the newest row when a file somehow has two, and only then declares the key. All of it is",
+    "// `IF NOT EXISTS`/idempotent SQL, so a re-run on a repaired database changes nothing.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41329,6 +41346,8 @@ const allowed = new Map([
     "// file 500 queries against the same table.",
     "/**\n * Whether a save would write the snapshot already at the head of the history.\n *\n * Only the fields a version owns are compared: title, description and the files themselves. Folder,\n * tags, source and notes live on the snippet and never made a version, so changing them alone must\n * not add an empty one.\n */",
     "/**\n * The +x/−y a version is worth, counted per file identity rather than per name: renaming a file\n * changes no line, and a file deleted by this save removes every line it held.\n */",
+    "// A publication names a file. When the save removes that file, the address has nothing left to",
+    "// serve, so it is removed with it; the removed id can never be resurrected by a later save.",
   ]],
   ["src/worker/search/service.ts", [
     "/**\n * The search and graph answers the HTTP route, the MCP retriever and the note store all need.\n *\n * Lifted out of `routes/search.ts` because a route is an HTTP adapter: `mcp/retrieval.ts` and\n * `notes/store.ts` must not reach into one to get a function (`AGENTS.md` rule 3), and the ranking,\n * snippet and node-assembly rules here are exactly the product behaviour those callers depend on.\n * The route keeps query parsing, validation, throttles, `ApiError` codes and response shaping; the\n * SQL stays in `search/store.ts`; this layer is the arithmetic between them.\n */",
