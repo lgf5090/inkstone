@@ -9,6 +9,7 @@ export type CalculatorView =
   | 'currency'
   | 'graph'
   | 'kinship'
+  | 'textcalc'
   | 'settings'
 
 export const CALCULATOR_VIEWS: readonly CalculatorView[] = [
@@ -20,6 +21,7 @@ export const CALCULATOR_VIEWS: readonly CalculatorView[] = [
   'currency',
   'graph',
   'kinship',
+  'textcalc',
   'settings',
 ]
 

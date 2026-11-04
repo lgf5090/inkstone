@@ -18436,6 +18436,29 @@ const allowed = new Map([
     "// Unloading a page is not a place to show a toast; the next session re-reads the server copy.",
     "// A corrupt local snapshot is discarded; the cloud copy is read below.",
   ]],
+  ["src/client/features/tools/calculator/textcalc/TextCalcView.tsx", [
+    "// A bulk insert settles its caret after the input event, so the line is read once the browser owns it.",
+  ]],
+  ["src/client/features/tools/calculator/textcalc/engine.ts", [
+    "/** How much text one document may hold before the engine refuses to evaluate it. */",
+    "/** The raw identifier or mathjs message, shown after the localized label. */",
+    "/** Zero-based source line, so the gutter and the result rail share one index. */",
+    "/** The formatted value for an expression or an assignment. */",
+    "/** Extra base/unit detail for the result rail. */",
+    "/** The name a line defines, when it defines one. */",
+    "/** The parameters of a function definition, in source order. */",
+    "/** The last line that produced a value, used by the summary bar. */",
+    "/** Remove a trailing comment while keeping `#` and `//` inside a quoted literal. */",
+    "/** Symbols a node reads, with function names and bound parameters left out. */",
+    "/** A line-node graph, so a forward reference can still be told apart from a real cycle. */",
+    "/** Degree mode wraps only plain numbers; a value carrying its own unit keeps its own angle. */",
+    "// `auto` notation switches even a seven-digit integer to `1.234567e+6`; an integer keeps its",
+    "// decimal spelling, which is also what the thousands separator and the base detail expect.",
+  ]],
+  ["src/client/features/tools/calculator/textcalc/storage.ts", [
+    "// A private window can refuse storage; the in-memory document still works for this visit.",
+    "// Best effort persistence; the current document stays authoritative.",
+  ]],
   ["src/client/features/tools/color-commands.test.ts", [
     "/**\n * The colour tool, reachable without a mouse.\n *\n * Nine views plus the picker, the copy and the token scale were sidebar-only, which left a keyboard reader\n * and any automation that runs commands outside the module. These tests are the reach: every view has a\n * registered command, and running it lands where the sidebar button would have.\n */",
     "// The list is typed by ColorNavView, so a view that joins the sidebar without a command stops compiling;",
@@ -19829,6 +19852,7 @@ const allowed = new Map([
     "// Short links open first: the vault behind the password module would otherwise greet every visit.",
     "/**\n * The module a Tools address names, or null when the address does not name one.\n *\n * A bookmark or a new tab has to open the module in its path rather than whichever module this\n * browser last remembered; the store keeps the preference for `/tools` itself, but a deeper address\n * is the reader's explicit answer.\n */",
     "/** The address a sidebar entry links with, so history and the back button agree with the screen. */",
+    "/** The calculator view a query names, so a pasted `/tools/calculator?view=textcalc` opens that view. */",
   ]],
   ["src/client/features/workspace/BacklinksPanel.tsx", [
     "// Debounced refresh on note revision changes; unrelated sync traffic",

@@ -12,7 +12,7 @@ import {
 
 const ModeSchema = z.enum(['standard', 'scientific'])
 const AngleSchema = z.enum(ANGLE_MODES)
-const ViewSchema = z.enum(['standard', 'scientific', 'programmer', 'date', 'unit', 'currency', 'graph', 'kinship', 'settings'])
+const ViewSchema = z.enum(['standard', 'scientific', 'programmer', 'date', 'unit', 'currency', 'graph', 'kinship', 'textcalc', 'settings'])
 const RadixSchema = z.union([z.literal(16), z.literal(10), z.literal(8), z.literal(2)])
 const WordSizeSchema = z.union([z.literal(64), z.literal(32), z.literal(16), z.literal(8)])
 

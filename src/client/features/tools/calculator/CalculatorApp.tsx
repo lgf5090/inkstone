@@ -1,7 +1,8 @@
 import { Suspense, lazy, useEffect, useRef } from 'react'
 import { LoadingBlock } from '../../../components/feedback'
 import { useLocaleRepaint } from '../../../lib/i18n'
-import { useToolsStore } from '../store'
+import { useSearch } from '../../../lib/app-history'
+import { useToolsStore, calculatorViewFromSearch } from '../store'
 import { useCalculatorStore } from './store'
 import { useCalculatorKeyboard } from './lib/keyboard'
 import { StandardView } from './views/StandardView'
@@ -13,6 +14,7 @@ const UnitView = lazy(() => import('./views/UnitView').then((module) => ({ defau
 const CurrencyView = lazy(() => import('./views/CurrencyView').then((module) => ({ default: module.CurrencyView })))
 const GraphView = lazy(() => import('./views/GraphView').then((module) => ({ default: module.GraphView })))
 const KinshipView = lazy(() => import('./views/KinshipView').then((module) => ({ default: module.KinshipView })))
+const TextCalcView = lazy(() => import('./textcalc/TextCalcView').then((module) => ({ default: module.TextCalcView })))
 const SettingsView = lazy(() => import('./views/SettingsView').then((module) => ({ default: module.SettingsView })))
 
 function ViewRouter() {
@@ -38,6 +40,8 @@ function ViewRouter() {
       return <GraphView />
     case 'kinship':
       return <KinshipView />
+    case 'textcalc':
+      return <TextCalcView />
     case 'settings':
       return <SettingsView />
     default:
@@ -53,7 +57,15 @@ export function CalculatorApp() {
   const booted = useRef(false)
   const initialView = useRef(useToolsStore.getState().activeCalculatorView)
   const view = useToolsStore((state) => state.activeCalculatorView)
+  const search = useSearch()
   useCalculatorKeyboard(view)
+
+  useEffect(() => {
+    const fromSearch = calculatorViewFromSearch(search)
+    if (fromSearch && fromSearch !== useToolsStore.getState().activeCalculatorView) {
+      useToolsStore.getState().setActiveCalculatorView(fromSearch)
+    }
+  }, [search])
 
   useEffect(() => {
     if (booted.current) return

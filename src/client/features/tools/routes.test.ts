@@ -5,7 +5,7 @@
  * opened Short Links. These cases pin the path-to-module reading and the path the sidebar links with.
  */
 import { describe, expect, it } from 'vitest'
-import { toolsPathForSubmodule, toolsSubmoduleFromPath } from './store'
+import { calculatorViewFromSearch, toolsPathForSubmodule, toolsSubmoduleFromPath } from './store'
 
 describe('tools submodule routing', () => {
   it('reads the module a deep address names', () => {
@@ -25,5 +25,14 @@ describe('tools submodule routing', () => {
     for (const submodule of ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator'] as const) {
       expect(toolsSubmoduleFromPath(toolsPathForSubmodule(submodule))).toBe(submodule)
     }
+  })
+})
+
+describe('calculator view routing', () => {
+  it('reads the view a calculator query names', () => {
+    expect(calculatorViewFromSearch('?view=textcalc')).toBe('textcalc')
+    expect(calculatorViewFromSearch('?view=kinship')).toBe('kinship')
+    expect(calculatorViewFromSearch('?view=not-a-view')).toBeNull()
+    expect(calculatorViewFromSearch('')).toBeNull()
   })
 })

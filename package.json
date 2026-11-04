@@ -125,6 +125,7 @@
     "markdown-it-footnote": "4.0.0",
     "markdown-it-mark": "4.0.0",
     "markdown-it-task-lists": "2.1.1",
+    "mathjs": "15.2.0",
     "md-dragger": "2.2.0",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-frontmatter": "2.0.1",
