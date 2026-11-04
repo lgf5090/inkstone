@@ -21,6 +21,11 @@ export interface BlogArticleContext {
   status: BlogPostStatus | null
   series: string | null
   slug: string | null
+  /** The note's own folder, so "what am I editing" is not answered by a title alone. */
+  folder: string | null
+  wordCount: number
+  /** Approved comments already on the published article. */
+  commentCount: number
 }
 
 export function useAdminResource<T>(load: () => Promise<T>, deps: unknown[] = []): AdminResource<T> {

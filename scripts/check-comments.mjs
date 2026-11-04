@@ -1352,9 +1352,17 @@ const allowed = new Map([
     "/**\n * The zone a brand-new account starts its day in.\n *\n * Every date the to-do app reasons about — a due label, a plan group, the close-out page — is cut in the\n * account's own scheduling zone, and an account with no zone written is read as UTC, so a reader east of\n * Greenwich spends the first eight hours of each day being shown yesterday. The server validates this\n * against its own zone table and refuses one nothing can resolve, so an unreadable value costs the\n * registration a 400 rather than silently landing an account on the wrong day.\n */",
   ]],
   ["src/client/features/blog-admin/BlogAdminApp.tsx", [
-    "// What the assistant is told about this screen: the section, and the article the editor has open.",
-    "// Rebuilt only when one of those changes, so opening the dock does not re-attach a chip the reader",
-    "// already took off.",
+    "/** The reader's choice for the desktop navigation rail survives reloads, like the calendar sidebar. */",
+    "// Storage can be denied; the sidebar still collapses for this visit.",
+    "/** Present on the desktop sidebar only: the mobile drawer has its own close button. */",
+    "/**\n * The navigation when the reader has collapsed it: the same destinations, named by icon and an\n * accessible label. Only the desktop column uses this; the mobile drawer always has room for words.\n */",
+    "// What the assistant is told about this screen: the section, the counts the reader sees on it, and",
+    "// the article the editor has open. Rebuilt only when one of those changes, so opening the dock does",
+    "// not re-attach a chip the reader already took off.",
+    "/* The expanded column stays mounted while it fades, but `inert` and `aria-hidden` take it out of\n            the tab order and the accessibility tree: the rail is then the only navigation a reader can reach. */",
+  ]],
+  ["src/client/features/blog-admin/CommentsPanel.tsx", [
+    "/* On a phone the table is a sideways scroll; each comment becomes a card with the same\n              selection and moderation controls. */",
   ]],
   ["src/client/features/blog-admin/FriendsAdminPanel.tsx", [
     "/**\n * The friend-link manager is the nav app, scoped by selecting the reserved category. Applications\n * arrive in their own reserved category; moving an edited link into the friends category approves it.\n */",
@@ -1377,12 +1385,17 @@ const allowed = new Map([
     "// The post row is the write that can be refused (a slug another article already uses), so it",
     "// goes first: the frontmatter tags are only written once the row has accepted the rest.",
   ]],
+  ["src/client/features/blog-admin/PostsPanel.tsx", [
+    "/* Below `md` a 920px table is a horizontal scrollbar over the page title; the same rows become\n              cards so status, date and the action menu stay reachable without dragging sideways. */",
+  ]],
   ["src/client/features/blog-admin/save-details.ts", [
     "/**\n * The order two separate writes have to happen in.\n *\n * A post row and its frontmatter tags cannot be written in one request from here. The post row is\n * the one that can be refused (a slug another article already uses), so it goes first; writing tags\n * first would leave a half-saved post whenever the row loses that race.\n */",
   ]],
   ["src/client/features/blog-admin/shared.tsx", [
     "/** The article the editor has open, as the assistant's page context needs it. */",
     "/** Null until the note has a blog projection, which is the state the first draft is made in. */",
+    "/** The note's own folder, so \"what am I editing\" is not answered by a title alone. */",
+    "/** Approved comments already on the published article. */",
   ]],
   ["src/client/features/blog/publish.test.ts", [
     "/**\n * \"Update\" publishes what the reader sees.\n *\n * The editor keeps unsaved keystrokes in the notes store, so a refresh that read the server copy\n * would re-publish the previous paragraph. These cases pin the store-first read and the flush that\n * makes the server agree with it.\n */",
@@ -2698,9 +2711,6 @@ const allowed = new Map([
     "/* The conversation's resources — links, files, tools and drafts — in the slot beside the\n                thread. It follows the calendar of the open conversation, not the account. */",
     "// The workspace's layout is this thread's: switching conversations puts the previous thread's panes",
     "// away and brings the new thread's own arrangement back.",
-    "// Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing",
-    "// of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than",
-    "// returning early keeps every hook above on the same path.",
     "/* A different icon from the clip beside it on purpose: the clip puts a file into this\n                one turn, this one opens everything the chat has ever been sent. */",
     "// reader had to scroll to find the answer. An approval card grows the same turn without adding a tool,",
     "// so its arrival is counted separately: otherwise its buttons render under the composer, out of reach",
@@ -2724,6 +2734,9 @@ const allowed = new Map([
     "// \"read this page\", and the worker already knows how to fetch it safely. A message that merely",
     "// contains a URL keeps its text.",
     "/* Words typed while an answer streams are the next turn: the store holds up to five and\n                      the strip above the box names them. The stop button stays beside it, because a reader\n                      who wants the current answer to end should not have to erase the draft to reach it. */",
+    "// Outside the notebook the note/folder/canvas pointers name a document the reader is not looking at,",
+    "// so nothing of the notebook is drawn here; the dock draws the context the current surface opened.",
+    "// Mutating the list rather than returning early keeps every hook above on the same path.",
   ]],
   ["src/client/features/chat/ComposerControls.tsx", [
     "/** The token count, spelled the way the reference's slider spells it: 32K, 128K, 262K. */",
@@ -36840,6 +36853,10 @@ const allowed = new Map([
     "// global_fetch_strictly_public compatibility flag remains the hard outer",
     "// guard and must stay enabled in every wrangler config.",
   ]],
+  ["src/worker/blog/admin-routes.ts", [
+    "/** One reading of a numeric query parameter, so every admin list paginates the same way. */",
+    "/** An article path is a site-relative address or a bare slug, never a URL or a traversal. */",
+  ]],
   ["src/worker/blog/friends.ts", [
     "/**\n * Friend links are nav links, not a second table: the blog projects the `friends` category subtree\n * and public applications land in the `friend_applications` subtree, where the nav app can review\n * them with the same editor and categories as any other bookmark.\n */",
     "// nav categories are one level deep (root + children); keep the walk explicit so a future",
@@ -36852,6 +36869,8 @@ const allowed = new Map([
   ]],
   ["src/worker/blog/media.ts", [
     "// older rows have no variants; an empty list is the honest answer",
+    "// The object key is derived from the type the worker verified, never from the name the client",
+    "// sent: a file called `payload.html` must not decide what the bucket stores.",
   ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
@@ -36863,6 +36882,8 @@ const allowed = new Map([
     "/**\n * The snapshot arrives from an authenticated browser, but the worker is still the trust boundary:\n * the owner API accepts a payload from any client that holds the session, so scripts, event handlers,\n * javascript: URLs and CSS that can fetch must not survive the write.\n */",
     "// A task box on a published page has no note to write a tick back to. Leaving it enabled would",
     "// make the still show a state the article does not have the moment a reader clicks it.",
+    "// Inline images are the one place a data URL is needed: a pasted picture has no object URL yet.",
+    "// A link to `data:text/html` is a navigation to attacker markup and stays out.",
   ]],
   ["src/worker/blog/schema.ts", [
     "/** Blog tables, indexes and the required-shape lists the schema convergence repair reads. */",
@@ -36872,6 +36893,7 @@ const allowed = new Map([
     "// A locked article's excerpt and description come from the note body; a listing, feed or search",
     "// result must not hand a reader the first lines the unlock page is protecting.",
     "/** Inclusive bounds on the post's own date: publication when it has one, the last update otherwise. */",
+    "/**\n * Removes trashed posts for good, with everything the row pinned while it existed.\n *\n * `blog_post_assets` is what the media library reads to decide whether a file is still used, so a\n * deleted post that keeps its rows makes its images impossible to delete. The render snapshot lives in\n * R2 under `render_key`; removing the post without it would leave an unreachable object for the life\n * of the bucket. Cleanup is best-effort after the rows are gone: a storage failure must be logged, not\n * turned into a delete that pretends it did not happen.\n */",
   ]],
   ["src/worker/blog/unlock.ts", [
     "/**\n * Password gate for a published, protected article.\n *\n * The blog never sees the stored hash: it asks this API with the reader's password, and receives a\n * short-lived token signed with a deployment secret. The token is bound to one post, so unlocking one\n * article cannot be replayed to read another, and it carries an expiry so a copied cookie dies on its\n * own. The secret is optional; with it unset the gate answers 503 instead of issuing unsigned tokens.\n */",
@@ -38422,6 +38444,9 @@ const allowed = new Map([
     "// leave the ledger permanently short — the boot fingerprint caches the migration pass, so no",
     "// later boot revisits it. Instead this version makes 266's recorded effect true by adding the",
     "// column it names; from then on 266 is a legitimate Memos row in every ledger that has it.",
+    "// The media library asks \"is this asset still used?\" by `asset_id`; the only index on the join",
+    "// table is by post, so that question scanned every link row. One number, one index, guarded like",
+    "// every other schema statement: a fresh install already has it from BLOG_ALL_SCHEMA_STATEMENTS.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -44575,6 +44600,14 @@ const allowed = new Map([
   ]],
   ["tests/blog-admin-contract.test.ts", [
     "/// <reference types=\"node\" />",
+  ]],
+  ["tests/blog-admin-migration.test.ts", [
+    "/**\n * Migration 270 adds the asset-side index the media library asks for.\n *\n * The migration is one `CREATE INDEX IF NOT EXISTS`, so the interesting part is not that a fresh\n * database has it — schema statements already build it — but that a database which ran the blog\n * schema before the index existed records the number once and stays correct on every later boot.\n */",
+    "// A new wrapper is a new `initializeDatabase` cache key, which is what makes this a boot.",
+    "// The shape of a database that ran the blog schema at 204 and stopped before 270.",
+  ]],
+  ["tests/blog-purge-posts.test.ts", [
+    "/**\n * A trashed post is the only row the delete path may see, and it owns two things the row alone does\n * not show: the assets it pinned in `blog_post_assets` and the R2 render snapshot under `render_key`.\n * Leaving either behind makes the media library refuse to delete the file and keeps paying for storage.\n */",
   ]],
   ["tests/blog-runtime.test.ts", [
     "/// <reference types=\"node\" />",

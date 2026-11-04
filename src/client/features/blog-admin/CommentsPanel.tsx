@@ -161,7 +161,32 @@ export function CommentsPanel() {
         <div className="mt-3"><AdminEmpty>{t('blog.admin.comments_empty')}</AdminEmpty></div>
       ) : (
         <div className="mt-3 overflow-hidden rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-          <div className="overflow-x-auto">
+          {/* On a phone the table is a sideways scroll; each comment becomes a card with the same
+              selection and moderation controls. */}
+          <ul className="divide-y divide-[var(--border-subtle)] md:hidden">
+            {items.map((item) => (
+              <li key={item.id} className="flex gap-2 px-3 py-3">
+                <Checkbox checked={selected.includes(item.id)} onChange={(next) => setSelected((current) => next ? [...current, item.id] : current.filter((id) => id !== item.id))} ariaLabel={t('blog.admin.comments_select')} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="max-w-[160px] truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-primary)]">{item.authorName || '—'}</span>
+                    <Badge tone={STATUS_TONE[item.status]}>{t(STATUS_LABEL[item.status])}</Badge>
+                    <span className="ml-auto text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{formatDateTime(item.createdAt)}</span>
+                  </div>
+                  {item.authorUrl && <a href={item.authorUrl} target="_blank" rel="noopener noreferrer" className="mt-0.5 block truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)] hover:text-[var(--accent)]">{item.authorUrl}</a>}
+                  <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[length:var(--text-12)] text-[var(--text-secondary)]">{item.content}</p>
+                  <p className="mt-1 line-clamp-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{item.postTitle || item.postId.slice(0, 8)}</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => { setReplyTo(item); setReply('') }} disabled={busy}>{t('blog.admin.comments_reply')}</Button>
+                    {item.status !== 'approved' && <Button size="sm" variant="ghost" onClick={() => void applyStatus([item.id], 'approved')} disabled={busy}>{t('blog.admin.comments_approve')}</Button>}
+                    {item.status !== 'spam' && <Button size="sm" variant="ghost" onClick={() => void applyStatus([item.id], 'spam')} disabled={busy}>{t('blog.admin.comments_spam_action')}</Button>}
+                    {item.status !== 'trash' && <Button size="sm" variant="ghost" onClick={() => void applyStatus([item.id], 'trash')} disabled={busy}>{t('blog.admin.comments_trash_action')}</Button>}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[900px] border-collapse text-left text-[length:var(--text-12-5)]">
               <caption className="sr-only">{t('blog.admin.comments')}</caption>
               <thead>

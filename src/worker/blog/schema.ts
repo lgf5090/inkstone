@@ -410,6 +410,8 @@ export const BLOG_SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_blog_post_assets_post
      ON blog_post_assets(user_id, post_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_blog_post_assets_asset
+     ON blog_post_assets(user_id, asset_id)`,
 
   `CREATE TABLE IF NOT EXISTS blog_redirects (
     user_id TEXT NOT NULL,
@@ -609,6 +611,7 @@ export const BLOG_REQUIRED_INDEXES = [
   'idx_blog_assets_user_hash',
   'idx_blog_assets_user_created',
   'idx_blog_post_assets_post',
+  'idx_blog_post_assets_asset',
   'idx_blog_preview_tokens_expiry',
   'idx_blog_tasks_user_status',
   'idx_blog_audit_user_created',

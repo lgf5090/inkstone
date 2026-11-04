@@ -69,13 +69,26 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
     void loadPost()
   }, [noteId, loadPost])
 
+  const folderName = useNotes((state) => note?.folderId
+    ? state.folders.find((folder) => folder.id === note.folderId)?.name ?? null
+    : null)
+
   useEffect(() => {
     if (!onArticleContext) return
     const title = (note?.title || post?.title || '').trim()
     onArticleContext(title
-      ? { noteId, title, status: post?.status ?? null, series: post?.series ?? null, slug: post?.slug ?? null }
+      ? {
+        noteId,
+        title,
+        status: post?.status ?? null,
+        series: post?.series ?? null,
+        slug: post?.slug ?? null,
+        folder: folderName,
+        wordCount: note?.wordCount ?? post?.wordCount ?? 0,
+        commentCount: post?.commentCount ?? 0,
+      }
       : null)
-  }, [onArticleContext, noteId, note?.title, post])
+  }, [onArticleContext, noteId, note?.title, note?.wordCount, folderName, post])
 
   useEffect(() => () => onArticleContext?.(null), [onArticleContext])
 

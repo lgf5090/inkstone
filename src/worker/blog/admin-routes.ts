@@ -46,6 +46,7 @@ import {
   listPostsNeedingRender,
   loadBlogSettings,
   publishPostSnapshot,
+  purgeAdminPosts,
   recordBlogAudit,
   saveBlogSetting,
   syncBlogPostFromNote,
@@ -79,12 +80,28 @@ function userId(c: Context<AppBindings>): string {
 }
 
 function pageQuery(c: Context<AppBindings>): { page: number; limit: number } {
-  const rawPage = Number(c.req.query('page') ?? '1')
-  const rawLimit = Number(c.req.query('limit') ?? '20')
   return {
-    page: Number.isFinite(rawPage) ? Math.max(1, Math.trunc(rawPage)) : 1,
-    limit: Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, Math.trunc(rawLimit))) : 20,
+    page: queryInt(c, 'page', 1, 1, Number.MAX_SAFE_INTEGER),
+    limit: queryInt(c, 'limit', 20, 1, 100),
   }
+}
+
+/** One reading of a numeric query parameter, so every admin list paginates the same way. */
+function queryInt(c: Context<AppBindings>, name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(c.req.query(name) ?? String(fallback))
+  if (!Number.isFinite(raw)) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(raw)))
+}
+
+/** An article path is a site-relative address or a bare slug, never a URL or a traversal. */
+function safeArticlePath(value: string, field: string): string {
+  const raw = value.trim().replace(/^\/+|\/+$/g, '')
+  if (!raw) return ''
+  if (raw.length > 300) throw ApiError.badRequest(`${field} is too long`)
+  if (raw.includes('\\') || raw.includes('..') || /[?#\u0000-\u001f]/.test(raw)) {
+    throw ApiError.badRequest(`${field} must be a site-relative path`)
+  }
+  return raw
 }
 
 function mapBlogError(error: unknown): never {
@@ -245,8 +262,8 @@ blogAdminRoutes.patch('/posts/:id', async (c) => {
   string('description', 2_000)
   string('language', 20)
   string('license', 500)
-  string('alias', 200)
-  string('permalink', 300)
+  if (typeof payload.alias === 'string') patch.alias = safeArticlePath(payload.alias, 'alias')
+  if (typeof payload.permalink === 'string') patch.permalink = safeArticlePath(payload.permalink, 'permalink')
   string('password', 200)
   string('passwordHint', 200)
   if ('coverAssetId' in payload) patch.coverAssetId = typeof payload.coverAssetId === 'string' ? payload.coverAssetId : null
@@ -296,7 +313,7 @@ blogAdminRoutes.delete('/posts/:id/permanent', async (c) => {
   const row = await findPostById(c.env.DB, id, c.req.param('id'))
   if (!row) throw ApiError.notFound('Post not found')
   if (row.deleted_at === null) throw ApiError.badRequest('Move the post to the trash first')
-  const updated = await bulkAdminPosts(c.env.DB, id, [row.note_id], 'delete')
+  const updated = await purgeAdminPosts(c.env.DB, c.env.FILES, id, [row.note_id])
   await recordBlogAudit(c.env.DB, id, 'post.delete', 'post', row.id, {})
   return c.json({ ok: true, updated })
 })
@@ -496,8 +513,8 @@ blogAdminRoutes.get('/media', async (c) => {
   return c.json(await listMedia(
     c.env.DB,
     userId(c),
-    Number(c.req.query('page') ?? '1') || 1,
-    Number(c.req.query('limit') ?? '30') || 30,
+    queryInt(c, 'page', 1, 1, Number.MAX_SAFE_INTEGER),
+    queryInt(c, 'limit', 30, 1, 100),
     c.req.query('kind') ?? '',
     (c.req.query('q') ?? '').trim().slice(0, 200),
   ))
@@ -808,7 +825,7 @@ blogAdminRoutes.get('/pages/by-note/:noteId', async (c) => {
 })
 
 blogAdminRoutes.get('/audit', async (c) => {
-  return c.json({ items: await listBlogAudit(c.env.DB, userId(c), Number(c.req.query('limit') ?? '50') || 50) })
+  return c.json({ items: await listBlogAudit(c.env.DB, userId(c), queryInt(c, 'limit', 50, 1, 200)) })
 })
 
 blogAdminRoutes.get('/tools/render-queue', async (c) => {
