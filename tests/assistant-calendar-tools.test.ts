@@ -22,6 +22,13 @@ import { testBindings } from './doubles/bindings'
 
 const USER = '0123456789abcdefghjkmnpqrs'
 const ZONE = 'Asia/Shanghai'
+/**
+ * The turn's clock is pinned to the first minute of 4 November 2026 in the account zone. The cases
+ * below are written against a fixed day, so they must not inherit the hour the suite happens to run
+ * at: at 10:31 the "first free slot" of that day is no longer 10:30.
+ */
+const NOW = Date.parse('2026-11-03T16:00:00Z')
+const DAY_END = Date.parse('2026-11-04T16:00:00Z')
 
 let sqlite: DatabaseSync
 let env: Env
@@ -38,7 +45,8 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
     origin: 'http://localhost',
     settings: { ...DEFAULT_ASSISTANT_SETTINGS, timezone: ZONE },
     timezone: ZONE,
-    dayEnd: 1_700_000_000_000,
+    dayEnd: DAY_END,
+    now: NOW,
     mode: 'chat',
     conversationId: conversation.id,
     memoryHistory: {} as ToolContext['memoryHistory'],
@@ -162,6 +170,124 @@ describe('finding a slot', () => {
     for (const slot of answer.slots) {
       expect(slot.start_ms < busyEnd && slot.end_ms > busyStart).toBe(false)
     }
+  })
+
+  it('rolls to the next allowed day once today\'s window has closed', async () => {
+    // 11:00 UTC on 4 November is 19:00 in Shanghai, an hour after the default window ends.
+    const late = context({ now: Date.parse('2026-11-04T11:00:00Z') })
+    const answer = await executor(late).execute('calendar_find_slot', {
+      from: '2026-11-04',
+      to: '2026-11-05',
+      days: '3,4',
+      durationMinutes: 60,
+      limit: 1,
+    }, 'find-late') as { slots: Array<{ start: string, end: string, start_ms: number, end_ms: number }> }
+
+    expect(answer.slots).toHaveLength(1)
+    expect(answer.slots[0]).toMatchObject({
+      start: '2026-11-05T09:00',
+      end: '2026-11-05T10:00',
+      start_ms: Date.parse('2026-11-05T01:00:00Z'),
+    })
+  })
+
+  it('lets a slot run to midnight when the window ends at 24', async () => {
+    const answer = await executor().execute('calendar_find_slot', {
+      from: '2026-11-04',
+      to: '2026-11-04',
+      dayStartHour: 20,
+      dayEndHour: 24,
+      durationMinutes: 240,
+      limit: 1,
+    }, 'find-midnight') as { slots: Array<{ start: string, end: string, start_ms: number, end_ms: number, day: string }> }
+
+    expect(answer.slots).toHaveLength(1)
+    expect(answer.slots[0]).toMatchObject({
+      start: '2026-11-04T20:00',
+      end: '2026-11-05T00:00',
+      start_ms: Date.parse('2026-11-04T12:00:00Z'),
+      end_ms: Date.parse('2026-11-04T16:00:00Z'),
+      day: '2026-11-04',
+    })
+  })
+
+  it('keeps the wall-clock window in a half-hour zone', async () => {
+    await calendar.savePreferences({ ...defaultCalendarPreferences(), timeZone: 'Asia/Kolkata' })
+    await executor().execute('calendar_create_event', {
+      title: '占用',
+      start: '2026-11-04T09:00',
+      end: '2026-11-04T10:30',
+    }, 'create-busy-kolkata')
+
+    const answer = await executor().execute('calendar_find_slot', {
+      from: '2026-11-04',
+      to: '2026-11-04',
+      days: '3',
+      durationMinutes: 90,
+      limit: 1,
+    }, 'find-kolkata') as { slots: Array<{ start: string, end: string, start_ms: number }>, time_zone: string }
+
+    // 10:30 IST is 05:00 UTC, not 04:30 or 05:30: the +05:30 offset is not rounded to whole hours.
+    expect(answer.time_zone).toBe('Asia/Kolkata')
+    expect(answer.slots[0]).toMatchObject({
+      start: '2026-11-04T10:30',
+      end: '2026-11-04T12:00',
+      start_ms: Date.parse('2026-11-04T05:00:00Z'),
+    })
+  })
+
+  it('keeps the wall-clock window across the DST changeover days', async () => {
+    await calendar.savePreferences({ ...defaultCalendarPreferences(), timeZone: 'America/New_York' })
+    // 31 October 2026 noon in New York: the day before the clocks fall back from 02:00 to 01:00.
+    const eve = context({ now: Date.parse('2026-10-31T16:00:00Z') })
+    const fallBack = await executor(eve).execute('calendar_find_slot', {
+      from: '2026-11-01',
+      to: '2026-11-01',
+      days: '0',
+      durationMinutes: 60,
+      limit: 1,
+    }, 'find-fall-back') as { slots: Array<{ start: string, end: string, start_ms: number, end_ms: number }> }
+
+    // 09:00 EST is 14:00 UTC; an elapsed-hour add from midnight would have answered 08:00 EST.
+    expect(fallBack.slots[0]).toMatchObject({
+      start: '2026-11-01T09:00',
+      end: '2026-11-01T10:00',
+      start_ms: Date.parse('2026-11-01T14:00:00Z'),
+      end_ms: Date.parse('2026-11-01T15:00:00Z'),
+    })
+
+    const lateFallBack = await executor(eve).execute('calendar_find_slot', {
+      from: '2026-11-01',
+      to: '2026-11-01',
+      days: '0',
+      dayStartHour: 20,
+      dayEndHour: 24,
+      durationMinutes: 240,
+      limit: 1,
+    }, 'find-fall-back-midnight') as { slots: Array<{ start: string, end: string, end_ms: number }> }
+
+    // 24:00 is the end of that 25-hour calendar day, so the slot still ends at next-day midnight.
+    expect(lateFallBack.slots[0]).toMatchObject({
+      start: '2026-11-01T20:00',
+      end: '2026-11-02T00:00',
+      end_ms: Date.parse('2026-11-02T05:00:00Z'),
+    })
+
+    // 7 March 2026 noon in New York: the day before the clocks spring forward from 02:00 to 03:00.
+    const spring = context({ now: Date.parse('2026-03-07T17:00:00Z') })
+    const springForward = await executor(spring).execute('calendar_find_slot', {
+      from: '2026-03-08',
+      to: '2026-03-08',
+      days: '0',
+      durationMinutes: 60,
+      limit: 1,
+    }, 'find-spring-forward') as { slots: Array<{ start: string, start_ms: number }> }
+
+    // 09:00 EDT is 13:00 UTC; an elapsed-hour add from midnight would have answered 10:00 EDT.
+    expect(springForward.slots[0]).toMatchObject({
+      start: '2026-03-08T09:00',
+      start_ms: Date.parse('2026-03-08T13:00:00Z'),
+    })
   })
 })
 
