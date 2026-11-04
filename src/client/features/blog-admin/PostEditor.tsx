@@ -80,18 +80,22 @@ export function PostEditor({ noteId, onArticleContext }: { noteId: string, onArt
   useEffect(() => () => onArticleContext?.(null), [onArticleContext])
 
   /**
-   * Metadata lives only in the publish panel until "Save details" is pressed, so a route change or a
-   * closed tab would drop it silently. The browser's own unload prompt is the only mechanism a page
-   * gets for the second case; leaving through the back link asks in the app's dialog instead.
+   * Metadata lives only in the publish panel until "Save details" is pressed, so a route change asks in
+   * the app's own dialog before leaving. A tab the browser throws away gets no dialog at all in this app:
+   * `pagehide` is the last moment that still runs, so it saves the pending details best-effort and logs a
+   * refusal instead of raising the browser's leave-page prompt.
    */
   useEffect(() => {
     if (!detailsDirty) return
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
+    const saveDetailsOnLeave = () => {
+      const pending = saveDetailsRef.current?.()
+      if (!pending) return
+      void pending.catch((error) => {
+        console.warn('[blog-admin] unsaved details could not be saved while leaving', error)
+      })
     }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
+    window.addEventListener('pagehide', saveDetailsOnLeave)
+    return () => window.removeEventListener('pagehide', saveDetailsOnLeave)
   }, [detailsDirty])
 
   const leavePage = async () => {

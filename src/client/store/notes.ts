@@ -1434,7 +1434,9 @@ export const useNotes = create<NotesState>((set, get) => ({
                 scheduleShellSave(get);
             reconcileFolderUi(get().folders);
         }
-        catch {
+        catch (error) {
+            // Best effort: the sidebar keeps the folders it already has, and the next pull reconciles it.
+            console.warn('[notes] folder refresh failed; using the cached list', error);
         }
     },
     async refreshTags() {
@@ -2097,7 +2099,10 @@ async function recoverNoteMutation(id: string, mutation: PendingNoteMutation, er
             adoptNote(await api.notes.get(id), set, get);
             return;
         }
-        catch {
+        catch (error) {
+            // The mutation is already rolled back below; the re-read is a best-effort recovery, so a
+            // failure is logged rather than replacing the conflict the caller is already handling.
+            console.warn('[notes] could not re-read the note after a failed mutation', error);
         }
     }
     else {
@@ -2542,7 +2547,10 @@ async function retryRecoveredOutbox(item: OutboxItem): Promise<boolean> {
         recoveredOutboxWrites.delete(key);
         publishOutboxResult(item, result);
     }
-    catch {
+    catch (error) {
+        // The recovered result is already in memory and the caller retries the same write; a failed
+        // bookkeeping cleanup must not turn that recovery into a visible failure.
+        console.warn('[notes] recovered outbox entry could not be cleared', error);
     }
     return true;
 }
