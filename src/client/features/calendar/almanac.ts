@@ -95,27 +95,47 @@ export function monthWindow(year: number, month: number, weekStart: number): Tem
   return Array.from({ length: 42 }, (_, index) => start.add({ days: index }))
 }
 
-const MONTH_CACHE_LIMIT = 12
-const monthCache = new Map<string, ReadonlyMap<string, CalendarDayAlmanac>>()
+const WINDOW_CACHE_LIMIT = 24
+const windowCache = new Map<string, ReadonlyMap<string, CalendarDayAlmanac>>()
 
 /**
- * All forty-two cells of a month, resolved once.
+ * The days a grid actually draws, resolved once.
+ *
+ * The grid opens on a day in the *previous* month whenever the first of the month is not the
+ * reader's week start, so the window has to be counted from the cell the grid opens with rather
+ * than from the month's first day. Deriving it from the month is what left the tail of a six-week
+ * grid without almanac labels: the last week belonged to the next month and was never computed.
+ *
+ * `days` is the number of rendered cells rather than a fixed forty-two: continuous month scrolling
+ * draws the neighbouring weeks too, and every cell on screen has to carry its own date.
+ */
+export function gridAlmanac(
+  start: Temporal.PlainDate,
+  weekStart: number,
+  days = 42,
+): ReadonlyMap<string, CalendarDayAlmanac> {
+  const cacheKey = `${weekStart}:${start.toString()}:${days}`
+  const hit = windowCache.get(cacheKey)
+  if (hit) return hit
+  const map = new Map<string, CalendarDayAlmanac>()
+  for (let index = 0; index < days; index++) {
+    const date = start.add({ days: index })
+    const info = dayAlmanac(new Date(date.year, date.month - 1, date.day))
+    map.set(info.key, info)
+  }
+  if (windowCache.size >= WINDOW_CACHE_LIMIT) windowCache.clear()
+  windowCache.set(cacheKey, map)
+  return map
+}
+
+/**
+ * All forty-two cells of a month in the reader's week layout.
  *
  * The cache key carries the week start because that is what decides which six weeks the grid is
  * showing: the same month drawn from a Sunday opens two days earlier than from a Monday.
  */
 export function monthAlmanac(year: number, month: number, weekStart: number): ReadonlyMap<string, CalendarDayAlmanac> {
-  const cacheKey = `${weekStart}:${year}-${month}`
-  const hit = monthCache.get(cacheKey)
-  if (hit) return hit
-  const map = new Map<string, CalendarDayAlmanac>()
-  for (const date of monthWindow(year, month, weekStart)) {
-    const info = dayAlmanac(new Date(date.year, date.month - 1, date.day))
-    map.set(info.key, info)
-  }
-  if (monthCache.size >= MONTH_CACHE_LIMIT) monthCache.clear()
-  monthCache.set(cacheKey, map)
-  return map
+  return gridAlmanac(monthWindow(year, month, weekStart)[0]!, weekStart)
 }
 
 /** The almanac of one day of a month already resolved; null outside the window a grid draws. */
@@ -126,8 +146,16 @@ export function almanacOfKey(
   return map.get(localDate(date).toString()) ?? null
 }
 
-/** What a month cell prints under its number, following the reader's density choice. */
+/**
+ * What a month cell prints under its number.
+ *
+ * A feast outranks a term, and a term outranks the lunar day, because a reader scanning the month is
+ * looking for the named days; the lunar day is what a cell falls back to, and it is never blank —
+ * every one of the forty-two cells has a lunar date to show, including the cells of the months on
+ * either side of the one being drawn.
+ */
 export function cellLabel(info: CalendarDayAlmanac, showFestivals: boolean): string | null {
   if (showFestivals && info.festivalShort) return info.festivalShort
+  if (info.solarTerm) return info.solarTerm
   return info.short || null
 }

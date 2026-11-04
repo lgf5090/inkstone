@@ -198,7 +198,9 @@ function toViews(
     }),
     createMonthView({
       startOfWeek: weekStart,
-      showWeekNumbers: preferences.showWeekNumbers,
+      // The library's own week number is drawn inside the first cell of every row, where it collides
+      // with the lunar line; the reader's switch now draws a gutter column instead, in our chrome.
+      showWeekNumbers: false,
       showMonthIndicator: true,
       snapToMonth: preferences.snapToMonth,
       scroll: { disabled: !preferences.monthScroll },
@@ -888,6 +890,8 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
       weekStart: meta.preferences.weekStart,
       showAlmanac,
       showHolidayMarks: meta.preferences.holidayMarks,
+      showWeekColumn: meta.preferences.showWeekNumbers,
+      weekLabel: (week, year) => t('calendar.week.column', { week, year }),
       formatDate: (key) => {
         const [year, month, day] = key.split('-').map(Number) as [number, number, number]
         return new Intl.DateTimeFormat(appLocale, { month: 'long', day: 'numeric', weekday: 'short' })
@@ -901,7 +905,7 @@ export function CalendarSurface({ meta, initialEvents, initialOccurrences, initi
           : null,
       onOpenDay: (key) => setAlmanacDate(key),
     })
-  }, [appLocale, meta.preferences.almanac, meta.preferences.holidayMarks, meta.preferences.weekStart])
+  }, [appLocale, meta.preferences.almanac, meta.preferences.holidayMarks, meta.preferences.showWeekNumbers, meta.preferences.weekStart])
 
   useEffect(() => {
     const onVisibility = (): void => {

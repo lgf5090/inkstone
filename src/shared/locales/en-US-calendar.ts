@@ -274,6 +274,7 @@ export const EN_US_CALENDAR = {
   'calendar.settings.weekday_5': 'Friday',
   'calendar.settings.weekday_6': 'Saturday',
   'calendar.settings.show_week_numbers': 'Show week numbers',
+  'calendar.week.column': 'Week {week} of {year}',
   'calendar.settings.show_half_hours': 'Show half-hour lines',
   'calendar.settings.month_scroll': 'Continuous month scroll',
   'calendar.settings.month_scroll_hint': 'Turn off to change months only with the navigation buttons.',
