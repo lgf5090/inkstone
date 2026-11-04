@@ -26,6 +26,8 @@ run_worker_first = [
   "/schedule/*",
   "/calendar-share",
   "/calendar-share/*",
+  "/tc",
+  "/tc/*",
   "/authorize",
   "/authorize/*",
   "/oauth/*",

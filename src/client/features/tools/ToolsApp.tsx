@@ -17,6 +17,7 @@ const IdPhotoApp = lazy(() => import('./id-photo/IdPhotoApp').then((m) => ({ def
 const ColorApp = lazy(() => import('./color/ColorApp').then((m) => ({ default: m.ColorApp })))
 const ShortlinksApp = lazy(() => import('./shortlinks/ShortlinksApp').then((m) => ({ default: m.ShortlinksApp })))
 const CalculatorApp = lazy(() => import('./calculator/CalculatorApp').then((m) => ({ default: m.CalculatorApp })))
+const CompareApp = lazy(() => import('./compare/CompareApp').then((m) => ({ default: m.CompareApp })))
 
 export function ToolsApp() {
   const breakpoint = useBreakpoint()
@@ -71,7 +72,9 @@ export function ToolsApp() {
                       ? t('tools.color.module_name')
                       : activeSubmodule === 'calculator'
                         ? t('tools.calculator.module_name')
-                        : t('tools.shortlinks.module_name')}
+                        : activeSubmodule === 'compare'
+                          ? t('tools.compare.module_name')
+                          : t('tools.shortlinks.module_name')}
             </span>
           </div>
         </header>
@@ -111,6 +114,7 @@ export function ToolsApp() {
             {activeSubmodule === 'color' && <ColorApp />}
             {activeSubmodule === 'shortlinks' && <ShortlinksApp />}
             {activeSubmodule === 'calculator' && <CalculatorApp />}
+            {activeSubmodule === 'compare' && <CompareApp />}
           </Suspense>
         </main>
       </div>

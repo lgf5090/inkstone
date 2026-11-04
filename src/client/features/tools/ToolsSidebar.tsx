@@ -13,12 +13,16 @@ import {
   ChevronRight,
   Columns2,
   Compass,
+  Diff,
+  FileText,
   FolderArchive,
+  FolderOpen,
   FolderTree,
   Heart,
   History,
   Image,
   KeyRound,
+  Keyboard,
   Layers,
   LayoutDashboard,
   LayoutGrid,
@@ -52,6 +56,7 @@ import {
   toolsPathForSubmodule,
   type CalculatorNavView,
   type ColorNavView,
+  type CompareNavView,
   type IdPhotoNavView,
   type PasswordNavView,
   type QrCodeNavView,
@@ -107,6 +112,16 @@ const CALCULATOR_NAV_SLOTS: readonly { id: CalculatorNavView; labelKey: MessageK
   { id: 'graph', labelKey: 'tools.calculator.nav.graph', icon: LineChart },
   { id: 'kinship', labelKey: 'tools.calculator.nav.kinship', icon: Users },
   { id: 'settings', labelKey: 'tools.calculator.nav.settings', icon: Settings },
+]
+
+const COMPARE_NAV_SLOTS: readonly { id: CompareNavView; labelKey: MessageKey; icon: ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'text', labelKey: 'tools.compare.nav.text', icon: FileText },
+  { id: 'files', labelKey: 'tools.compare.nav.files', icon: FolderOpen },
+  { id: 'folders', labelKey: 'tools.compare.nav.folders', icon: FolderTree },
+  { id: 'images', labelKey: 'tools.compare.nav.images', icon: Image },
+  { id: 'projects', labelKey: 'tools.compare.nav.projects', icon: FolderArchive },
+  { id: 'stats', labelKey: 'tools.compare.nav.stats', icon: LineChart },
+  { id: 'shortcuts', labelKey: 'tools.compare.nav.shortcuts', icon: Keyboard },
 ]
 
 const COLOR_NAV_SLOTS: readonly ColorNavSlot[] = [
@@ -190,6 +205,10 @@ export function ToolsSidebar({
   const toggleCalculatorModuleExpanded = useToolsStore((s) => s.toggleCalculatorModuleExpanded)
   const activeCalculatorView = useToolsStore((s) => s.activeCalculatorView)
   const setActiveCalculatorView = useToolsStore((s) => s.setActiveCalculatorView)
+  const compareModuleExpanded = useToolsStore((s) => s.compareModuleExpanded)
+  const toggleCompareModuleExpanded = useToolsStore((s) => s.toggleCompareModuleExpanded)
+  const activeCompareView = useToolsStore((s) => s.activeCompareView)
+  const setActiveCompareView = useToolsStore((s) => s.setActiveCompareView)
   const shortlinksModuleExpanded = useToolsStore((s) => s.shortlinksModuleExpanded)
   const toggleShortlinksModuleExpanded = useToolsStore((s) => s.toggleShortlinksModuleExpanded)
   const activeShortlinksView = useToolsStore((s) => s.activeShortlinksView)
@@ -238,6 +257,12 @@ export function ToolsSidebar({
   const handleCalculatorSlotClick = (slotId: CalculatorNavView) => {
     openSubmodule('calculator')
     setActiveCalculatorView(slotId)
+    onNavigate?.()
+  }
+
+  const handleCompareSlotClick = (slotId: CompareNavView) => {
+    openSubmodule('compare')
+    setActiveCompareView(slotId)
     onNavigate?.()
   }
 
@@ -343,6 +368,19 @@ export function ToolsSidebar({
               }}
             >
               <Calculator size={16} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip label={t('tools.compare.module_name')} side="right">
+            <IconButton
+              label={t('tools.compare.module_name')}
+              size="sm"
+              active={activeSubmodule === 'compare'}
+              onClick={() => {
+                openSubmodule('compare')
+                onExpand?.()
+              }}
+            >
+              <Diff size={16} />
             </IconButton>
           </Tooltip>
         </div>
@@ -712,6 +750,61 @@ export function ToolsSidebar({
                     type="button"
                     aria-current={isSelected ? 'page' : undefined}
                     onClick={() => handleCalculatorSlotClick(slot.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
+                      'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+                      'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                      isSelected &&
+                        'bg-[var(--accent-soft)] font-medium text-[var(--accent-on-soft)]',
+                    )}
+                  >
+                    <Icon size={14} className="shrink-0" />
+                    <span className="truncate">{t(slot.labelKey)}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Seventh submodule: Compare (tools/compare) */}
+        <div>
+          <button
+            type="button"
+            aria-expanded={compareModuleExpanded}
+            onClick={toggleCompareModuleExpanded}
+            className={cn(
+              'flex w-full items-center justify-between gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-[length:var(--text-13)] font-medium text-[var(--text-secondary)]',
+              'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+              'hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+              activeSubmodule === 'compare' && 'text-[var(--text-primary)]',
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  'transition-transform duration-[var(--dur-fast)]',
+                  compareModuleExpanded ? 'rotate-90' : 'rotate-0',
+                )}
+              >
+                <ChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+              </span>
+              <Diff size={16} className="shrink-0 text-[var(--accent)]" />
+              <span className="truncate">{t('tools.compare.module_name')}</span>
+            </div>
+          </button>
+
+          {compareModuleExpanded && (
+            <div className="mt-1 ml-4 space-y-0.5 border-l border-[var(--border-subtle)] pl-2">
+              {COMPARE_NAV_SLOTS.map((slot) => {
+                const Icon = slot.icon
+                const isSelected = activeSubmodule === 'compare' && activeCompareView === slot.id
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    aria-current={isSelected ? 'page' : undefined}
+                    onClick={() => handleCompareSlotClick(slot.id)}
                     className={cn(
                       'flex w-full items-center gap-2 rounded-[var(--r-sm)] px-2 py-1.5 text-[length:var(--text-12)] text-[var(--text-secondary)]',
                       'transition-[background-color,color] duration-[var(--dur-fast)] ease-[var(--ease-out)]',

@@ -6,9 +6,9 @@ export const TOOLS_NAV_WIDTH = {
   default: 260,
 } as const
 
-export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator'
+export type ToolsSubmodule = 'password' | 'qrcode' | 'id_photo' | 'color' | 'shortlinks' | 'calculator' | 'compare'
 
-const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator']
+const TOOLS_SUBMODULES: readonly ToolsSubmodule[] = ['password', 'qrcode', 'id_photo', 'color', 'shortlinks', 'calculator', 'compare']
 
 /**
  * The module a Tools address names, or null when the address does not name one.
@@ -82,6 +82,8 @@ export type CalculatorNavView =
   | 'kinship'
   | 'settings'
 
+export type CompareNavView = 'text' | 'files' | 'folders' | 'images' | 'projects' | 'stats' | 'shortcuts'
+
 const STORAGE_KEY = 'inkstone.tools.layout'
 
 interface PersistedLayout {
@@ -95,6 +97,8 @@ interface PersistedLayout {
   calculatorModuleExpanded?: boolean
   activeCalculatorView?: CalculatorNavView
   calculatorViewChosen?: boolean
+  compareModuleExpanded?: boolean
+  activeCompareView?: CompareNavView
   activeSubmodule?: ToolsSubmodule
 }
 
@@ -137,6 +141,8 @@ export interface ToolsState {
   calculatorModuleExpanded: boolean
   activeCalculatorView: CalculatorNavView
   calculatorViewChosen: boolean
+  compareModuleExpanded: boolean
+  activeCompareView: CompareNavView
 
   setToolsNavWidth: (width: number) => void
   toggleToolsNav: () => void
@@ -162,6 +168,9 @@ export interface ToolsState {
   setCalculatorModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
   toggleCalculatorModuleExpanded: () => void
   setActiveCalculatorView: (view: CalculatorNavView) => void
+  setCompareModuleExpanded: (expanded: boolean | ((prev: boolean) => boolean)) => void
+  toggleCompareModuleExpanded: () => void
+  setActiveCompareView: (view: CompareNavView) => void
 }
 
 const initialPersisted = loadPersistedLayout()
@@ -192,6 +201,8 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
   calculatorModuleExpanded: initialPersisted.calculatorModuleExpanded ?? true,
   activeCalculatorView: initialPersisted.activeCalculatorView ?? 'standard',
   calculatorViewChosen: initialPersisted.calculatorViewChosen ?? false,
+  compareModuleExpanded: initialPersisted.compareModuleExpanded ?? true,
+  activeCompareView: initialPersisted.activeCompareView ?? 'text',
 
   setToolsNavWidth: (width: number) => {
     const clamped = Math.min(
@@ -441,6 +452,41 @@ export const useToolsStore = create<ToolsState>((set, get) => ({
       calculatorModuleExpanded: get().calculatorModuleExpanded,
       activeCalculatorView: view,
       calculatorViewChosen: true,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setCompareModuleExpanded: (expanded) => {
+    const next = typeof expanded === 'function' ? expanded(get().compareModuleExpanded) : expanded
+    set({ compareModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      compareModuleExpanded: next,
+      activeCompareView: get().activeCompareView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  toggleCompareModuleExpanded: () => {
+    const next = !get().compareModuleExpanded
+    set({ compareModuleExpanded: next })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      compareModuleExpanded: next,
+      activeCompareView: get().activeCompareView,
+      activeSubmodule: get().activeSubmodule,
+    })
+  },
+
+  setActiveCompareView: (view) => {
+    set({ activeCompareView: view })
+    persistLayout({
+      toolsNavWidth: get().toolsNavWidth,
+      toolsNavCollapsed: get().toolsNavCollapsed,
+      compareModuleExpanded: get().compareModuleExpanded,
+      activeCompareView: view,
       activeSubmodule: get().activeSubmodule,
     })
   },
