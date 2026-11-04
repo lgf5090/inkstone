@@ -14,8 +14,8 @@ import {
  *
  * These cases pin the three properties the rest of the feature relies on: the same password opens
  * what it sealed, a wrong password cannot, and an envelope cannot be moved to another note or
- * another field. The work factor is lowered here — the production constant is exercised by the
- * envelope's own `iter` field, not by making every unit test wait for it.
+ * another field. The default 150,000-round work factor runs in the Memos-compatibility cases below;
+ * the cheaper cases pass FAST so the suite does not pay that cost twice.
  */
 
 const FAST = { iterations: 1_000 }

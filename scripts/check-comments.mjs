@@ -46159,8 +46159,8 @@ const allowed = new Map([
     "// The same two columns written the right way clear the audit, so the rule is about the shape.",
   ]],
   ["tests/notes-lock-crypto.test.ts", [
-    "/**\n * The encryption primitive is the only thing that stands between a password and a note's words.\n *\n * These cases pin the three properties the rest of the feature relies on: the same password opens\n * what it sealed, a wrong password cannot, and an envelope cannot be moved to another note or\n * another field. The work factor is lowered here — the production constant is exercised by the\n * envelope's own `iter` field, not by making every unit test wait for it.\n */",
     "/** The exact derivation and envelope Memos writes today, kept independent of the module under test. */",
+    "/**\n * The encryption primitive is the only thing that stands between a password and a note's words.\n *\n * These cases pin the three properties the rest of the feature relies on: the same password opens\n * what it sealed, a wrong password cannot, and an envelope cannot be moved to another note or\n * another field. The default 150,000-round work factor runs in the Memos-compatibility cases below;\n * the cheaper cases pass FAST so the suite does not pay that cost twice.\n */",
   ]],
   ["tests/notes-lock-migration.test.ts", [
     "// A new wrapper is a new `initializeDatabase` cache key, which is what makes this a boot.",
