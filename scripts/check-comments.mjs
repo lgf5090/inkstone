@@ -13646,6 +13646,7 @@ const allowed = new Map([
     "/**\n * The ScriptsHub container.\n *\n * Desktop keeps the rail, the list and the editor on screen together; a phone shows the list and\n * opens the editor over it, because three columns on 390px is a strip of each. Import and export live\n * in the one header the whole app shares, and `Ctrl/Cmd+K` focuses the list's search from anywhere in\n * this container — the closest thing to the global quick search a single app can offer without\n * taking over the shell's own palette.\n */",
     "// One label for where the reader is, shown beside the one app title rather than as a second title",
     "// inside the rail. It follows the same query the list does.",
+    "// A blocked storage area only costs the preference, not the toggle.",
   ]],
   ["src/client/features/scriptshub/api.ts", [
     "/**\n * The ScriptsHub API client.\n *\n * A thin mapping over `request`, one function per route, so the screens never assemble a URL or a\n * query by hand. The mutation functions return the row the server wrote rather than a bare `ok`,\n * which is what lets an editor replace its detail without a second read.\n */",
