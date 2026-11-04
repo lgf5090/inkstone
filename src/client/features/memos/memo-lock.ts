@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { decryptMemoContent } from './memo-crypto'
+import { NoteLockError, NoteLockSession, isNoteLockEnvelope, saltOfEnvelope } from '@shared/crypto'
 
 const PASSPHRASE_PREFIX = 'inkstone.memos.passphrase:'
 const UNLOCK_PREFIX = 'inkstone.memos.unlocked:'
@@ -77,6 +77,27 @@ function isFresh(at: number | undefined): boolean {
   return typeof at === 'number' && (at === 0 || at > Date.now())
 }
 
+/**
+ * Open a sealed memo with the shared envelope, keeping the two error messages the memo reader shows.
+ *
+ * The shared module distinguishes `wrong-password` from `invalid-envelope`; this layer maps those
+ * back to the copy Memos already uses, so removing the private crypto module changes no visible text.
+ */
+export async function openMemoBody(passphrase: string, ciphertext: string): Promise<string> {
+  const trimmed = passphrase.trim()
+  if (!trimmed) throw new Error('A passphrase is required to open a sealed memo')
+  if (!isNoteLockEnvelope(ciphertext)) throw new Error('This memo does not carry a readable sealed body')
+  try {
+    const salt = saltOfEnvelope(ciphertext)!
+    return await (await NoteLockSession.create(trimmed, { salt })).open(ciphertext)
+  } catch (error) {
+    if (error instanceof NoteLockError && error.code === 'wrong-password') {
+      throw new Error('The passphrase did not open this memo', { cause: error })
+    }
+    throw error
+  }
+}
+
 export const useMemoLock = create<MemoLockState>((set, get) => ({
   userId: null,
   passphrase: null,
@@ -113,7 +134,7 @@ export const useMemoLock = create<MemoLockState>((set, get) => ({
   },
 
   async unlockWithPassphrase(memoId, ciphertext, passphrase, ttlMinutes) {
-    const plaintext = await decryptMemoContent(passphrase, ciphertext)
+    const plaintext = await openMemoBody(passphrase, ciphertext)
     const userId = get().userId
     if (!userId) throw new Error('No account is signed in')
     const at = expiresAt(ttlMinutes)

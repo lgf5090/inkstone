@@ -167,14 +167,14 @@ export async function openNote(
 }
 
 /**
- * The surface the Memos branch can import to delete its private `memo-crypto.ts`:
+ * The surface both features import now that Memos no longer keeps a private `memo-crypto.ts`:
  *  - `NoteLockSession.create(passphrase, { salt })` derives the Memos key; omit `salt` to seal a
  *    fresh row, pass the envelope's salt to open one;
  *  - `session.seal(plaintext)` / `session.open(envelope)` are the one-field operations Memos needs;
  *  - `isNoteLockEnvelope` is the `looksLikeMemoCipher` replacement, and `saltOfEnvelope` reads the
  *    stored salt without deriving a key;
- *  - `NoteUnlockError.code` separates "wrong passphrase" from "not a readable envelope", which is
- *    what Memos's two error messages already distinguish.
+ *  - `NoteUnlockError` (also exported as `NoteLockError`) separates "wrong passphrase" from "not a
+ *    readable envelope", which is what Memos's two error messages already distinguish.
  * `sealNote`/`openNote` are the notebook's two-field convenience wrappers and are not required by
  * Memos. The compatibility tests in `tests/notes-lock-crypto.test.ts` parse this module's output
  * with Memos's own format and open an envelope Memos wrote, so a field-order or encoding drift

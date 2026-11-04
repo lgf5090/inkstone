@@ -17,13 +17,13 @@ import {
 import { MEMOS_APP_PATH, MEMO_ENCRYPTED_CONTENT_MAX_BYTES } from '@shared/memos/constants'
 import { scanMemoTags } from '@shared/memos/markdown'
 import type { Memo } from '@shared/memos/types'
+import { NoteLockSession } from '@shared/crypto'
 import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Menu, confirm, type MenuItem } from '../../../components/overlay'
 import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
-import { decryptMemoContent, encryptMemoContent } from '../memo-crypto'
-import { memoPlaintext, useMemoLock } from '../memo-lock'
+import { memoPlaintext, openMemoBody, useMemoLock } from '../memo-lock'
 import { useMemos } from '../state'
 import { setAllMemoTasks } from '../task-toggle'
 import { MemoPassphraseDialog, type MemoCipherMode } from './MemoPassphraseDialog'
@@ -139,7 +139,7 @@ export function MemoCardActions({
     if (contentBytes(memo.content) > MEMO_ENCRYPTED_CONTENT_MAX_BYTES) {
       throw new Error(t('memos.cipher.too_large'))
     }
-    const cipher = await encryptMemoContent(value, memo.content)
+    const cipher = await (await NoteLockSession.create(value)).seal(memo.content)
     const saved = await useMemos.getState().patch(memo.id, {
       rev: memo.rev,
       encrypted: true,
@@ -153,7 +153,7 @@ export function MemoCardActions({
   }
 
   const unseal = async (value: string): Promise<void> => {
-    const plaintext = memoPlaintext(memo.id) ?? await decryptMemoContent(value, memo.contentCipher)
+    const plaintext = memoPlaintext(memo.id) ?? await openMemoBody(value, memo.contentCipher)
     const saved = await useMemos.getState().patch(memo.id, {
       rev: memo.rev,
       encrypted: false,

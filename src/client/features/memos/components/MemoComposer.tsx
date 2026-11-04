@@ -7,6 +7,7 @@ import {
   MEMO_DEFAULT_VISIBILITY,
 } from '@shared/memos/constants'
 import { scanMemoTags } from '@shared/memos/markdown'
+import { NoteLockSession } from '@shared/crypto'
 import {
   MEMO_VISIBILITIES,
   type Memo,
@@ -29,7 +30,6 @@ import { useUi } from '../../../store/ui'
 import { memoAi, memoTranscriptionTarget } from '../ai-client'
 import { memosApi } from '../api'
 import { memoErrorMessage, memoIsAbortError } from '../errors'
-import { encryptMemoContent } from '../memo-crypto'
 import { useMemoLock } from '../memo-lock'
 import { prepareMemoAttachment } from '../image-metadata'
 import { memoPlaceLabel } from '../location'
@@ -401,7 +401,7 @@ export function MemoComposer({
           useUi.getState().toast({ title: message, tone: 'warning' })
           return
         }
-        const contentCipher = await encryptMemoContent(passphrase, text)
+        const contentCipher = await (await NoteLockSession.create(passphrase)).seal(text)
         input = {
           rev: revRef.current,
           encrypted: true,

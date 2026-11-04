@@ -7675,10 +7675,8 @@ const allowed = new Map([
   ["src/client/features/memos/media.ts", [
     "/** Whether a link stays on this origin, so a share token must never be appended to it. */",
   ]],
-  ["src/client/features/memos/memo-crypto.ts", [
-    "/**\n * The memo's key: scrypt-strength work is delegated to PBKDF2 here because the browser exposes it\n * natively; 150k SHA-256 rounds is the cost a stolen database pays per guess, and the salt is stored\n * with each row so two memos never share key material.\n */",
-    "/**\n * Seal a memo body under the reader's passphrase.\n *\n * The plaintext never leaves this function: what returns is the envelope the server stores. AES-GCM\n * authenticates, so a wrong passphrase or a tampered row fails instead of decrypting to garbage.\n */",
-    "/** Open a sealed body. Throws with a reader-facing reason rather than returning half-decoded text. */",
+  ["src/client/features/memos/memo-envelope.test.ts", [
+    "/** A body sealed by the deleted `memo-crypto.ts`, kept as literal bytes to prove old rows still open. */",
   ]],
   ["src/client/features/memos/memo-lock.ts", [
     "/**\n * The passphrase the tab is currently using, and per-memo reveal timestamps.\n *\n * The passphrase lives in `sessionStorage`, not `localStorage`: closing the tab forgets it, and a\n * reader who shares a machine does not leave the key behind. Decrypted bodies are kept only in\n * memory, so a reload with a lost session storage can never render stale plaintext. This is a real\n * sealed-body scheme — the server never receives the passphrase or the plaintext — with the honest\n * caveat that a script running in this origin could read the session value, as it could read any\n * page.\n */",
@@ -7687,6 +7685,7 @@ const allowed = new Map([
     "// worth interrupting the unlock that is already visible.",
     "// See writeJson: the unlock still works for this page even when storage is unavailable.",
     "/** The decrypted body when this memo is revealed, or null while it stays sealed. */",
+    "/**\n * Open a sealed memo with the shared envelope, keeping the two error messages the memo reader shows.\n *\n * The shared module distinguishes `wrong-password` from `invalid-envelope`; this layer maps those\n * back to the copy Memos already uses, so removing the private crypto module changes no visible text.\n */",
   ]],
   ["src/client/features/memos/motion-photo.ts", [
     "/**\n * Pairs picked files that belong together before any upload starts.\n *\n * A Live Photo arrives as two files with one stem, and an Android Motion Photo carries its video\n * inside the JPEG. Both become one still/video group so the gallery can play the motion instead of\n * showing a second, separate attachment. Anything that does not pair uploads exactly as before.\n */",
@@ -31439,7 +31438,7 @@ const allowed = new Map([
     "// The id is part of the call shape so a future field binding can be added without changing every",
     "// caller; the sealed value itself is the shared Memos format, which carries no per-note marker.",
     "/** Open a sealed note. Throws {@link NoteUnlockError} on a wrong password or an unreadable envelope. */",
-    "/**\n * The surface the Memos branch can import to delete its private `memo-crypto.ts`:\n *  - `NoteLockSession.create(passphrase, { salt })` derives the Memos key; omit `salt` to seal a\n *    fresh row, pass the envelope's salt to open one;\n *  - `session.seal(plaintext)` / `session.open(envelope)` are the one-field operations Memos needs;\n *  - `isNoteLockEnvelope` is the `looksLikeMemoCipher` replacement, and `saltOfEnvelope` reads the\n *    stored salt without deriving a key;\n *  - `NoteUnlockError.code` separates \"wrong passphrase\" from \"not a readable envelope\", which is\n *    what Memos's two error messages already distinguish.\n * `sealNote`/`openNote` are the notebook's two-field convenience wrappers and are not required by\n * Memos. The compatibility tests in `tests/notes-lock-crypto.test.ts` parse this module's output\n * with Memos's own format and open an envelope Memos wrote, so a field-order or encoding drift\n * fails before either branch merges.\n */",
+    "/**\n * The surface both features import now that Memos no longer keeps a private `memo-crypto.ts`:\n *  - `NoteLockSession.create(passphrase, { salt })` derives the Memos key; omit `salt` to seal a\n *    fresh row, pass the envelope's salt to open one;\n *  - `session.seal(plaintext)` / `session.open(envelope)` are the one-field operations Memos needs;\n *  - `isNoteLockEnvelope` is the `looksLikeMemoCipher` replacement, and `saltOfEnvelope` reads the\n *    stored salt without deriving a key;\n *  - `NoteUnlockError` (also exported as `NoteLockError`) separates \"wrong passphrase\" from \"not a\n *    readable envelope\", which is what Memos's two error messages already distinguish.\n * `sealNote`/`openNote` are the notebook's two-field convenience wrappers and are not required by\n * Memos. The compatibility tests in `tests/notes-lock-crypto.test.ts` parse this module's output\n * with Memos's own format and open an envelope Memos wrote, so a field-order or encoding drift\n * fails before either branch merges.\n */",
   ]],
   ["src/shared/development/api-tester/mock-data.ts", [
     "// The zh/en data pools are data, not interface copy: they stay out of the client i18n gate.",
@@ -31750,7 +31749,7 @@ const allowed = new Map([
   ["src/shared/memos/constants.ts", [
     "/**\n * The plaintext ceiling for a memo that is going to be sealed. AES-GCM ciphertext plus its base64\n * envelope is about 1.4x the plaintext, and a D1 row is capped at 2 MB; keeping the encrypted form\n * well under that leaves room for tags, timestamps and the rest of the row.\n */",
     "/** The ceiling on a stored sealed value, including the version prefix, salt and nonce. */",
-    "/** `<prefix><salt>:<nonce>:<ciphertext>` — parsed by `memo-crypto.ts` on the client. */",
+    "/** `<prefix><salt>:<nonce>:<ciphertext>` — the shared sealed-text prefix, so both features match. */",
   ]],
   ["src/shared/memos/export.ts", [
     "/** The body was sealed in the browser and is not part of this plaintext archive. */",

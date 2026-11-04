@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { encryptMemoContent } from './memo-crypto'
+import { NoteLockSession } from '@shared/crypto'
 import { memoPlaintext, useMemoLock } from './memo-lock'
 
 beforeAll(() => {
@@ -12,9 +12,13 @@ beforeEach(() => {
   useMemoLock.setState({ userId: null, passphrase: null, unlockedAt: {}, plaintext: {} })
 })
 
+async function sealMemo(plaintext: string): Promise<string> {
+  return (await NoteLockSession.create('tab passphrase')).seal(plaintext)
+}
+
 describe('memo reveal state', () => {
   it('keeps a revealed body in memory and forgets it on lock', async () => {
-    const sealed = await encryptMemoContent('tab passphrase', 'visible body')
+    const sealed = await sealMemo('visible body')
     useMemoLock.getState().hydrate('user-1')
     await useMemoLock.getState().unlockWithPassphrase('memo-1', sealed, 'tab passphrase', 30)
     expect(memoPlaintext('memo-1')).toBe('visible body')
@@ -26,7 +30,7 @@ describe('memo reveal state', () => {
   })
 
   it('re-hides a reveal when its minutes are over', async () => {
-    const sealed = await encryptMemoContent('tab passphrase', 'visible body')
+    const sealed = await sealMemo('visible body')
     useMemoLock.getState().hydrate('user-1')
     await useMemoLock.getState().unlockWithPassphrase('memo-1', sealed, 'tab passphrase', 30)
     useMemoLock.setState({ unlockedAt: { 'memo-1': Date.now() - 1 } })
@@ -37,7 +41,7 @@ describe('memo reveal state', () => {
   })
 
   it('re-hides every body on navigation and keeps the passphrase for the tab', async () => {
-    const sealed = await encryptMemoContent('tab passphrase', 'visible body')
+    const sealed = await sealMemo('visible body')
     useMemoLock.getState().hydrate('user-1')
     await useMemoLock.getState().unlockWithPassphrase('memo-1', sealed, 'tab passphrase', 30)
     useMemoLock.getState().lockAll()

@@ -1,3 +1,4 @@
+import { NOTE_LOCK_ENVELOPE_PREFIX } from '../crypto'
 import { LIMITS } from '../constants'
 import type { MemoDisplayPreferences, MemoPreferences, MemoVisibility } from './types'
 
@@ -25,8 +26,8 @@ export const MEMO_CONTENT_MAX_BYTES = LIMITS.contentMaxBytes
 export const MEMO_ENCRYPTED_CONTENT_MAX_BYTES = 400_000
 /** The ceiling on a stored sealed value, including the version prefix, salt and nonce. */
 export const MEMO_CIPHER_MAX_BYTES = 600_000
-/** `<prefix><salt>:<nonce>:<ciphertext>` — parsed by `memo-crypto.ts` on the client. */
-export const MEMO_CIPHER_PREFIX = 'memoenc:v1:'
+/** `<prefix><salt>:<nonce>:<ciphertext>` — the shared sealed-text prefix, so both features match. */
+export const MEMO_CIPHER_PREFIX = NOTE_LOCK_ENVELOPE_PREFIX
 
 export const MEMO_ATTACHMENT_SCOPES = ['all', 'media', 'audio', 'documents', 'unused'] as const
 export type MemoAttachmentScope = (typeof MEMO_ATTACHMENT_SCOPES)[number]

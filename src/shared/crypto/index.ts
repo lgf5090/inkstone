@@ -6,6 +6,7 @@ export {
   NOTE_LOCK_TIMEOUT_FALLBACK_MINUTES,
   NoteLockSession,
   NoteUnlockError,
+  NoteUnlockError as NoteLockError,
   isNoteLockEnvelope,
   openNote,
   saltOfEnvelope,
