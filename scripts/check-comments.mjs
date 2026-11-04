@@ -456,6 +456,9 @@ const allowed = new Map([
     "// Drawing is the one thing here that can fail on its own — a context that cannot be had, a library",
     "// that will not load — and the numbers above it are what the reader came for. Best-effort, then.",
     "// A chart that refused to draw leaves its list of numbers beside it, which is the same answer.",
+    "// A chart laid out while its column was still zero-width keeps that width forever, because",
+    "// Chart.js watches the window rather than the box it was put in. The observer makes the first",
+    "// real layout (and every later panel resize) reach the chart.",
   ]],
   ["src/client/components/color-field.tsx", [
     "/** The colour the native wheel opens on when there is nothing to show yet. */",
@@ -13582,6 +13585,54 @@ const allowed = new Map([
     "// `folderDescendantIds` already counts the folder itself, which is what a folder view means here.",
     "/** The folders that can become a channel, each with how many notes it holds including its own. */",
   ]],
+  ["src/client/features/scriptshub/ScriptsHubApp.tsx", [
+    "/**\n * The ScriptsHub container.\n *\n * Desktop keeps the rail, the list and the editor on screen together; a phone shows the list and\n * opens the editor over it, because three columns on 390px is a strip of each. Import and export live\n * in the one header the whole app shares, and `Ctrl/Cmd+K` focuses the list's search from anywhere in\n * this container — the closest thing to the global quick search a single app can offer without\n * taking over the shell's own palette.\n */",
+  ]],
+  ["src/client/features/scriptshub/api.ts", [
+    "/**\n * The ScriptsHub API client.\n *\n * A thin mapping over `request`, one function per route, so the screens never assemble a URL or a\n * query by hand. The mutation functions return the row the server wrote rather than a bare `ok`,\n * which is what lets an editor replace its detail without a second read.\n */",
+  ]],
+  ["src/client/features/scriptshub/assistant-context.ts", [
+    "/**\n * What the ScriptsHub page tells the assistant about itself.\n *\n * The facts are the ones a sentence typed beside the page leans on: which folder or tag is in force,\n * which snippet is open, what file and language it shows, and whether it is already published. The\n * file body is not included — the assistant has `scriptshub_read` for that, and a page context that\n * carried a megabyte of code would be charged to every question asked here.\n */",
+  ]],
+  ["src/client/features/scriptshub/import-dialog.tsx", [
+    "/**\n * Importing a snippet library from another tool.\n *\n * The parsers are shared with the tests and run before anything is sent: a file that cannot be read\n * is refused here, with the reason, rather than becoming a partial import the server has to unwind.\n * The conflict policy is asked before the button is pressed because \"overwrite\" is destructive and\n * the reader is choosing it for every duplicate at once.\n */",
+  ]],
+  ["src/client/features/scriptshub/language-icon.tsx", [
+    "/**\n * One language glyph, drawn inline.\n *\n * The shape and colour are data about a language rather than theme tokens: a Python file keeps its\n * blue-and-yellow mark in either theme, exactly as the extension it wears does. No bitmap or icon\n * font is shipped, so there is no licence to carry and no extra request when a list of forty files\n * draws forty of these.\n */",
+    "/** Two brand colours, drawn as the plate and the glyph. */",
+    "/** The letters a compact square mark carries, when it is not a drawn shape. */",
+    "/** The small, unlabelled alias a text-only row uses. */",
+  ]],
+  ["src/client/features/scriptshub/publish-panel.tsx", [
+    "/**\n * The publish card beside a snippet.\n *\n * A publication is one file at one path, and the card says the whole contract: status, visibility,\n * expiry, the `curl` a reader can run, the short address when one exists, and the token exactly once\n * when it is minted. Nothing here is a decoration — every switch writes the row the public route\n * reads.\n */",
+  ]],
+  ["src/client/features/scriptshub/revisions-dialog.tsx", [
+    "/**\n * The version history of one snippet.\n *\n * Every save writes a full snapshot, so a version can restore a file a later save deleted. The list\n * is metadata only; the body is read for the one version selected. The preview is the shared write\n * diff used by the assistant, with the older version on the left and the current text on the right.\n */",
+  ]],
+  ["src/client/features/scriptshub/script-code-editor.tsx", [
+    "/**\n * The code surface a snippet file is edited and read in.\n *\n * CodeMirror is loaded when the surface mounts rather than with the app, so a reader who stays on the\n * list never downloads it. The language extension is chosen from the same catalogue the file name,\n * the icon and the served `Content-Type` come from; languages CodeMirror does not ship a package for\n * use a small stream tokenizer here, which is enough for shell, Python, YAML and Dockerfiles to read\n * as code rather than as prose.\n */",
+  ]],
+  ["src/client/features/scriptshub/sidebar.tsx", [
+    "/**\n * The ScriptsHub rail: the saved views, the folder tree and the tag tree.\n *\n * The tree shapes are the notebook's own: `treeItemProps` carries the roving path and depth, and the\n * drag payload is a private MIME type so a note dragged from the notebook can never land in a script\n * folder by accident. Nothing here owns data; it reads the store and asks it to filter.\n */",
+    "/**\n * A folder list in the notebook's own `Folder` shape, so the shared picker and the move menu accept\n * script folders without a second implementation of the path logic.\n */",
+  ]],
+  ["src/client/features/scriptshub/snippet-editor.tsx", [
+    "/**\n * One snippet's editor.\n *\n * The draft is local until Save: every file tab, the description, the tags and the folder are edited\n * here and written together, so a version is a version of the whole snippet rather than of whichever\n * text box happened to be focused. The right column holds the facts that are not code — source,\n * notes, publication, assets and history — and it is the same column on a phone, below the editor.\n */",
+  ]],
+  ["src/client/features/scriptshub/snippet-list.tsx", [
+    "/**\n * The snippet list between the rail and the editor.\n *\n * Search is the list's own field and settles after a pause: every keystroke is a server query, and a\n * Chinese phrase typed quickly would otherwise arrive as five half-words. The quick switcher is the\n * sort menu beside it; batch actions only appear when rows are actually selected.\n */",
+  ]],
+  ["src/client/features/scriptshub/stats-page.tsx", [
+    "/**\n * The statistics screen: real aggregates from the event and snippet tables.\n *\n * Every number here is a server-side count over a bounded window; the charts are the shared\n * `ChartCanvas`, which defers chart.js until a chart is actually drawn. The daily line is filled\n * across the whole window so a quiet Tuesday is visible as a zero rather than as a missing point, and\n * the tables beside it carry the same numbers in text for a reader who cannot see the canvas.\n */",
+  ]],
+  ["src/client/features/scriptshub/store.ts", [
+    "/**\n * The state one ScriptsHub screen keeps.\n *\n * The list and the detail are separate reads on purpose: the list carries summaries, and the detail\n * carries every file body. Opening a snippet replaces `detail` rather than merging it, so a failed\n * read cannot leave the previous snippet's code under the new title. The account's folder and tag\n * rows are shared by the sidebar, the pickers and the editor, so they live here once.\n */",
+    "/** A folder's path, for a move menu or a breadcrumb. */",
+    "/** A tag's path through its parent chain. */",
+  ]],
+  ["src/client/features/scriptshub/tag-picker.tsx", [
+    "/**\n * The tag chooser shared by a snippet's own tag row and the batch bar.\n *\n * A checkbox list rather than a text field: tags are a set, and a reader adding the same tag to eight\n * selected snippets should see what is already on them. A nested tag is shown with its path so two\n * tags called `demo` are not read as one. Creating a tag in the box adds it to this set and to the\n * account's tag tree in one step; there is no separate \"manage tags\" screen for a five-second task.\n */",
+  ]],
   ["src/client/features/settings/AppearanceSettings.tsx", [
     "/**\n * The sidebar calendar's own switches, kept in Appearance because every one of them changes what the\n * heat grid paints and nothing else. They live in local storage beside the year-grid column count,\n * so a reader's almanac preference travels with the device they read it on.\n */",
     "// The custom well paints whatever the reader chose; an unset one is an empty ring. The tick",
@@ -18720,6 +18771,9 @@ const allowed = new Map([
   ["src/client/features/tools/compare/folders/DirectoryCompareView.tsx", [
     "/**\n * Two folders compared as trees.\n *\n * Each side is reduced to a manifest while the folder is picked — path, size, hash — and the two\n * manifests are compared by path. The screen draws the union as one tree with two columns, so a\n * reader sees \"this file exists on the left only\" without opening two windows and counting.\n */",
     "// The directory picker is the browser's own; the appearance is the button above, not the input.",
+    "// The comparison is derived from both manifests, not from whichever one the event handler last saw:",
+    "// two `setInputFiles` calls can land before React re-renders, and a closure would then compare one",
+    "// new manifest against a stale one.",
   ]],
   ["src/client/features/tools/compare/images/ImageCompareView.tsx", [
     "/**\n * Two images compared as pictures.\n *\n * Four ways to look at the same pair: side by side, blended, as a mask of the pixels that differ,\n * and behind a movable seam. The diff is computed on a downscaled copy — the highlight a reader\n * needs is \"where\", not \"every one of four million pixels\" — so a phone photo pair does not allocate\n * two full-resolution buffers twice.\n */",
@@ -18753,6 +18807,9 @@ const allowed = new Map([
     "/** Decides the decoder from a sample of the file itself. */",
     "/** Builds a manifest from the flat file list a directory picker hands back. */",
     "/** Builds a manifest from a dropped directory, walking its entries. */",
+    "// The picker and the drop walker both write the folder's own name into every path. It is the",
+    "// root's name, not a directory inside the comparison, so it is removed once here rather than",
+    "// compared as if the two sides were two different folders called \"left\" and \"right\".",
   ]],
   ["src/client/features/tools/compare/lib/languages.ts", [
     "/**\n * Which grammar colours a side of the comparison.\n *\n * The language follows the file name when one is known, and a manual choice otherwise. The grammars\n * are the ones the notebook already ships (JavaScript, Markdown, SQL) plus CodeMirror's ported legacy\n * modes for everything else, imported one by one so a comparison of two `.txt` files never pays for\n * a Python parser it will not use.\n */",
@@ -18786,9 +18843,10 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/compare/text/TextCompareView.tsx", [
     "/**\n * The text comparison screen.\n *\n * Two sources go in — typed, dropped or pasted — and the answer comes out twice: as the aligned\n * editors the merge view draws, and as the counts and patch the reader can copy. Above the size\n * threshold the editors are replaced by the windowed row list, because the merge view renders the\n * whole document and a hundred thousand lines of it would stop the tab.\n */",
-    "// One run per distinct comparison, not per keystroke: the ledger counts what was compared, and the",
-    "// same two texts with the same options are one comparison however many times the effect reruns.",
     "// The ledger is a convenience; a failed write must never block a comparison the reader can see.",
+    "// One run per distinct comparison, and only once it has settled: while a second large file is still",
+    "// decoding, the two sides briefly hold mismatched documents, and counting that transient would",
+    "// report a comparison the reader never saw (and a difference far larger than the real one).",
   ]],
   ["src/client/features/tools/compare/text/TextSideCard.tsx", [
     "/**\n * One side's text, as the reader can put it there.\n *\n * A drop target and a button, not a styled file input: the control a keyboard reaches is the button,\n * and the hidden `<input type=file>` behind it only carries the picker. The text area is the fallback\n * for the copy a reader has in the clipboard rather than in a file.\n */",
@@ -32005,6 +32063,59 @@ const allowed = new Map([
     "// wins because it is the one whose body the bridge just fetched.",
     "/**\n * Which of these rows are already read, counting a duplicate as the same article.\n *\n * The read mark lives on the id that was on screen when the reader finished, and the next refresh\n * may present a different id for the same `biz`/`mid`/`idx`. Without this the unread filter would\n * resurrect an article the reader has read, which is the single most annoying thing an RSS app can\n * do to a WeChat subscription.\n */",
   ]],
+  ["src/shared/scriptshub/import.ts", [
+    "/**\n * Reading the three snippet formats a reader is likely to arrive with.\n *\n * The parsers are pure and deliberately lenient about the wrapper — masscode has shipped more than\n * one top-level shape, and a VS Code snippet is an object keyed by title rather than a list — but\n * strict about what a snippet must have: a title and at least one non-empty file. A file that cannot\n * be named is given one from its language, and a file that cannot be read is skipped rather\n * than invented.\n */",
+    "/** masscode: `snippets: [{ name, content: [{ language, value }] }]`, or the older `content` string. */",
+    "/** VS Code: an object keyed by title, each holding `body` as a string or a list of lines. */",
+    "/** The generic shape this app's own export uses, and the reader-legible one a hand-written file uses. */",
+    "/** Best guess at the format, for a reader who would rather not choose. */",
+    "/** The entries as this app's own export shape, so an export can be imported by the same parser. */",
+    "/**\n * What to do with a title that is already in the library.\n *\n * Kept pure and shared so the import dialog can explain the policy and the store can apply it with\n * one rule; the store still asks the database for the numbered name, because only it knows which\n * suffixes are already taken.\n */",
+  ]],
+  ["src/shared/scriptshub/languages.ts", [
+    "/**\n * The language catalogue a snippet can be written in.\n *\n * One row per language, and every place that has to answer \"which language is this\" — the file-name\n * extension, the picker, the icon, the `Content-Type` a published script is served with — reads the\n * same row. Splitting those answers is how a `.sh` file ends up highlighted as shell, copied as shell\n * and served as `text/plain`.\n *\n * The icon is a name rather than a component: this module is shared with the Worker, which must not\n * import React. The client maps the name to an inline SVG in its own language-icon component.\n */",
+    "/** Lower-case extensions without the dot. `dockerfile` matches a file named exactly `Dockerfile`. */",
+    "/** The `Content-Type` a published file of this language is served with. */",
+    "/** The extension a new file of this language gets. */",
+    "/** Whether a value names a language this app can author. */",
+    "/** The language row for an id; unknown ids fall back to plain text rather than failing a read. */",
+    "/** The language a file name claims, or plain text when its extension is not one we know. */",
+    "/** The `Content-Type` for a served file, from its name first and its declared language second. */",
+    "/** A name for a fresh file in this language, without colliding with the ones already in the snippet. */",
+  ]],
+  ["src/shared/scriptshub/path.ts", [
+    "/**\n * The rules a distribution path obeys.\n *\n * A published path becomes a public URL, so it is a trust boundary rather than a label: it must not\n * carry `..`, an empty segment, a leading or trailing slash, a backslash, a query or fragment, a\n * percent sign, or the `@` reserved for a version suffix. The rules are shared with the client so the\n * form can refuse the same input the route refuses, and with the tests so both sides are proved\n * against one table.\n */",
+    "/** Whether one path segment is something we are willing to put after `/sc/`. */",
+    "/**\n * The path as stored, or the reason it cannot be stored.\n *\n * A leading or trailing slash is refused rather than trimmed: `/system/linux/setup.sh` and\n * `system/linux/setup.sh` look the same in a browser but are different strings in the database, and\n * one of them would resolve to the other only by accident.\n */",
+    "/**\n * Split the `@3` suffix from a request path, after the same validation a stored path gets.\n *\n * The suffix is only a version marker when it is the last segment and is a positive integer; `@`\n * inside a path is refused at publish time, so there is no ambiguity to resolve here.\n */",
+    "/** The `/sc/` URL a publication is served at. */",
+    "/** The public detail page for one publication. */",
+    "/** A filename safe for `Content-Disposition`, without trusting the name a reader typed. */",
+    "/** An RFC 5987 filename for names that are not plain ASCII. */",
+  ]],
+  ["src/shared/scriptshub/publication.ts", [
+    "/**\n * The answers a published script gives a `curl`, as pure functions.\n *\n * A distribution is a cacheable public resource, so its identity is the content's SHA-256: the same\n * bytes always answer with the same `ETag`, a conditional request can be told \"nothing changed\"\n * without sending the body, and the checksum header is the digest a reader can compare against the\n * one their package manager printed. Keeping these here lets the tests prove the byte-level contract\n * without booting a Worker.\n */",
+    "/** A strong validator, quoted as RFC 7232 requires. */",
+    "/**\n * Whether `If-None-Match` names this validator.\n *\n * A list, weak tags, and `*` are all legal inputs; comparing them literally is how a client that sent\n * a weak tag gets a 200 with identical bytes on every poll.\n */",
+    "/** `inline; filename=\"…\"` with the RFC 5987 form for a name that is not ASCII. */",
+    "/**\n * The version a request pins, from `?v=` first and the `@N` suffix second.\n *\n * Both are accepted because both are easy to type beside a URL; when a caller sends both, the query\n * wins, which is the same precedence a route usually gives an explicit parameter over a path\n * convention.\n */",
+    "/** The one cache policy a public download gets: short, public, and revalidated by ETag. */",
+    "/** The headers every script response carries, before its body-specific ones. */",
+  ]],
+  ["src/shared/scriptshub/stats.ts", [
+    "/**\n * The range arithmetic the statistics screen and its routes share.\n *\n * A range is one of three named windows, never an arbitrary pair of dates: the SQL and the chart\n * labels have to agree on how many buckets a window holds, and an unbounded input would turn a\n * dashboard request into a full-table scan. The caller's own timezone is not applied here — the\n * buckets are UTC days, which is what D1 stores and what a public distribution's visitors span.\n */",
+    "/** The number of days a range covers, and the only numbers the route accepts. */",
+    "/** The first instant in the window, in milliseconds. */",
+    "/** The first instant in the window, in seconds, for the event table's `at` column. */",
+    "/** How many points a daily trend may hold; the chart never draws more than this. */",
+    "/** The day a trend row is labelled with, from the SQL `date(...)` answer. */",
+    "/** The share of published snippets, floored to a whole percent and guarded against a zero denominator. */",
+  ]],
+  ["src/shared/scriptshub/types.ts", [
+    "/**\n * What the ScriptsHub screens and routes exchange.\n *\n * Timestamps are milliseconds, the same unit every other D1-backed store in this app writes, so a\n * client never has to guess whether a number is seconds. A publication's token never appears here:\n * the plaintext is returned once by the rotation route and only its hash stays in the database.\n */",
+    "/** A published path as the distribution route sees it, split from the `@version` suffix. */",
+    "/** The plaintext gate token, present only on the response that minted it. */",
+  ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
     "/**\n * A stored settings object is older than any given key, so every renderer switch has to arrive through\n * `mergeSettings` rather than be read off the JSON: a stored `preview` that predates `chart` must come\n * back as the default, not as `undefined` coerced to \"off\" — that would silently stop drawing charts for\n * every account that existed before the switch shipped, with nothing wrong in the note.\n */",
@@ -33013,7 +33124,6 @@ const allowed = new Map([
     "// A UTF-16 file without a mark is full of null bytes, which `looksBinary` would call binary; the",
     "// order here is what keeps a wide-encoded text file readable rather than refused.",
     "/** The bytes as text. `fatal` keeps a wrong guess from being silently replaced with `�`. */",
-    "/** Whether the decoder this browser or runtime has knows the label at all. */",
   ]],
   ["src/shared/tools/compare/engine.ts", [
     "/**\n * The line diff the compare tool draws, and the patch it exports.\n *\n * The algorithm is `diff` (jsdiff) rather than a hand-written LCS: it is the package the ecosystem\n * has used for a decade, it accepts a time budget, and it answers line changes in the shape this\n * screen needs. What is here is only the part jsdiff does not do for us:\n *\n *  - the options a comparison is asked to honour — whitespace, case, line endings, a regular\n *    expression, and a pair of line ranges — are applied to a *key* per line, so the stored lines\n *    are untouched and only the judgement of \"equal\" changes;\n *  - the result is turned into aligned rows (both sides' line numbers, paired changed lines), hunks\n *    for navigation, and character ranges in the original documents, which is what\n *    `@codemirror/merge` needs to draw its own gutters and inline marks;\n *  - the unified patch is formatted from those rows rather than from a second diff, so what the\n *    reader copies is exactly the change they were looking at.\n *\n * Lines outside the selected ranges are deliberately paired by position and never reported: the\n * reader asked for a part of the file, and a change outside it is not part of the answer.\n */",
@@ -34739,6 +34849,9 @@ const allowed = new Map([
     "// the only surface that could create one; the to-do app now owns the table, and `migrateTaskTable`",
     "// moves an older database's rows across once.",
     "/**\n   * What a routine delivered, and whether any device was ever told about it.\n   *\n   * `read_at` is the reader's own state and `pushed_at` is a delivery fact, and the two must not be\n   * confused: the marker is stamped by `assistant/push-fanout.ts` the first time a push service accepts the\n   * nudge for this row, and it is what makes a later cron catch-up fire idempotent. Null means \"no device\n   * ever accepted one\" — including every row written before Web Push existed, which is the honest reading\n   * rather than a backfill that would claim a send that never happened.\n   *\n   * `link` is where the thing the notice is about lives, spelled `<app>:<id>` — `todo:<task id>` today. It\n   * is deliberately not a URL: a stored address would let whatever wrote the row point a reader's press at\n   * a site this deployment never chose, and the client is the one that knows how to reach a task, what a\n   * task it cannot read falls back to, and that the address it opens is same-origin by construction. Null\n   * means the notice is only a message — a digest, a finished run — and pressing it expands the row instead\n   * of moving the reader.\n   */",
+  ]],
+  ["src/worker/assistant/scriptshub-tools.ts", [
+    "/**\n * The ScriptsHub tools: the assistant can find, read, create and publish a snippet.\n *\n * Every call goes through the same `ScriptsHubStore` the screens and the HTTP routes use, so the\n * account boundary and the path validation are the ones the app already enforces. Publishing is a\n * write rather than a destructive action — it exposes a file the reader chose, and the reader can\n * pause or remove it from the same card — but the tool names the exact path and visibility in its\n * answer, so the model cannot read a publish as a local edit.\n */",
   ]],
   ["src/worker/assistant/semantic.ts", [
     "/** Embeds one memory. False means the deployment has no AI binding or the reader's cap is spent. */",
@@ -38078,6 +38191,9 @@ const allowed = new Map([
     "// without a project is an upload nobody kept, a project without assets names bytes that are not",
     "// there, and a run is the ledger that counts both. `skipIfColumnExists` is not used — this version",
     "// creates tables rather than adds columns to ones an older database already has.",
+    "// ScriptsHub is a wholly new surface, so this version creates tables rather than changes one.",
+    "// The tables are also in `SCHEMA_STATEMENTS` for a fresh database; `IF NOT EXISTS` makes running",
+    "// them here harmless on a database whose first boot already built them.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41041,6 +41157,36 @@ const allowed = new Map([
     "/**\n * The tags an export carried, reduced to rows this account may store.\n *\n * A name that is empty, too long or still holds a space or a hash is dropped rather than rejected: an\n * export is a bundle of many things, and losing one tag is a warning the client never asked for. The\n * first spelling of a name wins, which is what the case-folded key means. Writing them is\n * `store.restoreTagMetadata`.\n */",
     "/**\n * Apply a re-imported note over the one this account already has, if it is newer.\n *\n * The three answers the caller cannot derive on its own are the whole contract: `missing` (the note is\n * gone), `skipped` (what is stored is already at least as new) and `conflict` (someone edited it\n * between the read and the guarded write, so the current version was kept). Which of the counters a\n * result moves, and whether the client is warned, is the caller's business.\n */",
     "/**\n * Create one note from an import and return the id it ended up with.\n *\n * Size and quota are checked here, the timestamps and the title are decided here, and an id the export\n * carried is offered once and replaced with a fresh one if the insert loses the collision — which is\n * the only reason a re-import of the same export cannot overwrite a note another account owns. The\n * writing itself is `store.insertNote`.\n */",
+  ]],
+  ["src/worker/scriptshub/public.ts", [
+    "/**\n * The public half of ScriptsHub: `/sc/<path>` serves a file, `/sc-view/<id>` is its readable page.\n *\n * Neither route reads a session. A publication is the grant, and every decision here is made from\n * the publication row: paused, expired, token-gated, pointing at a file, and still owned by the\n * account that published it. A request that fails is written to the event table as a real visit\n * with a status, so the dashboard's 403/404 counts are counts of requests rather than decoration.\n */",
+  ]],
+  ["src/worker/scriptshub/routes.ts", [
+    "/**\n * The authenticated ScriptsHub API (`/api/scriptshub/*`).\n *\n * The routes parse and validate; the store owns every statement. Two things are deliberately\n * outside the store because they reach another service: an asset upload writes R2 and then records\n * the object key, and a publication may ask the existing short-link module for an address instead of\n * inventing a second shortener.\n */",
+    "// The publication is the durable promise; a short code is a convenience beside it. The route",
+    "// says so rather than failing the publish the reader just asked for.",
+  ]],
+  ["src/worker/scriptshub/schema.ts", [
+    "/**\n * D1 schema for ScriptsHub (`scriptshub_*`).\n *\n * Snippet bodies live here, one row per file, because the search has to reach them with SQL; only\n * uploaded images and binaries go to R2, and those rows hold the object key. Every table carries the\n * account it belongs to in its primary key or in every index that reads it, so a missing `user_id`\n * predicate is a bug rather than a cross-account leak.\n */",
+  ]],
+  ["src/worker/scriptshub/store.ts", [
+    "/**\n * The D1 side of ScriptsHub.\n *\n * Every statement is pinned to the account this store was built for, and the routes never hold a\n * ready-made `WHERE` clause of their own: a row that belongs to somebody else is not \"not found\",\n * it is unreachable. Snippet bodies are read for the one detail the reader opened, never for a list —\n * a list row carries the file count and a short language, not megabytes of code.\n */",
+    "/**\n * The words a search is built from, and the SQL it is built with.\n *\n * `instr(lower(text), token)` is deliberately used instead of `LIKE '%token%'`: SQLite's LIKE pattern\n * has a length ceiling, and a pasted paragraph of Chinese used to push a request over it with a\n * \"LIKE or GLOB pattern too complex\" error. `instr` has no pattern, so the only bound is the one the\n * route applies here — five tokens, twenty-eight characters each, the rest ignored.\n */",
+    "// ---------------------------------------------------------------- folders",
+    "// ------------------------------------------------------------------- tags",
+    "// --------------------------------------------------------------- overview",
+    "// --------------------------------------------------------------- snippets",
+    "/**\n   * The one save that writes files and a revision.\n   *\n   * The revision is a snapshot of the whole snippet rather than a diff: a restore has to be able to\n   * put back a file a later save deleted, and the version list must survive a rename.\n   */",
+    "// -------------------------------------------------------------- revisions",
+    "/** Put a snapshot back, as a new version: the way forward stays in the history. */",
+    "// ------------------------------------------------------------- publications",
+    "/** Mint a new gate token and return the plaintext once; the row keeps only its hash. */",
+    "/** Attach a short link's slug once, so a publication has one stable short address. */",
+    "// --------------------------------------------------------------- analytics",
+    "// ----------------------------------------------------------------- assets",
+    "// ------------------------------------------------------------------ import",
+    "// ---------------------------------------------------------------- export",
+    "/** The publication route's own token check, isolated so the public route cannot borrow a session. */",
   ]],
   ["src/worker/search/service.ts", [
     "/**\n * The search and graph answers the HTTP route, the MCP retriever and the note store all need.\n *\n * Lifted out of `routes/search.ts` because a route is an HTTP adapter: `mcp/retrieval.ts` and\n * `notes/store.ts` must not reach into one to get a function (`AGENTS.md` rule 3), and the ranking,\n * snippet and node-assembly rules here are exactly the product behaviour those callers depend on.\n * The route keeps query parsing, validation, throttles, `ApiError` codes and response shaping; the\n * SQL stays in `search/store.ts`; this layer is the arithmetic between them.\n */",
