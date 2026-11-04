@@ -8,12 +8,19 @@
  * as code rather than as prose.
  */
 import { useEffect, useRef } from 'react'
+import { Compartment, EditorState } from '@codemirror/state'
 import type { ScriptLanguageId } from '@shared/scriptshub/languages'
 import { cn } from '../../lib/cn'
+import { codeHighlighting } from '../../components/cm-syntax'
 
 interface EditorBundle {
   view: import('@codemirror/view').EditorView
+  viewModule: typeof import('@codemirror/view')
   destroy: () => void
+  language: Compartment
+  readOnly: Compartment
+  wrap: Compartment
+  positions: Map<string, { top: number; left: number }>
 }
 
 const KEYWORDS: Record<string, readonly string[]> = {
@@ -120,6 +127,9 @@ export function ScriptCodeEditor({
   onChange,
   className,
   minHeight = 320,
+  fill = false,
+  wrap = true,
+  scrollKey,
 }: {
   value: string
   language: ScriptLanguageId
@@ -129,25 +139,35 @@ export function ScriptCodeEditor({
   onChange?: (value: string) => void
   className?: string
   minHeight?: number
+  fill?: boolean
+  wrap?: boolean
+  scrollKey?: string
 }) {
   const host = useRef<HTMLDivElement>(null)
   const bundle = useRef<EditorBundle | null>(null)
-  const latest = useRef({ value, onChange })
-  latest.current = { value, onChange }
+  const latest = useRef({ value, onChange, wrap, readOnly, ariaLabel, scrollKey })
+  latest.current = { value, onChange, wrap, readOnly, ariaLabel, scrollKey }
+  const currentKey = useRef<string | undefined>(scrollKey)
 
+  // The view is built once. Language, wrapping, read-only and the accessible name are compartments,
+  // so switching a file tab or turning wrapping off reconfigures the same document instead of
+  // destroying it — and therefore does not lose the reader's scroll position.
   useEffect(() => {
     let cancelled = false
-    const element = host.current
-    if (!element) return
     void (async () => {
       const loaded = await languageExtension(language, fileName)
       if (cancelled || !host.current) return
+      const languageCompartment = new Compartment()
+      const readOnlyCompartment = new Compartment()
+      const wrapCompartment = new Compartment()
       const theme = loaded.view.EditorView.theme({
         '&': {
           backgroundColor: 'var(--bg-inset)',
           color: 'var(--text-primary)',
           fontSize: '12.5px',
+          height: '100%',
         },
+        '.cm-editor': { height: '100%' },
         '.cm-content': {
           fontFamily: 'var(--font-mono)',
           padding: '10px 0',
@@ -164,18 +184,20 @@ export function ScriptCodeEditor({
         '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--accent-soft)' },
         '.cm-scroller': { overflow: 'auto', lineHeight: '1.6' },
       })
-      const state = loaded.state.EditorState.create({
+      const state = EditorState.create({
         doc: latest.current.value,
         extensions: [
           loaded.view.lineNumbers(),
           loaded.language.foldGutter(),
-          loaded.extension,
+          languageCompartment.of(loaded.extension),
+          codeHighlighting,
           loaded.commands.history(),
           loaded.view.keymap.of([...loaded.commands.defaultKeymap, ...loaded.commands.historyKeymap]),
-          loaded.view.EditorView.lineWrapping,
-          loaded.state.EditorState.readOnly.of(readOnly),
-          loaded.view.EditorView.editable.of(!readOnly),
-          loaded.view.EditorView.contentAttributes.of({ 'aria-label': ariaLabel, spellcheck: 'false' }),
+          wrapCompartment.of(latest.current.wrap ? loaded.view.EditorView.lineWrapping : []),
+          readOnlyCompartment.of(latest.current.readOnly
+            ? [EditorState.readOnly.of(true), loaded.view.EditorView.editable.of(false)]
+            : [EditorState.readOnly.of(false), loaded.view.EditorView.editable.of(true)]),
+          loaded.view.EditorView.contentAttributes.of({ 'aria-label': latest.current.ariaLabel, spellcheck: 'false' }),
           theme,
           loaded.view.EditorView.updateListener.of((update) => {
             if (update.docChanged) latest.current.onChange?.(update.state.doc.toString())
@@ -183,7 +205,30 @@ export function ScriptCodeEditor({
         ],
       })
       const view = new loaded.view.EditorView({ state, parent: host.current })
-      bundle.current = { view, destroy: () => view.destroy() }
+      const viewBundle: EditorBundle = {
+        view,
+        viewModule: loaded.view,
+        destroy: () => view.destroy(),
+        language: languageCompartment,
+        readOnly: readOnlyCompartment,
+        wrap: wrapCompartment,
+        positions: new Map(),
+      }
+      bundle.current = viewBundle
+      const key = latest.current.scrollKey
+      if (key) {
+        const saved = viewBundle.positions.get(key)
+        if (saved) {
+          const scroller = view.scrollDOM
+          scroller.scrollTop = saved.top
+          scroller.scrollLeft = saved.left
+        }
+      }
+      view.scrollDOM.addEventListener('scroll', () => {
+        const keyNow = currentKey.current
+        if (!keyNow) return
+        viewBundle.positions.set(keyNow, { top: view.scrollDOM.scrollTop, left: view.scrollDOM.scrollLeft })
+      })
     })().catch((error: unknown) => {
       console.error('[inkstone] The script editor failed to load:', error)
     })
@@ -192,7 +237,62 @@ export function ScriptCodeEditor({
       bundle.current?.destroy()
       bundle.current = null
     }
-  }, [ariaLabel, fileName, language, readOnly])
+    // The view lives for the component's lifetime; everything that changes is a compartment below.
+  }, [])
+
+  useEffect(() => {
+    const active = bundle.current
+    if (!active) return
+    let cancelled = false
+    void languageExtension(language, fileName).then((loaded) => {
+      if (cancelled || !bundle.current) return
+      bundle.current.view.dispatch({ effects: bundle.current.language.reconfigure(loaded.extension) })
+    }).catch((error: unknown) => {
+      console.error('[inkstone] The script editor language failed to load:', error)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [fileName, language])
+
+  useEffect(() => {
+    const active = bundle.current
+    if (!active) return
+    active.view.dispatch({
+      effects: [
+        active.readOnly.reconfigure(readOnly
+          ? [EditorState.readOnly.of(true), active.viewModule.EditorView.editable.of(false)]
+          : [EditorState.readOnly.of(false), active.viewModule.EditorView.editable.of(true)]),
+        active.wrap.reconfigure(wrap ? active.viewModule.EditorView.lineWrapping : []),
+      ],
+    })
+  }, [readOnly, wrap])
+
+  useEffect(() => {
+    const active = bundle.current
+    if (!active) return
+    active.view.contentDOM.setAttribute('aria-label', ariaLabel)
+  }, [ariaLabel])
+
+  useEffect(() => {
+    const active = bundle.current
+    if (!active) return
+    const previousKey = currentKey.current
+    if (previousKey) {
+      active.positions.set(previousKey, { top: active.view.scrollDOM.scrollTop, left: active.view.scrollDOM.scrollLeft })
+    }
+    currentKey.current = scrollKey
+    // The new file's text is dispatched in the effect below; restoring after that dispatch has laid
+    // the document out is what keeps a tab's own scroll position rather than the top of the new one.
+    const frame = window.requestAnimationFrame(() => {
+      if (!bundle.current) return
+      const scroller = bundle.current.view.scrollDOM
+      const saved = scrollKey ? bundle.current.positions.get(scrollKey) : undefined
+      scroller.scrollTop = saved?.top ?? 0
+      scroller.scrollLeft = saved?.left ?? 0
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [scrollKey])
 
   useEffect(() => {
     const view = bundle.current?.view
@@ -201,5 +301,15 @@ export function ScriptCodeEditor({
     if (current !== value) view.dispatch({ changes: { from: 0, to: current.length, insert: value } })
   }, [value])
 
-  return <div ref={host} className={cn('overflow-hidden rounded-[var(--r-md)] border border-[var(--border-default)]', className)} style={{ minHeight }} />
+  return (
+    <div
+      ref={host}
+      className={cn(
+        'overflow-hidden rounded-[var(--r-md)] border border-[var(--border-default)]',
+        fill && 'min-h-0 flex-1',
+        className,
+      )}
+      style={fill ? { height: '100%' } : { height: minHeight }}
+    />
+  )
 }

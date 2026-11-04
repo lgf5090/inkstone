@@ -62,8 +62,8 @@ export const APP_TABS: readonly AppTab[] = [
   { id: 'music', path: '/music', labelKey: 'app.tabs.music', icon: Music },
   { id: 'cloudflare', path: '/cloudflare', labelKey: 'app.tabs.cloudflare', icon: Cloud },
   { id: 'youtube', path: '/youtube', labelKey: 'app.tabs.youtube', icon: PlaySquare },
-  { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
   { id: 'scriptshub', path: '/scripts', labelKey: 'app.tabs.scriptshub', icon: FileCode2 },
+  { id: 'tools', path: '/tools', labelKey: 'app.tabs.tools', icon: Wrench },
   { id: 'development', path: '/development', labelKey: 'app.tabs.development', icon: Terminal },
 ]
 

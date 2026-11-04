@@ -24,6 +24,7 @@ import type {
   ScriptsHubOverview,
 } from '@shared/scriptshub/types'
 import { scriptshubApi } from './api'
+import { t } from '../../lib/i18n'
 
 export interface ScriptsHubState {
   overview: ScriptsHubOverview | null
@@ -42,6 +43,7 @@ export interface ScriptsHubState {
   loadList: (query?: Partial<ScriptListQuery>) => Promise<void>
   select: (id: string | null) => Promise<void>
   create: (input: ScriptSnippetInput) => Promise<ScriptSnippetDetail>
+  duplicate: (id: string) => Promise<ScriptSnippetDetail>
   save: (id: string, input: ScriptSnippetSaveInput) => Promise<ScriptSnippetDetail>
   remove: (id: string) => Promise<void>
   batch: (input: Parameters<typeof scriptshubApi.batch>[0]) => Promise<void>
@@ -135,6 +137,37 @@ export const useScriptsHub = create<ScriptsHubState>()((set, get) => ({
     await Promise.all([get().loadList(), get().refreshOverview()])
     await get().select(detail.id)
     return detail
+  },
+
+  /**
+   * A duplicate is a new snippet, not a second pointer at the same files: the copy gets its own id
+   * and its own history, and the original keeps its publications. Its publication paths are not
+   * copied — two rows cannot own the same path.
+   */
+  async duplicate(id) {
+    const detail = await scriptshubApi.getSnippet(id)
+    const created = await scriptshubApi.createSnippet({
+      title: `${detail.title}${t('scriptshub.defaults.copy_suffix')}`,
+      description: detail.description,
+      folderId: detail.folderId,
+      language: detail.files[0]?.language ?? detail.language,
+      sourceUrl: detail.sourceUrl,
+      notes: detail.notes,
+      tags: detail.tags.map((tag) => tag.id),
+    })
+    const copied = await scriptshubApi.saveSnippet(created.id, {
+      title: created.title,
+      description: detail.description,
+      folderId: detail.folderId,
+      language: detail.files[0]?.language ?? detail.language,
+      sourceUrl: detail.sourceUrl,
+      notes: detail.notes,
+      tags: detail.tags.map((tag) => tag.id),
+      files: detail.files.map((file) => ({ name: file.name, language: file.language, content: file.content })),
+    })
+    await Promise.all([get().refreshOverview(), get().loadList()])
+    await get().select(copied.id)
+    return copied
   },
 
   async save(id, input) {
