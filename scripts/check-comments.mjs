@@ -16086,6 +16086,9 @@ const allowed = new Map([
     "/** A note about the task, written through the editor's own door rather than a second field of this panel's. */",
     "/**\n * Flowtime's interruption, or null when there is nothing to say.\n *\n * The store owns the same rule for the moment a block is filed; this is the live reading of it, which is why\n * it takes the beat's clock rather than asking for its own. `breakAfterBlock` is what the session will answer\n * with one round later, so the length offered here and the length the break takes cannot diverge.\n */",
   ]],
+  ["src/client/features/todos/FocusStatsSection.tsx", [
+    "/**\n * The focus history on the statistics screen.\n *\n * It reads the same window the statistics screen shows and keeps today's own number beside it, because\n * \"how much did I focus in this range\" and \"how much have I focused today\" are different questions a\n * reader asks at different moments. A phase is written when it ends, so the section never guesses\n * from the worklog.\n */",
+  ]],
   ["src/client/features/todos/ListIconPicker.tsx", [
     "/**\n * The list-icon picker: the to-do app's own glyph set, plus the notebook's whole emoji catalogue.\n *\n * The grid is not a menu — it lives inside the list dialog, where it has the room to be read rather\n * than scanned. Two tabs keep the two vocabularies apart: a curated lucide set grouped by what a list\n * is about, and the emoji catalogue the folder picker already loads (with the same search, the same\n * recent row and the same pinyin matching), so a reader who picked 🏠 for a folder can pick it here\n * and find it the same way.\n */",
     "// The box owns the Escape that would otherwise reach the dialog around the picker, the same",
@@ -16157,6 +16160,10 @@ const allowed = new Map([
     "// section on the same tick the sidebar changes — the same reason the frame reads it.",
     "/* The same table the sidebar draws, asked the same way — not a second list of views somebody\n              has to remember to extend. This section used to name two of the ten surfaces by hand, which\n              read as the complete answer and was not one; a surface that earns a sidebar row now earns a\n              row here on the same tick. It stays because the sidebar can be collapsed, and then this is\n              the only view switch on the page. */",
   ]],
+  ["src/client/features/todos/MatrixView.tsx", [
+    "/**\n * The Eisenhower matrix: the open plate in four cells cut by importance and urgency.\n *\n * The matrix reads the same listing every other aggregate screen reads, so the filter bar, the search\n * line and the current list all narrow it the same way. A drop writes the two answers the cell stands\n * for; the row's own menu offers the same move for a keyboard or a phone, which cannot drag.\n */",
+    "/**\n   * Write one cell, and offer the two flags it replaced as one step back. The answers are written\n   * together because a quadrant is one of four pairs; leaving one axis derived while the other is\n   * frozen would draw a cell the reader never chose.\n   */",
+  ]],
   ["src/client/features/todos/OrganizerEditors.tsx", [
     "/** The two halves of the ramp, drawn under their own labels. */",
     "/** The circle a list wears in the sidebar and on the board, at the size the dialog can show it. */",
@@ -16206,6 +16213,8 @@ const allowed = new Map([
     "/**\n * The three counting rules, as data rather than as prose.\n *\n * A rate's whole meaning lives in its denominator, and the denominator of the first one is the thing a\n * reader cannot see from the label: `completionRate` deliberately does not count the tasks the reader\n * gave up, because the number was published before that state existed and moving it under their feet\n * would read as a drop they had caused. The screen says so out loud beside the two cards (their hints)\n * and again here, where a screen reader gets the same three definitions the worker's own header states\n * (plan §5 D10) rather than a picture of a bar.\n */",
     "/**\n * The range, the bucket and the export.\n *\n * One row on a wide window, one scrolling row on a phone: the two segmented controls keep their height\n * rather than wrapping into a block, and the export is an icon so the row does not grow a third line.\n */",
     "/* The hours the ledger holds, beside the counts the plate moved: the two read different\n              tables and are allowed to disagree about the same week. */",
+    "// The focus history reads the same window on its own endpoint: a phase is a session fact, not a",
+    "// ledger span, and a break that named no task could not live in the worklog at all.",
   ]],
   ["src/client/features/todos/TaskCard.tsx", [
     "// A star that only appears on hover is a star a thumb never finds.",
@@ -16360,6 +16369,8 @@ const allowed = new Map([
     "/* The row's place in a tree, in the gutter the checkbox already lives in: a rule for every level\n          above it, and a fold button left of the box when rows sit under it. A row with no children gets\n          neither — a control that has nothing to do is worse than no control. */",
     "/** Fold or unfold one row's children. Listing state: it writes nothing and costs no request. */",
     "/** This row's place in its group's tree, and what is folded under it. See `TaskCard`'s own fields. */",
+    "/**\n   * The matrix answers, passed only by the matrix screen. The card's own menu grows the four-cell\n   * submenu from this object, so a phone and a keyboard get the same move a drop writes.\n   */",
+    "/** The matrix answers, or nothing where the screen is not a matrix. */",
   ]],
   ["src/client/features/todos/TaskEditor.tsx", [
     "/**\n * The task editor: one dialog for a new task and for an existing one.\n *\n * It is a `Modal`, which already renders as a bottom sheet on a phone and a centred dialog on a\n * desktop — the two shapes the reference app has, without a second component. Fields are saved\n * together rather than on every keystroke: a title is edited in one pass, and a save per character\n * would be a write per character.\n *\n * Steps are the exception, and only for a task that already exists: adding a step is its own request\n * because the row it produces has to come back with an id the panel can tick.\n */",
@@ -16568,6 +16579,8 @@ const allowed = new Map([
     "/* The panel `q` or `s` opened, anchored at the row that asked for it. Its rows come from\n          `task-menu.ts` — the list a kebab and a right-click already answer with — so a key is a third\n          way to reach them rather than a fourth copy of them. */",
     "/** The largest count a badge draws as itself; above it the badge names its own ceiling. */",
     "/* The counts are the server's aggregate, and a refresh that failed left the last good answer on\n          screen. That is the right trade against blanking the nav, but the reader has to be able to tell\n          a number they can act on from one they are merely waiting on — so the doubt is said once, where\n          the numbers are, rather than only in a toast that has already gone. */",
+    "// A focus block that was running when the page last closed is restored only after the rows that",
+    "// name its task have arrived; restoring against an empty listing would discard it as unknown.",
   ]],
   ["src/client/features/todos/TrashPanel.tsx", [
     "/**\n * The trash: the tasks a delete only hid, and the two ways to settle them.\n *\n * The server keeps a deleted row — with its steps and tags — for the retention window, so this screen\n * is where a reader finds it again. Restoring is the same call the undo uses, and purging is the one\n * irreversible door, which is why it asks first. The panel is opened from the organizer page rather\n * than the task views: the trash is management, not a list to work in.\n */",
@@ -16892,6 +16905,9 @@ const allowed = new Map([
     "/** The plan after one ± press: whole minutes in, whole minutes out, and never past the settings' edges. */",
     "/**\n * Whether a sound level says this cue out loud.\n *\n * The four levels are the settings' words and the two cues are what the synthesiser can make, so this is\n * the one place that has to know which words mean which cue — `both` being both, and `off` being neither.\n */",
   ]],
+  ["src/client/features/todos/focus-session-persist.test.ts", [
+    "// One minute held at save plus about thirty seconds closed.",
+  ]],
   ["src/client/features/todos/focus-session.ts", [
     "/**\n * One focus session's own state, and the transitions a reader can ask it for.\n *\n * Deliberately not in `store.ts`. The to-do store owns the listing — what rows are on screen, what the\n * server says about them — and a session is none of that: it is a temporary, single-surface fact about\n * *this* block of work. `AGENTS.md` rule 7 puts state at its smallest scope, and the plan's card says the\n * same thing: a local slice, not the global store. Keeping it here is also what lets the panel, the strip\n * that replaces it while it is hidden, and the keyboard all read one answer without any of them owning it.\n *\n * Two separations hold the file together.\n *\n * The ledger is the server's. Nothing here keeps a second copy of \"which task is being timed\": opening and\n * closing an interval goes through `startTimer`/`stopTimer` on the to-do store, which are the same doors the\n * card's ▶ and the top bar already use. This module decides *when* the interval is open — at a block's\n * start, not during a break the settings say costs no time — and the server decides what the interval is.\n *\n * Elapsed time is nobody's state. The session stores the instant a phase began running and the amount it had\n * gone when it was last held, and every reading in between is a subtraction against `performance.now()`, the\n * same monotonic clock the running bar counts on. A `Date.now()` difference would let a corrected system\n * clock move a block that is in progress, which is the failure that bar exists to avoid.\n */",
     "/** The panel's three screens. `break` is a phase of its own, not a state of the block. */",
@@ -16942,6 +16958,16 @@ const allowed = new Map([
     "// the account says none is open, which is the case whenever a break was left out of the worklog.",
     "// A held or unstarted phase has nothing to count, and a hidden panel still gets its tick: the reader",
     "// who pressed Escape is exactly the person whose block is about to end.",
+    "/** File a break that has run its course, then open the next block. */",
+    "/**\n * Where a running session survives a reload.\n *\n * The store is a module singleton, so a route change inside the app already keeps it; a browser\n * reload is the one boundary that would otherwise throw a block away. The snapshot keeps the phase's\n * elapsed reading and the wall instant it was taken, so a running phase can add the time the page\n * spent closed before it resumes on the monotonic clock.\n */",
+    "// A full or disabled storage is not a session failure: the overlay keeps the live state and only",
+    "// the reload protection is missing.",
+    "/**\n * Put a stored session back once the listing that owns its task has arrived.\n *\n * A task that is no longer on the page means the session cannot be shown or resumed, so the snapshot\n * is dropped rather than restored as a panel with no title.\n */",
+    "/** Which break a finished round leads into, as the history's own word for it. */",
+    "/** File one phase through the store's own door, so the overlay and the statistics share one write. */",
+    "// A block with no plan (flowtime) counts as completed when the reader ends it deliberately; a",
+    "// planned block is completed only when its countdown actually reached the end.",
+    "/**\n * Keep the reload snapshot in step with the store.\n *\n * The ticker does not write state while a phase is running, so this fires on the gestures that matter\n * — open, start, hold, hide, finish — and a run in between is recovered from the wall instant the\n * snapshot already holds.\n */",
   ]],
   ["src/client/features/todos/list-icons.test.tsx", [
     "/**\n * What a list icon may be, and what the screens draw for one.\n *\n * The picker writes `lucide:<Name>` or a single emoji. A bare word — which only the API can let in —\n * is neither: drawing its first letters beside a list named Work reads as a typo, so nothing is drawn.\n */",
@@ -17653,6 +17679,7 @@ const allowed = new Map([
     "// The row's own ref lists are read before the delete, because a partner's copy of this row is a",
     "// fact about the partner: the rows that waited on this one, and the ones this one waited on, each",
     "// carry a ref that this delete makes untrue.",
+    "/**\n   * File one finished focus phase. Best effort in the sense that a failed record never blocks the\n   * overlay, but the failure is reported rather than swallowed.\n   */",
   ]],
   ["src/client/features/todos/task-attachments.ts", [
     "/**\n * The client's half of a task's files.\n *\n * `POST /api/todos/:id/attachments` has carried the whole job since the attachment round: the same\n * storage every note file uses, with the account's hourly upload budget, the multipart ceiling, the\n * 25 MB limit, the MIME sniffing, the filename cleanup, the quota and the link row all read on the\n * server. What was missing was a caller (C12). This is that caller, and it adds nothing to the\n * contract — one multipart field named `file`, posted to the task it belongs to.\n *\n * The one judgement made here is a courtesy, not a boundary: a file already known to be over the limit\n * is refused before its bytes are sent, so the reader hears about it in the time it takes to let go of\n * the pointer rather than after an upload that was always going to be refused. Everything else — the\n * type, the content, the path, the quota, the budget — is the route's to decide, and its answer is what\n * reaches the reader. Nothing about a limit rides in the request, and no file is checked twice here.\n *\n * Files go one at a time. A hand of them fired together would race the hourly budget for the same\n * account and report a failure count nobody could tie to a file.\n */",
@@ -17997,6 +18024,10 @@ const allowed = new Map([
     "/** One picked group's actions as a menu: the bar's set, not a second one invented for a right-click. */",
     "// The question is asked after the menu is gone: a modal that opens under a floating panel is",
     "// a reader choosing between two layers they cannot both see.",
+    "/** The matrix answers a row menu may write, passed only by the matrix screen. */",
+    "/** Whether both axes are still derived rather than written by the reader. */",
+    "/** Left out everywhere but the matrix screen. */",
+    "/**\n   * The four cells of the matrix, offered only where the screen passed the answers in.\n   *\n   * Dragging writes the same pair, but a phone and a keyboard cannot drag: this submenu is the\n   * equivalent path, and \"auto\" is the way back to the derived classification for a row the reader\n   * once placed by hand.\n   */",
   ]],
   ["src/client/features/todos/task-reorder.test.ts", [
     "/**\n * Reordering a task without a drag.\n *\n * Drag and drop cannot be exercised in jsdom, so the accessible path is what these cases pin: the\n * card's own menu offers \"move up\", \"move down\" and \"move to list\", each a real menu item reachable\n * from the card's button. The same menu is the phone's substitute for a drag the platform will not\n * give it. What is asserted at the API boundary is the anchor the route receives — the row the task\n * lands before, or null for the end — and the list id only when the move crosses collections. An\n * explicit sort hides the controls, because that order is the reader's chosen reading.\n */",
@@ -18367,6 +18398,8 @@ const allowed = new Map([
     "/**\n * The rows one nav draws, in its own order, with the ones the account has switched off left out.\n *\n * The flags come from the frame rather than from a store read inside here: a nav that went and looked at\n * settings on its own would not redraw when the reader switched the page back on.\n */",
     "/**\n * The rows the phone's overflow menu offers.\n *\n * A surface the sidebar carries and the phone's four tabs do not still has to come from somewhere on a\n * phone, so the table answers that question rather than the header keeping its own list: a screen that\n * earns a sidebar row cannot then ship without a way in on the other layout. The calendar is the one\n * surface left out by hand, because its header glyph is the way in — the phone reaches a calendar from\n * wherever it is standing, more often than it reaches the screens below it.\n */",
     "/** What the frame draws for one address; the renderers live in `registry.tsx`, beside the views. */",
+    "// The matrix is a way to sort the open plate by two questions, so it sits beside the calendar and",
+    "// carries the same open count as the board.",
   ]],
   ["src/client/features/todos/views/registry.tsx", [
     "/**\n * What the to-do container draws for one address.\n *\n * The navigation table — order, glyph, badge, labels — is `views/nav`, and it is kept apart from this\n * file on purpose: the organizer page offers every other surface, and if the table lived here it would\n * have to import that page to be read, while that page imports the table to list what it can jump to.\n * This file is the half that is allowed to know what a screen looks like.\n */",
@@ -20287,6 +20320,7 @@ const allowed = new Map([
     "/**\n     * The whole list, as the file the reader keeps.\n     *\n     * JSON is the lossless answer and comes back typed; CSV is the interchange one and comes back as the\n     * exact bytes the server wrote, because re-stringifying a spreadsheet's text would be a second chance\n     * to change what a cell says. Both are handed to `saveFile` by the caller.\n     */",
     "/** This thread's own overrides; the object replaces the stored one rather than merging into it. */",
     "/**\n     * Hand one feed's articles to the account, so the assistant can read them.\n     *\n     * The entry list never travels with the library: it is rebuilt from the network, and only the\n     * device that fetched it holds the text. This is the one write that carries it, reduced to plain\n     * text and capped, and the route refuses a feed the account does not subscribe to.\n     */",
+    "/**\n     * The focus history over a window, plus today's own reading.\n     *\n     * A record is posted when a pomodoro phase ends, so the statistics can show work and break time\n     * without inferring it from a second table.\n     */",
   ]],
   ["src/client/lib/app-history.ts", [
     "/** Replace the address without a reload. A no-op on the address that is already up. */",
@@ -32696,6 +32730,11 @@ const allowed = new Map([
     "/** `from..to`, either end optional, both ends inclusive calendar days. A reversed or unknown day is no filter. */",
     "/** Whether a `YYYY-MM-DD` string names a day that exists, not merely one shaped like a date. */",
   ]],
+  ["src/shared/todos/matrix.ts", [
+    "/**\n * The Eisenhower matrix: which of the four cells a task belongs in.\n *\n * A task carries two nullable flags. When a flag is null the reader never classified that dimension,\n * so it is derived from the fields the task already has: importance from the priority ladder and\n * urgency from the due date. Dragging a row into a cell writes both flags, which freezes its cell until\n * the reader asks for automatic classification again.\n */",
+    "/** How close a due date has to be before a task counts as urgent on its own. */",
+    "/**\n * The two axes a row is drawn on.\n *\n * Priority is the ladder the rest of the app already sorts by, so an urgent-priority row is both\n * important and urgent, a high-priority row is important, and a due date inside the urgency window\n * makes any row urgent. A stored flag always wins over the derivation for its own axis.\n */",
+  ]],
   ["src/shared/todos/model.ts", [
     "/**\n * The todo module's vocabulary, shared by the worker, the client and the tests.\n *\n * A task itself is the assistant's `Task` — the tool layer has written that shape since the chat\n * could create one — and this module only adds the fields the to-do app needs on top of it. Keeping\n * the extension here rather than widening `Task` means a backup, a shared conversation or an old\n * answer version never has to learn about lists and tags it does not carry.\n */",
     "/** The views the server can answer in one query. */",
@@ -32880,6 +32919,11 @@ const allowed = new Map([
     "/** Whether this row is still owed something else before it can be considered finished. */",
     "/**\n   * The tasks this one waits on, and the tasks waiting on it, as the reader arranged them.\n   *\n   * A dependency is a fact about order, not about visibility: a blocked task stays on the board, in the\n   * badges, on the calendar and in the statistics exactly where it would be with none, because hiding it\n   * would make the counts disagree with the rows a reader can see. What the pair adds is the chance to\n   * say *why* a row is still open.\n   *\n   * Both sides are read from `todos_task_links` on every listing that returns rows, the way `tags` is,\n   * and each carries the blocker's live status rather than a stored verdict — finishing a task unblocks\n   * its dependents without a write ever touching them. Judge \"is this waiting\" with {@link taskIsBlocked}\n   * rather than by re-reading the statuses here.\n   */",
     "/**\n   * The task this one is a step of, or null for a row that stands on its own.\n   *\n   * A place in a tree, not a second kind of row: a child is listed, counted, due, timed and exported like\n   * any other task, and nothing about its status is inherited from the parent. The parent's added power is\n   * only to gather its children next to it on the grouped listings, which is a reading of the rows already\n   * on the page — a child whose parent is not on this page is shown at the top level, not hidden.\n   *\n   * The chain is kept acyclic, shallow and this-account-only by the store on write; see `checkedTaskParent`.\n   */",
+    "/** Which phase of a pomodoro cycle a focus record describes. */",
+    "/**\n * One finished focus phase: a work block or a break, as the overlay measured it.\n *\n * `day` is the account's calendar day the phase ended on, written by the server. `completed` says\n * whether the phase reached its plan; a manual finish or a skipped break is a real record too, because\n * the time still passed and the history should not lie about it.\n */",
+    "/** The focus history one window holds, plus today's reading even when the window excludes it. */",
+    "/**\n   * The reader's importance answer for the Eisenhower matrix, or null while the matrix derives it\n   * from the priority ladder. A stored false is a deliberate \"not important\", not an absence.\n   */",
+    "/** The urgency answer, or null while the matrix derives it from the due date and priority. */",
   ]],
   ["src/shared/todos/note-parse.ts", [
     "/**\n * The checkbox grammar a note's task lines are read with, shared by the notebook and the worker.\n *\n * The notebook offers one checkbox at a time from its context menu; the assistant reads a whole note\n * and turns every box into a task. Both must agree on what a box is and what its words are, or the\n * same line becomes two different tasks depending on which surface was used. The parser therefore\n * lives here, in shared code, and both callers map its answer onto their own shape: the client to a\n * local end-of-day timestamp, the worker to the account's zone.\n *\n * It reads only the conventions the vault already writes — a list marker, `[ ]`/`[x]`, the Dataview\n * `[due:: YYYY-MM-DD]` field and the Tasks-plugin emoji dates. Inline fields are scanned positionally\n * rather than by one regex because a field body may hold nested brackets and escaped characters, and\n * the task's own words must not keep the markers they were parsed from.\n */",
@@ -36157,6 +36201,13 @@ const allowed = new Map([
     "// conversation had before this column existed.",
     "/** A row whose JSON cannot be read is not a question anyone can answer, so it is treated as spent. */",
     "/**\n   * Include rows filed in a list the reader put away, which the shelf predicate normally hides.\n   *\n   * Only a document that hands the account back wholesale asks for this (`todos/export-tasks.ts`):\n   * a listing still means \"what the reader can find on screen\", and an export that skipped a shelved\n   * list would silently arrive without work the reader still owns.\n   */",
+    "/** The importance answer for the matrix, or null to let the priority ladder derive it again. */",
+    "/** The urgency answer for the matrix, or null to let the due date derive it again. */",
+    "// Null clears the reader's own answer and lets the axis be derived again, so it is written",
+    "// rather than skipped.",
+    "/** The reader's Eisenhower answers, or null while the matrix derives them. */",
+    "/** A nullable answer column as two booleans and an absence, never collapsing null to false. */",
+    "/** The column value for a tri-state flag: null is \"not answered\", false is 0, true is 1. */",
   ]],
   ["src/worker/assistant/subagent-do.ts", [
     "/**\n * A child agent that outlives the request which asked for it.\n *\n * The HTTP turn writes a task row and hands the job to this object by the task id. The object keeps the\n * job in its own storage, runs it from an alarm (so a closed tab, a failed response or an isolate restart\n * does not lose it), and writes progress back to the same row. One object per task, so two alarms can\n * never run the same job twice.\n */",
@@ -38447,6 +38498,12 @@ const allowed = new Map([
     "// The media library asks \"is this asset still used?\" by `asset_id`; the only index on the join",
     "// table is by post, so that question scanned every link row. One number, one index, guarded like",
     "// every other schema statement: a fresh install already has it from BLOG_ALL_SCHEMA_STATEMENTS.",
+    "// The focus history's table and its two indexes. The table is also declared beside the other",
+    "// `todos_*` tables, which are built before the ledger; this version is what records the work for",
+    "// databases whose ledger was already past the number, and every statement is idempotent.",
+    "// The importance half of the Eisenhower matrix, NULL while the matrix derives it. The column is",
+    "// nullable on purpose: \"not classified\" and \"classified not important\" are different answers.",
+    "// The urgency half of the same pair, with the same tri-state.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41340,6 +41397,12 @@ const allowed = new Map([
     "// The document is the account's own text, so nothing may hold a copy of it on the way out.",
     "/**\n * The dependency list a request names, judged by the same rule the store enforces.\n *\n * The route asks it so a bad set is a 400 with the store's own sentence rather than a 500 — the store\n * re-checks on the write, because the assistant's tools and the MCP surface come in through it and must\n * not get a weaker answer. `selfId` is the task being edited, or '' for a create, whose id nothing\n * knows yet; a new row cannot already wait on itself.\n */",
     "/**\n * The parent a request names, judged by the same rule the store enforces.\n *\n * `null` is the reader putting the row back at the top — an answer rather than an absence, so it travels\n * as null and not as \"nothing said\". A bad id is a 400 with the store's own sentence, the way a bad\n * dependency set is; `selfId` is '' for a create, whose id nothing knows yet.\n */",
+    "/** A matrix answer: true, false, or null to clear it back to the derived classification. */",
+    "/** A whole, non-negative number a focus record is measured in. */",
+    "/**\n * The focus history for the statistics window, plus today's reading even when the window excludes it.\n *\n * A record is written by the overlay at the end of every phase, so a break or a skipped block is part\n * of the history rather than an absence the statistics would have to infer.\n */",
+    "/** One finished focus phase. The account zone is read here; the client never names the day. */",
+    "// A record may only point at this account's own task; another account's id is refused rather than",
+    "// stored as a reference the statistics join would then silently drop the title from.",
   ]],
   ["src/worker/routes/tools-color.ts", [
     "/**\n * Hono RESTful API routes for the Color Assistant module (`/api/tools/color`).\n */",
@@ -42296,6 +42359,9 @@ const allowed = new Map([
     "// restores in an order nobody can read.",
     "/**\n * The same flattening for a reference that points at the row itself.\n *\n * `flattenMissingParent` cannot see this one: the row's own id *is* in the file, so a task whose parent is\n * itself passes that check and lands in the account as a row nested inside itself — a tree a reader can\n * open forever. The same sentence covers both, because the repair is the same: put the row at the top.\n */",
     "/** Two placement steps, run in order — the second sees what the first left. */",
+    "// A break may name no task, so this reference is nullable like a task's parent.",
+    "// A record whose task the file does not carry still happened, so the reference is nulled rather",
+    "// than the row being dropped; the break and cancelled blocks that name no task stay as well.",
   ]],
   ["src/worker/todos/counters.ts", [
     "/**\n * The habits screen: what the reader counts, and how much of it happened on which day.\n *\n * A separate module from the assistant's store because nothing here is a task. A habit has no due date,\n * no list, no repeat rule and no place on the plate — it is a counter with a name, and the only question\n * it answers is whether today reached the target. Pulling it into the store would have put a rule with no\n * neighbours next to the code that carries every task rule in the app.\n *\n * The two tables it owns are declared in `todos/schema.ts` with everything else the boot builds; the\n * statements that read and write them live here, because no route may hold SQL and this module is what\n * owns those names.\n */",
@@ -42350,6 +42416,13 @@ const allowed = new Map([
     "/** The feeds an account can still manage, newest first; revoked rows stay in the table but leave this list. */",
     "/**\n * Soft-revoke one of the account's feeds.\n *\n * An update rather than a delete, so the address is never minted again and a stale calendar keeps\n * getting the same 404 it would for an address that never existed. The account is part of the\n * predicate, so another account's slug changes nothing and the caller sees a 404 like any other id.\n * `false` means no live row matched — already revoked, never existed, or not this account's.\n */",
     "/**\n * What the calendar may show: open tasks with a due date up to the horizon, oldest first.\n *\n * The same visibility rule the app's own listings open with, so a list put away on the reader's side\n * is gone from the address a third-party calendar polls on its next fetch as well — a shelf the reader\n * cannot see past is not a shelf their calendar should see past.\n *\n * The `LIMIT` is {@link MAX_TASKS_PER_QUERY}, the ceiling the task listing caps at: this address is\n * public and polled on a timer, and an uncapped read of one account's table on every poll is a\n * denial-of-service handle. It is deliberately not raised. What an account holds past it is not silently\n * missing — the read comes back *full* when it was cut, which is a countable fact, and the document\n * rendered from these rows states it at calendar level (`todos/ics`'s truncation notice). Anything that\n * changes this ceiling has to change the number the notice prints with it, which is why both read the one\n * shared constant rather than spelling 500 twice.\n */",
+  ]],
+  ["src/worker/todos/focus.ts", [
+    "/**\n * The focus history: one row per finished pomodoro phase, and the reads the statistics screen asks of it.\n *\n * The worklog sums time a task was tracked; this records the shape of a focus session — a work block,\n * a short break, a long break — including the phases that named no task and the blocks that ended\n * early. `day` is written here from the account's zone, never accepted from the client, so the history\n * and the rest of the app agree about which calendar day a block belongs to.\n */",
+    "/** How many tasks one focus-history answer names before the rest are counted rather than listed. */",
+    "/** The longest one phase may claim, in milliseconds: a day, which is longer than any legal block. */",
+    "/** A phase duration inside the only window that can really exist. */",
+    "/** Whether a task id names a row this account holds, which a focus record may point at. */",
   ]],
   ["src/worker/todos/ics.ts", [
     "/** One open task, reduced to the fields a calendar may be shown. Nothing else is reachable here. */",
@@ -42514,6 +42587,13 @@ const allowed = new Map([
     "// finishing a blocker unblocks its dependents without a write touching them.",
     "// The graph is kept acyclic by the store rather than by the database: SQLite will not refuse a cycle on",
     "// insert, and a cycle would mean a set of tasks no reader could ever finish and no surface could explain.",
+    "// The focus history: one row per finished pomodoro phase, written by the overlay.",
+    "// The ledger above answers \"how long did this task take\" and holds at most one open row per account.",
+    "// A focus phase is a different fact: it can be a break, it can name no task, and a finished phase",
+    "// stays a record even when the task is later deleted — so it gets its own table rather than a",
+    "// `source='focus'` row that could not describe a break. `day` is the account's calendar day of the",
+    "// phase's end, fixed at the write for the same DST reason every other day column is. Migration 273",
+    "// carries the table to databases built before this line existed.",
   ]],
   ["src/worker/todos/stats.ts", [
     "/** The order priorities are listed in: the same low-to-urgent ladder the task form shows. */",
