@@ -55,6 +55,7 @@ export function TextCompareView({ onShowShortcuts }: { onShowShortcuts: () => vo
   const [showOptions, setShowOptions] = useState(false)
   const [showInputs, setShowInputs] = useState(true)
   const [hunkIndex, setHunkIndex] = useState(0)
+  const [scrolledHunk, setScrolledHunk] = useState(-1)
   const [saving, setSaving] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [busySide, setBusySide] = useState<'left' | 'right' | null>(null)
@@ -73,10 +74,12 @@ export function TextCompareView({ onShowShortcuts }: { onShowShortcuts: () => vo
 
   useEffect(() => {
     setHunkIndex(0)
+    setScrolledHunk(-1)
   }, [diff])
 
-  // One run per distinct comparison, not per keystroke: the ledger counts what was compared, and the
-  // same two texts with the same options are one comparison however many times the effect reruns.
+  // One run per distinct comparison, and only once it has settled: while a second large file is still
+  // decoding, the two sides briefly hold mismatched documents, and counting that transient would
+  // report a comparison the reader never saw (and a difference far larger than the real one).
   useEffect(() => {
     if (!diff || !bothPresent || diffState.pending) return
     const key = [
@@ -91,23 +94,27 @@ export function TextCompareView({ onShowShortcuts }: { onShowShortcuts: () => vo
       options.ignoreRegex,
     ].join(':')
     if (recorded.current === key) return
-    recorded.current = key
-    void compareApi.recordRun({
-      kind: 'text',
-      mode,
-      left_name: left.name || null,
-      right_name: right.name || null,
-      left_ext: extensionOf(left.name),
-      right_ext: extensionOf(right.name),
-      added_lines: diff.stats.added,
-      removed_lines: diff.stats.removed,
-      changed_blocks: diff.stats.changedBlocks,
-      identical: diff.hunks.length === 0,
-      left_bytes: left.bytes,
-      right_bytes: right.bytes,
-    }).catch(() => {
-      // The ledger is a convenience; a failed write must never block a comparison the reader can see.
-    })
+    const handle = window.setTimeout(() => {
+      if (recorded.current === key) return
+      recorded.current = key
+      void compareApi.recordRun({
+        kind: 'text',
+        mode,
+        left_name: left.name || null,
+        right_name: right.name || null,
+        left_ext: extensionOf(left.name),
+        right_ext: extensionOf(right.name),
+        added_lines: diff.stats.added,
+        removed_lines: diff.stats.removed,
+        changed_blocks: diff.stats.changedBlocks,
+        identical: diff.hunks.length === 0,
+        left_bytes: left.bytes,
+        right_bytes: right.bytes,
+      }).catch(() => {
+        // The ledger is a convenience; a failed write must never block a comparison the reader can see.
+      })
+    }, 900)
+    return () => window.clearTimeout(handle)
   }, [diff, bothPresent, diffState.pending, settledLeft.length, settledRight.length, options, mode, left.name, right.name, left.bytes, right.bytes])
 
   const decode = useCallback(async (side: 'left' | 'right', file: File, encoding?: TextEncoding) => {
@@ -150,15 +157,16 @@ export function TextCompareView({ onShowShortcuts }: { onShowShortcuts: () => vo
     if (!total) return
     const next = (hunkIndex + direction + total) % total
     setHunkIndex(next)
+    setScrolledHunk(next)
     hostRef.current?.jumpToHunk(next, direction)
   }, [diff, hunkIndex])
 
   const largeFocusRow = useMemo(() => {
-    if (!diff) return null
-    const hunk = diff.hunks[hunkIndex]
+    if (!diff || scrolledHunk < 0) return null
+    const hunk = diff.hunks[scrolledHunk]
     if (!hunk) return null
     return diff.rows.findIndex((row) => row.leftNo === hunk.leftStart || row.rightNo === hunk.rightStart)
-  }, [diff, hunkIndex])
+  }, [diff, scrolledHunk])
 
   const copyPatch = async () => {
     try {

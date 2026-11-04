@@ -87,7 +87,7 @@ export function ImageCompareView() {
   }, [left, right])
 
   useEffect(() => {
-    if (!diff || !diffSize || !diffCanvas.current) return
+    if (mode !== 'difference' || !diff || !diffSize || !diffCanvas.current) return
     const canvas = diffCanvas.current
     canvas.width = diffSize.width
     canvas.height = diffSize.height
@@ -95,7 +95,7 @@ export function ImageCompareView() {
     if (!context) return
     const image = new ImageData(new Uint8ClampedArray(diff.mask), diffSize.width, diffSize.height)
     context.putImageData(image, 0, 0)
-  }, [diff, diffSize])
+  }, [diff, diffSize, mode])
 
   useEffect(() => () => {
     if (left) URL.revokeObjectURL(left.url)

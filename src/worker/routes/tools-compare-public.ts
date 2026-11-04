@@ -74,7 +74,7 @@ function htmlResponse(body: string, status = 200): Response {
   })
 }
 
-comparePublicPageRoutes.get('/tc/:slug', async (c: Context<AppBindings>) => {
+comparePublicPageRoutes.get('/:slug', async (c: Context<AppBindings>) => {
   const shared = await CompareStore.findSharedProject(c.env.DB, c.req.param('slug') ?? '')
   if (!shared) return htmlResponse(notFoundPage(), 404)
   const { project, left, right } = shared

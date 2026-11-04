@@ -184,7 +184,6 @@ export interface CompareProject {
   share_slug: string | null
   created_at: number
   updated_at: number
-  last_opened_at: number | null
 }
 
 /** What the project list draws: enough to name the two sides without reading their bytes. */
@@ -200,7 +199,6 @@ export interface CompareProjectListItem {
   share_slug: string | null
   created_at: number
   updated_at: number
-  last_opened_at: number | null
 }
 
 /** What a reopen needs to draw without re-reading both files' bytes first. */
@@ -227,7 +225,7 @@ export interface CompareProjectInput {
   kind: CompareKind
   left_label?: string | null
   right_label?: string | null
-  options?: TextCompareOptions
+  options?: Partial<TextCompareOptions>
   summary?: CompareSummary
   left_asset_id?: string | null
   right_asset_id?: string | null

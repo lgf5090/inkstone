@@ -139,14 +139,22 @@ async function buildManifest(
   if (files.length > DIRECTORY_LIMITS.entries) throw new Error('too-many-files')
   const entries: DirEntry[] = []
   let hashed = 0
+  const rootPrefix = root.replace(/\\/g, '/')
   for (const item of files) {
     if (item.file.size > DIRECTORY_LIMITS.singleFileBytes) continue
     if (hashed + item.file.size > DIRECTORY_LIMITS.totalBytes) throw new Error('too-much-data')
     const bytes = new Uint8Array(await item.file.arrayBuffer())
     hashed += bytes.byteLength
-    const path = item.path.replace(/\\/g, '/').replace(/^\/+/, '')
-    entries.push({ path, size: item.file.size, sha256: await sha256Hex(bytes) })
-    onProgress?.({ files: entries.length, bytes: hashed, label: path })
+    const absolute = item.path.replace(/\\/g, '/').replace(/^\/+/, '')
+    // The picker and the drop walker both write the folder's own name into every path. It is the
+    // root's name, not a directory inside the comparison, so it is removed once here rather than
+    // compared as if the two sides were two different folders called "left" and "right".
+    const relative = rootPrefix && absolute.startsWith(`${rootPrefix}/`)
+      ? absolute.slice(rootPrefix.length + 1)
+      : absolute
+    if (!relative) continue
+    entries.push({ path: relative, size: item.file.size, sha256: await sha256Hex(bytes) })
+    onProgress?.({ files: entries.length, bytes: hashed, label: relative })
   }
   entries.sort((a, b) => a.path.localeCompare(b.path))
   return { root, entries }

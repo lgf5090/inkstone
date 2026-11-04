@@ -1,11 +1,11 @@
 /**
  * Which character encoding a file is in, and how to read it without printing mojibake.
  *
- * A comparison tool that guesses and shows `锟斤拷` is worse than one that says "I cannot read this
- * file", so detection only answers when it has evidence: a byte-order mark, a sample that the strict
- * UTF-8 decoder accepts, the null-byte pattern UTF-16 leaves, or a sample the strict GBK decoder
- * accepts. When none of those hold the answer is `null` and the screen asks the reader to choose a
- * decoder instead of drawing a guess.
+ * A comparison tool that guesses and then draws mojibake is worse than one that says "I cannot read
+ * this file", so detection only answers when it has evidence: a byte-order mark, a sample that the
+ * strict UTF-8 decoder accepts, the null-byte pattern UTF-16 leaves, or a sample the strict GBK
+ * decoder accepts. When none of those hold the answer is `null` and the screen asks the reader to
+ * choose a decoder instead of drawing a guess.
  */
 
 export const TEXT_ENCODINGS = ['utf-8', 'utf-16le', 'utf-16be', 'gbk'] as const
@@ -104,14 +104,4 @@ export function decodeBytes(
   fatal = true,
 ): string {
   return new TextDecoder(encoding, { fatal, ignoreBOM: false }).decode(bytes)
-}
-
-/** Whether the decoder this browser or runtime has knows the label at all. */
-export function encodingSupported(encoding: TextEncoding): boolean {
-  try {
-    new TextDecoder(encoding)
-    return true
-  } catch {
-    return false
-  }
 }

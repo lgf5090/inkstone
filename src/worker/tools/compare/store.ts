@@ -53,7 +53,6 @@ interface ProjectRow {
   share_slug: string | null
   created_at: number
   updated_at: number
-  last_opened_at: number | null
 }
 
 function parseJson<T>(raw: string, fallback: T): T {
@@ -95,7 +94,6 @@ function toProject(row: ProjectRow, left: CompareAsset | null, right: CompareAss
     share_slug: row.share_slug,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    last_opened_at: row.last_opened_at,
   }
 }
 
@@ -175,8 +173,8 @@ export class CompareStore {
     const now = Math.floor(Date.now() / 1000)
     const result = await this.db
       .prepare(`INSERT INTO tools_compare_projects
-        (user_id, name, kind, left_label, right_label, options_json, summary_json, left_asset_id, right_asset_id, created_at, updated_at, last_opened_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        (user_id, name, kind, left_label, right_label, options_json, summary_json, left_asset_id, right_asset_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         this.userId,
         input.name,
@@ -187,7 +185,6 @@ export class CompareStore {
         JSON.stringify(input.summary ?? {}),
         input.left_asset_id ?? null,
         input.right_asset_id ?? null,
-        now,
         now,
         now,
       )
@@ -236,7 +233,6 @@ export class CompareStore {
       share_slug: row.share_slug,
       created_at: row.created_at,
       updated_at: row.updated_at,
-      last_opened_at: row.last_opened_at,
     }))
     return { items, total: totalRow?.total ?? 0 }
   }

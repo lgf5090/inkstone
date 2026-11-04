@@ -37,8 +37,7 @@ export const TOOLS_COMPARE_SCHEMA_STATEMENTS: readonly string[] = [
     right_asset_id TEXT,
     share_slug TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    last_opened_at INTEGER
+    updated_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_tools_compare_projects_user
      ON tools_compare_projects(user_id, updated_at DESC)`,

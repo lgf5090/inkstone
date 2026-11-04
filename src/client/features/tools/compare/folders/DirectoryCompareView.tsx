@@ -5,7 +5,7 @@
  * manifests are compared by path. The screen draws the union as one tree with two columns, so a
  * reader sees "this file exists on the left only" without opening two windows and counting.
  */
-import { useState, type DragEvent } from 'react'
+import { useEffect, useState, type DragEvent } from 'react'
 import { ChevronRight, Download, FolderOpen, FolderTree } from 'lucide-react'
 import { Button } from '../../../../components/primitives'
 import { Empty } from '../../../../components/feedback'
@@ -43,15 +43,8 @@ export function DirectoryCompareView() {
     setProgress(null)
     try {
       const manifest = await work()
-      const nextLeft = side === 'left' ? manifest : left
-      const nextRight = side === 'right' ? manifest : right
       if (side === 'left') setLeft(manifest)
       else setRight(manifest)
-      if (nextLeft && nextRight) {
-        const compared = compareDirectories(nextLeft, nextRight)
-        setResult(compared)
-        setExpanded(new Set(compared.tree.filter((node) => !node.isFile).slice(0, 3).map((node) => node.path)))
-      }
     } catch (error) {
       const message = error instanceof Error && error.message === 'too-many-files'
         ? t('tools.compare.dir.too_many')
@@ -83,6 +76,19 @@ export function DirectoryCompareView() {
     const files = event.dataTransfer.files
     if (files?.length) void ingest(side, () => manifestFromFiles(Array.from(files), files[0]?.name ?? 'folder', setProgress))
   }
+
+  // The comparison is derived from both manifests, not from whichever one the event handler last saw:
+  // two `setInputFiles` calls can land before React re-renders, and a closure would then compare one
+  // new manifest against a stale one.
+  useEffect(() => {
+    if (!left || !right) {
+      setResult(null)
+      return
+    }
+    const compared = compareDirectories(left, right)
+    setResult(compared)
+    setExpanded(new Set(compared.tree.filter((node) => !node.isFile).slice(0, 3).map((node) => node.path)))
+  }, [left, right])
 
   const toggle = (path: string) => {
     setExpanded((current) => {
