@@ -7,12 +7,15 @@ import { spaceBelongsToUser } from '../space-access'
 import {
   parseBoolean,
   parseContent,
+  parseContentCipher,
+  parseEncryptedContent,
   parseId,
   parseIdList,
   parseLocation,
   parseNullableId,
   parseRev,
   parseState,
+  parseTagList,
   parseTimestamp,
   parseVisibility,
 } from './fields'
@@ -44,6 +47,9 @@ export interface MemoCreateFields {
   relatedMemoIds?: unknown
   createdAt?: unknown
   updatedAt?: unknown
+  encrypted?: unknown
+  contentCipher?: unknown
+  tags?: unknown
 }
 
 export interface MemoPatchFields {
@@ -58,6 +64,9 @@ export interface MemoPatchFields {
   relatedMemoIds?: unknown
   createdAt?: unknown
   updatedAt?: unknown
+  encrypted?: unknown
+  contentCipher?: unknown
+  tags?: unknown
 }
 
 export type MemoPatchResult =
@@ -81,7 +90,19 @@ export async function createMemo(
   fields: MemoCreateFields,
 ): Promise<Memo> {
   const parent = await loadParent(db, userId, fields.parentId)
-  const content = parseContent(fields.content)
+  const encrypted = fields.encrypted === undefined
+    ? false
+    : parseBoolean(fields.encrypted, 'encrypted')
+  if (encrypted && fields.contentCipher === undefined) {
+    throw ApiError.badRequest('contentCipher is required when encrypted is true')
+  }
+  const sealed = encrypted ? parseContentCipher(fields.contentCipher) : ''
+  // The plaintext that accompanies a seal is only a size check; the row keeps the ciphertext alone.
+  if (encrypted && fields.content !== undefined) parseEncryptedContent(fields.content)
+  const content = encrypted ? '' : parseContent(fields.content)
+  if (!encrypted && fields.tags !== undefined) {
+    throw ApiError.badRequest('tags may only be sent with an encrypted memo')
+  }
   const visibility = fields.visibility === undefined
     ? parent?.visibility ?? MEMO_DEFAULT_VISIBILITY
     : parseVisibility(fields.visibility)
@@ -99,7 +120,12 @@ export async function createMemo(
   }
 
   const location = parseLocation(fields.location)
-  const derived = deriveMemoFields(content, location !== null)
+  const derived = encrypted
+    ? {
+        ...deriveMemoFields('', location !== null),
+        tags: fields.tags === undefined ? [] : parseTagList(fields.tags, 'tags'),
+      }
+    : deriveMemoFields(content, location !== null)
   const explicitAttachments = fields.attachmentIds === undefined
     ? []
     : parseIdList(fields.attachmentIds, 'attachmentIds')
@@ -121,10 +147,11 @@ export async function createMemo(
         `INSERT INTO memos_items (
            id, user_id, space_id, parent_id, content, content_search, title, snippet,
            visibility, state, pinned, has_link, has_code, has_task_list, has_incomplete_tasks,
-           has_location, location_placeholder, latitude, longitude, rev, created_at, updated_at
+           has_location, location_placeholder, latitude, longitude, encrypted, content_cipher,
+           rev, created_at, updated_at
          ) VALUES (
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'normal', 0, ?10, ?11, ?12, ?13,
-           ?14, ?15, ?16, ?17, 1, ?18, ?19
+           ?14, ?15, ?16, ?17, ?18, ?19, 1, ?20, ?21
          )`,
       )
       .bind(
@@ -145,6 +172,8 @@ export async function createMemo(
         location?.placeholder ?? null,
         location?.latitude ?? null,
         location?.longitude ?? null,
+        encrypted ? 1 : 0,
+        sealed,
         createdAt,
         updatedAt,
       ),
@@ -192,8 +221,41 @@ export async function patchMemo(
     return memo ? { status: 'conflict', current: memo } : { status: 'missing' }
   }
 
-  const content = fields.content === undefined ? current.content : parseContent(fields.content)
-  const contentChanged = content !== current.content
+  const wasEncrypted = Boolean(current.encrypted)
+  const encrypted = fields.encrypted === undefined
+    ? wasEncrypted
+    : parseBoolean(fields.encrypted, 'encrypted')
+  const encryptionChanged = encrypted !== wasEncrypted
+
+  let content: string
+  let contentCipher = current.content_cipher
+  let requestedTags: string[] | null = null
+  if (encrypted) {
+    if (!wasEncrypted && fields.contentCipher === undefined) {
+      throw ApiError.badRequest('contentCipher is required when encrypted is true')
+    }
+    // The plaintext itself never travels with a patch: `content` is checked only for its size ceiling,
+    // and the sealed value is what the row keeps.
+    if (fields.content !== undefined) parseEncryptedContent(fields.content)
+    if (fields.contentCipher !== undefined) contentCipher = parseContentCipher(fields.contentCipher)
+    if (!contentCipher) throw ApiError.badRequest('contentCipher is required for an encrypted memo')
+    content = ''
+    if (fields.tags !== undefined) requestedTags = parseTagList(fields.tags, 'tags')
+  } else {
+    if (wasEncrypted && fields.content === undefined) {
+      throw ApiError.badRequest('content is required when removing encryption')
+    }
+    content = fields.content === undefined ? current.content : parseContent(fields.content)
+    if (fields.contentCipher !== undefined) {
+      throw ApiError.badRequest('contentCipher is only used with an encrypted memo')
+    }
+    contentCipher = ''
+    if (fields.tags !== undefined) {
+      throw ApiError.badRequest('tags may only be sent with an encrypted memo')
+    }
+  }
+  const contentChanged = content !== current.content || encryptionChanged
+  const cipherChanged = contentCipher !== current.content_cipher
   const visibility = fields.visibility === undefined
     ? current.visibility
     : parseVisibility(fields.visibility)
@@ -210,13 +272,16 @@ export async function patchMemo(
   const location = locationProvided ? parseLocation(fields.location) : locationOf(current)
   const locationChanged = locationProvided && !sameLocation(location, locationOf(current))
   const derived = contentChanged || locationProvided
-    ? deriveMemoFields(content, location !== null)
+    ? deriveMemoFields(encrypted ? '' : content, location !== null)
     : null
+  const tagReplacement = encrypted
+    ? requestedTags
+    : (derived ? derived.tags : null)
 
   const attachmentReplacement = fields.attachmentIds === undefined
     ? null
     : parseIdList(fields.attachmentIds, 'attachmentIds')
-  const contentAttachments = contentChanged ? derived?.attachmentIds ?? [] : []
+  const contentAttachments = !encrypted && contentChanged ? derived?.attachmentIds ?? [] : []
   const attachmentTargetIds = attachmentReplacement
   const attachmentIdsToBind = attachmentReplacement ?? contentAttachments
   if (attachmentIdsToBind.length) await assertAttachmentsBindable(db, userId, attachmentIdsToBind, id)
@@ -231,6 +296,7 @@ export async function patchMemo(
     ? null
     : parseTimestamp(fields.updatedAt, 'updatedAt')
   const shouldBump = contentChanged
+    || cipherChanged
     || locationChanged
     || visibility !== current.visibility
     || spaceId !== current.space_id
@@ -242,13 +308,18 @@ export async function patchMemo(
   const nextRev = current.rev + 1
   const changeAt = nowSeconds()
 
-  const title = derived?.title ?? current.title
-  const snippet = derived?.snippet ?? current.snippet
-  const contentSearch = derived?.contentSearch ?? current.content_search
-  const hasLink = derived ? derived.hasLink : Boolean(current.has_link)
-  const hasCode = derived ? derived.hasCode : Boolean(current.has_code)
-  const hasTaskList = derived ? derived.hasTaskList : Boolean(current.has_task_list)
-  const hasIncompleteTasks = derived ? derived.hasIncompleteTasks : Boolean(current.has_incomplete_tasks)
+  // A sealed memo keeps none of the plaintext-derived metadata: no title, snippet, search text or
+  // feature flags that were computed before the seal. The tags are structure the reader chose to
+  // keep, so they survive unless the browser sent a new set.
+  const title = encrypted ? '' : derived?.title ?? current.title
+  const snippet = encrypted ? '' : derived?.snippet ?? current.snippet
+  const contentSearch = encrypted ? '' : derived?.contentSearch ?? current.content_search
+  const hasLink = encrypted ? false : (derived ? derived.hasLink : Boolean(current.has_link))
+  const hasCode = encrypted ? false : (derived ? derived.hasCode : Boolean(current.has_code))
+  const hasTaskList = encrypted ? false : (derived ? derived.hasTaskList : Boolean(current.has_task_list))
+  const hasIncompleteTasks = encrypted
+    ? false
+    : (derived ? derived.hasIncompleteTasks : Boolean(current.has_incomplete_tasks))
   const hasLocation = derived ? derived.hasLocation : Boolean(current.has_location)
 
   const guardValues: unknown[] = [id, userId, nextRev, content, updatedAt]
@@ -265,8 +336,8 @@ export async function patchMemo(
                 state = ?6, pinned = ?7, has_link = ?8, has_code = ?9, has_task_list = ?10,
                 has_incomplete_tasks = ?11, has_location = ?12, location_placeholder = ?13,
                 latitude = ?14, longitude = ?15, rev = ?16, created_at = ?17, updated_at = ?18,
-                space_id = ?19
-          WHERE id = ?20 AND user_id = ?21 AND rev = ?22`,
+                space_id = ?19, encrypted = ?20, content_cipher = ?21
+          WHERE id = ?22 AND user_id = ?23 AND rev = ?24`,
       )
       .bind(
         content,
@@ -288,18 +359,20 @@ export async function patchMemo(
         createdAt,
         updatedAt,
         spaceId,
+        encrypted ? 1 : 0,
+        contentCipher,
         id,
         userId,
         current.rev,
       ),
   ]
 
-  if (derived) {
+  if (tagReplacement !== null) {
     statements.push(
       db
         .prepare(`DELETE FROM memos_tags WHERE memo_id = ?1 AND ${guard(2)}`)
         .bind(id, ...guardValues),
-      ...derived.tags.map((tag) =>
+      ...tagReplacement.map((tag) =>
         db
           .prepare(`INSERT OR IGNORE INTO memos_tags (memo_id, tag) SELECT ?1, ?2 WHERE ${guard(3)}`)
           .bind(id, tag, ...guardValues),

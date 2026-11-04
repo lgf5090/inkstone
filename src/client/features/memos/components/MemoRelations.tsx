@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { CornerDownRight, Plus, X } from 'lucide-react'
 import type { Memo, MemoRelation } from '@shared/memos/types'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Skeleton } from '../../../components/feedback'
 import { confirm } from '../../../components/overlay'
 import { t } from '../../../lib/i18n'
@@ -46,14 +47,14 @@ function RelationList({
               <span className="min-w-0 flex-1 truncate">{relation.relatedSnippet || relation.relatedMemoId}</span>
             </button>
             {onRemove ? (
-              <IconButton
+              <TooltipIconButton
                 label={t('memos.relations.remove', { name: relation.relatedSnippet || relation.relatedMemoId })}
                 size="xs"
                 disabled={removingId !== null}
                 onClick={() => onRemove(relation)}
               >
                 <X size={12} />
-              </IconButton>
+              </TooltipIconButton>
             ) : null}
           </li>
         ))}

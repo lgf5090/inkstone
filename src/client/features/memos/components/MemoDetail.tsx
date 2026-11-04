@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactElement } from 'react'
 import { ArrowLeft, MapPin, Pin, X } from 'lucide-react'
 import type { MemoVisibility } from '@shared/memos/types'
-import { Badge, Button, IconButton } from '../../../components/primitives'
+import { Badge, Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Empty, LoadingBlock } from '../../../components/feedback'
 import { TagChip } from '../../../components/TagChip'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { fullTime } from '../../../lib/time'
+import { useUi } from '../../../store/ui'
 import { memoPlaceLabel } from '../location'
+import { useMemoLock } from '../memo-lock'
 import { parseMemoOutline } from '../memo-outline'
 import { memoTagRuleBlursContent, memoTagRulesByTag } from '../tag-rules'
 import { useMemos } from '../state'
@@ -20,6 +23,7 @@ import { MemoComposer } from './MemoComposer'
 import { MemoLinkPreviews } from './MemoLinkPreviews'
 import { MemoMaskedBody } from './MemoMaskedBody'
 import { MemoParentLink } from './MemoParentLink'
+import { MemoPassphraseDialog } from './MemoPassphraseDialog'
 import { MemoReactions } from './MemoReactions'
 import { MemoRelations } from './MemoRelations'
 
@@ -65,15 +69,51 @@ export function MemoDetail({
   const error = useMemos((state) => state.detailError)
   const preferences = useMemoPreferences()
   const [editing, setEditing] = useState(false)
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const memo = detail?.id === memoId ? detail : null
-  const outline = useMemo(() => (memo ? parseMemoOutline(memo.content) : []), [memo?.content])
+  const decrypted = useMemoLock((state) => state.plaintext[memoId] ?? null)
+  const sealedLocked = Boolean(memo?.encrypted) && decrypted === null
+  const revealedContent = decrypted ?? memo?.content ?? ''
+  const outline = useMemo(
+    () => (memo ? parseMemoOutline(memo.encrypted ? revealedContent : memo.content) : []),
+    [memo, revealedContent],
+  )
   const onToggleTask = useMemoTaskToggle(memo)
   const ruleByTag = useMemo(
     () => memoTagRulesByTag(memo?.tags ?? [], preferences.preferences.tagRules),
     [memo?.tags, preferences.preferences.tagRules],
   )
-  const blurred = memo ? memoTagRuleBlursContent(memo.tags, preferences.preferences.tagRules) : false
+  const blurred = memo && !memo.encrypted
+    ? memoTagRuleBlursContent(memo.tags, preferences.preferences.tagRules)
+    : false
+
+  const requestUnlock = (): void => {
+    if (!memo?.encrypted) return
+    const sessionPassphrase = useMemoLock.getState().passphrase
+    if (!sessionPassphrase) {
+      setUnlockOpen(true)
+      return
+    }
+    setUnlocking(true)
+    void useMemoLock.getState()
+      .unlock(memo.id, memo.contentCipher, preferences.preferences.maskAutoLockMinutes)
+      .catch(() => setUnlockOpen(true))
+      .finally(() => setUnlocking(false))
+  }
+  const unlockWithPassphrase = async (value: string): Promise<void> => {
+    if (!memo) return
+    await useMemoLock.getState()
+      .unlockWithPassphrase(memo.id, memo.contentCipher, value, preferences.preferences.maskAutoLockMinutes)
+  }
+  const startEdit = (): void => {
+    if (sealedLocked) {
+      useUi.getState().toast({ title: t('memos.cipher.unlock_first'), tone: 'warning' })
+      return
+    }
+    setEditing(true)
+  }
 
   useEffect(() => {
     void useMemos.getState().openDetail(memoId)
@@ -100,13 +140,13 @@ export function MemoDetail({
 
   const toolbar = (
     <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2">
-      <IconButton
+      <TooltipIconButton
         label={embedded ? t('memos.header.close_detail') : t('memos.detail.back')}
         size="sm"
         onClick={onClose}
       >
         {embedded ? <X size={15} /> : <ArrowLeft size={15} />}
-      </IconButton>
+      </TooltipIconButton>
       <span className="min-w-0 truncate text-[length:var(--text-12-5)] font-medium text-[var(--text-secondary)]">
         {t('memos.detail.title')}
       </span>
@@ -155,6 +195,9 @@ export function MemoDetail({
           ) : null}
           {isNew ? <Badge tone="accent">{t('memos.card.new')}</Badge> : null}
           <Badge tone={VISIBILITY_TONES[memo.visibility]}>{t(VISIBILITY_KEYS[memo.visibility])}</Badge>
+          {memo.encrypted ? (
+            <Badge tone="warning">{t(sealedLocked ? 'memos.cipher.badge_locked' : 'memos.cipher.badge')}</Badge>
+          ) : null}
           {spaceName ? <Badge>{spaceName}</Badge> : null}
           {memo.location ? (
             <span className="inline-flex min-w-0 items-center gap-1 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
@@ -165,7 +208,7 @@ export function MemoDetail({
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <MemoCardActions
               memo={memo}
-              onEdit={memo.state === 'normal' ? () => setEditing(true) : undefined}
+              onEdit={memo.state === 'normal' ? startEdit : undefined}
               onDeleted={onClose}
             />
           </div>
@@ -205,26 +248,40 @@ export function MemoDetail({
         ) : null}
         {editing ? (
           <div className="mt-3">
-            <MemoComposer memo={memo} onSaved={() => setEditing(false)} onCancel={() => setEditing(false)} />
+            <MemoComposer
+              memo={memo}
+              initialContent={revealedContent}
+              onSaved={() => setEditing(false)}
+              onCancel={() => setEditing(false)}
+            />
           </div>
         ) : (
           <MemoMaskedBody
-            key={`${memo.id}:${blurred ? 'blurred' : 'clear'}`}
-            content={memo.content}
+            key={`${memo.id}:${memo.encrypted ? 'sealed' : blurred ? 'blurred' : 'clear'}`}
+            content={memo.encrypted ? revealedContent : memo.content}
             tagRules={preferences.preferences.tagRules}
-            blurred={blurred && memo.content.trim() !== ''}
+            blurred={!memo.encrypted && blurred && memo.content.trim() !== ''}
+            sealed={memo.encrypted}
+            revealed={!sealedLocked}
+            unlocking={unlocking}
+            onUnlock={requestUnlock}
+            onRelock={() => useMemoLock.getState().lock(memo.id)}
             onTagPress={onTagPress}
             onToggleTask={onToggleTask}
             className="mt-3"
           />
         )}
-        <MemoAttachments attachments={memo.attachments} className="mt-3" />
+        <MemoAttachments
+          attachments={sealedLocked ? [] : memo.attachments}
+          className="mt-3"
+        />
         <MemoLinkPreviews
-          content={memo.content}
+          content={memo.encrypted ? revealedContent : memo.content}
           enabled={
             preferences.status === 'ready'
             && preferences.preferences.enableLinkPreview
             && !blurred
+            && !sealedLocked
             && !editing
           }
           excludeUrls={memo.attachments.flatMap((attachment) => (
@@ -272,6 +329,12 @@ export function MemoDetail({
     <div className="flex h-full min-h-0 flex-col" data-memo-detail={embedded ? 'panel' : 'page'}>
       {toolbar}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">{content}</div>
+      <MemoPassphraseDialog
+        open={unlockOpen}
+        mode="open"
+        onClose={() => setUnlockOpen(false)}
+        onSubmit={unlockWithPassphrase}
+      />
     </div>
   )
 }

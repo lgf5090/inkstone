@@ -44,7 +44,8 @@ import { emojiSource, tagSource } from '../../../editor/completion'
 import { editorTheme } from '../../../editor/theme'
 import { Field, Input, Segmented } from '../../../components/form'
 import { Menu, Modal, type MenuItem } from '../../../components/overlay'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { cn } from '../../../lib/cn'
 import { t, type MessageKey } from '../../../lib/i18n'
 import { codeMirrorKey } from '../../../lib/shortcuts'
@@ -548,7 +549,7 @@ export function MemoEditor({
         className="flex flex-wrap items-center gap-0.5 border-b border-[var(--border-subtle)] pb-1"
       >
         {buttons.map((button) => (
-          <IconButton
+          <TooltipIconButton
             key={button.id}
             label={t(button.label, button.id.startsWith('h') ? { level: button.id.slice(1) } : undefined)}
             size="sm"
@@ -561,10 +562,10 @@ export function MemoEditor({
             }}
           >
             {button.icon}
-          </IconButton>
+          </TooltipIconButton>
         ))}
         <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
-        <IconButton
+        <TooltipIconButton
           ref={insertButtonRef}
           label={t('memos.composer.insert')}
           size="sm"
@@ -575,7 +576,7 @@ export function MemoEditor({
           onClick={() => setInsertOpen((open) => !open)}
         >
           <Plus size={14} />
-        </IconButton>
+        </TooltipIconButton>
       </div>
       <div ref={hostRef} data-memo-editor="" className="mt-1.5 min-w-0" />
       <Menu

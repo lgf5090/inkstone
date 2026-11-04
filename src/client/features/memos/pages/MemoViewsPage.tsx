@@ -1,7 +1,8 @@
 import { useId, useMemo, useState, type FormEvent, type ReactElement } from 'react'
 import { ListFilter, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { MemoView } from '@shared/memos/types'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Empty, Skeleton } from '../../../components/feedback'
 import { Field, Input, Textarea } from '../../../components/form'
 import { Modal, confirm } from '../../../components/overlay'
@@ -226,20 +227,20 @@ function ViewRow({ view, onEdit, onDelete }: ViewRowProps): ReactElement {
         </code>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <IconButton
+        <TooltipIconButton
           label={t('memos.views.edit_named', { title: view.title })}
           size="sm"
           onClick={onEdit}
         >
           <Pencil size={13} />
-        </IconButton>
-        <IconButton
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('memos.views.delete_named', { title: view.title })}
           size="sm"
           onClick={onDelete}
         >
           <Trash2 size={13} />
-        </IconButton>
+        </TooltipIconButton>
       </div>
     </li>
   )

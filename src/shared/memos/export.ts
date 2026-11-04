@@ -103,6 +103,8 @@ export interface MemoExportMemoRecord {
   relations?: MemoExportRelation[]
   attachments?: MemoExportAttachment[]
   reactions?: MemoExportReaction[]
+  /** The body was sealed in the browser and is not part of this plaintext archive. */
+  encrypted?: boolean
 }
 
 export class MemoExportFormatError extends Error {

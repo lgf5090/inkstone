@@ -113,6 +113,7 @@ export const memosApi = {
       state: query.state,
       spaceId: query.spaceId,
       parentId: query.parentId,
+      commentsOnly: query.commentsOnly ? '1' : undefined,
       filter: query.filter,
       orderBy: query.orderBy,
       order: query.order,

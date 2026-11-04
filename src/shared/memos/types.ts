@@ -120,6 +120,12 @@ export interface Memo {
   rev: number
   createdAt: number
   updatedAt: number
+  /**
+   * The body was sealed in the browser. `content` is empty on the server, and `contentCipher` carries
+   * the sealed value only on the owner's own API; public/share/export/assistant paths never receive it.
+   */
+  encrypted: boolean
+  contentCipher: string
   creator?: PublicUser
 }
 
@@ -127,6 +133,8 @@ export interface MemoListQuery {
   state?: MemoState
   spaceId?: string | null
   parentId?: string | null
+  /** Only replies/comments, newest first — the reader's inbox of replies on their own memos. */
+  commentsOnly?: boolean
   filter?: string
   orderBy?: MemoOrderField
   order?: MemoOrderDirection
@@ -151,6 +159,11 @@ export interface MemoCreateInput {
   relatedMemoIds?: string[]
   createdAt?: number
   updatedAt?: number
+  /** Seal `contentCipher` instead of `content`; the server then stores no plaintext body. */
+  encrypted?: boolean
+  contentCipher?: string
+  /** Tags computed in the browser, because a sealed body cannot be scanned on the server. */
+  tags?: string[]
 }
 
 export interface MemoPatchInput {
@@ -165,6 +178,9 @@ export interface MemoPatchInput {
   relatedMemoIds?: string[]
   createdAt?: number
   updatedAt?: number
+  encrypted?: boolean
+  contentCipher?: string
+  tags?: string[]
 }
 
 export interface MemoCommentInput {
@@ -266,6 +282,10 @@ export interface MemoPreferences {
   transcriptionModel: string | null
   transcriptionLanguage: string
   transcriptionPrompt: string
+  /** Minutes a revealed sealed memo stays visible; 0 keeps it visible until the tab closes. */
+  maskAutoLockMinutes: number
+  /** Re-mask every sealed memo as soon as the reader moves to another Memos screen. */
+  relockOnNavigate: boolean
 }
 
 export type MemoPreferencesPatch = Partial<MemoPreferences>

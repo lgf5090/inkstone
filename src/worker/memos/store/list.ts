@@ -32,6 +32,7 @@ export interface MemoListOptions {
   state?: MemoState
   spaceId?: string | null
   parentId?: string
+  commentsOnly?: boolean
   filter?: string
   orderBy?: MemoOrderField
   order?: MemoOrderDirection
@@ -49,12 +50,33 @@ export function normalizeLimit(value: number | undefined, fallback: number): num
   return Math.min(MEMO_MAX_PAGE_SIZE, Math.max(1, Math.trunc(value)))
 }
 
-function encodeMemoCursor(offset: number): string {
-  return toBase64(utf8(JSON.stringify({ offset })))
+interface MemoAfter {
+  pinned: number
+  time: number
+  id: string
+  orderBy: MemoOrderField
+  order: MemoOrderDirection
 }
 
-function decodeMemoCursor(cursor: string | null | undefined): number {
-  if (!cursor) return 0
+interface MemoCursor {
+  offset: number
+  after: MemoAfter | null
+}
+
+/**
+ * The position of a page: keyset for the ordinary feed, offset for a compiled filter.
+ *
+ * An offset cursor shifts when a memo is written while the reader pages, so a page can repeat a row
+ * or skip one. The feed records the last row's `(pinned, time, id)` and asks for what sorts after it.
+ * A filtered page keeps the offset because its ordering is decided by SQL that may shift with the
+ * filter, and the cursor names those cases so a mismatched one is refused rather than answered twice.
+ */
+function encodeMemoCursor(cursor: MemoCursor): string {
+  return toBase64(utf8(JSON.stringify(cursor)))
+}
+
+function decodeMemoCursor(cursor: string | null | undefined): MemoCursor {
+  if (!cursor) return { offset: 0, after: null }
   let parsed: unknown
   try {
     parsed = JSON.parse(fromUtf8(fromBase64(cursor))) as unknown
@@ -64,11 +86,38 @@ function decodeMemoCursor(cursor: string | null | undefined): number {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw ApiError.badRequest('Invalid cursor')
   }
-  const offset = (parsed as { offset?: unknown }).offset
-  if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+  const record = parsed as { offset?: unknown; after?: unknown }
+  const after = record.after
+  if (after === undefined || after === null) {
+    const offset = record.offset
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+      throw ApiError.badRequest('Invalid cursor')
+    }
+    return { offset, after: null }
+  }
+  if (!after || typeof after !== 'object' || Array.isArray(after)) {
     throw ApiError.badRequest('Invalid cursor')
   }
-  return offset
+  const position = after as Record<string, unknown>
+  if (
+    typeof position.pinned !== 'number' || (position.pinned !== 0 && position.pinned !== 1)
+    || typeof position.time !== 'number' || !Number.isInteger(position.time)
+    || typeof position.id !== 'string' || !position.id
+    || (position.orderBy !== 'created' && position.orderBy !== 'updated')
+    || (position.order !== 'asc' && position.order !== 'desc')
+  ) {
+    throw ApiError.badRequest('Invalid cursor')
+  }
+  return {
+    offset: 0,
+    after: {
+      pinned: position.pinned,
+      time: position.time,
+      id: position.id,
+      orderBy: position.orderBy,
+      order: position.order,
+    },
+  }
 }
 
 function resolveTimeZone(value: string | undefined): string {
@@ -159,7 +208,7 @@ async function listFiltered(
     return {
       items: await hydrateMemos(db, userId, rows),
       nextCursor: results.length > options.limit
-        ? encodeMemoCursor(options.offset + rows.length)
+        ? encodeMemoCursor({ offset: options.offset + rows.length, after: null })
         : null,
     }
   }
@@ -199,7 +248,7 @@ async function listFiltered(
   return {
     items: await hydrateMemos(db, userId, rows),
     nextCursor: matched.length > options.limit
-      ? encodeMemoCursor(options.offset + rows.length)
+      ? encodeMemoCursor({ offset: options.offset + rows.length, after: null })
       : null,
   }
 }
@@ -211,10 +260,12 @@ export async function listMemos(
 ): Promise<MemoListResponse> {
   const state = options.state ?? 'normal'
   const direction = options.order === 'asc' ? 'ASC' : 'DESC'
-  const orderColumn = (options.orderBy ?? 'created') === 'updated' ? 'i.updated_at' : 'i.created_at'
+  const orderBy = options.orderBy ?? 'created'
+  const order = options.order ?? 'desc'
+  const orderColumn = orderBy === 'updated' ? 'i.updated_at' : 'i.created_at'
   const pinnedOrder = state === 'archived' || options.parentId !== undefined ? '' : 'i.pinned DESC, '
   const orderBySql = `${pinnedOrder}${orderColumn} ${direction}, i.id ${direction}`
-  const offset = decodeMemoCursor(options.cursor)
+  const cursor = decodeMemoCursor(options.cursor)
   const limit = normalizeLimit(options.limit, MEMO_PAGE_SIZE)
 
   // Anonymous placeholders so a compiled filter can append its own parameters in order.
@@ -227,7 +278,8 @@ export async function listMemos(
     where.push('i.space_id = ?')
   }
   if (options.parentId === undefined) {
-    where.push('i.parent_id IS NULL')
+    if (options.commentsOnly) where.push('i.parent_id IS NOT NULL')
+    else where.push('i.parent_id IS NULL')
   } else {
     params.push(options.parentId)
     where.push('i.parent_id = ?')
@@ -235,31 +287,63 @@ export async function listMemos(
 
   const filter = options.filter?.trim()
   if (filter) {
+    if (cursor.after) throw ApiError.badRequest('A filtered page cannot resume from this cursor')
     return listFiltered(db, userId, {
       where: where.join(' AND '),
       params,
       filter,
       orderBySql,
-      offset,
+      offset: cursor.offset,
       limit,
       tz: options.tz,
     })
+  }
+
+  const whereSql = [...where]
+  const bind = [...params]
+  if (cursor.after) {
+    const after = cursor.after
+    if (after.orderBy !== orderBy || after.order !== order) {
+      throw ApiError.badRequest('The cursor belongs to another ordering')
+    }
+    const compare = direction === 'ASC' ? '>' : '<'
+    if (pinnedOrder) {
+      whereSql.push(
+        `(i.pinned < ? OR (i.pinned = ? AND (${orderColumn} ${compare} ? OR (${orderColumn} = ? AND i.id ${compare} ?))))`,
+      )
+      bind.push(after.pinned, after.pinned, after.time, after.time, after.id)
+    } else {
+      whereSql.push(`(${orderColumn} ${compare} ? OR (${orderColumn} = ? AND i.id ${compare} ?))`)
+      bind.push(after.time, after.time, after.id)
+    }
   }
 
   const { results } = await db
     .prepare(
       `SELECT ${MEMO_COLUMNS}
          FROM memos_items i
-        WHERE ${where.join(' AND ')}
+        WHERE ${whereSql.join(' AND ')}
         ORDER BY ${orderBySql}
-        LIMIT ? OFFSET ?`,
+        LIMIT ?`,
     )
-    .bind(...params, limit + 1, offset)
+    .bind(...bind, limit + 1)
     .all<MemoRow>()
 
   const rows = results.slice(0, limit)
+  const last = rows.at(-1)
   return {
     items: await hydrateMemos(db, userId, rows),
-    nextCursor: results.length > limit ? encodeMemoCursor(offset + rows.length) : null,
+    nextCursor: results.length > limit && last
+      ? encodeMemoCursor({
+          offset: 0,
+          after: {
+            pinned: pinnedOrder ? (last.pinned ? 1 : 0) : 0,
+            time: orderBy === 'updated' ? last.updated_at : last.created_at,
+            id: last.id,
+            orderBy,
+            order,
+          },
+        })
+      : null,
   }
 }

@@ -9,7 +9,8 @@ import {
 import { ChevronLeft, ChevronRight, Download, Play, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type { MemoAttachment } from '@shared/memos/types'
 import { Modal } from '../../../components/overlay'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { t } from '../../../lib/i18n'
 import { attachmentDimensions, mediaMetadataLines, motionVideoUrl } from '../media'
 
@@ -263,7 +264,7 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {imageShown ? (
               <div className="flex items-center gap-0.5">
-                <IconButton
+                <TooltipIconButton
                   label={t('memos.media.zoom_out')}
                   size="sm"
                   disabled={zoom <= MIN_ZOOM}
@@ -271,7 +272,7 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
                   className="text-[var(--media-text)] hover:bg-[var(--media-surface)] hover:text-[var(--media-text-strong)]"
                 >
                   <ZoomOut size={15} />
-                </IconButton>
+                </TooltipIconButton>
                 <p
                   aria-live="polite"
                   data-memo-zoom-status=""
@@ -279,7 +280,7 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
                 >
                   {t('memos.media.zoom_status', { percent: zoomPercent })}
                 </p>
-                <IconButton
+                <TooltipIconButton
                   label={t('memos.media.zoom_in')}
                   size="sm"
                   disabled={zoom >= MAX_ZOOM}
@@ -287,8 +288,8 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
                   className="text-[var(--media-text)] hover:bg-[var(--media-surface)] hover:text-[var(--media-text-strong)]"
                 >
                   <ZoomIn size={15} />
-                </IconButton>
-                <IconButton
+                </TooltipIconButton>
+                <TooltipIconButton
                   label={t('memos.media.zoom_reset')}
                   size="sm"
                   disabled={zoom <= MIN_ZOOM}
@@ -296,7 +297,7 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
                   className="text-[var(--media-text)] hover:bg-[var(--media-surface)] hover:text-[var(--media-text-strong)]"
                 >
                   <RotateCcw size={14} />
-                </IconButton>
+                </TooltipIconButton>
               </div>
             ) : null}
             {motionUrl ? (
@@ -318,14 +319,14 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
             >
               <Download size={16} aria-hidden="true" />
             </a>
-            <IconButton
+            <TooltipIconButton
               label={t('common.close')}
               data-autofocus
               onClick={onClose}
               className="text-[var(--media-text)] hover:bg-[var(--media-surface)] hover:text-[var(--media-text-strong)]"
             >
               <X size={17} />
-            </IconButton>
+            </TooltipIconButton>
           </div>
         </div>
         <div
@@ -338,14 +339,14 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
           className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden px-2 py-2 md:px-14"
         >
           {total > 1 ? (
-            <IconButton
+            <TooltipIconButton
               label={t('memos.media.previous')}
               size="lg"
               onClick={() => step(-1)}
               className="absolute left-1 top-1/2 z-[var(--z-sticky)] -translate-y-1/2 bg-[var(--media-control)] text-[var(--media-text)] hover:bg-[var(--media-control-hover)] hover:text-[var(--media-text-strong)] md:left-3"
             >
               <ChevronLeft size={22} />
-            </IconButton>
+            </TooltipIconButton>
           ) : null}
           {videoShown && motionUrl ? (
             <video
@@ -388,14 +389,14 @@ export function MemoLightbox({ images, index, onIndexChange, onClose }: MemoLigh
             />
           )}
           {total > 1 ? (
-            <IconButton
+            <TooltipIconButton
               label={t('memos.media.next')}
               size="lg"
               onClick={() => step(1)}
               className="absolute right-1 top-1/2 z-[var(--z-sticky)] -translate-y-1/2 bg-[var(--media-control)] text-[var(--media-text)] hover:bg-[var(--media-control-hover)] hover:text-[var(--media-text-strong)] md:right-3"
             >
               <ChevronRight size={22} />
-            </IconButton>
+            </TooltipIconButton>
           ) : null}
         </div>
         <div className="shrink-0 px-4 pb-[calc(16px+env(safe-area-inset-bottom))] text-center">

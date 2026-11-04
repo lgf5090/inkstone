@@ -1,4 +1,11 @@
-import { MEMO_CONTENT_MAX_BYTES } from '@shared/memos/constants'
+import {
+  MEMO_CIPHER_MAX_BYTES,
+  MEMO_CIPHER_PREFIX,
+  MEMO_CONTENT_MAX_BYTES,
+  MEMO_ENCRYPTED_CONTENT_MAX_BYTES,
+  MEMO_TAGS_MAX,
+  MEMO_TAG_NAME_MAX_LENGTH,
+} from '@shared/memos/constants'
 import {
   MEMO_STATES,
   MEMO_VISIBILITIES,
@@ -66,6 +73,74 @@ export function parseTimestamp(value: unknown, field: string): number {
 export function parseBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw ApiError.badRequest(`${field} must be a boolean`)
   return value
+}
+
+/**
+ * The sealed value the browser sends: `<prefix><salt>:<nonce>:<ciphertext>`.
+ *
+ * The server never inspects or opens it; it only refuses a value that is too large for the row or
+ * that does not even carry the envelope. A forged value is useless because only the reader's key
+ * can open it, and the browser reports a failed open rather than rendering garbage.
+ */
+export function parseContentCipher(value: unknown): string {
+  if (typeof value !== 'string' || !value.startsWith(MEMO_CIPHER_PREFIX)) {
+    throw ApiError.badRequest('contentCipher must be a sealed memo body')
+  }
+  if (utf8ByteLength(value) > MEMO_CIPHER_MAX_BYTES) {
+    throw ApiError.tooLarge('The sealed memo body is too large to store')
+  }
+  return value
+}
+
+/**
+ * A plaintext that is about to be sealed: only its size ceiling matters, because the value never
+ * reaches the row. Returns the empty string so a caller cannot accidentally store it.
+ */
+export function parseEncryptedContent(value: unknown): string {
+  const content = parseContent(value)
+  if (utf8ByteLength(content) > MEMO_ENCRYPTED_CONTENT_MAX_BYTES) {
+    throw ApiError.tooLarge(
+      `A memo can be sealed only below ${MEMO_ENCRYPTED_CONTENT_MAX_BYTES} bytes; this one is longer`,
+    )
+  }
+  return ''
+}
+
+/**
+ * Tags a sealed memo carries: the browser cannot be trusted to have parsed Markdown, but it can send
+ * the names it scanned. Each is normalized the way `scanMemoTags` normalizes one, and the result is
+ * capped, deduplicated and kept free of whitespace.
+ */
+export function parseTagList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw ApiError.badRequest(`${field} must be an array of tag names`)
+  const tags: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string') throw ApiError.badRequest(`${field} must contain tag names`)
+    const name = entry
+      .trim()
+      .replace(/^#/, '')
+      .replace(/[/\-_\u00B7]+$/u, '')
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .join('/')
+    if (!name) continue
+    if (/\s/.test(name)) throw ApiError.badRequest(`A tag cannot contain spaces: "${name}"`)
+    if (name.length > MEMO_TAG_NAME_MAX_LENGTH) {
+      throw ApiError.badRequest(`${field} contains a tag longer than ${MEMO_TAG_NAME_MAX_LENGTH} characters`)
+    }
+    let prefix = ''
+    for (const segment of name.split('/')) {
+      prefix = prefix ? `${prefix}/${segment}` : segment
+      if (prefix.length > MEMO_TAG_NAME_MAX_LENGTH) break
+      if (seen.has(prefix)) continue
+      seen.add(prefix)
+      tags.push(prefix)
+      if (tags.length >= MEMO_TAGS_MAX) return tags
+    }
+  }
+  return tags
 }
 
 export function parseRev(value: unknown): number {

@@ -675,6 +675,7 @@ const allowed = new Map([
     "/** Marks the panel itself, so a feature's own stylesheet can reach its header chrome — the close\n        button lives outside `bodyClassName`'s subtree. */",
     "/**\n * Whether a `focusout` means the caret is leaving the panel rather than moving within it.\n *\n * A `focusout` is dispatched before the element that is about to take the caret has it, so the restore\n * scheduled from it runs while the document still reports `body`. Reading that gap as \"the caret fell\n * out\" made every mouse-driven focus change inside a dialog get undone — clicking a field did nothing\n * while Tab, which moves the caret itself, kept working. The next target is the one fact that tells a\n * transfer apart from a loss, so it decides here instead of after the fact.\n */",
     "/** Why a disabled row is disabled: shown on hover instead of silently vanishing the action. */",
+    "// A touch screen has no hover: a long press is the only way to ask what a glyph means.",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -707,6 +708,10 @@ const allowed = new Map([
     "/** The control's accessible name; also the menu's, so the panel is announced with its owner. */",
     "/** Panel width in pixels; the trigger takes its width from the layout. */",
     "/** `sm` is the toolbar row; `md` the form field. */",
+  ]],
+  ["src/client/components/tooltip-icon-button.tsx", [
+    "/**\n   * What the tooltip says while the button is disabled. Disabled buttons drop pointer events of their\n   * own, so the wrapper below is the element that actually receives hover; without this hint a\n   * greyed-out control would be silent exactly when the reader needs to know why.\n   */",
+    "/**\n * The IconButton with its `label` also shown as a tooltip.\n *\n * IconButton only paints an `aria-label`, which leaves a mouse reader guessing at a row of unlabelled\n * glyphs. The wrapper is a real inline box rather than `display: contents` because the tooltip\n * measures its first element child: a box-less wrapper reports a zero rect and the tooltip never\n * appears.\n */",
   ]],
   ["src/client/demo/backend.test.ts", [
     "// Every seeded note carries the pin, so the view starts out holding the whole library.",
@@ -7616,6 +7621,8 @@ const allowed = new Map([
     "/* The same dock the notebook mounts, under the same conditions: one conversation, and the\n            page chip says which Memos screen this turn is about. A phone keeps chat in its own tab. */",
     "// A tablet has the room for a 380px column beside the feed, which is the same rule the subscriptions",
     "// app uses. Only a phone keeps the assistant in its own tab, because there is no honest room for both.",
+    "// Reveals expire even when nothing else on the page moves: a card left open on a desk should not",
+    "// stay legible forever just because the reader stopped interacting with it.",
   ]],
   ["src/client/features/memos/ai-client.test.ts", [
     "// The browser owns the multipart boundary; naming a JSON content type would break the upload.",
@@ -7642,15 +7649,39 @@ const allowed = new Map([
   ["src/client/features/memos/components/MemoBody.tsx", [
     "/** A tag is only a control when the surface gives it a handler; elsewhere it is plain marked-up text. */",
   ]],
+  ["src/client/features/memos/components/MemoCardActions.tsx", [
+    "/** A point from a right-click; when present the same rows open as a context menu there. */",
+  ]],
   ["src/client/features/memos/components/MemoCommentPreview.tsx", [
     "/**\n * The latest comments under a card. The request waits until the card is near the viewport, so a feed\n * with hundreds of commented memos does not fetch every preview at once.\n */",
     "// The card keeps working; the preview reports its own failure with a retry.",
+  ]],
+  ["src/client/features/memos/components/MemoComposer.tsx", [
+    "/** The revealed body of a sealed memo; `memo.content` is empty on the server. */",
+    "// A sealed memo's conflict row has no plaintext to load; the reader's draft stays in the editor,",
+    "// and only the revision and the other fields move forward.",
+  ]],
+  ["src/client/features/memos/components/MemoMaskedBody.tsx", [
+    "/** The memo's body is sealed; `content` is the decrypted body only when `revealed` is true. */",
   ]],
   ["src/client/features/memos/components/MemoQuickFind.tsx", [
     "/**\n * One dialog for both spellings of a lookup: plain words land in `q`, an expression lands in `filter`\n * only after the server's own validator accepts it.\n */",
   ]],
   ["src/client/features/memos/media.ts", [
     "/** Whether a link stays on this origin, so a share token must never be appended to it. */",
+  ]],
+  ["src/client/features/memos/memo-crypto.ts", [
+    "/**\n * The memo's key: scrypt-strength work is delegated to PBKDF2 here because the browser exposes it\n * natively; 150k SHA-256 rounds is the cost a stolen database pays per guess, and the salt is stored\n * with each row so two memos never share key material.\n */",
+    "/**\n * Seal a memo body under the reader's passphrase.\n *\n * The plaintext never leaves this function: what returns is the envelope the server stores. AES-GCM\n * authenticates, so a wrong passphrase or a tampered row fails instead of decrypting to garbage.\n */",
+    "/** Open a sealed body. Throws with a reader-facing reason rather than returning half-decoded text. */",
+  ]],
+  ["src/client/features/memos/memo-lock.ts", [
+    "/**\n * The passphrase the tab is currently using, and per-memo reveal timestamps.\n *\n * The passphrase lives in `sessionStorage`, not `localStorage`: closing the tab forgets it, and a\n * reader who shares a machine does not leave the key behind. Decrypted bodies are kept only in\n * memory, so a reload with a lost session storage can never render stale plaintext. This is a real\n * sealed-body scheme — the server never receives the passphrase or the plaintext — with the honest\n * caveat that a script running in this origin could read the session value, as it could read any\n * page.\n */",
+    "/** memo id → epoch ms at which the reveal expires (0 = until the tab closes). */",
+    "// Private-mode storage refusal only costs the reader a passphrase re-entry; it is not a failure",
+    "// worth interrupting the unlock that is already visible.",
+    "// See writeJson: the unlock still works for this page even when storage is unavailable.",
+    "/** The decrypted body when this memo is revealed, or null while it stays sealed. */",
   ]],
   ["src/client/features/memos/motion-photo.ts", [
     "/**\n * Pairs picked files that belong together before any upload starts.\n *\n * A Live Photo arrives as two files with one stem, and an Android Motion Photo carries its video\n * inside the JPEG. Both become one still/video group so the gallery can play the motion instead of\n * showing a second, separate attachment. Anything that does not pair uploads exactly as before.\n */",
@@ -31610,11 +31641,25 @@ const allowed = new Map([
     "/**\n * The text a reader sees where the markup is: a wiki link by its alias or target, a\n * markdown link by its label, an embed by its file name.\n *\n * Excerpts are cut around a hit, so they used to carry the `[[…]]` the note happens to\n * contain, which reads as noise in a panel whose whole job is to point at that sentence.\n */",
     "/**\n * What a property can hold. The list case is deliberately not `string[]`: a note that says\n * `nums: [1, 2]` has numbers in it, and a run that adds a third item must not rewrite the first two\n * as text. The reader sees the difference in the properties panel, which colors and sorts by type.\n */",
   ]],
+  ["src/shared/memos/constants.ts", [
+    "/**\n * The plaintext ceiling for a memo that is going to be sealed. AES-GCM ciphertext plus its base64\n * envelope is about 1.4x the plaintext, and a D1 row is capped at 2 MB; keeping the encrypted form\n * well under that leaves room for tags, timestamps and the rest of the row.\n */",
+    "/** The ceiling on a stored sealed value, including the version prefix, salt and nonce. */",
+    "/** `<prefix><salt>:<nonce>:<ciphertext>` — parsed by `memo-crypto.ts` on the client. */",
+  ]],
+  ["src/shared/memos/export.ts", [
+    "/** The body was sealed in the browser and is not part of this plaintext archive. */",
+  ]],
   ["src/shared/memos/map-endpoints.ts", [
     "/** External endpoints shared by the memo map client and the Worker CSP. */",
   ]],
   ["src/shared/memos/types.ts", [
     "/**\n * What a Memos access token may reach.\n *\n * `memos` is the default and covers the memo data an automation needs. `owner` additionally reaches\n * the token ledger and the account archive, which a leaked automation credential must not be able to\n * use to renew itself or to take the whole account with it.\n */",
+    "/**\n   * The body was sealed in the browser. `content` is empty on the server, and `contentCipher` carries\n   * the sealed value only on the owner's own API; public/share/export/assistant paths never receive it.\n   */",
+    "/** Only replies/comments, newest first — the reader's inbox of replies on their own memos. */",
+    "/** Seal `contentCipher` instead of `content`; the server then stores no plaintext body. */",
+    "/** Tags computed in the browser, because a sealed body cannot be scanned on the server. */",
+    "/** Minutes a revealed sealed memo stays visible; 0 keeps it visible until the tab closes. */",
+    "/** Re-mask every sealed memo as soon as the reader moves to another Memos screen. */",
   ]],
   ["src/shared/music/api.ts", [
     "/** Wire shapes for `/api/music`. The worker returns camelCase; D1 rows never leave the worker. */",
@@ -34096,6 +34141,7 @@ const allowed = new Map([
     "/** The memos a deletion names, either by id or by the same filters a search uses. */",
     "// Read again rather than trusting the id: a memo removed between the card and the press is gone,",
     "// and a deletion must not become a 404 that reports the whole approval as failed.",
+    "/**\n * What the assistant sees of a sealed memo. The server holds no plaintext, so there is nothing to\n * quote; naming the lock is the only honest answer and keeps the model from inventing a body.\n */",
   ]],
   ["src/worker/assistant/model-config.ts", [
     "/** Why nothing was resolved, so the UI can say which of the two rows to fix. */",
@@ -38249,6 +38295,10 @@ const allowed = new Map([
     "// A revision's line counts are written when it is created, so the history panel can say +x/−y",
     "// without re-reading every snapshot on ordinary opens. Stored as JSON (`{\"added\":n,\"removed\":m}`)",
     "// because the line diff is a pair of numbers, not a second row per file.",
+    "// A sealed memo keeps its body in `content_cipher` and leaves `content` empty, so the server",
+    "// never receives plaintext. The flag and the column arrive one version apart because the ledger",
+    "// spends one version per added column; both are guarded so a database that already has them",
+    "// simply records the numbers.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -38932,14 +38982,28 @@ const allowed = new Map([
     "// Resolve the credential first: a delegating call that only reports its refusal afterwards cannot",
     "// catch the scope it just learned, and the route would already have run.",
   ]],
+  ["src/worker/memos/export.ts", [
+    "/**\n * What a sealed memo's content file says.\n *\n * The archive is plaintext by design: an importer has no key, and shipping the ciphertext would only\n * create a file nobody can read. Saying so in the body is the honest alternative to an empty entry.\n */",
+  ]],
   ["src/worker/memos/pat.ts", [
     "/** A token's reach, named explicitly; anything else would silently become a session. */",
     "/**\n * Revokes one token and every token it minted.\n *\n * A token can create children (an owner-scope token does, when it manages the ledger), and a child\n * outliving its parent would be exactly the \"revoked but still works\" hole the scope split exists to\n * close. The recursive CTE walks that parent chain in one statement.\n */",
+  ]],
+  ["src/worker/memos/preferences.ts", [
+    "/** 0 means \"keep it revealed until this tab closes\"; otherwise a positive number of minutes. */",
   ]],
   ["src/worker/memos/public.ts", [
     "/** Drop the real account id, role and sign-up time from the public creator. */",
     "/** Build the public shape explicitly so fields added to `Memo` do not leak by default. */",
     "/**\n * Drop the exact capture coordinates from a photo the public path hands out.\n *\n * A memo's own location is already nulled above, but an uploaded photo carries its EXIF copy in\n * `mediaMetadata`, and that is the one that names the place the picture was taken. Every other field\n * (size, capture time, camera) stays: the reader of a public memo is shown the photo, not where the\n * photographer stood.\n */",
+    "// A sealed memo is unreadable to everyone but its owner's browser. Attachments are not sealed,",
+    "// so a public view does not hand them out either: the lock would otherwise be a cover over the",
+    "// text while the picture beside it stayed visible.",
+  ]],
+  ["src/worker/memos/store/fields.ts", [
+    "/**\n * The sealed value the browser sends: `<prefix><salt>:<nonce>:<ciphertext>`.\n *\n * The server never inspects or opens it; it only refuses a value that is too large for the row or\n * that does not even carry the envelope. A forged value is useless because only the reader's key\n * can open it, and the browser reports a failed open rather than rendering garbage.\n */",
+    "/**\n * A plaintext that is about to be sealed: only its size ceiling matters, because the value never\n * reaches the row. Returns the empty string so a caller cannot accidentally store it.\n */",
+    "/**\n * Tags a sealed memo carries: the browser cannot be trusted to have parsed Markdown, but it can send\n * the names it scanned. Each is normalized the way `scanMemoTags` normalizes one, and the result is\n * capped, deduplicated and kept free of whitespace.\n */",
   ]],
   ["src/worker/memos/store/filter-sql.ts", [
     "/**\n * The part of a memo filter SQL can answer on its own.\n *\n * A filter used to be read as a whole only after every row of the account had been loaded, so a tag\n * query paid for the bodies of twenty thousand memos before it picked sixteen. This compiler turns the\n * conditions whose meaning is a column into SQL, and the list query asks only those rows.\n *\n * It is deliberately conservative. An expression it cannot translate exactly is left to the evaluator\n * rather than approximated, and `pushdown` may return a *necessary* condition (one implied by the\n * expression) so a scan still narrows without ever dropping a match. A `null` pushdown means the scan\n * has to read the rows; a non-null `complete` means the SQL is the whole answer.\n */",
@@ -38970,6 +39034,15 @@ const allowed = new Map([
     "// keep the order's own notion of the page. `offset` counts matched rows, the same unit the cursor",
     "// encodes on the way out.",
     "// Anonymous placeholders so a compiled filter can append its own parameters in order.",
+    "/**\n * The position of a page: keyset for the ordinary feed, offset for a compiled filter.\n *\n * An offset cursor shifts when a memo is written while the reader pages, so a page can repeat a row\n * or skip one. The feed records the last row's `(pinned, time, id)` and asks for what sorts after it.\n * A filtered page keeps the offset because its ordering is decided by SQL that may shift with the\n * filter, and the cursor names those cases so a mismatched one is refused rather than answered twice.\n */",
+  ]],
+  ["src/worker/memos/store/mutations.ts", [
+    "// The plaintext that accompanies a seal is only a size check; the row keeps the ciphertext alone.",
+    "// The plaintext itself never travels with a patch: `content` is checked only for its size ceiling,",
+    "// and the sealed value is what the row keeps.",
+    "// A sealed memo keeps none of the plaintext-derived metadata: no title, snippet, search text or",
+    "// feature flags that were computed before the seal. The tags are structure the reader chose to",
+    "// keep, so they survive unless the browser sent a new set.",
   ]],
   ["src/worker/memos/webhooks.ts", [
     "/**\n * Standard Webhooks signs `id.timestamp.body` with the decoded secret, and the versioned prefix is what\n * lets a receiver tell which scheme produced the value. The body is the JSON exactly as sent, so a\n * re-serialised copy at the receiver would not verify.\n */",

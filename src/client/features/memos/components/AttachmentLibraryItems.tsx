@@ -2,7 +2,7 @@ import type { MouseEvent, ReactElement, ReactNode } from 'react'
 import { Paperclip, Trash2 } from 'lucide-react'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import type { MemoAttachment } from '@shared/memos/types'
-import { IconButton } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { t } from '../../../lib/i18n'
 import { formatBytes, formatDate } from '../../../lib/time'
 import { attachmentSource } from '../attachment-groups'
@@ -111,7 +111,7 @@ export function LibraryMediaTile({ attachment, busy, onOpenImage, onDelete, onOp
           <p className="min-w-0 flex-1 truncate text-[length:var(--text-11-5)] text-[var(--text-secondary)]" title={attachment.filename}>
             {attachment.filename}
           </p>
-          <IconButton
+          <TooltipIconButton
             label={deleteLabel}
             size="sm"
             disabled={busy}
@@ -119,7 +119,7 @@ export function LibraryMediaTile({ attachment, busy, onOpenImage, onDelete, onOp
             className="-mr-1 -mt-0.5 hover:text-[var(--danger)]"
           >
             <Trash2 size={12} />
-          </IconButton>
+          </TooltipIconButton>
         </div>
         <p className="text-[length:var(--text-10-5)] tabular text-[var(--text-quaternary)]">
           {formatBytes(attachment.size)}
@@ -140,7 +140,7 @@ export function LibraryRow({ attachment, busy, onDelete, onOpenMemo }: {
 }): ReactElement {
   const deleteLabel = t('memos.attachments.library.delete', { name: attachment.filename })
   const action = (
-    <IconButton
+    <TooltipIconButton
       label={deleteLabel}
       size="sm"
       disabled={busy}
@@ -148,7 +148,7 @@ export function LibraryRow({ attachment, busy, onDelete, onOpenMemo }: {
       className="hover:text-[var(--danger)]"
     >
       <Trash2 size={13} />
-    </IconButton>
+    </TooltipIconButton>
   )
   const caption: ReactNode = (
     <>

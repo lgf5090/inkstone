@@ -237,6 +237,14 @@ export function MemoShareDialog({ memoId, memo = null, open, onClose }: MemoShar
         footer={footer}
       >
       <div className="space-y-4 pt-1">
+        {memo?.encrypted ? (
+          <p
+            role="note"
+            className="rounded-[var(--r-sm)] bg-[var(--warning-soft,var(--bg-raised))] px-2.5 py-2 text-[length:var(--text-11)] leading-relaxed text-[var(--text-secondary)]"
+          >
+            {t('memos.cipher.share_warning')}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-end gap-2">
           <Field label={t('memos.share.expiry_label')} className="min-w-[var(--memo-field-min-width)] flex-1">
             <Select

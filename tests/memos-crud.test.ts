@@ -594,3 +594,131 @@ describe('memo spaces', () => {
     expect(invalidMove.status).toBe(400)
   })
 })
+
+describe('sealed memos', () => {
+  const CIPHER = 'memoenc:v1:AAAA:BBBB:CCCC'
+
+  it('stores only the sealed value and keeps owner reads honest', async () => {
+    const memo = await createMemo({
+      content: 'the plaintext never lands in the row',
+      encrypted: true,
+      contentCipher: CIPHER,
+      tags: ['#private/secret'],
+    })
+    expect(memo.encrypted).toBe(true)
+    expect(memo.content).toBe('')
+    expect(memo.title).toBe('')
+    expect(memo.contentCipher).toBe(CIPHER)
+    expect(memo.tags).toEqual(['private', 'private/secret'])
+
+    const row = sqlite.prepare('SELECT content, content_search, title, snippet, content_cipher FROM memos_items WHERE id = ?')
+      .get(memo.id) as Record<string, string>
+    expect(row.content).toBe('')
+    expect(row.content_search).toBe('')
+    expect(row.title).toBe('')
+    expect(row.snippet).toBe('')
+    expect(row.content_cipher).toBe(CIPHER)
+
+    const listed = await listMemos()
+    expect(listed.items[0]?.contentCipher).toBe(CIPHER)
+  })
+
+  it('keeps the seal through an unrelated patch and opens it again', async () => {
+    const sealed = await createMemo({ encrypted: true, contentCipher: CIPHER })
+    const pinned = await call('PATCH', `/api/memos/${sealed.id}`, {
+      body: { rev: 1, pinned: true },
+    })
+    const pinnedMemo = await json<Memo>(pinned)
+    expect(pinnedMemo.encrypted).toBe(true)
+    expect(pinnedMemo.content).toBe('')
+    expect(pinnedMemo.contentCipher).toBe(CIPHER)
+
+    const opened = await call('PATCH', `/api/memos/${sealed.id}`, {
+      body: { rev: 2, encrypted: false, content: 'back in the clear' },
+    })
+    const openedMemo = await json<Memo>(opened)
+    expect(openedMemo.encrypted).toBe(false)
+    expect(openedMemo.content).toBe('back in the clear')
+    expect(openedMemo.contentCipher).toBe('')
+    expect(openedMemo.title).toBe('back in the clear')
+  })
+
+  it('refuses half-sealed writes instead of guessing', async () => {
+    const missingCipher = await call('POST', '/api/memos', {
+      body: { encrypted: true, content: 'x' },
+    })
+    expect(missingCipher.status).toBe(400)
+
+    const tagsWithoutSeal = await call('POST', '/api/memos', {
+      body: { content: 'x', tags: ['a'] },
+    })
+    expect(tagsWithoutSeal.status).toBe(400)
+
+    const memo = await createMemo({ content: 'x' })
+    const cipherWithoutSeal = await call('PATCH', `/api/memos/${memo.id}`, {
+      body: { rev: 1, contentCipher: CIPHER },
+    })
+    expect(cipherWithoutSeal.status).toBe(400)
+
+    const sealed = await createMemo({ encrypted: true, contentCipher: CIPHER })
+    const unsealWithoutContent = await call('PATCH', `/api/memos/${sealed.id}`, {
+      body: { rev: 1, encrypted: false },
+    })
+    expect(unsealWithoutContent.status).toBe(400)
+  })
+
+  it('never matches a sealed body in a content search', async () => {
+    await createMemo({ encrypted: true, contentCipher: CIPHER })
+    await createMemo({ content: 'searchable words' })
+    const result = await listMemos('?filter=content.contains(%22searchable%22)')
+    expect(result.items.map((memo) => memo.content)).toEqual(['searchable words'])
+  })
+
+  it('does not repeat a page row when a memo is written between pages', async () => {
+    await createMemo({ content: 'one', createdAt: 100 })
+    await createMemo({ content: 'two', createdAt: 200 })
+    await createMemo({ content: 'three', createdAt: 300 })
+    const first = await listMemos('?limit=2')
+    expect(first.items.map((memo) => memo.content)).toEqual(['three', 'two'])
+    await createMemo({ content: 'newest', createdAt: 400 })
+    const second = await listMemos(`?limit=2&cursor=${encodeURIComponent(first.nextCursor!)}`)
+    expect(second.items.map((memo) => memo.content)).toEqual(['one'])
+    expect(new Set([...first.items, ...second.items].map((memo) => memo.id)).size).toBe(3)
+  })
+
+  it('hands the public surface a locked placeholder with no cipher or attachments', async () => {
+    const memo = await createMemo({
+      content: 'public secret',
+      visibility: 'public',
+      encrypted: true,
+      contentCipher: CIPHER,
+      attachmentIds: [],
+    })
+    insertAttachmentRow({
+      id: 'z'.repeat(26),
+      userId: OWNER_ID,
+      memoId: memo.id,
+      storageKey: 'attachments/z.bin',
+    })
+    const response = await call('GET', '/api/memos/public/explore', { session: null })
+    expect(response.status).toBe(200)
+    const page = await json<MemoListResponse>(response)
+    const item = page.items.find((entry) => entry.id === memo.id)
+    expect(item?.encrypted).toBe(true)
+    expect(item?.content).toBe('')
+    expect(item?.contentCipher).toBe('')
+    expect(item?.attachments).toEqual([])
+  })
+
+  it('lists only replies in the inbox lane', async () => {
+    const parent = await createMemo({ content: 'parent memo' })
+    const comment = await json<Memo>(await call('POST', `/api/memos/${parent.id}/comments`, {
+      body: { content: 'a reply' },
+    }))
+    const inbox = await listMemos('?commentsOnly=1')
+    expect(inbox.items.map((memo) => memo.id)).toEqual([comment.id])
+    expect(inbox.items[0]?.parentId).toBe(parent.id)
+    const feed = await listMemos()
+    expect(feed.items.map((memo) => memo.id)).toEqual([parent.id])
+  })
+})

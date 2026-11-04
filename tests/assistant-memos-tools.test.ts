@@ -287,4 +287,24 @@ describe('the permission boundary', () => {
       .rejects.toBeInstanceOf(ToolError)
     expect((await runTool('memo_list', { space: bobsSpace.id }, context(BOB))).count).toBe(1)
   })
+
+  it('never hands a sealed body or its ciphertext to the model', async () => {
+    const sealed = await store(ALICE).create({
+      content: 'TOP SECRET words that must not travel',
+      encrypted: true,
+      contentCipher: 'memoenc:v1:AAAA:BBBB:CCCC',
+      tags: ['private'],
+    })
+    const read = await runTool('memo_read', { id: sealed.id })
+    expect(JSON.stringify(read)).not.toContain('TOP SECRET')
+    expect(JSON.stringify(read)).not.toContain('memoenc:')
+    expect(String(read.full_content)).toContain('encrypted')
+
+    const listed = await runTool('memo_list', {})
+    expect(JSON.stringify(listed)).not.toContain('TOP SECRET')
+    expect(JSON.stringify(listed)).not.toContain('memoenc:')
+
+    const searched = await runTool('memo_search', { query: 'SECRET' })
+    expect(searched.count).toBe(0)
+  })
 })

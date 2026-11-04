@@ -5,35 +5,56 @@ import {
   Link2,
   ListChecks,
   ListX,
+  Lock,
   MoreHorizontal,
   Pencil,
   Pin,
   RotateCcw,
   Share2,
   Trash2,
+  Unlock,
 } from 'lucide-react'
-import { MEMOS_APP_PATH } from '@shared/memos/constants'
+import { MEMOS_APP_PATH, MEMO_ENCRYPTED_CONTENT_MAX_BYTES } from '@shared/memos/constants'
+import { scanMemoTags } from '@shared/memos/markdown'
 import type { Memo } from '@shared/memos/types'
-import { IconButton } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Menu, confirm, type MenuItem } from '../../../components/overlay'
 import { copyText } from '../../../lib/clipboard'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
+import { decryptMemoContent, encryptMemoContent } from '../memo-crypto'
+import { memoPlaintext, useMemoLock } from '../memo-lock'
 import { useMemos } from '../state'
 import { setAllMemoTasks } from '../task-toggle'
+import { MemoPassphraseDialog, type MemoCipherMode } from './MemoPassphraseDialog'
 import { MemoShareDialog } from './MemoShareDialog'
 
 export interface MemoCardActionsProps {
   memo: Memo
   onEdit?: () => void
   onDeleted?: () => void
+  /** A point from a right-click; when present the same rows open as a context menu there. */
+  contextPoint?: { x: number; y: number } | null
+  onContextClose?: () => void
 }
 
-export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProps): ReactElement {
+function contentBytes(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+export function MemoCardActions({
+  memo,
+  onEdit,
+  onDeleted,
+  contextPoint = null,
+  onContextClose,
+}: MemoCardActionsProps): ReactElement {
   const [open, setOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [cipherMode, setCipherMode] = useState<MemoCipherMode | null>(null)
   const anchorRef = useRef<HTMLButtonElement>(null)
-  const notify = (title: string, tone: 'default' | 'success' | 'danger', description?: string): void => {
+  const passphrase = useMemoLock((state) => state.passphrase)
+  const notify = (title: string, tone: 'default' | 'success' | 'danger' | 'warning', description?: string): void => {
     useUi.getState().toast({ title, tone, description })
   }
   const failed = (): void => {
@@ -101,6 +122,50 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
     else notify(t('memos.card.copy_failed'), 'danger')
   }
 
+  const copyContent = async (): Promise<void> => {
+    if (!memo.encrypted) {
+      await copy(memo.content, t('memos.card.content_copied'))
+      return
+    }
+    const plaintext = memoPlaintext(memo.id)
+    if (plaintext === null) {
+      notify(t('memos.cipher.unlock_first'), 'warning')
+      return
+    }
+    await copy(plaintext, t('memos.card.content_copied'))
+  }
+
+  const seal = async (value: string): Promise<void> => {
+    if (contentBytes(memo.content) > MEMO_ENCRYPTED_CONTENT_MAX_BYTES) {
+      throw new Error(t('memos.cipher.too_large'))
+    }
+    const cipher = await encryptMemoContent(value, memo.content)
+    const saved = await useMemos.getState().patch(memo.id, {
+      rev: memo.rev,
+      encrypted: true,
+      contentCipher: cipher,
+      tags: scanMemoTags(memo.content),
+    })
+    if (!saved) throw new Error(useMemos.getState().mutationError ?? t('memos.card.action_failed'))
+    useMemoLock.getState().setPassphrase(value)
+    useMemoLock.getState().lock(memo.id)
+    notify(t('memos.cipher.sealed'), 'success')
+  }
+
+  const unseal = async (value: string): Promise<void> => {
+    const plaintext = memoPlaintext(memo.id) ?? await decryptMemoContent(value, memo.contentCipher)
+    const saved = await useMemos.getState().patch(memo.id, {
+      rev: memo.rev,
+      encrypted: false,
+      content: plaintext,
+    })
+    if (!saved) throw new Error(useMemos.getState().mutationError ?? t('memos.card.action_failed'))
+    useMemoLock.getState().lock(memo.id)
+    notify(t('memos.cipher.unsealed'), 'success')
+  }
+
+  const cipherAction = memo.encrypted ? 'unseal' as const : 'seal' as const
+
   const items: MenuItem[] = []
   if (memo.state === 'normal') {
     if (onEdit) {
@@ -133,6 +198,13 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
       icon: <Archive size={13} />,
       onSelect: () => void archive(),
     })
+    items.push({
+      id: 'cipher',
+      label: memo.encrypted ? t('memos.cipher.unseal') : t('memos.cipher.seal'),
+      icon: memo.encrypted ? <Unlock size={13} /> : <Lock size={13} />,
+      separatorBefore: true,
+      onSelect: () => setCipherMode(memo.encrypted ? 'unseal' : 'seal'),
+    })
   } else {
     items.push({
       id: 'restore',
@@ -158,9 +230,11 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
   }
   items.push({
     id: 'copy-content',
-    label: t('memos.card.copy_content'),
+    label: memo.encrypted && memoPlaintext(memo.id) === null
+      ? t('memos.card.copy_content_locked')
+      : t('memos.card.copy_content'),
     icon: <Copy size={13} />,
-    onSelect: () => void copy(memo.content, t('memos.card.content_copied')),
+    onSelect: () => void copyContent(),
   })
   items.push({
     id: 'delete',
@@ -171,11 +245,12 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
     onSelect: () => void remove(),
   })
 
+  const menuLabel = t('memos.card.actions')
   return (
     <>
-      <IconButton
+      <TooltipIconButton
         ref={anchorRef}
-        label={t('memos.card.actions')}
+        label={menuLabel}
         size="sm"
         active={open}
         aria-haspopup="menu"
@@ -183,17 +258,34 @@ export function MemoCardActions({ memo, onEdit, onDeleted }: MemoCardActionsProp
         onClick={() => setOpen((value) => !value)}
       >
         <MoreHorizontal size={15} />
-      </IconButton>
+      </TooltipIconButton>
       <Menu
         anchor={anchorRef}
         open={open}
         onClose={() => setOpen(false)}
         items={items}
-        label={t('memos.card.actions')}
+        label={menuLabel}
         align="end"
         width={196}
       />
+      {contextPoint ? (
+        <Menu
+          anchor={contextPoint}
+          open
+          onClose={() => onContextClose?.()}
+          items={items}
+          label={menuLabel}
+          width={196}
+        />
+      ) : null}
       <MemoShareDialog memoId={memo.id} memo={memo} open={shareOpen} onClose={() => setShareOpen(false)} />
+      <MemoPassphraseDialog
+        open={cipherMode !== null}
+        mode={cipherMode ?? cipherAction}
+        defaultPassphrase={passphrase ?? ''}
+        onClose={() => setCipherMode(null)}
+        onSubmit={cipherMode === 'unseal' ? unseal : seal}
+      />
     </>
   )
 }

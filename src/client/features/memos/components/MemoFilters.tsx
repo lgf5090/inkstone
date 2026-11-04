@@ -1,11 +1,12 @@
 import { useRef, useState, type ReactElement } from 'react'
 import { ArrowUpDown, Filter, LayoutGrid, Search, TextSearch, X } from 'lucide-react'
 import type { MemoDisplayPreferences, MemoOrderDirection, MemoOrderField } from '@shared/memos/types'
-import { Button, IconButton } from '../../../components/primitives'
+import { Button } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Input } from '../../../components/form'
 import { TagChip } from '../../../components/TagChip'
 import { useFilterInput } from '../../../components/FilterInput'
-import { Menu, Tooltip, type MenuItem } from '../../../components/overlay'
+import { Menu, type MenuItem } from '../../../components/overlay'
 import { useDebouncedDraft } from '../../../lib/hooks'
 import { t, type MessageKey } from '../../../lib/i18n'
 import type { MemoQuickFilter, MemoUrlState } from '../url-state'
@@ -160,25 +161,24 @@ export function MemoFilters({
             onChange={(event) => setDraft(event.target.value)}
             leading={<Search size={13} />}
             trailing={draft ? (
-              <IconButton label={t('memos.feed.clear_search')} size="xs" onClick={clear}>
+              <TooltipIconButton label={t('memos.feed.clear_search')} size="xs" onClick={clear}>
                 <X size={12} />
-              </IconButton>
+              </TooltipIconButton>
             ) : undefined}
             className="h-9 text-[length:var(--text-12)] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-results-button]:hidden md:h-7"
           />
         </div>
-        <Tooltip label={t('memos.feed.quick_find')} side="bottom">
-          <IconButton
-            label={t('memos.feed.quick_find')}
-            size="sm"
-            className="size-9 md:size-7"
-            aria-haspopup="dialog"
-            aria-expanded={quickFindOpen}
-            onClick={() => setQuickFindOpen(true)}
-          >
-            <TextSearch size={14} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton
+          label={t('memos.feed.quick_find')}
+          tooltipSide="bottom"
+          size="sm"
+          className="size-9 md:size-7"
+          aria-haspopup="dialog"
+          aria-expanded={quickFindOpen}
+          onClick={() => setQuickFindOpen(true)}
+        >
+          <TextSearch size={14} />
+        </TooltipIconButton>
       </div>
       {query.tag ? (
         <TagChip
@@ -221,19 +221,18 @@ export function MemoFilters({
         </Button>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <Tooltip label={t('memos.feed.filters')} side="bottom">
-          <IconButton
-            ref={filterRef}
-            label={t('memos.feed.filters')}
-            size="sm"
-            active={filterOpen || query.quick.length > 0}
-            aria-haspopup="menu"
-            aria-expanded={filterOpen}
-            onClick={() => setFilterOpen((value) => !value)}
-          >
-            <Filter size={14} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton
+          ref={filterRef}
+          label={t('memos.feed.filters')}
+          tooltipSide="bottom"
+          size="sm"
+          active={filterOpen || query.quick.length > 0}
+          aria-haspopup="menu"
+          aria-expanded={filterOpen}
+          onClick={() => setFilterOpen((value) => !value)}
+        >
+          <Filter size={14} />
+        </TooltipIconButton>
         <Menu
           anchor={filterRef}
           open={filterOpen}
@@ -243,19 +242,18 @@ export function MemoFilters({
           align="end"
           width={220}
         />
-        <Tooltip label={t('memos.feed.sort')} side="bottom">
-          <IconButton
-            ref={sortRef}
-            label={t('memos.feed.sort')}
-            size="sm"
-            active={sortOpen}
-            aria-haspopup="menu"
-            aria-expanded={sortOpen}
-            onClick={() => setSortOpen((value) => !value)}
-          >
-            <ArrowUpDown size={14} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton
+          ref={sortRef}
+          label={t('memos.feed.sort')}
+          tooltipSide="bottom"
+          size="sm"
+          active={sortOpen}
+          aria-haspopup="menu"
+          aria-expanded={sortOpen}
+          onClick={() => setSortOpen((value) => !value)}
+        >
+          <ArrowUpDown size={14} />
+        </TooltipIconButton>
         <Menu
           anchor={sortRef}
           open={sortOpen}
@@ -265,19 +263,18 @@ export function MemoFilters({
           align="end"
           width={220}
         />
-        <Tooltip label={t('memos.feed.display')} side="bottom">
-          <IconButton
-            ref={displayRef}
-            label={t('memos.feed.display')}
-            size="sm"
-            active={displayOpen}
-            aria-haspopup="menu"
-            aria-expanded={displayOpen}
-            onClick={() => setDisplayOpen((value) => !value)}
-          >
-            <LayoutGrid size={14} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton
+          ref={displayRef}
+          label={t('memos.feed.display')}
+          tooltipSide="bottom"
+          size="sm"
+          active={displayOpen}
+          aria-haspopup="menu"
+          aria-expanded={displayOpen}
+          onClick={() => setDisplayOpen((value) => !value)}
+        >
+          <LayoutGrid size={14} />
+        </TooltipIconButton>
         <Menu
           anchor={displayRef}
           open={displayOpen}

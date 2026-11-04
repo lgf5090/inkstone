@@ -7,7 +7,8 @@ import { cn } from '../../../lib/cn'
 import { t } from '../../../lib/i18n'
 import { treeIndent, treeItemProps, useTreeKeyboard } from '../../../lib/tree'
 import type { TagTreeNode } from '../../../lib/tag-tree'
-import { Button, IconButton, SectionLabel } from '../../../components/primitives'
+import { Button, SectionLabel } from '../../../components/primitives'
+import { TooltipIconButton } from '../../../components/tooltip-icon-button'
 import { Skeleton } from '../../../components/feedback'
 import { Tooltip } from '../../../components/overlay'
 import { memosApi } from '../api'
@@ -126,26 +127,24 @@ export function TagsSection(): ReactElement {
     <div className="pt-2">
       <div className="flex items-center gap-0.5 pr-1">
         <SectionLabel className="flex-1">{t('memos.nav.tags')}</SectionLabel>
-        <Tooltip label={t('memos.tags.tree_mode')} side="left">
-          <IconButton
-            label={t('memos.tags.tree_mode')}
-            size="xs"
-            active={prefs.mode === 'tree'}
-            onClick={() => changePrefs({ ...prefs, mode: 'tree' })}
-          >
-            <ListTree size={12} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip label={t('memos.tags.flat_mode')} side="left">
-          <IconButton
-            label={t('memos.tags.flat_mode')}
-            size="xs"
-            active={prefs.mode === 'flat'}
-            onClick={() => changePrefs({ ...prefs, mode: 'flat' })}
-          >
-            <List size={12} />
-          </IconButton>
-        </Tooltip>
+        <TooltipIconButton
+          label={t('memos.tags.tree_mode')}
+          tooltipSide="left"
+          size="xs"
+          active={prefs.mode === 'tree'}
+          onClick={() => changePrefs({ ...prefs, mode: 'tree' })}
+        >
+          <ListTree size={12} />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={t('memos.tags.flat_mode')}
+          tooltipSide="left"
+          size="xs"
+          active={prefs.mode === 'flat'}
+          onClick={() => changePrefs({ ...prefs, mode: 'flat' })}
+        >
+          <List size={12} />
+        </TooltipIconButton>
       </div>
       {loading ? (
         <div className="space-y-1 px-2 py-1">
@@ -264,23 +263,25 @@ function MemoTagTreeItem({
         style={{ paddingLeft: treeIndent(node.depth) }}
       >
         {hasChildren ? (
-          <button
-            type="button"
-            data-tree-toggle
-            aria-expanded={open}
-            aria-label={t(open ? 'memos.tags.collapse' : 'memos.tags.expand', { tag: node.fullPath })}
-            onClick={() => onToggle(node.fullPath)}
-            className={cn(
-              'flex size-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] md:size-5',
-              'hover:bg-[var(--bg-active)] hover:text-[var(--text-secondary)]',
-              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
-            )}
-          >
-            <ChevronRight
-              size={12}
-              className={cn('transition-transform duration-[var(--dur-fast)] ease-[var(--ease-out)]', open && 'rotate-90')}
-            />
-          </button>
+          <Tooltip label={t(open ? 'memos.tags.collapse' : 'memos.tags.expand', { tag: node.fullPath })} side="right">
+            <button
+              type="button"
+              data-tree-toggle
+              aria-expanded={open}
+              aria-label={t(open ? 'memos.tags.collapse' : 'memos.tags.expand', { tag: node.fullPath })}
+              onClick={() => onToggle(node.fullPath)}
+              className={cn(
+                'flex size-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-quaternary)] md:size-5',
+                'hover:bg-[var(--bg-active)] hover:text-[var(--text-secondary)]',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]',
+              )}
+            >
+              <ChevronRight
+                size={12}
+                className={cn('transition-transform duration-[var(--dur-fast)] ease-[var(--ease-out)]', open && 'rotate-90')}
+              />
+            </button>
+          </Tooltip>
         ) : (
           <span aria-hidden="true" className="size-6 shrink-0 md:size-5" />
         )}

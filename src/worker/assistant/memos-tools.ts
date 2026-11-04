@@ -23,6 +23,11 @@ const MAX_COMMENTS = 50
 const MAX_DELETE_BATCH = 10
 const MEMO_READ_PATH = '/memos/m/'
 const MAX_LIST_CONTENT_CHARS = 600
+/**
+ * What the assistant sees of a sealed memo. The server holds no plaintext, so there is nothing to
+ * quote; naming the lock is the only honest answer and keeps the model from inventing a body.
+ */
+const SEALED_MEMO_PLACEHOLDER = '[encrypted memo — the body is only available to its owner after unlocking in Memos]'
 
 const DATE_FIELD_DESCRIPTION = 'A local calendar day, YYYY-MM-DD.'
 const SPACE_FIELD = {
@@ -141,13 +146,14 @@ function memoFilter(input: {
 function presentMemo(memo: Memo): Record<string, unknown> {
   return {
     id: memo.id,
-    title: memo.title,
-    content: excerpt(memo.content),
+    title: memo.encrypted ? SEALED_MEMO_PLACEHOLDER : memo.title,
+    content: memo.encrypted ? SEALED_MEMO_PLACEHOLDER : excerpt(memo.content),
     tags: memo.tags,
     visibility: memo.visibility,
     space_id: memo.spaceId,
     pinned: memo.pinned,
-    comments: memo.commentCount,
+    comments: memo.encrypted ? 0 : memo.commentCount,
+    encrypted: memo.encrypted,
     created_at: isoSeconds(memo.createdAt),
     updated_at: isoSeconds(memo.updatedAt),
     url: `${MEMO_READ_PATH}${memo.id}`,
@@ -238,7 +244,10 @@ async function deleteTargets(args: Record<string, unknown>, ctx: ToolContext): P
 }
 
 function deleteLabel(memos: Memo[]): string {
-  const names = memos.slice(0, 3).map((memo) => `"${quoted(memo.title || memo.content, 32)}"`)
+  const names = memos.slice(0, 3).map((memo) => {
+    if (memo.encrypted) return '"encrypted memo"'
+    return `"${quoted(memo.title || memo.content, 32)}"`
+  })
   const more = memos.length > 3 ? ', …' : ''
   return `${memos.length} memo${memos.length === 1 ? '' : 's'}: ${names.join(', ')}${more}`
 }
@@ -273,7 +282,7 @@ export const MEMOS_TOOLS: ToolDefinition[] = [
     name: 'memo_search',
     permission: 'read',
     maxCallsPerTurn: 6,
-    description: 'Search memo bodies for words, then narrow by space, tag, and the day they were created. Case-insensitive; a match is a substring of the memo body.',
+    description: 'Search memo bodies for words, then narrow by space, tag, and the day they were created. Case-insensitive; a match is a substring of the memo body. Sealed memos have no server-side body, so they never match a body search.',
     fields: {
       query: { type: 'string', minLength: 1, maxLength: 200, description: 'Words to find in the memo body.' },
       space: SPACE_FIELD,
@@ -313,8 +322,8 @@ export const MEMOS_TOOLS: ToolDefinition[] = [
       })
       return {
         memo: presentMemo(memo),
-        full_content: memo.content,
-        comments: (comments?.items ?? []).map(presentComment),
+        full_content: memo.encrypted ? SEALED_MEMO_PLACEHOLDER : memo.content,
+        comments: memo.encrypted ? [] : (comments?.items ?? []).map(presentComment),
       }
     },
   },

@@ -3,7 +3,8 @@ import { Trash2 } from 'lucide-react'
 import { MEMO_TAG_RULE_MAX_COUNT, MEMO_TAG_RULE_MAX_LENGTH } from '@shared/memos/constants'
 import type { MemoTagRule, MemoTagRuleMode } from '@shared/memos/types'
 import { patternSafety } from '@shared/regex-safety'
-import { Badge, Button, IconButton } from '../../../../components/primitives'
+import { Badge, Button } from '../../../../components/primitives'
+import { TooltipIconButton } from '../../../../components/tooltip-icon-button'
 import { ColorWellField } from '../../../../components/color-field'
 import { Checkbox, Field, Input, Select } from '../../../../components/form'
 import { confirm } from '../../../../components/overlay'
@@ -142,14 +143,14 @@ export function TagRulesSettings({ preferences, saving, save }: MemoSettingsSect
                 <Badge>{t(MODE_KEYS[rule.mode])}</Badge>
                 {rule.blurContent ? <Badge tone="warning">{t('memos.settings.tags_blur_badge')}</Badge> : null}
               </div>
-              <IconButton
+              <TooltipIconButton
                 label={t('memos.settings.tags_delete', { pattern: rule.pattern })}
                 size="sm"
                 disabled={saving}
                 onClick={() => void remove(index)}
               >
                 <Trash2 size={13} />
-              </IconButton>
+              </TooltipIconButton>
             </li>
           ))}
         </ul>

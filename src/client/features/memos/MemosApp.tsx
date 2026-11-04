@@ -5,7 +5,7 @@ import { Resizer } from '../shell/Resizer'
 import { MEMOS_APP_PATH } from '@shared/memos/constants'
 import { MEMOS_MESSAGE_KEYS } from '@shared/memos/keys'
 import type { Memo, MemoDisplayPreferences, MemoState } from '@shared/memos/types'
-import { IconButton } from '../../components/primitives'
+import { TooltipIconButton } from '../../components/tooltip-icon-button'
 import { Drawer } from '../../components/overlay'
 import { useBreakpoint } from '../../lib/hooks'
 import { navigateToPath, usePathname } from '../../lib/app-history'
@@ -33,6 +33,9 @@ import {
   type MemoQuery,
 } from './state'
 import { useMemoSpaces } from './use-memo-spaces'
+import { useMemoPreferences } from './use-memo-preferences'
+import { useMemoLock } from './memo-lock'
+import { useSession } from '../../store/session'
 import {
   buildMemoSearch,
   memoFilterExpression,
@@ -91,6 +94,8 @@ export function MemosApp(): ReactElement {
   useMemoSync()
   const pathname = usePathname()
   const search = useMemoSearch()
+  const userId = useSession((state) => state.user?.id ?? null)
+  const preferences = useMemoPreferences()
   const urlState = useMemo(() => readMemoUrlState(search), [search])
   const route = parseMemoPath(pathname)
   const breakpoint = useBreakpoint()
@@ -115,6 +120,24 @@ export function MemosApp(): ReactElement {
     () => new Map((spaces.data ?? []).map((space) => [space.id, space.title])),
     [spaces.data],
   )
+
+  useEffect(() => {
+    useMemoLock.getState().hydrate(userId)
+  }, [userId])
+
+  useEffect(() => {
+    // Reveals expire even when nothing else on the page moves: a card left open on a desk should not
+    // stay legible forever just because the reader stopped interacting with it.
+    const timer = window.setInterval(() => useMemoLock.getState().expire(), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const lockPathRef = useRef(pathname)
+  useEffect(() => {
+    if (lockPathRef.current === pathname) return
+    lockPathRef.current = pathname
+    if (preferences.preferences.relockOnNavigate) useMemoLock.getState().lockAll()
+  }, [pathname, preferences.preferences.relockOnNavigate])
 
   useEffect(() => {
     setDisplay((current) => {
@@ -330,9 +353,9 @@ export function MemosApp(): ReactElement {
         className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-2"
       >
         {!desktop ? (
-          <IconButton label={t('memos.header.open_sidebar')} size="sm" onClick={() => setSidebarOpen(true)}>
+          <TooltipIconButton label={t('memos.header.open_sidebar')} size="sm" onClick={() => setSidebarOpen(true)}>
             <MenuIcon size={16} />
-          </IconButton>
+          </TooltipIconButton>
         ) : null}
         <StickyNote size={15} className="shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
         <h1 className="min-w-0 shrink-0 truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">
@@ -345,24 +368,24 @@ export function MemosApp(): ReactElement {
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {dockAvailable ? (
-            <IconButton
+            <TooltipIconButton
               label={t('assistant.dock.toggle')}
               size="sm"
               active={assistantDockOpen}
               onClick={() => useUi.getState().setAssistantDock(!assistantDockOpen)}
             >
               <Sparkles size={14} />
-            </IconButton>
+            </TooltipIconButton>
           ) : null}
-          <IconButton
+          <TooltipIconButton
             label={t('attachments.manage')}
             size="sm"
             onClick={() => useUi.getState().setAttachmentHub('memos')}
           >
             <Paperclip size={14} />
-          </IconButton>
+          </TooltipIconButton>
           {showRefresh ? (
-            <IconButton
+            <TooltipIconButton
               label={t('memos.header.refresh')}
               size="sm"
               onClick={() => {
@@ -374,16 +397,16 @@ export function MemosApp(): ReactElement {
               }}
             >
               <RefreshCw size={14} />
-            </IconButton>
+            </TooltipIconButton>
           ) : null}
           {route.kind !== 'home' && route.kind !== 'space' ? (
-            <IconButton
+            <TooltipIconButton
               label={t('memos.header.new')}
               size="sm"
               onClick={() => navigateToPath(MEMOS_APP_PATH)}
             >
               <Plus size={16} />
-            </IconButton>
+            </TooltipIconButton>
           ) : null}
         </div>
       </header>

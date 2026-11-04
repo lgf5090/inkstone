@@ -113,6 +113,8 @@ function memo(id: string, overrides: Partial<Memo> = {}): Memo {
     relations: [],
     commentCount: 0,
     rev: 1,
+    encrypted: false,
+    contentCipher: '',
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
