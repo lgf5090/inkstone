@@ -291,7 +291,7 @@ export async function loadMcpNote(db: D1Database, userId: string, id: string): P
   const noteId = normalizeNoteId(id)
   const row = await db.prepare(
     `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
-      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
+      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0`,
   ).bind(noteId, userId).first<NoteRow>()
   if (!row) throw ApiError.notFound('Note not found')
   return toNote(row)
@@ -312,7 +312,7 @@ export async function fetchMcpNote(
   const noteId = normalizeNoteId(id)
   const row = await db.prepare(
     `SELECT ${NOTE_COLUMNS}, substr(n.content, 1, ?3) AS content FROM notes n
-      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
+      WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL AND n.is_encrypted = 0`,
   ).bind(noteId, userId, FETCH_MAX_CHARS + 1).first<NoteRow>()
   if (!row) throw ApiError.notFound('Note not found')
   const note = toNote(row)

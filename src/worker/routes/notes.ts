@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { LIMITS } from '@shared/constants'
-import { countText, deriveExcerpt } from '@shared/markdown-utils'
-import { duplicateNoteTitle, truncateText } from '@shared/text-utils'
+import { isNoteLockEnvelope } from '@shared/crypto'
+import { countText, deriveExcerpt, normalizeLinkKey } from '@shared/markdown-utils'
+import { duplicateNoteTitle, truncateText, utf8ByteLength } from '@shared/text-utils'
 import type {
   CreateNoteBody,
   ListNotesResponse,
@@ -64,6 +65,40 @@ const TRASH_EMPTY_BATCH = 500
  */
 function store(c: Context<AppBindings>): NotesStore {
   return new NotesStore(c.env.DB, c.get('userId'), c.get('database').ftsEnabled)
+}
+
+/**
+ * Everything derived from a note's plaintext that must not outlive the lock.
+ *
+ * A lock writes ciphertext into the ordinary columns, but the rows built from the old plaintext are
+ * still readable: version history holds whole bodies, the FTS and meaning indexes hold searchable
+ * text, links hold the old title, and a share or a blog projection would publish it. Deleting them
+ * is the difference between "the column says encrypted" and "nothing on the server still answers
+ * with the note". Tags stay: they are the reader's filing metadata, and the locked card hides them
+ * until the note is opened.
+ */
+async function purgePlaintextProjections(c: Context<AppBindings>, userId: string, noteId: string, previousTitle: string): Promise<void> {
+  const ftsEnabled = c.get('database').ftsEnabled
+  const previousKey = normalizeLinkKey(previousTitle)
+  const statements = [
+    c.env.DB.prepare(`DELETE FROM note_versions WHERE note_id = ?1 AND user_id = ?2`).bind(noteId, userId),
+    c.env.DB.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    c.env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    c.env.DB.prepare(`DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    // Both resolved and unresolved wiki links name the old title; a row that never found the note
+    // still carries it in `target_title`.
+    c.env.DB.prepare(`DELETE FROM links WHERE user_id = ?1 AND (target_note_id = ?2 OR target_key = ?3)`)
+      .bind(userId, noteId, previousKey),
+    c.env.DB.prepare(`DELETE FROM rewrite_queue WHERE user_id = ?1 AND (source_id = ?2 OR old_value = ?3)`)
+      .bind(userId, noteId, previousTitle),
+    c.env.DB.prepare(`UPDATE shares SET is_enabled = 0 WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    c.env.DB.prepare(`UPDATE blog_pages SET published_at = NULL WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+    c.env.DB.prepare(`UPDATE blog_posts SET status = 'withdrawn' WHERE user_id = ?1 AND note_id = ?2`).bind(userId, noteId),
+  ]
+  if (ftsEnabled) {
+    statements.push(c.env.DB.prepare(`DELETE FROM notes_fts WHERE note_id = ?1`).bind(noteId))
+  }
+  await c.env.DB.batch(statements)
 }
 
 /**
@@ -258,6 +293,7 @@ notesRoutes.patch('/:id', async (c) => {
     ['isPinned', body.isPinned],
     ['isStarred', body.isStarred],
     ['isArchived', body.isArchived],
+    ['isEncrypted', body.isEncrypted],
     ['quiet', body.quiet],
     ['preserveVersion', body.preserveVersion],
   ] as const) {
@@ -266,33 +302,85 @@ notesRoutes.patch('/:id', async (c) => {
     }
   }
 
+  // A lock (or the client opening one) always ships both fields: half a note cannot be encrypted,
+  // and a body left behind in plaintext is exactly the leak this feature exists to prevent.
+  const sealing = body.isEncrypted === true
+  const opening = body.isEncrypted === false
+  if ((sealing || opening) && (typeof body.title !== 'string' || typeof body.content !== 'string')) {
+    throw ApiError.badRequest('A lock change must carry both title and content')
+  }
+  if (sealing) {
+    if (!isNoteLockEnvelope(body.title!) || !isNoteLockEnvelope(body.content!)) {
+      throw ApiError.badRequest('A lock must carry sealed envelopes, not plaintext')
+    }
+    // The envelope is base64 JSON around the body, so the plaintext ceiling no longer describes it.
+    if (utf8ByteLength(body.content!) > LIMITS.contentMaxBytes * 2) {
+      throw ApiError.tooLarge('Encrypted note content exceeds the limit')
+    }
+  }
+  if (row.is_encrypted === 1 && !sealing && !opening && (body.title !== undefined || body.content !== undefined)) {
+    // Metadata edits (pin, star, archive, folder) stay allowed; text edits do not, because the
+    // server cannot re-seal what it cannot read. The client has to unlock first.
+    throw ApiError.conflict('This note is locked; unlock it before editing its text', { server: toNote(row) })
+  }
+
   const now = Math.max(Date.now(), row.updated_at + 1)
   const columns: NotePatchColumns = {}
   let contentChanged = false
+  let titleChanged = false
   let newTitle = row.title
   let newContent = row.content
   let newHash = row.content_hash
-  const resolvedTitle = resolveNoteTitle(body.title, row.title)
-
-  if (typeof body.content === 'string' && body.content !== row.content) {
-    assertContentSize(body.content)
-    const hash = await sha256Hex(body.content)
-    if (hash !== row.content_hash) {
-      contentChanged = true
+  if (sealing || opening) {
+    const nextTitle = sealing ? body.title! : resolveNoteTitle(body.title, '')
+    const nextContent = body.content!
+    const hash = await sha256Hex(nextContent)
+    if (nextTitle !== row.title || nextContent !== row.content || (row.is_encrypted === 1) !== sealing) {
+      contentChanged = nextContent !== row.content
+      titleChanged = nextTitle !== row.title
+      newTitle = nextTitle
+      newContent = nextContent
       newHash = hash
-      newContent = body.content
-      newTitle = resolvedTitle
-      const { words, chars } = countText(body.content)
-      columns.content = body.content
+      columns.title = nextTitle
+      columns.content = nextContent
       columns.content_hash = hash
-      columns.title = newTitle
-      columns.excerpt = deriveExcerpt(body.content)
-      columns.word_count = words
-      columns.char_count = chars
+      // A sealed title is ciphertext, not a name to link to or match by title key.
+      columns.title_key = sealing ? '' : normalizeLinkKey(nextTitle)
+      columns.is_encrypted = sealing ? 1 : 0
+      if (sealing) {
+        columns.excerpt = ''
+        columns.word_count = 0
+        columns.char_count = 0
+      } else {
+        const { words, chars } = countText(nextContent)
+        columns.excerpt = deriveExcerpt(nextContent)
+        columns.word_count = words
+        columns.char_count = chars
+      }
     }
-  } else if (resolvedTitle !== row.title) {
-    newTitle = resolvedTitle
-    columns.title = newTitle
+  } else {
+    const resolvedTitle = resolveNoteTitle(body.title, row.title)
+    if (typeof body.content === 'string' && body.content !== row.content) {
+      assertContentSize(body.content)
+      const hash = await sha256Hex(body.content)
+      if (hash !== row.content_hash) {
+        contentChanged = true
+        newHash = hash
+        newContent = body.content
+        newTitle = resolvedTitle
+        const { words, chars } = countText(body.content)
+        columns.content = body.content
+        columns.content_hash = hash
+        columns.title = newTitle
+        columns.excerpt = deriveExcerpt(body.content)
+        columns.word_count = words
+        columns.char_count = chars
+      }
+    } else if (resolvedTitle !== row.title) {
+      newTitle = resolvedTitle
+      titleChanged = true
+      columns.title = newTitle
+    }
   }
 
   if (body.folderId !== undefined && body.folderId !== row.folder_id) {
@@ -304,7 +392,6 @@ notesRoutes.patch('/:id', async (c) => {
 
   if (!Object.keys(columns).length) return c.json(toNote(row))
 
-  const titleChanged = newTitle !== row.title
   const nextRev = row.rev + 1
   const patch = await s.patch({
     current: row,
@@ -316,8 +403,12 @@ notesRoutes.patch('/:id', async (c) => {
     now,
     contentChanged,
     titleChanged,
-    derive: row.deleted_at === null && (contentChanged || titleChanged),
-    snapshot: contentChanged && !body.quiet && row.content
+    // Sealed text is not a source for tags, links or indexes; opening it resumes the ordinary
+    // derivation so search and the assistant can see it again.
+    derive: row.deleted_at === null && !sealing && (contentChanged || titleChanged),
+    indexable: !sealing,
+    // Sealing must not keep the old plaintext body as a version, and opening has nothing to snapshot.
+    snapshot: !sealing && !opening && contentChanged && !body.quiet && row.content
       ? {
           preserve: Boolean(body.preserveVersion),
           bigChange: Math.abs(newContent.length - row.content.length) >= SNAPSHOT_DIFF_THRESHOLD,
@@ -328,8 +419,13 @@ notesRoutes.patch('/:id', async (c) => {
     const current = await loadNote(s, id)
     throw ApiError.conflict('This note was modified elsewhere', { server: current })
   }
+  if (sealing) {
+    await purgePlaintextProjections(c, userId, id, row.title)
+    await broadcastCursor(c, patch.changeSeq)
+    return c.json(toNote(patch.next))
+  }
   let rewroteInbound = false
-  if (titleChanged) {
+  if (titleChanged && row.is_encrypted === 0) {
     if (!patch.ambiguous) {
       const rewrite = await rewriteInboundWikiLinks(
         c.env.DB,
@@ -424,6 +520,9 @@ notesRoutes.delete('/:id/purge', async (c) => {
 notesRoutes.post('/:id/duplicate', async (c) => {
   const userId = c.get('userId')
   const source = await loadNoteRow(store(c), c.req.param('id'))
+  // The copy would inherit ciphertext under a fresh id, which the server would then treat as
+  // plaintext (and index). A locked note has to be opened before it can be copied.
+  if (source.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it before duplicating')
   const body = c.req.header('Content-Type')?.includes('application/json')
     ? await readJson<{ id?: string }>(c, JSON_BODY_LIMITS.small)
     : {}
@@ -513,6 +612,7 @@ notesRoutes.post('/:id/versions/:versionId/restore', async (c) => {
   if (!version) throw ApiError.notFound('Version not found')
 
   const current = await loadNoteRow(s, id)
+  if (current.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it before restoring a version')
   const now = Math.max(Date.now(), current.updated_at + 1)
   const { words, chars } = countText(version.content)
   const title = restoredVersionTitle(version.title)
@@ -570,8 +670,14 @@ notesRoutes.post('/:id/link-mention', async (c) => {
   const sourceId = typeof body.sourceNoteId === 'string' ? body.sourceNoteId : ''
   if (!isValidId(sourceId)) throw ApiError.badRequest('sourceNoteId must be a valid note id')
   const { ftsEnabled } = c.get('database')
-  const title = await store(c).noteTitle(targetId, { liveOnly: true })
-  if (title === null) throw ApiError.notFound('Note not found')
+  // Both ends matter: the target's title is ciphertext on a locked note (so a wiki link would
+  // carry an envelope), and the source's body is ciphertext the rewrite would corrupt.
+  const target = await loadNoteRow(store(c), targetId)
+  if (target.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it before linking to it')
+  const sourceRow = await loadNoteRow(store(c), sourceId)
+  if (sourceRow.is_encrypted === 1) throw ApiError.conflict('This note is locked; unlock it before linking from it')
+  const title = target.title
+  if (target.deleted_at !== null) throw ApiError.notFound('Note not found')
   const outcome = await linkMentionInNote(c.env.DB, userId, sourceId, title, ftsEnabled)
   if (outcome.status === 'missing') throw ApiError.notFound('Note not found')
   if (outcome.status === 'conflict') throw ApiError.conflict('That note changed while it was being linked; try again')

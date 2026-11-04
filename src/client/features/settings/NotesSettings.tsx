@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { DEFAULT_NEW_NOTE_TEMPLATE, NEW_NOTE_TEMPLATE_MAX_LENGTH } from '@shared/constants'
 import { NEW_NOTE_PLACEHOLDERS } from '@shared/note-template-render'
 import { renderNewNoteTemplate } from '@shared/note-template-render'
-import { Input, SettingRow, Switch, Textarea } from '../../components/form'
+import { Input, Select, SettingRow, Switch, Textarea } from '../../components/form'
 import { Button } from '../../components/primitives'
 import { confirm } from '../../components/overlay'
 import { useSession } from '../../store/session'
@@ -25,6 +25,7 @@ export function NotesSettings() {
   }, [update]);
   const setSyncTitleToFrontMatter = useCallback((syncTitleToFrontMatter: boolean) => void update({ notes: { syncTitleToFrontMatter } }), [update]);
   const setSyncFrontMatterTitle = useCallback((syncFrontMatterTitle: boolean) => void update({ notes: { syncFrontMatterTitle } }), [update]);
+  const setLockTimeout = useCallback((lockTimeoutMinutes: number) => void update({ notes: { lockTimeoutMinutes } }), [update]);
   const isDefault = notes.newNoteTemplate === DEFAULT_NEW_NOTE_TEMPLATE;
   const templateRef = useRef<HTMLTextAreaElement>(null);
   const insertPlaceholder = useCallback((placeholder: string) => {
@@ -95,6 +96,26 @@ export function NotesSettings() {
       <SettingRow title={t("settings.sync_frontmatter_title")} description={t("settings.sync_frontmatter_title_desc")}>
         <Switch checked={notes.syncFrontMatterTitle} onChange={setSyncFrontMatterTitle} label={t("settings.sync_frontmatter_title")}/>
       </SettingRow>
+    </section>
+
+    <section>
+      <h3 data-setting-title={t("notelock.settings_title")} className="mb-1 text-[length:var(--text-11)] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        {t("notelock.settings_title")}
+      </h3>
+      <SettingRow title={t("notelock.settings_title")} description={t("notelock.settings_desc")}>
+        <Select
+          aria-label={t("notelock.settings_title")}
+          value={notes.lockTimeoutMinutes}
+          onChange={(event) => setLockTimeout(Number(event.target.value))}
+          className="w-[132px]">
+          {[1, 5, 15, 30, 60, 120].map((minutes) => (
+            <option key={minutes} value={minutes}>{t("notelock.minutes_value0", { value0: minutes })}</option>
+          ))}
+        </Select>
+      </SettingRow>
+      <p className="pt-2 text-[length:var(--text-11-5)] leading-relaxed text-[var(--text-quaternary)]">
+        {t("notelock.real_e2e_hint")}
+      </p>
     </section>
   </div>);
 }

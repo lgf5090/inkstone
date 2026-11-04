@@ -183,6 +183,7 @@ function note(
     content,
     folderId,
     tags: sortTagNames(extractTags(content)),
+    isEncrypted: false,
     isPinned: flags.isPinned ?? false,
     isStarred: flags.isStarred ?? false,
     isArchived: flags.isArchived ?? false,

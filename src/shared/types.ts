@@ -425,6 +425,8 @@ export interface NotesSettings {
   syncTitleToFrontMatter: boolean
   /** Adopt a changed front matter `title` property as the note title. */
   syncFrontMatterTitle: boolean
+  /** Minutes an unlocked note stays readable before it locks again. */
+  lockTimeoutMinutes: number
 }
 
 export interface NoteTemplateCategory {
@@ -906,6 +908,14 @@ export interface NoteSummary {
   id: string
   title: string
   excerpt: string
+  /**
+   * True when `title` and `content` are client-sealed envelopes rather than readable text.
+   *
+   * The server sets this on every row it sends; it is optional because a shell snapshot persisted
+   * before locks existed has no such key, and an absent value means the ordinary plaintext note.
+   * Search, AI indexing, shares and the assistant stop reading the note while it is true.
+   */
+  isEncrypted?: boolean
   folderId: string | null
   tags: string[]
   isPinned: boolean
@@ -1033,6 +1043,14 @@ export interface PatchNoteBody {
   isPinned?: boolean
   isStarred?: boolean
   isArchived?: boolean
+  /**
+   * The client sealed (true) or opened (false) this note's title and content.
+   *
+   * When true the server stores the two strings as ciphertext envelopes and strips every index and
+   * public projection that would have exposed the text; when false the strings are plaintext again
+   * and the ordinary derivation resumes. Absent on an encrypted note refuses a plaintext write.
+   */
+  isEncrypted?: boolean
 
   quiet?: boolean
   preserveVersion?: boolean

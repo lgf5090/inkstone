@@ -15,6 +15,8 @@ export interface NoteRow {
   is_pinned: number
   is_starred: number
   is_archived: number
+  /** 1 when `title` and `content` are client-sealed envelopes rather than readable text. */
+  is_encrypted: number
   position: number
   content_hash: string
   created_at: number
@@ -63,6 +65,7 @@ export function toNoteSummary(row: NoteRow): NoteSummary {
     isPinned: row.is_pinned === 1,
     isStarred: row.is_starred === 1,
     isArchived: row.is_archived === 1,
+    isEncrypted: row.is_encrypted === 1,
     wordCount: row.word_count,
     charCount: row.char_count,
     rev: row.rev,
@@ -129,7 +132,7 @@ export function splitTags(joined: string | null | undefined): string[] {
 
 
 const NOTE_COLUMNS_BASE = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,
-  n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.position,
+  n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.is_encrypted, n.position,
   n.content_hash, n.created_at, n.updated_at, n.deleted_at`
 
 /** Listing columns without tags; pair with noteTagsQueryForPage so a page pays one join. */

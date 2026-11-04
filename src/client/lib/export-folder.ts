@@ -107,7 +107,7 @@ export async function exportFolderAsZip(folderId: string): Promise<FolderExportR
     const root = folders.find((folder) => folder.id === folderId);
     if (!root)
         throw new Error(`folder ${folderId} is not available`);
-    const notes = exportableNotes(folders, folderId);
+    const notes = exportableNotes(folders, folderId).filter((note) => !note.isEncrypted);
     const filename = folderExportFilename(root);
     if (notes.length === 0)
         return { count: 0, filename };

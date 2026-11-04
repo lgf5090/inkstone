@@ -34,7 +34,7 @@ function seed(): Env {
     CREATE TABLE notes (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL, folder_id TEXT, title TEXT NOT NULL,
       excerpt TEXT NOT NULL DEFAULT '', is_starred INTEGER NOT NULL DEFAULT 0,
-      is_archived INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+      is_archived INTEGER NOT NULL DEFAULT 0, is_encrypted INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL, deleted_at INTEGER
     );
     CREATE TABLE folders (

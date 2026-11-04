@@ -63,6 +63,10 @@ interface NotesState {
     }) => Promise<void>;
     editTitle: (id: string, title: string) => void;
     editContent: (id: string, content: string) => void;
+    /** Send a client-sealed title/body to the server; the note becomes unreadable until unlocked. */
+    sealNoteRecord: (id: string, sealed: { title: string; content: string }, rev?: number) => Promise<Note>;
+    /** Send a decrypted title/body back, turning the note into an ordinary plaintext note. */
+    openNoteRecord: (id: string, opened: { title: string; content: string }, rev?: number) => Promise<Note>;
     /** Compute a closed note's next body from its current server copy; null refuses the write. */
     editRemoteContent: (id: string, transform: (content: string) => string | null) => Promise<'written' | 'conflict' | 'missing'>;
     flush: (options?: {
@@ -489,6 +493,24 @@ export const useNotes = create<NotesState>((set, get) => ({
             set({ notes, folders, tags, cursor: payload.cursor });
         }
         reconcileFolderUi(get().folders);
+        // A lock applied on another device arrives as a summary flag, and this device may still hold
+        // the old plaintext body. Evict it here, before the editor can read it again.
+        const sealedIds = payload.notes.filter((remote) => remote.isEncrypted).map((remote) => remote.id);
+        if (sealedIds.length) {
+            set((state) => {
+                let contents = state.contents;
+                for (const id of sealedIds) {
+                    if (!Object.prototype.hasOwnProperty.call(contents, id)) continue;
+                    if (contents === state.contents) contents = { ...state.contents };
+                    delete contents[id];
+                }
+                return contents === state.contents ? state : { contents };
+            });
+            for (const id of sealedIds) {
+                dirty.delete(id);
+                void replaceSealedCache(id, null);
+            }
+        }
         // A full snapshot carries fresh summaries for every note, and openNote() revalidates a
         // body the moment it is displayed, so the fan-out only spent requests on closed panes.
         if (!payload.full) {
@@ -742,6 +764,41 @@ export const useNotes = create<NotesState>((set, get) => ({
             return;
         stageNoteTextWrite(id, content, adoptedFrontMatterTitle(state.contents[id], content) ?? dirty.get(id)?.title, set, get);
     },
+    async sealNoteRecord(id, sealed, rev) {
+        commitPendingSummaryDerivation(id);
+        // A dirty body would be re-sent after the lock and overwrite the envelope, so the caller
+        // flushes before sealing; the guard here is the last line that keeps the two apart.
+        if (dirty.has(id))
+            await get().flush({ immediate: true });
+        const summary = get().notes[id];
+        if (!summary)
+            throw new Error('Note not found');
+        const saved = await api.notes.patch(id, {
+            rev: rev ?? summary.rev,
+            title: sealed.title,
+            content: sealed.content,
+            isEncrypted: true,
+            quiet: true,
+        });
+        // `adoptNote` is what evicts the plaintext cache when it sees `isEncrypted`; calling it with
+        // the server row keeps this path identical to a lock arriving through sync.
+        adoptNote(saved, set, get);
+        return saved;
+    },
+    async openNoteRecord(id, opened, rev) {
+        commitPendingSummaryDerivation(id);
+        const summary = get().notes[id];
+        if (!summary)
+            throw new Error('Note not found');
+        const saved = await api.notes.patch(id, {
+            rev: rev ?? summary.rev,
+            title: opened.title,
+            content: opened.content,
+            isEncrypted: false,
+        });
+        adoptNote(saved, set, get);
+        return saved;
+    },
     async flush(options) {
         commitAllPendingSummaryDerivations();
         await flushLocalDbWrites();
@@ -807,6 +864,7 @@ export const useNotes = create<NotesState>((set, get) => ({
             isPinned: false,
             isStarred,
             isArchived: false,
+            isEncrypted: false,
             wordCount: words,
             charCount: chars,
             rev: 1,
@@ -2268,7 +2326,11 @@ function adoptNote(note: Note | NoteSummary, set: SetNotesState, get: () => Note
         return;
     const hasContent = 'content' in note;
     const incomingSummary = stripContent(note);
-    const acceptContent = hasContent && !dirty.has(note.id);
+    // A sealed note's body is ciphertext. Keeping that (rather than refusing every body) is what lets
+    // the unlock prompt read the envelope it has to open, while replacing whatever plaintext this
+    // device still held for the note.
+    const sealed = incomingSummary.isEncrypted;
+    const acceptContent = hasContent && !sealed && !dirty.has(note.id);
     let shellChanged = false;
     set((state) => {
         const currentSummary = state.notes[note.id];
@@ -2276,21 +2338,44 @@ function adoptNote(note: Note | NoteSummary, set: SetNotesState, get: () => Note
         const nextSummary = currentSummary && noteSummaryEqual(currentSummary, reconciled)
             ? currentSummary
             : reconciled;
-        const nextContent = acceptContent ? (note as Note).content : state.contents[note.id];
         const summaryChanged = currentSummary !== nextSummary;
-        const contentChanged = acceptContent && state.contents[note.id] !== nextContent;
+        let nextContents = state.contents;
+        let contentsChanged = false;
+        if (sealed) {
+            if (hasContent) {
+                const ciphertext = (note as Note).content;
+                if (state.contents[note.id] !== ciphertext) {
+                    nextContents = { ...state.contents, [note.id]: ciphertext };
+                    contentsChanged = true;
+                }
+            } else if (Object.prototype.hasOwnProperty.call(state.contents, note.id)) {
+                const trimmed = { ...state.contents };
+                delete trimmed[note.id];
+                nextContents = trimmed;
+                contentsChanged = true;
+            }
+        } else if (acceptContent && state.contents[note.id] !== (note as Note).content) {
+            nextContents = { ...state.contents, [note.id]: (note as Note).content };
+            contentsChanged = true;
+        }
         const nextSaveStatus = dirty.size ? state.saveStatus : 'synced';
         const statusChanged = state.saveStatus !== nextSaveStatus;
         shellChanged = summaryChanged;
-        if (!summaryChanged && !contentChanged && !statusChanged)
+        if (!summaryChanged && !contentsChanged && !statusChanged)
             return state;
         return {
             notes: summaryChanged ? { ...state.notes, [note.id]: nextSummary } : state.notes,
-            contents: contentChanged ? { ...state.contents, [note.id]: nextContent! } : state.contents,
+            contents: contentsChanged ? nextContents : state.contents,
             saveStatus: nextSaveStatus,
         };
     });
-    if (acceptContent) {
+    if (sealed) {
+        // A remote lock is the authority. Queued writes describe plaintext the note no longer holds,
+        // and re-sending one would overwrite the envelope. The ciphertext itself stays cached so the
+        // next unlock prompt has something to open.
+        dirty.delete(note.id);
+        void replaceSealedCache(note.id, hasContent ? (note as Note).content : null);
+    } else if (acceptContent) {
         void localDb.setContent(note.id, {
             content: (note as Note).content,
             rev: note.rev,
@@ -2303,6 +2388,33 @@ function adoptNote(note: Note | NoteSummary, set: SetNotesState, get: () => Note
 function stripContent(note: Note | NoteSummary): NoteSummary {
     const { content: _content, ...summary } = note as Note;
     return summary;
+}
+/**
+ * Replace everything this device still held for a sealed note.
+ *
+ * A remote lock is the authority: the browser cache and queued bodies describe plaintext the note
+ * no longer contains. The ciphertext the server sent is written back afterwards, because that is
+ * what the unlock prompt has to open. Dropping the queued writes is deliberate — re-sending one
+ * after the lock would overwrite the envelope with the plaintext the lock exists to hide.
+ */
+async function replaceSealedCache(id: string, ciphertext: string | null): Promise<void> {
+    dirty.delete(id);
+    pendingOutboxWrites.delete(id);
+    pendingContentWrites.delete(id);
+    try {
+        const queued = await localDb.getOutbox();
+        for (const item of queued) {
+            if (item.entityId === id)
+                await localDb.completeOutboxItem(item.id, item.writeId);
+        }
+        if (ciphertext === null)
+            await localDb.dropContent(id);
+        else
+            await localDb.setContent(id, { content: ciphertext, rev: 0, updatedAt: Date.now() });
+    }
+    catch (error) {
+        console.warn('[inkstone] could not replace the cached body of a locked note', error);
+    }
 }
 function hasOwnContent(contents: Record<string, string>, id: string): boolean {
     return Object.prototype.hasOwnProperty.call(contents, id);
@@ -3539,7 +3651,9 @@ export function useActiveNote(pane: WorkspacePane | 'active' = 'active'): {
     return {
         note,
         content: storedContent ?? '',
-        loaded: !activeId || storedContent !== undefined,
+        // A sealed note is ready as soon as its summary is: the locked surface never needs the body,
+        // and the body it may hold is an envelope, not a note the reader can read.
+        loaded: !activeId || storedContent !== undefined || Boolean(note?.isEncrypted),
     };
 }
 export function noteById(id: string): NoteSummary | undefined {

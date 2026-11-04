@@ -19,6 +19,7 @@ import { t, useLocale } from './lib/i18n'
 import { initializePwa, requestOfflineWarmup, usePwa } from './store/pwa'
 import { usePresentation } from './store/presentation'
 import { useSession, watchSystemTheme } from './store/session'
+import { installNoteLockLifecycle } from './store/note-locks'
 import { useUi } from './store/ui'
 import { attachmentInsertMarkdown } from './features/attachment-hub/attachment-insert'
 import type { HubAttachmentWithUsage } from '@shared/attachment-hub'
@@ -125,6 +126,9 @@ export function App() {
     const offNav = onSessionCleared(clearNavSessionStorage)
     return () => { offMusic(); offNav() }
   }, [])
+  // Note-lock keys are session memory, so the lifecycle that drops them lives with the app rather
+  // than with a screen: switching notes, hiding the tab and leaving the page all re-lock.
+  useEffect(() => installNoteLockLifecycle(), [])
   const status = useSession((s) => s.status)
   const load = useSession((s) => s.load)
   // One-way: raised when the boot screen's ceiling is reached, never lowered again. A retry that hangs

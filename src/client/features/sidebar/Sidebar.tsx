@@ -1,6 +1,6 @@
 import { APP_SHORTCUTS } from '../../lib/shortcuts';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowDown, ArrowUp, ArrowUpDown, BookOpen, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, LayoutTemplate, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, PenLine, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, WandSparkles, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
+import { Archive, ArrowDown, ArrowUp, ArrowUpDown, BookOpen, Brush, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, CornerUpLeft, Download, FilePlus2, FileText, FolderInput, FolderPlus, Inbox, KeyRound, LayoutTemplate, Lock, LogOut, Moon, MoreHorizontal, Network, Palette, PanelLeft, PanelLeftClose, Pencil, PenLine, Pin, ScanSearch, Settings, Settings2, Smile, SortAsc, Sparkles, SquareChevronRight, Star, Sun, Trash2, WandSparkles, Waypoints, Zap, } from 'lucide-react';import { LIMITS } from '@shared/constants';
 import type { NoteSummary, ViewKind } from '@shared/types';
 import { cn } from '../../lib/cn';
 import { numericCollator } from '../../lib/collator';
@@ -50,6 +50,8 @@ import { SidebarCalendar } from './sidebar-calendar';
 import { useBreakpoint } from '../../lib/hooks';
 import { startChatAboutFolder } from '../chat/start-chat';
 import { summarizeFolder } from '../chat/folder-summary';
+import { decryptFolderFromMenu, lockFolderFromMenu, lockVaultFromMenu } from '../notes/note-lock-actions';
+import { IS_DEMO_MODE } from '../../lib/runtime';
 // The graph canvas and its scene maths are only needed once a reader opens that tab, and the
 // sidebar rides in the first bundle.
 const LocalGraphPanel = lazy(() => import('../graph/LocalGraphPanel').then((m) => ({ default: m.LocalGraphPanel })));
@@ -536,6 +538,7 @@ export function FolderSection({ mobile = false }: { mobile?: boolean }) {
     const headerMenuItems: MenuItem[] = [
         { id: 'new-folder', label: t("common.new_folder"), icon: <FolderPlus size={13}/>, onSelect: () => void create(null) },
         { id: 'manage', label: t("folders.manage_folders"), icon: <Settings2 size={13}/>, onSelect: () => openPanel('folders') },
+        ...(IS_DEMO_MODE ? [] : [{ id: 'lock-vault', label: t("notelock.vault_lock_title"), icon: <Lock size={13}/>, separatorBefore: true, onSelect: () => void lockVaultFromMenu() }]),
         { id: 'expand-all', label: allExpanded ? t("folders.collapse_all") : t("folders.expand_all"), icon: allExpanded ? <ChevronsDownUp size={13}/> : <ChevronsUpDown size={13}/>, disabled: parentFolderIds.length === 0, onSelect: toggleAllExpanded },
         { id: 'sort', label: t("folders.sort_by_name"), icon: <SortAsc size={13}/>, disabled: tree.length < 2, onSelect: () => sortSiblings(tree) },
         {
@@ -887,6 +890,21 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             icon: <WandSparkles size={13}/>,
             onSelect: () => void summarizeFolder(node.id),
         },
+        ...(IS_DEMO_MODE ? [] : [
+            {
+                id: 'lock-folder',
+                label: t('notelock.menu_folder_lock'),
+                icon: <Lock size={13}/>,
+                separatorBefore: true,
+                onSelect: () => void lockFolderFromMenu(node.id, node.name),
+            },
+            {
+                id: 'unlock-folder',
+                label: t('notelock.menu_folder_remove'),
+                icon: <KeyRound size={13}/>,
+                onSelect: () => void decryptFolderFromMenu(node.id, node.name),
+            },
+        ]),
         { id: 'delete', label: t("sidebar.delete_folder"), icon: <Trash2 size={13}/>, tone: 'danger', separatorBefore: true, onSelect: () => void remove() },
     ];
     const onKeyDown = useTreeKeyboard({
@@ -985,7 +1003,7 @@ function FolderRow({ node, notesByFolder, mobile, canOpenToSide, siblings, index
             }} onDoubleClick={() => onStartRename(node.id)} onKeyDown={onKeyDown} className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 pl-1 text-left text-[length:var(--text-12-5)] font-medium">
               <span className="min-w-0 truncate"><FolderNameText name={node.name} search={search}/></span>
               {isInbox && (<Tooltip label={t("folders.inbox")} side="right">
-                <Inbox size={11} aria-label={t("folders.inbox")} className="shrink-0 text-[var(--accent)]"/>
+                <Inbox size={11} role="img" aria-label={t("folders.inbox")} className="shrink-0 text-[var(--accent)]"/>
               </Tooltip>)}
             </button>
           </Tooltip>)}

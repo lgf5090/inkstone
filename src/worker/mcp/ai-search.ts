@@ -212,7 +212,7 @@ export async function enqueueAllNotesForIndex(
   while (cursor < lastId) {
     const { results } = await db.prepare(
       `SELECT id FROM notes
-        WHERE user_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3
+        WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0 AND id > ?2 AND id <= ?3
         ORDER BY id ASC LIMIT ?4`,
     ).bind(userId, cursor, lastId, ENQUEUE_CHUNK).all<{ id: string }>()
     if (!results.length) break
@@ -442,7 +442,7 @@ async function processQueueChunk(env: Env, userId: string, items: QueueRow[]): P
   if (embeds.length) {
     const { results: noteRows } = await db.prepare(
       `SELECT id, title, substr(content, 1, ?3) AS content FROM notes
-        WHERE user_id = ?1 AND deleted_at IS NULL
+        WHERE user_id = ?1 AND deleted_at IS NULL AND is_encrypted = 0
           AND id IN (SELECT value FROM json_each(?2))`,
     ).bind(userId, JSON.stringify(embeds.map((item) => item.note_id)), EMBED_TEXT_MAX_CHARS)
       .all<{ id: string; title: string; content: string }>()
@@ -807,7 +807,7 @@ export function semanticSnippet(excerpt: string, radius = 90): string {
  */
 function semanticWhere(userId: string, filters: SemanticFilters): { binds: unknown[]; where: string } {
   const binds: unknown[] = [userId]
-  let where = `e.user_id = ?1 AND n.deleted_at IS NULL`
+  let where = `e.user_id = ?1 AND n.deleted_at IS NULL AND n.is_encrypted = 0`
   if (filters.starred === true) where += ' AND n.is_starred = 1'
   if (filters.archived === true) where += ' AND n.is_archived = 1'
   else if (filters.archived === false) where += ' AND n.is_archived = 0'
