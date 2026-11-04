@@ -11,7 +11,7 @@
  * `quick-parse.ts` gives a date typed into the quick-add bar). Nothing here repeats a 23:59 of its own.
  */
 
-import { ArrowDown, ArrowUp, CalendarDays, CalendarOff, Check, Flag, FolderInput, Tag, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, CalendarOff, Check, Flag, FolderInput, Grid2X2, Tag, Trash2 } from 'lucide-react'
 import { t } from '../../lib/i18n'
 import { addDaysKey } from '../../lib/time'
 import { localDate } from '@shared/assistant-time'
@@ -29,8 +29,26 @@ import {
   type TodoTask,
 } from '@shared/todos/model'
 import { isTaskOpen } from '@shared/todos/status'
+import { MATRIX_QUADRANTS, quadrantCell, type MatrixQuadrant } from '@shared/todos/matrix'
 import type { MessageKey } from '@shared/locales/en-US'
 import type { TaskMoveControls } from './TaskCard'
+
+/** The matrix answers a row menu may write, passed only by the matrix screen. */
+export interface TaskQuadrantControls {
+  important: boolean
+  urgent: boolean
+  /** Whether both axes are still derived rather than written by the reader. */
+  automatic: boolean
+  move: (important: boolean, urgent: boolean) => void
+  auto: () => void
+}
+
+const QUADRANT_LABELS: Record<MatrixQuadrant, MessageKey> = {
+  do: 'todo.matrix.quadrant.do',
+  schedule: 'todo.matrix.quadrant.schedule',
+  delegate: 'todo.matrix.quadrant.delegate',
+  drop: 'todo.matrix.quadrant.drop',
+}
 
 /**
  * The four priorities, in the order every surface that names them lists them — the batch bar's submenu
@@ -74,6 +92,8 @@ export interface TaskMenuHandlers {
   update: (patch: Record<string, unknown>) => void
   /** Left out for a task that has nothing left to be reminded about. */
   snooze?: (minutes: SnoozeMinutes) => void
+  /** Left out everywhere but the matrix screen. */
+  quadrant?: TaskQuadrantControls
 }
 
 /** The day a quick row writes: the reader's own calendar day, moved by whole days. */
@@ -156,7 +176,7 @@ function joinMenuGroups(groups: readonly (readonly MenuItem[])[]): MenuItem[] {
  * reminders.
  */
 export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): MenuItem[] {
-  const { lists, move, onClose, update, snooze } = handlers
+  const { lists, move, onClose, update, snooze, quadrant } = handlers
 
   // The same four durations the editor and the notification row offer, so "10 minutes" means one thing
   // wherever the reader reads it. The status rows come first, and the rule between them is what keeps
@@ -216,6 +236,49 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
           />
         ),
       }]
+
+  /**
+   * The four cells of the matrix, offered only where the screen passed the answers in.
+   *
+   * Dragging writes the same pair, but a phone and a keyboard cannot drag: this submenu is the
+   * equivalent path, and "auto" is the way back to the derived classification for a row the reader
+   * once placed by hand.
+   */
+  const quadrantItems: MenuItem[] = quadrant && isTaskOpen(task.status)
+    ? [{
+        id: 'quadrant',
+        label: t('todo.matrix.menu'),
+        icon: <Grid2X2 size={13} />,
+        submenu: ({ closeMenu }) => (
+          <MenuSubmenuList
+            label={t('todo.matrix.menu')}
+            items={[
+              ...MATRIX_QUADRANTS.map((entry) => {
+                const cell = quadrantCell(entry)
+                return {
+                  id: `quadrant-${entry}`,
+                  label: t(QUADRANT_LABELS[entry]),
+                  checked: quadrant.important === cell.important && quadrant.urgent === cell.urgent,
+                  onSelect: () => {
+                    closeMenu()
+                    quadrant.move(cell.important, cell.urgent)
+                  },
+                }
+              }),
+              {
+                id: 'quadrant-auto',
+                label: t('todo.matrix.auto'),
+                checked: quadrant.automatic,
+                onSelect: () => {
+                  closeMenu()
+                  quadrant.auto()
+                },
+              },
+            ]}
+          />
+        ),
+      }]
+    : []
 
   // The manual-order rows. They live in the menu rather than on a draggable handle alone because a
   // phone cannot drag and a keyboard never could: this is the equivalent path, not a secondary one.
@@ -295,7 +358,7 @@ export function buildTaskMenuItems(task: TodoTask, handlers: TaskMenuHandlers): 
       }))
     : []
 
-  return joinMenuGroups([statusItems, priorityItems, orderItems, listItems, snoozeItems])
+  return joinMenuGroups([statusItems, priorityItems, quadrantItems, orderItems, listItems, snoozeItems])
 }
 
 /**

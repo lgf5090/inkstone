@@ -253,6 +253,60 @@ export interface TodoTimeEntry {
   updatedAt: number
 }
 
+/** Which phase of a pomodoro cycle a focus record describes. */
+export const FOCUS_RUN_KINDS = ['work', 'short_break', 'long_break'] as const
+export type FocusRunKind = (typeof FOCUS_RUN_KINDS)[number]
+
+export function isFocusRunKind(value: unknown): value is FocusRunKind {
+  return typeof value === 'string' && (FOCUS_RUN_KINDS as readonly string[]).includes(value)
+}
+
+/**
+ * One finished focus phase: a work block or a break, as the overlay measured it.
+ *
+ * `day` is the account's calendar day the phase ended on, written by the server. `completed` says
+ * whether the phase reached its plan; a manual finish or a skipped break is a real record too, because
+ * the time still passed and the history should not lie about it.
+ */
+export interface TodoFocusRun {
+  id: string
+  taskId: string | null
+  kind: FocusRunKind
+  startedAt: number
+  endedAt: number
+  plannedMs: number
+  actualMs: number
+  completed: boolean
+  day: string
+  createdAt: number
+}
+
+export interface TodoFocusDay {
+  day: string
+  workMs: number
+  rounds: number
+}
+
+export interface TodoFocusTaskRow {
+  taskId: string
+  title: string
+  workMs: number
+  rounds: number
+}
+
+/** The focus history one window holds, plus today's reading even when the window excludes it. */
+export interface TodoFocusStats {
+  range: { from: string; to: string }
+  workMs: number
+  breakMs: number
+  workRounds: number
+  completedRounds: number
+  today: TodoFocusDay
+  byDay: TodoFocusDay[]
+  byTask: TodoFocusTaskRow[]
+  truncatedTasks: number
+}
+
 /**
  * How far a client's clock may run ahead of the server's before a timestamp is refused.
  *
@@ -583,6 +637,13 @@ export interface TodoTask extends Task {
    * paints is interpolated from it locally; nothing asks the server every second.
    */
   runningSince?: number | null
+  /**
+   * The reader's importance answer for the Eisenhower matrix, or null while the matrix derives it
+   * from the priority ladder. A stored false is a deliberate "not important", not an absence.
+   */
+  important?: boolean | null
+  /** The urgency answer, or null while the matrix derives it from the due date and priority. */
+  urgent?: boolean | null
   stepTotal: number
   stepDone: number
 }

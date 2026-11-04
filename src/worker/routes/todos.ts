@@ -82,6 +82,8 @@ import {
 import { addDays, countStatBuckets, isStatsDay, loadTodoStats, MAX_STATS_BUCKETS } from '../todos/stats'
 import { buildTodoExportCsv, buildTodoExportJson, collectExportTasks, TodoExportTooLarge } from '../todos/export-tasks'
 import { loadTrackedTotals, loadWorklog } from '../todos/worklog'
+import { focusRunProblem, focusTaskOwned, loadFocusStats, recordFocusRun } from '../todos/focus'
+import { isFocusRunKind } from '@shared/todos/model'
 
 const BODY_LIMIT = JSON_BODY_LIMITS.settings
 const TITLE_MAX = 300
@@ -174,6 +176,19 @@ function asPriority(value: unknown): TaskPriority {
 
 function asBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw ApiError.badRequest(`${field} must be true or false`)
+  return value
+}
+
+/** A matrix answer: true, false, or null to clear it back to the derived classification. */
+function optionalFlag(value: unknown, field: string): boolean | null {
+  if (value === null) return null
+  return asBoolean(value, field)
+}
+
+/** A whole, non-negative number a focus record is measured in. */
+function numberField(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+    throw ApiError.badRequest(`${field} must be a whole, non-negative number`)
   return value
 }
 
@@ -771,6 +786,52 @@ todoRoutes.get('/worklog', async (c) => {
 })
 
 /**
+ * The focus history for the statistics window, plus today's reading even when the window excludes it.
+ *
+ * A record is written by the overlay at the end of every phase, so a break or a skipped block is part
+ * of the history rather than an absence the statistics would have to infer.
+ */
+todoRoutes.get('/focus', async (c) => {
+  const settings = await store(c).getSettings()
+  const range = statsWindow(c, settings.timezone)
+  return c.json(await loadFocusStats(c.env.DB, c.get('userId'), {
+    from: range.from,
+    to: range.to,
+    timezone: settings.timezone,
+    now: Date.now(),
+  }))
+})
+
+/** One finished focus phase. The account zone is read here; the client never names the day. */
+todoRoutes.post('/focus', async (c) => {
+  const settings = await store(c).getSettings()
+  const body = await readJson<Record<string, unknown>>(c, BODY_LIMIT)
+  const kind = body.kind
+  if (!isFocusRunKind(kind)) throw ApiError.badRequest('A focus record names a work block or a break.')
+  const taskId = body.taskId === null || body.taskId === undefined
+    ? null
+    : optionalId(body.taskId, 'taskId') ?? null
+  const input = {
+    taskId,
+    kind,
+    startedAt: numberField(body.startedAt, 'startedAt'),
+    endedAt: numberField(body.endedAt, 'endedAt'),
+    plannedMs: numberField(body.plannedMs, 'plannedMs'),
+    actualMs: numberField(body.actualMs, 'actualMs'),
+    completed: Boolean(body.completed),
+  }
+  const problem = focusRunProblem(input)
+  if (problem) throw ApiError.badRequest(problem)
+  // A record may only point at this account's own task; another account's id is refused rather than
+  // stored as a reference the statistics join would then silently drop the title from.
+  if (taskId !== null) {
+    const owned = await focusTaskOwned(c.env.DB, c.get('userId'), taskId)
+    if (!owned) throw ApiError.badRequest('A focus record names a task this account does not hold.')
+  }
+  return c.json({ run: await recordFocusRun(c.env.DB, c.get('userId'), input, settings.timezone) }, 201)
+})
+
+/**
  * The end-of-day pass: the four questions one close-out asks about one day.
  *
  * Four reads through the listing's own filter builder, not four hand-written statements. Every bucket is
@@ -1291,6 +1352,8 @@ todoRoutes.post('/', async (c) => {
     description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '',
     status: body.status === undefined ? undefined : asStatus(body.status),
     priority: body.priority === undefined ? undefined : asPriority(body.priority),
+    important: body.important === undefined ? null : optionalFlag(body.important, 'important'),
+    urgent: body.urgent === undefined ? null : optionalFlag(body.urgent, 'urgent'),
     dueAt,
     startAt,
     projectId: await projectRef(s, body.projectId),
@@ -1744,6 +1807,8 @@ todoRoutes.patch('/:id', async (c) => {
     ...(body.title !== undefined ? { title: text(body.title, TITLE_MAX, 'A task title') } : {}),
     ...(body.description !== undefined ? { description: optionalText(body.description, DESCRIPTION_MAX, 'A task note') ?? '' } : {}),
     ...(body.priority !== undefined ? { priority: asPriority(body.priority) } : {}),
+    ...(body.important !== undefined ? { important: optionalFlag(body.important, 'important') } : {}),
+    ...(body.urgent !== undefined ? { urgent: optionalFlag(body.urgent, 'urgent') } : {}),
     ...(dueAt !== undefined ? { dueAt } : {}),
     ...(startAt !== undefined ? { startAt } : {}),
     ...(body.projectId !== undefined ? { projectId: await projectRef(s, body.projectId) } : {}),

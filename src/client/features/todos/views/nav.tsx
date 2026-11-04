@@ -19,7 +19,7 @@
  * through the same filter the row opens.
  */
 import type { ComponentType, ReactNode } from 'react'
-import { CalendarClock, CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, Flame, LayoutGrid, Star, Sun, Sunset } from 'lucide-react'
+import { CalendarClock, CalendarDays, CalendarRange, ChartNoAxesColumn, CheckCircle2, Flame, Grid2X2, LayoutGrid, Star, Sun, Sunset } from 'lucide-react'
 import type { TaskCounts } from '@shared/todos/model'
 import type { MessageKey } from '../../../lib/i18n'
 import type { TodoView } from '../store'
@@ -68,7 +68,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
   {
     view: 'board',
     icon: LayoutGrid,
-    sidebar: { order: 6, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
+    sidebar: { order: 7, labelKey: 'todo.smart.all', badge: (counts) => counts?.all ?? 0 },
     phone: { order: 1, labelKey: 'todo.view.board' },
   },
   {
@@ -99,9 +99,16 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     sidebar: { order: 5, labelKey: 'todo.view.calendar' },
   },
   {
+    view: 'matrix',
+    icon: Grid2X2,
+    // The matrix is a way to sort the open plate by two questions, so it sits beside the calendar and
+    // carries the same open count as the board.
+    sidebar: { order: 6, labelKey: 'todo.view.matrix', badge: (counts) => counts?.all ?? 0 },
+  },
+  {
     view: 'completed',
     icon: CheckCircle2,
-    sidebar: { order: 7, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
+    sidebar: { order: 8, labelKey: 'todo.smart.completed', badge: (counts) => counts?.completed ?? 0 },
     phone: { order: 4, labelKey: 'todo.view.completed' },
   },
   {
@@ -109,7 +116,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     icon: ChartNoAxesColumn,
     // A wide window has room for a row beyond the phone's four tabs. A phone's bottom bar does not:
     // four tabs are what a thumb can reach, so the phone reaches this screen from the header instead.
-    sidebar: { order: 8, labelKey: 'todo.view.stats' },
+    sidebar: { order: 9, labelKey: 'todo.view.stats' },
   },
   {
     view: 'finish-day',
@@ -117,7 +124,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     // The close-out is a ritual rather than a place to browse, so it gets the sidebar's last row and no
     // phone tab — and the row only appears while the account has asked to be offered the page.
     sidebar: {
-      order: 9,
+      order: 10,
       labelKey: 'todo.view.finish_day',
       requires: (flags) => flags.finishDayEnabled,
     },
@@ -127,7 +134,7 @@ export const TODO_SURFACES: readonly TodoSurface[] = [
     icon: Flame,
     // Habits are browsed rather than reached on the way home, so the sidebar carries the row and the
     // phone's four tabs do not — the same placement the statistics and the close-out accepted.
-    sidebar: { order: 10, labelKey: 'todo.view.counters' },
+    sidebar: { order: 11, labelKey: 'todo.view.counters' },
   },
 ]
 

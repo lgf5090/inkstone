@@ -3715,6 +3715,49 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
          ON blog_post_assets(user_id, asset_id)`,
     ],
   },
+  {
+    // The focus history's table and its two indexes. The table is also declared beside the other
+    // `todos_*` tables, which are built before the ledger; this version is what records the work for
+    // databases whose ledger was already past the number, and every statement is idempotent.
+    version: 270,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS todos_focus_runs (
+        user_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        task_id TEXT,
+        kind TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER NOT NULL,
+        planned_ms INTEGER NOT NULL,
+        actual_ms INTEGER NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0,
+        day TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_focus_day
+         ON todos_focus_runs(user_id, day)`,
+      `CREATE INDEX IF NOT EXISTS idx_todos_focus_task
+         ON todos_focus_runs(user_id, task_id, started_at)`,
+    ],
+  },
+  {
+    // The importance half of the Eisenhower matrix, NULL while the matrix derives it. The column is
+    // nullable on purpose: "not classified" and "classified not important" are different answers.
+    version: 271,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'matrix_important' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN matrix_important INTEGER`,
+    ],
+  },
+  {
+    // The urgency half of the same pair, with the same tri-state.
+    version: 272,
+    skipIfColumnExists: { table: 'todos_tasks', column: 'matrix_urgent' },
+    statements: [
+      `ALTER TABLE todos_tasks ADD COLUMN matrix_urgent INTEGER`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

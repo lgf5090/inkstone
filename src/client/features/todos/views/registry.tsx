@@ -12,6 +12,7 @@ import { BoardView } from '../BoardView'
 import { CompletedView, ListTaskView, PlanView, StarredView, UpcomingView } from '../TaskViews'
 import { TodayView } from '../TodayView'
 import { CalendarView } from '../CalendarView'
+import { MatrixView } from '../MatrixView'
 import { ListsView } from '../ListsView'
 import { StatsView } from '../StatsView'
 import { FinishDayView } from '../FinishDayView'
@@ -27,6 +28,7 @@ const RENDERERS: Record<TodoView, SurfaceRenderer> = {
   plan: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><PlanView /></div>,
   upcoming: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><UpcomingView /></div>,
   calendar: () => <CalendarView />,
+  matrix: () => <MatrixView />,
   completed: () => <CompletedView />,
   stats: () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><StatsView /></div>,
   'finish-day': () => <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto"><FinishDayView /></div>,

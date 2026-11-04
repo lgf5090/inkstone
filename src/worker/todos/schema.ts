@@ -24,6 +24,11 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'todo',
     priority TEXT NOT NULL DEFAULT 'medium',
+    -- The reader's Eisenhower answers, or NULL while the matrix derives them from the priority ladder
+    -- and the due date. A stored 0 is a deliberate "not important", so the tri-state is the column's
+    -- whole point. Migrations 271 and 272 carry the pair to older databases.
+    matrix_important INTEGER,
+    matrix_urgent INTEGER,
     -- Where the reader placed this task among its list's rows, or NULL while nobody has moved it.
     -- REAL because a drop between two neighbours folds their midpoint, and an integer runs out of
     -- room after one drop into the same gap. Migration 125 carries the column to older databases.
@@ -313,6 +318,33 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_todos_time_day
      ON todos_time_entries(user_id, day)`,
 
+  // The focus history: one row per finished pomodoro phase, written by the overlay.
+  //
+  // The ledger above answers "how long did this task take" and holds at most one open row per account.
+  // A focus phase is a different fact: it can be a break, it can name no task, and a finished phase
+  // stays a record even when the task is later deleted — so it gets its own table rather than a
+  // `source='focus'` row that could not describe a break. `day` is the account's calendar day of the
+  // phase's end, fixed at the write for the same DST reason every other day column is. Migration 270
+  // carries the table to databases built before this line existed.
+  `CREATE TABLE IF NOT EXISTS todos_focus_runs (
+    user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    task_id TEXT,
+    kind TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER NOT NULL,
+    planned_ms INTEGER NOT NULL,
+    actual_ms INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    day TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_focus_day
+     ON todos_focus_runs(user_id, day)`,
+  `CREATE INDEX IF NOT EXISTS idx_todos_focus_task
+     ON todos_focus_runs(user_id, task_id, started_at)`,
+
   // What the habits screen counts: one row per habit, and one row per habit-day.
   //
   // A habit is not a task and its seconds are not a ledger row. `todos_time_entries` keys on `task_id`
@@ -410,6 +442,7 @@ export const TODOS_REQUIRED_TABLES: readonly string[] = [
   'todos_tag_links',
   'todos_task_links',
   'todos_time_entries',
+  'todos_focus_runs',
   'todos_counters',
   'todos_counter_ticks',
   'todos_feeds',
@@ -442,6 +475,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
   'ux_todos_time_open',
   'idx_todos_time_task',
   'idx_todos_time_day',
+  'idx_todos_focus_day',
+  'idx_todos_focus_task',
   'idx_todos_feeds_slug',
   'idx_todos_feeds_user',
   'idx_todos_mail_tokens_token',
@@ -449,7 +484,8 @@ export const TODOS_REQUIRED_INDEXES: readonly string[] = [
 
 export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   todos_tasks: [
-    'user_id', 'id', 'title', 'description', 'status', 'priority', 'position', 'due_at', 'start_at', 'completed_at',
+    'user_id', 'id', 'title', 'description', 'status', 'priority', 'matrix_important', 'matrix_urgent', 'position',
+    'due_at', 'start_at', 'completed_at',
     'completed_on', 'created_on',
     'project_id', 'list_id', 'parent_id', 'icon', 'color', 'starred', 'repeat_rule', 'planned_for', 'note_id',
     'conversation_id', 'created_at', 'updated_at', 'rev', 'deleted_at', 'archived_at', 'time_estimate_ms',
@@ -463,6 +499,9 @@ export const TODOS_REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>>
   todos_tag_links: ['user_id', 'task_id', 'tag_id', 'created_at'],
   todos_task_links: ['user_id', 'task_id', 'depends_on_id', 'created_at'],
   todos_time_entries: ['user_id', 'id', 'task_id', 'start_at', 'end_at', 'day', 'source', 'created_at', 'updated_at'],
+  todos_focus_runs: [
+    'user_id', 'id', 'task_id', 'kind', 'started_at', 'ended_at', 'planned_ms', 'actual_ms', 'completed', 'day', 'created_at',
+  ],
   todos_counters: ['user_id', 'id', 'title', 'kind', 'icon', 'color', 'goal', 'running_since', 'created_at', 'updated_at'],
   todos_counter_ticks: ['user_id', 'counter_id', 'day', 'amount'],
   todos_feeds: ['slug', 'user_id', 'password_hash', 'expires_at', 'revoked_at', 'created_at'],

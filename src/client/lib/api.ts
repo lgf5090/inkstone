@@ -152,6 +152,8 @@ import type {
   TodoStats,
   TodoTask,
   TodoTimeEntry,
+  TodoFocusRun,
+  TodoFocusStats,
 } from '@shared/todos/model'
 import { REMIND_OFFSET_MS, type CounterReadings, type CounterStop, type CounterTick, type CounterKind, type FinishDay, type RemindTier, type TodoCounter, type TodoExportDocument, type Worklog } from '@shared/todos/model'
 import type {
@@ -1782,6 +1784,18 @@ export const api = {
      */
     worklog: (params: { from: string, to: string, group?: string }) =>
       request<Worklog>(`/api/todos/worklog${toQuery(params)}`),
+    /**
+     * The focus history over a window, plus today's own reading.
+     *
+     * A record is posted when a pomodoro phase ends, so the statistics can show work and break time
+     * without inferring it from a second table.
+     */
+    focus: (params: { from: string, to: string }) =>
+      request<TodoFocusStats>(`/api/todos/focus${toQuery(params)}`),
+    recordFocus: (body: {
+      taskId: string | null, kind: 'work' | 'short_break' | 'long_break',
+      startedAt: number, endedAt: number, plannedMs: number, actualMs: number, completed: boolean,
+    }) => request<{ run: TodoFocusRun }>('/api/todos/focus', { method: 'POST', body }),
     /**
      * The end-of-day pass: what the day finished, what it touched and left open, what fell behind, and
      * what tomorrow already holds.

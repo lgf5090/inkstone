@@ -58,7 +58,7 @@ import {
 } from './todo-address'
 import { daysToRange } from './due-range'
 
-export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters'
+export type TodoView = 'board' | 'today' | 'plan' | 'upcoming' | 'calendar' | 'starred' | 'completed' | 'list' | 'tag' | 'stats' | 'finish-day' | 'counters' | 'matrix'
 
 /** The list shape this feature reads, re-exported so its screens do not reach the API module. */
 export type { TaskListEntry } from '../../lib/api'
@@ -305,6 +305,19 @@ interface TodosState {
   startTimer: (task: TodoTask) => Promise<void>
   /** Close this task's running interval. The row keeps whatever status it had: stopping is not finishing. */
   stopTimer: (id: string) => Promise<void>
+  /**
+   * File one finished focus phase. Best effort in the sense that a failed record never blocks the
+   * overlay, but the failure is reported rather than swallowed.
+   */
+  recordFocusRun: (run: {
+    taskId: string | null
+    kind: 'work' | 'short_break' | 'long_break'
+    startedAt: number
+    endedAt: number
+    plannedMs: number
+    actualMs: number
+    completed: boolean
+  }) => Promise<void>
   /** Open tasks matching a title search, for the today screen's picker. Errors are reported, not thrown. */
   searchTasks: (query: string) => Promise<TodoTask[]>
 
@@ -541,12 +554,13 @@ const SEARCH_DEBOUNCE_MS = 250
  * to today's shelf, its upcoming, later and no-date groups are empty by construction rather than by
  * the reader having none of that work.
  */
-const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred', string> = {
+const SERVER_VIEWS: Record<'board' | 'today' | 'plan' | 'upcoming' | 'starred' | 'matrix', string> = {
   board: 'open',
   today: 'today',
   plan: 'open',
   upcoming: 'upcoming',
   starred: 'starred',
+  matrix: 'open',
 }
 
 /**
@@ -2196,6 +2210,14 @@ export const useTodos = create<TodosState>((set, get) => ({
       await api.todos.stopTimer(id)
       paintTimedRow(id, null)
       await refreshServerRows([id])
+    } catch (error) {
+      toastError(error)
+    }
+  },
+
+  recordFocusRun: async (run) => {
+    try {
+      await api.todos.recordFocus(run)
     } catch (error) {
       toastError(error)
     }

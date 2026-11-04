@@ -63,6 +63,17 @@ vi.mock('../../lib/api', () => ({
         overEstimateCount: 0,
         overEstimateRate: 0,
       }),
+      focus: async () => ({
+        range: { from: '2026-03-01', to: '2026-03-07' },
+        workMs: 0,
+        breakMs: 0,
+        workRounds: 0,
+        completedRounds: 0,
+        today: { day: '2026-03-07', workMs: 0, rounds: 0 },
+        byDay: [],
+        byTask: [],
+        truncatedTasks: 0,
+      }),
       stats: async (params: StatsCall = {}) => {
         service.calls.push(params)
         if (service.hold) await new Promise<void>((resolve) => service.waiting.push(resolve))

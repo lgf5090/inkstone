@@ -382,6 +382,7 @@ export function useViewTitle(): string {
   if (view === 'plan') return t('todo.view.plan')
   if (view === 'upcoming') return t('todo.view.upcoming')
   if (view === 'calendar') return t('todo.view.calendar')
+  if (view === 'matrix') return t('todo.view.matrix')
   if (view === 'starred') return t('todo.view.starred')
   if (view === 'completed') return t('todo.view.completed')
   if (view === 'stats') return t('todo.view.stats')
