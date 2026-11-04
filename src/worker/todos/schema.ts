@@ -26,7 +26,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
     priority TEXT NOT NULL DEFAULT 'medium',
     -- The reader's Eisenhower answers, or NULL while the matrix derives them from the priority ladder
     -- and the due date. A stored 0 is a deliberate "not important", so the tri-state is the column's
-    -- whole point. Migrations 271 and 272 carry the pair to older databases.
+    -- whole point. Migrations 274 and 275 carry the pair to older databases.
     matrix_important INTEGER,
     matrix_urgent INTEGER,
     -- Where the reader placed this task among its list's rows, or NULL while nobody has moved it.
@@ -324,7 +324,7 @@ export const TODOS_SCHEMA_STATEMENTS: readonly string[] = [
   // A focus phase is a different fact: it can be a break, it can name no task, and a finished phase
   // stays a record even when the task is later deleted — so it gets its own table rather than a
   // `source='focus'` row that could not describe a break. `day` is the account's calendar day of the
-  // phase's end, fixed at the write for the same DST reason every other day column is. Migration 270
+  // phase's end, fixed at the write for the same DST reason every other day column is. Migration 273
   // carries the table to databases built before this line existed.
   `CREATE TABLE IF NOT EXISTS todos_focus_runs (
     user_id TEXT NOT NULL,

@@ -3719,7 +3719,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // The focus history's table and its two indexes. The table is also declared beside the other
     // `todos_*` tables, which are built before the ledger; this version is what records the work for
     // databases whose ledger was already past the number, and every statement is idempotent.
-    version: 270,
+    version: 273,
     statements: [
       `CREATE TABLE IF NOT EXISTS todos_focus_runs (
         user_id TEXT NOT NULL,
@@ -3744,7 +3744,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     // The importance half of the Eisenhower matrix, NULL while the matrix derives it. The column is
     // nullable on purpose: "not classified" and "classified not important" are different answers.
-    version: 271,
+    version: 274,
     skipIfColumnExists: { table: 'todos_tasks', column: 'matrix_important' },
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN matrix_important INTEGER`,
@@ -3752,7 +3752,7 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   },
   {
     // The urgency half of the same pair, with the same tri-state.
-    version: 272,
+    version: 275,
     skipIfColumnExists: { table: 'todos_tasks', column: 'matrix_urgent' },
     statements: [
       `ALTER TABLE todos_tasks ADD COLUMN matrix_urgent INTEGER`,

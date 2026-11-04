@@ -10,7 +10,7 @@ import {
 import { makeD1 } from './doubles/d1-sqlite'
 import { testBindings } from './doubles/bindings'
 
-const NEW_VERSIONS = [270, 271, 272]
+const NEW_VERSIONS = [273, 274, 275]
 
 function columnsOf(sqlite: DatabaseSync, table: string): string[] {
   return sqlite.prepare('SELECT name FROM pragma_table_info(?)').all(table).map((row) => (row as { name: string }).name)
@@ -71,7 +71,7 @@ describe('the matrix columns and focus history', () => {
     sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN matrix_important')
     sqlite.exec('ALTER TABLE todos_tasks DROP COLUMN matrix_urgent')
     sqlite.exec('DROP TABLE todos_focus_runs')
-    sqlite.exec('DELETE FROM schema_migrations WHERE version IN (270, 271, 272)')
+    sqlite.exec('DELETE FROM schema_migrations WHERE version IN (273, 274, 275)')
 
     await reboot(sqlite)
 
