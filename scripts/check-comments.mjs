@@ -18848,6 +18848,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/tools/compare/projects/ProjectsView.tsx", [
     "/**\n * The comparisons the reader kept.\n *\n * A project is a name, the options it was compared with, and the two sides in R2. Opening one puts\n * the sides back where the comparison lives: text goes straight to the text screen, while an image,\n * a binary or a folder opens as a read-only summary — reopening those is reading what was saved,\n * not re-running a comparison whose files are no longer on this machine.\n */",
+    "// A browser may refuse clipboard access outside a direct gesture; the link is still created,",
+    "// and the row carries a copy button for the reader to press themselves.",
   ]],
   ["src/client/features/tools/compare/shortcuts/ShortcutsView.tsx", [
     "/**\n * The keyboard map, kept as a screen rather than a tooltip: the shortcuts work on the whole text\n * comparison, and a reader who never opens it should still be able to find them.\n */",
