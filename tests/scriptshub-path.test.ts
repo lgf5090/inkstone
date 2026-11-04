@@ -5,6 +5,7 @@ import {
   publicationUrlPath,
   parsePublicationRequestPath,
 } from '../src/shared/scriptshub/path'
+import { escapeHtml } from '../src/worker/lib/encoding'
 
 describe('publication path validation', () => {
   it('accepts the paths a distribution is meant to have', () => {
@@ -51,5 +52,21 @@ describe('publication path validation', () => {
   it('builds the two public addresses from the same validated path', () => {
     expect(publicationUrlPath('system/linux/flatpak-setup.sh')).toBe('/sc/system/linux/flatpak-setup.sh')
     expect(publicationDetailPath('abc')).toBe('/sc-view/abc')
+  })
+
+  it('refuses encoded traversal even after the route decodes it once', () => {
+    // The route decodes `%2e%2e` before validating; a second encoding leaves a percent sign, which
+    // the same rule refuses. Neither spelling can reach a path the store would accept.
+    expect(parsePublicationRequestPath('../setup.sh')).toBeNull()
+    expect(parsePublicationRequestPath('..%2fsetup.sh')).toBeNull()
+    expect(parsePublicationRequestPath('%2e%2e/setup.sh')).toBeNull()
+    expect(publicationPathProblem('system/..')).toContain('..')
+    expect(publicationPathProblem('system/%2e%2e/setup.sh')).toContain('percent')
+  })
+
+  it('escapes a script body and a file name before they enter the public page', () => {
+    expect(escapeHtml('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(escapeHtml('" onmouseover="x')).not.toContain('"')
+    expect(escapeHtml("it's <b>")).toContain('&#39;')
   })
 })

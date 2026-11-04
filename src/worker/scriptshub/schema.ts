@@ -100,6 +100,7 @@ export const SCRIPTSHUB_SCHEMA_STATEMENTS: readonly string[] = [
     files_json TEXT NOT NULL,
     file_count INTEGER NOT NULL DEFAULT 0,
     char_count INTEGER NOT NULL DEFAULT 0,
+    diff_stat TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'save',
     created_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, snippet_id, version)
@@ -234,7 +235,7 @@ export const SCRIPTSHUB_REQUIRED_COLUMNS: Readonly<Record<string, readonly strin
   ],
   scriptshub_files: ['user_id', 'id', 'snippet_id', 'name', 'language', 'content', 'position', 'created_at', 'updated_at'],
   scriptshub_snippet_tags: ['user_id', 'snippet_id', 'tag_id'],
-  scriptshub_revisions: ['user_id', 'snippet_id', 'version', 'title', 'description', 'files_json', 'file_count', 'char_count', 'source', 'created_at'],
+  scriptshub_revisions: ['user_id', 'snippet_id', 'version', 'title', 'description', 'files_json', 'file_count', 'char_count', 'diff_stat', 'source', 'created_at'],
   scriptshub_assets: ['user_id', 'id', 'snippet_id', 'file_name', 'content_type', 'byte_size', 'r2_key', 'created_at'],
   scriptshub_publications: [
     'user_id', 'id', 'snippet_id', 'file_id', 'path', 'is_enabled', 'visibility',

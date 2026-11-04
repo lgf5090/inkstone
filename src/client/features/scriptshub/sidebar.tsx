@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react'
 import {
-  BarChart3, ChevronRight, FileCode2, FolderClosed, FolderPlus, MoreHorizontal,
+  BarChart3, ChevronRight, Copy, FileCode2, FilePlus2, FolderClosed, FolderPlus, MoreHorizontal,
   Pin, Plus, Star, Tag, Trash2, Upload,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
@@ -20,6 +20,8 @@ import { ColorWellField } from '../../components/color-field'
 import { Drawer, Menu, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useScriptsHub, folderPathOf } from './store'
 import { treeIndent } from '../../lib/tree'
+import { copyText } from '../../lib/clipboard'
+import { useUi } from '../../store/ui'
 import type { ScriptFolder, ScriptTag } from '@shared/scriptshub/types'
 
 const FOLDER_DRAG = 'application/x-scriptshub-folder'
@@ -50,6 +52,7 @@ export function SnippetsSidebar({ mobile = false, onNavigate }: {
   const overview = useScriptsHub((state) => state.overview)
   const query = useScriptsHub((state) => state.query)
   const loadList = useScriptsHub((state) => state.loadList)
+  const toast = useUi((state) => state.toast)
   const folders = overview?.folders ?? []
   const tags = overview?.tags ?? []
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
@@ -120,37 +123,24 @@ export function SnippetsSidebar({ mobile = false, onNavigate }: {
     await useScriptsHub.getState().updateFolder(folderId, { parentId })
   }
 
-  const content = (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-        <span className="flex size-7 items-center justify-center rounded-[var(--r-md)] bg-[var(--accent-soft)] text-[var(--accent-on-soft)]">
-          <FileCode2 size={15} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[length:var(--text-13)] font-semibold text-[var(--text-primary)]">
-            {t('scriptshub.sidebar.title')}
-          </p>
-          <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
-            {t('scriptshub.sidebar.subtitle')}
-          </p>
-        </div>
-        <IconButton
-          label={t('scriptshub.sidebar.new_snippet')}
-          size="sm"
-          onClick={() => {
-            const create = useScriptsHub.getState().create
-            const folderId = useScriptsHub.getState().query.folderId
-            void create({ title: t('scriptshub.defaults.new_title'), folderId, language: 'shell' }).then((detail) => {
-              useScriptsHub.getState().select(detail.id)
-            })
-            onNavigate?.()
-          }}
-        >
-          <Plus size={14} aria-hidden="true" />
-        </IconButton>
-      </div>
+  const copyFolderPath = async (folder: ScriptFolder) => {
+    const path = folderPathOf(folders, folder.id).map((entry) => entry.name).join('/')
+    const ok = await copyText(path)
+    toast({ title: ok ? t('scriptshub.toast.path_copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }
 
-      <nav aria-label={t('scriptshub.sidebar.views')} className="space-y-px px-2">
+  const createInFolder = (folderId: string | null) => {
+    void useScriptsHub.getState().create({
+      title: t('scriptshub.defaults.new_title'),
+      folderId,
+      language: 'shell',
+    }).then((detail) => useScriptsHub.getState().select(detail.id))
+    onNavigate?.()
+  }
+
+  const content = (
+    <div className="flex h-full min-h-0 w-full flex-col">
+      <nav aria-label={t('scriptshub.sidebar.views')} className="space-y-px px-2 pt-2">
         {FILTERS.map((filter) => {
           const Icon = filter.icon
           const active = query.quick === filter.id && !query.folderId && !query.tagId
@@ -226,6 +216,8 @@ export function SnippetsSidebar({ mobile = false, onNavigate }: {
                 onRename={(folder) => setDialog({ kind: 'folder', mode: 'rename', id: folder.id, name: folder.name, color: folder.color })}
                 onDelete={deleteFolder}
                 onMove={moveFolder}
+                onNewSnippet={createInFolder}
+                onCopyPath={copyFolderPath}
               />
             ))}
             <div
@@ -284,7 +276,7 @@ export function SnippetsSidebar({ mobile = false, onNavigate }: {
     <>
       <aside className={cn(
         'h-full min-h-0 w-[248px] shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)]',
-        mobile ? 'hidden' : 'hidden md:flex',
+        mobile ? 'hidden' : 'hidden md:block',
       )}>
         {content}
       </aside>
@@ -329,7 +321,7 @@ function buildFolderTree(folders: readonly ScriptFolder[]): FolderTreeNode[] {
 }
 
 function FolderNode({
-  node, depth, expanded, onToggle, activeId, onChoose, onNew, onRename, onDelete, onMove,
+  node, depth, expanded, onToggle, activeId, onChoose, onNew, onRename, onDelete, onMove, onNewSnippet, onCopyPath,
 }: {
   node: FolderTreeNode
   depth: number
@@ -341,13 +333,17 @@ function FolderNode({
   onRename: (folder: ScriptFolder) => void
   onDelete: (folder: ScriptFolder) => void
   onMove: (folderId: string, parentId: string | null) => Promise<void>
+  onNewSnippet: (folderId: string) => void
+  onCopyPath: (folder: ScriptFolder) => void
 }) {
   const menu = useContextMenu()
   const anchorLabel = t('scriptshub.common.more')
   const items: MenuItem[] = [
+    { id: 'new-snippet', label: t('scriptshub.menu.new_snippet'), icon: <FilePlus2 size={13} aria-hidden="true" />, onSelect: () => onNewSnippet(node.folder.id) },
     { id: 'new', label: t('scriptshub.sidebar.new_subfolder'), icon: <FolderPlus size={13} aria-hidden="true" />, onSelect: () => onNew(node.folder.id) },
     { id: 'rename', label: t('scriptshub.common.rename'), onSelect: () => onRename(node.folder) },
-    { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onDelete(node.folder) },
+    { id: 'copy-path', label: t('scriptshub.menu.copy_path'), icon: <Copy size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onCopyPath(node.folder) },
+    { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => onDelete(node.folder) },
   ]
   const isOpen = expanded.has(node.folder.id)
   const hasChildren = node.children.length > 0
@@ -433,6 +429,8 @@ function FolderNode({
           onRename={onRename}
           onDelete={onDelete}
           onMove={onMove}
+          onNewSnippet={onNewSnippet}
+          onCopyPath={onCopyPath}
         />
       ))}
       {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} />}

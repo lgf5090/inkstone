@@ -8,21 +8,23 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowLeft, Copy, Download, Image as ImageIcon, MoreHorizontal, Paperclip, Pin, Plus,
-  Save, Star, Trash2, Wand2,
+  ArrowLeft, Copy, Download, FileCode2, Image as ImageIcon, MoreHorizontal, Paperclip, Pin, Plus,
+  Save, Star, Trash2, Upload, Wand2,
 } from 'lucide-react'
 import type { ScriptFolder, ScriptSnippetDetail, ScriptTag } from '@shared/scriptshub/types'
+import { publicationUrlPath } from '@shared/scriptshub/path'
 import {
   SCRIPT_LANGUAGES, defaultFileNames, languageFor, languageFromFileName, type ScriptLanguageId,
 } from '@shared/scriptshub/languages'
 import { cn } from '../../lib/cn'
+import { useMediaQuery } from '../../lib/hooks'
 import { t } from '../../lib/i18n'
 import { relativeTime } from '../../lib/time'
 import { copyText } from '../../lib/clipboard'
 import { Badge, Button, IconButton, Spinner } from '../../components/primitives'
 import { Input, Switch, Textarea, commitOnEnter } from '../../components/form'
 import { Empty } from '../../components/feedback'
-import { Menu, Modal, confirm, hasOpenLayer, type MenuItem } from '../../components/overlay'
+import { Menu, Modal, confirm, hasOpenLayer, useContextMenu, type MenuItem } from '../../components/overlay'
 import { SelectMenu } from '../../components/select-menu'
 import { FolderPicker } from '../folders/FolderPicker'
 import { useUi } from '../../store/ui'
@@ -32,7 +34,7 @@ import { LanguageIcon } from './language-icon'
 import { TagPickerDialog } from './tag-picker'
 import { ScriptCodeEditor } from './script-code-editor'
 import { PublishPanel } from './publish-panel'
-import { RevisionsDialog } from './revisions-dialog'
+import { RevisionsPanel } from './revisions-panel'
 import { scriptshubApi, assetUrl } from './api'
 import type { ScriptAsset } from '@shared/scriptshub/types'
 
@@ -90,13 +92,16 @@ function lineCount(text: string): number {
   return text ? text.split('\n').length : 1
 }
 
-export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
+export function SnippetEditor({ detail, folders, tags, mobile, openPanel, onPanelHandled, onBack }: {
   detail: ScriptSnippetDetail
   folders: readonly ScriptFolder[]
   tags: readonly ScriptTag[]
   mobile: boolean
+  openPanel?: 'history' | 'publish' | null
+  onPanelHandled?: () => void
   onBack: () => void
 }) {
+  const wide = useMediaQuery('(min-width: 1280px)')
   const toast = useUi((state) => state.toast)
   const save = useScriptsHub((state) => state.save)
   const remove = useScriptsHub((state) => state.remove)
@@ -108,8 +113,14 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
   const [saving, setSaving] = useState(false)
   const [folderOpen, setFolderOpen] = useState(false)
   const [tagOpen, setTagOpen] = useState(false)
-  const [revisionsOpen, setRevisionsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [wrap, setWrap] = useState(true)
   const [fileDialog, setFileDialog] = useState<{ mode: 'add' | 'rename'; key?: string; name: string; language: ScriptLanguageId } | null>(null)
+  const [renamingFile, setRenamingFile] = useState<string | null>(null)
+  const [fileDraft, setFileDraft] = useState('')
+  const fileMenu = useContextMenu()
+  const [fileMenuKey, setFileMenuKey] = useState<string | null>(null)
+  const publishRef = useRef<HTMLDivElement>(null)
   const [assets, setAssets] = useState<ScriptAsset[]>([])
   const [assetBusy, setAssetBusy] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -125,6 +136,17 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
     setActiveKey((current) => (next.files.some((file) => file.key === current) ? current : next.files[0]?.key ?? ''))
     setDirty(false)
   }, [detail.id, detail.revisionCount])
+
+  // A row's "version history" or "publication" menu item selects the snippet and asks the editor to
+  // open that surface; it is handled once and then cleared so a later selection starts on the code.
+  useEffect(() => {
+    if (!openPanel) return
+    if (openPanel === 'history') setHistoryOpen(true)
+    if (openPanel === 'publish') {
+      publishRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+    onPanelHandled?.()
+  }, [onPanelHandled, openPanel])
 
   useEffect(() => {
     let alive = true
@@ -271,6 +293,72 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
     if (activeKey === key) setActiveKey(draft.files[0]?.key ?? '')
   }
 
+  const startFileRename = (file: DraftFile) => {
+    setFileMenuKey(file.key)
+    setRenamingFile(file.key)
+    setFileDraft(file.name)
+  }
+
+  const commitFileRename = (key: string) => {
+    const name = fileDraft.trim()
+    setRenamingFile(null)
+    if (!name) return
+    const clash = draft.files.some((file) => file.key !== key && file.name.toLowerCase() === name.toLowerCase())
+    if (clash) {
+      toast({ title: t('scriptshub.toast.file_name_taken'), tone: 'warning' })
+      return
+    }
+    const language = languageFromFileName(name).id === 'text'
+      ? draft.files.find((file) => file.key === key)?.language ?? 'text'
+      : languageFromFileName(name).id
+    updateFile(key, { name, language })
+  }
+
+  const copyFile = async (file: DraftFile) => {
+    const ok = await copyText(file.content)
+    toast({ title: ok ? t('scriptshub.editor.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+    if (ok && file.id) {
+      void scriptshubApi.recordCopy(detail.id, file.id).catch((error: unknown) => {
+        console.warn('[inkstone] scriptshub copy count failed:', error instanceof Error ? error.message : error)
+      })
+    }
+  }
+
+  const downloadFile = (file: DraftFile) => {
+    const url = URL.createObjectURL(new Blob([file.content], { type: 'text/plain;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = file.name
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const copyPublished = async (text: string) => {
+    const ok = await copyText(text)
+    toast({ title: ok ? t('scriptshub.publish.command_copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
+  }
+
+  const fileActions = (file: DraftFile): MenuItem[] => {
+    const publication = detail.publication?.fileId === file.id ? detail.publication : null
+    return [
+      { id: 'rename-file', label: t('scriptshub.menu.rename_file'), onSelect: () => startFileRename(file) },
+      { id: 'copy-file', label: t('scriptshub.menu.copy_file'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => void copyFile(file) },
+      { id: 'download-file', label: t('scriptshub.menu.download_file'), icon: <Download size={13} aria-hidden="true" />, onSelect: () => downloadFile(file) },
+      { id: 'publish-file', label: t('scriptshub.menu.publish'), icon: <Upload size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => publishRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) },
+      { id: 'copy-path', label: t('scriptshub.menu.copy_path'), icon: <FileCode2 size={13} aria-hidden="true" />, disabled: !publication, reason: publication ? undefined : t('scriptshub.menu.reason_no_publication'), onSelect: () => {
+        if (publication) void copyPublished(`${window.location.origin}${publicationUrlPath(publication.path)}`)
+      } },
+      { id: 'copy-curl', label: t('scriptshub.menu.copy_curl'), icon: <Download size={13} aria-hidden="true" />, disabled: !publication, reason: publication ? undefined : t('scriptshub.menu.reason_no_publication'), onSelect: () => {
+        if (!publication) return
+        const url = `${window.location.origin}${publicationUrlPath(publication.path)}`
+        void copyPublished(file.language === 'shell' ? `curl -fsSL ${url} | bash` : `curl -fsSL ${url} -o ${file.name}`)
+      } },
+      { id: 'delete-file', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => void deleteFile(file.key) },
+    ]
+  }
+
   const uploadAsset = async (file: File | undefined) => {
     if (!file) return
     setAssetBusy(true)
@@ -303,7 +391,7 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
   const menuItems: MenuItem[] = [
     { id: 'copy', label: t('scriptshub.editor.copy'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => void copyActive() },
     { id: 'download', label: t('scriptshub.editor.download'), icon: <Download size={13} aria-hidden="true" />, onSelect: downloadActive },
-    { id: 'history', label: t('scriptshub.revisions.title'), icon: <Wand2 size={13} aria-hidden="true" />, onSelect: () => setRevisionsOpen(true) },
+    { id: 'history', label: t('scriptshub.revisions.title'), icon: <Wand2 size={13} aria-hidden="true" />, onSelect: () => setHistoryOpen(true) },
     { id: 'delete', label: t('scriptshub.editor.delete_snippet'), icon: <Trash2 size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => void deleteSnippet() },
   ]
 
@@ -334,23 +422,27 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
-            <IconButton
-              label={detail.isFavorite ? t('scriptshub.editor.unfavorite') : t('scriptshub.editor.favorite')}
-              active={detail.isFavorite}
-              onClick={() => void patch(detail.id, { isFavorite: !detail.isFavorite })}
-            >
-              <Star size={15} aria-hidden="true" />
-            </IconButton>
-            <IconButton
-              label={detail.isPinned ? t('scriptshub.editor.unpin') : t('scriptshub.editor.pin')}
-              active={detail.isPinned}
-              onClick={() => void patch(detail.id, { isPinned: !detail.isPinned })}
-            >
-              <Pin size={15} aria-hidden="true" />
-            </IconButton>
-            <IconButton label={t('scriptshub.editor.copy')} onClick={() => void copyActive()}>
-              <Copy size={15} aria-hidden="true" />
-            </IconButton>
+            {!mobile && (
+              <>
+                <IconButton
+                  label={detail.isFavorite ? t('scriptshub.editor.unfavorite') : t('scriptshub.editor.favorite')}
+                  active={detail.isFavorite}
+                  onClick={() => void patch(detail.id, { isFavorite: !detail.isFavorite })}
+                >
+                  <Star size={15} aria-hidden="true" />
+                </IconButton>
+                <IconButton
+                  label={detail.isPinned ? t('scriptshub.editor.unpin') : t('scriptshub.editor.pin')}
+                  active={detail.isPinned}
+                  onClick={() => void patch(detail.id, { isPinned: !detail.isPinned })}
+                >
+                  <Pin size={15} aria-hidden="true" />
+                </IconButton>
+                <IconButton label={t('scriptshub.editor.copy')} onClick={() => void copyActive()}>
+                  <Copy size={15} aria-hidden="true" />
+                </IconButton>
+              </>
+            )}
             <Button variant="primary" size="sm" loading={saving} disabled={!dirty} icon={<Save size={12} aria-hidden="true" />} onClick={() => void doSave()}>
               {t('scriptshub.common.save')}
             </Button>
@@ -361,8 +453,15 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
           <Menu anchor={moreAnchor} open={moreOpen} onClose={() => setMoreOpen(false)} items={menuItems} align="end" width={210} />
         </header>
 
+        {historyOpen ? (
+          <RevisionsPanel
+            detail={detail}
+            activeFileId={activeFile?.id ?? null}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ) : (
         <div className="min-h-0 flex-1 overflow-y-auto xl:flex xl:overflow-hidden">
-          <main className="flex min-w-0 flex-col p-3 md:p-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
+          <main className="flex min-w-0 flex-col p-3 md:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
             <div className="flex flex-wrap items-center gap-1.5">
               <Button size="sm" variant="secondary" onClick={() => setFolderOpen(true)} className="max-w-full">
                 <span className="truncate">{folderLabel}</span>
@@ -386,24 +485,56 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
               </Button>
             </div>
 
-            <div className="mt-2.5 flex min-h-0 flex-col">
+            <div className="mt-2.5 flex min-h-0 flex-1 flex-col">
               <div role="tablist" aria-label={t('scriptshub.editor.files')} className="flex items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] pb-1">
                 {draft.files.map((file) => (
-                  <div key={file.key} className={cn('group flex items-center rounded-[var(--r-sm)]', activeKey === file.key ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeKey === file.key}
-                      onClick={() => setActiveKey(file.key)}
-                      onDoubleClick={() => setFileDialog({ mode: 'rename', key: file.key, name: file.name, language: file.language })}
-                      className={cn(
-                        'flex h-8 max-w-[200px] items-center gap-1.5 px-2 text-[length:var(--text-11-5)]',
-                        activeKey === file.key ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-tertiary)]',
-                      )}
-                    >
-                      <LanguageIcon id={file.language} size={13} />
-                      <span className="truncate">{file.name}</span>
-                    </button>
+                  <div
+                    key={file.key}
+                    className={cn('group flex items-center rounded-[var(--r-sm)]', activeKey === file.key ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]')}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setActiveKey(file.key)
+                      fileMenu.close()
+                      fileMenu.onContextMenu(event)
+                      setFileMenuKey(file.key)
+                    }}
+                  >
+                    {renamingFile === file.key ? (
+                      <Input
+                        autoFocus
+                        aria-label={t('scriptshub.menu.rename_file')}
+                        value={fileDraft}
+                        onChange={(event) => setFileDraft(event.target.value)}
+                        onBlur={() => commitFileRename(file.key)}
+                        onKeyDown={(event) => {
+                          event.stopPropagation()
+                          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                            event.preventDefault()
+                            commitFileRename(file.key)
+                          }
+                          if (event.key === 'Escape') {
+                            setRenamingFile(null)
+                            setFileDraft(file.name)
+                          }
+                        }}
+                        className="w-[160px]"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeKey === file.key}
+                        onClick={() => setActiveKey(file.key)}
+                        onDoubleClick={() => startFileRename(file)}
+                        className={cn(
+                          'flex h-8 max-w-[200px] items-center gap-1.5 px-2 text-[length:var(--text-11-5)]',
+                          activeKey === file.key ? 'text-[var(--accent-on-soft)]' : 'text-[var(--text-tertiary)]',
+                        )}
+                      >
+                        <LanguageIcon id={file.language} size={13} />
+                        <span className="truncate">{file.name}</span>
+                      </button>
+                    )}
                     <IconButton
                       label={t('scriptshub.editor.remove_file', { name: file.name })}
                       size="xs"
@@ -419,6 +550,18 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
                 </IconButton>
               </div>
 
+              {fileMenu.point && fileMenuKey && (
+                <Menu
+                  anchor={fileMenu.point}
+                  open
+                  onClose={() => {
+                    fileMenu.close()
+                    setFileMenuKey(null)
+                  }}
+                  items={fileActions(draft.files.find((file) => file.key === fileMenuKey) ?? activeFile ?? draft.files[0]!)}
+                />
+              )}
+
               {activeFile && (
                 <>
                   <ScriptCodeEditor
@@ -428,12 +571,22 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
                     ariaLabel={t('scriptshub.editor.code_label', { name: activeFile.name })}
                     onChange={(content) => updateFile(activeFile.key, { content })}
                     minHeight={mobile ? 300 : 420}
+                    fill={wide}
+                    wrap={wrap}
+                    scrollKey={`${detail.id}:${activeFile.key}`}
                     className="mt-2"
                   />
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
                     <span>{t('scriptshub.editor.lines_chars', { lines: lineCount(activeFile.content), chars: activeFile.content.length })}</span>
                     <span>·</span>
-                    <span>{t('scriptshub.editor.wrap_on')}</span>
+                    <button
+                      type="button"
+                      aria-pressed={wrap}
+                      onClick={() => setWrap((on) => !on)}
+                      className="rounded-[var(--r-xs)] px-1 text-[var(--text-quaternary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]"
+                    >
+                      {wrap ? t('scriptshub.editor.wrap_on') : t('scriptshub.editor.wrap_off')}
+                    </button>
                     <div className="ml-auto flex items-center gap-1.5">
                       <SelectMenu
                         size="sm"
@@ -506,7 +659,9 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
               </label>
             </section>
 
-            <PublishPanel detail={detail} />
+            <div ref={publishRef}>
+              <PublishPanel detail={detail} />
+            </div>
 
             <section aria-labelledby="scriptshub-assets-heading" className="rounded-[var(--r-md)] border border-[var(--border-subtle)] p-3">
               <div className="flex items-center gap-1.5">
@@ -542,11 +697,12 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
               )}
             </section>
 
-            <Button variant="secondary" block icon={<Wand2 size={13} aria-hidden="true" />} onClick={() => setRevisionsOpen(true)}>
+            <Button variant="secondary" block icon={<Wand2 size={13} aria-hidden="true" />} onClick={() => setHistoryOpen(true)}>
               {t('scriptshub.revisions.open', { count: detail.revisionCount })}
             </Button>
           </aside>
         </div>
+        )}
       </div>
 
       <FolderPicker
@@ -568,7 +724,6 @@ export function SnippetEditor({ detail, folders, tags, mobile, onBack }: {
         onCreate={(name) => createTag({ name })}
         onConfirm={(ids) => modify((current) => ({ ...current, tags: ids }))}
       />
-      <RevisionsDialog open={revisionsOpen} detail={detail} activeFileId={activeFile?.id ?? null} onClose={() => setRevisionsOpen(false)} />
       <FileDialog state={fileDialog} onChange={setFileDialog} onClose={() => setFileDialog(null)} onSubmit={applyFileDialog} />
 
       {dirty && mobile && (

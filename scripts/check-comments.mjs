@@ -460,6 +460,9 @@ const allowed = new Map([
     "// Chart.js watches the window rather than the box it was put in. The observer makes the first",
     "// real layout (and every later panel resize) reach the chart.",
   ]],
+  ["src/client/components/cm-syntax.ts", [
+    "/**\n * Syntax colours shared by the app's embedded CodeMirror editors.\n *\n * The colours are the notebook's own `--syntax-*` tokens, so the same script reads the same way in a\n * note and in the Worker editor, and both follow the theme.\n */",
+  ]],
   ["src/client/components/color-field.tsx", [
     "/** The colour the native wheel opens on when there is nothing to show yet. */",
     "/**\n * The two frames a custom-colour control is drawn in: `round` sits in the organiser ramp beside the\n * circular swatches, `square` in the format ramp and the settings rows beside the square ones.\n */",
@@ -671,6 +674,7 @@ const allowed = new Map([
     "// reader was last in, because that is where a refused submit has to be corrected.",
     "/** Marks the panel itself, so a feature's own stylesheet can reach its header chrome — the close\n        button lives outside `bodyClassName`'s subtree. */",
     "/**\n * Whether a `focusout` means the caret is leaving the panel rather than moving within it.\n *\n * A `focusout` is dispatched before the element that is about to take the caret has it, so the restore\n * scheduled from it runs while the document still reports `body`. Reading that gap as \"the caret fell\n * out\" made every mouse-driven focus change inside a dialog get undone — clicking a field did nothing\n * while Tab, which moves the caret itself, kept working. The next target is the one fact that tells a\n * transfer apart from a loss, so it decides here instead of after the fact.\n */",
+    "/** Why a disabled row is disabled: shown on hover instead of silently vanishing the action. */",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -6333,7 +6337,7 @@ const allowed = new Map([
     "/**\n * A ring that says how much of an allowance is gone.\n *\n * The percentage is also printed in the middle: a ring alone is a colour and an angle, and neither is\n * something every reader can read. The colour only reinforces the number, it never carries it.\n */",
   ]],
   ["src/client/features/cloudflare/components/cm-syntax.ts", [
-    "/**\n * Syntax colours for the embedded CodeMirror editors.\n *\n * The colours are the notebook's own `--syntax-*` tokens, so a Worker script pasted into a note and a\n * Worker script edited here read the same way, and both follow the theme.\n */",
+    "/**\n * Syntax colours for the embedded CodeMirror editors.\n *\n * Kept as a re-export so this feature's imports do not move while the palette itself has one home.\n */",
   ]],
   ["src/client/features/cloudflare/i18n.ts", [
     "/**\n * The Cloudflare app's copy, loaded when the app is opened.\n *\n * The module carries about 1,200 keys per language. Folding them into the notebook's start-up\n * catalogue would make every reader pay for an app most of them never open, so each language is its\n * own chunk and `CloudflareApp` waits for the current one before drawing a screen. Until it answers,\n * `cfT` returns the key itself — readable in development, and never seen by a reader because the app\n * shows a loading state until the catalogue is there.\n */",
@@ -13609,6 +13613,8 @@ const allowed = new Map([
   ]],
   ["src/client/features/scriptshub/ScriptsHubApp.tsx", [
     "/**\n * The ScriptsHub container.\n *\n * Desktop keeps the rail, the list and the editor on screen together; a phone shows the list and\n * opens the editor over it, because three columns on 390px is a strip of each. Import and export live\n * in the one header the whole app shares, and `Ctrl/Cmd+K` focuses the list's search from anywhere in\n * this container — the closest thing to the global quick search a single app can offer without\n * taking over the shell's own palette.\n */",
+    "// One label for where the reader is, shown beside the one app title rather than as a second title",
+    "// inside the rail. It follows the same query the list does.",
   ]],
   ["src/client/features/scriptshub/api.ts", [
     "/**\n * The ScriptsHub API client.\n *\n * A thin mapping over `request`, one function per route, so the screens never assemble a URL or a\n * query by hand. The mutation functions return the row the server wrote rather than a bare `ok`,\n * which is what lets an editor replace its detail without a second read.\n */",
@@ -13628,11 +13634,17 @@ const allowed = new Map([
   ["src/client/features/scriptshub/publish-panel.tsx", [
     "/**\n * The publish card beside a snippet.\n *\n * A publication is one file at one path, and the card says the whole contract: status, visibility,\n * expiry, the `curl` a reader can run, the short address when one exists, and the token exactly once\n * when it is minted. Nothing here is a decoration — every switch writes the row the public route\n * reads.\n */",
   ]],
-  ["src/client/features/scriptshub/revisions-dialog.tsx", [
-    "/**\n * The version history of one snippet.\n *\n * Every save writes a full snapshot, so a version can restore a file a later save deleted. The list\n * is metadata only; the body is read for the one version selected. The preview is the shared write\n * diff used by the assistant, with the older version on the left and the current text on the right.\n */",
+  ["src/client/features/scriptshub/revisions-panel.tsx", [
+    "/**\n * The version history of one snippet, in place rather than in a dialog.\n *\n * The list is the left column and the diff is the page: selecting a version reads it, reads the one\n * before it, and draws the lines that version itself added or removed, the way a commit reads on\n * GitHub. The line counts on the list come from the server, written once when the version was made,\n * so opening the panel does not re-diff the whole history. Restoring is a new version, never a\n * rewind; the way forward stays readable.\n */",
   ]],
   ["src/client/features/scriptshub/script-code-editor.tsx", [
     "/**\n * The code surface a snippet file is edited and read in.\n *\n * CodeMirror is loaded when the surface mounts rather than with the app, so a reader who stays on the\n * list never downloads it. The language extension is chosen from the same catalogue the file name,\n * the icon and the served `Content-Type` come from; languages CodeMirror does not ship a package for\n * use a small stream tokenizer here, which is enough for shell, Python, YAML and Dockerfiles to read\n * as code rather than as prose.\n */",
+    "// The view is built once. Language, wrapping, read-only and the accessible name are compartments,",
+    "// so switching a file tab or turning wrapping off reconfigures the same document instead of",
+    "// destroying it — and therefore does not lose the reader's scroll position.",
+    "// The view lives for the component's lifetime; everything that changes is a compartment below.",
+    "// The new file's text is dispatched in the effect below; restoring after that dispatch has laid",
+    "// the document out is what keeps a tab's own scroll position rather than the top of the new one.",
   ]],
   ["src/client/features/scriptshub/sidebar.tsx", [
     "/**\n * The ScriptsHub rail: the saved views, the folder tree and the tag tree.\n *\n * The tree shapes are the notebook's own: `treeItemProps` carries the roving path and depth, and the\n * drag payload is a private MIME type so a note dragged from the notebook can never land in a script\n * folder by accident. Nothing here owns data; it reads the store and asks it to filter.\n */",
@@ -13642,9 +13654,12 @@ const allowed = new Map([
     "/**\n * One snippet's editor.\n *\n * The draft is local until Save: every file tab, the description, the tags and the folder are edited\n * here and written together, so a version is a version of the whole snippet rather than of whichever\n * text box happened to be focused. The right column holds the facts that are not code — source,\n * notes, publication, assets and history — and it is the same column on a phone, below the editor.\n */",
     "// Attachments are supplementary: a refused list leaves the panel empty instead of taking the",
     "// editor down, and the upload button still reports its own failure.",
+    "// A row's \"version history\" or \"publication\" menu item selects the snippet and asks the editor to",
+    "// open that surface; it is handled once and then cleared so a later selection starts on the code.",
   ]],
   ["src/client/features/scriptshub/snippet-list.tsx", [
-    "/**\n * The snippet list between the rail and the editor.\n *\n * Search is the list's own field and settles after a pause: every keystroke is a server query, and a\n * Chinese phrase typed quickly would otherwise arrive as five half-words. The quick switcher is the\n * sort menu beside it; batch actions only appear when rows are actually selected.\n */",
+    "/**\n * The snippet list between the rail and the editor.\n *\n * Every row carries what a reader decides with: the language, a line of the code itself, its tags,\n * how much there is and when it last moved. Search settles after a pause because every keystroke is\n * a server query; the density switch is the list's own, kept per device. The row menu is the same\n * `Menu` the notebook uses, so arrows, Enter, Esc and Shift+F10 behave identically.\n */",
+    "// A blocked storage area only costs the preference, not the action that set it.",
   ]],
   ["src/client/features/scriptshub/stats-page.tsx", [
     "/**\n * The statistics screen: real aggregates from the event and snippet tables.\n *\n * Every number here is a server-side count over a bounded window; the charts are the shared\n * `ChartCanvas`, which defers chart.js until a chart is actually drawn. The daily line is filled\n * across the whole window so a quiet Tuesday is visible as a zero rather than as a missing point, and\n * the tables beside it carry the same numbers in text for a reader who cannot see the canvas.\n */",
@@ -13653,6 +13668,7 @@ const allowed = new Map([
     "/**\n * The state one ScriptsHub screen keeps.\n *\n * The list and the detail are separate reads on purpose: the list carries summaries, and the detail\n * carries every file body. Opening a snippet replaces `detail` rather than merging it, so a failed\n * read cannot leave the previous snippet's code under the new title. The account's folder and tag\n * rows are shared by the sidebar, the pickers and the editor, so they live here once.\n */",
     "/** A folder's path, for a move menu or a breadcrumb. */",
     "/** A tag's path through its parent chain. */",
+    "/**\n   * A duplicate is a new snippet, not a second pointer at the same files: the copy gets its own id\n   * and its own history, and the original keeps its publications. Its publication paths are not\n   * copied — two rows cannot own the same path.\n   */",
   ]],
   ["src/client/features/scriptshub/tag-picker.tsx", [
     "/**\n * The tag chooser shared by a snippet's own tag row and the batch bar.\n *\n * A checkbox list rather than a text field: tags are a set, and a reader adding the same tag to eight\n * selected snippets should see what is already on them. A nested tag is shown with its path so two\n * tags called `demo` are not read as one. Creating a tag in the box adds it to this set and to the\n * account's tag tree in one step; there is no separate \"manage tags\" screen for a five-second task.\n */",
@@ -32141,6 +32157,9 @@ const allowed = new Map([
     "/**\n * What the ScriptsHub screens and routes exchange.\n *\n * Timestamps are milliseconds, the same unit every other D1-backed store in this app writes, so a\n * client never has to guess whether a number is seconds. A publication's token never appears here:\n * the plaintext is returned once by the rotation route and only its hash stays in the database.\n */",
     "/** A published path as the distribution route sees it, split from the `@version` suffix. */",
     "/** The plaintext gate token, present only on the response that minted it. */",
+    "/** The first file's opening text, already flattened to one line, for the list row. */",
+    "/** Total characters across every file, so a row can say how much code it holds. */",
+    "/** Lines this version added and removed against the version before it. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
@@ -38225,6 +38244,9 @@ const allowed = new Map([
     "// ScriptsHub is a wholly new surface, so this version creates tables rather than changes one.",
     "// The tables are also in `SCHEMA_STATEMENTS` for a fresh database; `IF NOT EXISTS` makes running",
     "// them here harmless on a database whose first boot already built them.",
+    "// A revision's line counts are written when it is created, so the history panel can say +x/−y",
+    "// without re-reading every snapshot on ordinary opens. Stored as JSON (`{\"added\":n,\"removed\":m}`)",
+    "// because the line diff is a pair of numbers, not a second row per file.",
   ]],
   ["src/worker/db/writes.ts", [
     "/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */",
@@ -41191,6 +41213,9 @@ const allowed = new Map([
   ]],
   ["src/worker/scriptshub/public.ts", [
     "/**\n * The public half of ScriptsHub: `/sc/<path>` serves a file, `/sc-view/<id>` is its readable page.\n *\n * Neither route reads a session. A publication is the grant, and every decision here is made from\n * the publication row: paused, expired, token-gated, pointing at a file, and still owned by the\n * account that published it. A request that fails is written to the event table as a real visit\n * with a status, so the dashboard's 403/404 counts are counts of requests rather than decoration.\n */",
+    "/** How many distribution requests one visitor may make in a rolling minute. */",
+    "// A distribution path is public, so the only thing standing between it and a retry loop is this",
+    "// rolling cap. The row is already written per served request, so counting them costs no extra table.",
   ]],
   ["src/worker/scriptshub/routes.ts", [
     "/**\n * The authenticated ScriptsHub API (`/api/scriptshub/*`).\n *\n * The routes parse and validate; the store owns every statement. Two things are deliberately\n * outside the store because they reach another service: an asset upload writes R2 and then records\n * the object key, and a publication may ask the existing short-link module for an address instead of\n * inventing a second shortener.\n */",
@@ -41218,6 +41243,17 @@ const allowed = new Map([
     "// ------------------------------------------------------------------ import",
     "// ---------------------------------------------------------------- export",
     "/** The publication route's own token check, isolated so the public route cannot borrow a session. */",
+    "/**\n   * Delete a folder without orphaning what it held: its nested folders and snippets move up to the\n   * folder's own parent, and the move and the delete are one batch. A snippet left pointing at a\n   * deleted folder would be invisible in every folder view, which is worse than a moved one.\n   */",
+    "// Nothing a reader could see has changed, so no version is written and the row is not",
+    "// re-dated. A save that only toggled a tag still writes below, with the same `rev`.",
+    "// One batch for every selected snippet: D1 runs it as a transaction, so a failure halfway does",
+    "// not leave the account with half of the selection deleted.",
+    "/** The newest snapshot, used to decide whether a save would add anything to the history. */",
+    "/** The snippet's own metadata and tags, for the same \"did anything change\" question. */",
+    "// One read of the account's tags serves the whole import; asking per entry made a 500-snippet",
+    "// file 500 queries against the same table.",
+    "/**\n * Whether a save would write the snapshot already at the head of the history.\n *\n * Only the fields a version owns are compared: title, description and the files themselves. Folder,\n * tags, source and notes live on the snippet and never made a version, so changing them alone must\n * not add an empty one.\n */",
+    "/**\n * The +x/−y a version is worth, counted per file identity rather than per name: renaming a file\n * changes no line, and a file deleted by this save removes every line it held.\n */",
   ]],
   ["src/worker/search/service.ts", [
     "/**\n * The search and graph answers the HTTP route, the MCP retriever and the note store all need.\n *\n * Lifted out of `routes/search.ts` because a route is an HTTP adapter: `mcp/retrieval.ts` and\n * `notes/store.ts` must not reach into one to get a function (`AGENTS.md` rule 3), and the ranking,\n * snippet and node-assembly rules here are exactly the product behaviour those callers depend on.\n * The route keeps query parsing, validation, throttles, `ApiError` codes and response shaping; the\n * SQL stays in `search/store.ts`; this layer is the arithmetic between them.\n */",
@@ -46307,6 +46343,14 @@ const allowed = new Map([
     "/**\n * The statistics' two day columns and the index they group by.\n *\n * The columns store the reader's calendar day rather than a UTC date derived at query time, and each\n * one arrives under its own number so a ledger that already spent one cannot hide the other. The\n * index reads `completed_on`, so it has to be numbered after both columns exist.\n */",
     "/**\n * The two organizer columns a list gained: the archive stamp and the parent pointer.\n *\n * Each arrives under its own number and carries its own guard, so a database whose ledger already\n * spent one number still gets the other column, and a fresh install replays neither twice.\n */",
     "/**\n * The account switch that lets an MCP key read tasks at all.\n *\n * On by default: every key minted before the switch existed already carried `todos:read`, and turning\n * the switch off by default would silently revoke what those readers were using. One column, one number,\n * guarded so a fresh install replays nothing twice.\n */",
+  ]],
+  ["tests/scriptshub-path.test.ts", [
+    "// The route decodes `%2e%2e` before validating; a second encoding leaves a percent sign, which",
+    "// the same rule refuses. Neither spelling can reach a path the store would accept.",
+  ]],
+  ["tests/scriptshub-revisions.test.ts", [
+    "// A title is part of a version, so the rename is one more version — under the same snippet id,",
+    "// which is what keeps the whole history attached to the renamed snippet.",
   ]],
   ["tests/search-folder-scope.test.ts", [
     "// A parent_id cycle has to terminate rather than spin.",

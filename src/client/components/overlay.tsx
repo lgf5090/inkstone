@@ -528,6 +528,8 @@ export interface MenuItem {
     combo?: string;
     tone?: 'default' | 'danger';
     disabled?: boolean;
+    /** Why a disabled row is disabled: shown on hover instead of silently vanishing the action. */
+    reason?: string;
     checked?: boolean;
     onSelect?: () => void;
     separatorBefore?: boolean;
@@ -996,9 +998,8 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             </IconButton>)}
         </div>)}
       <div className="min-h-0 flex-1 overflow-y-auto" onScroll={reanchorSubmenu}>
-        {visibleItems.map((item, index) => (<div key={item.id}>
-          {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
-          <button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
+        {visibleItems.map((item, index) => {
+          const row = (<button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked === undefined ? undefined : item.checked} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? submenu?.id === item.id : undefined} tabIndex={index === cursor ? 0 : -1} data-menu-index={index} disabled={item.disabled} onMouseEnter={() => {
                 if (item.disabled)
                     return;
                 setCursor(index);
@@ -1013,7 +1014,7 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
                 }
                 item.onSelect?.();
                 onClose();
-            }} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] md:h-[30px]', 'transition-colors duration-[80ms] disabled:pointer-events-none disabled:opacity-40', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
+            }} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] md:h-[30px]', 'transition-colors duration-[80ms] disabled:opacity-40', item.reason ? undefined : 'disabled:pointer-events-none', index === cursor ? 'bg-[var(--bg-hover)]' : '', item.tone === 'danger'
                 ? 'text-[var(--danger)]'
                 : index === cursor
                     ? 'text-[var(--text-primary)]'
@@ -1025,8 +1026,12 @@ export function Menu({ anchor, open, onClose, items, align = 'start', width = 20
             {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
             {item.submenu && <ChevronRight size={13} aria-hidden="true" className="shrink-0 text-[var(--text-quaternary)]"/>}
             {item.combo && <Kbd combo={item.combo}/>}
-          </button>
-        </div>))}
+          </button>);
+          return (<div key={item.id}>
+            {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
+            {item.reason ? <Tooltip label={item.reason} side="left">{row}</Tooltip> : row}
+          </div>);
+        })}
       </div>
     </div>, container ?? document.body)}
       {submenuItem?.submenu && createPortal(<div ref={submenuRef} role="group" aria-label={submenuItem.label} tabIndex={-1} className="anim-pop fixed outline-none" style={{

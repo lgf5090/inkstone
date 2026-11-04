@@ -55,11 +55,32 @@ export function ScriptsHubApp() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [panelRequest, setPanelRequest] = useState<{ id: string; panel: 'history' | 'publish' } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const exportAnchor = useRef<HTMLButtonElement>(null)
   const isStats = pathname === '/scripts/stats' || pathname.startsWith('/scripts/stats?')
   const folders = overview?.folders ?? []
   const tags = overview?.tags ?? []
+  // One label for where the reader is, shown beside the one app title rather than as a second title
+  // inside the rail. It follows the same query the list does.
+  const sectionLabel = useMemo(() => {
+    if (query.folderId) {
+      const path = folderPathOf(folders, query.folderId).map((entry) => entry.name).join(' / ')
+      return path || t('scriptshub.sidebar.unfiled')
+    }
+    if (query.tagId) {
+      const tag = tags.find((entry) => entry.id === query.tagId)
+      return tag ? `#${tag.name}` : t('scriptshub.sidebar.tags')
+    }
+    const quick = query.quick ?? 'all'
+    return t({
+      all: 'scriptshub.sidebar.all',
+      favorites: 'scriptshub.sidebar.favorites',
+      pinned: 'scriptshub.sidebar.pinned',
+      published: 'scriptshub.sidebar.published',
+      deprecated: 'scriptshub.sidebar.deprecated',
+    }[quick] as 'scriptshub.sidebar.all')
+  }, [folders, query.folderId, query.quick, query.tagId, tags])
 
   useEffect(() => {
     void bootstrap()
@@ -125,7 +146,17 @@ export function ScriptsHubApp() {
   }
 
   const editor = detail
-    ? <SnippetEditor detail={detail} folders={folders} tags={tags} mobile={mobile} onBack={() => void select(null)} />
+    ? (
+      <SnippetEditor
+        detail={detail}
+        folders={folders}
+        tags={tags}
+        mobile={mobile}
+        openPanel={panelRequest?.id === detail.id ? panelRequest.panel : null}
+        onPanelHandled={() => setPanelRequest(null)}
+        onBack={() => void select(null)}
+      />
+    )
     : detailLoading
       ? <EditorLoading />
       : detailError
@@ -175,7 +206,14 @@ export function ScriptsHubApp() {
           <Menu anchor={exportAnchor} open={exportOpen} onClose={() => setExportOpen(false)} items={exportItems} align="end" width={200} />
         </header>
         <div className="min-h-0 flex-1">
-          <SnippetList searchRef={searchRef} onOpenDetail={() => undefined} />
+          <SnippetList
+            searchRef={searchRef}
+            onOpenDetail={() => undefined}
+            onOpenPanel={(id, panel) => {
+              void select(id)
+              setPanelRequest({ id, panel })
+            }}
+          />
         </div>
         {selectedId && (
           <div className="fixed inset-0 z-[var(--z-drawer)] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)]">
@@ -199,8 +237,9 @@ export function ScriptsHubApp() {
         >
           <PanelLeft size={15} aria-hidden="true" />
         </IconButton>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('scriptshub.sidebar.title')}</h1>
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <h1 className="shrink-0 text-[length:var(--text-13-5)] font-semibold text-[var(--text-primary)]">{t('scriptshub.sidebar.title')}</h1>
+          <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-quaternary)]">{sectionLabel}</span>
         </div>
         <Button size="sm" variant="ghost" icon={<Upload size={13} aria-hidden="true" />} onClick={() => setImportOpen(true)}>
           {t('scriptshub.import.title')}
@@ -215,7 +254,13 @@ export function ScriptsHubApp() {
       </header>
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && <SnippetsSidebar />}
-        <SnippetList searchRef={searchRef} />
+        <SnippetList
+          searchRef={searchRef}
+          onOpenPanel={(id, panel) => {
+            void select(id)
+            setPanelRequest({ id, panel })
+          }}
+        />
         <div className="min-w-0 flex-1">{editor}</div>
         {assistantDockOpen && <AssistantDock surface="scriptshub" pageContext={pageContext} />}
       </div>
