@@ -258,6 +258,13 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                 <Field label={t('blog.admin.banner_mobile_dark')}><Input value={text(banner.mobileDark)} onChange={(event) => setBannerField('mobileDark', event.target.value)} placeholder="https://" /></Field>
               </div>
             </Section>
+            <Section title={t('blog.admin.settings_banner_effects')} onSave={() => void saveDomain('display', display)} saving={saving}>
+              <div className="grid gap-1 sm:grid-cols-2">
+                <Checkbox checked={bool(display.bannerTypewriter, true)} onChange={(value) => setDisplay({ ...display, bannerTypewriter: value })} label={t('blog.admin.banner_typewriter')} />
+                <Checkbox checked={bool(display.bannerWaves, true)} onChange={(value) => setDisplay({ ...display, bannerWaves: value })} label={t('blog.admin.banner_waves')} />
+                <Checkbox checked={bool(display.bannerTexture, true)} onChange={(value) => setDisplay({ ...display, bannerTexture: value })} label={t('blog.admin.banner_texture')} />
+              </div>
+            </Section>
             <Section title={t('blog.admin.settings_announcement')} onSave={() => void saveDomain('announcement', announcement)} saving={saving}>
               <Checkbox checked={bool(announcement.enable)} onChange={(value) => setAnnouncement({ ...announcement, enable: value })} label={t('blog.admin.enable')} />
               <Checkbox checked={bool(announcement.closable, true)} onChange={(value) => setAnnouncement({ ...announcement, closable: value })} label={t('blog.admin.announcement_closable')} />

@@ -4,9 +4,9 @@ import { newId } from '../lib/id'
 
 export const MEDIA_MAX_BYTES = 10 * 1024 * 1024
 
-function extensionFor(mime: string, filename: string): string {
-  const fromName = filename.includes('.') ? filename.split('.').pop()!.toLowerCase() : ''
-  if (/^[a-z0-9]{1,8}$/.test(fromName)) return fromName
+function extensionFor(mime: string): string {
+  // The object key is derived from the type the worker verified, never from the name the client
+  // sent: a file called `payload.html` must not decide what the bucket stores.
   const map: Record<string, string> = {
     'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif',
     'application/pdf': 'pdf', 'text/plain': 'txt', 'application/zip': 'zip',
@@ -116,7 +116,7 @@ export async function uploadMedia(
     .first<{ id: string; kind: string; filename: string; mime: string; size: number; width: number | null; height: number | null; created_at: number; variants: string }>()
   if (existing) return toItem(existing)
   const id = newId()
-  const ext = extensionFor(mime, file.name)
+  const ext = extensionFor(mime)
   const folder = kind === 'image' ? 'images' : kind === 'audio' ? 'audio' : kind === 'video' ? 'video' : 'files'
   const year = new Date(now).getUTCFullYear()
   const objectKey = `blog/${folder}/${year}/${id}.${ext}`

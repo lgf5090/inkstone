@@ -3705,6 +3705,16 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE notes ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    // The media library asks "is this asset still used?" by `asset_id`; the only index on the join
+    // table is by post, so that question scanned every link row. One number, one index, guarded like
+    // every other schema statement: a fresh install already has it from BLOG_ALL_SCHEMA_STATEMENTS.
+    version: 270,
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_blog_post_assets_asset
+         ON blog_post_assets(user_id, asset_id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(

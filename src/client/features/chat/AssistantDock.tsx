@@ -462,7 +462,9 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
             ? ['assistant.dock.suggest_music_play', 'assistant.dock.suggest_music_queue', 'assistant.dock.suggest_music_about'] as const
             : surface === 'inknote'
               ? ['assistant.dock.suggest_inknote_summary', 'assistant.dock.suggest_inknote_tidy', 'assistant.dock.suggest_inknote_questions'] as const
-              : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
+              : surface === 'blog'
+                ? ['assistant.dock.suggest_blog_summary', 'assistant.dock.suggest_blog_titles', 'assistant.dock.suggest_blog_review'] as const
+                : ['assistant.dock.suggest_summary', 'assistant.dock.suggest_questions', 'assistant.dock.suggest_next'] as const
   ), [surface])
 
   /**
@@ -485,6 +487,8 @@ export function AssistantDock({ surface = 'notebook', subscription = null, email
         ? t('assistant.dock.hint_music')
       : surface === 'inknote' && inknoteContext && inknoteOn
         ? t('assistant.dock.hint_inknote')
+      : surface === 'blog' && pageContext
+        ? t('assistant.dock.hint_blog')
         : attached
           ? t('assistant.dock.hint_plan', { name: attached.name })
           : surface === 'notebook' && noteContextOn && activeNoteId

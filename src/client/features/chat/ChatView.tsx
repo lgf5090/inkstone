@@ -2011,10 +2011,10 @@ function ContextStrip() {
     const label = todoContext.taskTitle ?? todoContext.listName ?? todoContext.tagName ?? t('todo.view.board')
     chips.push({ id: 'todo', icon: <ListChecks size={12} />, label, onRemove: () => setTodoContextOn(false) })
   }
-  // Beside the money app the notebook's pointers name a document the reader is not looking at, so nothing
-  // of ours is drawn here; the dock draws the plan the reader opened. Mutating the list rather than
-  // returning early keeps every hook above on the same path.
-  if (dockSurface === 'subscriptions') chips.length = 0
+  // Outside the notebook the note/folder/canvas pointers name a document the reader is not looking at,
+  // so nothing of the notebook is drawn here; the dock draws the context the current surface opened.
+  // Mutating the list rather than returning early keeps every hook above on the same path.
+  if (dockSurface !== 'notebook') chips.length = 0
   if (!chips.length) return null
   return (
     <div role="group" aria-label={t('assistant.context.title')} className="flex flex-wrap items-center gap-1 px-1 pt-0.5">

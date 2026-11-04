@@ -72,7 +72,8 @@ export async function blogCounts(db: D1Database, userId: string): Promise<BlogSi
          (SELECT COUNT(*) FROM blog_categories WHERE user_id = ?1) AS categories,
          (SELECT COUNT(*) FROM blog_tags WHERE user_id = ?1) AS tags,
          (SELECT COUNT(*) FROM blog_series WHERE user_id = ?1) AS series,
-         (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1) AS views`,
+         (SELECT COALESCE(SUM(view_count), 0) FROM blog_posts WHERE user_id = ?1
+            AND status IN ('published','scheduled') AND deleted_at IS NULL) AS views`,
     )
     .bind(userId)
     .first<{ posts: number; categories: number; tags: number; series: number; views: number }>()
@@ -716,24 +717,25 @@ async function linkPostAssets(
   now: number,
 ): Promise<void> {
   await db.prepare(`DELETE FROM blog_post_assets WHERE user_id = ?1 AND post_id = ?2`).bind(userId, postId).run()
-  const seen = new Set<string>()
+  const firstSource = new Map<string, string>()
   for (const asset of assets) {
-    const assetId = asset.blogAssetId
-    if (!assetId || seen.has(assetId)) continue
-    seen.add(assetId)
-    const owned = await db
-      .prepare(`SELECT id FROM blog_assets WHERE user_id = ?1 AND id = ?2`)
-      .bind(userId, assetId)
-      .first<{ id: string }>()
-    if (!owned) continue
-    await db
-      .prepare(
-        `INSERT OR REPLACE INTO blog_post_assets (user_id, post_id, asset_id, source_ref, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)`,
-      )
-      .bind(userId, postId, assetId, asset.attachmentId ?? '', now)
-      .run()
+    if (!asset.blogAssetId) continue
+    if (!firstSource.has(asset.blogAssetId)) firstSource.set(asset.blogAssetId, asset.attachmentId ?? '')
   }
+  const ids = [...firstSource.keys()].slice(0, 200)
+  if (ids.length === 0) return
+  const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
+  const { results } = await db
+    .prepare(`SELECT id FROM blog_assets WHERE user_id = ?1 AND id IN (${placeholders})`)
+    .bind(userId, ...ids)
+    .all<{ id: string }>()
+  const inserts = results.map((row) => db
+    .prepare(
+      `INSERT OR REPLACE INTO blog_post_assets (user_id, post_id, asset_id, source_ref, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .bind(userId, postId, row.id, firstSource.get(row.id) ?? '', now))
+  if (inserts.length > 0) await db.batch(inserts)
 }
 
 export async function unpublishPost(
@@ -1149,19 +1151,12 @@ export async function bulkAdminPosts(
   db: D1Database,
   userId: string,
   noteIds: string[],
-  action: 'unpublish' | 'trash' | 'restore' | 'pin' | 'unpin' | 'delete',
+  action: 'unpublish' | 'trash' | 'restore' | 'pin' | 'unpin',
   now = Date.now(),
 ): Promise<number> {
   const ids = [...new Set(noteIds)].slice(0, 100)
   if (ids.length === 0) return 0
   const placeholders = ids.map((_, index) => `?${index + 3}`).join(', ')
-  if (action === 'delete') {
-    const deletePlaceholders = ids.map((_, index) => `?${index + 2}`).join(', ')
-    const result = await db.prepare(
-      `DELETE FROM blog_posts WHERE user_id = ?1 AND deleted_at IS NOT NULL AND note_id IN (${deletePlaceholders})`,
-    ).bind(userId, ...ids).run()
-    return result.meta.changes ?? 0
-  }
   const sets = action === 'unpublish'
     ? "status = 'withdrawn', updated_at = ?2"
     : action === 'trash'
@@ -1175,6 +1170,50 @@ export async function bulkAdminPosts(
     `UPDATE blog_posts SET ${sets} WHERE user_id = ?1 AND note_id IN (${placeholders})`,
   ).bind(userId, now, ...ids).run()
   return result.meta.changes ?? 0
+}
+
+/**
+ * Removes trashed posts for good, with everything the row pinned while it existed.
+ *
+ * `blog_post_assets` is what the media library reads to decide whether a file is still used, so a
+ * deleted post that keeps its rows makes its images impossible to delete. The render snapshot lives in
+ * R2 under `render_key`; removing the post without it would leave an unreachable object for the life
+ * of the bucket. Cleanup is best-effort after the rows are gone: a storage failure must be logged, not
+ * turned into a delete that pretends it did not happen.
+ */
+export async function purgeAdminPosts(
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  userId: string,
+  noteIds: string[],
+): Promise<number> {
+  const ids = [...new Set(noteIds)].filter(Boolean).slice(0, 100)
+  if (ids.length === 0) return 0
+  const placeholders = ids.map((_, index) => `?${index + 2}`).join(', ')
+  const { results } = await db
+    .prepare(
+      `SELECT id, render_key FROM blog_posts
+       WHERE user_id = ?1 AND deleted_at IS NOT NULL AND note_id IN (${placeholders})`,
+    )
+    .bind(userId, ...ids)
+    .all<{ id: string; render_key: string | null }>()
+  if (results.length === 0) return 0
+  const postIds = results.map((row) => row.id)
+  const postPlaceholders = postIds.map((_, index) => `?${index + 2}`).join(', ')
+  await db.batch([
+    db.prepare(`DELETE FROM blog_post_assets WHERE user_id = ?1 AND post_id IN (${postPlaceholders})`).bind(userId, ...postIds),
+    db.prepare(`DELETE FROM blog_posts WHERE user_id = ?1 AND id IN (${postPlaceholders})`).bind(userId, ...postIds),
+  ])
+  if (bucket) {
+    const keys = results.flatMap((row) => row.render_key ? [row.render_key] : [])
+    const settled = await Promise.allSettled(keys.map((key) => bucket.delete(key)))
+    for (const failure of settled) {
+      if (failure.status === 'rejected') {
+        console.warn('[inkstone] blog render snapshot could not be removed', failure.reason)
+      }
+    }
+  }
+  return results.length
 }
 
 export async function listBlogAudit(

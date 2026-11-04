@@ -4,6 +4,7 @@ import type { AssistantPageContext } from '@shared/assistant'
 import {
   Bot,
   CalendarDays,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
   ExternalLink,
@@ -25,7 +26,8 @@ import {
   Wrench,
 } from 'lucide-react'
 import { Avatar, IconButton, SectionLabel, Spinner } from '../../components/primitives'
-import { Drawer } from '../../components/overlay'
+import { Drawer, Tooltip } from '../../components/overlay'
+import { cn } from '../../lib/cn'
 import { api } from '../../lib/api'
 import { t } from '../../lib/i18n'
 import { navigateToPath, usePathname } from '../../lib/app-history'
@@ -52,6 +54,26 @@ import { FriendsAdminPanel } from './FriendsAdminPanel'
 
 const PostEditor = lazy(() => import('./PostEditor').then((module) => ({ default: module.PostEditor })))
 const PageEditor = lazy(() => import('./PageEditor').then((module) => ({ default: module.PageEditor })))
+
+/** The reader's choice for the desktop navigation rail survives reloads, like the calendar sidebar. */
+const SIDEBAR_COLLAPSED_KEY = 'inkstone:blog-admin:sidebar-collapsed'
+
+function readSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeSidebarCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    // Storage can be denied; the sidebar still collapses for this visit.
+  }
+}
 
 type NavId =
   | 'dashboard' | 'calendar' | 'posts' | 'pages' | 'media'
@@ -155,12 +177,15 @@ function SidebarBody({
   blogUrl,
   pendingComments,
   onNavigate,
+  onCollapse,
 }: {
   active: NavId
   siteTitle: string
   blogUrl: string
   pendingComments: number
   onNavigate?: () => void
+  /** Present on the desktop sidebar only: the mobile drawer has its own close button. */
+  onCollapse?: () => void
 }) {
   const groups: { label: MessageKey | null; items: NavItem[] }[] = [
     { label: null, items: [ALL_NAV[0], ALL_NAV[1]] },
@@ -172,10 +197,17 @@ function SidebarBody({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <span aria-hidden="true" className="grid size-7 place-items-center rounded-[var(--r-md)] bg-[var(--accent)] text-[var(--accent-contrast)]"><Newspaper size={15} /></span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-[length:var(--text-12-5)] font-semibold text-[var(--text-primary)]">{siteTitle || t('blog.admin.title')}</p>
           <p className="truncate text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{t('blog.admin.workspace')}</p>
         </div>
+        {onCollapse && (
+          <Tooltip label={t('blog.admin.sidebar_collapse')} side="right">
+            <IconButton label={t('blog.admin.sidebar_collapse')} size="sm" aria-expanded onClick={onCollapse}>
+              <ChevronLeft size={15} aria-hidden="true" />
+            </IconButton>
+          </Tooltip>
+        )}
       </div>
       <nav aria-label={t('blog.admin.navigation')} className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {groups.map((group) => (
@@ -226,6 +258,90 @@ function SidebarBody({
   )
 }
 
+/**
+ * The navigation when the reader has collapsed it: the same destinations, named by icon and an
+ * accessible label. Only the desktop column uses this; the mobile drawer always has room for words.
+ */
+function SidebarRail({
+  active,
+  siteTitle,
+  blogUrl,
+  pendingComments,
+  onExpand,
+}: {
+  active: NavId
+  siteTitle: string
+  blogUrl: string
+  pendingComments: number
+  onExpand: () => void
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col items-center py-2">
+      <Tooltip label={t('blog.admin.sidebar_expand')} side="right">
+        <IconButton label={t('blog.admin.sidebar_expand')} size="sm" aria-expanded={false} onClick={onExpand}>
+          <ChevronRight size={15} aria-hidden="true" />
+        </IconButton>
+      </Tooltip>
+      <span
+        aria-hidden="true"
+        title={siteTitle || t('blog.admin.title')}
+        className="mt-2 grid size-7 place-items-center rounded-[var(--r-md)] bg-[var(--accent)] text-[var(--accent-contrast)]"
+      >
+        <Newspaper size={15} />
+      </span>
+      <nav aria-label={t('blog.admin.navigation')} className="mt-2 min-h-0 flex-1 overflow-y-auto px-1">
+        <div className="flex flex-col items-center gap-0.5">
+          {ALL_NAV.map((item) => {
+            const Icon = item.icon
+            const isActive = active === item.id
+            return (
+              <Tooltip key={item.id} label={t(item.label)} side="right">
+                <a
+                  href={item.path}
+                  aria-label={t(item.label)}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={(event) => {
+                    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                    event.preventDefault()
+                    navigateToPath(item.path)
+                    onExpand()
+                  }}
+                  className={cn(
+                    'relative grid size-8 place-items-center rounded-[var(--r-md)] transition-colors',
+                    isActive
+                      ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+                  )}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  {item.id === 'comments' && pendingComments > 0 && (
+                    <span aria-hidden="true" className="absolute right-1 top-1 size-1.5 rounded-full bg-[var(--warning)]" />
+                  )}
+                </a>
+              </Tooltip>
+            )
+          })}
+        </div>
+      </nav>
+      {blogUrl && (
+        <div className="mt-2 w-full border-t border-[var(--border-subtle)] pt-2">
+          <Tooltip label={t('blog.admin.open_blog')} side="right">
+            <a
+              href={blogUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t('blog.admin.open_blog')}
+              className="mx-auto grid size-8 place-items-center rounded-[var(--r-md)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]"
+            >
+              <ExternalLink size={15} aria-hidden="true" />
+            </a>
+          </Tooltip>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BlogAdminApp() {
   const pathname = usePathname()
   const status = useSession((state) => state.status)
@@ -233,21 +349,38 @@ export function BlogAdminApp() {
   const user = useSession((state) => state.user)
   const active = activeNav(pathname)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed)
   const [articleContext, setArticleContext] = useState<BlogArticleContext | null>(null)
   const assistantDockOpen = useUi((state) => state.assistantDockOpen)
   const settings = useAdminResource(() => api.blog.settings.get(), [])
   const overview = useAdminResource(() => api.blog.overview(), [])
 
-  // What the assistant is told about this screen: the section, and the article the editor has open.
-  // Rebuilt only when one of those changes, so opening the dock does not re-attach a chip the reader
-  // already took off.
+  const toggleSidebar = (collapsed: boolean) => {
+    setSidebarCollapsed(collapsed)
+    writeSidebarCollapsed(collapsed)
+  }
+
+  // What the assistant is told about this screen: the section, the counts the reader sees on it, and
+  // the article the editor has open. Rebuilt only when one of those changes, so opening the dock does
+  // not re-attach a chip the reader already took off.
   const assistantPageContext = useMemo<AssistantPageContext>(() => {
     const facts = [`section: ${active}`]
+    const counts = overview.data
+    if (counts) {
+      facts.push(`published posts: ${counts.published}`)
+      facts.push(`drafts: ${counts.drafts}`)
+      facts.push(`pending renders: ${counts.pending}`)
+      facts.push(`scheduled posts: ${counts.scheduled}`)
+      facts.push(`comments awaiting review: ${counts.commentsPending}`)
+    }
     if (articleContext) {
       facts.push(`note: ${articleContext.title} (id: ${articleContext.noteId})`)
       facts.push(`post status: ${articleContext.status ?? 'no blog post yet'}`)
       if (articleContext.slug) facts.push(`slug: /${articleContext.slug}`)
       facts.push(`series: ${articleContext.series ?? 'none'}`)
+      facts.push(`folder: ${articleContext.folder ?? 'none'}`)
+      facts.push(`words: ${articleContext.wordCount}`)
+      facts.push(`approved comments: ${articleContext.commentCount}`)
     }
     return {
       surface: 'blog',
@@ -256,7 +389,7 @@ export function BlogAdminApp() {
         : `${t('blog.admin.title')} · ${t(navLabel(active))}`,
       facts,
     }
-  }, [active, articleContext])
+  }, [active, articleContext, overview.data])
 
   useEffect(() => {
     setDrawerOpen(false)
@@ -277,13 +410,43 @@ export function BlogAdminApp() {
 
   return (
     <div className="flex h-full min-h-0 bg-[var(--bg-base)]">
-      <aside className="hidden w-60 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:block">
-        <SidebarBody
-          active={active}
-          siteTitle={siteTitle}
-          blogUrl={blogUrl}
-          pendingComments={pendingComments}
-        />
+      <aside
+        className={cn(
+          'relative hidden shrink-0 overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--bg-sunken)] md:block',
+          'transition-[width] duration-[var(--dur-base)] ease-[var(--ease-out)] motion-reduce:transition-none',
+          sidebarCollapsed ? 'w-12' : 'w-60',
+        )}
+        aria-label={t('blog.admin.navigation')}
+      >
+        {/* The expanded column stays mounted while it fades, but `inert` and `aria-hidden` take it out of
+            the tab order and the accessibility tree: the rail is then the only navigation a reader can reach. */}
+        <div
+          className={cn(
+            'h-full transition-opacity duration-[var(--dur-fast)] motion-reduce:transition-none',
+            sidebarCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100',
+          )}
+          inert={sidebarCollapsed || undefined}
+          aria-hidden={sidebarCollapsed || undefined}
+        >
+          <SidebarBody
+            active={active}
+            siteTitle={siteTitle}
+            blogUrl={blogUrl}
+            pendingComments={pendingComments}
+            onCollapse={() => toggleSidebar(true)}
+          />
+        </div>
+        {sidebarCollapsed && (
+          <div className="absolute inset-0">
+            <SidebarRail
+              active={active}
+              siteTitle={siteTitle}
+              blogUrl={blogUrl}
+              pendingComments={pendingComments}
+              onExpand={() => toggleSidebar(false)}
+            />
+          </div>
+        )}
       </aside>
 
       <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} side="left" width={264} ariaLabel={t('blog.admin.navigation')}>

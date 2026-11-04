@@ -95,7 +95,10 @@ export function sanitizeBlogHtml(html: string): string {
       mo: ['stretchy', 'fence', 'separator'],
       mtext: ['mathvariant'],
     },
-    allowedSchemes: ['http', 'https', 'mailto', 'tel', 'data'],
+    allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+    // Inline images are the one place a data URL is needed: a pasted picture has no object URL yet.
+    // A link to `data:text/html` is a navigation to attacker markup and stays out.
+    allowedSchemesByTag: { img: ['http', 'https', 'data'] },
     allowedStyles: ALLOWED_STYLES,
     transformTags: {
       a: (tagName, attribs) => {

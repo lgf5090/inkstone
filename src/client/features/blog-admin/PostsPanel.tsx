@@ -292,7 +292,54 @@ export function PostsPanel({ onReloadOverview }: { onReloadOverview: () => Promi
         <AdminEmpty>{status === 'trash' ? t('blog.admin.trash_empty') : t('blog.admin.no_posts')}</AdminEmpty>
       ) : (
         <AdminCard className="overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Below `md` a 920px table is a horizontal scrollbar over the page title; the same rows become
+              cards so status, date and the action menu stay reachable without dragging sideways. */}
+          <ul className="divide-y divide-[var(--border-subtle)] md:hidden" aria-label={t('blog.admin.posts')}>
+            {items.map((post) => (
+              <li key={post.id} className="flex gap-2 px-3 py-2.5">
+                <Checkbox
+                  checked={selection.has(post.noteId)}
+                  onChange={(next) => {
+                    const copy = new Set(selection)
+                    if (next) copy.add(post.noteId)
+                    else copy.delete(post.noteId)
+                    setSelection(copy)
+                  }}
+                  ariaLabel={t('blog.admin.select_post', { title: post.title })}
+                />
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => navigateToPath(`/blog-admin/posts/${encodeURIComponent(post.noteId)}`)}
+                    className="block max-w-full truncate text-left text-[length:var(--text-13)] font-medium text-[var(--text-primary)] hover:text-[var(--accent)]"
+                  >
+                    {post.title || t('blog.admin.untitled_post')}
+                  </button>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                    <span className="truncate">/{post.slug}</span>
+                    {post.pinned && <Badge tone="accent">{t('blog.admin.pinned')}</Badge>}
+                    {post.category && <span>· {post.category}</span>}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <PostStatusBadge status={post.status} />
+                    <RenderStatusBadge status={post.renderStatus} />
+                    <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">{formatDate(post.publishedAt ?? post.updatedAt)}</span>
+                    <span className="text-[length:var(--text-10-5)] text-[var(--text-quaternary)]">
+                      {t('blog.admin.column_comments')} {post.commentCount} · {t('blog.admin.views')} {post.viewCount}
+                    </span>
+                  </div>
+                </div>
+                <IconButton
+                  label={t('blog.admin.column_actions')}
+                  size="sm"
+                  onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); setMenuFor({ post, anchor: { x: rect.left, y: rect.bottom } }) }}
+                >
+                  <MoreHorizontal size={15} />
+                </IconButton>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[920px] border-collapse text-left text-[length:var(--text-12-5)]">
               <caption className="sr-only">{t('blog.admin.posts')}</caption>
               <thead>

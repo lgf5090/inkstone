@@ -285,13 +285,13 @@ export async function bulkSetCommentStatus(
 ): Promise<number> {
   const ids = [...new Set(commentIds)].filter(Boolean).slice(0, 100)
   if (ids.length === 0) return 0
-  await db.batch(ids.map((id) => db
+  const results = await db.batch(ids.map((id) => db
     .prepare(
       `UPDATE blog_comments SET status = ?3, updated_at = ?4, deleted_at = ?5
        WHERE user_id = ?1 AND id = ?2`,
     )
     .bind(userId, id, status, now, null)))
-  return ids.length
+  return results.reduce((total, result) => total + (result.meta.changes ?? 0), 0)
 }
 
 export async function commentStats(
