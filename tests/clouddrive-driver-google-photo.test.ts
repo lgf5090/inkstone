@@ -108,7 +108,7 @@ describe('Google Photos driver', () => {
     await expect(createGooglePhotoDriver(context()).stat('/missing.jpg')).rejects.toMatchObject({ kind: 'not_found' })
   })
 
-  it('reads the baseUrl with =d, forwards Range, and does not advertise direct links', async () => {
+  it('reads the baseUrl with =d, forwards Range, and returns the signed direct link', async () => {
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url === TOKEN_URL) return token()
@@ -124,8 +124,9 @@ describe('Google Photos driver', () => {
     const response = await driver.read('/a.jpg', 'bytes=2-5')
     expect(response.status).toBe(206)
     expect(await response.text()).toBe('cdef')
-    expect(driver.capabilities.directLink).toBe(false)
+    expect(driver.capabilities.directLink).toBe(true)
     expect(driver.capabilities.write).toBe(false)
+    expect(await driver.directLink?.('/a.jpg')).toBe('https://photos.example/a1=d')
   })
 
   it('refreshes once when two concurrent calls share one storage', async () => {

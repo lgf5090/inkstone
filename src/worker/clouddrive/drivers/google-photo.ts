@@ -3,8 +3,8 @@
  *
  * The Photos Library has no folder hierarchy: the mount root lists the account's media items and a
  * first-level path segment names an album. `mediaItems:search` is the only listing endpoint and it
- * paginates with a `pageToken`. Reads stream from the item's `baseUrl` with the `=d` suffix, which is
- * why the driver does not claim `directLink`.
+ * paginates with a `pageToken`. Reads stream from the item's `baseUrl` with the `=d` suffix; the same
+ * signed address is what the reference implementation returns as `raw_url`, so it is the direct link.
  */
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
@@ -193,6 +193,12 @@ export class GooglePhotoDriver extends HttpDriverBase implements MountDriver {
       }
       return response
     })
+  }
+
+  async directLink(path: string): Promise<string | null> {
+    const item = await this.resolveItem(path)
+    if (!item.baseUrl) return null
+    return item.mimeType?.startsWith('video/') ? `${item.baseUrl}=dv` : `${item.baseUrl}=d`
   }
 
   async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
