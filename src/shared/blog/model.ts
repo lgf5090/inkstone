@@ -380,6 +380,16 @@ export interface BlogMusicMeting {
   api?: string
 }
 
+export const BLOG_MUSIC_LIBRARY_STATUSES = [
+  'ready',
+  'empty',
+  'no-r2',
+  'playlist-empty',
+  'playlist-missing',
+  'signing-unavailable',
+] as const
+export type BlogMusicLibraryStatus = (typeof BLOG_MUSIC_LIBRARY_STATUSES)[number]
+
 export interface BlogMusicConfig {
   enabled: boolean
   provider: 'none' | 'local' | 'meting' | 'custom' | 'mixed' | 'library'
@@ -390,6 +400,8 @@ export interface BlogMusicConfig {
   libraryPlaylistId?: string
   /** Denormalised for the admin picker; the resolver still checks ownership before reading. */
   libraryPlaylistName?: string
+  /** Why the owner library produced no playable tracks; absent for non-library providers. */
+  libraryStatus?: BlogMusicLibraryStatus
   defaultVolume: number
   defaultMode: 'sequence' | 'repeat-one' | 'shuffle'
 }
@@ -423,6 +435,8 @@ export interface BlogMusicLibrarySummary {
   totalTracks: number
   playableTracks: number
   excluded: BlogMusicLibraryExcluded
+  /** True when the deployment can sign the short-lived audio and cover links. */
+  mediaSigningReady: boolean
   /** True when the signed-in account is not the owner the public blog reads. */
   ownerMismatch: boolean
   playlists: BlogMusicLibraryPlaylist[]

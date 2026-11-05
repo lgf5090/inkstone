@@ -5,6 +5,7 @@ import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 import { publicBlogSite, mergeBlogSettings } from '../src/shared/blog/settings'
 import {
+  blogMediaSigningReady,
   issueBlogMediaToken,
   listBlogMusicLibrary,
   resolveBlogMusicLibrary,
@@ -92,6 +93,7 @@ describe('the blog music library projection', () => {
     expect(summary.totalTracks).toBe(2)
     expect(summary.playableTracks).toBe(1)
     expect(summary.excluded).toEqual({ noR2: 1, otherOwner: 0, hidden: 0, other: 0 })
+    expect(summary.mediaSigningReady).toBe(true)
     expect(summary.ownerMismatch).toBe(false)
     expect(summary.playlists.map((entry) => entry.id)).toEqual(['p-owner'])
     expect(summary.playlists[0]).toMatchObject({ trackCount: 2, playableCount: 1, hasCover: false })
@@ -116,6 +118,7 @@ describe('the blog music library projection', () => {
 
     const site = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
     expect(site.integrations.music.tracks.map((entry) => entry.id)).toEqual(['r2-1'])
+    expect(site.integrations.music.libraryStatus).toBe('ready')
   })
 
   it('refuses to read another owner library and reports the mismatch', async () => {
@@ -131,6 +134,7 @@ describe('the blog music library projection', () => {
       playlists: [],
     })
     expect(mismatch.excluded).toEqual({ noR2: 0, otherOwner: 0, hidden: 0, other: 0 })
+    expect(mismatch.mediaSigningReady).toBe(true)
 
     const same = await resolveBlogMusicLibrary(dbOf(sqlite), 'site-owner', 'site-owner')
     expect(same.ownerMismatch).toBe(false)
@@ -146,6 +150,7 @@ describe('the blog music library projection', () => {
     const site = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
     expect(site.integrations.music.enabled).toBe(true)
     expect(site.integrations.music.tracks).toHaveLength(1)
+    expect(site.integrations.music.libraryStatus).toBe('ready')
     const resolved = site.integrations.music.tracks[0]!
     expect(resolved.id).toBe('r2-1')
     expect(resolved.title).toBe('Owner playable')
@@ -179,10 +184,68 @@ describe('the blog music library projection', () => {
     const foreign = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('playlist', 'p-other'), counts))
     expect(foreign.integrations.music.enabled).toBe(false)
     expect(foreign.integrations.music.tracks).toEqual([])
+    expect(foreign.integrations.music.libraryStatus).toBe('playlist-missing')
 
     const unnamed = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('playlist'), counts))
     expect(unnamed.integrations.music.enabled).toBe(false)
     expect(unnamed.integrations.music.tracks).toEqual([])
+    expect(unnamed.integrations.music.libraryStatus).toBe('playlist-missing')
+  })
+
+  it('reports no-r2 when only online sources exist', async () => {
+    const sqlite = await installed()
+    track(sqlite, { userId: 'u1', id: 'online-a', title: 'Online A', r2Key: null })
+    track(sqlite, { userId: 'u1', id: 'online-b', title: 'Online B', r2Key: null })
+
+    const site = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
+    expect(site.integrations.music.enabled).toBe(false)
+    expect(site.integrations.music.tracks).toEqual([])
+    expect(site.integrations.music.libraryStatus).toBe('no-r2')
+  })
+
+  it('reports playlist-empty when the selected playlist has no R2 track', async () => {
+    const sqlite = await installed()
+    track(sqlite, { userId: 'u1', id: 'online-a', title: 'Online A', r2Key: null })
+    playlist(sqlite, 'u1', 'p-empty', 'Empty playable')
+    item(sqlite, 'u1', 'p-empty', 'online-a', 0)
+
+    const site = await resolvePublicBlogMusic(secretEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('playlist', 'p-empty'), counts))
+    expect(site.integrations.music.enabled).toBe(false)
+    expect(site.integrations.music.tracks).toEqual([])
+    expect(site.integrations.music.libraryStatus).toBe('playlist-empty')
+  })
+
+  it('signs links with a short proxy key instead of silently emptying the library', async () => {
+    vi.stubEnv('DEV', false)
+    const sqlite = await installed()
+    track(sqlite, { userId: 'u1', id: 'r2-a', title: 'R2 A' })
+    track(sqlite, { userId: 'u1', id: 'r2-b', title: 'R2 B' })
+    const shortKeyEnv = { BLOG_PROXY_KEY: 'short-key-12' } as unknown as Env
+
+    const summary = await listBlogMusicLibrary(dbOf(sqlite), 'u1', blogMediaSigningReady(shortKeyEnv))
+    expect(summary.playableTracks).toBe(2)
+    expect(summary.mediaSigningReady).toBe(true)
+
+    const site = await resolvePublicBlogMusic(shortKeyEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
+    expect(site.integrations.music.enabled).toBe(true)
+    expect(site.integrations.music.tracks).toHaveLength(2)
+    expect(site.integrations.music.libraryStatus).toBe('ready')
+  })
+
+  it('reports signing-unavailable when a library has R2 tracks but no signing secret', async () => {
+    vi.stubEnv('DEV', false)
+    const sqlite = await installed()
+    track(sqlite, { userId: 'u1', id: 'r2-a', title: 'R2 A' })
+    const unsignedEnv = {} as Env
+
+    const summary = await listBlogMusicLibrary(dbOf(sqlite), 'u1', blogMediaSigningReady(unsignedEnv))
+    expect(summary.playableTracks).toBe(1)
+    expect(summary.mediaSigningReady).toBe(false)
+
+    const site = await resolvePublicBlogMusic(unsignedEnv, dbOf(sqlite), 'u1', publicBlogSite(librarySettings('all'), counts))
+    expect(site.integrations.music.enabled).toBe(false)
+    expect(site.integrations.music.tracks).toEqual([])
+    expect(site.integrations.music.libraryStatus).toBe('signing-unavailable')
   })
 
   it('keeps the entrance data when the library is empty', async () => {
@@ -191,6 +254,7 @@ describe('the blog music library projection', () => {
     expect(site.integrations.music.provider).toBe('library')
     expect(site.integrations.music.enabled).toBe(false)
     expect(site.integrations.music.tracks).toEqual([])
+    expect(site.integrations.music.libraryStatus).toBe('empty')
   })
 
   it('refuses expired tokens and, outside development, deployments without a signing secret', async () => {

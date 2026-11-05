@@ -361,6 +361,11 @@ export function SettingsPanel({ settings, onSaved }: { settings: BlogSettings | 
                     </p>
                   ) : musicLibrary ? (
                     <>
+                      {!musicLibrary.mediaSigningReady && (
+                        <p role="alert" className="rounded-[var(--r-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-3 text-[length:var(--text-12)] text-[var(--danger)]">
+                          {t('blog.admin.music_library_signing_missing')}
+                        </p>
+                      )}
                       {musicLibrary.totalTracks === 0 ? (
                         <p role="status" className="rounded-[var(--r-md)] bg-[var(--bg-inset)] p-3 text-[length:var(--text-12)] text-[var(--text-tertiary)]">{t('blog.admin.music_library_empty')}</p>
                       ) : (

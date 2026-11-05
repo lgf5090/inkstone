@@ -31364,6 +31364,8 @@ const allowed = new Map([
     "/** Playlist references whose track row no longer exists. */",
     "/** Playable tracks, kept for callers written before the diagnostic breakdown existed. */",
     "/** True when the signed-in account is not the owner the public blog reads. */",
+    "/** Why the owner library produced no playable tracks; absent for non-library providers. */",
+    "/** True when the deployment can sign the short-lived audio and cover links. */",
   ]],
   ["src/shared/blog/renderer.ts", [
     "/**\n * The renderer generation a snapshot was produced with.\n *\n * A published snapshot is a *still* of the note body, but the reading runtime re-renders the same\n * markdown through the same pipeline. The number is part of the runtime URL and is written into every\n * snapshot, so a reader can only ever load the runtime that matches the markup it is given: after a\n * renderer change old snapshots keep their still until they are rebuilt, instead of silently swapping\n * in a different renderer.\n */",
@@ -37101,13 +37103,13 @@ const allowed = new Map([
   ]],
   ["src/worker/blog/music-library.ts", [
     "/**\n * The blog's read-only view of the owner's music library.\n *\n * Only tracks this account actually stored in R2 are publishable: a provider snapshot without bytes\n * would make the public page ask the music provider for a stream, which is neither the blog's data\n * nor a stable public source. Playlists are owner-scoped by their query, and a playlist id from\n * another account resolves to an empty list instead of a different owner's rows.\n *\n * Audio and covers never expose an R2 key. Each listed track gets a short-lived HMAC token bound to\n * the owner, the object kind and the track id; the public audio/cover routes verify it before reading\n * the bucket. The token is refreshed whenever `/api/blog/site` is rebuilt.\n */",
-    "// A playlist that was deleted, renamed away or belongs to another account resolves to nothing;",
-    "// it must never widen into \"all tracks\", because the owner asked to publish one selection only.",
     "/** Replace the owner-library projection with real tracks and tokenised public addresses. */",
     "/** A fixed local-development secret: the proxy guard already lets dev run without BLOG_PROXY_KEY. */",
     "// Production compiles `DEV` to false and therefore fails closed; local development may omit both",
     "// secrets, the same way `requireBlogProxy` permits it, so the library is still playable there.",
     "/**\n * The library the admin picker may read.\n *\n * The public blog always reads the site owner's tracks. A signed-in owner of another account must not\n * see that account's library (the picker would also publish something they cannot preview), and must\n * not see their own library either, because it would never reach the blog. Answer with an explicit\n * mismatch instead of a misleading zero.\n */",
+    "/**\n * Whether this deployment can sign a music link.\n *\n * `requireBlogProxy` accepts any non-empty proxy key, so the signer must accept the same key: a length\n * check here once rejected a real deployment's short key and silently dropped every R2 track while the\n * admin still counted them as playable.\n */",
+    "/**\n * Resolve the configured scope and say why it has no tracks.\n *\n * The counts come from the same predicates the public list uses, so the status cannot disagree with\n * the entries the admin card counted.\n */",
   ]],
   ["src/worker/blog/public-routes.ts", [
     "// Friend links moved to the nav app; only its dedicated projection above may serve them.",
