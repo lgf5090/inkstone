@@ -72,8 +72,10 @@ export const DEFAULT_BLOG_SETTINGS: BlogSettings = {
   },
   article: { showLastUpdated: true, lastUpdatedDays: 90, relatedCount: 3, randomCount: 2, share: true },
   comment: { provider: 'local' },
+  // A fresh site still shows the music entrance: `local` with no tracks renders the configuration
+  // note instead of hiding the feature. A stored provider — including an explicit `none` — wins.
   music: {
-    provider: 'none',
+    provider: 'local',
     tracks: [],
     meting: { server: 'netease', type: 'playlist', id: '', api: '' },
     defaultVolume: 0.7,
