@@ -119,7 +119,7 @@ describe('Seafile driver', () => {
     }))
     await driver.list('/docs')
     expect(loginBody).toContain('username=u')
-    expect(saved).toHaveBeenCalledWith({ token: 'fresh-token' })
+    expect(saved).toHaveBeenCalledWith({ token: 'fresh-token' }, undefined)
   })
 
   it('rejects a path that escapes the mount before any request', async () => {
