@@ -674,8 +674,44 @@ function storageConfig(type: StorageType, value: unknown): Record<string, unknow
     if (config.platform !== undefined && config.platform !== 'web' && config.platform !== 'android') {
       throw ApiError.badRequest('The 123Pan platform must be web or android')
     }
+  } else {
+    const required = STORAGE_REQUIRED_CONFIG[type]
+    if (required) {
+      for (const key of required) {
+        if (!text(key)) throw ApiError.badRequest(`The ${key} field is required for this storage type`)
+      }
+    }
   }
   return config
+}
+
+/** The config fields a batch-A driver cannot work without; credentials are checked by the driver. */
+const STORAGE_REQUIRED_CONFIG: Readonly<Record<string, readonly string[]>> = {
+  r2: ['accountId', 'bucket'],
+  azure_blob: ['endpoint', 'containerName'],
+  uss: ['bucket', 'operatorName'],
+  bunny_storage: ['storageZoneName'],
+  seafile: ['address'],
+  cloudreve_v3: ['address'],
+  cloudreve_v4: ['address'],
+  kodbox: ['address'],
+  alist_v3: ['url'],
+  openlist: ['url'],
+  openlist_share: ['url', 'sid'],
+  teldrive: ['url'],
+  misskey: ['endpoint'],
+  emby: ['url'],
+  ipfs_api: ['endpoint'],
+  cnb_releases: ['repo'],
+  github_releases: ['repoStructure'],
+  lenovonas_share: ['shareId'],
+  onedrive_sharelink: ['url'],
+  autoindex: ['url'],
+  url_tree: ['urlStructure'],
+  strm: ['paths'],
+  chunk: ['remotePath'],
+  crypt: ['remotePath'],
+  alias: ['paths'],
 }
 
 function cleanRootPath(value: unknown): string {

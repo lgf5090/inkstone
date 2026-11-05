@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 20_000
 const DEFAULT_RETRIES = 2
 
 export interface HttpOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   headers?: Record<string, string>
   body?: BodyInit
   timeoutMs?: number
@@ -21,6 +21,8 @@ export interface HttpOptions {
   /** Redirects are followed by hand only when a driver asks; the default refuses them. */
   redirect?: RequestInit['redirect']
   signal?: AbortSignal
+  /** Pass a `Request` as the first fetch argument instead of a URL plus init. */
+  asRequest?: boolean
 }
 
 function retryDelay(response: Response | null, attempt: number): number {
@@ -38,10 +40,16 @@ async function errorFromResponse(response: Response): Promise<DriverError> {
   const text = await response.text().catch(() => '')
   let message = ''
   try {
-    const parsed = JSON.parse(text) as { message?: unknown; msg?: unknown; error?: unknown }
+    // IPFS answers with a capitalised `Message`; the other APIs use the lower-case spellings.
+    const parsed = JSON.parse(text) as { message?: unknown; msg?: unknown; error?: unknown; Message?: unknown }
     if (typeof parsed.message === 'string') message = parsed.message
     else if (typeof parsed.msg === 'string') message = parsed.msg
     else if (typeof parsed.error === 'string') message = parsed.error
+    else if (parsed.error && typeof parsed.error === 'object') {
+      const nested = parsed.error as { message?: unknown; msg?: unknown }
+      if (typeof nested.message === 'string') message = nested.message
+      else if (typeof nested.msg === 'string') message = nested.msg
+    } else if (typeof parsed.Message === 'string') message = parsed.Message
   } catch {
     message = text.slice(0, 200)
   }
@@ -111,13 +119,18 @@ export abstract class HttpDriverBase {
     for (let attempt = 0; attempt <= retries; attempt++) {
       let response: Response
       try {
-        response = await fetch(url, {
+        const init: RequestInit = {
           method: options.method ?? 'GET',
           headers: options.headers,
           body: options.body,
           redirect: options.redirect ?? 'manual',
           signal: options.signal ?? AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-        })
+        }
+        // A driver can ask for a Request when its caller inspects the fetch argument; the init
+        // object stays on the second argument so headers and bodies remain readable.
+        response = options.asRequest
+          ? await fetch(new Request(url, init), init)
+          : await fetch(url, init)
       } catch (error) {
         lastError = DriverError.upstream(`The upstream service could not be reached: ${error instanceof Error ? error.message : String(error)}`)
         if (attempt === retries) throw lastError

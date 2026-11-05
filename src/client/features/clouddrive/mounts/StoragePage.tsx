@@ -760,6 +760,11 @@ export function StoragePage() {
                 {!driverAuthSatisfied(definition, form.driverValues, editing?.hasCredentials ?? false) && (
                   <p role="alert" className="text-[length:var(--text-11)] text-[var(--danger)]">{t('clouddrive.driver.auth_required')}</p>
                 )}
+                {definition.noteKey && (
+                  <p className="text-[length:var(--text-11)] text-[var(--text-tertiary)]">
+                    {t(definition.noteKey as Parameters<typeof t>[0])}
+                  </p>
+                )}
               </>
             )
           })()}

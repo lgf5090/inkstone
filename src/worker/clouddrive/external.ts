@@ -10,6 +10,14 @@ import { s3RequestUrl } from './storage-urls'
 import { createStorageDriver } from './drivers/factory'
 import { rethrowDriver } from './drivers/errors'
 
+function driverMountContext(mount: CloudDriveMountInfo): { id: string; mountPath: string; signExpires?: number } {
+  return {
+    id: mount.id,
+    mountPath: mount.mountPath,
+    ...(typeof mount.signExpires === 'number' ? { signExpires: mount.signExpires } : {}),
+  }
+}
+
 interface StorageRow {
   id: string
   user_id: string
@@ -201,7 +209,7 @@ export async function externalDirectUrl(
 ): Promise<string | null> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) return null
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       return driver.directLink ? await driver.directLink(path) : null
@@ -281,7 +289,7 @@ export async function externalFolderSize(
 ): Promise<{ bytes: number; truncated: boolean }> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       const queue = [path]
@@ -339,7 +347,7 @@ async function listStorage(
   storage: StorageRow,
   path: string,
 ): Promise<DriverList> {
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       const result = await driver.list(path)
@@ -371,7 +379,7 @@ async function readStorage(
   range: string | null,
   ref: string | null,
 ): Promise<Response | null> {
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       return await driver.read(path, range)
@@ -1251,7 +1259,7 @@ export async function writeExternalFile(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       await driver.upload(path, bytes, { size: bytes.byteLength, contentType })
@@ -1284,7 +1292,7 @@ export async function mkdirExternal(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       await driver.mkdir(path)
@@ -1421,7 +1429,7 @@ export async function deleteExternalPath(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       await driver.remove(path)
@@ -1459,7 +1467,7 @@ export async function moveExternalPath(
 ): Promise<void> {
   const storage = await storageFor(db, mount.id, mount.storageId)
   if (!storage) throw new ApiError(502, 'clouddrive_mount_unavailable', 'The mount configuration is missing')
-  const driver = await createStorageDriver(env, storage)
+  const driver = await createStorageDriver(env, storage, driverMountContext(mount))
   if (driver) {
     try {
       await driver.move(from, to)
