@@ -1,13 +1,16 @@
 /**
  * 115 Cloud Drive open-platform driver.
  *
- * Ported from `OpenList-Worker/src/backend/drivers/115open` and the upstream 115 SDK. The mount
- * is read-only here; listings page by offset, paths are resolved by walking directories, and
- * downloads resolve a `pick_code` into a short-lived URL.
+ * Ported from `OpenList-Worker/src/backend/drivers/115open` and the upstream 115 SDK. Listings
+ * page by offset, paths are resolved by walking directories, downloads resolve a `pick_code` into
+ * a short-lived URL, and writes use the open platform's instant-upload handshake followed by a
+ * single signed OSS PUT.
  */
+import { createHash, createHmac } from 'node:crypto'
 import { findCloudDriveDriver } from '@shared/clouddrive/drivers'
 import {
   DriverError,
+  asBytes,
   driverEntryMime,
   type DriverContext,
   type DriverEntry,
@@ -48,6 +51,39 @@ interface Pan115Envelope<T> {
   message?: string
   data?: T
   count?: number
+}
+
+interface Pan115UploadInit {
+  status?: number
+  sign_key?: string
+  sign_check?: string
+  file_id?: string
+  target?: string
+  bucket?: string
+  object?: string
+  callback?: {
+    callback?: string
+    callback_var?: string
+  }
+}
+
+interface Pan115UploadToken {
+  endpoint?: string
+  AccessKeyId?: string
+  AccessKeySecret?: string
+  SecurityToken?: string
+}
+
+function sha1Upper(bytes: Uint8Array): string {
+  return createHash('sha1').update(bytes).digest('hex').toUpperCase()
+}
+
+function hmacSha1Base64(text: string, secret: string): string {
+  return createHmac('sha1', secret).update(text).digest('base64')
+}
+
+function base64Text(text: string): string {
+  return Buffer.from(text, 'utf8').toString('base64')
 }
 
 function isAuthCode(code: number): boolean {
@@ -157,7 +193,9 @@ export class Pan115OpenDriver extends HttpDriverBase implements MountDriver {
     return await this.withAuth(async () => {
       const url = new URL(`${API}${path}`)
       for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value)
-      const form = options.form === undefined ? undefined : new URLSearchParams(options.form)
+      const form = options.form === undefined ? undefined : new URLSearchParams(
+        Object.entries(options.form).filter(([, value]) => value !== ''),
+      )
       const response = await this.request(url.toString(), {
         method: options.method ?? 'GET',
         headers: {
@@ -310,30 +348,159 @@ export class Pan115OpenDriver extends HttpDriverBase implements MountDriver {
     return await this.downloadUrl(await this.resolveEntry(path))
   }
 
-  async upload(path: string, _body: Uint8Array | ReadableStream, _options: DriverUploadOptions): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('115 Open is mounted read-only')
+  private async uploadInit(input: {
+    fileName: string
+    fileSize: number
+    parentId: string
+    fileId: string
+    preId: string
+    signKey?: string
+    signVal?: string
+  }): Promise<Pan115UploadInit> {
+    const payload = await this.api<Pan115UploadInit>('/open/upload/init', {
+      method: 'POST',
+      form: {
+        file_name: input.fileName,
+        file_size: String(input.fileSize),
+        target: `U_1_${input.parentId}`,
+        fileid: input.fileId,
+        preid: input.preId,
+        sign_key: input.signKey ?? '',
+        sign_val: input.signVal ?? '',
+      },
+    })
+    return payload.data ?? {}
+  }
+
+  private async putObject(token: Pan115UploadToken, init: Pan115UploadInit, bytes: Uint8Array): Promise<void> {
+    const endpoint = String(token.endpoint ?? '')
+    const bucket = String(init.bucket ?? '')
+    const object = String(init.object ?? '')
+    const accessKeyId = String(token.AccessKeyId ?? '')
+    const accessKeySecret = String(token.AccessKeySecret ?? '')
+    const securityToken = String(token.SecurityToken ?? '')
+    const base = endpoint.startsWith('http') ? endpoint : `https://${endpoint}`
+    const url = `${base.replace(/\/$/, '')}/${object}`
+
+    const callback = base64Text(String(init.callback?.callback ?? ''))
+    const callbackVar = base64Text(String(init.callback?.callback_var ?? ''))
+    const date = new Date().toUTCString()
+    const contentType = 'application/octet-stream'
+    const ossHeaders = `x-oss-callback:${callback}\nx-oss-callback-var:${callbackVar}\nx-oss-security-token:${securityToken}\n`
+    const canonicalResource = `/${bucket}/${object}`
+    const stringToSign = `PUT\n\n${contentType}\n${date}\n${ossHeaders}${canonicalResource}`
+    const signature = hmacSha1Base64(stringToSign, accessKeySecret)
+
+    const response = await this.request(url, {
+      method: 'PUT',
+      timeoutMs: 120_000,
+      headers: {
+        'Content-Type': contentType,
+        Date: date,
+        Authorization: `OSS ${accessKeyId}:${signature}`,
+        'x-oss-security-token': securityToken,
+        'x-oss-callback': callback,
+        'x-oss-callback-var': callbackVar,
+        'Content-Length': String(bytes.byteLength),
+      },
+      body: bytes,
+    })
+    await response.body?.cancel().catch(() => undefined)
+  }
+
+  async upload(path: string, body: Uint8Array | ReadableStream, options: DriverUploadOptions): Promise<void> {
+    const clean = driverPath(path)
+    const bytes = await asBytes(body)
+    if (bytes.byteLength < 1) throw DriverError.invalid('115 Open does not accept empty files')
+    if (bytes.byteLength !== options.size) throw DriverError.invalid('The upload body does not match the declared size')
+    const name = driverFileName(clean)
+    const parentId = await this.resolveDir(driverParentPath(clean))
+    const fileSize = bytes.byteLength
+    const fileId = sha1Upper(bytes)
+    const preSize = Math.min(128 * 1024, fileSize)
+    const preId = sha1Upper(bytes.subarray(0, preSize))
+
+    let init = await this.uploadInit({ fileName: name, fileSize, parentId, fileId, preId })
+    if (Number(init.status) === 2) {
+      options.onProgress?.(fileSize, fileSize)
+      return
+    }
+    if ([6, 7, 8].includes(Number(init.status)) && init.sign_check) {
+      const [start, end] = init.sign_check.split('-').map((value) => parseInt(value, 10))
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        const signVal = sha1Upper(bytes.subarray(start, end + 1))
+        init = await this.uploadInit({ fileName: name, fileSize, parentId, fileId, preId, signKey: init.sign_key, signVal })
+        if (Number(init.status) === 2) {
+          options.onProgress?.(fileSize, fileSize)
+          return
+        }
+      }
+    }
+
+    const tokenPayload = await this.api<Pan115UploadToken>('/open/upload/get_token')
+    const token = tokenPayload.data ?? {}
+    if (!init.bucket || !init.object || !token.endpoint) {
+      throw DriverError.upstream('115 Open returned incomplete OSS upload information')
+    }
+    await this.putObject(token, init, bytes)
+    options.onProgress?.(fileSize, fileSize)
   }
 
   async mkdir(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('115 Open is mounted read-only')
+    const clean = driverPath(path)
+    if (clean === '/') return
+    const parentId = await this.resolveDir(driverParentPath(clean))
+    await this.api('/open/folder/add', {
+      method: 'POST',
+      form: { pid: parentId, file_name: driverFileName(clean) },
+    })
+    this.pathIds.clear()
   }
 
-  async rename(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('115 Open is mounted read-only')
+  async rename(path: string, newName: string): Promise<void> {
+    const entry = await this.resolveEntry(path)
+    await this.api('/open/ufile/update', {
+      method: 'POST',
+      form: { file_id: entry.fid, file_name: newName },
+    })
+    this.pathIds.clear()
   }
 
   async move(fromPath: string, toPath: string): Promise<void> {
-    driverPath(fromPath)
-    driverPath(toPath)
-    throw DriverError.unsupported('115 Open is mounted read-only')
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    const entry = await this.resolveEntry(from)
+    const targetName = driverFileName(to)
+    if (targetName !== entry.fn) await this.rename(from, targetName)
+    const parentId = await this.resolveDir(driverParentPath(to))
+    await this.api('/open/ufile/move', {
+      method: 'POST',
+      form: { file_ids: entry.fid, to_cid: parentId },
+    })
+    this.pathIds.clear()
+  }
+
+  async copy(fromPath: string, toPath: string): Promise<void> {
+    const from = driverPath(fromPath)
+    const to = driverPath(toPath)
+    const entry = await this.resolveEntry(from)
+    const parentId = await this.resolveDir(driverParentPath(to))
+    await this.api('/open/ufile/copy', {
+      method: 'POST',
+      form: { pid: parentId, file_id: entry.fid, no_dupli: '1' },
+    })
+    this.pathIds.clear()
   }
 
   async remove(path: string): Promise<void> {
-    driverPath(path)
-    throw DriverError.unsupported('115 Open is mounted read-only')
+    const clean = driverPath(path)
+    const entry = await this.resolveEntry(clean)
+    const parentId = entry.pid || await this.resolveDir(driverParentPath(clean))
+    await this.api('/open/ufile/delete', {
+      method: 'POST',
+      form: { file_ids: entry.fid, parent_id: parentId },
+    })
+    this.pathIds.clear()
   }
 
   async test(): Promise<{ ok: boolean; message: string }> {
