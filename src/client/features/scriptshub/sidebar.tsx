@@ -7,8 +7,9 @@
  */
 import { useMemo, useState } from 'react'
 import {
-  BarChart3, ChevronRight, Copy, FileCode2, FilePlus2, FolderClosed, FolderPlus, MoreHorizontal,
-  Pin, Plus, Star, Tag, Trash2, Upload,
+  ArrowDown, ArrowUp, ArrowUpDown, BarChart3, ChevronRight, Copy, CornerUpLeft, FileCode2, FilePlus2,
+  FolderClosed, FolderInput, FolderPlus, Hash, MoreHorizontal, Palette, Pencil, Pin, Plus, Smile, SortAsc,
+  Star, Tag, Trash2, Upload,
 } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { t } from '../../lib/i18n'
@@ -17,12 +18,22 @@ import { navigateToPath } from '../../lib/app-history'
 import { IconButton, Button } from '../../components/primitives'
 import { Input, commitOnEnter } from '../../components/form'
 import { ColorWellField } from '../../components/color-field'
-import { Drawer, Menu, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
+import { Swatch } from '../../components/color-swatch'
+import { Menu, MenuSubmenuList, Drawer, Modal, confirm, useContextMenu, type MenuItem } from '../../components/overlay'
 import { useScriptsHub, folderPathOf } from './store'
-import { treeIndent } from '../../lib/tree'
+import { treeIndent, type MoveMenuFolder } from '../../lib/tree'
+import { FolderColorMenu, FolderIconMenu } from '../folders/FolderAppearanceMenus'
+import { FolderMoveMenu } from '../folders/FolderMoveMenu'
+import { folderMoveExclusions } from '../../lib/folders'
+import { ORGANIZER_COLORS, organizerColorLabel } from '@shared/organizer-colors'
+import { LIMITS } from '@shared/constants'
 import { copyText } from '../../lib/clipboard'
 import { useUi } from '../../store/ui'
 import type { ScriptFolder, ScriptTag } from '@shared/scriptshub/types'
+import { TagColorMenu } from './tag-color-menu'
+
+/** The payload a snippet row writes and a folder row accepts; the two modules share this name. */
+export const SNIPPET_DRAG = 'application/x-scriptshub-snippet'
 
 const FOLDER_DRAG = 'application/x-scriptshub-folder'
 
@@ -63,6 +74,16 @@ export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
 
   const folderTree = useMemo(() => buildFolderTree(folders), [folders])
   const tagTree = useMemo(() => buildTagTree(tags), [tags])
+  // The move menu and the exclusion rule are the notebook's own; feeding them the script folders in
+  // that shape keeps one implementation of "which parents are legal" across both modules.
+  const notebookFolders = useMemo(() => asNotebookFolders(folders), [folders])
+  const moveTree = useMemo(() => folderTree.map(toMoveFolder), [folderTree])
+
+  const moveSnippet = async (snippetId: string, folderId: string | null) => {
+    await useScriptsHub.getState().patchSnippet(snippetId, { folderId })
+    onNavigate?.()
+  }
+  const arrangeFolders = (orderedIds: readonly string[]) => useScriptsHub.getState().arrangeFolderSiblings(orderedIds)
 
   const chooseFilter = (id: FilterId) => {
     void loadList({ quick: id, folderId: null, tagId: null, offset: 0 })
@@ -98,10 +119,10 @@ export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
     }
   }
 
-  const deleteFolder = async (folder: ScriptFolder) => {
+  const deleteFolder = async (folder: ScriptFolder, childCount = 0) => {
     const agreed = await confirm({
       title: t('scriptshub.confirm.delete_folder_title', { name: folder.name }),
-      description: t('scriptshub.confirm.delete_folder_body'),
+      description: t('scriptshub.confirm.delete_folder_counts', { snippets: folder.snippetCount, folders: childCount }),
       confirmLabel: t('scriptshub.common.delete'),
       tone: 'danger',
     })
@@ -111,17 +132,17 @@ export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
   const deleteTag = async (tag: ScriptTag) => {
     const agreed = await confirm({
       title: t('scriptshub.confirm.delete_tag_title', { name: tag.name }),
-      description: t('scriptshub.confirm.delete_tag_body'),
+      description: t('scriptshub.confirm.delete_tag_counts', { snippets: tag.snippetCount }),
       confirmLabel: t('scriptshub.common.delete'),
       tone: 'danger',
     })
     if (agreed) await useScriptsHub.getState().deleteTag(tag.id)
   }
 
-  const moveFolder = async (folderId: string, parentId: string | null) => {
+  const moveFolder = async (folderId: string, parentId: string | null, position?: number) => {
     const targetPath = folderPathOf(folders, parentId)
     if (targetPath.some((entry) => entry.id === folderId)) return
-    await useScriptsHub.getState().updateFolder(folderId, { parentId })
+    await useScriptsHub.getState().updateFolder(folderId, { parentId, ...(position === undefined ? {} : { position }) })
   }
 
   const copyFolderPath = async (folder: ScriptFolder) => {
@@ -204,32 +225,45 @@ export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
             {folderTree.length === 0 && (
               <p className="px-2 py-2 text-[length:var(--text-11)] text-[var(--text-quaternary)]">{t('scriptshub.sidebar.no_folders')}</p>
             )}
-            {folderTree.map((node) => (
+            {folderTree.map((node, index) => (
               <FolderNode
                 key={node.folder.id}
                 node={node}
                 depth={0}
+                siblings={folderTree.map((entry) => entry.folder)}
+                index={index}
+                parent={null}
                 expanded={expandedFolders}
+                moveTree={moveTree}
+                notebookFolders={notebookFolders}
                 onToggle={(id) => setExpandedFolders((current) => toggleSet(current, id))}
                 activeId={query.folderId ?? null}
                 onChoose={chooseFolder}
                 onNew={(parentId) => setDialog({ kind: 'folder', mode: 'create', parentId, name: '', color: null })}
                 onRename={(folder) => setDialog({ kind: 'folder', mode: 'rename', id: folder.id, name: folder.name, color: folder.color })}
+                onStyle={(folder, patch) => void useScriptsHub.getState().updateFolder(folder.id, patch)}
                 onDelete={deleteFolder}
                 onMove={moveFolder}
+                onArrange={arrangeFolders}
                 onNewSnippet={createInFolder}
                 onCopyPath={copyFolderPath}
+                onDropSnippet={moveSnippet}
               />
             ))}
             <div
               className="rounded-[var(--r-md)] px-2 py-1.5 text-[length:var(--text-10-5)] text-[var(--text-quaternary)]"
               onDragOver={(event) => {
-                if (!event.dataTransfer.types.includes(FOLDER_DRAG)) return
+                if (!event.dataTransfer.types.includes(FOLDER_DRAG) && !event.dataTransfer.types.includes(SNIPPET_DRAG)) return
                 event.preventDefault()
               }}
               onDrop={(event) => {
-                const id = event.dataTransfer.getData(FOLDER_DRAG)
-                if (id) void moveFolder(id, null)
+                const folderId = event.dataTransfer.getData(FOLDER_DRAG)
+                if (folderId) {
+                  void moveFolder(folderId, null)
+                  return
+                }
+                const snippetId = event.dataTransfer.getData(SNIPPET_DRAG)
+                if (snippetId) void moveSnippet(snippetId, null)
               }}
             >
               {t('scriptshub.sidebar.drop_root')}
@@ -264,6 +298,7 @@ export function SnippetsSidebar({ mobile = false, open = true, onNavigate }: {
                 onChoose={chooseTag}
                 onNew={(parentId) => setDialog({ kind: 'tag', mode: 'create', parentId, name: '', color: null })}
                 onRename={(tag) => setDialog({ kind: 'tag', mode: 'rename', id: tag.id, name: tag.name, color: tag.color })}
+                onStyle={(tag, patch) => void useScriptsHub.getState().updateTag(tag.id, patch)}
                 onDelete={deleteTag}
               />
             ))}
@@ -329,56 +364,192 @@ function buildFolderTree(folders: readonly ScriptFolder[]): FolderTreeNode[] {
 }
 
 function FolderNode({
-  node, depth, expanded, onToggle, activeId, onChoose, onNew, onRename, onDelete, onMove, onNewSnippet, onCopyPath,
+  node, depth, siblings, index, parent, expanded, moveTree, notebookFolders,
+  onToggle, activeId, onChoose, onNew, onRename, onStyle, onDelete, onMove, onArrange, onNewSnippet, onCopyPath, onDropSnippet,
 }: {
   node: FolderTreeNode
   depth: number
+  siblings: readonly ScriptFolder[]
+  index: number
+  parent: FolderTreeNode | null
   expanded: Set<string>
+  moveTree: readonly MoveMenuFolder[]
+  notebookFolders: ReturnType<typeof asNotebookFolders>
   onToggle: (id: string) => void
   activeId: string | null
   onChoose: (id: string | null) => void
   onNew: (parentId: string) => void
   onRename: (folder: ScriptFolder) => void
-  onDelete: (folder: ScriptFolder) => void
-  onMove: (folderId: string, parentId: string | null) => Promise<void>
+  onStyle: (folder: ScriptFolder, patch: { color?: string | null; icon?: string | null }) => void
+  onDelete: (folder: ScriptFolder, childCount?: number) => void
+  onMove: (folderId: string, parentId: string | null, position?: number) => Promise<void>
+  onArrange: (orderedIds: readonly string[]) => Promise<void>
   onNewSnippet: (folderId: string) => void
   onCopyPath: (folder: ScriptFolder) => void
+  onDropSnippet: (snippetId: string, folderId: string) => Promise<void>
 }) {
   const menu = useContextMenu()
+  const [over, setOver] = useState(false)
   const anchorLabel = t('scriptshub.common.more')
-  const items: MenuItem[] = [
-    { id: 'new-snippet', label: t('scriptshub.menu.new_snippet'), icon: <FilePlus2 size={13} aria-hidden="true" />, onSelect: () => onNewSnippet(node.folder.id) },
-    { id: 'new', label: t('scriptshub.sidebar.new_subfolder'), icon: <FolderPlus size={13} aria-hidden="true" />, onSelect: () => onNew(node.folder.id) },
-    { id: 'rename', label: t('scriptshub.common.rename'), onSelect: () => onRename(node.folder) },
-    { id: 'copy-path', label: t('scriptshub.menu.copy_path'), icon: <Copy size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onCopyPath(node.folder) },
-    { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => onDelete(node.folder) },
-  ]
   const isOpen = expanded.has(node.folder.id)
   const hasChildren = node.children.length > 0
+  const canCreateChild = depth + 1 < LIMITS.folderDepthMax
+  const orderedIds = siblings.map((folder) => folder.id)
+  const sortByName = () => [...siblings]
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((folder) => folder.id)
+  const swap = (from: number, to: number) => {
+    const next = [...orderedIds]
+    const [moving] = next.splice(from, 1)
+    if (!moving) return next
+    next.splice(to, 0, moving)
+    return next
+  }
+  const items: MenuItem[] = [
+    { id: 'rename', label: t('scriptshub.common.rename'), icon: <Pencil size={13} aria-hidden="true" />, combo: 'F2', onSelect: () => onRename(node.folder) },
+    { id: 'new-snippet', label: t('scriptshub.menu.new_snippet'), icon: <FilePlus2 size={13} aria-hidden="true" />, onSelect: () => onNewSnippet(node.folder.id) },
+    {
+      id: 'new',
+      label: t('scriptshub.sidebar.new_subfolder'),
+      icon: <FolderPlus size={13} aria-hidden="true" />,
+      disabled: !canCreateChild,
+      reason: canCreateChild ? undefined : t('scriptshub.sidebar.reason_depth'),
+      onSelect: () => onNew(node.folder.id),
+    },
+    {
+      id: 'color',
+      label: t('folders.color'),
+      icon: <Palette size={13} aria-hidden="true" />,
+      separatorBefore: true,
+      submenu: ({ closeMenu }) => (
+        <FolderColorMenu color={node.folder.color} onSelectColor={(color) => {
+          onStyle(node.folder, { color })
+          closeMenu()
+        }} />
+      ),
+    },
+    {
+      id: 'icon',
+      label: t('folders.icon'),
+      icon: <Smile size={13} aria-hidden="true" />,
+      submenu: ({ closeMenu }) => (
+        <FolderIconMenu icon={node.folder.icon} onSelectIcon={(icon) => {
+          onStyle(node.folder, { icon })
+          closeMenu()
+        }} />
+      ),
+    },
+    {
+      id: 'move-to',
+      label: t('folders.move_to'),
+      icon: <FolderInput size={13} aria-hidden="true" />,
+      separatorBefore: true,
+      submenu: ({ closeMenu }) => (
+        <FolderMoveMenu
+          tree={moveTree}
+          subject={toMoveFolder(node)}
+          currentParentId={node.folder.parentId}
+          excludedIds={folderMoveExclusions(notebookFolders, node.folder.id)}
+          onSelect={(parentId) => {
+            void onMove(node.folder.id, parentId)
+            closeMenu()
+          }}
+        />
+      ),
+    },
+    {
+      id: 'arrange',
+      label: t('folders.group_arrange'),
+      icon: <ArrowUpDown size={13} aria-hidden="true" />,
+      separatorBefore: true,
+      submenu: ({ closeMenu }) => (
+        <MenuSubmenuList label={t('folders.group_arrange')} items={[
+          {
+            id: 'move-earlier',
+            label: t('sidebar.move_earlier'),
+            icon: <ArrowUp size={13} aria-hidden="true" />,
+            disabled: index <= 0,
+            reason: index <= 0 ? t('scriptshub.sidebar.reason_first') : undefined,
+            onSelect: () => { void onArrange(swap(index, index - 1)); closeMenu() },
+          },
+          {
+            id: 'move-later',
+            label: t('sidebar.move_later'),
+            icon: <ArrowDown size={13} aria-hidden="true" />,
+            disabled: index >= siblings.length - 1,
+            reason: index >= siblings.length - 1 ? t('scriptshub.sidebar.reason_last') : undefined,
+            onSelect: () => { void onArrange(swap(index, index + 1)); closeMenu() },
+          },
+          {
+            id: 'move-out',
+            label: t('sidebar.move_out_one_level'),
+            icon: <CornerUpLeft size={13} aria-hidden="true" />,
+            disabled: !parent,
+            reason: parent ? undefined : t('scriptshub.sidebar.reason_top_level'),
+            onSelect: () => {
+              if (parent) void onMove(node.folder.id, parent.folder.parentId, parent.folder.position + 1)
+              closeMenu()
+            },
+          },
+          {
+            id: 'sort',
+            label: t('folders.sort_by_name'),
+            icon: <SortAsc size={13} aria-hidden="true" />,
+            separatorBefore: true,
+            disabled: siblings.length < 2,
+            reason: siblings.length < 2 ? t('scriptshub.sidebar.reason_only_sibling') : undefined,
+            onSelect: () => { void onArrange(sortByName()); closeMenu() },
+          },
+        ]} />
+      ),
+    },
+    { id: 'copy-path', label: t('scriptshub.menu.copy_folder_path'), icon: <Copy size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onCopyPath(node.folder) },
+    {
+      id: 'delete',
+      label: t('scriptshub.common.delete'),
+      icon: <Trash2 size={13} aria-hidden="true" />,
+      tone: 'danger',
+      separatorBefore: true,
+      onSelect: () => onDelete(node.folder, node.children.length),
+    },
+  ]
   return (
     <div>
       <div
         data-scriptshub-folder-row
         draggable
         onDragStart={(event) => {
-          event.dataTransfer.setData(FOLDER_DRAG, node.folder.id)
-          event.dataTransfer.effectAllowed = 'move'
+          if (!(event.target as HTMLElement).closest('[data-scriptshub-snippet-drag]')) {
+            event.dataTransfer.setData(FOLDER_DRAG, node.folder.id)
+            event.dataTransfer.effectAllowed = 'move'
+          }
         }}
         onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes(FOLDER_DRAG)) return
+          if (!event.dataTransfer.types.includes(FOLDER_DRAG) && !event.dataTransfer.types.includes(SNIPPET_DRAG)) return
           event.preventDefault()
           event.stopPropagation()
           event.dataTransfer.dropEffect = 'move'
+          setOver(true)
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false)
         }}
         onDrop={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          const id = event.dataTransfer.getData(FOLDER_DRAG)
-          if (id && id !== node.folder.id) void onMove(id, node.folder.id)
+          setOver(false)
+          const folderId = event.dataTransfer.getData(FOLDER_DRAG)
+          if (folderId) {
+            if (folderId !== node.folder.id) void onMove(folderId, node.folder.id)
+            return
+          }
+          const snippetId = event.dataTransfer.getData(SNIPPET_DRAG)
+          if (snippetId) void onDropSnippet(snippetId, node.folder.id)
         }}
         className={cn(
           'group relative flex h-10 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[28px]',
           activeId === node.folder.id ? 'bg-[var(--accent-soft)] text-[var(--accent-on-soft)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+          over && 'ring-1 ring-[var(--accent)] bg-[var(--accent-soft)]',
         )}
         style={{ paddingLeft: treeIndent(depth) }}
       >
@@ -395,7 +566,9 @@ function FolderNode({
         >
           <ChevronRight size={11} aria-hidden="true" />
         </button>
-        <FolderClosed size={13} aria-hidden="true" style={{ color: node.folder.color ?? 'var(--text-tertiary)' }} />
+        {node.folder.icon
+          ? <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center text-[length:var(--text-13)] leading-none" style={{ color: node.folder.color ?? undefined }}>{node.folder.icon}</span>
+          : <FolderClosed size={13} aria-hidden="true" style={{ color: node.folder.color ?? 'var(--text-tertiary)' }} />}
         <button
           type="button"
           onClick={() => onChoose(node.folder.id)}
@@ -403,6 +576,16 @@ function FolderNode({
           onContextMenu={(event) => {
             event.preventDefault()
             menu.onContextMenu(event)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault()
+              onRename(node.folder)
+            }
+            if (event.key === 'Delete') {
+              event.preventDefault()
+              onDelete(node.folder, node.children.length)
+            }
           }}
           className="min-w-0 flex-1 truncate py-1 text-left text-[length:var(--text-12)] font-medium"
         >
@@ -424,26 +607,45 @@ function FolderNode({
           <MoreHorizontal size={12} aria-hidden="true" />
         </IconButton>
       </div>
-      {isOpen && node.children.map((child) => (
+      {isOpen && node.children.map((child, childIndex) => (
         <FolderNode
           key={child.folder.id}
           node={child}
           depth={depth + 1}
+          siblings={node.children.map((entry) => entry.folder)}
+          index={childIndex}
+          parent={node}
           expanded={expanded}
+          moveTree={moveTree}
+          notebookFolders={notebookFolders}
           onToggle={onToggle}
           activeId={activeId}
           onChoose={onChoose}
           onNew={onNew}
           onRename={onRename}
+          onStyle={onStyle}
           onDelete={onDelete}
           onMove={onMove}
+          onArrange={onArrange}
           onNewSnippet={onNewSnippet}
           onCopyPath={onCopyPath}
+          onDropSnippet={onDropSnippet}
         />
       ))}
       {menu.point && <Menu anchor={menu.point} open onClose={menu.close} items={items} />}
     </div>
   )
+}
+
+function toMoveFolder(node: FolderTreeNode): MoveMenuFolder {
+  return {
+    id: node.folder.id,
+    name: node.folder.name,
+    icon: node.folder.icon,
+    color: node.folder.color,
+    directNotes: node.folder.snippetCount,
+    children: node.children.map(toMoveFolder),
+  }
 }
 
 interface TagTreeNode {
@@ -464,7 +666,7 @@ function buildTagTree(tags: readonly ScriptTag[]): TagTreeNode[] {
 }
 
 function TagNode({
-  node, expanded, onToggle, activeId, onChoose, onNew, onRename, onDelete,
+  node, expanded, onToggle, activeId, onChoose, onNew, onRename, onStyle, onDelete,
 }: {
   node: TagTreeNode
   expanded: Set<string>
@@ -473,20 +675,36 @@ function TagNode({
   onChoose: (id: string) => void
   onNew: (parentId: string) => void
   onRename: (tag: ScriptTag) => void
+  onStyle: (tag: ScriptTag, patch: { color?: string | null }) => void
   onDelete: (tag: ScriptTag) => void
 }) {
   const menu = useContextMenu()
   const isOpen = expanded.has(node.tag.id)
+  // The notebook's own order: rename, the child action, then the reading actions, the colour board,
+  // and the destructive row behind a separator. What has no ScriptsHub counterpart — pinning a tag,
+  // excluding it from search, removing it from one note, opening a tag page — has no field or surface
+  // here, so it is left out rather than rendered dead.
   const items: MenuItem[] = [
-    { id: 'filter', label: t('scriptshub.tag.filter'), icon: <Tag size={13} aria-hidden="true" />, onSelect: () => onChoose(node.tag.id) },
+    { id: 'rename', label: t('scriptshub.common.rename'), icon: <Pencil size={13} aria-hidden="true" />, combo: 'F2', onSelect: () => onRename(node.tag) },
+    { id: 'new', label: t('scriptshub.sidebar.new_subtag'), icon: <Plus size={13} aria-hidden="true" />, onSelect: () => onNew(node.tag.id) },
+    { id: 'filter', label: t('scriptshub.tag.filter'), icon: <Tag size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onChoose(node.tag.id) },
     { id: 'copy', label: t('scriptshub.tag.copy_name'), icon: <Copy size={13} aria-hidden="true" />, onSelect: () => {
       void copyText(`#${node.tag.name}`).then((ok) => {
         useUi.getState().toast({ title: ok ? t('scriptshub.tag.copied') : t('scriptshub.common.copy_failed'), tone: ok ? 'success' : 'danger' })
       })
     } },
-    { id: 'new', label: t('scriptshub.sidebar.new_subtag'), icon: <Plus size={13} aria-hidden="true" />, separatorBefore: true, onSelect: () => onNew(node.tag.id) },
-    { id: 'rename', label: t('scriptshub.common.rename'), onSelect: () => onRename(node.tag) },
-    { id: 'color', label: t('scriptshub.tag.color'), onSelect: () => onRename(node.tag) },
+    {
+      id: 'color',
+      label: t('scriptshub.tag.color'),
+      icon: <Palette size={13} aria-hidden="true" />,
+      separatorBefore: true,
+      submenu: ({ closeMenu }) => (
+        <TagColorMenu color={node.tag.color} onSelectColor={(color) => {
+          onStyle(node.tag, { color })
+          closeMenu()
+        }} />
+      ),
+    },
     { id: 'delete', label: t('scriptshub.common.delete'), icon: <Trash2 size={13} aria-hidden="true" />, tone: 'danger', separatorBefore: true, onSelect: () => onDelete(node.tag) },
   ]
   return (
@@ -518,6 +736,16 @@ function TagNode({
             event.preventDefault()
             menu.onContextMenu(event)
           }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault()
+              onRename(node.tag)
+            }
+            if (event.key === 'Delete') {
+              event.preventDefault()
+              onDelete(node.tag)
+            }
+          }}
           className="min-w-0 flex-1 truncate text-left text-[length:var(--text-11-5)]"
         >
           {node.tag.name}
@@ -548,6 +776,7 @@ function TagNode({
           onChoose={onChoose}
           onNew={onNew}
           onRename={onRename}
+          onStyle={onStyle}
           onDelete={onDelete}
         />
       ))}
@@ -596,13 +825,37 @@ function NameDialog({ state, saving, onChange, onClose, onSubmit }: {
               placeholder={state.kind === 'folder' ? t('scriptshub.dialog.folder_placeholder') : t('scriptshub.dialog.tag_placeholder')}
             />
           </label>
-          <div className="flex items-center gap-3">
-            <ColorWellField
-              value={state.color}
-              label={t('scriptshub.dialog.color')}
-              onChange={(color) => onChange({ ...state, color })}
-            />
-            <span className="text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">{t('scriptshub.dialog.color')}</span>
+          <div className="space-y-2">
+            <p className="text-[length:var(--text-11-5)] font-medium text-[var(--text-secondary)]">{t('scriptshub.dialog.color')}</p>
+            <div role="group" aria-label={t('scriptshub.dialog.color')} className="grid grid-cols-8 gap-1.5">
+              <Swatch
+                color={null}
+                label={t('folders.no_color')}
+                active={!state.color}
+                onPick={() => onChange({ ...state, color: null })}
+                icon={<Hash size={13} />}
+              />
+              {ORGANIZER_COLORS.map((value) => (
+                <Swatch
+                  key={value}
+                  color={value}
+                  label={organizerColorLabel(value, t)}
+                  active={state.color === value}
+                  background={value}
+                  onPick={() => onChange({ ...state, color: value })}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <ColorWellField
+                value={state.color}
+                label={t('scriptshub.dialog.color')}
+                onChange={(color) => onChange({ ...state, color })}
+              />
+              <span className="min-w-0 truncate text-[length:var(--text-11-5)] text-[var(--text-tertiary)]">
+                {state.color ? organizerColorLabel(state.color, t) : t('scriptshub.tag.color_auto')}
+              </span>
+            </div>
           </div>
         </div>
       )}

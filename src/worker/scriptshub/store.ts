@@ -316,9 +316,9 @@ export class ScriptsHubStore {
     if (!existing) throw ApiError.notFound('Folder not found')
     const sets: string[] = []
     const binds: Array<string | number | null> = []
+    const parentId = input.parentId !== undefined ? input.parentId : existing.parent_id
     if (input.name !== undefined) {
       const name = cleanFolderName(input.name)
-      const parentId = input.parentId !== undefined ? input.parentId : existing.parent_id
       if (await this.siblingFolderNamed(parentId, name, id)) {
         throw ApiError.conflict('A folder with this name already exists here')
       }
@@ -326,7 +326,6 @@ export class ScriptsHubStore {
       binds.push(name)
     }
     if (input.parentId !== undefined) {
-      const parentId = input.parentId
       if (parentId === id) throw ApiError.badRequest('A folder cannot sit inside itself')
       if (parentId) {
         await this.assertFolder(parentId)
@@ -344,12 +343,40 @@ export class ScriptsHubStore {
       sets.push('color = ?')
       binds.push(cleanColor(input.color))
     }
-    if (!sets.length) throw ApiError.badRequest('Nothing to change')
+    // A move into another parent appends at the end; an explicit slot (the "move earlier/later"
+    // menu) inserts at that index. The rows after the slot shift right first, in the same batch, so
+    // two folders never share a position and the ordering survives the next read.
+    const placing = input.position !== undefined || (input.parentId !== undefined && input.parentId !== existing.parent_id)
+    if (!sets.length && !placing) throw ApiError.badRequest('Nothing to change')
+    const statements: D1PreparedStatement[] = []
+    if (placing) {
+      const siblings = await this.db.prepare(
+        `SELECT id, position FROM scriptshub_folders
+          WHERE user_id = ? AND parent_id IS ? AND id <> ?
+          ORDER BY position, name COLLATE NOCASE`,
+      ).bind(this.user, parentId, id).all<{ id: string; position: number }>()
+      const target = input.position === undefined
+        ? siblings.results.length
+        : Math.min(Math.max(0, Math.trunc(input.position)), siblings.results.length)
+      // Renumber every remaining sibling to its final slot, leaving `target` for the moved row. This
+      // also repairs slots that drifted (two folders at the same position) instead of inheriting them.
+      siblings.results.forEach((sibling, slot) => {
+        const next = slot >= target ? slot + 1 : slot
+        if (sibling.position === next) return
+        statements.push(this.db.prepare(
+          'UPDATE scriptshub_folders SET position = ? WHERE user_id = ? AND id = ?',
+        ).bind(next, this.user, sibling.id))
+      })
+      sets.push('position = ?')
+      binds.push(target)
+    }
     sets.push('updated_at = ?')
     binds.push(Date.now())
-    await this.db.prepare(
+    statements.push(this.db.prepare(
       `UPDATE scriptshub_folders SET ${sets.join(', ')} WHERE user_id = ? AND id = ?`,
-    ).bind(...binds, this.user, id).run()
+    ).bind(...binds, this.user, id))
+    if (statements.length === 1) await statements[0]!.run()
+    else await this.db.batch(statements)
     const folder = (await this.listFolders()).find((entry) => entry.id === id)
     if (!folder) throw ApiError.notFound('Folder not found')
     return folder
@@ -375,9 +402,9 @@ export class ScriptsHubStore {
     ])
   }
 
-  private async folderState(id: string): Promise<{ parent_id: string | null } | null> {
-    return this.db.prepare('SELECT parent_id FROM scriptshub_folders WHERE user_id = ? AND id = ?')
-      .bind(this.user, id).first<{ parent_id: string | null }>()
+  private async folderState(id: string): Promise<{ parent_id: string | null; position: number } | null> {
+    return this.db.prepare('SELECT parent_id, position FROM scriptshub_folders WHERE user_id = ? AND id = ?')
+      .bind(this.user, id).first<{ parent_id: string | null; position: number }>()
   }
 
   private async assertFolder(id: string): Promise<void> {

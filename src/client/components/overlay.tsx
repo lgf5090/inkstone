@@ -1081,16 +1081,21 @@ export function MenuSubmenuList({ label, items, width = 178, zIndex = Z_INDEX.su
     }}>
       {items.map((item) => (<div key={item.id}>
           {item.separatorBefore && <div role="separator" className="my-1 h-px bg-[var(--border-subtle)]"/>}
-          <button type="button" data-submenu-row disabled={item.disabled} onClick={item.onSelect} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] transition-colors duration-[80ms] md:h-[30px]', 'disabled:pointer-events-none disabled:opacity-40', item.tone === 'danger'
-                ? 'text-[var(--danger)]'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
-            {item.icon && (<span className="flex size-4 shrink-0 items-center justify-center opacity-85">
-                {item.icon}
-              </span>)}
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
-            {item.combo && <Kbd combo={item.combo}/>}
-          </button>
+          {(() => {
+            const row = (<button type="button" data-submenu-row disabled={item.disabled} onClick={item.onSelect} className={cn('flex h-10 w-full items-center gap-2.5 rounded-[var(--r-sm)] px-2 text-left text-[length:var(--text-12-5)] transition-colors duration-[80ms] md:h-[30px]', !item.reason && 'disabled:pointer-events-none', 'disabled:opacity-40', item.tone === 'danger'
+                  ? 'text-[var(--danger)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]')}>
+              {item.icon && (<span className="flex size-4 shrink-0 items-center justify-center opacity-85">
+                  {item.icon}
+                </span>)}
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.checked && <Check size={13} aria-hidden="true" className="shrink-0 text-[var(--accent)]"/>}
+              {item.combo && <Kbd combo={item.combo}/>}
+            </button>);
+            // A disabled row that carries a reason stays hoverable: the span is what the tooltip listens
+            // to, so the explanation arrives even though the button itself refuses the press.
+            return item.reason ? <Tooltip label={item.reason} side="right"><span className="block">{row}</span></Tooltip> : row;
+          })()}
         </div>))}
     </div>);
 }

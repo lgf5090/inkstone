@@ -154,6 +154,8 @@ export interface ScriptFolderInput {
   parentId?: string | null
   icon?: string | null
   color?: string | null
+  /** Zero-based slot among the parent's children; omission keeps the folder where it is. */
+  position?: number
 }
 
 export interface ScriptTagInput {

@@ -679,6 +679,8 @@ const allowed = new Map([
     "/**\n     * The input's type. A password field keeps the value out of the DOM's visible text and lets the\n     * browser offer its own reveal control; the lock dialogs are the caller that needs this.\n     */",
     "/** Why a disabled row is disabled: shown on hover instead of silently vanishing the action. */",
     "// A touch screen has no hover: a long press is the only way to ask what a glyph means.",
+    "// A disabled row that carries a reason stays hoverable: the span is what the tooltip listens",
+    "// to, so the explanation arrives even though the button itself refuses the press.",
   ]],
   ["src/client/components/popover-placement.test.ts", [
     "/** The phone the review shrank to: a 320px panel had its left edge at -8 and lost its first field. */",
@@ -13721,6 +13723,13 @@ const allowed = new Map([
   ["src/client/features/scriptshub/sidebar.tsx", [
     "/**\n * The ScriptsHub rail: the saved views, the folder tree and the tag tree.\n *\n * The tree shapes are the notebook's own: `treeItemProps` carries the roving path and depth, and the\n * drag payload is a private MIME type so a note dragged from the notebook can never land in a script\n * folder by accident. Nothing here owns data; it reads the store and asks it to filter.\n */",
     "/**\n * A folder list in the notebook's own `Folder` shape, so the shared picker and the move menu accept\n * script folders without a second implementation of the path logic.\n */",
+    "/** The payload a snippet row writes and a folder row accepts; the two modules share this name. */",
+    "// The move menu and the exclusion rule are the notebook's own; feeding them the script folders in",
+    "// that shape keeps one implementation of \"which parents are legal\" across both modules.",
+    "// The notebook's own order: rename, the child action, then the reading actions, the colour board,",
+    "// and the destructive row behind a separator. What has no ScriptsHub counterpart — pinning a tag,",
+    "// excluding it from search, removing it from one note, opening a tag page — has no field or surface",
+    "// here, so it is left out rather than rendered dead.",
   ]],
   ["src/client/features/scriptshub/snippet-editor.tsx", [
     "/**\n * One snippet's editor.\n *\n * The draft is local until Save: every file tab, the description, the tags and the folder are edited\n * here and written together, so a version is a version of the whole snippet rather than of whichever\n * text box happened to be focused. The right column holds the facts that are not code — source,\n * notes, publication, assets and history — and it is the same column on a phone, below the editor.\n */",
@@ -13743,6 +13752,15 @@ const allowed = new Map([
     "/** A folder's path, for a move menu or a breadcrumb. */",
     "/** A tag's path through its parent chain. */",
     "/**\n   * A duplicate is a new snippet, not a second pointer at the same files: the copy gets its own id\n   * and its own history, and the original keeps its publications. Its publication paths are not\n   * copied — two rows cannot own the same path.\n   */",
+    "/**\n * Keep the sidebar's counters in step with a change the list already made.\n *\n * Every mutation ends with a fresh overview, but that read is a round trip; a move that leaves the\n * folder's badge one beat behind reads as \"it did not work\". Shifting the counts here makes the\n * first paint after the click correct, and `refreshOverview` then confirms them against D1. The\n * arithmetic is only for folders and tags that already exist — a stale count is better than a\n * created row the server has not returned yet.\n */",
+    "/** Apply the field a patch will change to the list row and the open detail, so the click lands now. */",
+    "// Sequential inserts: each call shifts the rows after its slot, so sending them at once would",
+    "// race for the same positions. A handful of siblings costs a handful of writes.",
+  ]],
+  ["src/client/features/scriptshub/tag-color-menu.tsx", [
+    "/**\n * The tag colour board, the same one the notebook paints for tags and folders.\n *\n * The presets are `ORGANIZER_COLORS` — the ramp folders, note tags and QuickAdd already share — so a\n * reader who picked \"red\" in one module sees the same red here. The first sixteen are the deep tones\n * the app shipped with and the last eight are the same hues one step brighter; the grid draws them in\n * that order rather than inventing a second palette. The last row keeps the custom wheel and hex\n * field, guarded against a colour that would disappear into the panel behind it.\n */",
+    "// The panel behind the field is what the swatch is read against; walking to it keeps the guard",
+    "// honest in both themes instead of assuming a surface.",
   ]],
   ["src/client/features/scriptshub/tag-color.ts", [
     "/**\n * Which project colour a tag wears when the tag has never picked one.\n *\n * The mapping is a hash of the tag name into the existing colour tokens, so the same tag reads the\n * same in light and dark, on every device, and no second palette is introduced. The pill keeps the\n * theme's text token and only tints its frame, which is what keeps the label above the AA floor.\n */",
@@ -32388,6 +32406,7 @@ const allowed = new Map([
     "/** Total characters across every file, so a row can say how much code it holds. */",
     "/** Lines this version added and removed against the version before it. */",
     "/** One row per published file; a snippet publishes files independently. */",
+    "/** Zero-based slot among the parent's children; omission keeps the folder where it is. */",
   ]],
   ["src/shared/settings-preview-chart.test.ts", [
     "/**\n * Each renderer switch is reached by its own accessible label, and a switch is found by name by a screen\n * reader and by a browser driver alike. `settings.diagram` already carried the same two-character word\n * for \"chart\" in Chinese that a naive `settings.chart` would, which gave two adjacent switches one name:\n * the panel then toggled the wrong one while looking correct. That is how this came to be checked at all.\n */",
@@ -41589,6 +41608,11 @@ const allowed = new Map([
     "/**\n * The +x/−y a version is worth, counted per file identity rather than per name: renaming a file\n * changes no line, and a file deleted by this save removes every line it held.\n */",
     "// A publication names a file. When the save removes that file, the address has nothing left to",
     "// serve, so it is removed with it; the removed id can never be resurrected by a later save.",
+    "// A move into another parent appends at the end; an explicit slot (the \"move earlier/later\"",
+    "// menu) inserts at that index. The rows after the slot shift right first, in the same batch, so",
+    "// two folders never share a position and the ordering survives the next read.",
+    "// Renumber every remaining sibling to its final slot, leaving `target` for the moved row. This",
+    "// also repairs slots that drifted (two folders at the same position) instead of inheriting them.",
   ]],
   ["src/worker/search/service.ts", [
     "/**\n * The search and graph answers the HTTP route, the MCP retriever and the note store all need.\n *\n * Lifted out of `routes/search.ts` because a route is an HTTP adapter: `mcp/retrieval.ts` and\n * `notes/store.ts` must not reach into one to get a function (`AGENTS.md` rule 3), and the ranking,\n * snippet and node-assembly rules here are exactly the product behaviour those callers depend on.\n * The route keeps query parsing, validation, throttles, `ApiError` codes and response shaping; the\n * SQL stays in `search/store.ts`; this layer is the arithmetic between them.\n */",

@@ -50,6 +50,7 @@ export interface ScriptsHubState {
   patchSnippet: (id: string, input: Parameters<typeof scriptshubApi.updateSnippet>[1]) => Promise<void>
   createFolder: (input: ScriptFolderInput) => Promise<ScriptFolder>
   updateFolder: (id: string, input: Partial<ScriptFolderInput>) => Promise<void>
+  arrangeFolderSiblings: (orderedIds: readonly string[]) => Promise<void>
   deleteFolder: (id: string) => Promise<void>
   createTag: (input: ScriptTagInput) => Promise<ScriptTag>
   updateTag: (id: string, input: Partial<ScriptTagInput>) => Promise<void>
@@ -71,6 +72,83 @@ const DEFAULT_QUERY: ScriptListQuery = {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Keep the sidebar's counters in step with a change the list already made.
+ *
+ * Every mutation ends with a fresh overview, but that read is a round trip; a move that leaves the
+ * folder's badge one beat behind reads as "it did not work". Shifting the counts here makes the
+ * first paint after the click correct, and `refreshOverview` then confirms them against D1. The
+ * arithmetic is only for folders and tags that already exist — a stale count is better than a
+ * created row the server has not returned yet.
+ */
+function shiftOverview(
+  overview: ScriptsHubOverview | null,
+  change: {
+    folderFrom?: string | null
+    folderTo?: string | null
+    tagsFrom?: readonly string[]
+    tagsTo?: readonly string[]
+    favoriteDelta?: number
+    pinnedDelta?: number
+    deprecatedDelta?: number
+  },
+): ScriptsHubOverview | null {
+  if (!overview) return null
+  const folderDelta = change.folderFrom !== undefined && change.folderTo !== undefined
+    ? (change.folderFrom === change.folderTo ? null : { from: change.folderFrom, to: change.folderTo })
+    : null
+  const tagDelta = change.tagsFrom && change.tagsTo
+    ? {
+        removed: change.tagsFrom.filter((id) => !change.tagsTo!.includes(id)),
+        added: change.tagsTo.filter((id) => !change.tagsFrom!.includes(id)),
+      }
+    : null
+  const counts = {
+    ...overview.counts,
+    favorites: Math.max(0, overview.counts.favorites + (change.favoriteDelta ?? 0)),
+    pinned: Math.max(0, overview.counts.pinned + (change.pinnedDelta ?? 0)),
+    deprecated: Math.max(0, overview.counts.deprecated + (change.deprecatedDelta ?? 0)),
+  }
+  if (!folderDelta && !tagDelta && !change.favoriteDelta && !change.pinnedDelta && !change.deprecatedDelta) return overview
+  return {
+    ...overview,
+    counts,
+    folders: folderDelta
+      ? overview.folders.map((folder) => (
+          folder.id === folderDelta.from
+            ? { ...folder, snippetCount: Math.max(0, folder.snippetCount - 1) }
+            : folder.id === folderDelta.to
+              ? { ...folder, snippetCount: folder.snippetCount + 1 }
+              : folder
+        ))
+      : overview.folders,
+    tags: tagDelta
+      ? overview.tags.map((tag) => {
+          const delta = (tagDelta.added.includes(tag.id) ? 1 : 0) - (tagDelta.removed.includes(tag.id) ? 1 : 0)
+          return delta === 0 ? tag : { ...tag, snippetCount: Math.max(0, tag.snippetCount + delta) }
+        })
+      : overview.tags,
+  }
+}
+
+/** Apply the field a patch will change to the list row and the open detail, so the click lands now. */
+function patchRow(
+  item: ScriptSnippetSummary,
+  input: Parameters<typeof scriptshubApi.updateSnippet>[1],
+  tags: readonly ScriptTag[] | undefined,
+): ScriptSnippetSummary {
+  return {
+    ...item,
+    ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
+    ...(input.isFavorite !== undefined ? { isFavorite: input.isFavorite } : {}),
+    ...(input.isPinned !== undefined ? { isPinned: input.isPinned } : {}),
+    ...(input.isDeprecated !== undefined ? { isDeprecated: input.isDeprecated } : {}),
+    ...(input.tags !== undefined
+      ? { tags: tags ? tags.filter((tag) => input.tags!.includes(tag.id)) : item.tags }
+      : {}),
+  }
 }
 
 export const useScriptsHub = create<ScriptsHubState>()((set, get) => ({
@@ -190,18 +268,74 @@ export const useScriptsHub = create<ScriptsHubState>()((set, get) => ({
   },
 
   async batch(input) {
-    await scriptshubApi.batch(input)
-    const selected = get().selectedId
-    if (selected && input.ids.includes(selected) && input.action === 'delete') {
-      set({ selectedId: null, detail: null })
+    const snapshot = { snippets: get().snippets, total: get().total, overview: get().overview, selectedId: get().selectedId, detail: get().detail }
+    if (input.action === 'move' && input.ids.length) {
+      const moved = get().snippets.filter((item) => input.ids.includes(item.id))
+      set({
+        snippets: get().snippets.map((item) => (input.ids.includes(item.id) ? { ...item, folderId: input.folderId ?? null } : item)),
+        overview: moved.reduce(
+          (overview, item) => shiftOverview(overview, { folderFrom: item.folderId, folderTo: input.folderId ?? null }),
+          get().overview,
+        ),
+      })
     }
-    await Promise.all([get().loadList(), get().refreshOverview()])
+    if (input.action === 'tag' && input.tagIds?.length) {
+      const tags = get().overview?.tags.filter((tag) => input.tagIds!.includes(tag.id)) ?? []
+      const chosen = get().snippets.filter((item) => input.ids.includes(item.id))
+      const gains = new Map<string, number>()
+      for (const item of chosen) {
+        for (const tag of tags) {
+          if (!item.tags.some((entry) => entry.id === tag.id)) gains.set(tag.id, (gains.get(tag.id) ?? 0) + 1)
+        }
+      }
+      set((state) => ({
+        snippets: state.snippets.map((item) => (input.ids.includes(item.id)
+          ? { ...item, tags: [...item.tags, ...tags.filter((tag) => !item.tags.some((entry) => entry.id === tag.id))] }
+          : item)),
+        overview: state.overview && gains.size
+          ? { ...state.overview, tags: state.overview.tags.map((tag) => (gains.has(tag.id) ? { ...tag, snippetCount: tag.snippetCount + gains.get(tag.id)! } : tag)) }
+          : state.overview,
+      }))
+    }
+    try {
+      await scriptshubApi.batch(input)
+      const selected = get().selectedId
+      if (selected && input.ids.includes(selected) && input.action === 'delete') {
+        set({ selectedId: null, detail: null })
+      }
+      await Promise.all([get().loadList(), get().refreshOverview()])
+    } catch (error) {
+      set(snapshot)
+      throw error
+    }
   },
 
   async patchSnippet(id, input) {
-    const detail = await scriptshubApi.updateSnippet(id, input)
-    set({ detail: get().selectedId === id ? detail : get().detail })
-    await get().loadList()
+    const snapshot = { snippets: get().snippets, total: get().total, overview: get().overview, detail: get().detail }
+    const row = get().snippets.find((item) => item.id === id)
+      ?? (get().detail?.id === id ? get().detail : null)
+    const tags = get().overview?.tags
+    set((state) => ({
+      overview: shiftOverview(state.overview, {
+        folderFrom: row?.folderId,
+        folderTo: input.folderId,
+        tagsFrom: row?.tags.map((tag) => tag.id),
+        tagsTo: input.tags,
+        favoriteDelta: input.isFavorite === undefined ? 0 : Number(input.isFavorite) - Number(row?.isFavorite ?? false),
+        pinnedDelta: input.isPinned === undefined ? 0 : Number(input.isPinned) - Number(row?.isPinned ?? false),
+        deprecatedDelta: input.isDeprecated === undefined ? 0 : Number(input.isDeprecated) - Number(row?.isDeprecated ?? false),
+      }),
+      snippets: state.snippets.map((item) => (item.id === id ? patchRow(item, input, tags) : item)),
+      detail: state.detail?.id === id ? { ...state.detail, ...patchRow(state.detail, input, tags) } : state.detail,
+    }))
+    try {
+      const detail = await scriptshubApi.updateSnippet(id, input)
+      set({ detail: get().selectedId === id ? detail : get().detail })
+      await Promise.all([get().loadList(), get().refreshOverview()])
+    } catch (error) {
+      set(snapshot)
+      throw error
+    }
   },
 
   async createFolder(input) {
@@ -213,6 +347,25 @@ export const useScriptsHub = create<ScriptsHubState>()((set, get) => ({
   async updateFolder(id, input) {
     await scriptshubApi.updateFolder(id, input)
     await Promise.all([get().refreshOverview(), get().loadList()])
+  },
+
+  async arrangeFolderSiblings(orderedIds) {
+    if (!orderedIds.length) return
+    const snapshot = get().overview
+    set((state) => ({
+      overview: state.overview
+        ? { ...state.overview, folders: state.overview.folders.map((folder) => (orderedIds.includes(folder.id) ? { ...folder, position: orderedIds.indexOf(folder.id) } : folder)) }
+        : null,
+    }))
+    try {
+      // Sequential inserts: each call shifts the rows after its slot, so sending them at once would
+      // race for the same positions. A handful of siblings costs a handful of writes.
+      for (const [index, id] of orderedIds.entries()) await scriptshubApi.updateFolder(id, { position: index })
+      await Promise.all([get().refreshOverview(), get().loadList()])
+    } catch (error) {
+      set({ overview: snapshot })
+      throw error
+    }
   },
 
   async deleteFolder(id) {
@@ -248,7 +401,7 @@ export const useScriptsHub = create<ScriptsHubState>()((set, get) => ({
   async updatePublication(id, input) {
     const publication = await scriptshubApi.updatePublication(id, input)
     if (get().selectedId) await get().select(get().selectedId)
-    await get().loadList()
+    await Promise.all([get().loadList(), get().refreshOverview()])
     return publication
   },
 

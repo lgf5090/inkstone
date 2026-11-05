@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ORGANIZER_COLORS, organizerColorContrast } from '../src/shared/organizer-colors'
 import { TAG_COLOR_PALETTE, tagColorFor, tagPillStyle } from '../src/client/features/scriptshub/tag-color'
 
 describe('a tag keeps the same colour without storing one', () => {
@@ -26,5 +27,17 @@ describe('a tag keeps the same colour without storing one', () => {
     expect(TAG_COLOR_PALETTE.every((token) => token.startsWith('var(--'))).toBe(true)
     expect(TAG_COLOR_PALETTE).toContain('var(--success)')
     expect(TAG_COLOR_PALETTE).toContain('var(--danger)')
+  })
+
+  it('offers the notebook\u2019s own colour ramp as the built-in presets', () => {
+    expect(ORGANIZER_COLORS).toHaveLength(24)
+    expect(new Set(ORGANIZER_COLORS).size).toBe(24)
+    expect(ORGANIZER_COLORS.every((color) => /^#[0-9a-f]{6}$/i.test(color))).toBe(true)
+  })
+
+  it('keeps a preset readable on the light surface the panel paints', () => {
+    const ratio = organizerColorContrast(ORGANIZER_COLORS[0]!, '#ffffff')
+    expect(ratio).not.toBeNull()
+    expect(ratio!).toBeGreaterThanOrEqual(3)
   })
 })
