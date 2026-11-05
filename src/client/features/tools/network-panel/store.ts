@@ -25,7 +25,7 @@ import {
 } from '@shared/tools/network-panel/engine'
 import { t } from '../../../lib/i18n'
 import { useUi } from '../../../store/ui'
-import { networkPanelApi } from './api'
+import { networkPanelApi, probeAddress } from './api'
 import { createSpeedEngine, type SpeedEngineError } from './speed-engine'
 
 export type NetworkPanelView = 'speed' | 'info' | 'history' | 'settings'
@@ -43,7 +43,7 @@ export interface NetworkPanelRuntime {
 }
 
 export interface PasteImportResult {
-  status: 'added' | 'selected'
+  status: 'added' | 'selected' | 'unreachable'
   label: string
 }
 
@@ -89,14 +89,25 @@ let savePending: SettingsPatch = {}
 let saveInFlight = false
 
 export const useNetworkPanelStore = create<NetworkPanelState>((set, get) => {
+  /**
+   * The tab title while the reader has moved to another tab, the reference panel's own signal.
+   *
+   * A running test borrows the title for its two numbers; a stopped one says why it stopped. While the
+   * panel is visible the host application keeps its title — this module does not rename the site.
+   */
   const applyTitle = () => {
+    if (typeof document === 'undefined') return
     const { runtime, settings } = get()
-    if (runtime.running && settings.background && typeof document !== 'undefined' && document.hidden) {
+    if (settings.background && document.hidden) {
       titleBeforeRun ??= document.title
-      document.title = `${formatBytes(runtime.bytesUsed)} · ${formatSpeed(runtime.speedBps)}`
+      document.title = runtime.running
+        ? `${formatBytes(runtime.bytesUsed)} · ${formatSpeed(runtime.speedBps)}`
+        : runtime.stopReason === 'data_cap'
+          ? t('tools.network_panel.title.completed')
+          : t('tools.network_panel.title.paused')
       return
     }
-    if (titleBeforeRun !== null && typeof document !== 'undefined') {
+    if (titleBeforeRun !== null) {
       document.title = titleBeforeRun
       titleBeforeRun = null
     }
@@ -203,14 +214,17 @@ export const useNetworkPanelStore = create<NetworkPanelState>((set, get) => {
         }))
         applyTitle()
         const settings = get().settings
-        if (settings.saveHistory && outcome.bytesUsed > 0 && outcome.durationMs >= 500 && activeNode) {
+        // A failed run that never received a byte is still a real outcome; it belongs in the ledger with
+        // its true status and zero bytes rather than disappearing into a toast.
+        const worthRecording = outcome.bytesUsed > 0 || reason === 'failed'
+        if (settings.saveHistory && worthRecording && outcome.durationMs >= 500 && activeNode) {
           void recordRun({
             node_label: activeNode.label.slice(0, NETWORK_PANEL_LIMITS.maxLabel),
             node_url: activeNode.url.slice(0, NETWORK_PANEL_LIMITS.maxUrl),
             bytes_used: Math.round(outcome.bytesUsed),
             avg_speed_bps: Math.round(outcome.avgSpeedBps),
             duration_ms: Math.round(outcome.durationMs),
-            threads: settings.threads,
+            threads: Math.max(1, Math.min(NETWORK_PANEL_LIMITS.maxThreads, Math.floor(settings.threads))),
             stop_reason: reason,
           })
         }
@@ -305,6 +319,10 @@ export const useNetworkPanelStore = create<NetworkPanelState>((set, get) => {
         return { status: 'selected', label: existing.label }
       }
       const label = nodeLabelFromUrl(parsed.url).slice(0, NETWORK_PANEL_LIMITS.maxLabel)
+      // The reference checked a pasted address before using it; saving a dead address would only move
+      // the failure to the next Start.
+      const reachable = await probeAddress(parsed.url)
+      if (!reachable) return { status: 'unreachable', label }
       const node = await get().addNode(label, parsed.url)
       return node ? { status: 'added', label } : null
     },

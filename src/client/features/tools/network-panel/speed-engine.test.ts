@@ -85,15 +85,69 @@ describe('speed engine', () => {
     expect(engine.isRunning()).toBe(false)
   })
 
-  it('gives up after a streak of refused requests', async () => {
+  it('gives up after attempts keep failing and no bytes have arrived', async () => {
+    let clock = 0
     const { engine, stops, errors } = harness(
       (async () => new Response(null, { status: 503 })) as typeof fetch,
-      () => 0,
+      () => clock,
+      async (ms) => { clock += ms },
     )
     engine.start({ threads: 1, maxBytes: 0, maxSpeedBps: 0 })
-    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 2_000 })
+    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 3_000 })
     expect(stops[0]!.reason).toBe('failed')
-    expect(errors.length).toBeGreaterThanOrEqual(1)
+    expect(errors).toEqual(['http_error'])
+    expect(clock).toBeGreaterThanOrEqual(5_000)
+  })
+
+  it('retries a transient failure without surfacing an error or stopping', async () => {
+    let calls = 0
+    const { engine, stops, errors } = harness(
+      (async () => {
+        calls += 1
+        if (calls <= 2) throw new TypeError('connection reset')
+        return endlessResponse(64)
+      }) as typeof fetch,
+      () => 0,
+    )
+    engine.start({ threads: 1, maxBytes: 256, maxSpeedBps: 0 })
+    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 2_000 })
+    expect(stops[0]!.reason).toBe('data_cap')
+    expect(errors).toEqual([])
+  })
+
+  it('does not count the aborts a manual stop performs', async () => {
+    const { engine, stops, errors } = harness(
+      (async () => endlessResponse(64)) as typeof fetch,
+      () => 0,
+    )
+    engine.start({ threads: 2, maxBytes: 0, maxSpeedBps: 0 })
+    await vi.waitFor(() => expect(engine.isRunning()).toBe(true), { timeout: 1_000 })
+    engine.stop('manual')
+    expect(stops[0]!.reason).toBe('manual')
+    expect(errors).toEqual([])
+  })
+
+  it('does not turn a burst of failed threads into a failed run while bytes keep arriving', async () => {
+    let failures = 0
+    const { engine, stops, errors } = harness(
+      (async (input: RequestInfo | URL) => {
+        // Yield to the timer queue so the test runner can observe the loop.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        if (String(input).includes('t=1')) {
+          failures += 1
+          throw new TypeError('connection reset')
+        }
+        return endlessResponse(64)
+      }) as typeof fetch,
+      () => 0,
+    )
+    engine.start({ threads: 2, maxBytes: 0, maxSpeedBps: 0 })
+    await vi.waitFor(() => expect(failures).toBeGreaterThanOrEqual(8), { timeout: 2_000 })
+    expect(engine.isRunning()).toBe(true)
+    expect(errors).toEqual([])
+    engine.stop('manual')
+    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 1_000 })
+    expect(stops[0]!.reason).toBe('manual')
   })
 
   it('holds the counted bytes under the bandwidth ceiling', async () => {
@@ -112,14 +166,16 @@ describe('speed engine', () => {
   })
 
   it('treats a stream with no body as a failure rather than a zero-byte success', async () => {
+    let clock = 0
     const { engine, stops, errors } = harness(
       (async () => new Response(null, { status: 204 })) as typeof fetch,
-      () => 0,
+      () => clock,
+      async (ms) => { clock += ms },
     )
     engine.start({ threads: 1, maxBytes: 0, maxSpeedBps: 0 })
-    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 2_000 })
+    await vi.waitFor(() => expect(stops).toHaveLength(1), { timeout: 3_000 })
     expect(stops[0]!.reason).toBe('failed')
-    expect(errors[0]).toBe('empty_response')
+    expect(errors).toEqual(['empty_response'])
     expect(engine.isRunning()).toBe(false)
   })
 })

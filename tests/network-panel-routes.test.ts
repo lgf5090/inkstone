@@ -110,7 +110,7 @@ describe('network panel routes', () => {
     const savedBody = await saved.json() as { data: { threads: number; maxSpeedBps: number; showChart: boolean } }
     expect(savedBody.data.threads).toBe(24)
     expect(savedBody.data.maxSpeedBps).toBe(1024 * 1024)
-    expect(savedBody.data.showChart).toBe(true)
+    expect(savedBody.data.showChart).toBe(false)
   })
 
   it('validates a settings patch instead of storing nonsense', async () => {

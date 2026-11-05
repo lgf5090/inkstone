@@ -94,7 +94,9 @@ export function FullscreenScreen({ open, onClose }: { open: boolean; onClose: ()
       value: runtime.speedBps > 0 ? formatSpeed(runtime.speedBps) : '—',
     },
     {
-      label: t('tools.network_panel.metric.bandwidth'),
+      label: runtime.running
+        ? t('tools.network_panel.metric.bandwidth_live')
+        : t('tools.network_panel.metric.bandwidth_average'),
       value: runtime.speedBps > 0 ? formatBandwidth(runtime.speedBps) : '—',
     },
   ]
@@ -130,6 +132,9 @@ export function FullscreenScreen({ open, onClose }: { open: boolean; onClose: ()
         className="m-auto grid w-full max-w-[720px] gap-6 px-6 text-center sm:grid-cols-2 sm:text-left"
       >
         <div className="space-y-1">
+          <p className="text-[length:var(--text-13)] font-medium uppercase tracking-[0.28em] text-white/55">
+            {t('tools.network_panel.fullscreen.title')}
+          </p>
           <p className="text-[length:var(--text-30)] font-bold leading-none tabular-nums tracking-[-0.03em]">
             {time}
           </p>

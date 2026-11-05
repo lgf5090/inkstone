@@ -160,7 +160,15 @@ export function HistoryView() {
           </section>
 
           <ul className="space-y-1.5">
-            {history.items.map((run) => (
+            {history.items.map((run) => {
+              /**
+               * Rows written before the thread count was clamped can carry `threads = 0`, which is also
+               * the signature of the old global failure streak ending a run that was still moving bytes.
+               * Their stored reason stays untouched, but the badge says the run was interrupted rather
+               * than claiming a failure the current engine no longer produces.
+               */
+              const legacyFailure = run.stop_reason === 'failed' && run.threads < 1
+              return (
               <li
                 key={run.id}
                 className="rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2.5"
@@ -189,22 +197,29 @@ export function HistoryView() {
                   <span>{formatBytes(run.bytes_used)}</span>
                   <span>{formatSpeed(run.avg_speed_bps)}</span>
                   <span>{formatDuration(run.duration_ms)}</span>
-                  <span>{t('tools.network_panel.history.threads_value', { count: run.threads })}</span>
+                  <span>{run.threads > 0
+                    ? t('tools.network_panel.history.threads_value', { count: run.threads })
+                    : t('tools.network_panel.history.threads_unknown')}</span>
                   <span
                     className={cn(
                       'rounded-full border px-1.5 py-0.5',
-                      run.stop_reason === 'failed'
-                        ? 'border-[var(--danger)]/35 text-[var(--danger)]'
-                        : run.stop_reason === 'data_cap'
-                          ? 'border-[var(--warning)]/35 text-[var(--warning)]'
-                          : 'border-[var(--border-subtle)] text-[var(--text-quaternary)]',
+                      legacyFailure
+                        ? 'border-[var(--warning)]/35 text-[var(--warning)]'
+                        : run.stop_reason === 'failed'
+                          ? 'border-[var(--danger)]/35 text-[var(--danger)]'
+                          : run.stop_reason === 'data_cap'
+                            ? 'border-[var(--warning)]/35 text-[var(--warning)]'
+                            : 'border-[var(--border-subtle)] text-[var(--text-quaternary)]',
                     )}
                   >
-                    {t(REASON_KEY[run.stop_reason])}
+                    {legacyFailure
+                      ? t('tools.network_panel.history.legacy_failed')
+                      : t(REASON_KEY[run.stop_reason])}
                   </span>
                 </div>
               </li>
-            ))}
+              )
+            })}
           </ul>
 
           {history.items.length < history.total && (

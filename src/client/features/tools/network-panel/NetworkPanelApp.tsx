@@ -57,10 +57,12 @@ export function NetworkPanelApp() {
           return
         }
         useUi.getState().toast({
-          title: result.status === 'added'
-            ? t('tools.network_panel.paste.added', { label: result.label })
-            : t('tools.network_panel.paste.selected', { label: result.label }),
-          tone: 'success',
+          title: result.status === 'unreachable'
+            ? t('tools.network_panel.paste.unreachable', { label: result.label })
+            : result.status === 'added'
+              ? t('tools.network_panel.paste.added', { label: result.label })
+              : t('tools.network_panel.paste.selected', { label: result.label }),
+          tone: result.status === 'unreachable' ? 'danger' : 'success',
         })
       })
     }
